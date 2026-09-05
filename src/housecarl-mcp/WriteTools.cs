@@ -180,7 +180,7 @@ public static class WriteTools
             }
             var op = o.Ops[i];
             sb.Append("  ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
-              .Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append('\n');
+              .Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append(ApplyNote(op)).Append('\n');
         }
         // The .fuz/.lip and result-script checks run on CREATE of dialogue lines, not on edits to existing ones, so an
         // edit that adds a response or result script carries the same hazard unflagged — say so, and point at the sweep.
@@ -243,7 +243,7 @@ public static class WriteTools
             }
             var op = o.Ops[i];
             sb.Append("  ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
-              .Append(op.After is not null ? "  -> would become " + op.After : "  -> would apply").Append('\n');
+              .Append(op.After is not null ? "  -> would become " + op.After : "  -> would apply").Append(ApplyNote(op)).Append('\n');
         }
         if (fullDump && o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars, dryRun: true);
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
@@ -324,12 +324,16 @@ public static class WriteTools
             // The per-op clause is the FILE's answer when the file gave one (LandedOnDisk), and is marked as the
             // applied edit's claim when it did not — the banner above says "re-read off the written file".
             var landed = ops.Where(op => op.Target == r.Target && (op.LandedOnDisk ?? op.Landed) is not null)
-                             .Select(op => $"{op.Label}: {op.LandedOnDisk ?? op.Landed}" + LandedProvenance(op))
+                             .Select(op => $"{op.Label}: {op.LandedOnDisk ?? op.Landed}" + LandedProvenance(op) + ApplyNote(op))
                              .ToList();
             if (landed.Count > 0) sb.Append("; ").Append(string.Join("; ", landed));
             sb.Append('\n');
         }
     }
+
+    /// <summary>The op's apply-time note, as a trailing clause on its line — what the write DID that the file cannot
+    /// say afterwards (a duplicate Add). Empty when there is nothing to say.</summary>
+    static string ApplyNote(WritePatchBuilder.OpResult op) => op.ApplyNote is { } n ? "  [" + n + "]" : "";
 
     /// <summary>Where a per-op "what landed" clause came from, when it is not the plain file answer. Silence means the
     /// file was re-read for this op and agreed; the two marked cases are a file that could not answer for the op, and
@@ -942,7 +946,8 @@ public static class WriteTools
             // the caller never made and cannot see in the record afterwards. One line, only when there was one.
             if (c.ParentHost is { } host) sb.Append("      parent: ").Append(host).Append('\n');
             foreach (var op in c.Ops)
-                sb.Append("      ").Append(op.Label).Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append('\n');
+                sb.Append("      ").Append(op.Label).Append(op.After is not null ? "  -> " + op.After : "  -> applied")
+                  .Append(ApplyNote(op)).Append('\n');
         }
         AppendVoiceReport(sb, o.Voice, maxChars);
         AppendScriptBindingReport(sb, o.ScriptBinding, maxChars);
