@@ -162,7 +162,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **A `where=` predicate whose path hops through a list is now told what will actually fix it, checked against the
   element type.** `where=["Effects.Data.Magnitude > 0"]` is a correct field reached by a path missing its brackets,
   and it was reported as a mistyped field name. The note now resolves the trailing segment against the collection's
-  element type: where it is a field there, the exact bracketed path is printed (`Effects[0].Data`); where it is not,
+  element type: where it is a field there, the exact bracketed path is printed, whole — the rest of the path is
+  carried into it (`Effects[0].Data.Magnitude`), so the printed spelling is one a caller can paste back; where it is not,
   it says the segment is not a field on that element type and offers the nearest real field, rather than asserting a
   bracket that would not help. `where=`'s own description also states that a wildcard over a list is not built.
 
