@@ -202,7 +202,7 @@ internal static class AliasTable
         ("housecarl_diff_record",
          "absorbed into " + ToolNames.Records + ": project={\"form\": \"delta\"} — source= is the subject (was plugin_a), versus= the reference (was plugin_b; structured poles carry the mod disambiguator), project.fields narrows the comparison."),
         ("housecarl_effect_chain",
-         "absorbed into " + ToolNames.Records + ": project={\"form\": \"chain\"} with walk={\"direction\": \"reverse\"} and the MGEF in formids= (types= still narrows the carrier types)."),
+         "absorbed into " + ToolNames.Records + ": project={\"form\": \"chain\"} with walk={\"direction\": \"reverse\", \"follow\": \"Effects[].BaseEffect\"} and the MGEF in formids= (types= still narrows the carrier types)."),
         ("housecarl_skypatcher_read",
          "absorbed into " + ToolNames.Records + ": source={\"overlay\": \"skypatcher\", \"state\": \"post\"} reads the post-INI body; pre-vs-post is project={\"form\": \"delta\"} with the two overlay poles."),
 
