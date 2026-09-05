@@ -218,9 +218,10 @@ public static class WritePatchBuilder
         /// record.</summary>
         public string? ParentRef { get; init; }
 
-        /// <summary>Optional — which of the parent's child-collections to add into, BY NAME (e.g. a Cell's
-        /// <c>Persistent</c>/<c>Temporary</c>). Null ⇒ the unique collection that accepts this child type (e.g. a
-        /// DialogTopic's one <c>Responses</c> list). Ignored when <see cref="ParentRef"/> is null.</summary>
+        /// <summary>Optional — which of the parent's child SLOTS to add into, BY NAME: a child list (a Cell's
+        /// <c>Persistent</c>/<c>Temporary</c>) or a single-child slot (a Cell's <c>Landscape</c>, a Worldspace's
+        /// <c>TopCell</c>). Null ⇒ the unique slot that accepts this child type (e.g. a DialogTopic's one
+        /// <c>Responses</c> list). Ignored when <see cref="ParentRef"/> is null.</summary>
         public string? IntoCollection { get; init; }
 
         /// <summary>Optional — the exterior-cell GRID as "X,Y". Set on a <c>Cell</c> create, it places the new cell
@@ -2838,6 +2839,7 @@ public static class WritePatchBuilder
             return carried.TryGetValue(fk, out var rec) ? rec : null;
         }
         var cellKinds = new CellCreate[specs.Count];   // cell-create routing per spec (None / Exterior / Interior)
+        var singularClaims = new HashSet<(string Parent, string Slot)>();   // one create per singular slot per call
         for (int i = 0; i < specs.Count; i++)
         {
             var s = specs[i];
@@ -2966,17 +2968,38 @@ public static class WritePatchBuilder
                     parentPlans[i] = (null, null, s.ParentRef, null);
                 }
                 if (parentType is null) { problems.Add($"{s.RecordType} '{s.EditorId}': could not resolve the parent's record type."); continue; }
-                if (IsCellType(s.RecordType))
+                // A Cell under a parent has TWO routes and they build different things: grid= files it by coordinate
+                // in a Worldspace's block tree, collection= puts it in a named slot (a Worldspace's single TopCell).
+                // Only the grid route bypasses the slot resolver; everything else — a named slot, or neither, which
+                // is the resolver's own "name which one" — goes through it like any other child.
+                if (IsCellType(s.RecordType) && s.Grid is not null)
                 {
-                    // A Cell WITH a parent: a grid ⇒ an EXTERIOR cell placed into the Worldspace's block tree (NOT a
-                    // child-collection nest). No grid ⇒ ambiguous — refuse loud.
-                    // (Parent resolution above already populated parentPlans[i] so Phase 3 can make the Worldspace settable.)
-                    if (s.Grid is null) { problems.Add($"Cell '{s.EditorId}': a Cell with parent= but no grid= is ambiguous — an exterior cell needs grid=<X,Y> under a Worldspace; an interior cell takes no parent."); continue; }
+                    if (s.IntoCollection is not null) { problems.Add($"Cell '{s.EditorId}': grid= and collection= are the two different routes a cell goes under a parent — name one, not both."); continue; }
                     if (parentType != typeof(Worldspace)) { problems.Add($"Cell '{s.EditorId}': an exterior cell nests under a Worldspace, but parent '{s.ParentRef}' resolved to a {parentType.Name}."); continue; }
                     if (!TryParseGrid(s.Grid, out _, out _)) { problems.Add($"Cell '{s.EditorId}': grid '{s.Grid}' must be two integers \"X,Y\" (e.g. \"5,-12\")."); continue; }
                     cellKinds[i] = CellCreate.Exterior;
                 }
-                else if (!WriteEngine.CanCreateNested(s.RecordType, parentType, s.IntoCollection, out var nestedWhy)) { problems.Add($"{s.RecordType} '{s.EditorId}': {nestedWhy}"); continue; }
+                else if (!WriteEngine.TryResolveChildSlot(s.RecordType, parentType, s.IntoCollection, out var slotName, out var slotShape, out var nestedWhy))
+                { problems.Add($"{s.RecordType} '{s.EditorId}': {nestedWhy}"); continue; }
+                // A SINGULAR slot holds exactly one child, so an occupied one is not something create can resolve —
+                // and occupancy is knowable HERE, from the parent body this call will host in, before a FormKey is
+                // allocated. Reading the patch's copy instead would answer for whatever the override carried, which
+                // on the into= lane is not the parent the caller is looking at.
+                else if (slotShape == OwnedChildShape.Singular)
+                {
+                    var body = parentPlans[i]!.Value.body ?? (IMajorRecordGetter?)parentPlans[i]!.Value.patchParent;
+                    if (body is not null && OwnedChildLifecycle.OccupantOf(body, slotName!) is { } occupant)
+                    {
+                        problems.Add($"{s.RecordType} '{s.EditorId}': '{parentType.Name}.{slotName}' already holds a {s.RecordType} ({occupant.FormKey}"
+                            + (occupant.EditorID is { } oe ? $" editorid={oe}" : "") + ") and it holds exactly one, so there is no room to create another. "
+                            + "Edit the one that is there by its own FormID, or remove it first and create again.");
+                        continue;
+                    }
+                    // Two specs claiming the same singular slot in one call is the same collision, one call earlier:
+                    // the first would fill it and the second would find it occupied at Phase 3, after allocation.
+                    if (!singularClaims.Add((s.ParentRef!, slotName!)))
+                    { problems.Add($"{s.RecordType} '{s.EditorId}': two records in this call are created into '{parentType.Name}.{slotName}' on parent '{s.ParentRef}', which holds exactly one."); continue; }
+                }
             }
 
             foreach (var req in s.Edits)

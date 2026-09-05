@@ -77,6 +77,27 @@ public static class OwnedChildLifecycle
         return false;
     }
 
+    /// <summary>The child already in the SINGULAR slot <paramref name="slotName"/> on <paramref name="parent"/>, or
+    /// null when the slot is free. Asked of whatever body the caller holds — a load-order winner's read-only overlay
+    /// at pre-flight, or a patch's own copy — because that is what makes occupancy knowable BEFORE a create allocates
+    /// anything. A slot the body's type does not model, or one that throws on read, answers null: the create path's
+    /// own guard on the record it is about to write is the backstop.</summary>
+    public static IMajorRecordGetter? OccupantOf(IMajorRecordGetter parent, string slotName)
+    {
+        var p = parent.GetType().GetProperty(slotName,
+            BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+        if (p is null || p.GetIndexParameters().Length != 0) return null;
+        try { return p.GetValue(parent) as IMajorRecordGetter; } catch { return null; }
+    }
+
+    /// <summary>The records <paramref name="child"/> carries under it — what a detach of the child takes with it.
+    /// A caller that has not named these has not asked for them to be deleted, which is what makes an unnamed
+    /// descendant a refusal rather than a side effect.</summary>
+    public static IReadOnlyList<IMajorRecordGetter> DescendantsOf(IMajorRecordGetter child) =>
+        child is IMajorRecordGetterEnumerable e
+            ? e.EnumerateMajorRecords().Where(r => r.FormKey != child.FormKey).ToList()
+            : Array.Empty<IMajorRecordGetter>();
+
     /// <summary>The deepest container nesting the search follows — the same bound
     /// <see cref="WriteEngine.ChildBearingProperties"/>'s reachability walk uses, for the same reason: the deepest
     /// real path is a worldspace's cells at five hops, so this is a tripwire for a shape nobody has seen rather
