@@ -234,10 +234,11 @@ public static class RecordsTools
                 return Wire.Refuse(json, "error: the 'aggregate' form names its count key — pass project.group_by='winner' | 'type' | 'defined_in'.");
             if (gbv is not ("winner" or "type" or "defined_in"))
                 return Wire.Refuse(json, $"error: project.group_by='{project!.group_by}' is not a count key — use 'winner', 'type', or 'defined_in'.");
-            // The engine refuses this too, but in the 1.x spelling (group_by=/type=). Pre-check here so the
-            // sentence names this tool's own levers, the way the neighbouring scope refusals already do.
-            if (gbv == "type" && types is not { Length: > 0 } && plugins?.names is not { Length: > 0 } && formids is not { Length: > 0 })
-                return Wire.Refuse(json, "error: project.group_by='type' counts each match's record TYPE, which only a body-bearing scope can name — add types=, plugins=, or formids=. ('winner' and 'defined_in' group without reading a body.)");
+            // The in-order engine refuses this too, but in the 1.x spelling (group_by=/type=), so the pre-check
+            // here says the same thing in this tool's levers. It is deliberately NOT applied to the off-order
+            // lane: there the file's own records ARE the universe, every match has a body, and OffOrderQuery
+            // imposes no such precondition — pre-refusing it would state a false reason. The lane is not known
+            // until the source pole is probed, so the check lives with the probe rather than here.
         }
         if (project is { resolve_names: true } && form is not ("fields" or "everything"))
             return Wire.Refuse(json, $"error: project.resolve_names annotates field values and belongs to the 'fields'/'everything' forms (got form='{form}').");
@@ -1030,6 +1031,18 @@ public static class RecordsTools
 
             var scanPlugins = scopePlusPole ? plugins!.names : (srcName is not null ? new[] { srcName } : plugins?.names);
             bool definedIn = plugins?.defined_in ?? false;
+            // group_by=type names each match's record type, which only a body-bearing scope can supply. The engine
+            // refuses it too, in the 1.x spelling (group_by=/type=), so it is pre-checked here in this tool's own
+            // levers. Placed on the IN-ORDER lane only — the off-order file scan returned above, where the file's
+            // own records ARE the universe and every match has a body — and read off scanPlugins, so an in-order
+            // source= plugin counts as the scope it is.
+            if (form == "aggregate" && walk is null
+                && string.Equals(project!.group_by?.Trim(), "type", StringComparison.OrdinalIgnoreCase)
+                && !hasTypes && scanPlugins is not { Length: > 0 } && formidSet is null)
+                return Wire.Refuse(json, "error: project.group_by='type' counts each match's record TYPE, which only a " +
+                    "body-bearing scope can name — add types=, plugins=, formids=, or an in-order source= plugin. " +
+                    "(where= and references= read bodies too, but each takes one of those as its own bound; 'winner' " +
+                    "and 'defined_in' group without reading a body.)", probeEpoch);
             // Under walk= the scan only SELECTS the seeds; the aggregate, like every reading form, applies to
             // the reached set after the walk lane re-enters. Grouping the scan itself would label an aggregate
             // of the seeds as the walk's answer.

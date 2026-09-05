@@ -35,6 +35,32 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
         Assert.DoesNotContain("add type=", r);
     }
 
+    /// <summary>The off-order lane has no such precondition — the file's own records ARE the universe there and
+    /// every match has a body — so the pre-check must not fire on it and displace the refusal this call has really
+    /// earned. Gating it on the in-order lane restores the sentence this call got before the pre-check existed.</summary>
+    [Fact]
+    public void TheOffOrderScanIsNotPreRefused_ItKeepsItsOwnRefusal()
+    {
+        var r = RecordsTools.Records(Svc, conflicts_only: true, source: Plugin(W.OldName),
+                                     project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" });
+        Refused(r, "conflicts_only= has no meaning on an out-of-load-order file");
+        Assert.DoesNotContain("body-bearing scope", r);
+    }
+
+    /// <summary>And a real off-order aggregate by type serves: the file IS the scope.</summary>
+    [Fact]
+    public void AnOffOrderAggregateByTypeServes_TheFileIsTheScope() =>
+        Served(RecordsTools.Records(Svc, types: new[] { "WEAP" }, source: Plugin(W.OldName),
+                                    project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" }),
+               "form=aggregate");
+
+    /// <summary>An in-order named source= IS the scope the scan runs over, so it satisfies the check too.</summary>
+    [Fact]
+    public void AnInOrderNamedSourceCountsAsTheBodyBearingScope() =>
+        Served(RecordsTools.Records(Svc, conflicts_only: true, source: Plugin(W.OverrideName),
+                                    project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" }),
+               "form=aggregate");
+
     [Fact]
     public void GroupByTypeWithATypesScopeStillServes_ThePreCheckOnlyRefusesTheUnboundCall() =>
         Served(RecordsTools.Records(Svc, types: new[] { "WEAP" },
