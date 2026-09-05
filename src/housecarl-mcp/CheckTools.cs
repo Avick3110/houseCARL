@@ -126,9 +126,10 @@ public static class CheckTools
              "(every plugin the order force-loads because plugins.txt does not list it — this is where Creation Club " +
              "plugins and _ResourcePack.esl are, and it INCLUDES the base masters). A value that is neither is " +
              "refused before the sweep runs, whichever families you selected. A FILENAME YOU NAMED that nothing " +
-             "in scope matches is refused by each family that HAS a scope to match it against — where a family's " +
-             "scope is empty because every plugin you named is outside it, that family reports the empty scope " +
-             "instead, since the exclusion is not why it swept nothing. A group member that is not in this order " +
+             "in scope matches is refused: the swept families share one scope — the plugins you named, off-order " +
+             "files included — so an unmatched name is a typo on every family that could have run, and an " +
+             "exclusion that removes the whole scope is refused too rather than sweeping nothing in silence. " +
+             "A group member that is not in this order " +
              "is the ordinary case and is simply dropped. This does not change what " +
              "counts as the vanilla BASELINE the errors family splits out — that is always Mutagen's own base-master set.")]
             string[]? exclude = null,
