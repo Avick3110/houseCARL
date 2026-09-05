@@ -54,8 +54,11 @@ the per-record files.
   - **Whitespace around `|` and `,` is stripped**, **`" - "` ⇒ `~`** (xEdit paste form), and FormID
     zero-padding is forgiven — from `sanitize()`.
   - **Chance `!`** deterministic flag and **Level `w`** weight prefix — confirmed in the parsers.
-  - **The player is never distributed to** — `should_process_NPC` in `DistributeManager.cpp` gates
-    every path on `!IsPlayer() && !IsDeleted()`. Not in the article.
+  - **The player is not distributed to** — `should_process_NPC` in `DistributeManager.cpp` gates the
+    on-load path on `!IsPlayer() && !IsDeleted()`; the PC-level-mult hooks require an already-processed
+    NPC and the death path carries its own `!IsPlayerRef()` guard. All `Distribute()` call sites were
+    read (`DistributeManager.cpp`, `DistributePCLevelMult.cpp`, `DeathDistribution.cpp`). Not in the
+    article.
   - **Configs are read once per game launch** (`main.cpp`, `kPostLoad`/`kDataLoaded`), so a rule added
     mid-session needs a restart. Not in the article.
   - **A dynamically created keyword has no plugin FormID but is pushed into the game's keyword array**
