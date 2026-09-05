@@ -1,5 +1,6 @@
 using HousecarlCore;
 using HousecarlMcp;
+using Mutagen.Bethesda.Plugins;
 using Xunit;
 
 namespace HousecarlMcpTests;
@@ -93,6 +94,28 @@ public sealed class RecordsReverseIndexTests : RecordsTestBase
         Assert.Contains("\"notes\"", r);
         Assert.Contains("reverse-reference index", r);
         Assert.Contains("key=", r);
+    }
+
+    /// <summary>An in-order source= plugin IS a bound — the scan runs with that one plugin as its scope — so the
+    /// sweep refusal must read the scope the scan will actually use, not the plugins= parameter alone.</summary>
+    [Fact]
+    public void ANegatedReferencesUnderAnInOrderSourceIsNotTheSweep()
+    {
+        var r = RecordsTools.Records(Svc, references: new[] { "!" + Fid(W.MgefA) },
+                                     source: Plugin(W.MidName), project: Form("tree"));
+        Assert.DoesNotContain("orphan sweep", r);
+    }
+
+    /// <summary>group_by='type' needs a body-bearing scope. An unbounded references= is one: the index hands the
+    /// scan its universe and every match's body is read, which is what names the type.</summary>
+    [Fact]
+    public void AnUnboundedReferencesGroupsByType()
+    {
+        var r = RecordsTools.Records(Svc, references: new[] { Fid(W.MgefA) },
+                                     project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" });
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.Contains("reverse-reference index", r);
+        Assert.Contains("Spell", r);
     }
 
     [Fact]
@@ -305,6 +328,67 @@ public sealed class ReverseIndexLifecycleTests
 
         Task.WaitAll(readers.Append(refresher).ToArray());
         Assert.Empty(failures);
+    }
+
+    /// <summary>An unreadable plugin cuts both ways, and the two readings are opposites: the positive question
+    /// loses referencers and is SHORT; the sweep loses the edges that would disqualify an orphan and is
+    /// OVER-inclusive. Telling a sweep its answer is short says the orphans it listed are confirmed.</summary>
+    [Fact]
+    public void TheUnreadableDisclosureIsToldForTheSweepsDirection()
+    {
+        using var w = new RecordsWorld();
+        RecordsTools.Records(w.Svc, references: new[] { RecordsWorld.Fid(w.MgefA) });
+        File.WriteAllBytes(Path.Combine(w.ModsDir, "MidMod", w.MidName), new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 });
+        var sweep = RecordsTools.Records(w.Svc, references: new[] { "!" + RecordsWorld.Fid(w.MgefA) });
+        Assert.Contains(w.MidName, sweep);
+        Assert.Contains("OVER-inclusive", sweep);
+        Assert.DoesNotContain("the answer is short", sweep);
+        var positive = RecordsTools.Records(w.Svc, references: new[] { RecordsWorld.Fid(w.MgefA) });
+        Assert.Contains("the answer is short", positive);
+        Assert.DoesNotContain("OVER-inclusive", positive);
+    }
+
+    /// <summary>The sweep takes ONE generation for its whole pass. Asked key by key, a refresh landing mid-pass
+    /// would judge the early keys against the old edges and the late ones against the new, and the freshness key
+    /// the response cites would name neither answer.</summary>
+    [Fact]
+    public void TheSweepJudgesEveryKeyAgainstOneGeneration()
+    {
+        using var w = new RecordsWorld();
+        var masterPath = Path.Combine(w.ModsDir, "MasterMod", w.MasterName);
+        using var resolver = LoadOrderResolver.Build(new[] { masterPath, Path.Combine(w.ModsDir, "MidMod", w.MidName) });
+        var view = resolver.Capture();
+        view.EnsureReverseIndex();
+        var index = view.ReverseIndex!;
+        Assert.True(index.HasAnyReferencer(w.MgefA), "two spells link it — the pre-swap generation says so");
+
+        IEnumerable<FormKey> CandidatesThatRefreshMidway()
+        {
+            yield return w.Armor;
+            // Every edge in the order lived in this plugin: the next generation knows of no referencer at all.
+            File.WriteAllBytes(masterPath, new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 });
+            resolver.Capture().EnsureReverseIndex();
+            yield return w.MgefA;
+        }
+
+        var orphans = index.Orphans(CandidatesThatRefreshMidway());
+        Assert.DoesNotContain(w.MgefA, orphans);
+    }
+
+    /// <summary>Two sweeps at once share one generation's memoised referenced-set rather than each building their
+    /// own, and neither sees a torn one.</summary>
+    [Fact]
+    public void ConcurrentSweepsAgree()
+    {
+        using var w = new RecordsWorld();
+        var view = w.Svc.CaptureView();
+        view.EnsureReverseIndex();
+        var index = view.ReverseIndex!;
+        var keys = view.RecordKeys().ToList();
+        var results = Enumerable.Range(0, 4)
+            .Select(_ => Task.Run(() => index.Orphans(keys).ToList())).ToArray();
+        Task.WaitAll(results);
+        foreach (var t in results) Assert.Equal(results[0].Result, t.Result);
     }
 
     /// <summary>Rewrite the profile so the named plugin is no longer active.</summary>
