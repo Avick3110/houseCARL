@@ -25,7 +25,7 @@ public sealed class RecordsRetiredNameRemedyTests : IDisposable
     string Mgef => RecordsWorld.Fid(_w.MgefA);
 
     static RecordsTools.RecordsProject Chain => new() { form = "chain" };
-    static RecordsTools.RecordsWalk Reverse => new() { direction = "reverse" };
+    static RecordsTools.RecordsWalk Reverse => new() { direction = "reverse", follow = "Effects[].BaseEffect" };
 
     /// <summary>Every name the redirect table calls retired, so the population grows with the table.</summary>
     static IEnumerable<string> RetiredNames() => AliasTable.AllRetiredTools.Select(r => r.Old);

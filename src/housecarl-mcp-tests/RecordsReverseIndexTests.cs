@@ -216,6 +216,28 @@ public sealed class RecordsReverseIndexTests : RecordsTestBase
                                      project: new RecordsTools.RecordsProject { form = "chain" }),
                 "Effects[].BaseEffect");
 
+    /// <summary>No default follow implies a walk under any form: chain on a reverse walk with follow unset refuses
+    /// naming both follows the index serves, rather than quietly meaning the carrier one.</summary>
+    [Fact]
+    public void ChainOnAReverseWalkWithFollowUnsetRefusesNamingBothFollows()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse" },
+                                     project: new RecordsTools.RecordsProject { form = "chain" });
+        Refused(r, "Effects[].BaseEffect");
+        Assert.Contains("\"*\"", r);
+        Assert.DoesNotContain("HcRecSpellHop", r);
+    }
+
+    /// <summary>The same call with the carrier follow said outright is served, so the refusal above is about the
+    /// missing follow and not about the chain form on reverse.</summary>
+    [Fact]
+    public void TheSameChainCallWithTheCarrierFollowSaidOutrightIsServed() =>
+        Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
+                                    walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" },
+                                    project: new RecordsTools.RecordsProject { form = "chain" }),
+               "HcRecSpellHop");
+
     /// <summary>A bad direction is taught the follow that picks the reverse walk, not the deleted depth-1 rule.
     /// </summary>
     [Fact]

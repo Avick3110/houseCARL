@@ -109,7 +109,7 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
     public void ACappedCarrierListNamesWalkMaxNodes_LimitWindowsTheSeedsAndWouldBeANoOp()
     {
         var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) }, project: Form("chain"),
-                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", max_nodes = 1 });
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect", max_nodes = 1 });
         Served(r, "raise walk.max_nodes");
         Assert.DoesNotContain("raise limit=", r);
     }

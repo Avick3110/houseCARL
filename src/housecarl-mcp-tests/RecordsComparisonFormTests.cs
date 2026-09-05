@@ -13,6 +13,8 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
 
     static RecordsTools.RecordsProject Delta => new() { form = "delta" };
     static RecordsTools.RecordsProject Chain => new() { form = "chain" };
+    /// <summary>The typed MGEF carrier walk, said outright: no follow is implied under the chain form.</summary>
+    const string CarrierFollow = "Effects[].BaseEffect";
 
     string DeltaVsPrevious(Mutagen.Bethesda.Plugins.FormKey rec, string subject) =>
         RecordsTools.Records(Svc, formids: new[] { Fid(rec) }, source: Plugin(subject),
@@ -121,7 +123,7 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
     public void ReverseMgefLane_TheCarriersOfThisEffectWithTheMatchingEntrysPayload()
     {
         var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
-                                     walk: new RecordsTools.RecordsWalk { direction = "reverse" }, project: Chain);
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = CarrierFollow }, project: Chain);
         Served(r, "HcRecSpellA");
         Assert.DoesNotContain("HcRecSpellB", r);
     }
@@ -130,7 +132,7 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
     public void ReverseWithANonMgefSeedFailsLoudNamingTheType_NeverASilentZeroCarriers()
     {
         var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) },
-                                     walk: new RecordsTools.RecordsWalk { direction = "reverse" }, project: Chain);
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = CarrierFollow }, project: Chain);
         Assert.Contains("error", r);
         Assert.True(r.Contains("MagicEffect") || r.Contains("MGEF"), "the refusal names the required type");
     }
@@ -141,7 +143,7 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
     public void ReverseDepthOnTheCarrierLaneNamesTheEmptyHopsRatherThanStoppingSilently()
     {
         var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
-                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 3 }, project: Chain);
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 3, follow = CarrierFollow }, project: Chain);
         Served(r, "hop 2: 0", "hop 3: 0", "not a magic effect");
     }
 
@@ -151,7 +153,7 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
     public void TheCarrierLaneWithNoDepthAskedPrintsNoHopCensus()
     {
         var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
-                                     walk: new RecordsTools.RecordsWalk { direction = "reverse" }, project: Chain);
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = CarrierFollow }, project: Chain);
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
         Assert.DoesNotContain("hop 2: 0", r);
         Assert.DoesNotContain("hop 16", r);
@@ -217,7 +219,7 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
     {
         var art = W.Scratch("results", "carriers.jsonl");
         var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
-                                     walk: new RecordsTools.RecordsWalk { direction = "reverse" }, to_file: art,
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = CarrierFollow }, to_file: art,
                                      project: Chain);
         Assert.True(File.Exists(art));
         Assert.Contains(art, r);
@@ -250,7 +252,7 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
     [Fact]
     public void ReReview_LimitWindowsTheSeedsOnly_BothCarriersOfTheOneSeedRender() =>
         Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
-                                    walk: new RecordsTools.RecordsWalk { direction = "reverse" }, limit: 1, project: Chain),
+                                    walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = CarrierFollow }, limit: 1, project: Chain),
                "HcRecSpellA", "HcRecSpellC");
 
     // ---- json envelopes and fields_source compositions -------------------------------------------------
