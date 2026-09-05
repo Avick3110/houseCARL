@@ -220,6 +220,20 @@ public sealed class WriteSilentAddAndMasterGrowTests : IDisposable
         Assert.Contains("1 of the 2 composed elements", r);
     }
 
+    /// <summary>A repeat WITHIN one composes= batch is not something the list already carried. Asked mid-loop the
+    /// check sees the element the same op just appended and reports it as the file's before-state, and its remedy
+    /// then points at undoing the caller's own deliberate leveled-list weighting.</summary>
+    [Fact]
+    public void AComposesBatchThatRepeatsItsOwnElementSaysSoSeparately()
+    {
+        string Entry(int level) => $@"{{""type"":""LeveledItemEntry"",""sets"":[{{""path"":""Data.Level"",""value"":""{level}""}},{{""path"":""Data.Count"",""value"":""1""}},{{""path"":""Data.Reference"",""value"":""{Fid(_weapon)}""}}]}}";
+        // Level 9 twice, against a list that carries only level 1: nothing was already in 'Entries'.
+        var r = ApplyTools.Apply(_svc, ops: Je($@"[{{""formid"":""{Fid(_lvli)}"",""field_path"":""Entries"",""op"":""Add"",""composes"":[{Entry(9)},{Entry(9)}]}}]"));
+        Assert.DoesNotContain("error:", r);
+        Assert.Contains("a repeat of another element in this same op", r);
+        Assert.DoesNotContain("already in 'Entries'", r);
+    }
+
     // ---- #382: an in-place create that grows the master header ------------------------------------
 
     [Fact]
@@ -251,6 +265,57 @@ public sealed class WriteSilentAddAndMasterGrowTests : IDisposable
             into: "HcExtPatch.esp");
         Assert.DoesNotContain("error:", r);
         Assert.Contains($"{MasterName} was added as a master", r);
+    }
+
+    /// <summary>A fresh patch carrying one record that references nothing, so the extend that follows is the only
+    /// thing that can pull a master into its header.</summary>
+    string FreshPatch(string name)
+    {
+        var r = CreateTools.Create(_svc,
+            records: Je($@"[{{""record_type"":""FormList"",""editorid"":""Hc{name}Empty""}}]"),
+            patch: name);
+        Assert.DoesNotContain("error:", r);
+        Assert.DoesNotContain("was added as a master", r);
+        return name + ".esp";
+    }
+
+    /// <summary>The create lane is not the only one that extends a patch under `into=`. An edit whose value is a
+    /// FormID in a plugin the patch did not master grows the header the same way, on a patch the caller already
+    /// enabled and sorted.</summary>
+    [Fact]
+    public void AnApplyExtendingAPatchThatGrowsItsMasterHeaderSaysToReSort()
+    {
+        var patch = FreshPatch("HcApplyExt");
+        var r = ApplyTools.Apply(_svc,
+            ops: Je($@"[{{""formid"":""{Fid(_weapon)}"",""field_path"":""BasicStats.Damage"",""op"":""Set"",""value"":""12""}}]"),
+            into: patch);
+        Assert.DoesNotContain("error:", r);
+        Assert.Contains($"{MasterName} was added as a master", r);
+    }
+
+    /// <summary>The third extend lane: a forwarded body's own references grow the header of the patch it lands in.</summary>
+    [Fact]
+    public void AForwardExtendingAPatchThatGrowsItsMasterHeaderSaysToReSort()
+    {
+        var patch = FreshPatch("HcFwdExt");
+        var r = ForwardTools.Forward(_svc, formids: new[] { Fid(_weapon) }, source: MasterName, into: patch);
+        Assert.DoesNotContain("error:", r);
+        Assert.Contains($"{MasterName} was added as a master", r);
+    }
+
+    /// <summary>A dry run wrote nothing, so the extend note is predictive there — the same shape the in-place dry run
+    /// already had, said by one helper rather than a copy per lane.</summary>
+    [Fact]
+    public void ADryRunOfAnExtendSaysWhatTheRealWriteWouldAdd()
+    {
+        var patch = FreshPatch("HcDryExt");
+        var r = ApplyTools.Apply(_svc,
+            ops: Je($@"[{{""formid"":""{Fid(_weapon)}"",""field_path"":""BasicStats.Damage"",""op"":""Set"",""value"":""12""}}]"),
+            into: patch, dry_run: true);
+        Assert.DoesNotContain("error:", r);
+        Assert.Contains("DRY RUN", r);
+        Assert.Contains($"would ADD {MasterName}", r);
+        Assert.DoesNotContain("was added as a master", r);
     }
 
     public void Dispose()

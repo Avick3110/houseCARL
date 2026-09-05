@@ -143,13 +143,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   response nor the read-back could tell them apart, and a bulk run repeated the duplicate across every record.
   The op line now carries `duplicate: …`, and `format='json'` carries it as `apply_note`; a dry run says it before
   anything is written. `compose=` and `composes=` elements are compared too — a duplicated condition row, container
-  entry or leveled-list entry is named the same way, counted over the batch. A list whose elements cannot be compared
-  by value says that instead of reading as clean.
-- **A create that grows an existing plugin's master header now emits the same re-sort note the in-place edit and
-  forward lanes emit — in place, and when extending a patch with `into=`.** A new record whose link points into a
-  plugin the file did not already master adds that master, and the file will not load until the order is re-sorted;
-  the create lane said nothing, so the only line about re-sorting was the mod-folder line's "only if a winner
-  changed", which is not this case.
+  entry or leveled-list entry is named the same way, counted over the batch. A `composes=` batch that repeats an
+  element of its own says that as its own clause, apart from what the list already carried.
+- **A write that grows an existing plugin's master header now emits the same re-sort note on every lane that opens
+  one — a create in place or with `into=`, and an apply or forward extending a patch with `into=`.** A record or
+  edit whose link points into a plugin the file did not already master adds that master, and the file will not load
+  until the order is re-sorted; those lanes said nothing, so the only line about re-sorting was the mod-folder line's
+  "only if a winner changed", which is not this case. A dry run of any of them says what the real write would add.
 
 - **A `types=` filter naming one arm of an abstract record group — `GlobalShort`, `GlobalFloat`, `GameSettingInt` and
   every other Mutagen arm — now answers over that arm alone.** It returned the whole group instead: the plugin
