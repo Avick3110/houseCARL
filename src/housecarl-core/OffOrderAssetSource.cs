@@ -1,4 +1,4 @@
-﻿namespace HousecarlCore;
+namespace HousecarlCore;
 
 // ======================================================================
 //  OffOrderAssetSource — reading an asset out of a mod folder the ACTIVE profile does not

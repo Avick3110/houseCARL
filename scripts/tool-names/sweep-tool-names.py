@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Emit the tool-name registry, and rewrite every shipped tool-name literal into it.
 
 The sweep is a SCRIPT and the compiler is the verifier (#475; rationale in

@@ -1,4 +1,4 @@
-﻿using HousecarlGenerator;
+using HousecarlGenerator;
 
 // houseCARL build-time schema generator.
 //
