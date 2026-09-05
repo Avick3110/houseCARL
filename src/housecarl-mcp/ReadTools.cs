@@ -591,9 +591,10 @@ static class Wire
     static string EpochOffOrderQualifier(ErrorCheckResult r) =>
         r.OffOrderScanned is { Count: > 0 } ? " (indexed plugins only — off-order file content is outside the fingerprint)" : "";
 
-    /// <summary>The scripts family has no off-order lane, so its stamp always covers everything it swept. The
-    /// overload exists so the two sweep headers stay textually identical.</summary>
-    static string EpochOffOrderQualifier(ScriptCheckResult r) => "";
+    /// <summary>The scripts family's half of the same qualifier — it has the off-order lane too, so its stamp
+    /// covers only the indexed plugins whenever it swept a file from disk.</summary>
+    static string EpochOffOrderQualifier(ScriptCheckResult r) =>
+        r.OffOrderScanned is { Count: > 0 } ? " (indexed plugins only — off-order file content is outside the fingerprint)" : "";
 
     /// <summary>Reserve every axis's fixed part — its unconditional lines and its closing disclosure — then render
     /// them all. Two passes, because an axis reserving its own room only when its turn came would find a sibling
@@ -779,11 +780,6 @@ static class Wire
             sb.Append('\n').Append(string.Format(ReadSentences.SweepFamilySectionHead,
                                                  SweepFamilySelection.Token(f), SweepFamilySelection.Title(f)))
               .Append('\n');
-            // The off-order asymmetry goes above whatever this family says next, refusal included. It is a fact
-            // about the caller's SCOPE for this family, not about the sweep it ran, so gating it on the family
-            // having run would drop it from the call that needs it most: a "0 unbound" over a scope this family
-            // could not sweep reads as "looked, found none".
-            if (o.OffOrder(f) is { } skipped) sb.Append(skipped).Append('\n');
             // A family that refused fills its OWN section with the refusal, never the whole response: exclude= is
             // validated against each family's own scope, so one family's scope refusal must not discard a
             // completed sweep beside it.
@@ -854,6 +850,10 @@ static class Wire
         if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(EpochOffOrderQualifier(r));
         sb.Append('\n');
         if (r.FilterNote is not null) sb.Append(r.FilterNote).Append('\n');
+        if (r.OffOrderScanned is { Count: > 0 } off)
+            sb.Append("swept OFF-ORDER (on disk, not in the active load order): ").Append(string.Join(", ", off))
+              .Append("   [the file's own records; each attached script's .pex read from the ACTIVE order, so a script "
+                    + "that ships only inside the not-yet-enabled mod reads UNVERIFIABLE, not clean]\n");
         if (r.ReadIncomplete)
             sb.Append("note: a BSA failed to read this build — a '.pex not on disk' below may merely be unscanned, not truly absent (Q3).\n");
     }

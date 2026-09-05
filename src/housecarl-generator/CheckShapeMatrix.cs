@@ -73,55 +73,54 @@ internal static class CheckShapeMatrix
         {
             Add("errors, " + lane, new CheckSweep(Sel("errors"), err));
             Add("scripts, " + lane, new CheckSweep(Sel("scripts"), null, scr));
-            Add("dialogue, " + lane, new CheckSweep(Sel("dialogue"), null, null, null, dlg));
+            Add("dialogue, " + lane, new CheckSweep(Sel("dialogue"), null, null, dlg));
             Add("errors+scripts, " + lane, new CheckSweep(Sel("errors", "scripts"), err, scr));
-            Add("errors+dialogue, " + lane, new CheckSweep(Sel("errors", "dialogue"), err, null, null, dlg));
-            Add("scripts+dialogue, " + lane, new CheckSweep(Sel("scripts", "dialogue"), null, scr, null, dlg));
-            Add("all three, " + lane, new CheckSweep(Sel("errors", "scripts", "dialogue"), err, scr, null, dlg));
+            Add("errors+dialogue, " + lane, new CheckSweep(Sel("errors", "dialogue"), err, null, dlg));
+            Add("scripts+dialogue, " + lane, new CheckSweep(Sel("scripts", "dialogue"), null, scr, dlg));
+            Add("all three, " + lane, new CheckSweep(Sel("errors", "scripts", "dialogue"), err, scr, dlg));
         }
 
         // ---- the ROSTER, a response-level subject competing with every family in the response --------
         Add("errors, listing, roster", new CheckSweep(Sel("errors"), e with { ExcludedPlugins = roster }));
         Add("all three, listing, roster",
             new CheckSweep(Sel("errors", "scripts", "dialogue"),
-                           e with { ExcludedPlugins = roster }, sc with { ExcludedPlugins = roster }, null, d));
+                           e with { ExcludedPlugins = roster }, sc with { ExcludedPlugins = roster }, d));
         Add("all three, counts_only, roster",
             new CheckSweep(Sel("errors", "scripts", "dialogue"),
-                           eCounts with { ExcludedPlugins = roster }, scCounts with { ExcludedPlugins = roster },
-                           null, dCounts));
+                           eCounts with { ExcludedPlugins = roster }, scCounts with { ExcludedPlugins = roster }, dCounts));
         Add("scripts+dialogue, counts_only, roster",
-            new CheckSweep(Sel("scripts", "dialogue"), null, scCounts with { ExcludedPlugins = roster }, null, dCounts));
+            new CheckSweep(Sel("scripts", "dialogue"), null, scCounts with { ExcludedPlugins = roster }, dCounts));
 
         // ---- a family that REFUSED, beside families that answered -----------------------------------
         var refusedScripts = ScriptCheckResult.Fail("exclude= removed every plugin this sweep would have covered");
         Add("all three, listing, dialogue refused",
-            new CheckSweep(Sel("errors", "scripts", "dialogue"), e, sc, null, refusedDialogue));
+            new CheckSweep(Sel("errors", "scripts", "dialogue"), e, sc, refusedDialogue));
         Add("all three, counts_only, dialogue refused",
-            new CheckSweep(Sel("errors", "scripts", "dialogue"), eCounts, scCounts, null, refusedDialogue));
+            new CheckSweep(Sel("errors", "scripts", "dialogue"), eCounts, scCounts, refusedDialogue));
         Add("errors+scripts, listing, scripts refused",
             new CheckSweep(Sel("errors", "scripts"), e, refusedScripts));
         Add("all three, listing, scripts refused",
-            new CheckSweep(Sel("errors", "scripts", "dialogue"), e, refusedScripts, null, d));
+            new CheckSweep(Sel("errors", "scripts", "dialogue"), e, refusedScripts, d));
         Add("all three, listing, two refused, roster",
             new CheckSweep(Sel("errors", "scripts", "dialogue"),
-                           e with { ExcludedPlugins = roster }, refusedScripts, null, refusedDialogue));
+                           e with { ExcludedPlugins = roster }, refusedScripts, refusedDialogue));
 
         // ---- MORE THAN ONE SEED: nested per-seed arrays, which a one-seed shape cannot show --------
-        Add("dialogue, listing, two seeds", new CheckSweep(Sel("dialogue"), null, null, null, multi));
+        Add("dialogue, listing, two seeds", new CheckSweep(Sel("dialogue"), null, null, multi));
         Add("all three, listing, two seeds",
-            new CheckSweep(Sel("errors", "scripts", "dialogue"), e, sc, null, multi));
+            new CheckSweep(Sel("errors", "scripts", "dialogue"), e, sc, multi));
         Add("all three, listing, two seeds, roster",
             new CheckSweep(Sel("errors", "scripts", "dialogue"),
-                           e with { ExcludedPlugins = roster }, sc with { ExcludedPlugins = roster }, null, multi));
+                           e with { ExcludedPlugins = roster }, sc with { ExcludedPlugins = roster }, multi));
 
         // ---- OFF-ORDER: a named plugin the scripts family has no lane for ---------------------------
         Add("errors+scripts, listing, off-order",
-            new CheckSweep(Sel("errors", "scripts"), e, sc, new[] { "HcMxFresh.esp" }));
+            new CheckSweep(Sel("errors", "scripts"), e, sc));
         // …and the same file named on a call where that family REFUSED. The off-order sentence is now written above
         // whatever the family goes on to say, refusal included, so a refusal section carries a sentence no other
         // shape puts in the fixed part — and the fixed-part pass has to measure it.
         Add("errors+scripts, listing, off-order, scripts refused",
-            new CheckSweep(Sel("errors", "scripts"), e, refusedScripts, new[] { "HcMxFresh.esp" }));
+            new CheckSweep(Sel("errors", "scripts"), e, refusedScripts));
         // ---- NO FAMILY ANSWERED, on DISTINCT grounds ------------------------------------------------
         // The grounds-are-one rule's other side: two families refusing for different reasons render as two refusal
         // sections rather than collapsing to one error, and the scope sentence takes its no-family-answered arm —
@@ -131,11 +130,10 @@ internal static class CheckShapeMatrix
                            ErrorCheckResult.Fail("the errors family's own ground, which is not the scripts family's"),
                            refusedScripts));
         Add("all three, counts_only, off-order",
-            new CheckSweep(Sel("errors", "scripts", "dialogue"), eCounts, scCounts, new[] { "HcMxFresh.esp" }, dCounts));
+            new CheckSweep(Sel("errors", "scripts", "dialogue"), eCounts, scCounts, dCounts));
         Add("all three, listing, off-order, roster",
             new CheckSweep(Sel("errors", "scripts", "dialogue"),
-                           e with { ExcludedPlugins = roster }, sc with { ExcludedPlugins = roster },
-                           new[] { "HcMxFresh.esp" }, d));
+                           e with { ExcludedPlugins = roster }, sc with { ExcludedPlugins = roster }, d));
 
         return shapes;
     }

@@ -4637,31 +4637,15 @@ public sealed class LoadOrderService : IDisposable
         if (plugins is { Count: > 0 })
         {
             var view = viewAll;
-            var active = new List<string>();
-            var offOrder = new List<(string Name, string Path)>();
             string modsDir, dataDir, overwriteDir, profileDir;
             lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
-            Mo2Composition? comp = null;
-            foreach (var name in plugins)
-            {
-                var n = name?.Trim() ?? "";
-                if (n.Length == 0) return ErrorCheckResult.Fail(SweepSharedInput.BlankPluginName);
-                if (view.ContainsPlugin(n)) { active.Add(n); continue; }
-                comp ??= Mo2LoadOrder.ReadComposition(profileDir);
-                var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, n, null);
-                // Membership and locate refusals are decided against THIS captured build and its composition, so
-                // they are stamped. The parse refusals above consulted no build and stay unstamped.
-                if (loc.Error is not null)
-                    return ErrorCheckResult.Fail($"plugin not in the load order: {n} — and no on-disk copy was found either ({loc.Error})")
-                           with { Epoch = view.Epoch };
-                if (loc.Ambiguous is not null)
-                    return ErrorCheckResult.Fail(
-                        $"plugin '{n}' is not in the active load order and {loc.Ambiguous.Count} mod folders provide a file with that name " +
-                        $"({string.Join(", ", loc.Ambiguous.Select(h => h.Where))}) — ambiguous, refusing to guess which to sweep. " +
-                        "Enable the one you mean in MO2, or remove the duplicates.")
-                           with { Epoch = view.Epoch };
-                offOrder.Add((n, loc.Path!));
-            }
+            // Membership and locate refusals are decided against THIS captured build and its composition, so they
+            // are stamped; a blank name consulted no build and stays unstamped.
+            if (SweepOffOrderScope.Split(view, plugins, modsDir, dataDir, overwriteDir, profileDir,
+                                         out var active, out var offOrder) is { } splitErr)
+                return splitErr.Stamped
+                    ? ErrorCheckResult.Fail(splitErr.Message) with { Epoch = view.Epoch }
+                    : ErrorCheckResult.Fail(splitErr.Message);
             return ClassifyMissingMasters(
                 ErrorCheck.Run(resolver, viewAll, active, limit, offOrder.Count > 0 ? offOrder : null,
                                recordScope, classes, countsOnly, excluded));
@@ -4774,12 +4758,15 @@ public sealed class LoadOrderService : IDisposable
     /// logic so a test can drive this same path over synthetic records and a planted .pex. Passes the live
     /// <see cref="Assets"/> resolver so a script's .pex is found loose or BSA-packed. Read-only.
     /// <para>The record-scope, property-name, class-filter and counts-only knobs are parsed here, so a bad FormID,
-    /// unknown record type or unrecognized finding class refuses the call before any sweep runs.</para></summary>
+    /// unknown record type or unrecognized finding class refuses the call before any sweep runs.</para>
+    /// <para>A named plugin the active order does not hold is located on disk and swept OFF-ORDER, the same lane
+    /// <see cref="CheckErrors"/> has and through the same split — the pre-enable verify sweep for a patch houseCARL
+    /// has just written.</para></summary>
     public ScriptCheckResult ValidateScripts(IReadOnlyList<string>? plugins, int limit,
                                              IReadOnlyList<string>? formids = null, string? editoridContains = null,
                                              string? type = null, string? propertyContains = null,
                                              IReadOnlyList<string>? findings = null, bool countsOnly = false,
-                                             IReadOnlyList<string>? exclude = null, bool noneInScope = false)
+                                             IReadOnlyList<string>? exclude = null)
     {
         var (recordScope, scopeErr) = BuildSweepScope(formids, editoridContains, type);
         if (scopeErr is not null) return ScriptCheckResult.Fail(scopeErr);
@@ -4794,15 +4781,27 @@ public sealed class LoadOrderService : IDisposable
         if (implicitErr is not null) return ScriptCheckResult.Fail(implicitErr);
         var (excluded, excludeErr) = SweepExclusion.Resolve(exclude, implicitNames);
         if (excludeErr is not null) return ScriptCheckResult.Fail(excludeErr);
-        return ScriptPropertyCheck.Run(resolver, resolver.Capture(), Assets, plugins, limit, recordScope,
-                                       propertyContains, classes, countsOnly, excluded, noneInScope);
-    }
+        var view = resolver.Capture();
 
-    /// <summary>The active order's plugin filenames. A thin accessor for the ONE caller that has to decide which of
-    /// several findings families can sweep a plugin the caller named — the errors family resolves an out-of-order
-    /// file on disk and sweeps it, the scripts family has no such lane. The logic that USES this lives in the merged
-    /// sweep's own file, not here.</summary>
-    internal IReadOnlyList<string> ActivePluginNames => Resolver.PluginNames;
+        // The off-order lane, resolved exactly as CheckErrors resolves it: a named plugin the active order does not
+        // hold is located on disk and swept from its own file, which is how a fresh patch's script bindings can be
+        // checked BEFORE it is enabled.
+        if (plugins is { Count: > 0 })
+        {
+            string modsDir, dataDir, overwriteDir, profileDir;
+            lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; }
+            if (SweepOffOrderScope.Split(view, plugins, modsDir, dataDir, overwriteDir, profileDir,
+                                         out var active, out var offOrder) is { } splitErr)
+                return splitErr.Stamped
+                    ? ScriptCheckResult.Fail(splitErr.Message) with { Epoch = view.Epoch }
+                    : ScriptCheckResult.Fail(splitErr.Message);
+            return ScriptPropertyCheck.Run(resolver, view, Assets, active, limit, recordScope,
+                                           propertyContains, classes, countsOnly, excluded,
+                                           offOrder.Count > 0 ? offOrder : null);
+        }
+        return ScriptPropertyCheck.Run(resolver, view, Assets, plugins, limit, recordScope,
+                                       propertyContains, classes, countsOnly, excluded);
+    }
 
     // ---- writes ----------------------------------------------------------------------------------------
 

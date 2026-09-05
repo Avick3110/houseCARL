@@ -180,7 +180,7 @@ public static class CheckMergeProbe
         var text = Wire.RenderCheck(both, 0);
         var json = JsonWire.RenderCheck(both, 0);
         // Every registered family at once — what the ALL sentence and the cap ladder are asked about.
-        var all = new CheckSweep(Sel("errors", "scripts", "dialogue"), errors, scripts, null, dialogue);
+        var all = new CheckSweep(Sel("errors", "scripts", "dialogue"), errors, scripts, dialogue);
         var allText = Wire.RenderCheck(all, 0);
         var allJson = JsonWire.RenderCheck(all, 0);
 
@@ -408,29 +408,33 @@ public static class CheckMergeProbe
             && text.Contains("did NOT run", StringComparison.Ordinal),
             FirstLineWith(allText, "findings="));
 
-        // ---- OFF-ORDER-STATED-PER-FAMILY -----------------------------------------------------------
-        var offOrder = new CheckSweep(Sel("errors", "scripts"), errors, scripts, new[] { "FreshPatch.esp" });
+        // ---- OFF-ORDER-NAMED-PER-FAMILY ------------------------------------------------------------
+        // Both swept families have the lane, so each names the file it swept off-order inside its OWN section,
+        // where its own counts are. A file swept without being named would leave the caller reading counts that
+        // cover a plugin the order does not hold with nothing saying so.
+        var offOrder = new CheckSweep(Sel("errors", "scripts"), errors,
+                                      scripts with { OffOrderScanned = new[] { "FreshPatch.esp" } });
         var offText = Wire.RenderCheck(offOrder, 0);
         var offJson = JsonWire.RenderCheck(offOrder, 0);
         int scriptsHeadAt = offText.IndexOf("[scripts] ", StringComparison.Ordinal);
-        int skippedAt = offText.IndexOf("did NOT sweep FreshPatch.esp", StringComparison.Ordinal);
+        int sweptAt = offText.IndexOf("swept OFF-ORDER (on disk, not in the active load order): FreshPatch.esp",
+                                      scriptsHeadAt < 0 ? 0 : scriptsHeadAt, StringComparison.Ordinal);
         using (var doc = JsonDocument.Parse(offJson))
         {
             // PRESENCE BEFORE VALUE on the field this arm is ABOUT. Read with GetProperty, a render that stops
-            // writing off_order_not_swept made this arm THROW rather than fail — and a guard that throws prints no
-            // FAIL line, so the sabotage cell for that very deletion came back green. Found by the second sweep,
-            // after the same defect had already been fixed once in GROUNDS-ARE-ONE: the pattern, not the arm.
+            // writing the field makes the arm THROW rather than fail — and a guard that throws prints no FAIL
+            // line, so the sabotage cell for that very deletion comes back green.
             bool offPerFamily = doc.RootElement.TryGetProperty("families", out var offFams)
                           && offFams.TryGetProperty("scripts", out var offScripts)
-                          && offScripts.TryGetProperty("off_order_not_swept", out var offVal)
-                          && offVal.GetString()!.Contains("FreshPatch.esp", StringComparison.Ordinal)
-                          && offFams.TryGetProperty("errors", out var offErrors)
-                          && !offErrors.TryGetProperty("off_order_not_swept", out _);
-            Check("OFF-ORDER-STATED-PER-FAMILY: the family with no off-order lane names the file it did not sweep, inside its OWN section where its zero counts are — in both transports",
-                skippedAt > scriptsHeadAt && scriptsHeadAt >= 0
-                && offText.Contains("only the errors family has an off-order lane", StringComparison.Ordinal)
+                          && offScripts.TryGetProperty("off_order_scanned", out var offVal)
+                          && offVal.EnumerateArray().Any(v => v.GetString() == "FreshPatch.esp")
+                          && offScripts.TryGetProperty("epoch_covers_all_inputs", out var covers)
+                          && !covers.GetBoolean();
+            Check("OFF-ORDER-NAMED-PER-FAMILY: a family that swept a file off-order names it inside its OWN section and says its epoch does not cover that file's content — in both transports",
+                sweptAt > scriptsHeadAt && scriptsHeadAt >= 0
+                && offText.Contains("(indexed plugins only — off-order file content is outside the fingerprint)", StringComparison.Ordinal)
                 && offPerFamily,
-                $"scriptsHead@{scriptsHeadAt} skipped@{skippedAt} json={offPerFamily}");
+                $"scriptsHead@{scriptsHeadAt} swept@{sweptAt} json={offPerFamily}");
         }
 
         // ---- PLAN-LEAVES-EMPTY-SUBJECTS-OUT --------------------------------------------------------
@@ -479,7 +483,7 @@ public static class CheckMergeProbe
         // F1.2's cost-refusal, and the thing that makes it family-LOCAL: it must not refuse a call another family
         // answered. Driven through DialogueSweep.Run, the real parse path, not a hand-built result.
         var unseeded = DialogueSweep_Run(null, 1000);
-        var mixed = new CheckSweep(Sel("errors", "dialogue"), errors, null, null, unseeded);
+        var mixed = new CheckSweep(Sel("errors", "dialogue"), errors, null, unseeded);
         var mixedText = Wire.RenderCheck(mixed, 0);
         var mixedJson = JsonWire.RenderCheck(mixed, 0);
         if (Environment.GetEnvironmentVariable("HC_DUMP") is not null)
@@ -546,27 +550,30 @@ public static class CheckMergeProbe
         Check("SCOPE-SENTENCE-NAMES-A-REFUSED-FAMILY: the response-level sentence and families_ran say what ANSWERED — a family that refused is named as refused, not listed among the ones this response answers for",
             scopeBad.Count == 0, scopeBad.Count == 0 ? mixedScope : string.Join("; ", scopeBad.Take(3)));
 
-        // ---- OFF-ORDER-STATED-EVEN-WHEN-THE-FAMILY-REFUSED ----------------------------------------
-        // The other direction of the conditional the off-order sentence used to sit inside. Gated on the scripts
-        // family having ANSWERED, the sentence vanished from the call that needs it most: the caller named two
-        // plugins, the scripts family refused over one of them, and nothing said why the other was never in its
-        // scope either (round-2 finding B4).
-        var scriptsRefused = ScriptCheckResult.Fail("exclude= removed every plugin this sweep would have covered.");
-        var offRefused = new CheckSweep(Sel("errors", "scripts"), errors, scriptsRefused, new[] { "FreshPatch.esp" });
-        var offRefusedText = Wire.RenderCheck(offRefused, 0);
-        var offRefusedJson = JsonWire.RenderCheck(offRefused, 0);
-        bool offInJson;
-        using (var doc = JsonDocument.Parse(offRefusedJson))
-            offInJson = doc.RootElement.TryGetProperty("families", out var ofams)
-                     && ofams.TryGetProperty("scripts", out var sf)
-                     && sf.TryGetProperty("off_order_not_swept", out var ov)
-                     && ov.GetString()!.Contains("FreshPatch.esp", StringComparison.Ordinal)
-                     && sf.TryGetProperty("refused", out _);
-            Check("OFF-ORDER-STATED-EVEN-WHEN-THE-FAMILY-REFUSED: a family with no off-order lane names the file it did not sweep whether it answered or refused — the refusal is about a different plugin, and silence about this one reads as clean",
-            offRefusedText.Contains("did NOT sweep FreshPatch.esp", StringComparison.Ordinal)
-            && offRefusedText.Contains("[scripts] ", StringComparison.Ordinal)
-            && offInJson,
-            $"text=[{FirstLineWith(offRefusedText, "did NOT sweep")}] json={offInJson}");
+        // ---- OFF-ORDER-IS-EACH-FAMILY'S-OWN -------------------------------------------------------
+        // Each family names what IT swept off-order, out of its own result. One family's off-order file must not
+        // appear in a sibling section that never opened it — a borrowed claim reads as coverage the sibling's
+        // counts do not have.
+        var offOneSided = new CheckSweep(Sel("errors", "scripts"),
+                                         errors with { OffOrderScanned = new[] { "FreshPatch.esp" } }, scripts);
+        var offOneSidedText = Wire.RenderCheck(offOneSided, 0);
+        var offOneSidedJson = JsonWire.RenderCheck(offOneSided, 0);
+        int oneSidedScriptsAt = offOneSidedText.IndexOf("[scripts] ", StringComparison.Ordinal);
+        bool oneSidedJson;
+        using (var doc = JsonDocument.Parse(offOneSidedJson))
+            oneSidedJson = doc.RootElement.TryGetProperty("families", out var ofams)
+                        && ofams.TryGetProperty("scripts", out var sf)
+                        && sf.TryGetProperty("off_order_scanned", out var ov)
+                        && ov.GetArrayLength() == 0
+                        && sf.TryGetProperty("epoch_covers_all_inputs", out var sc) && sc.GetBoolean()
+                        && ofams.TryGetProperty("errors", out var ef)
+                        && ef.TryGetProperty("off_order_scanned", out var ev) && ev.GetArrayLength() == 1;
+            Check("OFF-ORDER-IS-EACH-FAMILY'S-OWN: the file one family swept off-order is named in that family's section only — the sibling that never opened it carries an empty roster and a stamp that covers everything it swept",
+            oneSidedScriptsAt >= 0
+            && offOneSidedText.IndexOf("FreshPatch.esp", oneSidedScriptsAt, StringComparison.Ordinal) < 0
+            && offOneSidedText.Contains("swept OFF-ORDER (on disk, not in the active load order): FreshPatch.esp", StringComparison.Ordinal)
+            && oneSidedJson,
+            $"scripts@{oneSidedScriptsAt} json={oneSidedJson}");
 
         // ---- GROUNDS-ARE-ONE ------------------------------------------------------------------------
         // The advisor's standing probe, reproduced and then ruled (Aaron-go 2026-08-22). A whole call collapses to
@@ -575,12 +582,12 @@ public static class CheckMergeProbe
         // the second ground — each answer true, the response one ground short of what it held. The rule is uniform,
         // with no special case for a single selected family: one family has one ground, so it collapses.
         var errRefused = ErrorCheckResult.Fail("errors-ground: exclude= removed every plugin this sweep would have covered.");
-        var distinct = new CheckSweep(Sel("errors", "dialogue"), errRefused, null, null, unseeded);
+        var distinct = new CheckSweep(Sel("errors", "dialogue"), errRefused, null, unseeded);
         var distinctText = Wire.RenderCheck(distinct, 0);
         var distinctJson = JsonWire.RenderCheck(distinct, 0);
         // The CONTROL, in the same shape: both families refusing on the SAME ground is one answer, and one error is
         // what it must return. Without this half the arm would pass on a render that had simply stopped collapsing.
-        var sameGround = new CheckSweep(Sel("errors", "dialogue"), ErrorCheckResult.Fail(unseeded.Error!), null, null, unseeded);
+        var sameGround = new CheckSweep(Sel("errors", "dialogue"), ErrorCheckResult.Fail(unseeded.Error!), null, unseeded);
         var sameText = Wire.RenderCheck(sameGround, 0);
         var groundsBad = new List<string>();
         if (!distinctText.Contains("errors-ground:", StringComparison.Ordinal))
@@ -668,7 +675,7 @@ public static class CheckMergeProbe
         }
 
         // ---- DIALOGUE-NOT-PLUGIN-SCOPED ------------------------------------------------------------
-        var dlgOnly = new CheckSweep(Sel("dialogue"), null, null, null, dialogue);
+        var dlgOnly = new CheckSweep(Sel("dialogue"), null, null, dialogue);
         var dlgText = Wire.RenderCheck(dlgOnly, 0);
         var dlgJson = JsonWire.RenderCheck(dlgOnly, 0);
         using (var doc = JsonDocument.Parse(dlgJson))
@@ -710,7 +717,7 @@ public static class CheckMergeProbe
 
         // ---- DIALOGUE-UNREACHABLE-SEEDS-NAMED ------------------------------------------------------
         var dlgCounts = dialogue with { CountsOnly = true };
-        var countsText = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, dlgCounts), 0);
+        var countsText = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, dlgCounts), 0);
         Check($"DIALOGUE-UNREACHABLE-SEEDS-NAMED: all {UnreachableSeeds} seeds that resolved to nothing are named with why — in the listing lane AND under counts_only, which silences the blocks and not the boundary of the answer",
             Count(dlgText, "NOT validated:") == UnreachableSeeds
             && Count(countsText, "NOT validated:") == UnreachableSeeds
@@ -723,7 +730,7 @@ public static class CheckMergeProbe
         // limit= means SEEDS for this family. The arm asserts the fixture's own arithmetic: five named, two
         // expanded, three never reached — and the accounting has to say so rather than let them read as clean.
         var budgeted = DialogueSweep_Run(new[] { "000001:A.esp", "000002:A.esp", "000003:A.esp", "000004:A.esp", "000005:A.esp" }, 2);
-        var budgetText = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, budgeted), 0);
+        var budgetText = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, budgeted), 0);
         Check("DIALOGUE-SEED-BUDGET: limit= caps how many SEEDS a call expands, and the accounting names how many it never reached and which knob moves them",
             budgeted.SeedsNamed == 5 && budgeted.Seeds.Count == 2
             && budgetText.Contains("2 of the 5 seed(s) named were reached; 3 were NOT reached", StringComparison.Ordinal)
@@ -736,7 +743,7 @@ public static class CheckMergeProbe
         // accounting stating that three of them were never reached — a completeness claim its own section
         // contradicted. And the seed subject's own cut borrowed the ERRORS family's sentence, telling the caller
         // how many "plugin section(s)" a family that never opens a plugin had rendered.
-        var budgetJson = JsonWire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, budgeted), 0);
+        var budgetJson = JsonWire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, budgeted), 0);
         string budgetScope = FirstLineWith(budgetText, "scope:");
         var scopeLies = new List<string>();
         if (!budgetScope.Contains("It reached 2 of the 5 seed(s)", StringComparison.Ordinal))
@@ -764,7 +771,7 @@ public static class CheckMergeProbe
         bool sawSeedCut = false;
         for (int cap = 400; cap <= 6000; cap += 20)
         {
-            var t = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, budgeted), cap);
+            var t = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, budgeted), cap);
             if (t.Contains("seed section(s) were rendered", StringComparison.Ordinal)) sawSeedCut = true;
             if (t.Contains("plugin section(s) were rendered", StringComparison.Ordinal))
                 seedCutBad.Add($"@{cap}: the dialogue family reports its cut in plugin sections");
@@ -781,7 +788,7 @@ public static class CheckMergeProbe
         // review). And `seeds_validated` was written twice in one family object with two different meanings: the
         // seeds that produced a REPORT at family level, the seeds the budget REACHED in the accounting.
         var budgetCounts = budgeted with { CountsOnly = true };
-        var budgetCountsSweep = new CheckSweep(Sel("dialogue"), null, null, null, budgetCounts);
+        var budgetCountsSweep = new CheckSweep(Sel("dialogue"), null, null, budgetCounts);
         var budgetCountsText = Wire.RenderCheck(budgetCountsSweep, 0);
         var budgetCountsJson = JsonWire.RenderCheck(budgetCountsSweep, 0);
         var seedFacts = new List<string>();
@@ -827,7 +834,7 @@ public static class CheckMergeProbe
         // two, one of those VALIDATES and the other is UNREACHABLE.
         var fourPop = DialogueSweep_Run(new[] { "000A01:A.esp", "000B02:B.esp", "000C03:A.esp",
                                                 "000D04:A.esp", "000E05:A.esp" }, 2);
-        var fourPopSweep = new CheckSweep(Sel("dialogue"), null, null, null, fourPop);
+        var fourPopSweep = new CheckSweep(Sel("dialogue"), null, null, fourPop);
         var fourText = Wire.RenderCheck(fourPopSweep, 0);
         var fourJson = JsonWire.RenderCheck(fourPopSweep, 0);
         var pops = new List<string>();
@@ -914,7 +921,7 @@ public static class CheckMergeProbe
         // The expected value is the arithmetic, not a phrase the render prints.
         var oneSeed = DialogueSweep_Run(new[] { "000A01:HcCm.esp" }, 1000);
         var twoSeeds = DialogueSweep_Run(new[] { "000A01:A.esp", "000B02:A.esp" }, 1000);
-        var oneSeedSweep = new CheckSweep(Sel("dialogue"), null, null, null, oneSeed);
+        var oneSeedSweep = new CheckSweep(Sel("dialogue"), null, null, oneSeed);
         // THE FLOOR IS MEASURED WHERE THE RESPONSE CARRIES NO NOTICE. At cap 1 the response overruns and the
         // overrun sentence is part of what it returns, so a floor taken there overstates this response's fixed
         // part by the length of a sentence the cap under test does not print — which made shareCap wider than it
@@ -939,7 +946,7 @@ public static class CheckMergeProbe
         // one-source rule exists to catch one level up.
         int jsonFloor = JsonWire.RenderCheck(oneSeedSweep, 1).Length;
         int jsonRow = (JsonWire.RenderCheck(oneSeedSweep, 0).Length
-                       - JsonWire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, WithTopics(oneSeed, 1)), 0).Length)
+                       - JsonWire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, WithTopics(oneSeed, 1)), 0).Length)
                       / (Topics - 1);
         int jsonCap = jsonFloor + jsonRow * (Topics * 2 / 3);
         int jsonRendered = Count(JsonWire.RenderCheck(oneSeedSweep, jsonCap), "\"topic\":");
@@ -954,7 +961,7 @@ public static class CheckMergeProbe
         // worth asking, and can now fail, is that the seed subject's share is ITS OWN: the first seed's topic blocks
         // cannot spend the room the second seed's head needs, however tight the cap. The cap is sized from the
         // fixture's own floor and block width, so the cut is real and this file knows it.
-        var twoSeedSweep = new CheckSweep(Sel("dialogue"), null, null, null, twoSeeds);
+        var twoSeedSweep = new CheckSweep(Sel("dialogue"), null, null, twoSeeds);
         int twoFloor = Wire.RenderCheck(twoSeedSweep, 1).Length;
         int twoCap = twoFloor + TopicBlockWidth(twoSeeds) * (Topics * 2 / 3);
         var twoText = Wire.RenderCheck(twoSeedSweep, twoCap);
@@ -984,7 +991,7 @@ public static class CheckMergeProbe
         // was about a different roster from the one in its name (round-2 review).
         var allWithRoster = new CheckSweep(Sel("errors", "scripts", "dialogue"),
                                            errors with { ExcludedPlugins = roster },
-                                           scripts with { ExcludedPlugins = roster }, null, dialogue);
+                                           scripts with { ExcludedPlugins = roster }, dialogue);
         var allRosterText = Wire.RenderCheck(allWithRoster, 0);
         Check("ROSTER-STILL-ONE-WITH-THREE-FAMILIES: with all three families running over a build that DID exclude a plugin, the roster is emitted once and owned by the first family that has one — the dialogue family reports none of its own, because a seeded validation produces no such list",
             CheckOutcome.For(allWithRoster).RosterOwner == SweepFamily.Errors
@@ -1009,7 +1016,7 @@ public static class CheckMergeProbe
         foreach (var (label, sweep) in new[]
                  {
                      ("three families", all), ("three families + roster", allWithRoster),
-                     ("dialogue, seed budget cut", new CheckSweep(Sel("dialogue"), null, null, null, budgeted)),
+                     ("dialogue, seed budget cut", new CheckSweep(Sel("dialogue"), null, null, budgeted)),
                      ("dialogue, counts_only", budgetCountsSweep),
                      ("errors + refused dialogue", mixed),
                  })
@@ -1169,6 +1176,7 @@ public static class CheckMergeProbe
         const int OrchNpcs = 6;       // NPCs whose Race links into the absent master  ⇒ 6 dangling refs
         const int OrchWeapons = 4;    // weapons whose VMAD binds nothing              ⇒ 4 record sections
         const int OffOrderNpcs = 3;   // the same, in the plugin that is on disk but not in the order
+        const int OffOrderWeapons = 2;// its scripted records, so BOTH families have something to find off-order
         const int SecondWeapons = 2;  // a SECOND active plugin's, so exclude= has something left to sweep
 
         string instance = Path.Combine(root, "orch");
@@ -1215,7 +1223,7 @@ public static class CheckMergeProbe
         // behind: a cell that excluded the ONLY plugin in the order is answered by a refusal rather than by two
         // empty families, which is how the first spelling of the exclude cell passed while seeing nothing.
         WriteMod(Path.Combine(twoDir, "HcOrchTwo.esp"), "HcOrchTwo", 0, SecondWeapons);
-        WriteMod(Path.Combine(offDir, "HcOrchOff.esp"), "HcOrchOff", OffOrderNpcs, 0);
+        WriteMod(Path.Combine(offDir, "HcOrchOff.esp"), "HcOrchOff", OffOrderNpcs, OffOrderWeapons);
 
         // HcOrchOff.esp is in NO load-order file: on disk, in an enabled mod folder, out of the active order. That
         // is precisely the shape the two families answer differently.
@@ -1265,26 +1273,27 @@ public static class CheckMergeProbe
             && counts.Contains("dangling ref(s) by ", StringComparison.Ordinal),
             Trim(counts));
 
-        // ---- THE OFF-ORDER ASYMMETRY, end to end. The errors family resolves the name on disk and sweeps it; the
-        //      scripts family has no such lane and the response says so, in that family's own section.
+        // ---- THE OFF-ORDER LANE, end to end, in BOTH swept families. Each resolves the name on disk and sweeps
+        //      the file: the errors family walks its links, the scripts family reads its VMAD against the .pex
+        //      the active order supplies — the pre-enable verify sweep for a patch that is not enabled yet.
         var off = CheckTools.CheckTool(svc, plugins: new[] { "HcOrch.esp", "HcOrchOff.esp" },
                                        findings: new[] { "errors", "scripts" });
-        Arm($"ORCH-OFF-ORDER-ASYMMETRY-THROUGH-THE-TOOL: a plugin on disk but OUT of the active order is swept by the errors family ({OrchNpcs + OffOrderNpcs} dangling refs, not {OrchNpcs}) and named as not swept by the scripts family — the sentence a sabotage deleted from every response with nothing noticing",
+        Arm($"ORCH-OFF-ORDER-LANE-IN-BOTH-SWEPT-FAMILIES: a plugin on disk but OUT of the active order is swept by the errors family ({OrchNpcs + OffOrderNpcs} dangling refs, not {OrchNpcs}) AND by the scripts family ({OrchWeapons + OffOrderWeapons} record sections, not {OrchWeapons}), each naming it as swept off-order",
             off.Contains($"{OrchNpcs + OffOrderNpcs} dangling ref(s)", StringComparison.Ordinal)
-            && off.Contains("HcOrchOff.esp", StringComparison.Ordinal)
-            && off.Contains("did NOT sweep", StringComparison.Ordinal),
+            && off.Contains($"all {OrchWeapons + OffOrderWeapons} record section(s) found by this sweep appear above.", StringComparison.Ordinal)
+            && Count(off, "swept OFF-ORDER (on disk, not in the active load order): HcOrchOff.esp") == 2,
             Trim(off));
 
-        // ---- noneInScope. Every named plugin off-order leaves the scripts family an EMPTY scope, and passing null
-        //      instead would widen it to the whole order — a sweep the caller did not ask for.
-        var noneInScope = CheckTools.CheckTool(svc, plugins: new[] { "HcOrchOff.esp" },
-                                               findings: new[] { "errors", "scripts" });
-        Arm($"ORCH-NONE-IN-SCOPE-DOES-NOT-WIDEN: with every named plugin off-order the scripts family sweeps NOTHING rather than the whole order — 0 record sections, not the {OrchWeapons + SecondWeapons} the order holds — and says which file it did not sweep",
-            noneInScope.Contains("scanned 0 plugin", StringComparison.Ordinal)
-            && !noneInScope.Contains("[UNBOUND] ", StringComparison.Ordinal)
-            && noneInScope.Contains("did NOT sweep", StringComparison.Ordinal)
-            && noneInScope.Contains($"{OffOrderNpcs} dangling ref(s)", StringComparison.Ordinal),
-            Trim(noneInScope));
+        // ---- An entirely off-order scope must not WIDEN. The scripts family sweeps that one file and nothing
+        //      else: passing its empty active subset as "no scope" would sweep the whole order instead.
+        var onlyOffOrder = CheckTools.CheckTool(svc, plugins: new[] { "HcOrchOff.esp" },
+                                                findings: new[] { "errors", "scripts" });
+        Arm($"ORCH-AN-ENTIRELY-OFF-ORDER-SCOPE-DOES-NOT-WIDEN: with every named plugin off-order both families sweep that ONE file — {OffOrderWeapons} record sections, not the {OrchWeapons + SecondWeapons} the active order holds — and each says it scanned 1 plugin",
+            onlyOffOrder.Contains($"all {OffOrderWeapons} record section(s) found by this sweep appear above.", StringComparison.Ordinal)
+            && Count(onlyOffOrder, "scanned 1 plugin") == 2
+            && !onlyOffOrder.Contains("HcOrchTwo.esp", StringComparison.Ordinal)
+            && onlyOffOrder.Contains($"{OffOrderNpcs} dangling ref(s)", StringComparison.Ordinal),
+            Trim(onlyOffOrder));
 
         // ---- exclude=, which the tool's own description says applies in every SWEPT family. #344's pole is armed
         //      end-to-end for the errors family in check-errors-guard; this is the scripts family's half.
@@ -1331,45 +1340,43 @@ public static class CheckMergeProbe
             noteExclude.Contains("exclude= left out 1 plugin(s)", StringComparison.Ordinal),
             Trim(noteExclude));
 
-        // ---- a FAMILY-LOCAL scope refusal must not discard the family beside it that answered. The shape the
-        //      round-1 reviewers reached by code-read and could not fixture: exclude= is validated against each
-        //      family's OWN scope, and the scripts family is handed the ACTIVE subset of plugins=. Naming an
-        //      off-order file and excluding the active one empties the SCRIPTS family's scope while leaving the
-        //      errors family a file to sweep — and the whole call came back "exclude= removed every plugin this
-        //      sweep would have covered", discarding a completed errors sweep and printing a remedy that was
-        //      false for the family that had answered.
+        // ---- a FAMILY-LOCAL refusal must not discard the family beside it that answered, END TO END. The two
+        //      SWEPT families share one scope now — both take plugins= whole, off-order files included — so a
+        //      scope refusal is a shared ground and collapses to one error, which is the settled grounds-are-one
+        //      rule. The pair that still scopes differently is a swept family beside the SEEDED one: an unseeded
+        //      dialogue family refuses on cost while the errors family sweeps the off-order file, and raising that
+        //      refusal to response level would throw away a sweep that had answered.
         var localRefusal = CheckTools.CheckTool(svc, plugins: new[] { "HcOrch.esp", "HcOrchOff.esp" },
-                                                findings: new[] { "errors", "scripts" }, exclude: new[] { "HcOrch.esp" });
+                                                findings: new[] { "errors", "dialogue" });
         var localRefusalJson = CheckTools.CheckTool(svc, plugins: new[] { "HcOrch.esp", "HcOrchOff.esp" },
-                                                    findings: new[] { "errors", "scripts" }, exclude: new[] { "HcOrch.esp" },
-                                                    format: "json");
+                                                    findings: new[] { "errors", "dialogue" }, format: "json");
         bool jsonLocal;
         try
         {
             using var d = JsonDocument.Parse(localRefusalJson);
             jsonLocal = d.RootElement.TryGetProperty("families", out var fams)
-                     && fams.TryGetProperty("scripts", out var sc) && sc.TryGetProperty("refused", out _)
+                     && fams.TryGetProperty("dialogue", out var dl) && dl.TryGetProperty("refused", out _)
                      && fams.TryGetProperty("errors", out var er) && !er.TryGetProperty("refused", out _);
         }
         catch { jsonLocal = false; }
-        // …and the refused family asserts NO completeness. This writer is reachable with a failed result for the
-        // first time, so "all 0 record section(s) found by this sweep appear above" over a sweep that never ran is
-        // newly possible — the same claim-over-nothing the dialogue accounting was already guarded against.
-        bool refusedDeclaresNothing = !localRefusal.Contains("record section(s) found by this sweep appear above", StringComparison.Ordinal);
+        // …and the refused family asserts NO completeness: an accounting block over a sweep that never ran is the
+        // claim-over-nothing this response shape makes newly possible.
+        bool refusedDeclaresNothing;
         try
         {
             using var d = JsonDocument.Parse(localRefusalJson);
-            refusedDeclaresNothing &= Obj(Obj(Obj(d.RootElement, "families"), "scripts"), "accounting")
-                                      is { } refusedScriptsAcct
-                                      && !refusedScriptsAcct.TryGetProperty("record_sections_with_findings", out _);
+            refusedDeclaresNothing = Obj(Obj(Obj(d.RootElement, "families"), "dialogue"), "accounting")
+                                     is { } refusedDialogueAcct
+                                     && refusedDialogueAcct.TryGetProperty("listing", out var dlgListed)
+                                     && !dlgListed.GetBoolean();
         }
         catch { refusedDeclaresNothing = false; }
-        Arm($"ORCH-A-FAMILY-LOCAL-REFUSAL-DOES-NOT-REFUSE-THE-CALL: exclude= emptying the SCRIPTS family's own scope refuses that family in its own section, asserts no completeness there, and leaves the errors family's {OffOrderNpcs} off-order dangling refs standing — raised to response level it threw away a sweep that had answered and told the caller to narrow exclude=",
+        Arm($"ORCH-A-FAMILY-LOCAL-REFUSAL-DOES-NOT-REFUSE-THE-CALL: the seeded family refusing on cost is stated in its OWN section, asserts no completeness there, and leaves the errors family's {OrchNpcs + OffOrderNpcs} dangling refs — including the off-order file's — standing",
             !localRefusal.StartsWith("error", StringComparison.OrdinalIgnoreCase)
-            && localRefusal.Contains($"{OffOrderNpcs} dangling ref(s)", StringComparison.Ordinal)
-            && localRefusal.Contains("exclude= removed every plugin", StringComparison.Ordinal)
+            && localRefusal.Contains($"{OrchNpcs + OffOrderNpcs} dangling ref(s)", StringComparison.Ordinal)
+            && localRefusal.Contains("seeds=", StringComparison.Ordinal)
             && refusedDeclaresNothing
-            && Count(localRefusal, "\n[errors] ") == 1 && Count(localRefusal, "\n[scripts] ") == 1
+            && Count(localRefusal, "\n[errors] ") == 1 && Count(localRefusal, "\n[dialogue] ") == 1
             && jsonLocal,
             Trim(localRefusal));
 
@@ -1439,25 +1446,22 @@ public static class CheckMergeProbe
             && namedScope.Contains($"all {OrchWeapons} record section(s) found by this sweep appear above.", StringComparison.Ordinal),
             $"blank=[{Trim(blankScope)}] named=[{Trim(namedScope)}]");
 
-        // ---- THE SPLIT, both halves, on the one call that separates them: every named plugin resolves OFF-ORDER,
-        //      so the scripts family's scope is empty BY CONSTRUCTION and its own exclude= pass is skipped
-        //      (ScriptPropertyCheck: "exclude= removed every plugin" would be a refusal about a narrowing that did
-        //      nothing). Round-3 finding C3 is that the SYNTAX refusal went with it. It no longer does — and the
-        //      SCOPE-MATCHING half still stays family-local, which is the settled grounds-are-one design and the
-        //      thing a fold that moved both halves up front would have broken.
+        // ---- THE SPLIT, both halves, on a scope that is ENTIRELY off-order: the file on disk is in the scripts
+        //      family's scope now, so the exclusion axis has to judge it — a name that IS that file empties the
+        //      scope, a name that is not refuses as unmatched, and a syntactically bad VALUE still refuses up
+        //      front by name (round-3 finding C3), whichever families were selected.
         var emptyScopeBadToken = CheckTools.CheckTool(svc, findings: new[] { "scripts" },
                                                       plugins: new[] { "HcOrchOff.esp" }, exclude: new[] { "NotAToken" });
         var emptyScopeRealName = CheckTools.CheckTool(svc, findings: new[] { "scripts" },
                                                       plugins: new[] { "HcOrchOff.esp" }, exclude: new[] { "HcOrchTwo.esp" });
-        Arm("ORCH-AN-EMPTY-BY-CONSTRUCTION-SCOPE-REPORTS-ITSELF-RATHER-THAN-BLAMING-EXCLUDE: with every named plugin off-order the scripts family has nothing to sweep, and it says THAT — naming the file it did not sweep — rather than refusing over an exclude= that is not why. A syntactically bad exclude= value on the same call still refuses by name. This is the split's scope-matching half staying family-local: raised up front it would refuse a call another family can answer, and here it would bury the real reason under the exclusion",
+        var emptyScopeSelf = CheckTools.CheckTool(svc, findings: new[] { "scripts" },
+                                                  plugins: new[] { "HcOrchOff.esp" }, exclude: new[] { "HcOrchOff.esp" });
+        Arm("ORCH-EXCLUDE-JUDGES-AN-OFF-ORDER-SCOPE: with every named plugin off-order the scripts family still has that file in scope, so exclude= naming it empties the sweep and says so, exclude= naming something else refuses as unmatched, and a syntactically bad value refuses up front by name — an exclusion pass skipped over this scope would let all three pass silently",
             emptyScopeBadToken.StartsWith("error", StringComparison.OrdinalIgnoreCase)
             && emptyScopeBadToken.Contains("NotAToken", StringComparison.Ordinal)
-            && !emptyScopeRealName.StartsWith("error", StringComparison.OrdinalIgnoreCase)
-            && Count(emptyScopeRealName, "\n[scripts] ") == 1
-            && emptyScopeRealName.Contains("HcOrchOff.esp", StringComparison.Ordinal)
-            && !emptyScopeRealName.Contains("exclude= names", StringComparison.Ordinal)
-            && !emptyScopeRealName.Contains("exclude= removed every plugin", StringComparison.Ordinal),
-            $"token=[{Trim(emptyScopeBadToken)}] name=[{Trim(emptyScopeRealName)}]");
+            && emptyScopeRealName.Contains("exclude= names 'HcOrchTwo.esp'", StringComparison.Ordinal)
+            && emptyScopeSelf.Contains("exclude= removed every plugin this sweep would have covered (1 in scope, all excluded)", StringComparison.Ordinal),
+            $"token=[{Trim(emptyScopeBadToken)}] name=[{Trim(emptyScopeRealName)}] self=[{Trim(emptyScopeSelf)}]");
 
         // ---- A RECORD-LEVEL SEED STATES ITS VERDICT, AND THE BOUNDARY CLAIMS ONLY WHAT RAN (round-3 A1) ------
         //      A DLVW/DLBR seed rendered its head and nothing else: its ONE check went unstated when it passed, so
@@ -1465,13 +1469,13 @@ public static class CheckMergeProbe
         //      LinkTo, previous-link, .fuz, result-script and condition checks against a record that owns no INFO
         //      list for any of them to run against. Both sites gated on the same InputKind literal, which is why
         //      the fold goes through DialogueKindChecks and both read it.
-        var rlSweep = new CheckSweep(Sel("dialogue"), null, null, null, RecordLevelFixture());
-        var rlFail = new CheckSweep(Sel("dialogue"), null, null, null, RecordLevelFailingFixture());
-        var mixed = new CheckSweep(Sel("dialogue"), null, null, null, MixedKindFixture());
+        var rlSweep = new CheckSweep(Sel("dialogue"), null, null, RecordLevelFixture());
+        var rlFail = new CheckSweep(Sel("dialogue"), null, null, RecordLevelFailingFixture());
+        var mixed = new CheckSweep(Sel("dialogue"), null, null, MixedKindFixture());
         var rlText = Wire.RenderCheck(rlSweep, 0);
         var rlFailText = Wire.RenderCheck(rlFail, 0);
         var mixedText = Wire.RenderCheck(mixed, 0);
-        var questText = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, null, DialogueFixture()), 0);
+        var questText = Wire.RenderCheck(new CheckSweep(Sel("dialogue"), null, null, DialogueFixture()), 0);
 
         Arm("DIALOGUE-A-RECORD-LEVEL-SEED-STATES-ITS-VERDICT: a PASSING DLVW and a PASSING DLBR each carry their own CK-parity OK line, naming the subrecords their kind is checked for — and a FAILING one carries the issue instead, so the arm cannot pass on a sentence printed either way. The two kinds get different sentences because what the check looked at IS the answer",
             rlText.Contains("CK-parity: OK — the DNAM and ENAM byte subrecords", StringComparison.Ordinal)
@@ -1501,7 +1505,7 @@ public static class CheckMergeProbe
             var fam = Obj(Obj(d.RootElement, "families"), "dialogue");
             var seed0 = At(Arr(fam, "seeds"), 0);
             var quest = JsonDocument.Parse(JsonWire.RenderCheck(
-                new CheckSweep(Sel("dialogue"), null, null, null, DialogueFixture()), 0)).RootElement;
+                new CheckSweep(Sel("dialogue"), null, null, DialogueFixture()), 0)).RootElement;
             var questFam = Obj(Obj(quest, "families"), "dialogue");
             rlJson = Str(fam, "boundary") is { } b
                      && b.Contains("record-level CK-parity check only", StringComparison.Ordinal)

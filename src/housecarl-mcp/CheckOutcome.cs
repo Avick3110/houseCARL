@@ -158,18 +158,6 @@ internal sealed class CheckOutcome
     static string Describe(IReadOnlyList<SweepFamily> fs)
         => string.Join(", ", fs.Select(SweepFamilySelection.Describe));
 
-    /// <summary>The off-order asymmetry for ONE family, or null where it does not apply — a plugin the caller named
-    /// that is on disk but not in the active load order, which the errors family sweeps and this one does not.
-    ///
-    /// <para>Asked of the family's SECTION, not of whether that family ran: gated on the family having run, the
-    /// sentence disappears from the call that needs it most — one where the family refused over another named
-    /// plugin, leaving nothing to say why this one was out of scope either.</para></summary>
-    internal string? OffOrder(SweepFamily f)
-        => f == SweepFamily.Scripts && _s.ScriptsSkippedOffOrder is { Count: > 0 } off && Sections.Contains(f)
-            ? string.Format(ReadSentences.SweepFamilyOffOrderSkipped,
-                            SweepFamilySelection.Token(f), string.Join(", ", off))
-            : null;
-
     // ---- the render's own structure -----------------------------------------------------------------
 
     /// <summary>The allocation plan: which families this response renders, and which of each family's subjects

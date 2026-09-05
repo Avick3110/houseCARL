@@ -66,6 +66,13 @@ public static class ScriptPropertyCheck
     /// (bar scan errors) and instead returns an unbound-by-property-name <see cref="ScriptCheckResult.Histogram"/>
     /// for a before/after-a-fix comparison.</para>
     ///
+    /// <para><paramref name="offOrder"/> is the pre-enable verify lane, the same one <see cref="ErrorCheck"/> has:
+    /// plugin FILES to sweep that are NOT in the active order (name + on-disk path). Their records come off the
+    /// file's own overlay and are cross-checked against the <c>.pex</c> chain the ACTIVE order supplies — a script
+    /// that lives only inside the not-yet-enabled mod is outside that chain and reports UNVERIFIABLE, never clean.
+    /// A scope that resolved ENTIRELY off-order leaves <paramref name="scope"/> empty and is NOT widened to the
+    /// whole order.</para>
+    ///
     /// <para>UNVERIFIABLE attachments ride through every filter untouched. A script whose <c>.pex</c> could not be read
     /// might be the very one declaring the property being filtered for, so dropping the note under a filter would turn
     /// "could not check" into a clean answer.</para></summary>
@@ -73,9 +80,10 @@ public static class ScriptPropertyCheck
                                         IReadOnlyList<string>? scope, int limit,
                                         SweepScope? recordScope = null, string? propertyContains = null,
                                         ScriptFindingClass classes = ScriptFindingClass.All, bool countsOnly = false,
-                                        SweepExclusion.Resolved? exclude = null, bool noneInScope = false)
+                                        SweepExclusion.Resolved? exclude = null,
+                                        IReadOnlyList<(string Name, string Path)>? offOrder = null)
         => Run(resolver, resolver.Capture(), assets, scope, limit, recordScope, propertyContains, classes, countsOnly,
-               exclude, noneInScope);
+               exclude, offOrder);
 
     /// <summary>The view-threaded body — same contract as <see cref="ErrorCheck"/>'s: the caller's captured view
     /// decides membership, drives the sweep, and stamps success AND refusals, so one call never mixes builds between
@@ -85,7 +93,8 @@ public static class ScriptPropertyCheck
                                         IReadOnlyList<string>? scope, int limit,
                                         SweepScope? recordScope = null, string? propertyContains = null,
                                         ScriptFindingClass classes = ScriptFindingClass.All, bool countsOnly = false,
-                                        SweepExclusion.Resolved? exclude = null, bool noneInScope = false)
+                                        SweepExclusion.Resolved? exclude = null,
+                                        IReadOnlyList<(string Name, string Path)>? offOrder = null)
     {
         var propFilter = string.IsNullOrWhiteSpace(propertyContains) ? null : propertyContains.Trim();
         bool PropOk(string name) => propFilter is null || name.Contains(propFilter, StringComparison.OrdinalIgnoreCase);
@@ -94,16 +103,7 @@ public static class ScriptPropertyCheck
 
         // --- resolve the plugin set to scan; a bad or excluded explicit scope name fails loud, never a silent skip ---
         List<string> targets;
-        // NOTHING THIS FAMILY CAN SWEEP, said explicitly rather than by handing the sweep an empty list — an empty
-        // scope means "the whole order" everywhere else in this method, and a caller that reached this state must
-        // not silently get one. It is reached from the merged surface when every plugin the caller named resolved
-        // OFF-ORDER: this family has no off-order lane, so its scope is genuinely empty and its response says so
-        // (the render states which files it did not sweep, and why, in this family's own section).
-        if (noneInScope)
-        {
-            targets = new List<string>();
-        }
-        else if (scope is { Count: > 0 })
+        if (scope is { Count: > 0 })
         {
             targets = new List<string>(scope.Count);
             foreach (var name in scope)
@@ -120,6 +120,10 @@ public static class ScriptPropertyCheck
                 targets.Add(name);
             }
         }
+        else if (offOrder is { Count: > 0 })
+        {
+            targets = new List<string>();   // the caller's explicit scope resolved ENTIRELY off-order — don't widen to the whole order
+        }
         else
         {
             targets = new List<string>();
@@ -128,27 +132,36 @@ public static class ScriptPropertyCheck
         }
 
         // The exclusion axis, applied to the SWEEP exactly as ErrorCheck applies it: a plugin the caller excluded
-        // costs no record walk, no .pex chain read and no finding budget.
-        // Skipped where the scope is already empty by construction: "exclude= removed every plugin" would be a
-        // refusal about a narrowing that did nothing, over a scope the caller can only widen somewhere else.
-        if (exclude is not null && !noneInScope)
+        // costs no record walk, no .pex chain read and no finding budget. Off-order files are in that scope too —
+        // an exclusion naming one has to remove it, and has to count as having matched something.
+        if (exclude is not null)
         {
             var drop = new HashSet<string>(exclude.Names, StringComparer.OrdinalIgnoreCase);
             // Only the names the CALLER TYPED are held against the scope: a typed name that matches nothing is a
             // typo and refuses; a GROUP member that is not here is the ordinary case.
             var inScope = new HashSet<string>(targets, StringComparer.OrdinalIgnoreCase);
+            foreach (var name in offOrder ?? Array.Empty<(string Name, string Path)>()) inScope.Add(name.Name);
             foreach (var name in exclude.TypedNames)
                 if (!inScope.Contains(name))
                     return ScriptCheckResult.Fail(
                         $"exclude= names '{name}', which is not in the scope this sweep would cover.{view.AbsenceClause(name)} " +
                         "Nothing was swept — an exclusion that matches nothing would return the findings you asked to leave out.")
                            with { Epoch = view.Epoch };
-            int before = targets.Count;
+            int before = targets.Count, offBefore = offOrder?.Count ?? 0;
+            // The whole scope this sweep would have covered, captured before either filter runs — a plugins= that
+            // resolved entirely off-order leaves targets deliberately empty, so reading targets alone would tell
+            // the caller their one-plugin scope held nothing.
+            int scopeBefore = before + offBefore;
             targets.RemoveAll(drop.Contains);
             excludedFromScope = before - targets.Count;
-            if (targets.Count == 0)
+            if (offOrder is { Count: > 0 })
+            {
+                offOrder = offOrder.Where(o => !drop.Contains(o.Name)).ToList();
+                excludedFromScope += offBefore - offOrder.Count;
+            }
+            if (targets.Count == 0 && (offOrder is null || offOrder.Count == 0))
                 return ScriptCheckResult.Fail(
-                    $"exclude= removed every plugin this sweep would have covered ({before} in scope, all excluded) — " +
+                    $"exclude= removed every plugin this sweep would have covered ({scopeBefore} in scope, all excluded) — " +
                     "there is nothing left to check. Narrow exclude=, or widen plugins=.")
                        with { Epoch = view.Epoch };
         }
@@ -186,6 +199,101 @@ public static class ScriptPropertyCheck
         bool tallyable = classes.HasFlag(ScriptFindingClass.UnboundObject) || classes.HasFlag(ScriptFindingClass.UnboundScalar);
         var histogram = countsOnly && tallyable ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) : null;
 
+        // ONE record's cross-check, shared by both lanes: an indexed plugin's record stream and an off-order file's
+        // overlay hand it the same three facts, so the two lanes cannot drift on what counts as a finding.
+        void ScanRecord(FormKey fk, IMajorRecordGetter body, string plugin)
+        {
+            // The record scope, tested BEFORE the VMAD/.pex work so a narrow scope is cheap as well as small.
+            if (recordScope is not null && !recordScope.Matches(fk, body)) return;
+            if (body is not IHaveVirtualMachineAdapterGetter have) return;
+            if (have.VirtualMachineAdapter is not { } vmad) return;
+            var scriptEntries = CollectScriptEntries(vmad);
+            if (scriptEntries.Count == 0) return;
+            recordsWithScripts++;
+
+            var unbound = new List<UnboundProperty>();
+            var nulls = new List<NullObjectProperty>();
+            var unver = new List<ScriptUnverifiable>();
+
+            foreach (var entry in scriptEntries)
+            {
+                var scriptClass = entry.Name?.Trim();
+                if (string.IsNullOrEmpty(scriptClass))
+                {
+                    unver.Add(new ScriptUnverifiable("(unnamed)",
+                        "the script attachment carries no class name — can't resolve its .pex to check its properties."));
+                    continue;
+                }
+
+                // Bound-but-null object properties: the slot exists in the VMAD, its Object link is null AND
+                // it is NOT bound to a quest alias instead (Alias >= 0). A ScriptObjectProperty binds EITHER an
+                // Object FormLink OR a quest Alias index (Alias -1 = unset) — an alias-bound property has a null
+                // Object by design, so flagging it as bound-but-null would be a false positive.
+                if (classes.HasFlag(ScriptFindingClass.BoundNull))
+                    foreach (var p in entry.Properties)
+                        if (p is IScriptObjectPropertyGetter op && op.Object.FormKey.IsNull && op.Alias < 0 && !string.IsNullOrWhiteSpace(p.Name))
+                        {
+                            var pname = p.Name!.Trim();
+                            if (PropOk(pname)) nulls.Add(new NullObjectProperty(scriptClass, pname));
+                        }
+
+                var chain = ResolveChain(av, chainCache, scriptClass);
+                if (chain.OwnLoadError is not null)
+                {
+                    unver.Add(new ScriptUnverifiable(scriptClass, chain.OwnLoadError));
+                    continue;   // can't read the script's own properties — nothing to compare against
+                }
+
+                var boundNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var p in entry.Properties)
+                    if (!string.IsNullOrWhiteSpace(p.Name)) boundNames.Add(p.Name!.Trim());
+
+                foreach (var d in chain.Declared)
+                {
+                    if (boundNames.Contains(d.Name)) continue;
+                    // A scalar with a baked initializer has the author's intended default — leaving it
+                    // unbound is correct, so it is NOT a finding (keeps the scalar signal from crying wolf).
+                    if (!d.IsObjectType && d.HasInitializer) continue;
+                    // The caller's class + property-name narrowing.
+                    if (!classes.HasFlag(d.IsObjectType ? ScriptFindingClass.UnboundObject : ScriptFindingClass.UnboundScalar)) continue;
+                    if (!PropOk(d.Name)) continue;
+                    unbound.Add(new UnboundProperty(scriptClass, d.DeclaringScript, d.Name, d.TypeName, d.IsObjectType));
+                }
+
+                if (chain.ChainNote is not null)
+                    unver.Add(new ScriptUnverifiable(scriptClass, chain.ChainNote));
+            }
+
+            if (unbound.Count == 0 && nulls.Count == 0 && unver.Count == 0) return;
+
+            // Apply the shared finding budget (unbound + null are the capped population; unverifiable notes
+            // are few and always kept). The true totals are counted regardless of the cap.
+            totalUnbound += unbound.Count;
+            foreach (var u in unbound) { if (u.IsObjectType) totalUnboundObject++; else totalUnboundScalar++; }
+            totalNull += nulls.Count;
+            totalUnverifiable += unver.Count;
+
+            // counts_only=: tally and move on — no per-record report is built, so the record roster that
+            // overflows the token cap never forms. Gated on countsOnly, NOT on the histogram: with both
+            // unbound classes excluded the histogram is null above and the roster must still not build.
+            if (countsOnly)
+            {
+                if (histogram is not null)
+                    foreach (var u in unbound)
+                        histogram[u.PropertyName] = histogram.TryGetValue(u.PropertyName, out var c) ? c + 1 : 1;
+                return;
+            }
+
+            var keptUnbound = new List<UnboundProperty>();
+            var keptNull = new List<NullObjectProperty>();
+            foreach (var u in unbound) { if (findingBudget > 0) { keptUnbound.Add(u); findingBudget--; } else capped = true; }
+            foreach (var n in nulls)   { if (findingBudget > 0) { keptNull.Add(n);   findingBudget--; } else capped = true; }
+
+            reports.Add(new RecordScriptFindings(
+                fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, plugin,
+                keptUnbound, keptNull, unver));
+        }
+
         foreach (var plugin in targets)
         {
             string? scanError = null;
@@ -195,103 +303,8 @@ public static class ScriptPropertyCheck
                 {
                     // PER-RECORD FAULT ISOLATION: a VMAD Mutagen can't parse is excluded and accounted per record,
                     // never an opaque whole-call abort and never a silent skip.
-                    try
-                    {
-                        // The record scope, tested BEFORE the VMAD/.pex work so a narrow scope is cheap as well as small.
-                        if (recordScope is not null && !recordScope.Matches(fk, body)) continue;
-                        if (body is not IHaveVirtualMachineAdapterGetter have) continue;
-                        if (have.VirtualMachineAdapter is not { } vmad) continue;
-                        var scriptEntries = CollectScriptEntries(vmad);
-                        if (scriptEntries.Count == 0) continue;
-                        recordsWithScripts++;
-
-                        var unbound = new List<UnboundProperty>();
-                        var nulls = new List<NullObjectProperty>();
-                        var unver = new List<ScriptUnverifiable>();
-
-                        foreach (var entry in scriptEntries)
-                        {
-                            var scriptClass = entry.Name?.Trim();
-                            if (string.IsNullOrEmpty(scriptClass))
-                            {
-                                unver.Add(new ScriptUnverifiable("(unnamed)",
-                                    "the script attachment carries no class name — can't resolve its .pex to check its properties."));
-                                continue;
-                            }
-
-                            // Bound-but-null object properties: the slot exists in the VMAD, its Object link is null AND
-                            // it is NOT bound to a quest alias instead (Alias >= 0). A ScriptObjectProperty binds EITHER an
-                            // Object FormLink OR a quest Alias index (Alias -1 = unset) — an alias-bound property has a null
-                            // Object by design, so flagging it as bound-but-null would be a false positive.
-                            if (classes.HasFlag(ScriptFindingClass.BoundNull))
-                                foreach (var p in entry.Properties)
-                                    if (p is IScriptObjectPropertyGetter op && op.Object.FormKey.IsNull && op.Alias < 0 && !string.IsNullOrWhiteSpace(p.Name))
-                                    {
-                                        var pname = p.Name!.Trim();
-                                        if (PropOk(pname)) nulls.Add(new NullObjectProperty(scriptClass, pname));
-                                    }
-
-                            var chain = ResolveChain(av, chainCache, scriptClass);
-                            if (chain.OwnLoadError is not null)
-                            {
-                                unver.Add(new ScriptUnverifiable(scriptClass, chain.OwnLoadError));
-                                continue;   // can't read the script's own properties — nothing to compare against
-                            }
-
-                            var boundNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                            foreach (var p in entry.Properties)
-                                if (!string.IsNullOrWhiteSpace(p.Name)) boundNames.Add(p.Name!.Trim());
-
-                            foreach (var d in chain.Declared)
-                            {
-                                if (boundNames.Contains(d.Name)) continue;
-                                // A scalar with a baked initializer has the author's intended default — leaving it
-                                // unbound is correct, so it is NOT a finding (keeps the scalar signal from crying wolf).
-                                if (!d.IsObjectType && d.HasInitializer) continue;
-                                // The caller's class + property-name narrowing.
-                                if (!classes.HasFlag(d.IsObjectType ? ScriptFindingClass.UnboundObject : ScriptFindingClass.UnboundScalar)) continue;
-                                if (!PropOk(d.Name)) continue;
-                                unbound.Add(new UnboundProperty(scriptClass, d.DeclaringScript, d.Name, d.TypeName, d.IsObjectType));
-                            }
-
-                            if (chain.ChainNote is not null)
-                                unver.Add(new ScriptUnverifiable(scriptClass, chain.ChainNote));
-                        }
-
-                        if (unbound.Count == 0 && nulls.Count == 0 && unver.Count == 0) continue;
-
-                        // Apply the shared finding budget (unbound + null are the capped population; unverifiable notes
-                        // are few and always kept). The true totals are counted regardless of the cap.
-                        totalUnbound += unbound.Count;
-                        foreach (var u in unbound) { if (u.IsObjectType) totalUnboundObject++; else totalUnboundScalar++; }
-                        totalNull += nulls.Count;
-                        totalUnverifiable += unver.Count;
-
-                        // counts_only=: tally and move on — no per-record report is built, so the record roster that
-                        // overflows the token cap never forms. Gated on countsOnly, NOT on the histogram: with both
-                        // unbound classes excluded the histogram is null above and the roster must still not build.
-                        if (countsOnly)
-                        {
-                            if (histogram is not null)
-                                foreach (var u in unbound)
-                                    histogram[u.PropertyName] = histogram.TryGetValue(u.PropertyName, out var c) ? c + 1 : 1;
-                            continue;
-                        }
-
-                        var keptUnbound = new List<UnboundProperty>();
-                        var keptNull = new List<NullObjectProperty>();
-                        foreach (var u in unbound) { if (findingBudget > 0) { keptUnbound.Add(u); findingBudget--; } else capped = true; }
-                        foreach (var n in nulls)   { if (findingBudget > 0) { keptNull.Add(n);   findingBudget--; } else capped = true; }
-
-                        reports.Add(new RecordScriptFindings(
-                            fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, plugin,
-                            keptUnbound, keptNull, unver));
-                    }
-                    catch (Exception ex)
-                    {
-                        scanError = (scanError is null ? "" : scanError + "; ")
-                                  + $"a record's script adapter could not be read ({fk} — {ex.GetType().Name}: {ex.Message})";
-                    }
+                    try { ScanRecord(fk, body, plugin); }
+                    catch (Exception ex) { scanError = RecordFault(scanError, fk, ex); }
                 }
             }
             // The plugin enumeration itself faulting is NAMED per-plugin and the sweep continues — never the MCP
@@ -306,11 +319,55 @@ public static class ScriptPropertyCheck
                 reports.Add(RecordScriptFindings.PluginScanError(plugin, scanError));
         }
 
-        return new ScriptCheckResult(reports, targets.Count, recordsWithScripts, totalUnbound, totalNull,
-                                     totalUnverifiable, capped, av.ReadIncomplete, view.ExcludedPlugins, null,
+        // --- off-order files (the pre-enable verify lane): the file's OWN overlay, its script attachments checked
+        //     against the .pex chain the ACTIVE order supplies. Same fault-isolation contract as the active loop.
+        //     A .pex that lives only in the not-yet-enabled mod's own folder is outside that chain, so it lands as
+        //     UNVERIFIABLE, never as clean — the same answer an uncompiled script gets on the active lane.
+        var offOrderScanned = new List<string>();
+        foreach (var (name, path) in offOrder ?? Array.Empty<(string Name, string Path)>())
+        {
+            offOrderScanned.Add(name);
+            ISkyrimModGetter ov;
+            try { ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE); }
+            catch (Exception ex)
+            {
+                reports.Add(RecordScriptFindings.PluginScanError(name,
+                    $"could not open '{path}' as a Skyrim plugin: {ex.GetType().Name}: {ex.Message}"));
+                continue;
+            }
+
+            string? scanError = null;
+            try
+            {
+                foreach (var rec in SweepScope.RecordsFrom(ov, recordScope))
+                {
+                    try { ScanRecord(rec.FormKey, rec, name); }
+                    catch (Exception ex) { scanError = RecordFault(scanError, rec.FormKey, ex); }
+                }
+            }
+            catch (Exception ex)
+            {
+                reports.Add(RecordScriptFindings.PluginScanError(name,
+                    $"record enumeration aborted partway: {ex.GetType().Name}: {ex.Message}"));
+            }
+            finally { (ov as IDisposable)?.Dispose(); }
+
+            if (scanError is not null)
+                reports.Add(RecordScriptFindings.PluginScanError(name, scanError));
+        }
+
+        return new ScriptCheckResult(reports, targets.Count + offOrderScanned.Count, recordsWithScripts, totalUnbound,
+                                     totalNull, totalUnverifiable, capped, av.ReadIncomplete, view.ExcludedPlugins, null,
                                      filterNote, histogram is null ? null : SweepFindings.Histogram(histogram), countsOnly,
-                                     classes, totalUnboundObject, totalUnboundScalar, propFilter, view.Epoch, limit);
+                                     classes, totalUnboundObject, totalUnboundScalar, propFilter, view.Epoch, limit,
+                                     offOrderScanned);
     }
+
+    /// <summary>One record's fault, appended to the plugin's running scan-error line — the same sentence on both
+    /// lanes, so an off-order file's unreadable adapter reads exactly as an indexed one's.</summary>
+    static string RecordFault(string? soFar, FormKey fk, Exception ex)
+        => (soFar is null ? "" : soFar + "; ")
+         + $"a record's script adapter could not be read ({fk} — {ex.GetType().Name}: {ex.Message})";
 
     /// <summary>Every script attachment on the record: the adapter's own <see cref="IAVirtualMachineAdapterGetter.Scripts"/>
     /// PLUS, for a QUEST, each alias's scripts (<see cref="IQuestAdapterGetter.Aliases"/> →
@@ -501,8 +558,9 @@ public sealed record ScriptCheckResult(
     int TotalUnboundObject = 0,
     int TotalUnboundScalar = 0,
     string? PropertyContains = null,
-    string? Epoch = null,   // the swept build's fingerprint; null only on the pre-sweep refusals
-    int Limit = 0)   // the finding budget this sweep was GIVEN, so the response names the knob to raise off the number actually used
+    string? Epoch = null,   // the swept INDEXED build's fingerprint; null only on the pre-sweep refusals. OffOrderScanned files are located OUTSIDE the index — their content is not under this fingerprint, so the renders qualify the stamp when any were swept
+    int Limit = 0,   // the finding budget this sweep was GIVEN, so the response names the knob to raise off the number actually used
+    IReadOnlyList<string>? OffOrderScanned = null)   // the files swept OFF-ORDER: on disk, not in the active order — the pre-enable verify lane
 {
     public bool Success => Error is null;
     public static ScriptCheckResult Fail(string error) =>

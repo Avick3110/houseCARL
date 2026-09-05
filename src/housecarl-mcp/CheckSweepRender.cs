@@ -14,9 +14,6 @@ namespace HousecarlMcp;
 /// </summary>
 /// <param name="Selection">which families the caller asked for, which registered ones they did not, and whether
 /// that was a choice or the default. What each family then did is <see cref="CheckOutcome"/>.</param>
-/// <param name="ScriptsSkippedOffOrder">plugin names the caller asked for that resolved off-order — on disk, not in
-/// the active load order. The errors family sweeps those; the scripts family has no off-order lane and did not.
-/// Empty on every call that named no such file, and the response states the asymmetry per family.</param>
 /// <param name="SharedInputError">the ground for refusing before any family was dispatched — a value malformed as
 /// input to every family that could have used it (<see cref="SweepSharedInput"/>). A whole-call answer by
 /// construction: no family ran, so there is no section for it to sit in and no sibling answer it could be throwing
@@ -25,7 +22,6 @@ internal sealed record CheckSweep(
     SweepFamilySelection Selection,
     ErrorCheckResult? Errors = null,
     ScriptCheckResult? Scripts = null,
-    IReadOnlyList<string>? ScriptsSkippedOffOrder = null,
     DialogueCheckResult? Dialogue = null,
     string? SharedInputError = null)
 {

@@ -394,14 +394,6 @@ internal static class ReadSentences
     [NoClaims("a list item; the claims are the family description it quotes and the spelling it prints")]
     internal const string SweepFamilyNotRun = "{0} ({1})";
 
-    /// <summary>The scripts family has no off-order lane: the errors family sweeps a plugin that is on disk but
-    /// not in the active order, and the script sweep refuses such a name. On one <c>plugins=</c> list feeding
-    /// several families that asymmetry has to be stated, not resolved by silently widening one family.</summary>
-    [MustState("off-order", "did NOT sweep")]
-    internal const string SweepFamilyOffOrderSkipped =
-        "the {0} family did NOT sweep {1}: that plugin is on disk but not in the active load order, and only the " +
-        "errors family has an off-order lane. Its findings for that file are absent, not clean.";
-
     /// <summary>The merged response's boundary label. Each family states its own boundary and they claim different
     /// things, so the label is parameterised to name whose claim follows it.</summary>
     [NoClaims("a label; the claim it introduces is the named family's own boundary")]
