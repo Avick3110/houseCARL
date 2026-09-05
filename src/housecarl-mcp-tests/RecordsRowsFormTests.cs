@@ -19,6 +19,18 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
     string Conditions(RecordsTools.RecordsProject p) =>
         RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefB) }, project: p);
 
+    string Effects(RecordsTools.RecordsProject p) =>
+        RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) }, project: p);
+
+    /// <summary>A no-value leaf, for the unit-level folds.</summary>
+    static HousecarlCore.FieldValue Fv(string path, string note) =>
+        new(path, false, null, note, Present: true);
+
+    /// <summary>Every field path the json document carries for the one record.</summary>
+    static List<string?> JsonPaths(string json) =>
+        Je(json).GetProperty("records")[0].GetProperty("fields")
+                .EnumerateArray().Select(f => f.GetProperty("path").GetString()).ToList();
+
     [Fact]
     public void AConditionStackIsOneLinePerRow()
     {
@@ -41,11 +53,13 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
     }
 
     [Fact]
-    public void AbsentParametersAndNullLinksAreOmitted()
+    public void AnAbsentParameterIsOmittedAndADeclaredNullLinkIsKept()
     {
         var rows = Conditions(Rows("Conditions"));
         Assert.DoesNotContain("(absent)", rows);
-        Assert.DoesNotContain("(null link)", rows);
+        // A null link is an EMPTY SLOT, not an absence — it is the signal the None-property diagnostics read,
+        // so the fold keeps it and only the absent optional goes.
+        Assert.Contains("(null link)", rows);
         // The same read unfolded carries both — the omission is this form's doing, not the record's.
         var fields = Conditions(new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Conditions" }, depth = 4 });
         Assert.Contains("(absent)", fields);
@@ -56,6 +70,8 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
     public void AnUnreadableSubFieldIsNotAnAbsentOne()
     {
         // A read fault must survive the fold: dropping it would report "I could not look" as "nothing is there".
+        // Driven at the fold directly on purpose: ReadEngine.Expand skips a nested property-get fault rather than
+        // emitting an unreadable line, so no read on this lane can produce one — this pins the fold, not the lane.
         var folded = RowProjection.Fold(new[]
         {
             new HousecarlCore.FieldValue("Conditions[0]", false, null, "[ConditionFloat]", Present: true),
@@ -72,11 +88,129 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
     [Fact]
     public void TheFoldIsGeneralNotConditionSpecific()
     {
-        // A spell effect is an ordinary struct list with an ordinary substruct — same one line per element.
-        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) }, project: Rows("Effects"));
-        var row = RowLine(r, "Effects[0]");
-        Assert.Contains("Data.Magnitude=5", row);
+        // A spell effect is an ordinary struct list with an ordinary substruct — same one line per element,
+        // over a MULTI-element list, so the row boundary is exercised off the condition lane too.
+        var r = Effects(Rows("Effects"));
+        Assert.Contains("Data.Magnitude=5", RowLine(r, "Effects[0]"));
+        Assert.Contains("Data.Magnitude=11", RowLine(r, "Effects[1]"));
         Assert.DoesNotContain("Effects[0].", r);
+        Assert.DoesNotContain("Effects[1].", r);
+    }
+
+    [Fact]
+    public void ADeclaredNullLinkOnANonConditionElementIsKeptToo() =>
+        Assert.Contains("BaseEffect=(null link)", RowLine(Effects(Rows("Effects")), "Effects[1]"));
+
+    [Fact]
+    public void ANestedListInsideAnElementFoldsIntoThatElementsRow()
+    {
+        var r = Effects(Rows("Effects"));
+        var row = RowLine(r, "Effects[1]");
+        Assert.Contains("Conditions=[list: 1 item(s)]", row);   // the nested list keeps its count
+        Assert.Contains("Conditions[0]=[ConditionFloat]", row);
+        Assert.DoesNotContain("\n  Effects[1].Conditions", r);  // and never as lines of its own
+    }
+
+    [Fact]
+    public void AnIndexedRootFoldsExactlyThatElement()
+    {
+        var r = Conditions(Rows("Conditions[1]"));
+        Assert.Contains("Data.Function=GetActorValue", RowLine(r, "Conditions[1]"));
+        Assert.DoesNotContain("Conditions[0]", r);
+        Assert.DoesNotContain("Conditions[1].", r);
+    }
+
+    [Fact]
+    public void AFieldThatIsNotAListFailsLoudInsteadOfAnsweringWithTheFieldsForm()
+    {
+        // Silently answering with the fields form is the failure this refuses: the caller asked for rows.
+        // Per RECORD, because only the read knows what the path resolved to on this record's type.
+        var r = Conditions(Rows("EditorID"));
+        Assert.Contains("error: project.form='rows' folds a LIST field", r);
+        Assert.Contains("'EditorID' on MagicEffect", r);
+        Assert.Contains("project.form='fields'", r);
+    }
+
+    [Fact]
+    public void AnAbsentOrUnknownFieldIsTheReadsAnswerNotAMisuseOfTheForm() =>
+        // No such field on a WEAP: that is what the read found, and the fields form's own note says it.
+        Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[1]) }, project: Rows("Conditions")),
+               "Conditions");
+
+    [Fact]
+    public void OverlappingRootsGiveOneEntryPerElement()
+    {
+        // The longer root claims the nested lines, so the outer element's own lines can resume after them; a row
+        // is keyed by its PATH, so what resumes rejoins the row it belongs to instead of opening a second one.
+        var folded = RowProjection.Fold(new[]
+        {
+            Fv("Effects[0]", "[Effect]"),
+            Fv("Effects[0].BaseEffect", "(null link)"),
+            Fv("Effects[0].Conditions[0]", "[ConditionFloat]"),
+            Fv("Effects[0].Flags", "0"),
+        }, new[] { "Effects[0].Conditions", "Effects" }.OrderByDescending(s => s.Length).ToList());
+        Assert.Equal(new[] { "Effects[0]", "Effects[0].Conditions[0]" }, folded.Select(f => f.Path));
+        Assert.Contains("Flags=0", folded[0].Note);
+    }
+
+    [Fact]
+    public void TheJsonDocumentNeverCarriesTwoEntriesForOnePath()
+    {
+        var paths = JsonPaths(RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) }, format: "json",
+                                                   project: Rows("Effects", "Effects[1].Conditions")));
+        Assert.Equal(paths.Distinct().Count(), paths.Count);
+    }
+
+    [Fact]
+    public void ARowsJsonEntryCarriesItsCellsStructurallyNotAsANote()
+    {
+        var row = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) }, format: "json",
+                         project: new RecordsTools.RecordsProject { form = "rows", fields = new[] { "Effects" }, resolve_names = true }))
+                  .GetProperty("records")[0].GetProperty("fields")[1];
+        Assert.Equal("Effects[0]", row.GetProperty("path").GetString());
+        // The row's DATA is cells, never prose in a note: a value stays a value and resolve_names stays a link
+        // object, exactly as they are on the fields form.
+        Assert.False(row.TryGetProperty("note", out _));
+        var cells = row.GetProperty("cells").EnumerateArray().ToList();
+        Assert.Equal("5", cells.Single(c => c.GetProperty("path").GetString() == "Effects[0].Data.Magnitude").GetProperty("value").GetString());
+        Assert.Equal("HcRecMgefFire", cells.Single(c => c.GetProperty("path").GetString() == "Effects[0].BaseEffect")
+                                           .GetProperty("link").GetProperty("editorid").GetString());
+    }
+
+    [Fact]
+    public void TheTruncationNoteOffersARemedyThisFormCanTake()
+    {
+        // The engine's own remedy ("a lower depth") points at depths this form refuses or renders bare, so the
+        // fold restates it. The cut itself is the engine's and is unchanged.
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, project: Rows("Items"));
+        Assert.Contains("expansion truncated at", r);
+        Assert.Contains("the fold runs AFTER the read", r);
+        Assert.Contains("lower depth to 3", r);
+    }
+
+    [Fact]
+    public void TheOffOrderArmFoldsToo()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) }, source: Plugin(W.OldName),
+                                     project: Rows("Effects"));
+        Assert.Contains("Data.Magnitude=11", RowLine(r, "Effects[1]"));
+        Assert.DoesNotContain("Effects[1].", r);
+    }
+
+    [Fact]
+    public void AWalkedReachedSetFolds() =>
+        Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) }, walk: new RecordsTools.RecordsWalk(),
+                                    project: Rows("Effects")), "Effects[1] = ");
+
+    [Fact]
+    public void ToFileSpillsTheFoldedRows()
+    {
+        var art = W.Scratch("results", "rows.jsonl");
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) }, project: Rows("Effects"), to_file: art);
+        Assert.Contains(art, r);
+        var body = File.ReadAllText(art);
+        Assert.Contains("Effects[1]", body);
+        Assert.Contains("cells", body);
     }
 
     [Fact]
