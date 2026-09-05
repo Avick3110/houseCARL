@@ -2903,7 +2903,7 @@ public static class WriteSurfaceGuardProbe
             new FormKey(src, 0x803), new FormKey(patch, 0x900), outPath, false,
             copied, kept ?? Array.Empty<WalkBoundary>(), Array.Empty<WalkCycle>(),
             attach ?? Array.Empty<StripEntry>(), strips, srcs ?? sources,
-            sources[0], assets ?? Array.Empty<string>(),
+            (srcs ?? sources)[0], assets ?? Array.Empty<string>(),
             new[] { "Skyrim.esm" }, mastered, nothingBound, 1234, warning);
 
         var keptBoth = new List<WalkBoundary>
