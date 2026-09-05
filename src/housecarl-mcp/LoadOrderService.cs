@@ -2651,6 +2651,7 @@ public sealed class LoadOrderService : IDisposable
         using var session = p.Resolver.OpenSession();
         var tree = p.View.ResolveTree(session, fk);
         if (tree is null) return null;
+        var hop = ContainmentIndex.ReadHop(p.View, session);   // '*parent' on fields= — this lane holds the index, so it answers
 
         // The precise owned-child tier: which providers declare children per child-bearing field, asked of bodies
         // already open for the diff below, so it costs no extra fetch. Rationale and narrowing rules:
@@ -2666,7 +2667,7 @@ public sealed class LoadOrderService : IDisposable
         var nodes = new List<ConflictNodeView>(tree.Nodes.Count);
         foreach (var n in tree.Nodes)
         {
-            nodes.Add(new ConflictNodeView(n.Plugin, ReadEngine.ReadFields(n.Record, fields, ConflictDiffDepth)));   // materialise while open
+            nodes.Add(new ConflictNodeView(n.Plugin, ReadEngine.ReadFields(n.Record, fields, ConflictDiffDepth, parentOf: hop)));   // materialise while open
             foreach (var f in wanted)
             {
                 // Null means "could not look", never "declares nothing": a body dropped in silence would render as
@@ -3211,6 +3212,10 @@ public sealed class LoadOrderService : IDisposable
                               out string? armStatement, out bool covers, out string? error, out PoleInfo? offOrderArm)
     {
         error = null; covers = true; offOrderArm = null;
+        // '*parent' on fields=: every in-order arm below reads through this captured view and open session, so the
+        // hop answers on them exactly as it does on a plain read. The off-order arm carries no index and keeps the
+        // note saying so.
+        var hop = ContainmentIndex.ReadHop(view, session);
         switch (spec.Kind)
         {
             case PoleKind.Winner:
@@ -3223,7 +3228,7 @@ public sealed class LoadOrderService : IDisposable
                     var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
                     if (body is null)
                         return new PoleReading(null, null, null, $"the winner body of {fk} could not be read from '{w.Value.WinnerPlugin}'.");
-                    return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth),
+                    return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth, parentOf: hop),
                                            new DiffPole(w.Value.WinnerPlugin, "winner (active order)", true,
                                                         RecordNaming.StripOverlay(body.GetType().Name), body.EditorID), null, null);
                 };
@@ -3253,7 +3258,7 @@ public sealed class LoadOrderService : IDisposable
                         return new PoleReading(null, null, null, $"the previous provider '{refPlugin}' of {fk} could not be read.");
                     // Mid-stack subject: what sits above is surfaced as neutral fact, never advice.
                     IReadOnlyList<string>? above = idx < touchers.Count - 1 ? touchers.Skip(idx + 1).ToList() : null;
-                    return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth),
+                    return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth, parentOf: hop),
                                            new DiffPole(refPlugin, $"previous provider (immediately below '{subjectPlugin}')", true,
                                                         RecordNaming.StripOverlay(body.GetType().Name), body.EditorID), above, null);
                 };
@@ -3286,7 +3291,7 @@ public sealed class LoadOrderService : IDisposable
                                     ? $"Touched by (active order, winner last): {string.Join(", ", touchers)}."
                                     : "No active plugin touches it either."));
                         }
-                        return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth),
+                        return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth, parentOf: hop),
                                                new DiffPole(arm.Plugin, arm.Where, true,
                                                             RecordNaming.StripOverlay(body.GetType().Name), body.EditorID), null, null);
                     };
@@ -3327,6 +3332,7 @@ public sealed class LoadOrderService : IDisposable
                                      out string? armStatement, out bool covers, out string? error)
     {
         error = null;
+        var hop = ContainmentIndex.ReadHop(view, session);   // both overlay arms read through the order's own index
         var state = (spec.OverlayState ?? "post").Trim().ToLowerInvariant();
         if (state is not ("pre" or "post"))
         {
@@ -3346,7 +3352,7 @@ public sealed class LoadOrderService : IDisposable
                 if (w is null) return new PoleReading(null, null, null, UnresolvedFormId(view, fk));
                 var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
                 if (body is null) return new PoleReading(null, null, null, $"the winner body of {fk} could not be read from '{w.Value.WinnerPlugin}'.");
-                return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth),
+                return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth, parentOf: hop),
                                        new DiffPole(w.Value.WinnerPlugin, "skypatcher overlay (pre) = winner", true,
                                                     RecordNaming.StripOverlay(body.GetType().Name), body.EditorID), null, null);
             };
@@ -3396,7 +3402,7 @@ public sealed class LoadOrderService : IDisposable
                     var w = view.ResolveWinner(fk);
                     var body = w is null ? null : view.GetRecord(session, w.Value.WinnerPlugin, fk);
                     if (body is not null)
-                        return postMemo[fk] = new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth),
+                        return postMemo[fk] = new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth, parentOf: hop),
                                                new DiffPole(w!.Value.WinnerPlugin,
                                                             "skypatcher overlay (post) = winner — type not SkyPatcher-patchable, the layer cannot touch it",
                                                             true, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID), null, null);
@@ -3404,7 +3410,7 @@ public sealed class LoadOrderService : IDisposable
                 return postMemo[fk] = new PoleReading(null, null, null, r.Error);
             }
             int applied = r.Folders.Where(f => f.Result is not null).Sum(f => f.Result!.Applied.Count);
-            var post = ReadEngine.ReadFields(r.Copy!, fields, ConflictDiffDepth);
+            var post = ReadEngine.ReadFields(r.Copy!, fields, ConflictDiffDepth, parentOf: hop);
             return postMemo[fk] = new PoleReading(post,
                 new DiffPole(r.WinnerPlugin!, $"skypatcher overlay (post) — {applied} op(s) applied onto the winner", true,
                              post.Type, r.EditorId), null, null);

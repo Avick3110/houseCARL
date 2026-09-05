@@ -179,6 +179,28 @@ public sealed class RecordsContainmentTests : IClassFixture<OwnedChildFixture>
         Assert.Contains(note, Read(new FormKey(_w.CellA.ModKey, 0xC10), "*parent.Temporary"));
     }
 
+    // ---- every in-order read lane answers it ------------------------------------------------------
+
+    static JsonElement Pole(string s) => JsonDocument.Parse(JsonSerializer.Serialize(s)).RootElement.Clone();
+
+    /// <summary>The comparison forms take fields= and hold the order's own index, so the hop answers on their
+    /// in-order arms too — the refusal naming "read the record through the load order instead" must not fire on a
+    /// read that IS through the load order. Measured against an off-order arm, which genuinely carries no
+    /// containment map and keeps saying so, so both halves are on one call and neither passes by accident.</summary>
+    [Theory]
+    [InlineData("delta")]
+    [InlineData("tree")]
+    public void TheComparisonFormsReadTheHopOnTheirInOrderArm(string form)
+    {
+        var copy = _w.Scratch(form + "-offorder", _w.BaseName);
+        File.Copy(_w.PluginPaths[0], copy, overwrite: true);
+        var r = RecordsTools.Records(Svc, formids: new[] { OwnedChildWorld.Fid(_w.ReparentedRef) },
+                                     source: form == "delta" ? Pole(_w.MidName) : null, versus: Pole(copy),
+                                     project: new RecordsTools.RecordsProject { form = form, fields = new[] { "*parent.EditorID" } });
+        Assert.Contains("HcOcCellH", r);
+        Assert.Contains("needs the load-order index", r);
+    }
+
     // ---- filtering on it -------------------------------------------------------------------------
 
     [Fact]
