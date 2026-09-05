@@ -13,6 +13,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **A response answered off an order that lost plugins to a load failure says so.** When a plugin cannot be
+  opened or parsed it is excluded from the index build, and reads after that answer off the narrowed order —
+  shallower override depths, fewer touching plugins, sometimes a different winner. The epoch stamp changed, but
+  a legitimate reorder changes it too, so the two were indistinguishable inside one response unless the call
+  happened to name the failed plugin. Every response now carries `order_degraded: true` and one sentence saying
+  how many plugins are missing, which ones, that this is a load failure rather than a change you made, and that
+  `housecarl_load_order_status` gives the reason; the text lane appends the count beside `epoch=`. It rides
+  beside the epoch, never inside it, so two builds that differ only in health still compare as different builds.
+  A healthy order carries nothing. The sentence names up to ten plugins and counts the rest —
+  `housecarl_load_order_status` lists them all.
+
 - **`housecarl_asset_status` and `housecarl_place` take `format='json'`.** Both answered text only, so a caller
   reading them from a script parsed prose. The json document carries the same data as the text render: for
   `asset_status`, the build-level caveats, one row per path with its winner and full provider chain, and the same
