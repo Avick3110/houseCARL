@@ -56,8 +56,16 @@ public sealed class OwnedChildWorld : IDisposable
 
     public static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
 
+    /// <summary>What <c>CorpusRulebook.CorpusPath</c> named before this world repointed it.</summary>
+    readonly string _priorCorpusPath;
+
     public OwnedChildWorld()
     {
+        // CorpusRulebook.CorpusPath is a process-global this world repoints at its own generated corpus.
+        // Capture the prior value here so Dispose can put it back: Dispose deletes Root, and a static left
+        // naming a path under Root would name a directory that no longer exists.
+        _priorCorpusPath = CorpusRulebook.CorpusPath;
+
         Root = Path.Combine(Path.GetTempPath(), "hc-owned-child-tests-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "instance");
         var profiles = Path.Combine(instance, "profiles", "Default");
@@ -246,6 +254,7 @@ public sealed class OwnedChildWorld : IDisposable
     public void Dispose()
     {
         Svc.Dispose();
+        CorpusRulebook.CorpusPath = _priorCorpusPath;   // before the delete below takes the path it named
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }
