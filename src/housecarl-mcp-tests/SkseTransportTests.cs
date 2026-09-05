@@ -320,4 +320,83 @@ public sealed class SkseTransportTests
                         .Select(c => c.GetProperty("file_name").GetString()).ToArray());
     }
 
+    // ---- the json lane's own reserve --------------------------------------------------------------
+
+    /// <summary>The json tail — the caveats object and the accounting object — is paid for INSIDE max_chars, the way
+    /// every text render's reserve pays for its accounting line. What can still overrun is one row, because the cap is
+    /// tested before each row and not after; the tail here is ~12 KB of caveats inside a 20 KB cap, so an unreserved
+    /// one is unmissable.</summary>
+    [Theory]
+    [InlineData("inventory")]
+    [InlineData("pairing")]
+    [InlineData("config")]
+    public void TheJsonTailIsPaidForInsideMaxCharsRatherThanAppendedPastIt(string family)
+    {
+        const int cap = 20_000;
+        var warnings = Warnings(60);
+        string json = family switch
+        {
+            "inventory" => SkseInventoryWire.RenderJson(Inventory(40, warnings: warnings), null, cap),
+            "pairing" => NativePairingWire.RenderJson(Pairing(40, warnings: warnings), null, cap),
+            _ => SkseConfigAuditWire.RenderJson(ConfigAudit(40, warnings: warnings), null, cap),
+        };
+
+        using var doc = JsonDocument.Parse(json);   // still a document, never a byte-budget cut
+        int tail = warnings.Sum(x => x.Length);
+        Assert.True(json.Length < cap + OneRowSlack,
+                    $"{family}: {json.Length} chars against max_chars={cap} — the ~{tail}-char tail was not reserved.");
+    }
+
+    /// <summary>The one row the cap can overrun by. Every family's row is comfortably under this, and every family's
+    /// caveat tail in the test above is comfortably over it, so the bound tells the two apart.</summary>
+    const int OneRowSlack = 2_000;
+
+    /// <summary>One config can declare tens of thousands of form tokens — a large SkyPatcher INI is exactly that — so
+    /// max_chars bounds the reference array inside a file too, not only the file rows. The text render already bounds
+    /// references per line; an unbounded twin writes the whole array in one pass past the cap.</summary>
+    [Fact]
+    public void MaxCharsBoundsTheReferenceArrayInsideOneConfigFileToo()
+    {
+        const int cap = 3_000;
+        string json = SkseConfigAuditWire.RenderJson(ConfigAudit(1, refs: 4_000), null, cap);
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.True(json.Length < cap + OneRowSlack, $"{json.Length} chars against max_chars={cap}");
+        var file = doc.RootElement.GetProperty("files").EnumerateArray().Single();
+        // The cut is stated on the file that carries it: the accounting counts files, not references.
+        Assert.Equal(4_000 - file.GetProperty("references").GetArrayLength(),
+                     file.GetProperty("references_truncated").GetInt32());
+    }
+
+    /// <summary>The two json arrays that are NOT row-list rows — the inventory's config folders and the pairing's
+    /// unreadable .pex list — say what the cap cut, the way their text twins do. The accounting cannot: it counts
+    /// rows, and these are not rows.</summary>
+    [Fact]
+    public void TheNonRowJsonArraysMarkWhatMaxCharsCutFromThem()
+    {
+        using var inv = JsonDocument.Parse(SkseInventoryWire.RenderJson(Inventory(1, configs: 400, folders: 400), null, 2_500));
+        var folders = inv.RootElement.GetProperty("config_folders").GetArrayLength();
+        Assert.True(folders < 400, "the cap should have cut folders");
+        Assert.Equal(400 - folders, inv.RootElement.GetProperty("config_folders_truncated").GetInt32());
+
+        using var pair = JsonDocument.Parse(NativePairingWire.RenderJson(Pairing(1, unreadable: 400), null, 2_500));
+        var shown = pair.RootElement.GetProperty("unreadable_pex").GetArrayLength();
+        Assert.True(shown < 400, "the cap should have cut unreadable .pex entries");
+        Assert.Equal(400 - shown, pair.RootElement.GetProperty("unreadable_pex_truncated").GetInt32());
+    }
+
+    /// <summary>Nothing cut, no marker: the two arrays carry the notice only when there is a cut to name.</summary>
+    [Fact]
+    public void TheNonRowJsonArraysCarryNoCutMarkerWhenNothingWasCut()
+    {
+        using var inv = JsonDocument.Parse(SkseInventoryWire.RenderJson(Inventory(1, configs: 4, folders: 4), null, 200_000));
+        Assert.False(inv.RootElement.TryGetProperty("config_folders_truncated", out _));
+
+        using var pair = JsonDocument.Parse(NativePairingWire.RenderJson(Pairing(1, unreadable: 4), null, 200_000));
+        Assert.False(pair.RootElement.TryGetProperty("unreadable_pex_truncated", out _));
+
+        using var cfg = JsonDocument.Parse(SkseConfigAuditWire.RenderJson(ConfigAudit(1, refs: 4), null, 200_000));
+        Assert.False(cfg.RootElement.GetProperty("files").EnumerateArray().Single()
+                        .TryGetProperty("references_truncated", out _));
+    }
 }
