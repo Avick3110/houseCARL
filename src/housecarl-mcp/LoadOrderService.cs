@@ -4111,7 +4111,8 @@ public sealed class LoadOrderService : IDisposable
                             var w = view.ResolveWinner(fk);
                             return w is null ? null : view.GetRecord(sess, w.Value.WinnerPlugin, fk);
                         }
-                        : null);
+                        : null,
+                    predicate.NeedsContainment ? fk => view.ParentOf(fk) : null);
                 var seenSet = new HashSet<FormKey>();
                 foreach (var fk in formidSet!)
                 {
@@ -4201,7 +4202,8 @@ public sealed class LoadOrderService : IDisposable
                         var w = view.ResolveWinner(fk);
                         return w is null ? null : view.GetRecord(winnerSession!, w.Value.WinnerPlugin, fk);
                     }
-                    : null);
+                    : null,
+                predicate.NeedsContainment ? fk => view.ParentOf(fk) : null);
             // where_source=winner needs one body per CANDIDATE, not per record in the order, and fetching them one
             // at a time is a whole-overlay walk each (#251). So the scan buffers a CHUNK of candidates off the one
             // scoped stream, gathers that chunk's winner bodies a plugin at a time — one enumeration per distinct
@@ -4576,7 +4578,8 @@ public sealed class LoadOrderService : IDisposable
                             var w = view.ResolveWinner(fk);
                             return w is null ? null : view.GetRecord(sess!, w.Value.WinnerPlugin, fk);
                         }
-                        : null);
+                        : null,
+                    predicate.NeedsContainment ? fk => view.ParentOf(fk) : null);
             }
             var seen = new HashSet<FormKey>();
             foreach (var rec in ov.EnumerateMajorRecords())
