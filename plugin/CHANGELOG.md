@@ -57,6 +57,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
   is named under a reading form too, not only under `chain`, so an answer covering some of the seeds never
   reads as one covering all of them. `walk.max_nodes` says which reading it spends: per seed on the carrier
   walk, one shared budget across every seed and hop on the transitive walk.
+- **`housecarl_records` reads the quantified step in `project.fields`.** `where=` has taken `[*count]` and the
+  boolean folds for a while; the same tokens are now a projection. `project.fields=["Effects[*count]"]` renders one
+  number per record — how many elements the list holds — and `["Effects[*]"]` one row per element, in the same row
+  shape `project.form='rows'` produces; a sub-path after the token (`"Effects[*].Data.Magnitude"`) renders that leaf
+  per element instead. Under `format='dense'` the extra rows repeat the record's identity columns, and an
+  unquantified column repeats its own cell beside them. `[*any]`/`[*all]`/`[*none]` fold to a boolean, which is not
+  a row, and stay refused here by name. A quantifier on a step that is not a list fails that record with one
+  sentence naming the path, what the step actually holds, and the two ways to read it.
 
 - **`housecarl_asset_status` and `housecarl_place` take `format='json'`.** Both answered text only, so a caller
   reading them from a script parsed prose. The json document carries the same data as the text render: for
