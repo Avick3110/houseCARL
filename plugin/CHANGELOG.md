@@ -64,6 +64,21 @@ saying it sets an expectation their install may contradict. Say what is known, a
   entries in one call compose by AND. The sigil takes the `@file` spelling the plain entry takes, so
   `references=["!@C:/work/targets.jsonl"]` excludes every target a list file or result artifact names. The negated
   form takes the same bounding `types=`/`plugins=`/`formids=` scope the plain form takes.
+- **`housecarl_nexus_check_updates` no longer calls a REMOVED file current.** A file the author withdrew
+  (category `REMOVED` or `DELETED`) used to fall through the retired-category set and render
+  `'name' v1 [REMOVED] — current`, a line contradicting itself. It is now its own verdict, FILE-REMOVED, with its own
+  group and its own count in the summary: the row says the file is no longer offered and to read the page for why
+  before installing anything in its place. Where a live file with that exact name is still on the page it is named
+  as a lead, not as the replacement — and a withdrawn file is never offered as the replacement for a retired one.
+  An unfamiliar category is still treated as live and printed as-is, unchanged.
+
+- **A plugin edit that leaves the file's timestamp alone is no longer invisible.** The read cache's freshness key was
+  the last-write time alone, so an edit landing inside the filesystem's timestamp granularity — or one whose tool
+  restored the timestamp it found — served stale parsed state with nothing saying so. The key now carries the file's
+  length beside its last-write, and so does the epoch fingerprint, so both the rebuild check and the coverage stamp
+  see that edit. An edit that changes neither term is still invisible; the known write-during-rebuild race is
+  unchanged, and both bounds are stated at `ComputeEpoch`.
+
 - **`housecarl_check`'s scripts family now sweeps a plugin that is on disk but not in the active load order.**
   A `plugins=` name the order does not hold is located on disk and swept from its own file, exactly as the errors
   family already does it, so a fresh patch's script-property bindings can be checked before it is enabled. Both
