@@ -202,6 +202,18 @@ public static class WriteVerbs
             ? HowToPlace(shape)
             : Sentence(On(shape).Where(u => u.Places && !IsBatch(u.Input)));
 
+    /// <summary>"How do I put in ONE element AT the key I already have." <see cref="HowToPlaceOne"/> minus the
+    /// verbs that take no key — for a site that has already printed <c>key=</c> and would otherwise name a verb
+    /// that ignores it. On a LIST that drops <c>Add</c>, which the table orders first because it is the verb a
+    /// caller who has no key wants; a caller who bracketed an index that already holds an element and reads the
+    /// menu top-down would instead append, which the gate ACCEPTS — the list comes back one element longer with
+    /// element 0 untouched, and on a CTDA OR-run that silently changes what the record gates on. On a dict every
+    /// placing verb is keyed, so the menu is unchanged.</summary>
+    public static string HowToPlaceOneAt(CollectionShape shape) =>
+        shape.Element == ElementPlacement.OwnedRecord
+            ? HowToPlace(shape)
+            : Sentence(On(shape).Where(u => u.Places && u.NeedsKey && !IsBatch(u.Input)));
+
     /// <summary>The keyed verbs, in table order — how to reach ONE element of this collection by index or key.
     /// Named for what the filter is (a key is required), not for "an element that is already there": a list's
     /// <c>InsertAtIndex</c> takes a key and addresses the GAP at that index, and it belongs in the menu because a
