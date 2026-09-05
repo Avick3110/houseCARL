@@ -85,6 +85,10 @@ static class StatusWire
         if (d.MaxPlugins > 0) sb.Append(" [capped at MaxPlugins=").Append(d.MaxPlugins).Append(']');
         if (d.Epoch is not null) sb.Append("  epoch=").Append(d.Epoch);   // the current build's fingerprint — bulk responses stamp the build they read, matched against this
         sb.Append('\n');
+        // The containment map's size, in band: it is built on every index build for the '*parent' step whether or
+        // not the user ever spells one, so its cost is stated here rather than discovered as memory.
+        sb.Append("containment: ").Append(d.ContainedRecordCount.ToString("N0", System.Globalization.CultureInfo.InvariantCulture))
+          .Append(" child record(s) mapped to a containing record (the '*parent' step reads this)\n");
         if (d.ProfileChanged)
             sb.Append("[!] the profile changed mid-call and a refresh is still pending — houseCARL re-reads it " +
                       "automatically on the next tool call (lazy refresh; no restart needed).\n");
