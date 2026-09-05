@@ -1276,22 +1276,29 @@ static class JsonWire
                             // columns keep their own single cell, which is the same cell an unfolded call renders.
                             var (cols, carried, ferr) = fold.Columns(r);
                             if (ferr is not null) { (errors ??= new()).Add((fk.ToString(), ferr)); rendered++; continue; }
-                            // A row is keyed by its ELEMENT INDEX, never by its place in the column: a sub-path
+                            // A row is keyed by its ELEMENT KEY, never by its place in the column: a sub-path
                             // column skips an element whose arm does not carry it, and by position that cell
-                            // would land beside a different element's row and read as that element's value.
-                            var byIndex = new Dictionary<int, HousecarlCore.FieldValue>?[cols!.Length];
-                            int elems = 1;
+                            // would land beside a different element's row and read as that element's value. The key
+                            // is the bracket segment as TEXT, so a dict list (a package's Data arms, keyed 2 and 7)
+                            // lays two rows rather than eight, six of them empty. Rows come out in key order for a
+                            // positional list and in read order otherwise.
+                            var byKey = new Dictionary<string, HousecarlCore.FieldValue>?[cols!.Length];
+                            var keys = new List<string>();
+                            var seenKeys = new HashSet<string>(StringComparer.Ordinal);
                             for (int c = 0; c < cols.Length; c++)
                             {
                                 if (fold.Folds[c] is not { Fold: HousecarlCore.PathFold.Set } fc) continue;
-                                var map = byIndex[c] = new Dictionary<int, HousecarlCore.FieldValue>();
+                                var map = byKey[c] = new Dictionary<string, HousecarlCore.FieldValue>(StringComparer.Ordinal);
                                 for (int k = 0; k < cols[c].Count; k++)
                                 {
-                                    int idx = FoldPlan.ElementIndex(cols[c][k].Path, fc.Root);
-                                    map[idx < 0 ? k : idx] = cols[c][k];
+                                    var key = FoldPlan.ElementKey(cols[c][k].Path, fc.Root) ?? k.ToString();
+                                    map[key] = cols[c][k];
+                                    if (seenKeys.Add(key)) keys.Add(key);
                                 }
-                                foreach (var idx in map.Keys) elems = Math.Max(elems, idx + 1);
                             }
+                            if (keys.Count > 1 && keys.All(k => int.TryParse(k, out _)))
+                                keys.Sort((x, y) => int.Parse(x).CompareTo(int.Parse(y)));   // a positional list reads in index order whatever order the columns name
+                            int elems = Math.Max(1, keys.Count);   // no set column, or an empty list: still one row
                             // The owned-child clause is earned per CELL here as it is on the unfolded row below;
                             // a folded cell's path is the element's, so the column's own list path is the key.
                             for (int c = 0; c < cols.Length; c++)
@@ -1314,8 +1321,8 @@ static class JsonWire
                                 for (int c = 0; c < cols.Length; c++)
                                 {
                                     var col = cols[c];
-                                    var cell = byIndex[c] is { } map ? (map.TryGetValue(e, out var v) ? v : null)
-                                                                     : (col.Count > 0 ? col[0] : null);
+                                    var cell = byKey[c] is { } map ? (e < keys.Count && map.TryGetValue(keys[e], out var v) ? v : null)
+                                                                   : (col.Count > 0 ? col[0] : null);
                                     WriteCell(w, cell is null ? null : DenseCell(cell));
                                 }
                                 if (anyScoped) WriteCell(w, o.SourcePlugin);

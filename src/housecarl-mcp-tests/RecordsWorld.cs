@@ -43,6 +43,7 @@ public sealed class RecordsWorld : IDisposable
     public FormKey SpellB { get; }
     public FormKey SpellC { get; }
     public FormKey BigList { get; }
+    public FormKey Package { get; }
     public FormKey NpcParent { get; }
     public FormKey NpcChild { get; }
     // A three-link chain of its own — MgefHop <- SpellHop <- ListHop — so a transitive reverse walk has a second
@@ -158,6 +159,12 @@ public sealed class RecordsWorld : IDisposable
         var bigList = master.FormLists.AddNew(); bigList.EditorID = "HcRecBigList"; BigList = bigList.FormKey;
         for (int i = 0; i < ReadEngine.MaxExpandNodes + 1; i++)
             bigList.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(weapons[i % weapons.Count]));
+
+        // A DICT-shaped list: a package's Data arms are keyed by their own numbers, sparsely — the shape a
+        // positional row key would either pad out with empty rows or pair by column position.
+        var pack = master.Packages.AddNew(); pack.EditorID = "HcRecPack"; Package = pack.FormKey;
+        pack.Data.Add(2, new PackageDataBool { Name = "HcRecDatumTwo" });
+        pack.Data.Add(7, new PackageDataBool { Name = "HcRecDatumSeven" });
 
         var npcParent = master.Npcs.AddNew(); npcParent.EditorID = "HcRecNpcParent"; NpcParent = npcParent.FormKey;
         var npcChild = master.Npcs.AddNew(); npcChild.EditorID = "HcRecNpcChild"; NpcChild = npcChild.FormKey;

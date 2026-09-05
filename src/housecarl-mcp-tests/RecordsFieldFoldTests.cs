@@ -210,6 +210,32 @@ public sealed class RecordsFieldFoldTests : RecordsTestBase
         Assert.NotEqual(JsonValueKind.Null, rows[1][4].ValueKind);
     }
 
+    /// <summary>A DICT list is keyed by its own keys, not by a position: a package's two Data arms keyed 2 and 7
+    /// are two rows, not eight with six empty ones, and the count the document reports is the same two.</summary>
+    [Fact]
+    public void ADictListLaysOneRowPerPairAndNotOnePerKeyValue()
+    {
+        var doc = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.Package) }, types: new[] { "PACK" },
+                                          format: "dense", project: Fields("Data[*]")));
+        var rows = doc.GetProperty("rows").EnumerateArray().ToList();
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(2, doc.GetProperty("rows_rendered").GetInt32());
+        Assert.Contains("HcRecDatumTwo", rows[0][3].GetString()!);
+        Assert.Contains("HcRecDatumSeven", rows[1][3].GetString()!);
+    }
+
+    /// <summary>The key a row is laid on is the bracket segment as text — the one shape that covers a positional
+    /// list and a dict alike.</summary>
+    [Fact]
+    public void AnElementKeyIsTheBracketSegmentItself()
+    {
+        Assert.Equal("0", FoldPlan.ElementKey("Effects[0].Data", "Effects"));
+        Assert.Equal("7", FoldPlan.ElementKey("Data[7]", "Data"));
+        Assert.Equal("Male", FoldPlan.ElementKey("WorldModel[Male]", "WorldModel"));
+        Assert.Null(FoldPlan.ElementKey("Effects", "Effects"));
+        Assert.Null(FoldPlan.ElementKey("Effects.Data", "Effects"));
+    }
+
     [Fact]
     public void TwoDifferentListsCannotShareOneDenseRow() =>
         Refused(RecordsTools.Records(Svc, types: new[] { "SPEL" }, format: "dense",

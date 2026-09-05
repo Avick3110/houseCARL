@@ -153,12 +153,15 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
         return n;
     }
 
-    /// <summary>The element index a folded line carries, or -1 when the path does not index the root.</summary>
-    internal static int ElementIndex(string path, string root)
+    /// <summary>The element KEY a folded line carries — the bracket segment just under the root, as text — or null
+    /// when the path does not index the root. Text rather than a number because the read brackets a DICT by its own
+    /// key (a package's Data arms are keyed 2, 7, …, and another list's keys need not be numbers at all), so a
+    /// number would either invent the elements between two keys or fall back to a position.</summary>
+    internal static string? ElementKey(string path, string root)
     {
-        if (path.Length <= root.Length || path[root.Length] != '[') return -1;
+        if (path.Length <= root.Length || path[root.Length] != '[') return null;
         int close = path.IndexOf(']', root.Length + 1);
-        return close > 0 && int.TryParse(path.AsSpan(root.Length + 1, close - root.Length - 1), out int n) ? n : -1;
+        return close > 0 ? path[(root.Length + 1)..close] : null;
     }
 
     /// <summary>The note a sub-path no element carries answers with — the list was read, it holds elements, and
