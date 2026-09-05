@@ -22,6 +22,20 @@ public static class SkseTools
     /// <summary>The three finding families <c>findings=</c> selects between.</summary>
     internal enum SkseFamily { Inventory, Pairing, Config }
 
+    /// <summary>Parses <c>findings=</c> as it arrives OFF THE WIRE, where the schema declares it a string or an array.
+    /// The array shape is the <c>housecarl_check</c> habit and is a real JSON array, not a string starting with '[':
+    /// it binds so that the refusal below — which names the three families and the one-family rule — is what the caller
+    /// reads, instead of the shim's generic type-mismatch sentence. Any non-string shape is refused by its own JSON
+    /// text, so a one-element array is refused too: this tool runs one family per call, and taking <c>["inventory"]</c>
+    /// as the scalar would teach a shape the tool description says is refused.</summary>
+    internal static bool TryParseFamily(System.Text.Json.JsonElement? findings, out SkseFamily family, out string? error)
+        => TryParseFamily(findings switch
+        {
+            null or { ValueKind: System.Text.Json.JsonValueKind.Null or System.Text.Json.JsonValueKind.Undefined } => null,
+            { ValueKind: System.Text.Json.JsonValueKind.String } el => el.GetString(),
+            { } el => el.GetRawText(),
+        }, out family, out error);
+
     /// <summary>Parses <c>findings=</c>. Omitted is the inventory family, which every response states; an unknown
     /// value is refused naming the three, never quietly defaulted.</summary>
     internal static bool TryParseFamily(string? findings, out SkseFamily family, out string? error)
@@ -179,7 +193,9 @@ public static class SkseTools
             "never what it is FOR (per-framework skill territory). Extraction is a heuristic over token SHAPES, so a " +
             "token in a comment or a disabled block still surfaces; 'no references found' is the most common per-file " +
             "outcome and is accounted for, never a warning. Bare EditorID / name strings are NOT validated.")]
-            string? findings = null,
+            // JsonElement, not string: the array shape must BIND so the refusal above answers it. The published type
+            // is stamped string-or-array by ToolSchemas.ShapeUnionParams.
+            System.Text.Json.JsonElement? findings = null,
         [Description(
             "Optional. A case-insensitive substring narrowing whichever family ran; the match domain is that family's " +
             "own. inventory: a plugin name, author, DLL filename, providing mod, or config FOLDER ('SkyPatcher', " +
@@ -202,10 +218,13 @@ public static class SkseTools
         [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.Skse, () =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        // The argument checks run BEFORE the config prompt: findings= is wrong in the same way whether or not an
+        // instance is configured, and answering the prompt first would send the caller off to configure one only to
+        // meet the same refusal.
         if (!TryParseFamily(findings, out var family, out var famErr)) return famErr!;
         if (PeekFamilyError(peek, family) is { } peekErr) return peekErr;
         if (SkseInventoryWire.PeekArgError(peek, filter) is { } err) return err;
+        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
 
         return Dispatch(new ServiceRenders(svc), family, filter, peek, max_chars);
     });

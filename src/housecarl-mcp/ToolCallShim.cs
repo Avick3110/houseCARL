@@ -166,7 +166,9 @@ internal static class ToolCallShim
         if (value.ValueKind == JsonValueKind.String)
         {
             var s = value.GetString() ?? "";
-            if (declared.Contains("array"))
+            // A parameter declaring BOTH string and array takes the string as it stands: wrapping it would hand the
+            // tool the very shape a caller spelled correctly as a scalar.
+            if (declared.Contains("array") && !declared.Contains("string"))
             {
                 // A string-encoded JSON array first: clients do serialize array arguments into a JSON string
                 // ("[\"a\",\"b\"]") despite the schema declaring an array. Only an unambiguous parse is taken;
