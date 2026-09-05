@@ -366,16 +366,39 @@ public static class ReadEngine
         if (et is null)
             return $"index an element with brackets, e.g. '{pf}[0].{segName}{rest}', not '{pf}.{segName}{rest}'";
 
-        var etName = RecordNaming.StripOverlay(et.Name);
-        if (WriteEngine.ResolveProperty(et, segName) is not null)
+        var v = HopVerdictOf(et, segName);
+        if (v.OnElement)
             return $"index an element with brackets: '{pf}[0].{segName}{rest}', not '{pf}.{segName}{rest}'";
 
-        var near = PluginNameSuggest.Nearest(segName, ElementFieldNames(et), 1);
-        return near.Count > 0
-            ? $"'{segName}' is not a field on its element type {etName} — did you mean '{pf}[0].{near[0]}{rest}'?"
-            : $"'{segName}' is not a field on its element type {etName}; index an element with brackets " +
-              $"('{pf}[0].<field>') and name a field {etName} has";
+        return v.Near is { } near
+            ? $"'{segName}' is not a field on its element type {v.TypeName} — did you mean '{pf}[0].{near}{rest}'?"
+            : $"'{segName}' is not a field on its element type {v.TypeName}; index an element with brackets " +
+              $"('{pf}[0].<field>') and name a field {v.TypeName} has";
     }
+
+    /// <summary>The element-type half of a list-hop diagnosis: whether the segment is a field on the element type,
+    /// that type's name, and the nearest real field where it is not.</summary>
+    readonly record struct HopVerdict(bool OnElement, string TypeName, string? Near);
+
+    /// <summary>Memoised on (element type, segment): the verdict is pure reflection over the type — a property
+    /// resolve, the element's field names, a nearest-name sweep — and a scan hits the same dead-end once per
+    /// scanned record, where only the first note is kept.</summary>
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<(Type, string), HopVerdict> HopVerdicts = new();
+
+    /// <summary>How many verdicts have actually been computed — the memo's own counter, so a test can say a scan
+    /// over many records resolves the remedy once.</summary>
+    internal static int ListHopVerdictComputations;
+
+    static HopVerdict HopVerdictOf(Type et, string segName) =>
+        HopVerdicts.GetOrAdd((et, segName), key =>
+        {
+            Interlocked.Increment(ref ListHopVerdictComputations);
+            var (t, seg) = key;
+            var etName = RecordNaming.StripOverlay(t.Name);
+            if (WriteEngine.ResolveProperty(t, seg) is not null) return new HopVerdict(true, etName, null);
+            var near = PluginNameSuggest.Nearest(seg, ElementFieldNames(t), 1);
+            return new HopVerdict(false, etName, near.Count > 0 ? near[0] : null);
+        });
 
     /// <summary>The element type of a collection, from the strongly-typed <c>IEnumerable&lt;T&gt;</c> it implements
     /// (a dictionary's values where it is a dictionary), falling back to the runtime type of its first element. Null
