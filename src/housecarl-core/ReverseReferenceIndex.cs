@@ -348,8 +348,9 @@ public static class ReverseSelection
     /// terminates. The index answers in CANDIDATES, so <paramref name="verify"/> re-tests each one against the body
     /// the caller means to judge — the same second step <c>references=</c> takes — and a candidate that fails it is
     /// neither reported nor expanded, so a dropped link cannot seed a false subtree. <paramref name="maxNodes"/>
-    /// bounds the TOTAL reached across all hops; the budget is tested BEFORE the node is consumed, so a raised
-    /// budget on a retry sees the same graph, and the hop the cut landed on is marked
+    /// bounds the TOTAL reached across all hops; the budget is tested BEFORE the candidate is verified or
+    /// consumed, so a spent budget bounds the body reads as well as the reach, a raised budget on a retry sees
+    /// the same graph, and the hop the cut landed on is marked
     /// <see cref="Hop.Cut"/> rather than reading as a hop that reached nothing.</summary>
     public static IReadOnlyList<Hop> Transitive(ReverseReferenceIndex index, IReadOnlyList<FormKey> seeds,
                                                 int depth, int maxNodes,
@@ -368,8 +369,10 @@ public static class ReverseSelection
             foreach (var k in index.ReferencersOf(frontier))
             {
                 if (visited.Contains(k)) continue;
-                if (verify is not null && !verify(k, frontierSet)) continue;
+                // The budget is spent before the candidate is verified, so a spent budget stops the body reads
+                // too — verification has no ordering effect, so a raised budget on a retry still sees this graph.
                 if (reached >= maxNodes) { capped = true; cut = true; break; }
+                if (verify is not null && !verify(k, frontierSet)) continue;
                 visited.Add(k);
                 next.Add(k);
                 reached++;

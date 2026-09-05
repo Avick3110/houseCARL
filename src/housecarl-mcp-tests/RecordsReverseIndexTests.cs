@@ -279,6 +279,18 @@ public sealed class RecordsReverseIndexTests : RecordsTestBase
                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 1 }),
                "whose winner does not carry the link");
 
+    /// <summary>A spent budget stops the work, not just the reach: HcRecListHop fills a budget of 1, and the
+    /// candidate behind it (HcRecListDropped) is never read, so it is not verified and not counted as a drop.
+    /// </summary>
+    [Fact]
+    public void ASpentBudgetStopsVerifyingTheCandidatesBehindIt()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellHop) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 1, max_nodes = 1 });
+        Served(r, "HcRecListHop");
+        Assert.DoesNotContain("index candidate(s) were dropped", r);
+    }
+
     /// <summary>One candidate on two frontiers is one drop: HcRecListDropped is named at hop 1 and again at hop 2,
     /// and the drop line counts records, not verification failures.</summary>
     [Fact]
