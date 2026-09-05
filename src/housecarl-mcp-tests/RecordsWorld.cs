@@ -50,6 +50,9 @@ public sealed class RecordsWorld : IDisposable
     public FormKey MgefHop { get; }
     public FormKey SpellHop { get; }
     public FormKey ListHop { get; }
+    // A list that carries SpellHop in the master and drops it in the winning override: the index still names it a
+    // candidate, and both reverse spellings must exclude it.
+    public FormKey ListDropped { get; }
 
     public IReadOnlyList<IMajorRecordGetter> WeaponBodies { get; }
     public IReadOnlyList<IMajorRecordGetter> SpellBodies { get; }
@@ -144,6 +147,8 @@ public sealed class RecordsWorld : IDisposable
         { var e = new Effect(); e.BaseEffect.SetTo(MgefHop); e.Data = new EffectData { Magnitude = 3 }; spellHop.Effects.Add(e); }
         var listHop = master.FormLists.AddNew(); listHop.EditorID = "HcRecListHop"; ListHop = listHop.FormKey;
         listHop.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(SpellHop));
+        var listDropped = master.FormLists.AddNew(); listDropped.EditorID = "HcRecListDropped"; ListDropped = listDropped.FormKey;
+        listDropped.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(SpellHop));
 
         // One element past ReadEngine's expansion budget: the only fixture that reaches the delta form's
         // "TRUNCATED at the cap" sentence (zero deltas AND an incomplete deep read).
@@ -158,6 +163,9 @@ public sealed class RecordsWorld : IDisposable
 
         var ovMod = new SkyrimMod(ovKey, SkyrimRelease.SkyrimSE);
         WriteEngine.GenericGetOrAddAsOverride(ovMod, bigList);   // identical copy — no field changed
+        // The winner drops the link the master's copy carries — the index candidate that neither reverse spelling
+        // may report.
+        ((IFormList)WriteEngine.GenericGetOrAddAsOverride(ovMod, listDropped)).Items.Clear();
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(ovMod, master.Weapons.First(w => w.FormKey == weapons[0])))
             .BasicStats = new WeaponBasicStats { Damage = 99, Weight = 1 };
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(ovMod, master.Weapons.First(w => w.FormKey == weapons[2])))
