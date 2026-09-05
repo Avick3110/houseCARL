@@ -714,9 +714,9 @@ public static class RecordsTools
                 // is — so the per-hop census is the only thing this lane renders of its own.
                 var rev = ReverseWalkBatch.Run(svc, ids, walkDepth, walkMaxNodes, demand);
                 if (rev.Refusal is not null)
-                    return json ? JsonWire.RenderError(rev.Refusal, rev.Epoch) : "error: " + rev.Refusal + (rev.Epoch is not null ? $"\nepoch={rev.Epoch}" : "");
-                if (SeamTear(rev.Epoch) is { } rTear)
-                    return json ? JsonWire.RenderError(rTear, rev.Epoch) : "error: " + rTear;
+                    return json ? JsonWire.RenderError(rev.Refusal, rev.Stamp) : "error: " + rev.Refusal + Wire.EpochLine(rev.Stamp);
+                if (SeamTear(rev.Stamp) is { } rTear)
+                    return json ? JsonWire.RenderError(rTear, rev.Stamp) : "error: " + rTear;
                 // Every hop is named with its count, empty ones included: a walk that ran out of referrers says so
                 // on the response instead of trailing off, so an empty hop 2 is visible and not silent. A hop the
                 // budget ended says 'cut' instead, so a prefix is never read as a finding, and the exhaustion
@@ -819,7 +819,7 @@ public static class RecordsTools
                     }
                     if (carrierSel.Count == 0)
                         return json ? JsonWire.RenderError($"the reverse carrier walk reached nothing readable ({seedErrs2} seed error(s) — run form='chain' to see each seed's outcome).", epochR)
-                                    : $"error: the reverse carrier walk reached nothing readable ({seedErrs2} seed error(s) — run form='chain' to see each seed's outcome)." + (epochR is not null ? $"\nepoch={epochR}" : "");
+                                    : $"error: the reverse carrier walk reached nothing readable ({seedErrs2} seed error(s) — run form='chain' to see each seed's outcome)." + Wire.EpochLine(epochR);
                     // A seed that failed contributed no carriers, and the reading form says so: a partial answer
                     // over some of the seeds must never read as an answer over all of them.
                     envelope.Add(new("selection", $"the {carrierSel.Count} record(s) the carrier walk reached (seeds included)"
@@ -829,7 +829,7 @@ public static class RecordsTools
                         headerLine += $"\n[!] {seedErrs2} seed(s) failed and contributed no carriers — run form='chain' to see each seed's outcome.";
                     if (cappedSeeds > 0)
                         headerLine += $"\n[!] {cappedSeeds} seed(s) hit the walk.max_nodes carrier bound ({walkMaxNodes}, per seed on this lane) — the selection is a prefix of the {carrierTotal} carrier(s) reached; raise walk.max_nodes.";
-                    expectEpoch = epochR;
+                    expectEpoch = epochR?.Epoch;
                     formids = carrierSel.ToArray();
                     walk = null;
                     return ListLane();
