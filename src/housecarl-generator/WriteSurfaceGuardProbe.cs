@@ -2441,7 +2441,13 @@ public static class WriteSurfaceGuardProbe
         // …and the UN-OWNED half of the same resolver, where apply's own in-place spelling reaches a caller (#359).
         // A marker-less mod folder is enough to reach it, and it is inert to every other arm: nothing lists it, no
         // profile enables it, and the call is a refusal, so the fixture stays as the later arms expect it.
-        Directory.CreateDirectory(Path.Combine(fx.ModsDir, "W2TwinForeign"));
+        // It has to HOLD a plugin the in-place lane could take, or the sentence is correctly withheld and this
+        // observation would pass on a render that never carried it: in_place= resolves a filename through the
+        // ACTIVE load order, so the folder gets a copy of an active plugin's file.
+        var twinForeign = Path.Combine(fx.ModsDir, "W2TwinForeign");
+        Directory.CreateDirectory(twinForeign);
+        if (!File.Exists(Path.Combine(twinForeign, fx.ReplacerName)))
+            File.Copy(Path.Combine(fx.ModsDir, "W2Repl", fx.ReplacerName), Path.Combine(twinForeign, fx.ReplacerName));
         var foreignOps = Json($$"""[{"formid":"{{fx.SubjectFid}}","field_path":"Name","value":"x"}]""");
         Observe(ApplyTools.Apply(fx.Svc, ops: foreignOps, into: "W2TwinForeign"),
                 ApplyTools.Apply(fx.Svc, ops: foreignOps, into: "W2TwinForeign", format: "json"));

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -199,8 +200,11 @@ internal static class ExtendResolveProbe
                 string twoEsp = Path.Combine(mods, "houseCARL - TwoEsp");
                 Directory.CreateDirectory(twoEsp);
                 MarkOwned(twoEsp, "Alpha.esp");
-                File.WriteAllText(Path.Combine(twoEsp, "Alpha.esp"), "x");
-                File.WriteAllText(Path.Combine(twoEsp, "Beta.esp"), "y");
+                // Real plugins, not placeholder bytes: arm 9c FOLLOWS the spelling this folder is rendered as, and a
+                // remedy is checked by making the call.
+                foreach (var n in new[] { "Alpha", "Beta" })
+                    new SkyrimMod(new ModKey(n, ModType.Plugin), SkyrimRelease.SkyrimSE)
+                        .BeginWrite.ToPath(Path.Combine(twoEsp, n + ".esp")).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
                 var r = svc.ApplyEdits(new[] { Wgt(1) }, null, "TwoEsp");
                 bool named = r.Error is not null
@@ -505,10 +509,13 @@ internal static class ExtendResolveProbe
                 Check(r.Error is not null && !r.Error.Contains("in_place", StringComparison.Ordinal),
                       "…and at the SERVICE altitude names no in-place spelling (the tools own that sentence)");
 
+                // This folder's plugin is NOT in the active order, so the in-place lane cannot take it — in_place=
+                // resolves a filename through the load order. The sentence is withheld rather than offered false,
+                // which is the whole point of gating it on what the folder actually holds.
                 var tooled = RemoveTools.Remove(svc, new[] { fid }, into: "Foreign");
-                Check(tooled.Contains(WriteSentences.RemoveInPlaceLane, StringComparison.Ordinal)
+                Check(!tooled.Contains("in_place=", StringComparison.Ordinal)
                       && tooled.Contains("houseCARL owns", StringComparison.Ordinal),
-                      "housecarl_remove's un-owned refusal names the in-place lane IT declares, beside the owned patches (#359)");
+                      "housecarl_remove's un-owned refusal offers NO in-place lane for a folder with no active plugin, and still lists the owned patches");
 
                 // the rider lane refuses the un-owned folder too (shared resolver — same gate)
                 string riderErr2 = "";
@@ -519,6 +526,118 @@ internal static class ExtendResolveProbe
                 Check(riderErr2.Contains("pass patch_name= a name no mod folder already uses", StringComparison.Ordinal)
                       && riderErr2.Contains("houseCARL owns", StringComparison.Ordinal),
                       "…and names THAT lane's own parameter plus the owned patches, never patch= or a dead end (#359)");
+            }
+
+            // ---- 9b: the un-owned refusal at TOOL altitude, on a folder whose plugin the in-place lane CAN take ----
+            //      "RemoveHereMod" is un-owned and holds RemoveHere.esp, which arm 8d2 put in the active order and
+            //      then removed a record from in place — so the lane the sentence offers is one this fixture has
+            //      already proved works. Each of the four write tools is called, because the spelling is handed DOWN
+            //      from the tool: delete the hand-down at any one call site and only that tool's check reddens.
+            Console.WriteLine();
+            Console.WriteLine("--- 9b: every write tool's un-owned refusal names ITS in-place lane, with the plugin ---");
+            {
+                static JsonElement Doc(string s) => JsonDocument.Parse(s).RootElement;
+                string named = "in_place=\"RemoveHere.esp\"";
+
+                var ap = ApplyTools.Apply(svc, ops: Doc($"[{{\"formid\":\"{fid}\",\"field_path\":\"BasicStats.Weight\",\"value\":\"2\"}}]"),
+                                          into: "RemoveHereMod");
+                Check(ap.Contains(WriteSentences.ExtendInPlaceLane, StringComparison.Ordinal) && ap.Contains(named, StringComparison.Ordinal),
+                      "housecarl_apply names the in-place lane AND the plugin in that folder the lane can take");
+
+                var cr = CreateTools.Create(svc, records: Doc("[{\"record_type\":\"Keyword\",\"editorid\":\"HcExtUnowned\"}]"),
+                                            into: "RemoveHereMod");
+                Check(cr.Contains(WriteSentences.ExtendInPlaceLane, StringComparison.Ordinal) && cr.Contains(named, StringComparison.Ordinal),
+                      "housecarl_create does too (its hand-down had no arm before)");
+
+                var fw = ForwardTools.Forward(svc, formids: new[] { fid }, source: mKey.FileName.String, into: "RemoveHereMod");
+                Check(fw.Contains(WriteSentences.ExtendInPlaceLane, StringComparison.Ordinal) && fw.Contains(named, StringComparison.Ordinal),
+                      "housecarl_forward does too");
+
+                var rm = RemoveTools.Remove(svc, new[] { fid }, into: "RemoveHereMod");
+                Check(rm.Contains(WriteSentences.RemoveInPlaceLane, StringComparison.Ordinal) && rm.Contains(named, StringComparison.Ordinal),
+                      "housecarl_remove names the lane IT declares, with the same plugin");
+                // The un-owned arm used to say nothing about why there is no fresh-patch route on the one lane that
+                // has none, so a caller who reached for patch= met a second refusal.
+                Check(rm.Contains(WriteSentences.RemoveNoFreshPatch, StringComparison.Ordinal)
+                      && !rm.Contains("pass patch=", StringComparison.Ordinal),
+                      "…and states why removal offers no fresh patch here, rather than leaving it to be guessed");
+            }
+
+            // ---- 9c: every spelling the candidate list prints RESOLVES to the row it was printed for ----
+            //      A list of candidates is a set of claims about what a call does, so the two shapes that could make
+            //      one false are built and then FOLLOWED: a folder whose own name resolves somewhere else, and a
+            //      folder holding several plugins, where the folder spelling reaches the folder but no single plugin.
+            Console.WriteLine();
+            Console.WriteLine("--- 9c: the rendered into= spellings resolve where they say they do ---");
+            {
+                // A renamed owned folder literally named "SeedA", holding Solo.esp. into="SeedA" does NOT reach it:
+                // two other owned folders carry SeedA.esp, and the by-plugin arm runs before the folder catch-all.
+                var soloDir = Path.Combine(mods, "SeedA");
+                Directory.CreateDirectory(soloDir);
+                MarkOwned(soloDir, "Solo.esp");
+                new SkyrimMod(new ModKey("Solo", ModType.Plugin), SkyrimRelease.SkyrimSE)
+                    .BeginWrite.ToPath(Path.Combine(soloDir, "Solo.esp")).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+                var miss = svc.ApplyEdits(new[] { Wgt(1) }, null, "GhostList");
+                string list = miss.Error ?? "";
+                Check(list.Contains("houseCARL owns: ", StringComparison.Ordinal) && list.Contains("into=\"", StringComparison.Ordinal),
+                      "the refusal closes with the LIST form, not the empty-inventory clause (#380)");
+                Check(!list.Contains("into=\"SeedA\"", StringComparison.Ordinal)
+                      && list.Contains("into=\"Solo.esp\" (in SeedA)", StringComparison.Ordinal),
+                      "a folder whose own name resolves elsewhere is printed by its PLUGIN instead");
+                Check(list.Contains("into=\"Alpha.esp\"", StringComparison.Ordinal) && list.Contains("into=\"Beta.esp\"", StringComparison.Ordinal)
+                      && !list.Contains("into=\"houseCARL - TwoEsp\"", StringComparison.Ordinal),
+                      "a folder holding two plugins is printed as one row per plugin, not as the folder spelling it would refuse");
+
+                // Followed, both of them, since that is the only way to check a claim about what a call does.
+                var followedSolo = svc.ApplyEdits(new[] { Wgt(6) }, null, "Solo.esp");
+                Check(followedSolo.Success && Ends(followedSolo.OutputPath, "SeedA", "Solo.esp"),
+                      $"following into=\"Solo.esp\" extends THAT patch ({Path.GetFileName(Path.GetDirectoryName(followedSolo.OutputPath) ?? "")})");
+                var followedAlpha = svc.ApplyEdits(new[] { Wgt(6) }, null, "Alpha.esp");
+                Check(followedAlpha.Success && Ends(followedAlpha.OutputPath, "houseCARL - TwoEsp", "Alpha.esp"),
+                      "following into=\"Alpha.esp\" extends the named plugin inside the two-plugin folder");
+
+                // Near-stem first (#380): a caller who typo'd one patch's plugin gets that row ahead of the alphabet.
+                var typo = svc.ApplyEdits(new[] { Wgt(1) }, null, "Betta");
+                string ranked = typo.Error ?? "";
+                Check(ranked.IndexOf("into=\"Beta.esp\"", StringComparison.Ordinal) >= 0
+                      && ranked.IndexOf("into=\"Beta.esp\"", StringComparison.Ordinal)
+                         < ranked.IndexOf("into=\"houseCARL - DupHome\"", StringComparison.Ordinal),
+                      "into=\"Betta\" floats the near-stem row above the alphabetically-first one");
+            }
+
+            // ---- 9d: the pluginless folder, and the cap ----
+            //      Both halves of the list's own contract, neither of which any arm read: the record lane leaves out
+            //      a folder it could not extend, the rider lane keeps it, and a long inventory says it was cut.
+            Console.WriteLine();
+            Console.WriteLine("--- 9d: pluginless folders are record-lane-only omissions, and the list is capped ---");
+            {
+                var bare = Path.Combine(mods, "houseCARL - AssetsOnly");
+                Directory.CreateDirectory(bare);
+                MarkOwned(bare, "");                                          // an owned folder holding no plugin at all
+
+                var rec = svc.ApplyEdits(new[] { Wgt(1) }, null, "GhostCap");
+                Check(!(rec.Error ?? "").Contains("AssetsOnly", StringComparison.Ordinal),
+                      "the RECORD lane leaves out an owned folder holding no plugin (it could not extend it)");
+                string riderList = "";
+                try { svc.ResolvePatchModFolder(null, "GhostCap", "houseCARL_Archive", BsaTools.RepackNaming); }
+                catch (InvalidOperationException ex) { riderList = ex.Message; }
+                Check(riderList.Contains("into=\"houseCARL - AssetsOnly\"", StringComparison.Ordinal),
+                      "…and the RIDER lane keeps it, since that lane extends the folder itself");
+
+                // Past the cap the sentence says so rather than growing without bound.
+                for (int i = 0; i < 9; i++)
+                {
+                    var extra = Path.Combine(mods, $"houseCARL - Bulk{i:D2}");
+                    Directory.CreateDirectory(extra);
+                    MarkOwned(extra, $"Bulk{i:D2}.esp");
+                    File.WriteAllText(Path.Combine(extra, $"Bulk{i:D2}.esp"), "b");
+                }
+                var capped = svc.ApplyEdits(new[] { Wgt(1) }, null, "GhostCapped");
+                string capText = capped.Error ?? "";
+                int rowCount = capText.Split("into=\"", StringSplitOptions.None).Length - 1;
+                Check(rowCount == 8 && capText.Contains(" more.", StringComparison.Ordinal),
+                      $"the list stops at 8 rows and counts the rest ({rowCount} rows rendered)");
             }
 
             // ---- 10: ORIGINALS — the master plugin never moved a byte (extends only wrote the patch folder) ----
