@@ -280,11 +280,16 @@ saying it sets an expectation their install may contradict. Say what is known, a
   one 20k-record master and nine 2k plugins, ten touchers of one cell: 80 ms of body fetches became 4 ms.
 - **An `into=` that names no houseCARL patch, or names a folder houseCARL does not own, now tells you what to try.**
   Each refusal is one sentence: what went wrong, then the nearest houseCARL-owned patches to extend instead, named
-  as `into=` spellings (at most three, nearest what you typed first), and the calling tool's own fresh-patch
-  parameter. Every spelling offered is one that resolves back to the patch it stands for — a folder holding two
+  as `into=` spellings (at most three, nearest what you typed first, with a count of the ones the cap left out so the
+  three do not read as the whole inventory), and the calling tool's own fresh-patch parameter. Nearest is measured
+  even where the name-suggester vouches for nothing, so the three are never whichever names happen to sort first.
+  Every spelling offered is one that resolves back to the patch it stands for — a folder holding two
   plugins is offered by a plugin, not by a folder name the next call would refuse — and the record lane leaves out
   folders holding no plugin, which it could not extend. Where houseCARL owns patches but no single `into=` spelling
-  reaches any of them, the refusal says how many there are and to rename one in MO2, instead of saying it owns none.
+  reaches any of them, the refusal says how many there are and to rename one in MO2, instead of saying it owns none;
+  where a mod folder could not be read while the patches were being counted, no candidate is offered at all rather
+  than the half the scan reached. `housecarl_remove` cannot create a patch, so on an install owning none yet it now
+  names the writes that can make one instead of stopping at what went wrong.
   Naming a mod folder houseCARL does not own is still refused with the originals untouched; that refusal does not
   hand back the name you passed, since a patch minted under that stem would sit beside the foreign plugin of the
   same name. houseCARL does not check the name you pass `patch=` next against inactive plugins in other people's mod
