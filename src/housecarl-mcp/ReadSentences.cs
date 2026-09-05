@@ -394,6 +394,36 @@ internal static class ReadSentences
     [NoClaims("a list item; the claims are the family description it quotes and the spelling it prints")]
     internal const string SweepFamilyNotRun = "{0} ({1})";
 
+    /// <summary>The off-order roster a swept family prints: which files it swept from disk rather than from the
+    /// active order, and — in the bracketed tail — what that sweep did and did not read for them. One source,
+    /// because the coverage tail is the caveat that makes the lane's verdict readable and a second copy of it is
+    /// how the two families come to claim different things about the same lane.</summary>
+    [MustState("swept OFF-ORDER", "not in the active load order")]
+    internal const string SweepOffOrderScanned =
+        "swept OFF-ORDER (on disk, not in the active load order): {0}   [{1}]";
+
+    /// <summary>The errors family's coverage tail for <see cref="SweepOffOrderScanned"/>.</summary>
+    [MustState("the file's own records", "links resolved against the active order")]
+    internal const string SweepOffOrderErrorsCoverage =
+        "the file's own records; links resolved against the active order + the file's own definitions";
+
+    /// <summary>The scripts family's coverage tail: the <c>.pex</c> chain comes from the ACTIVE order, so a script
+    /// shipping only inside the not-yet-enabled mod is outside it and lands in the unverifiable count. Stated to
+    /// both transports, because that count is unreadable without it.</summary>
+    [MustState("the file's own records", ".pex read from the ACTIVE order", "UNVERIFIABLE, not clean")]
+    internal const string SweepOffOrderScriptsCoverage =
+        "the file's own records; each attached script's .pex read from the ACTIVE order, so a script that ships " +
+        "only inside the not-yet-enabled mod reads UNVERIFIABLE, not clean";
+
+    /// <summary>How many further records carried an unverifiable note already reported for the same script class.
+    /// Unverifiable notes are outside the finding budget, and a disabled mod puts every one of its script classes
+    /// out of the VFS at once — so the repeats are collapsed and the collapse is stated rather than the listing
+    /// quietly filling with one sentence.</summary>
+    [MustState("collapsed", "already reported")]
+    internal const string SweepScriptUnverifiableCollapsed =
+        "unverifiable notes: {0} further record(s) carry a note already reported for the same script class — " +
+        "collapsed, so the listing is not a wall of one sentence. The unverifiable total above counts them all.";
+
     /// <summary>The merged response's boundary label. Each family states its own boundary and they claim different
     /// things, so the label is parameterised to name whose claim follows it.</summary>
     [NoClaims("a label; the claim it introduces is the named family's own boundary")]
