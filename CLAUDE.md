@@ -26,7 +26,7 @@ Code comments call the first two of these the cornerstones. A design question th
    ```
    Tests drive the built server. How to write one: [standards/TESTING.md](standards/TESTING.md).
 3. **Commit small.** One change per commit, plain imperative subject under 72 characters. Temp files go in the session's own scratchpad directory; the shared temp directory, under any spelling, is where parallel sessions overwrite each other.
-4. **Open the PR.** A paragraph saying what changed and why, `Closes #N` for the issue, and a line under `## Unreleased` in `plugin/CHANGELOG.md` if a user would notice the change. Run one review pass (`/code-review`) and fix what is real. Aaron then reviews; his findings come from a fresh agent reading the PR blind, so a finding can be wrong. Fold what is real; refute the rest in a reply on the PR with the reason, and Aaron decides. He merges on his word with `gh pr merge <N> --rebase --delete-branch`; then remove the worktree.
+4. **Open the PR.** A paragraph saying what changed and why, `Closes #N` for the issue, and a line under `## Unreleased` in `plugin/CHANGELOG.md` if a user would notice the change. Do not run a review pass yourself: the advisor spawns a fresh agent that reviews the PR blind and comments on it; fold what is real. Aaron then reviews the same way, so a finding from either can be wrong. Fold what is real; refute the rest in a reply on the PR with the reason, and Aaron decides. He merges on his word with `gh pr merge <N> --rebase --delete-branch`; then remove the worktree.
 5. **Write plainly.** Comments are one line saying what. Commit messages, PR bodies, and issues use ordinary words: bug, test, review, fix. No project jargon, no lore.
 
 ## Where things live
