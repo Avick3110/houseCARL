@@ -55,10 +55,10 @@ public static class RecordsTools
         [Description("Link-bearing field paths that start the walk from each seed, e.g. [\"HeadParts\", \"WornArmor\"]. '*parent' crosses the containment edge instead — the record that CONTAINS the seed (a REFR from a crash log to its CELL; '*parent.*parent' to the worldspace). Omit for every link on the seed.")]
         public string[]? seed_paths { get; set; }
 
-        [Description("The link path followed at every LATER hop — the edges this walk crosses, in either direction. \"*\" (default) walks every link — full closure. A named path restricts to one chain, e.g. \"Template\" for NPC template inheritance, or \"*parent\" to climb containment. On direction='reverse' the two legal values are \"*\" (unset; the transitive walk over every link, off the reverse-reference index) and \"Effects[].BaseEffect\" (the typed MGEF carrier walk).")]
+        [Description("The link path followed at every LATER hop — the edges this walk crosses, in either direction. \"*\" (default) walks every link — full closure. A named path restricts to one chain, e.g. \"Template\" for NPC template inheritance, or \"*parent\" to climb containment. On direction='reverse' the two legal values are \"*\" (the default under a reading form; the transitive walk over every link, off the reverse-reference index) and \"Effects[].BaseEffect\" (the typed MGEF carrier walk) — under project.form='chain' there is no default and one of the two is said outright.")]
         public string? follow { get; set; }
 
-        [Description("'forward' (default) — what the seeds point AT (cheap: each hop is one link resolve). 'reverse' — what points AT the seeds, at any depth, needing no bounding scope. walk.follow picks the reverse walk, exactly as it does forward: unset or \"*\" follows EVERY link at every hop off the reverse-reference index, which is built on the first such call at the cost of one whole-order link-walk and reports that cost in the response; follow=\"Effects[].BaseEffect\" is the typed MGEF carrier walk — magic-effect seeds, per-carrier magnitude/area/duration, types= narrowing the carrier types — which reaches nothing past hop 1 because a carrier is not a magic effect. The FORM then only picks the view: 'chain' renders the walk's own rows, a reading form (summary/fields/rows/everything/aggregate) consumes the same reached set. One exception, declared: form='chain' with follow unset means the carrier walk, since the transitive walk has no per-seed path render. references= is the same reverse question as one step of SELECT.")]
+        [Description("'forward' (default) — what the seeds point AT (cheap: each hop is one link resolve). 'reverse' — what points AT the seeds, at any depth, needing no bounding scope. walk.follow picks the reverse walk, exactly as it does forward: \"*\" (or, under a reading form, unset) follows EVERY link at every hop off the reverse-reference index, which is built on the first such call at the cost of one whole-order link-walk and reports that cost in the response; follow=\"Effects[].BaseEffect\" is the typed MGEF carrier walk — magic-effect seeds, per-carrier magnitude/area/duration, types= narrowing the carrier types — which reaches nothing past hop 1 because a carrier is not a magic effect. The FORM then only picks the view and never implies a walk: 'chain' renders the walk's own rows, a reading form (summary/fields/rows/everything/aggregate) consumes the same reached set. Under form='chain' walk.follow is REQUIRED — chain can only draw the carrier walk's per-seed paths, and the transitive walk expands one shared frontier with no path per seed, so an unset follow refuses naming both rather than picking one. references= is the same reverse question as one step of SELECT.")]
         public string? direction { get; set; }
 
         [Description("Maximum hops from a seed (default 16). Nodes AT the cap are recorded, not entered, and the response says the cap cut the walk — never a silent stop.")]
@@ -415,13 +415,14 @@ public static class RecordsTools
         bool reverseWalk = walk is not null && walkDirection == "reverse";
         // The reverse direction has two walks and walk.follow tells them apart, exactly as it does forward: "*" (or
         // unset) is the transitive walk over every link off the reverse-reference index, the carrier path is the
-        // typed MGEF walk. The FORM then only picks the view. One declared exception keeps the shipped carrier
-        // spelling working: form='chain' with follow unset means the carrier walk, because the transitive walk —
-        // one shared frontier, not a per-seed expansion — has no per-seed path render for chain to draw.
+        // typed MGEF walk. The FORM then only picks the view, and never implies a walk: under 'chain' the follow is
+        // said outright, because the transitive walk — one shared frontier, not a per-seed expansion — has no
+        // per-seed path render for chain to draw, so a default would silently mean the other walk.
         bool followAsked = !string.IsNullOrWhiteSpace(walk?.follow);
         bool reverseCarrier = reverseWalk
-            && (string.Equals(walk!.follow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase)
-                || (!followAsked && form == "chain"));
+            && string.Equals(walk!.follow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase);
+        if (reverseWalk && form == "chain" && !followAsked)
+            return Wire.Refuse(json, $"error: no default follow implies a walk, so a reverse 'chain' call names the edges it crosses — walk.follow=\"{CarrierFollow}\" is the typed MGEF carrier walk, which chain renders, and walk.follow=\"*\" is every link, which chain cannot render because the transitive walk expands one shared frontier and has no per-seed path to draw (read that one with summary/fields/rows/everything/aggregate).");
         if (reverseWalk && form == "chain" && !reverseCarrier)
             return Wire.Refuse(json, $"error: the 'chain' form renders a walk's own per-seed paths, and the transitive reverse walk (follow=\"*\") expands ONE shared frontier rather than a path per seed, so it has none to draw — read it with a reading form (summary/fields/rows/everything/aggregate) over the reached set, or ask for the typed MGEF carrier chain with walk.follow=\"{CarrierFollow}\".");
         if (reverseWalk && (plugins?.names is { Length: > 0 } || conflicts_only || where is { Length: > 0 }))
