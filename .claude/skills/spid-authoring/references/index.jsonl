@@ -20,7 +20,7 @@
 {"topic": "filter combination logic", "kind": "grammar", "file": "grammar-core.md", "aliases": ["AND", "OR", "exclusion", "multiple lines", "multiplicative", "additive"]}
 {"topic": "type inferring", "kind": "grammar", "file": "grammar-core.md", "aliases": ["generic Form", "infer", "Form ="]}
 {"topic": "Count or Package Index", "kind": "grammar", "file": "grammar-core.md", "aliases": ["item count", "range", "package index", "package list type"]}
-{"topic": "Chance", "kind": "grammar", "file": "grammar-core.md", "aliases": ["chance", "percent", "deterministic", "!"]}
+{"topic": "Chance", "kind": "grammar", "file": "grammar-core.md", "aliases": ["chance", "percent", "deterministic", "!", "only some NPCs got it", "didn't land on everyone", "random miss"]}
 {"topic": "templated NPCs", "kind": "grammar", "file": "grammar-core.md", "aliases": ["template", "base template", "leveled NPC", "reachable", "descendants"]}
 {"topic": "skill indices", "kind": "value-table", "file": "value-tables.md", "aliases": ["skill index", "one-handed", "destruction", "0-17", "skill level filter"]}
 {"topic": "trait letter codes", "kind": "value-table", "file": "value-tables.md", "aliases": ["F", "M", "U", "S", "C", "L", "T", "D", "teammate letter"]}
