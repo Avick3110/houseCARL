@@ -16,13 +16,18 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **`housecarl_asset_status` and `housecarl_place` take `format='json'`.** Both answered text only, so a caller
   reading them from a script parsed prose. The json document carries the same data as the text render: for
   `asset_status`, the build-level caveats, one row per path with its winner and full provider chain, and the same
-  eight accounting counters the text line states, under one `accounting` object; for `place`, one row per destination with its source and the
+  eight accounting counters the text line states, under one `accounting` object; for `place`, the same
+  `accounting` object plus `placed`/`failed`, one row per destination with its source and the
   current VFS winner, and the "a placed file does not win until you enable and sort the mod" step in band. A
   provider is `{name, kind}` — the name alone is what `place`'s `source_provider=` takes, so nothing has to be
   parsed back off the printed token. A whole-call refusal answers a json caller as a document, and a document
   that hits `max_chars` drops trailing rows, stays valid JSON, and says so — `max_chars` bounds the build-level
-  caveats as well as the rows, and the first row always renders, so a small `max_chars` still answers the path
-  that was asked about.
+  caveats as well as the rows, each of which carries a `<name>_omitted` count of what was cut, and the first row
+  always renders, so a small `max_chars` still answers the path that was asked about.
+
+- **`housecarl_place` no longer tells you to sort above a winner it did not name.** When `max_chars` cut every row
+  that had a current winner, the enable-and-sort step still said "above the current winner(s) listed above" while
+  the render listed none. It now says the rows were cut and to raise `max_chars` to see which mods they name.
 
 - **`housecarl_merge_plugins` now carries a donor's light (ESL) flag onto the merged plugin where it is valid to.**
   The flag is carried when every donor was light and every merged object id landed inside the light window
