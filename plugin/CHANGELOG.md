@@ -64,6 +64,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   entries in one call compose by AND. The sigil takes the `@file` spelling the plain entry takes, so
   `references=["!@C:/work/targets.jsonl"]` excludes every target a list file or result artifact names. The negated
   form takes the same bounding `types=`/`plugins=`/`formids=` scope the plain form takes.
+- **`housecarl_check`'s scripts family now sweeps a plugin that is on disk but not in the active load order.**
+  A `plugins=` name the order does not hold is located on disk and swept from its own file, exactly as the errors
+  family already does it, so a fresh patch's script-property bindings can be checked before it is enabled. Both
+  swept families now take one `plugins=` list whole, and each names the file it swept off-order in its own section;
+  the response no longer says the scripts family did not sweep it. `exclude=` scopes the off-order file the same
+  way it scopes an active one, and the epoch stamp says it does not cover a file located outside the index. Each
+  attached script's `.pex` is still read from the active order, so a script that ships only inside the
+  not-yet-enabled mod is reported UNVERIFIABLE — the same answer an uncompiled script gets, never a clean pass.
+
 - **`housecarl_load_order_status` now names the running server's build in its header** — a `server:` line carrying
   the informational version the binary embeds (the release version `build-plugin.ps1` stamps from `plugin.json`,
   then `+` and the full commit sha: `1.9.5-dev+e942910…`), so checking that the installed houseCARL is the build you expect no longer means
