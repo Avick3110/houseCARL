@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -110,7 +110,7 @@ public static class PlaceTools
             else
             {
                 all.AddRange(reqs!);
-                if (withheld) foreach (var r in reqs!) poleWithheld.Add(r.AssetPath);
+                if (withheld) foreach (var r in reqs!) poleWithheld.Add(PoleKey(r.AssetPath));
             }
         }
         if (problems.Count > 0)
@@ -190,6 +190,16 @@ public static class PlaceTools
             case "tint": case "dds": case "facetint": case "texture": return FaceGenSlot.Tint;
             default: error = $"kind '{kind}' is not valid — use 'mesh' (the head .nif) or 'tint' (the face .dds)."; return null;
         }
+    }
+
+    /// <summary>Key a withheld-pole note the way the result row will read back: the placer validates every
+    /// destination through <see cref="AssetResolver.ValidateRelPath"/> (forward slashes folded to backslashes), so a
+    /// raw key would miss a 'meshes/x.nif' member's row and drop the note. A path the validator rejects is reported
+    /// raw on its failure row, so it is keyed raw too.</summary>
+    static string PoleKey(string path)
+    {
+        try { return AssetResolver.ValidateRelPath(path); }
+        catch (ArgumentException) { return path; }
     }
 
     static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();

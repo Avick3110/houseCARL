@@ -363,6 +363,14 @@ internal static class PlaceProbe
                     });
                     Check(own.Contains(WriteSentences.PlaceSourceProviderNeedsRelPath, StringComparison.Ordinal),
                           "...and a member's own source_provider= against an on-disk source is still refused");
+                    // The row's path has been through the resolver's normalizer, so a forward-slash destination must
+                    // still find its note. Keyed raw, the note is dropped and the caller reads the pole as honoured.
+                    var slash = PlaceTools.Place(svc, new[]
+                    {
+                        new PlaceTarget { Path = "meshes/hcprobe/fan.nif", Source = @"C:\nope\fan.nif" },
+                    }, source_provider: "SomeMod");
+                    Check(slash.Contains("set-level source_provider not applied", StringComparison.Ordinal),
+                          $"...and a forward-slash destination still says it  [RED arm] - {Trim1(slash)}");
                 }
 
                 // The wire lane reads through the strict list reader, so an undeclared member is refused BY NAME.
