@@ -258,7 +258,7 @@ static class PlaceWire
         if (o.LeftoverFolder is not null)
             sb2.Append("note: ").Append(LeftoverNote(o.LeftoverFolder)).Append('\n');
 
-        if (placed > 0) sb2.Append('\n').Append(EnableAndSort(o, modFolder)).Append('\n');
+        if (placed > 0) sb2.Append('\n').Append(EnableAndSort(o, modFolder, rendered)).Append('\n');
 
         return sb2.ToString().TrimEnd('\n');
     }
@@ -269,16 +269,28 @@ static class PlaceWire
 
     /// <summary>The instruction a placement is incomplete without: written bytes do not win the VFS until the mod is
     /// enabled, and sorted above the current winner when one exists. One home, because both transports have to carry
-    /// it verbatim — a json caller told only that the write succeeded would enable nothing.</summary>
-    internal static string EnableAndSort(PlaceOutcome o, string? modFolder)
+    /// it verbatim — a json caller told only that the write succeeded would enable nothing.
+    /// <para><paramref name="rendered"/> is how many rows the render actually got onto the page. Rows come out in
+    /// order, so those are the first <paramref name="rendered"/> results — and a contended row max_chars cut cannot
+    /// be pointed at with "listed above", so the sentence says the row was cut instead of naming a winner the
+    /// document never shows.</para></summary>
+    internal static string EnableAndSort(PlaceOutcome o, string? modFolder, int rendered)
     {
-        bool anyContended = false;
-        foreach (var r in o.Results) if (r.Placed && r.CurrentWinner is not null) { anyContended = true; break; }
+        bool anyContended = false, shownContended = false;
+        for (int i = 0; i < o.Results.Count; i++)
+        {
+            if (!(o.Results[i].Placed && o.Results[i].CurrentWinner is not null)) continue;
+            anyContended = true;
+            if (i < rendered) { shownContended = true; break; }
+        }
+        var sort = shownContended
+            ? " and SORT it (left pane) ABOVE the current winner(s) listed above. Only then does the placed copy win."
+            : anyContended
+                ? " and SORT it (left pane) ABOVE the current winner(s) — max_chars cut the row(s) naming them from " +
+                  "this render, so raise max_chars and re-read to see which. Only then does the placed copy win."
+                : ". Nothing else provided these path(s), so once enabled the placed copy wins (sort it above any mod you later add that also provides them).";
         return "IMPORTANT — \"wrote it\" is not \"it wins\": the placed file(s) do NOT win the VFS yet. Enable the mod '"
-             + (modFolder ?? "(the new folder)") + "' in MO2"
-             + (anyContended
-                 ? " and SORT it (left pane) ABOVE the current winner(s) listed above. Only then does the placed copy win."
-                 : ". Nothing else provided these path(s), so once enabled the placed copy wins (sort it above any mod you later add that also provides them).");
+             + (modFolder ?? "(the new folder)") + "' in MO2" + sort;
     }
 
     static void AppendResult(StringBuilder sb, PlaceResult r, string? modFolder, bool poleWithheld)

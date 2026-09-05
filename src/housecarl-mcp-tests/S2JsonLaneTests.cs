@@ -273,8 +273,13 @@ public class PlaceJsonRenderTests
 
         Assert.True(root.GetProperty("ok").GetBoolean());
         Assert.Equal("houseCARL - MyFixes", root.GetProperty("mod_folder").GetString());
-        Assert.Equal(3, root.GetProperty("total").GetInt32());
-        Assert.Equal(3, root.GetProperty("rendered").GetInt32());
+        // Under the same `accounting` object asset_status writes: a consumer reads doc.accounting.total on both S2
+        // tools rather than one nested and one flat. placed/failed are the write lane's own siblings of it.
+        var acct = root.GetProperty("accounting");
+        Assert.Equal(3, acct.GetProperty("total").GetInt32());
+        Assert.Equal(3, acct.GetProperty("rendered").GetInt32());
+        Assert.Equal(0, acct.GetProperty("truncated").GetInt32());
+        Assert.False(root.TryGetProperty("total", out _));
         Assert.Equal(2, root.GetProperty("placed").GetInt32());
         Assert.Equal(1, root.GetProperty("failed").GetInt32());
         Assert.False(root.GetProperty("truncated").GetBoolean());
@@ -291,8 +296,8 @@ public class PlaceJsonRenderTests
         var root = Parse(JsonWire.RenderPlaceOutcome(Outcome(ok: 4, failed: 0), 300));
 
         Assert.True(root.GetProperty("truncated").GetBoolean());
-        Assert.True(root.GetProperty("rendered").GetInt32() < 4);
-        Assert.Equal(4, root.GetProperty("total").GetInt32());
+        Assert.True(root.GetProperty("accounting").GetProperty("rendered").GetInt32() < 4);
+        Assert.Equal(4, root.GetProperty("accounting").GetProperty("total").GetInt32());
         Assert.Contains("the WRITE is unaffected", root.GetProperty("truncated_note").GetString());
         Assert.Contains("\"wrote it\" is not \"it wins\"", root.GetProperty("next_step").GetString());
     }
@@ -306,8 +311,45 @@ public class PlaceJsonRenderTests
 
         var row = Assert.Single(root.GetProperty("results").EnumerateArray());
         Assert.Equal("OtherMod (loose)", row.GetProperty("current_winner").GetString());
-        Assert.Equal(1, root.GetProperty("rendered").GetInt32());
+        Assert.Equal(1, root.GetProperty("accounting").GetProperty("rendered").GetInt32());
         Assert.True(root.GetProperty("truncated").GetBoolean());
+    }
+
+    /// <summary>next_step is true of the document it ships in. When max_chars cut every contended row, the sentence
+    /// cannot point at "the current winner(s) listed above" — the document names none — and it must not say nothing
+    /// else provides the path either, because something does. It says the rows were cut.</summary>
+    [Fact]
+    public void TheEnableStepNeverCitesAWinnerTheDocumentDropped()
+    {
+        // Row 0 is uncontended; the contended rows are further down, where a small cap cannot reach them.
+        var results = new List<PlaceResult> { new("meshes/hc/first.nif", true, 42, "SomeMod (loose)", null, null) };
+        for (int i = 0; i < 40; i++)
+            results.Add(new PlaceResult($"meshes/hc/ok{i}.nif", true, 42, "SomeMod (loose)", "OtherMod (loose)", null));
+        var o = new PlaceOutcome(results, @"C:\mods\houseCARL - MyFixes", Array.Empty<string>(), null, null);
+
+        var root = Parse(JsonWire.RenderPlaceOutcome(o, 1));
+
+        Assert.Equal(1, root.GetProperty("accounting").GetProperty("rendered").GetInt32());
+        var step = root.GetProperty("next_step").GetString()!;
+        Assert.DoesNotContain("listed above", step);
+        Assert.DoesNotContain("Nothing else provided", step);
+        Assert.Contains("max_chars cut the row(s) naming them", step);
+        // The whole list rendered still points at the rows, because they are there to point at.
+        Assert.Contains("listed above", Parse(JsonWire.RenderPlaceOutcome(o, 80_000)).GetProperty("next_step").GetString());
+    }
+
+    /// <summary>An outcome-level refusal is the SAME document shape as a tool-level one: {ok, error, epoch}. Two
+    /// refusal doors on one tool that write two shapes make a consumer reading doc["epoch"] throw on one of them.</summary>
+    [Fact]
+    public void BothOfPlacesRefusalDoorsWriteTheSameDocumentShape()
+    {
+        var fromOutcome = Parse(JsonWire.RenderPlaceOutcome(PlaceOutcome.Fail("no assets to place."), 80_000));
+        var fromToolLayer = Parse(JsonWire.RenderError("no assets to place.", null));
+
+        Assert.False(fromOutcome.GetProperty("ok").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, fromOutcome.GetProperty("epoch").ValueKind);
+        Assert.Equal(fromToolLayer.EnumerateObject().Select(p => p.Name),
+                     fromOutcome.EnumerateObject().Select(p => p.Name));
     }
 
     [Fact]
