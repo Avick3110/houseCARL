@@ -31,9 +31,6 @@ public sealed record ChildUnion(
     /// <summary>Distinct child records the order declares for this field.</summary>
     public int Total => Members.Count;
 
-    /// <summary>Does the body the read was taken from carry less than the whole? The #342 case in one predicate:
-    /// the winner touched the parent for an unrelated reason and its own list reads short or empty.</summary>
-    public bool OwnIsPartial => OwnCount < Total;
 }
 
 /// <summary>
@@ -65,7 +62,7 @@ public static class OwnedChildUnion
         var touching = view.TouchingPlugins(fk);
         if (touching is null || touching.Count <= 1) return null;
 
-        var getterType = WriteEngine.PrimaryGetter(subjectBody.GetType());
+        var getterType = WriteEngine.SeekTypeFor(subjectBody);
         var members = new Dictionary<string, List<FormKey>>(StringComparer.Ordinal);
         var seen = new Dictionary<string, HashSet<FormKey>>(StringComparer.Ordinal);
         var declarers = new Dictionary<string, List<ChildUnionDeclarer>>(StringComparer.Ordinal);
@@ -84,9 +81,15 @@ public static class OwnedChildUnion
         // shape's live copy is simply the last declarer standing.
         foreach (var plugin in touching)
         {
-            var body = string.Equals(plugin, subjectPlugin, StringComparison.OrdinalIgnoreCase)
-                ? subjectBody
-                : view.GetRecord(session, plugin, fk, getterType);
+            // A sibling plugin that will not OPEN must not fault the read. The subject's own body is already in
+            // hand, so the answer the caller asked for survives; this plugin becomes an unreadable the note names.
+            // The transient case is the common one — xEdit or MO2 holding an exclusive handle, an AV scan — and
+            // before the union the default read opened only the source, so nothing here could ever throw.
+            IMajorRecordGetter? body;
+            if (string.Equals(plugin, subjectPlugin, StringComparison.OrdinalIgnoreCase)) body = subjectBody;
+            else
+                try { body = view.GetRecord(session, plugin, fk, getterType); }
+                catch { body = null; }
             foreach (var f in fields.Keys)
             {
                 // Null is "could not look", never "declares nothing" — a provider counted into the negative would
@@ -143,7 +146,14 @@ public static class OwnedChildUnion
         // TYPE this field owns, so the walk stops at the cells rather than descending into their contents.
         if (val is IMajorRecordGetterEnumerable en && childType is not null)
         {
+            int before = sink.Count;
             foreach (var child in en.EnumerateMajorRecords(childType, throwIfUnknown: false)) sink.Add(child.FormKey);
+            // A typed enumeration Mutagen does not route yields an EMPTY sequence rather than throwing, which would
+            // turn "I could not look" into "it declares nothing" — the #308 rule inverted. So an empty typed walk
+            // over a container that holds records at all is a miss, not a negative: fail closed and let the caller
+            // say the body could not be read. The untyped check runs only on that empty branch and stops at the
+            // first record it finds, so the walk this arm exists to avoid is never paid on the normal path.
+            if (sink.Count == before && en.EnumerateMajorRecords().Any()) return false;
             return true;
         }
         if (val is System.Collections.IEnumerable seq)
