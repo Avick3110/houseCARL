@@ -55,9 +55,9 @@ public static class AssetTools
             return "error: asset_paths and under are both empty. Pass Data-relative asset path(s) in asset_paths " +
                    "(e.g. 'textures/armor/iron/cuirass_1.dds'), or a Data-relative directory or glob in under " +
                    "(e.g. 'meshes/actors/character/facegendata/facegeom/Skyrim.esm').";
-        if (limit < 0 || offset < 0)
-            return $"error: limit={limit} offset={offset} — neither can be negative. Pass limit=0 for no limit and " +
-                   "offset=0 to start at the beginning of the selection.";
+        // The window's own refusal, from the window: this tool and housecarl_skse answer the same input class, so the
+        // sentence is spelled once rather than reworded in two places.
+        if (new RowWindow(offset, limit).Error is { } bad) return bad;
         var data = svc.AssetStatus(asset_paths ?? Array.Empty<string>(), under, limit, offset);
         return AssetWire.Render(data, max_chars > 0 ? max_chars : 80_000);
     });
