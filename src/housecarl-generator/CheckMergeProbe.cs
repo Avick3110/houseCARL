@@ -38,8 +38,8 @@ namespace HousecarlGenerator;
 ///   SCOPE-SENTENCE-*          — the default narrows only because the response says so: which families ran, which
 ///                               registered ones did not, and the exact findings= spelling that adds them — in BOTH
 ///                               transports, as one complete sentence rather than a lead each finishes its own way.
-///   OFF-ORDER-STATED-PER-FAMILY — the scripts family has no off-order lane, and the response says which files it did
-///                               not sweep, inside that family's own section where its zero counts are.
+///   OFF-ORDER-NAMED-PER-FAMILY — both swept families have the off-order lane, and each names the file IT swept
+///                               inside its own section, where its own counts are.
 ///   PLAN-LEAVES-EMPTY-SUBJECTS-OUT — a subject with no rows is not in the allocation plan; a share held for rows
 ///                               that do not exist is the equal-split waste the ruled rule was chosen over.
 ///   CLASS-TOKEN-ROUND-TRIP    — every flag combination the merged parser produces spells tokens the family parsers
@@ -627,6 +627,48 @@ public static class CheckMergeProbe
         Check("GROUNDS-ARE-ONE: a call collapses to one error exactly when every refusing family gives the SAME ground; distinct grounds render as sections, each carrying its own, and the response says no family answered",
             groundsBad.Count == 0,
             groundsBad.Count == 0 ? "distinct grounds sectioned, one shared ground collapsed" : string.Join("; ", groundsBad.Take(4)));
+
+        // ---- …and the arrangement the shared swept scope makes ORDINARY: the TWO swept families refuse on ONE
+        //      ground — they hold the same plugins= scope now, off-order files included, so an exclusion that
+        //      empties it empties both — while the SEEDED family answers off its own seeds. One ground and yet no
+        //      collapse, because a family answered: the collapse rule keys on nothing having run, and a rule that
+        //      keyed on the grounds alone would throw a completed dialogue validation away. The cells either side
+        //      reach neither half (one is errors + dialogue, the other is the scripts family alone).
+        var sharedScopeGround = "exclude= removed every plugin this sweep would have covered (1 in scope, all excluded)";
+        var twoRefusedOneAnswered = new CheckSweep(Sel("errors", "scripts", "dialogue"),
+                                                   ErrorCheckResult.Fail(sharedScopeGround),
+                                                   ScriptCheckResult.Fail(sharedScopeGround),
+                                                   DialogueFixture());
+        var twoRefusedText = Wire.RenderCheck(twoRefusedOneAnswered, 0);
+        var twoRefusedJson = JsonWire.RenderCheck(twoRefusedOneAnswered, 0);
+        var twoRefusedBad = new List<string>();
+        if (twoRefusedText.StartsWith("error:", StringComparison.Ordinal))
+            twoRefusedBad.Add("one shared ground collapsed the call even though a family answered");
+        if (Count(twoRefusedText, sharedScopeGround) != 2)
+            twoRefusedBad.Add($"the shared ground appears {Count(twoRefusedText, sharedScopeGround)} times, want once per refusing family");
+        if (twoRefusedText.Contains("answered for NO family", StringComparison.Ordinal))
+            twoRefusedBad.Add("the scope sentence says no family answered, over a response one did");
+        using (var doc = JsonDocument.Parse(twoRefusedJson))
+        {
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("families", out var fams)) twoRefusedBad.Add("json collapsed to an error document");
+            else
+            {
+                if (!fams.TryGetProperty("errors", out var ef) || !ef.TryGetProperty("refused", out _))
+                    twoRefusedBad.Add("json carries no errors refusal section");
+                if (!fams.TryGetProperty("scripts", out var sf) || !sf.TryGetProperty("refused", out _))
+                    twoRefusedBad.Add("json carries no scripts refusal section");
+                if (!fams.TryGetProperty("dialogue", out var df) || df.TryGetProperty("refused", out _))
+                    twoRefusedBad.Add("json shows the dialogue family as refused, not as the one that answered");
+            }
+            if (!root.TryGetProperty("families_ran", out var ran) || ran.GetArrayLength() != 1)
+                twoRefusedBad.Add("families_ran does not name the one family that answered");
+            if (!root.TryGetProperty("families_refused", out var ref2) || ref2.GetArrayLength() != 2)
+                twoRefusedBad.Add("families_refused does not name both swept families");
+        }
+        Check("GROUNDS-ARE-ONE-DOES-NOT-FIRE-WHILE-A-FAMILY-ANSWERED: the two swept families refusing on the ONE ground their shared scope gives them still render as two sections beside the seeded family's answer — collapsing them would return an error for a call that holds a completed validation",
+            twoRefusedBad.Count == 0,
+            twoRefusedBad.Count == 0 ? "two refusals on one ground, one answer, no collapse" : string.Join("; ", twoRefusedBad.Take(4)));
 
         // ---- REFUSED-FAMILY-DECLARES-NO-SUBJECT-COUNTS ---------------------------------------------
         // BOTH DIRECTIONS of the three conditionals the json accounting gained, asked of ONE response so the two
@@ -1433,9 +1475,9 @@ public static class CheckMergeProbe
             && !dlgControl.Contains("base_master", StringComparison.Ordinal),
             $"type=[{Trim(dlgBadType)}] formid=[{Trim(dlgBadFormid)}] exclude=[{Trim(dlgBadExclude)}] control=[{Trim(dlgControl)}]");
 
-        // ---- A BLANK plugins= ENTRY. It was filtered out before `noneInScope` was computed, so the caller's scope
-        //      silently became "the whole order" — measured at ~468 s on a 3800-plugin order, with plugins=
-        //      discarded and nothing saying so (round-3 finding C1). Both ancestors refuse the same input.
+        // ---- A BLANK plugins= ENTRY. It was filtered out of the scope split, so the caller's scope silently became
+        //      "the whole order" — measured at ~468 s on a 3800-plugin order, with plugins= discarded and nothing
+        //      saying so (round-3 finding C1). Both ancestors refuse the same input.
         var blankScope = CheckTools.CheckTool(svc, findings: new[] { "scripts" }, plugins: new[] { "  " });
         var namedScope = CheckTools.CheckTool(svc, findings: new[] { "scripts" }, plugins: new[] { "HcOrch.esp" });
         Arm($"ORCH-A-BLANK-PLUGIN-NAME-REFUSES-RATHER-THAN-SWEEPING-THE-ORDER: plugins=['  '] refuses the call by name and sweeps NOTHING — no scripts section, none of the {OrchWeapons + SecondWeapons} record sections the order holds — while the same call naming a real plugin sweeps its {OrchWeapons}",
