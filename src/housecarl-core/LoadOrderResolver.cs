@@ -194,6 +194,8 @@ public sealed class LoadOrderResolver : IDisposable
             ExcludedPlugins = excludedPlugins; MaxDepth = maxDepth; Epoch = epoch; Light = light; Containment = containment;
             FirstUnknownKind = firstUnknownKind; FirstUnknownKindName = firstUnknownKindName;
             Slots = new Lazy<RuntimeSlots>(() => RuntimeSlots.Build(light));
+            // Every build passes through here, so no degraded one can reach a response unrecorded (#353).
+            OrderHealth.Record(epoch, excludedPlugins.Keys);
         }
     }
 
