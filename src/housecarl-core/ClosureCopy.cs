@@ -630,7 +630,7 @@ public static class ClosureCopy
                 .ToList();
             if (targetKey is null && patch.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == newKey) is { } cloneBody)
                 copiedBodies.Add(cloneBody);
-            assetPaths = NpcAppearanceAssets.HarvestAssetPaths(copiedBodies);
+            assetPaths = AssetLinkHarvest.HarvestAssetPaths(copiedBodies);
         }
         catch { /* an unreadable asset link is not a reason to fail a written copy; the list is a report */ }
 

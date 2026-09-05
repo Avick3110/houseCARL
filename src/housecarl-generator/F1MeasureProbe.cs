@@ -152,15 +152,6 @@ internal static class F1MeasureProbe
                                    .FirstOrDefault(f => f.Contains("facegeom", StringComparison.OrdinalIgnoreCase));
             Console.WriteLine($"  successor carried   : {(carried is null ? "NOTHING" : $"{new FileInfo(carried).Length}B  == donor's? {File.ReadAllBytes(carried).SequenceEqual(donorBytes)}")}");
         }
-
-        // ---- the ANCESTOR over the same disabled donor, for the before-state contrast ----
-        var oldOut = NpcCopyTools.CopyNpcAppearance(svc, donorFk.ToString(), "Donor.esp", null, null, "TheClone", null, "M2Old", null);
-        Say("M2c  the ANCESTOR copy_npc_appearance over the same disabled donor (DonorDisk carry)", oldOut);
-        var oldFolder = Directory.EnumerateDirectories(mods, "houseCARL - M2Old*").OrderBy(d => d, StringComparer.Ordinal).FirstOrDefault();
-        var oldFace = oldFolder is null ? null
-            : Directory.EnumerateFiles(oldFolder, "*.nif", SearchOption.AllDirectories)
-                       .FirstOrDefault(f => f.Contains("facegeom", StringComparison.OrdinalIgnoreCase));
-        Console.WriteLine($"  ancestor carried    : {(oldFace is null ? "NOTHING" : $"{new FileInfo(oldFace).Length}B  == donor's? {File.ReadAllBytes(oldFace).SequenceEqual(donorBytes)}")}");
     }
 
     static void WriteMod(string mods, string folder, SkyrimMod m, params ISkyrimModGetter[] masters)
@@ -173,9 +164,10 @@ internal static class F1MeasureProbe
     // ==================================================================================================
     //  I14 — the inventory's PLURALITY requirement, measured rather than reasoned about.
     //
-    //  The ancestor builds a donor disk for BOTH donor-side files — the file the caller named AND the
-    //  auto-widened defining plugin — deduped by folder (LoadOrderService, the DonorDisk.For loop). The
-    //  inventory codes that F1 and notes the successor "has to accept the same plurality".
+    //  The retired ancestor built a donor disk for BOTH donor-side files — the file the caller named AND the
+    //  auto-widened defining plugin. The inventory codes that F1 and notes the successor "has to accept the
+    //  same plurality"; the successor accepts it by NAMING the folder each source resolved from, so the
+    //  caller passes the right one to the carry (#387).
     //
     //  The fixture puts the two donor-side plugins in TWO DIFFERENT unticked mod folders, with the facegen
     //  beside the SECOND one only. That is the shape where a single-folder carry can miss and a plural one
@@ -243,15 +235,6 @@ internal static class F1MeasureProbe
         Console.WriteLine("DisabledA holds Override.esp (overrides the NPC).  DisabledB holds Donor.esp (DEFINES it)");
         Console.WriteLine($"the FaceGen exists ONLY beside the DEFINING plugin, in DisabledB: {File.Exists(loose)} ({faceBytes.Length}B)");
         Console.WriteLine($"asset_status sees it: {svc.AssetStatus(new[] { faceRel }).Results[0].Hit?.Exists}");
-
-        // ---- the ANCESTOR: named file = Override.esp, auto-widens to Donor.esp, disks for BOTH folders ----
-        var oldOut = NpcCopyTools.CopyNpcAppearance(svc, donorFk.ToString(), "Override.esp", null, null, "TheClone", null, "I14Old", null);
-        Say("A  ANCESTOR copy_npc_appearance, source_plugin='Override.esp' (the FIRST donor-side file)", oldOut);
-        var oldFolder = Directory.EnumerateDirectories(mods, "houseCARL - I14Old*").OrderBy(d => d, StringComparer.Ordinal).FirstOrDefault();
-        var oldFace = oldFolder is null ? null
-            : Directory.EnumerateFiles(oldFolder, "*.nif", SearchOption.AllDirectories)
-                       .FirstOrDefault(f => f.Contains("facegeom", StringComparison.OrdinalIgnoreCase));
-        Console.WriteLine($"  ancestor carried : {(oldFace is null ? "NOTHING" : $"{new FileInfo(oldFace).Length}B  == the defining plugin's? {File.ReadAllBytes(oldFace).SequenceEqual(faceBytes)}")}");
 
         // ---- the SUCCESSOR: the ordered pole list, then the carry ----
         var seeds = new[] { "HeadParts", "HairColor", "HeadTexture", "WornArmor" };

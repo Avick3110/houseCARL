@@ -24,7 +24,6 @@ public static class ToolNames
     public const string CompactPlugin = "housecarl_compact_plugin";
     public const string CompileScript = "housecarl_compile_script";
     public const string Copy = "housecarl_copy";
-    public const string CopyNpcAppearance = "housecarl_copy_npc_appearance";
     public const string Create = "housecarl_create";
     public const string CreatePlugin = "housecarl_create_plugin";
     public const string DecompileScript = "housecarl_decompile_script";
