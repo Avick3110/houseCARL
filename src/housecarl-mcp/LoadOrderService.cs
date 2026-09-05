@@ -1229,7 +1229,7 @@ public sealed class LoadOrderService : IDisposable
         {
             var pick = NifPick(view, place, rel, mod!.Trim());
             if (pick.Error is not null)
-                return new NifInspectData(rel, null, providers, place.Ambiguous, false, null, pick.Error);
+                return new NifInspectData(rel, null, providers, place.Ambiguous, pick.Absent, null, pick.Error);
             chosen = pick.Source!;
         }
         else
@@ -1271,22 +1271,25 @@ public sealed class LoadOrderService : IDisposable
     /// that mod's loose files AND its own root archives, ticked or not (#388), so the refusal never reports a donor's
     /// mesh as absent. And the provider names the refusal lists are spelled by the same formatter the tool prints
     /// them with, so the token in the message is the token <c>mod=</c> takes (#340).</para></summary>
-    static (PlacementSource? Source, string? Error) NifPick(AssetResolver.AssetView view, PlacementResolution place, string rel, string mod)
+    static (PlacementSource? Source, string? Error, bool Absent) NifPick(AssetResolver.AssetView view, PlacementResolution place, string rel, string mod)
     {
         // Parse, not Named: the refusal's tail teaches the '*winner' pole, so this surface has to take it. The sigil
         // is what makes that safe — '*' cannot appear in a Windows name, so a bare token is always a provider.
         var choice = AssetSourceChoice.Parse(mod);
         var pick = AssetSourceSelection.Select(place, choice, n => view.TryResolveOffOrderProvider(n, rel));
-        if (pick.Verdict == AssetSourceVerdict.Selected) return (pick.Source, null);
+        if (pick.Verdict == AssetSourceVerdict.Selected) return (pick.Source, null, false);
         // The winner pole over an empty universe is the ABSENT case, not a named miss; say so rather than quote
-        // '*winner' back as a mod name that supplies nothing.
+        // '*winner' back as a mod name that supplies nothing. Absent travels with it: this is the same absence the
+        // no-mod= arm reports, so it earns the same scan-incomplete hedging at the point of use.
         if (choice.Pole != AssetSourcePole.Named)
             return (null, "ABSENT — no active mod or BSA provides '" + rel + "', so there is no winner to read."
-                        + (AssetPathHint.MeshHint(view, rel) is { } wh ? " " + wh : ""));
+                        + (AssetPathHint.MeshHint(view, rel) is { } wh ? " " + wh : ""), true);
+        // A named miss is NOT an absence — it says which mod, and carries its own inline scan caveat instead, so it
+        // must not also draw the ABSENT-worded hedges.
         return (null, WriteSentences.PlaceSourceNamedAbsent(
             mod, rel, pick.ProviderNames,
             pick.OffOrderReason, pick.OffOrderUnreadableName, pick.OffOrderUnreadableCause,
-            AssetPathHint.MeshHint(view, rel), place.ReadIncomplete));
+            AssetPathHint.MeshHint(view, rel), place.ReadIncomplete), false);
     }
 
     /// <summary>Render an <see cref="AssetKind"/> as the tool-facing label ("loose" / "BSA"). An explicit switch
