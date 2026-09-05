@@ -46,12 +46,11 @@ public sealed record DialogueSeedResult(string Seed, DialogueValidationReport? R
 /// <param name="CountsOnly">the response carries totals and the unreachable-seed roster, and no topic blocks. The
 /// merged tool's own mode applied to this family — a family that ignored it would render a full listing under a
 /// parameter documented to suppress one.</param>
-///
-/// <remarks><b>No EPOCH, deliberately.</b> The two sweep families stamp the record build they read. A dialogue
-/// validation cannot honestly carry that stamp: core pins one view, but half of what it reports — whether a line's
-/// <c>.fuz</c> is on disk, whether a result script's <c>.pex</c> exists — comes off the ASSET substrate, which the
-/// record fingerprint does not cover. A stamp covering half the answer would be a freshness claim the response
-/// cannot support. An honest stamp spanning both substrates is still unowned.</remarks>
+/// <param name="Epoch">the RECORD build every seed was validated against — the one pinned view the whole call reads,
+/// stamped like the sibling families stamp theirs. It names the record build and nothing else: the verdicts taken off
+/// the ASSET substrate (a line's <c>.fuz</c>, a result script's <c>.pex</c> chain, <c>.seq</c> coverage and staleness)
+/// are outside the fingerprint, so both renders write it with <c>epoch_covers_all_inputs: false</c> and name those
+/// classes rather than omitting the stamp. Null only on a refusal, which validated nothing.</param>
 public sealed record DialogueCheckResult(
     IReadOnlyList<DialogueSeedResult> Seeds,
     int TopicsFound,
@@ -60,7 +59,8 @@ public sealed record DialogueCheckResult(
     string? Error = null,
     int Limit = 0,
     int SeedsNamed = 0,
-    bool CountsOnly = false)
+    bool CountsOnly = false,
+    string? Epoch = null)
 {
     public bool Success => Error is null;
 

@@ -2304,17 +2304,21 @@ public sealed class LoadOrderService : IDisposable
     /// a verify step: a mid-run resolve or asset failure rides
     /// <see cref="DialogueValidationReport.CheckError"/>, and a not-in-order or wrong-type input is a named
     /// <see cref="DialogueValidationReport.Error"/>.</summary>
-    // No epoch is stamped: the report is one build's answer, but many of its verdicts come off the ASSET substrate,
-    // outside the record fingerprint — the .pex chain behind each result script, the .fuz checks, and the .seq
-    // staleness verdict, which is a file-mtime comparison no record fingerprint expresses. A record fingerprint here
-    // would claim freshness for verdicts it does not describe.
     public DialogueValidationReport ValidateDialogue(FormKey fk) => DialogueValidate.Run(Resolver, Assets, fk);
 
     /// <summary>The merged <c>check</c> surface's dialogue family: <see cref="ValidateDialogue"/> over a seed list,
     /// tallied for one section of a merged response. Deliberately thin — the family's own grammar (seed parse,
     /// cost refusal, seed budget, tally) lives in <see cref="DialogueSweep"/> rather than in this file.</summary>
     public DialogueCheckResult CheckDialogue(IReadOnlyList<string>? seeds, int limit, bool countsOnly = false)
-        => DialogueSweep.Run(ValidateDialogue, OpenFormIdDoor().Parse, seeds, limit, countsOnly);
+    {
+        // One resolver and one view for the whole call, the contract the sibling families keep: every seed is validated
+        // against the same build, so the stamp below names the build the response was actually answered from rather
+        // than whichever one the last seed happened to catch.
+        var resolver = Resolver;
+        var view = resolver.Capture();
+        return DialogueSweep.Run(fk => DialogueValidate.Run(resolver, Assets, fk, view),
+                                 OpenFormIdDoor().Parse, seeds, limit, countsOnly, view.Epoch);
+    }
 
     /// <summary>The read body, answered entirely off ONE captured view: the excluded-check, the winner and the
     /// touching-plugin list all describe the same build, so a freshness rebuild landing mid-read cannot make a
