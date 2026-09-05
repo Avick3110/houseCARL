@@ -65,6 +65,17 @@ public enum LocalizedShape
     /// beside a plugin whose folder is full — an absence claim nothing checked.</para></summary>
     StringsFolderUnreadable,
 
+    /// <summary>Flagged localized, and the MOD FOLDER holding the plugin could not be listed — a deny ACE, a share
+    /// that refuses enumeration, a path the filesystem will not walk.
+    ///
+    /// <para>Its own shape for the same reason <see cref="StringsFolderUnreadable"/> is, one level up: nothing may be
+    /// concluded about what sits beside the plugin, and an archive there carrying its tables is invisible. On Windows
+    /// listing a directory is a separate right from traversing it, so the <c>Strings\</c> subfolder can enumerate
+    /// perfectly well while the archive look at the folder itself throws — which is how this arrived at
+    /// <see cref="Nowhere"/>, whose sentence then says there is "no archive beside it" about a folder nothing could
+    /// read.</para></summary>
+    ModFolderUnreadable,
+
     /// <summary>Flagged localized, and houseCARL can find no strings source for it — the residual case.
     ///
     /// <para>This says what houseCARL could FIND, not what exists: MO2's VFS merges mod folders at runtime, so a
@@ -182,11 +193,10 @@ public static class LocalizedStrings
         // An archive the write cannot rewrite decides the shape regardless of what else is on disk — a loose set beside
         // a BSA that also embeds this plugin's strings is an ambiguous source, and which one Mutagen prefers is not
         // something this classifier should be guessing at when the answer is "refuse either way".
-        // The folder-unlistable answer is not consumed here: a mod folder that will not list also hides its
-        // Strings\ folder, so this classification falls through to the shapes that resolve NOWHERE and every lane
-        // reading it refuses. Fail-CLOSED is the right default for a write; the read side's gate takes the third
-        // answer, because its default is to leave the open unchanged.
-        var (bsaPath, bsaUnreadable, _) = BsaEmbedding(folder, stem);
+        // The folder's third answer is carried, not dropped: a mod folder that will not list may hold an archive with
+        // this plugin's tables in it, so nothing found below is an absence. It decides the shape only where nothing
+        // was found anywhere — see the ModFolderUnreadable return at the end.
+        var (bsaPath, bsaUnreadable, folderUnlistable) = BsaEmbedding(folder, stem);
         if (bsaPath is not null)
             return new LocalizedAssessment(LocalizedShape.BsaEmbedded, Names(own), Incomplete(own), Names(gameData),
                                            bsaPath, bsaUnreadable, dataDir is null, UnmatchedTables: unmatched);
@@ -226,6 +236,14 @@ public static class LocalizedStrings
                                                UnmatchedTables: unmatched);
         }
 
+        // NOTHING FOUND ANYWHERE, and the mod folder itself would not list — so the reason nothing was found may be
+        // that nothing could be looked at. Its own shape rather than Nowhere, whose sentence asserts there is no
+        // archive beside the plugin: on Windows the Strings\ subfolder can still enumerate while the archive look at
+        // the folder throws, so this is reachable with a complete .bsa sitting right there. It still REFUSES — the
+        // lanes reading it are fail-closed — but it claims no absence.
+        if (folderUnlistable)
+            return Plain(LocalizedShape.ModFolderUnreadable, dataDir is null) with { UnmatchedTables = unmatched };
+
         return Plain(LocalizedShape.Nowhere, dataDir is null) with { UnmatchedTables = unmatched };
     }
 
@@ -262,7 +280,7 @@ public static class LocalizedStrings
         // The header was read and the flag is set. Where the text lives varies; that it is localized does not.
         LocalizedShape.LooseComplete or LocalizedShape.LoosePartial or LocalizedShape.LooseWithGameDataDuplicate
             or LocalizedShape.BsaEmbedded or LocalizedShape.GameDataOnly or LocalizedShape.StringsFolderUnreadable
-            or LocalizedShape.Nowhere => true,
+            or LocalizedShape.ModFolderUnreadable or LocalizedShape.Nowhere => true,
 
         // Read it, flag clear.
         LocalizedShape.NotLocalized => false,
@@ -331,16 +349,17 @@ public static class LocalizedStrings
     }
 
     /// <summary>Could houseCARL find NO strings source at all for a plugin it read and found flagged localized? True
-    /// for the two shapes where a read resolves nothing: nothing found anywhere, and a <c>Strings\</c> folder beside
-    /// the plugin that could not be listed. Every value such a plugin carries reads EMPTY, so a lane that would bake
-    /// that read into a new file refuses rather than writing blanks (#371).
+    /// for the three shapes where a read resolves nothing houseCARL can see: nothing found anywhere, a
+    /// <c>Strings\</c> folder beside the plugin that could not be listed, and a mod folder that could not be listed.
+    /// Every value such a plugin carries reads EMPTY (or, for the two unlistable folders, cannot be told from empty),
+    /// so a lane that would bake that read into a new file refuses rather than writing blanks (#371).
     ///
     /// <para><see cref="LocalizedShape.Unreadable"/> is deliberately NOT here: the plugin's own header was never
     /// read, so nothing is known about its strings, and a lane that must act on that answers it as unreadable in its
     /// own words.</para></summary>
     public static bool ResolvesNowhere(LocalizedShape shape) => shape switch
     {
-        LocalizedShape.Nowhere or LocalizedShape.StringsFolderUnreadable => true,
+        LocalizedShape.Nowhere or LocalizedShape.StringsFolderUnreadable or LocalizedShape.ModFolderUnreadable => true,
         _ => false,
     };
 
@@ -513,7 +532,7 @@ public static class LocalizedStrings
             catch (IOException) { parts.Add(Path.GetFileName(a) + "|?"); }
             catch (UnauthorizedAccessException) { parts.Add(Path.GetFileName(a) + "|?"); }
         }
-        return string.Join(" ", parts);
+        return string.Join(" ", parts);
     }
 
     static (bool Unlistable, List<ArchiveEntry> Entries) ArchiveStrings(string folder)

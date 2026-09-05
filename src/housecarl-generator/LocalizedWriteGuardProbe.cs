@@ -45,6 +45,8 @@ public static class LocalizedWriteGuardProbe
         Console.WriteLine();
         UnlistableStringsFolder();
         Console.WriteLine();
+        UnlistableModFolder();
+        Console.WriteLine();
         ConfirmedLocalizedIsNotTheRefusalBoolean();
         Console.WriteLine();
         Console.WriteLine(_fail == 0
@@ -555,9 +557,9 @@ public static class LocalizedWriteGuardProbe
         // do is describe an arrangement, and it does not.
         LocalizedShape.NotLocalized => true,
 
-        // The PLUGIN's flag was read and is set; only its Strings folder could not be listed. So it may be called
-        // localized — what it may not do is describe what is in that folder.
-        LocalizedShape.StringsFolderUnreadable => true,
+        // The PLUGIN's flag was read and is set; only a FOLDER could not be listed — its Strings folder, or the mod
+        // folder it sits in. So it may be called localized; what it may not do is describe what is in that folder.
+        LocalizedShape.StringsFolderUnreadable or LocalizedShape.ModFolderUnreadable => true,
 
         // Nothing was read. Nothing may be asserted.
         LocalizedShape.Unreadable => false,
@@ -625,6 +627,66 @@ public static class LocalizedWriteGuardProbe
             var msg = LocalizedStrings.RefusalFor(f.Plugin, "ZRef.esp", f.DataDir) ?? "";
             Check(a.Shape == LocalizedShape.Nowhere && msg.Contains("no .STRINGS files beside it", StringComparison.Ordinal),
                 $"a folder that really is gone still gets the checked absence (shape={a.Shape})");
+        });
+    }
+
+    // ------------------------------------------------- a MOD folder houseCARL cannot list
+
+    /// <summary>The same third answer one level up: the folder the PLUGIN sits in will not list, so what is beside it
+    /// was never established. The classifier used to drop that answer and fall through to
+    /// <see cref="LocalizedShape.Nowhere"/>, whose sentence says there is "no archive beside it" — asserted about a
+    /// folder nothing could read, and reachable with a complete <c>.bsa</c> sitting right there.
+    ///
+    /// <para>Windows makes it reachable: listing a directory is a separate right from traversing it, so the plugin
+    /// still opens, the <c>Strings\</c> subfolder still enumerates, and only the archive look at the folder itself
+    /// throws.</para></summary>
+    static void UnlistableModFolder()
+    {
+        Console.WriteLine();
+        Console.WriteLine("== a MOD folder houseCARL cannot LIST is not a folder it found empty ==");
+
+        // Nowhere's fixture — no loose set beside the plugin — plus an archive in the mod folder, which is the source
+        // the deny then hides.
+        Run(Variant.Nowhere, f =>
+        {
+            var modDir = Path.GetDirectoryName(f.Plugin)!;
+            File.WriteAllBytes(Path.Combine(modDir, "ZRef.bsa"), new byte[] { 0x42, 0x53, 0x41, 0x00 });
+
+            var listed = LocalizedStrings.Assess(f.Plugin, f.DataDir);
+            Check(listed.Shape == LocalizedShape.BsaEmbedded,
+                $"fixture: listable, the archive beside the plugin is found (shape={listed.Shape})");
+
+            if (!TryDenyListing(modDir))
+            {
+                Check(false, "fixture: the deny-listing ACE did not take on this host — the cell cannot be built, so it FAILS rather than passing");
+                return;
+            }
+            try
+            {
+                var a = LocalizedStrings.Assess(f.Plugin, f.DataDir);
+                Check(a.Shape == LocalizedShape.ModFolderUnreadable,
+                    $"an unlistable mod folder classifies as its own shape, NOT as Nowhere (shape={a.Shape})");
+
+                var msg = LocalizedStrings.RefusalFor(f.Plugin, "ZRef.esp", f.DataDir) ?? "";
+                Check(!msg.Contains("no archive beside it", StringComparison.Ordinal)
+                      && !msg.Contains("cannot find its text", StringComparison.Ordinal)
+                      && !msg.Contains("no .STRINGS files beside it", StringComparison.Ordinal),
+                    "…and its refusal asserts no absence over a folder houseCARL could not read");
+                Check(msg.Contains("could not read the folder the plugin sits in", StringComparison.Ordinal),
+                    $"…and says what actually happened — the folder is there and could not be read [{msg}]");
+                if (msg.Contains("no archive beside it")) Console.WriteLine("          got: " + msg);
+
+                // THE TWO SIDES AGREE. The read side keeps the folder-adjacent open because a source may be in there;
+                // the write side must not classify into the shape that says one is not.
+                Check(LocalizedStrings.OwnFolderCarriesStringsFor(f.Plugin) && a.Shape != LocalizedShape.Nowhere,
+                    "the read gate and the classifier agree that a strings source may exist in that folder");
+            }
+            finally { UndenyListing(modDir); }
+
+            // The other direction on the same folder: with the deny lifted the archive is found again, so the arms
+            // above cannot pass by the classifier answering ModFolderUnreadable for everything.
+            Check(LocalizedStrings.Assess(f.Plugin, f.DataDir).Shape == LocalizedShape.BsaEmbedded,
+                "with the deny lifted the same folder classifies by the archive that is in it");
         });
     }
 

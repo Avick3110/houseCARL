@@ -92,6 +92,7 @@ public static class LocalizedShapeSweep
         LocalizedShape.BsaEmbedded => "  " + Path.GetFileName(a.BsaPath!) + (a.BsaUnreadable ? " (UNREADABLE)" : ""),
         LocalizedShape.GameDataOnly => $"  gameData[{string.Join(",", a.GameDataLanguages)}]",
         LocalizedShape.StringsFolderUnreadable => "  Strings folder present, could not be listed",
+        LocalizedShape.ModFolderUnreadable => "  the mod folder itself could not be listed",
         LocalizedShape.Nowhere => a.UnmatchedTables.Total > 0 ? $"  {a.UnmatchedTables.Total} unmatched table file(s) in the folder" : "",
         LocalizedShape.Unreadable => "  the plugin itself could not be opened",
         _ => "",
