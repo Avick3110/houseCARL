@@ -234,6 +234,17 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.Contains("neither can be negative", text);
     }
 
+    /// <summary>And it is the sentence the WINDOW owns, not a second copy of it: asset_status and housecarl_skse
+    /// refuse the same input class, so a reword of one cannot leave the other answering the old wording.</summary>
+    [Fact]
+    public void TheNegativeWindowRefusalIsTheOneTheWindowItselfSpells()
+    {
+        Assert.Equal(new RowWindow(0, -1).Error,
+                     AssetTools.AssetStatus(_w.Svc, new[] { _w.Rel("0001.nif") }, limit: -1));
+        Assert.Equal(new RowWindow(-2, 0).Error,
+                     AssetTools.AssetStatus(_w.Svc, new[] { _w.Rel("0001.nif") }, offset: -2));
+    }
+
     /// <summary>An unpaged, uncut explicit-path call reports itself whole — the accounting is on every response, not
     /// only the ones that lost something.</summary>
     [Fact]
