@@ -165,4 +165,38 @@ public sealed class SkseFamilySelectionTests
         SkseTools.Dispatch(renders, SkseTools.SkseFamily.Pairing, filter: null, peek: false, max_chars: 1);
         Assert.True(renders.Cap >= 1);
     }
+
+    /// <summary>Every TRANSPORT knob the dispatch takes reaches the render on the call it composes. Without this the
+    /// window could be dropped between the published argument and the render and no test would notice: the renders
+    /// are driven directly everywhere else, so they would still page correctly over a window nothing handed them.
+    /// </summary>
+    [Fact]
+    public void TheTransportKnobsReachTheRenderOnTheCall()
+    {
+        var renders = new RecordingRenders();
+
+        SkseTools.Dispatch(renders, SkseTools.SkseFamily.Inventory, filter: "SkyPatcher", peek: true, max_chars: 9_000,
+                           json: false, window: new RowWindow(Offset: 4, Limit: 7));
+
+        Assert.Equal("SkyPatcher", renders.Call.Filter);
+        Assert.True(renders.Call.Peek);
+        Assert.False(renders.Call.Json);
+        Assert.Equal(new RowWindow(4, 7), renders.Call.Window);
+    }
+
+    /// <summary>format='json' reaches the render as the json flag AND suppresses the text footer — appending the
+    /// footer's prose to a document would only break it.</summary>
+    [Fact]
+    public void AJsonCallSetsTheJsonFlagAndTakesNoFooter()
+    {
+        var renders = new RecordingRenders();
+
+        var text = SkseTools.Dispatch(renders, SkseTools.SkseFamily.Config, filter: null, peek: false, max_chars: 9_000,
+                                      json: true, window: RowWindow.All);
+
+        Assert.True(renders.Call.Json);
+        Assert.Equal("CONFIG-BODY", text);
+        // The whole cap is the render's, since no footer is paid for out of it.
+        Assert.Equal(9_000, renders.Call.Cap);
+    }
 }
