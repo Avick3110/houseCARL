@@ -36,7 +36,10 @@ internal static class SweepOffOrderScope
             comp ??= Mo2LoadOrder.ReadComposition(profileDir);
             var loc = LoadOrderService.LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, n, null);
             if (loc.Error is not null)
-                return new Refusal($"plugin not in the load order: {n} — and no on-disk copy was found either ({loc.Error})", true);
+                // The did-you-mean rides along: the commonest cause of a name found neither in the order nor on
+                // disk is a typo or the wrong extension, and the near-miss is the one thing that fixes it.
+                return new Refusal(
+                    $"plugin not in the load order: {n} — and no on-disk copy was found either ({loc.Error}).{view.AbsenceClause(n)}", true);
             if (loc.Ambiguous is not null)
                 return new Refusal(
                     $"plugin '{n}' is not in the active load order and {loc.Ambiguous.Count} mod folders provide a file with that name " +
