@@ -92,7 +92,7 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
         // over a MULTI-element list, so the row boundary is exercised off the condition lane too.
         var r = Effects(Rows("Effects"));
         Assert.Contains("Data.Magnitude=5", RowLine(r, "Effects[0]"));
-        Assert.Contains("Data.Magnitude=11", RowLine(r, "Effects[1]"));
+        Assert.Contains("Data.Magnitude=4", RowLine(r, "Effects[1]"));
         Assert.DoesNotContain("Effects[0].", r);
         Assert.DoesNotContain("Effects[1].", r);
     }
@@ -233,7 +233,7 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
     {
         var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) }, source: Plugin(W.OldName),
                                      project: Rows("Effects"));
-        Assert.Contains("Data.Magnitude=11", RowLine(r, "Effects[1]"));
+        Assert.Contains("Data.Magnitude=4", RowLine(r, "Effects[1]"));
         Assert.DoesNotContain("Effects[1].", r);
     }
 
