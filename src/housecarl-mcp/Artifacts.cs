@@ -184,7 +184,7 @@ internal static class Artifacts
         // The manifest stamps which tool wrote the artifact; see WriteResolve for why it names records.
         var (manifest, err) = writer.Save(path, ToolNames.Records, query, identity, schema, sort,
                                           q.Groups is not null ? q.Groups.Count : q.Total, q.Epoch ?? "",
-                                          OwnedChildNotes(annotated, annotatedUnioned));
+                                          CrossQueryNotes(q, fields, winnerFields, annotated, annotatedUnioned, levers));
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
     }
 
@@ -195,6 +195,22 @@ internal static class Artifacts
     /// tier's note is <see cref="PreciseChildNotes"/>.</summary>
     static IReadOnlyList<string>? OwnedChildNotes(IReadOnlyCollection<string> annotatedFields, bool unioned) =>
         annotatedFields.Count == 0 ? null : new[] { ReadSentences.OwnedChildClause(annotatedFields, unioned) };
+
+    /// <summary>The manifest notes a scan artifact carries: the scoped-vs-winner field-source note the three inline
+    /// transports state, then the owned-child clause. The artifact holds the same values the inline render would have
+    /// shown and is read later with no conversation attached, so the sentence saying WHOSE body those values came
+    /// from has to travel with them. The scoped test is the one the inline renders use, so the two cannot disagree
+    /// about when the note is owed.</summary>
+    static IReadOnlyList<string>? CrossQueryNotes(CrossQueryOutcome q, IReadOnlyList<string>? fields, bool winnerFields,
+                                                  IReadOnlyCollection<string> annotatedFields, bool annotatedUnioned,
+                                                  LeverNames? levers)
+    {
+        var notes = new List<string>();
+        if (fields is { Count: > 0 } && q.Sources is { } sources && sources.Take(q.Keys.Count).Any(s => s is not null))
+            notes.Add(JsonWire.ScopedFieldsNote(winnerFields, q.WhereWinner, levers));
+        if (OwnedChildNotes(annotatedFields, annotatedUnioned) is { } child) notes.AddRange(child);
+        return notes.Count > 0 ? notes : null;
+    }
 
     /// <summary>The precise tier's response-level note for a tree artifact: <see cref="ReadSentences.DeclarersLead"/>
     /// stated once rather than per row, when any row's <c>child_declarers</c> reached the file.</summary>
