@@ -61,15 +61,19 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `under=` compose in one call, and a duplicate path is not resolved twice. A selector that matches nothing says so
   rather than passing as an empty sweep; a glob with no folder in front of it is refused rather than sweeping the
   whole load order; and a drive-rooted or `..`-escaping selector is refused by name, the same gate every asset path
-  passes.
+  passes. A wildcard-free selector that names a FILE the load order provides is answered as that one path, with a note
+  saying so, rather than reported as a folder nothing provides. Every path in the answer spells the selector's folder
+  one way, whether the file came from a loose mod or an archive.
 
 - **Every `housecarl_asset_status` response now ends with a structured `[accounting]` line — `total`, `rendered`,
   `skipped`, `capped`, `truncated`, `offset`, `remaining`, `notes`.** A consumer keying results by path can compare the
   numbers instead of parsing the prose cut notice. Each omission is counted once by its own cause: `skipped` is what
   `offset=` stepped over, `capped` what `limit=` left behind, `truncated` what `max_chars` cut — so the four and
   `rendered` sum to `total`. Room for the line is reserved out of `max_chars` before the paths render, so it fits
-  inside the cap instead of past it. `limit=` and `offset=` page a large sweep, and the accounting names where the
-  next page starts — counted off what was rendered, so following it shows every path exactly once.
+  inside the cap instead of past it. `limit=` and `offset=` page a large sweep, and the accounting names the next page
+  as both a `limit=` and an `offset=` — counted off what was rendered, so following it stays paged and shows every path
+  exactly once. Notes about `under=` selectors are cut at `max_chars` like the other alarm blocks, so a call carrying
+  thousands of selectors cannot write megabytes of them.
 
 - **`housecarl_asset_status` under a `max_chars` its header and alarms already fill now renders the first path's
   answer instead of cutting to none.** `housecarl_nif_inspect` already did; both tools now render through one batch
