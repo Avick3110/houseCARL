@@ -2263,6 +2263,10 @@ static class JsonWire
                 WriteNullable(w, "error", op.Error);
                 WriteNullable(w, "after", op.After);
                 WriteNullable(w, "landed", op.Landed);
+                // What the write DID that the file cannot say afterwards — today only the duplicate Add (the list
+                // already carried this element). Its own key, not folded into `landed`, which is compared against
+                // `landed_on_disk`.
+                WriteNullable(w, "apply_note", op.ApplyNote);
                 // The twin of the text render's file-vs-memory split, and it REPORTS rather than judges. `landed` is
                 // the applied edit's own read (in memory, before the serialize); `landed_on_disk` is the same
                 // descriptor re-derived from the WRITTEN FILE, null when the file could not answer for this op.
@@ -2372,6 +2376,7 @@ static class JsonWire
                     w.WriteBoolean("applied", op.Applied);
                     WriteNullable(w, "error", op.Error);
                     WriteNullable(w, "after", op.After);
+                    WriteNullable(w, "apply_note", op.ApplyNote);
                     w.WriteEndObject();
                 }
                 w.WriteEndArray();

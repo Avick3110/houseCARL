@@ -89,6 +89,12 @@ public static class WritePatchBuilder
         /// reported as unanswered rather than unchecked.</summary>
         public bool VerifyAttempted { get; init; }
 
+        /// <summary>What the write DID that the written file cannot say afterwards — today only the duplicate-Add
+        /// note (<see cref="WriteEngine.ApplyVerb"/>'s return): the list already carried the element, so the appended
+        /// copy is a second one. Deliberately NOT folded into <see cref="Landed"/>, which is compared against
+        /// <see cref="LandedOnDisk"/> — the file re-read cannot reproduce a note about what was there BEFORE, and
+        /// folding it in would report every duplicate Add as not landed.</summary>
+        public string? ApplyNote { get; init; }
     }
 
     /// <summary>One record read back IN FULL from the WRITTEN patch file (opt-in — the pre-enable verify loop): every
@@ -527,12 +533,13 @@ public static class WritePatchBuilder
                     ov = WriteEngine.GenericGetOrAddAsOverride(patchMod, body!, cache);
                 }
                 // CopyFrom transplants the field FROM the source body into ov; every other verb applies to ov directly.
+                string? applyNote = null;
                 if (string.Equals(req.Verb, "CopyFrom", StringComparison.Ordinal))
                     WriteEngine.CopyField(srcBody!, ov, req.Path);
                 else
-                    WriteEngine.ApplyVerb(ov, req);
+                    applyNote = WriteEngine.ApplyVerb(ov, req);
                 var (after, landed, _) = DescribeApplied(ov, req);
-                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed));
+                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed) { ApplyNote = applyNote });
             }
             catch (ExpectedApplyRejectionException ex)
             {
@@ -920,14 +927,15 @@ public static class WritePatchBuilder
                 var ov = WriteEngine.GenericGetOrAddAsOverride(targetMod, body, cache);
                 // CopyFrom transplants the field FROM the resolved source body into the target's own record; every
                 // other verb applies to it directly (the same two-branch shape Apply uses — one engine, two lanes).
+                string? applyNote = null;
                 if (string.Equals(req.Verb, "CopyFrom", StringComparison.Ordinal))
                     WriteEngine.CopyField(
                         selfSource ? selfSnapshots![e] : srcBody!,   // the pre-mutation private snapshot, never the live record
                         ov, req.Path);
                 else
-                    WriteEngine.ApplyVerb(ov, req);
+                    applyNote = WriteEngine.ApplyVerb(ov, req);
                 var (after, landed, _) = DescribeApplied(ov, req);
-                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed));
+                ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed) { ApplyNote = applyNote });
             }
             catch (ExpectedApplyRejectionException ex)
             {
@@ -3133,7 +3141,11 @@ public static class WritePatchBuilder
                 // values and nested Sets (ResolveSiblingRefs walks all of them).
                 var (req, refErr) = ResolveSiblingRefs(rawReq, createdByEditorId, $"new {s.RecordType} '{s.EditorId}'");
                 if (refErr is not null) return CreateOutcome.Fail(refErr);
-                try { WriteEngine.ApplyVerb(rec, req); ops.Add(new OpResult(rec.FormKey, s.RecordType, Label(req), true, null, TryReadAfter(rec, req))); }
+                try
+                {
+                    var applyNote = WriteEngine.ApplyVerb(rec, req);
+                    ops.Add(new OpResult(rec.FormKey, s.RecordType, Label(req), true, null, TryReadAfter(rec, req)) { ApplyNote = applyNote });
+                }
                 catch (ExpectedApplyRejectionException ex)
                 {
                     // EXPECTED apply-time refusal (live state pre-flight can't see — e.g. a duplicate dict key): clean

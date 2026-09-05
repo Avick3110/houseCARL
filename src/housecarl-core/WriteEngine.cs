@@ -1917,7 +1917,11 @@ public static class WriteEngine
     /// against the freshly-built struct. Only the leaf-bracket throw reads it, and only to name a path the caller
     /// can actually re-send; it mirrors the same parameter on <c>CorpusRulebook.ValidateFromType</c>.</para>
     /// </summary>
-    public static void ApplyVerb(object record, WriteRequest req, string pathSlot = "field_path")
+    /// <returns>An apply-time note about what the write DID that the written file cannot express afterwards — today
+    /// only the duplicate-Add note (a list Add that appended an element the list already carried; the file shows a
+    /// longer list either way). Null when there is nothing to say, which is the common case. Callers that render an
+    /// op line carry it there; the rest ignore it.</returns>
+    public static string? ApplyVerb(object record, WriteRequest req, string pathSlot = "field_path")
     {
         object current = record;
         for (int i = 0; i < req.Path.Length - 1; i++)
@@ -1977,15 +1981,16 @@ public static class WriteEngine
 
         // Whole-value-coercible leaves (Color, MemorySlice blobs, AssetLink paths, …) are Set wholesale even when
         // the runtime type also implements IList/IDict — coercion owns them, not the collection verbs.
-        if (CanCoerce(leaf.PropertyType)) { ApplyScalarVerb(current, leaf, req); return; }
+        if (CanCoerce(leaf.PropertyType)) { ApplyScalarVerb(current, leaf, req); return null; }
 
         var dictIface = ClosedInterface(leaf.PropertyType, typeof(IDictionary<,>));
-        if (dictIface is not null) { ApplyDictVerb(current, leaf, dictIface, req); return; }
+        if (dictIface is not null) { ApplyDictVerb(current, leaf, dictIface, req); return null; }
 
         var listIface = ClosedInterface(leaf.PropertyType, typeof(IList<>));
-        if (listIface is not null) { ApplyListVerb(current, leaf, listIface, req); return; }
+        if (listIface is not null) return ApplyListVerb(current, leaf, listIface, req);
 
         ApplyScalarVerb(current, leaf, req);
+        return null;
     }
 
     // ======================================================================
@@ -2625,7 +2630,8 @@ public static class WriteEngine
         }
     }
 
-    static void ApplyListVerb(object parent, PropertyInfo prop, Type listIface, WriteRequest req)
+    /// <returns>The apply-time note <see cref="ApplyVerb"/> hands back — non-null only for a duplicate Add.</returns>
+    static string? ApplyListVerb(object parent, PropertyInfo prop, Type listIface, WriteRequest req)
     {
         // ARRAY-backed collection (a C# T[], e.g. Weather.CloudTextures / Weather.Clouds — fixed-size game
         // structures Mutagen models as a plain array, not a growable ExtendedList). The list verbs assume
@@ -2674,8 +2680,23 @@ public static class WriteEngine
                     foreach (var s in addSpecs) addM.Invoke(list, new[] { BuildStruct(s) });
                     break;
                 }
-                AddMethod(lt, elem).Invoke(list,
-                    new[] { req.Struct is not null ? BuildStruct(req.Struct) : Coerce(req.Value!, elem) });
+                if (req.Struct is not null)
+                {
+                    AddMethod(lt, elem).Invoke(list, new[] { BuildStruct(req.Struct) });
+                    break;
+                }
+                // A PLAIN-VALUE Add reports whether the list ALREADY carried this element. Add still appends — the
+                // verb's meaning is unchanged and no verb is added — but a duplicating add and a clean one otherwise
+                // render identically (both print a longer list), so the caller cannot tell one from the other and
+                // repeats it across a bulk run. Only the plain-value form is checked: a BUILT struct element is a
+                // fresh instance whose equality is the modeled type's, so a membership test there would answer no on
+                // every real duplicate and say nothing useful.
+                var addValue = Coerce(req.Value!, elem);
+                bool already = ListCarries(elem, list, addValue);
+                AddMethod(lt, elem).Invoke(list, new[] { addValue });
+                if (already)
+                    return $"duplicate: '{req.Value}' was already in '{prop.Name}' — Add appends, so the list now "
+                           + "carries it twice; Remove it by value if you meant the list to hold one.";
                 break;
             case "SetAtIndex":
             {
@@ -2752,6 +2773,20 @@ public static class WriteEngine
             default:
                 throw new InvalidOperationException($"Verb '{req.Verb}' is not valid on list '{prop.Name}'.");
         }
+        return null;
+    }
+
+    /// <summary>Does the list already carry this element? Asked through <c>ICollection&lt;T&gt;.Contains</c> on the
+    /// CLOSED INTERFACE, so an explicit implementation still answers, and a failure to ask is answered NO — the
+    /// duplicate note is an extra sentence on a write that has to land either way, never a reason to fail one.</summary>
+    static bool ListCarries(Type elem, object list, object? value)
+    {
+        try
+        {
+            var contains = typeof(ICollection<>).MakeGenericType(elem).GetMethod("Contains", new[] { elem });
+            return contains?.Invoke(list, new[] { value }) is true;
+        }
+        catch { return false; }
     }
 
     /// <summary>Element count of a (possibly Mutagen <c>ExtendedList&lt;T&gt;</c>) collection WITHOUT assuming the
