@@ -238,7 +238,7 @@ static class Wire
         if (q.Groups is not null) return RenderCrossQueryGroups(q, cap, spill, out truncated);   // group_by= → a count table, not per-match lines
         bool detail = fields is { Count: > 0 };          // expand matches, vs. one-line summaries
         var linkMemo = resolveNames && detail ? new LoadOrderService.LinkMemo() : null;   // one link cache across all rendered matches
-        bool anyScoped = detail && q.Sources is { } ss && ss.Take(q.Keys.Count).Any(s => s is not null);   // a plugins= scope shows a plugin's OWN body
+        bool anyScoped = JsonWire.AnyScopedFieldRow(q, fields);   // the shared test: a plugins= scope shows a plugin's OWN body
         var sb = new StringBuilder();
         sb.Append("scan: ").Append(q.Total).Append(q.Total == 1 ? " match" : " matches");
         if (q.ScopeLabel is not null) sb.Append(" DEFINED IN ").Append(q.ScopeLabel);   // explicit scope — NOT the 'touches' default

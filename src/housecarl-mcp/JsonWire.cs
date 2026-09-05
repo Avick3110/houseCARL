@@ -1086,7 +1086,7 @@ static class JsonWire
             else                                                            // per-match: detail (fields=) or summary
             {
                 bool detail = fields is { Count: > 0 };
-                bool anyScoped = detail && q.Sources is { } ss && ss.Take(q.Keys.Count).Any(s => s is not null);   // any row read from a scoped body
+                bool anyScoped = AnyScopedFieldRow(q, fields);   // the shared test: any row read from a scoped body
                 string? p5 = anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner, levers) : null;
                 w.WriteNumber("total", q.Total);
                 w.WriteBoolean("capped", q.Capped);
@@ -1133,6 +1133,15 @@ static class JsonWire
         }
         return Finish(ms);
     }
+
+    /// <summary>Is the scoped-vs-winner field-source note owed at all? True when a <c>fields=</c> detail render
+    /// actually carried at least one row read from a scoped plugin's OWN body. Every render that states the note —
+    /// the two json lanes, the inline text render, and the scan artifact's manifest — asks HERE, so the four agreeing
+    /// is structural rather than four copies of one line that happen to match today. A <c>group_by=</c> outcome
+    /// answers false outright: it renders counts, not rows, and fills no per-key sources.</summary>
+    internal static bool AnyScopedFieldRow(CrossQueryOutcome q, IReadOnlyList<string>? fields)
+        => q.Groups is null && fields is { Count: > 0 }
+           && q.Sources is { } sources && sources.Take(q.Keys.Count).Any(s => s is not null);
 
     /// <summary>The scoped-vs-winner field-source note, one of a 4-way matrix over (winner_fields=, where_source=).
     /// <paramref name="whereWinner"/> is true when the MATCH decided on the live winner, and the note must then not
@@ -1183,7 +1192,7 @@ static class JsonWire
             else
             {
                 bool detail = fields is { Count: > 0 };
-                bool anyScoped = detail && q.Sources is { } ss && ss.Take(q.Keys.Count).Any(s => s is not null);   // any row read from a scoped body
+                bool anyScoped = AnyScopedFieldRow(q, fields);   // the shared test: any row read from a scoped body
                 w.WriteNumber("total", q.Total);
                 w.WriteBoolean("capped", q.Capped);
                 WriteNullable(w, "epoch", q.Epoch);                           // offset= windows tile ONLY within one epoch
