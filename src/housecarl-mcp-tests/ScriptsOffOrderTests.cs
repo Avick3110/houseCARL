@@ -36,6 +36,10 @@ public sealed class ScriptsOffOrderTests : IDisposable
     /// <summary>Records in the off-order plugin that attach <see cref="SharedScript"/> and bind nothing.</summary>
     const int PendingUnbound = 2;
 
+    /// <summary>Records in the off-order plugin attaching <see cref="PendingOnlyScript"/> — all unverifiable for
+    /// the one reason, so all but the first are collapsed.</summary>
+    const int PendingUnverifiable = 3;
+
     readonly string _root;
     readonly LoadOrderService _svc;
 
@@ -59,8 +63,10 @@ public sealed class ScriptsOffOrderTests : IDisposable
 
         WritePlugin(Path.Combine(activeDir, ActiveName), "HcOoActive",
                     new[] { SharedScript });
+        // Three records attach the script whose .pex is outside the VFS — the shape a disabled mod really has, and
+        // the one that makes the unverifiable note repeat.
         WritePlugin(Path.Combine(pendingDir, PendingName), "HcOoPending",
-                    new[] { SharedScript, SharedScript, PendingOnlyScript });
+                    new[] { SharedScript, SharedScript, PendingOnlyScript, PendingOnlyScript, PendingOnlyScript });
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -146,6 +152,50 @@ public sealed class ScriptsOffOrderTests : IDisposable
         Assert.False(fam.GetProperty("epoch_covers_all_inputs").GetBoolean());
     }
 
+    /// <summary>The caveat that makes the unverifiable count readable — the .pex chain came from the ACTIVE order —
+    /// reaches the json consumer too, beside the roster it qualifies. Without it the machine transport carries a
+    /// file name and a count with nothing tying them together.</summary>
+    [Fact]
+    public void TheJsonTransportTiesTheOffOrderRosterToTheUnverifiableCount()
+    {
+        var r = _svc.ValidateScripts(new[] { PendingName }, 1000);
+        var fam = ScriptsFamily(JsonWire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000));
+
+        var coverage = fam.GetProperty("off_order_coverage").GetString();
+        Assert.Contains(".pex read from the ACTIVE order", coverage);
+        Assert.Contains("UNVERIFIABLE, not clean", coverage);
+        Assert.True(fam.GetProperty("unverifiable").GetInt32() > 0);
+
+        // …and a sweep with no off-order file states no caveat over a lane that did not run.
+        var indexed = _svc.ValidateScripts(new[] { ActiveName }, 1000);
+        var indexedFam = ScriptsFamily(JsonWire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: indexed), 20000));
+        Assert.Equal(JsonValueKind.Null, indexedFam.GetProperty("off_order_coverage").ValueKind);
+    }
+
+    /// <summary>A disabled mod puts every one of its own script classes outside the VFS, so one class's
+    /// unverifiable note repeats on every record attaching it. Those notes are outside limit=, so the repeats are
+    /// collapsed to one and the head says how many — otherwise the listing is a wall of one sentence and the
+    /// max_chars cut falls on the unbound findings the caller asked for.</summary>
+    [Fact]
+    public void RepeatedUnverifiableNotesAreCollapsedAndTheCollapseIsStated()
+    {
+        var r = _svc.ValidateScripts(new[] { PendingName }, 1000);
+
+        // The TOTAL still counts every one of them — the collapse is a listing decision, not a lost finding.
+        Assert.Equal(PendingUnverifiable, r.TotalUnverifiable);
+        Assert.Equal(PendingUnverifiable - 1, r.UnverifiableCollapsed);
+        Assert.Equal(1, r.Reports.Sum(rep => rep.Unverifiable.Count(u => u.Script == PendingOnlyScript)));
+        // …and the records carrying nothing but a repeat are not listed at all: the two unbound records plus the
+        // ONE record that carried the note first.
+        Assert.Equal(PendingUnbound + 1, r.Reports.Count);
+
+        var text = Wire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000);
+        Assert.Contains($"{PendingUnverifiable - 1} further record(s) carry a note already reported", text);
+
+        var fam = ScriptsFamily(JsonWire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000));
+        Assert.Equal(PendingUnverifiable - 1, fam.GetProperty("unverifiable_collapsed").GetInt32());
+    }
+
     [Fact]
     public void AnAllIndexedSweepClaimsFullCoverageAndNamesNoOffOrderFile()
     {
@@ -166,6 +216,18 @@ public sealed class ScriptsOffOrderTests : IDisposable
         Assert.NotNull(r.Error);
         Assert.Contains("plugin not in the load order: HcOoNoSuch.esp", r.Error);
         Assert.Contains("no on-disk copy was found either", r.Error);
+    }
+
+    /// <summary>The commonest form of that miss is a typo or the wrong extension, and the refusal keeps the
+    /// did-you-mean that fixes it — the clause the membership refusal has always carried.</summary>
+    [Fact]
+    public void ANearMissNameKeepsItsDidYouMean()
+    {
+        var r = _svc.ValidateScripts(new[] { "HcOoActive.esl" }, 1000);
+
+        Assert.NotNull(r.Error);
+        Assert.Contains("no on-disk copy was found either", r.Error);
+        Assert.Contains($"Did you mean `{ActiveName}`?", r.Error);
     }
 
     [Fact]
