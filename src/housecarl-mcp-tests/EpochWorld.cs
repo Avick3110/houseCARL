@@ -30,6 +30,11 @@ public sealed class EpochWorld : IDisposable
     public LoadOrderService Svc { get; }
     public FormKey Weapon { get; }
 
+    /// <summary>A CK-parity-complete dialogue view in the master: a dialogue seed that RESOLVES on this degraded
+    /// order, so the dialogue family renders a head rather than refusing. DLVW reads nothing off disk, so the head
+    /// it renders is the whole-coverage one.</summary>
+    public FormKey View { get; }
+
     readonly string _priorCorpusPath;
 
     public EpochWorld()
@@ -49,6 +54,9 @@ public sealed class EpochWorld : IDisposable
         var w = master.Weapons.AddNew(); w.EditorID = "HcEpWeapon";
         w.BasicStats = new WeaponBasicStats { Damage = 10, Weight = 1 };
         Weapon = w.FormKey;
+        var view = master.DialogViews.AddNew(); view.EditorID = "HcEpView";
+        DialogueCkParity.ApplyViewDefaults(view);
+        View = view.FormKey;
 
         var old = new SkyrimMod(oldKey, SkyrimRelease.SkyrimSE);
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(old, master.Weapons.First()))
