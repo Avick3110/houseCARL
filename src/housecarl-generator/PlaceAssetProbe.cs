@@ -1297,6 +1297,63 @@ internal static class PlaceAssetProbe
                       $"M26 an ACTIVE ARCHIVE's name is answered by the universe and never falls through to a folder of that name  [RED arm] — " +
                       $"{(r.Placed ? "PLACED off-order=" + (r.SourceOffOrderProvider ?? "(none)") : "refused")}");
             }
+
+            // ================= N: WHICH of the two off-order reasons the response states =================
+            // The lane reaches an ENABLED mod's folder too, and the provenance sentence picks its arm off
+            // PlacementSource.OwnerEnabled. Two halves, neither previously measured: the flag has to be TRUE for the
+            // one shape that can produce it (a root archive no active plugin binds), and FALSE for a loose find,
+            // where the mod being ticked means the universe should already have answered — so the copy is one the
+            // loose scan missed, not one the engine skips, and "nothing has to change" would be false.
+            Console.WriteLine();
+            Console.WriteLine("--- N: an ENABLED mod's own unloaded archive says so, and a loose find never claims it ---");
+            {
+                var inst = Path.Combine(root, "svc-n");
+                var (mods, _, prof) = MakeInstance(inst);
+                const string ArchOnly = @"meshes\hcprobe\enabled-archive-only.nif";
+                const string LooseRel = @"meshes\hcprobe\enabled-loose.nif";
+
+                // ENABLED, and its root archive is bound to NO active plugin (there is no EnabledArch.esp), so the
+                // engine does not load it and the built universe cannot answer for what is inside.
+                var ea = Path.Combine(mods, "EnabledArch"); Directory.CreateDirectory(ea);
+                File.Copy(fixA, Path.Combine(ea, "EnabledArch.bsa"));
+                WriteLoose(ea, LooseRel, new byte[] { 0x4E, 0x4E });
+
+                var host = Path.Combine(mods, "NHost"); Directory.CreateDirectory(host);
+                File.WriteAllText(Path.Combine(host, "Dummy.esp"), "x");
+
+                WriteProfile(prof, new[] { "Dummy.esp" }, new[] { "*Dummy.esp" }, new[] { "+EnabledArch", "+NHost" });
+                WriteSkyrimIni(prof, "");
+                using var svcN = LoadOrderService.WithInstance(inst, 0, new UserConfigStore(Path.Combine(root, "user-n.json")));
+
+                // Premise: the archive's contents really are invisible to the active universe, and the mod really is
+                // ticked — otherwise the OwnerEnabled arm below could be right for the wrong reason.
+                Check(svcN.AssetStatus(new[] { FacegenRel }).Results[0].Hit is { Exists: false },
+                      "the enabled mod's unbound archive contributes nothing to the active universe");
+                Check(svcN.AssetStatus(new[] { LooseRel }).Results[0].Hit is { Exists: true },
+                      "…while the same mod's LOOSE tree does, because MO2 ticks it");
+
+                // N1: the true case, which no cell reached before — the render must say the ARCHIVE is what the
+                // engine skips, not that the mod is unticked (it is ticked; saying otherwise is simply false).
+                var text = PlaceAssetTools.PlaceAsset(svcN, asset_path: FacegenRel, source: FacegenRel,
+                                                      source_provider: "EnabledArch", patch_name: "NOwnerEnabled");
+                Check(text.Contains("root archive the engine does NOT load", StringComparison.Ordinal),
+                      $"N1 an ENABLED mod's unbound archive is described as an archive the engine skips  [RED arm] — {Trim1(text)}");
+                Check(!text.Contains("NOT enabled in MO2", StringComparison.Ordinal),
+                      "…and NOT as a mod that is unticked, which it is not  [RED arm]");
+
+                // N2: the loose half of the flag, at the lane itself — a mod's loose tree is in the universe, so a
+                // loose find HERE means the loose scan missed it, and no archive-shaped excuse applies to it.
+                var res = AssetResolver.Build("", mods, "", new[] { "EnabledArch", "NHost" }, Array.Empty<ActiveArchive>());
+                var looseLook = res.TryResolveOffOrderProvider("EnabledArch", LooseRel);
+                Check(looseLook.Source is { Kind: AssetKind.Loose, OffOrder: true },
+                      $"N2 the lane finds an enabled mod's loose copy — {looseLook.Reason}");
+                Check(looseLook.Source is { OwnerEnabled: false },
+                      $"…and does NOT mark it OwnerEnabled, which would print the archive sentence for a loose file  [RED arm] — " +
+                      $"OwnerEnabled={looseLook.Source?.OwnerEnabled}");
+                var archLook = res.TryResolveOffOrderProvider("EnabledArch", FacegenRel);
+                Check(archLook.Source is { Kind: AssetKind.Bsa, OwnerEnabled: true },
+                      $"…while the archive find in the SAME enabled folder does — kind={archLook.Source?.Kind}, OwnerEnabled={archLook.Source?.OwnerEnabled}");
+            }
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { /* temp scratch */ } }
 

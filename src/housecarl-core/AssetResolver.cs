@@ -430,11 +430,17 @@ public sealed class AssetResolver : IDisposable
     /// loose tree and every archive the engine loads, so what is left to find is a root archive no active plugin
     /// binds. <see cref="PlacementSource.OffOrder"/> therefore stays set, and
     /// <see cref="PlacementSource.OwnerEnabled"/> is filled in here so a caller's sentence can say WHICH of the two
-    /// reasons it is rather than hedging between them.</para></summary>
+    /// reasons it is rather than hedging between them.</para>
+    ///
+    /// <para>The flag needs the ARCHIVE kind as well as the tick, because only the archive half of that reasoning
+    /// holds. An enabled mod's loose tree is already in the built universe, so a LOOSE copy found on this lane is one
+    /// the loose scan missed (an enumeration that would not read), not one the engine skips — and the enabled arm's
+    /// "nothing about that archive has to change" would then be a sentence about an archive that was never
+    /// involved.</para></summary>
     public OffOrderLookup TryResolveOffOrderProvider(string? providerName, string relPath)
     {
         var look = OffOrderAssetSource.Resolve(_modsDir, IsReservedProviderName, providerName, relPath);
-        return look.Source is { } s && IsEnabledMod(s.ProviderName)
+        return look.Source is { } s && s.Kind == AssetKind.Bsa && IsEnabledMod(s.ProviderName)
             ? look with { Source = s with { OwnerEnabled = true } }
             : look;
     }
