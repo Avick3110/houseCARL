@@ -144,6 +144,13 @@ internal static class NexusFileCheckProbe
         Check(kText.Contains("FILE REMOVED —", StringComparison.Ordinal)
               && kText.Contains(" 1 file-removed ", StringComparison.Ordinal),
               "K: the withdrawn mods get their own group and their own count in the summary line");
+        // The summary counts read in the SAME order as the groups under them — most actionable first — so the two
+        // halves of one response never disagree about what to look at first. Both verdicts present, so the group
+        // order is actually observable.
+        var kBoth = Render.Updates(new[] { b, kRemoved }, Array.Empty<string>());
+        Check(kBoth.IndexOf(" file-removed ", StringComparison.Ordinal) < kBoth.IndexOf(" outdated ", StringComparison.Ordinal)
+              && kBoth.IndexOf("FILE REMOVED —", StringComparison.Ordinal) < kBoth.IndexOf("OUTDATED —", StringComparison.Ordinal),
+              "K: the summary leads with file-removed, like the groups below it");
         // …and DELETED is the same bucket, while a withdrawn file is never offered as the replacement for a retired
         // one: the same-name search now tests live, not merely not-retired.
         var deleted = new List<(int, string, string?, string, long)>

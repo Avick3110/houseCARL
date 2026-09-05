@@ -523,8 +523,9 @@ static class Render
         int notFound = results.Count(r => r.Verdict == UpdateVerdict.NotFound);
         int errored = results.Count(r => r.Verdict == UpdateVerdict.Error);
 
+        // Same order as the groups below and the doc above: the most actionable verdict leads both.
         sb.Append("update check (file-level) — ").Append(results.Count).Append(" mod(s): ")
-          .Append(outdated).Append(" outdated · ").Append(removed).Append(" file-removed · ")
+          .Append(removed).Append(" file-removed · ").Append(outdated).Append(" outdated · ")
           .Append(current).Append(" current · ")
           .Append(fileGone).Append(" file-gone · ").Append(noFileId).Append(" no-fileid · ")
           .Append(latest).Append(" latest-only · ").Append(notFound).Append(" not-found");
