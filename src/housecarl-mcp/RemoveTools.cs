@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
@@ -82,10 +82,7 @@ public static class RemoveTools
         if (targets.Count == 0)
             return Refuse("formids= expanded to an empty list — nothing to remove.");
 
-        // The in-place lane's spelling is handed DOWN: the service renders the remedy sentence but cannot know
-        // which parameter names its caller exposes, so it must never pick that wording for itself.
-        var outcome = svc.RemoveRecords(targets, hasInto ? into : null, in_place, hasInPlace, acknowledge,
-                                        WriteSentences.RemoveInPlaceLane);
+        var outcome = svc.RemoveRecords(targets, hasInto ? into : null, in_place, hasInPlace, acknowledge);
         // The lane the CALL named — stated, not derived from the outcome's flags.
         return json
             ? JsonWire.RenderRemovalOutcome(outcome, max_chars, hasInPlace ? "in_place" : "into")
