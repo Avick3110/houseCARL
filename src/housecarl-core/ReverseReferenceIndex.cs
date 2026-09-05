@@ -336,6 +336,41 @@ public static class ReverseSelection
         return index.Orphans(view.RecordKeys());
     }
 
+    /// <summary>One hop of a transitive reverse walk: the records reached at this distance from the seeds, first
+    /// arrival wins. An EMPTY hop is a fact and is kept in the list, so a walk that ran out of referrers says so
+    /// rather than trailing off.</summary>
+    public sealed record Hop(int Depth, IReadOnlyList<FormKey> Reached);
+
+    /// <summary>The transitive reverse walk: who references the seeds, then who references those, hop after hop.
+    /// The follow rule — every link — is the same at every hop, which is what <c>depth</c> means here and
+    /// everywhere. Records already reached are not re-reported and not re-expanded, so a reference cycle
+    /// terminates. <paramref name="maxNodes"/> bounds the TOTAL reached across all hops; a breach keeps what was
+    /// proved, stops there, and sets <paramref name="capped"/> so the response can say the cut happened.</summary>
+    public static IReadOnlyList<Hop> Transitive(ReverseReferenceIndex index, IReadOnlyList<FormKey> seeds,
+                                                int depth, int maxNodes, out bool capped)
+    {
+        capped = false;
+        var hops = new List<Hop>();
+        var visited = new HashSet<FormKey>(seeds);
+        IReadOnlyList<FormKey> frontier = seeds;
+        int reached = 0;
+        for (int d = 1; d <= depth; d++)
+        {
+            var next = new List<FormKey>();
+            foreach (var k in index.ReferencersOf(frontier))
+            {
+                if (!visited.Add(k)) continue;
+                if (reached >= maxNodes) { capped = true; break; }
+                next.Add(k);
+                reached++;
+            }
+            hops.Add(new Hop(d, next));
+            if (capped || next.Count == 0) break;
+            frontier = next;
+        }
+        return hops;
+    }
+
     /// <summary>The sentence a caller gets for the negated-only unbounded form: its universe is the orphan set, not
     /// the whole order and not the same question a bounded negated <c>references=</c> asks. Declared, never
     /// discovered.</summary>
