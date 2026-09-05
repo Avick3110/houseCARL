@@ -136,7 +136,11 @@ public sealed class NexusClient
     /// <summary>Batch file-level currency check: is the exact file each of these mods installed still current? Each
     /// installed file id resolves to its live category in the mod's file list — a live category (MAIN, UPDATE,
     /// OPTIONAL, MISCELLANEOUS) is Current; OLD_VERSION or ARCHIVED is Outdated and points at the newest same-name
-    /// file; absent from the page is FileGone. This avoids the false positive a mod-level "installed == newest MAIN"
+    /// LIVE file; REMOVED or DELETED is FileRemoved, the author having withdrawn the file rather than superseded it,
+    /// so a same-name live file is named as a lead and never as the replacement, and the row says to read the page;
+    /// absent from the page is FileGone. A mod with both a withdrawn and a retired file reads FileRemoved: taking the
+    /// newest same-name file answers the retirement and does not answer the withdrawal. This avoids the false
+    /// positive a mod-level "installed == newest MAIN"
     /// compare hits, since a Nexus page hosts many independently-versioned files. With no file id available (a FOMOD
     /// or manual install) it degrades to NoFileId rather than falling back to that compare. Entries are grouped by
     /// modId, because one page split across several mod folders shares a modId and each folder may have installed a

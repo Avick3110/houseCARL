@@ -42,7 +42,11 @@ internal static class EpochGuardProbe
         Console.WriteLine();
         int fail = 0;
         void Check(bool c, string label) { Console.WriteLine((c ? "  PASS  " : "  FAIL  ") + label); if (!c) fail++; }
-        static bool IsEpochToken(string? e) => e is { Length: 16 } && e.All(ch => ch is (>= '0' and <= '9') or (>= 'a' and <= 'f'));
+        // A format tag, a dash, then 16 hex chars. The tag is what lets a consumer tell an epoch this build cannot
+        // compare against (one written before the formula changed) from one that simply names a different world.
+        static bool IsEpochToken(string? e) =>
+            e is { Length: 19 } && LoadOrderResolver.IsCurrentEpochFormat(e)
+            && e.Substring(3).All(ch => ch is (>= '0' and <= '9') or (>= 'a' and <= 'f'));
 
         var root = Path.Combine(Path.GetTempPath(), "hc-epoch-guard-" + Guid.NewGuid().ToString("N"));
         try
@@ -110,10 +114,15 @@ internal static class EpochGuardProbe
                 var paths = new[] { masterFile, ovFile };
                 using var r1 = LoadOrderResolver.Build(paths);
                 using var r2 = LoadOrderResolver.Build(paths);          // the restart case: a fresh process over unchanged files
-                Check(IsEpochToken(r1.Epoch), $"epoch is an opaque 16-hex token — '{r1.Epoch}'");
+                Check(IsEpochToken(r1.Epoch), $"epoch is an opaque format-tagged hex token — '{r1.Epoch}'");
                 Check(r1.Epoch == r2.Epoch, "a SECOND resolver over the same files fingerprints IDENTICALLY (restart invalidates nothing)");
                 Check(r1.Capture().Epoch == r1.Epoch, "view epoch == resolver epoch (one build, one identity)");
                 Check(!r1.RefreshIfStale() && r1.Capture().Epoch == r2.Epoch, "RefreshIfStale over an UNCHANGED order keeps the epoch");
+                // An epoch persisted by a build that computed it differently is recognisable as such, so a refusal
+                // over one can say the formula changed rather than blaming a load order it cannot speak for.
+                Check(LoadOrderResolver.IsCurrentEpochFormat(r1.Epoch)
+                      && !LoadOrderResolver.IsCurrentEpochFormat("0123456789abcdef"),
+                      "an epoch from an older format is distinguishable from one this build wrote");
             }
 
             // ---- 2: sensitivity — content, order, and set changes each re-fingerprint ----
