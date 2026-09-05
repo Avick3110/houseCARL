@@ -57,7 +57,14 @@ public static class ReverseWalkBatch
         }
 
         var built = view.EnsureReverseIndex();
-        int noLink = 0, unreadable = 0, noLiveBody = 0, noWinner = 0;
+        int unreadable = 0, noLiveBody = 0, noWinner = 0;
+        // Every candidate is judged once, however many frontiers name it: the winner's links are remembered (null
+        // when the winner cannot be judged at all), so the same body is never read twice and each cause counts
+        // records rather than checks. Whether the winner carries a link is frontier-relative, so it is asked again
+        // per hop off the remembered set — a record dropped at hop 1 can still be legitimately reached at hop 2,
+        // and it then leaves the drop count.
+        var linksOf = new Dictionary<FormKey, IReadOnlySet<FormKey>?>();
+        var noLink = new HashSet<FormKey>();
         using var session = pin.Resolver.OpenSession();
         // The index answers in candidates — it says SOME plugin's copy carries the link. references= then re-tests
         // each candidate against the body it judges, and so does this: a record whose winner dropped the link is
@@ -65,23 +72,35 @@ public static class ReverseWalkBatch
         // hop-1 node cannot seed a false subtree.
         bool Verify(FormKey candidate, IReadOnlySet<FormKey> frontier)
         {
-            var w = view.ResolveWinner(candidate);
-            if (w is null) { noWinner++; return false; }
-            IMajorRecordGetter? body;
-            // Any throw out of the lazy overlay seek — an unreadable plugin, a malformed subrecord — is a
-            // coverage gap on that one record, counted and skipped, never the end of the whole walk. The same
-            // rule references= keeps.
-            try { body = view.GetRecord(session, w.Value.WinnerPlugin, candidate); }
-            catch (Exception) { unreadable++; return false; }
-            if (body is null) { unreadable++; return false; }
-            if (DeletedRecordRule.HasNoLiveBody(body) || body is not IFormLinkContainerGetter flc)
+            if (!linksOf.TryGetValue(candidate, out var links))
             {
-                noLiveBody++;
-                return false;
+                links = null;
+                var w = view.ResolveWinner(candidate);
+                if (w is null) noWinner++;
+                else
+                {
+                    IMajorRecordGetter? body = null;
+                    bool threw = false;
+                    // Any throw out of the lazy overlay seek — an unreadable plugin, a malformed subrecord — is a
+                    // coverage gap on that one record, counted and skipped, never the end of the whole walk. The
+                    // same rule references= keeps.
+                    try { body = view.GetRecord(session, w.Value.WinnerPlugin, candidate); }
+                    catch (Exception) { threw = true; }
+                    if (threw || body is null) unreadable++;
+                    else if (DeletedRecordRule.HasNoLiveBody(body) || body is not IFormLinkContainerGetter flc) noLiveBody++;
+                    else
+                    {
+                        var set = new HashSet<FormKey>();
+                        try { foreach (var l in flc.EnumerateFormLinks()) set.Add(l.FormKey); links = set; }
+                        catch (Exception) { unreadable++; }
+                    }
+                }
+                linksOf[candidate] = links;
             }
-            foreach (var l in flc.EnumerateFormLinks())
-                if (frontier.Contains(l.FormKey)) return true;
-            noLink++;
+            if (links is null) return false;
+            foreach (var l in links)
+                if (frontier.Contains(l)) { noLink.Remove(candidate); return true; }
+            noLink.Add(candidate);
             return false;
         }
 
@@ -95,6 +114,6 @@ public static class ReverseWalkBatch
             foreach (var k in hop.Reached) selection.Add(k.ToString());
 
         return new Result(hops, selection, seedKeys.Count, capped,
-                          new DropCensus(noLink, unreadable, noLiveBody, noWinner), built.Note, epoch, null);
+                          new DropCensus(noLink.Count, unreadable, noLiveBody, noWinner), built.Note, epoch, null);
     }
 }

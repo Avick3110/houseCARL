@@ -147,7 +147,10 @@ public sealed class RecordsWorld : IDisposable
         { var e = new Effect(); e.BaseEffect.SetTo(MgefHop); e.Data = new EffectData { Magnitude = 3 }; spellHop.Effects.Add(e); }
         var listHop = master.FormLists.AddNew(); listHop.EditorID = "HcRecListHop"; ListHop = listHop.FormKey;
         listHop.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(SpellHop));
+        // It carries BOTH links, so a two-hop walk from MgefHop names it a candidate at hop 1 and again at hop 2 —
+        // one record, one drop.
         var listDropped = master.FormLists.AddNew(); listDropped.EditorID = "HcRecListDropped"; ListDropped = listDropped.FormKey;
+        listDropped.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(MgefHop));
         listDropped.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(SpellHop));
 
         // One element past ReadEngine's expansion budget: the only fixture that reaches the delta form's

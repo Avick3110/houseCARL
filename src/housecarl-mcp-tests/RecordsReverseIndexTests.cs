@@ -279,6 +279,17 @@ public sealed class RecordsReverseIndexTests : RecordsTestBase
                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 1 }),
                "whose winner does not carry the link");
 
+    /// <summary>One candidate on two frontiers is one drop: HcRecListDropped is named at hop 1 and again at hop 2,
+    /// and the drop line counts records, not verification failures.</summary>
+    [Fact]
+    public void ACandidateNamedAtTwoHopsIsDroppedOnce()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 2 });
+        Served(r, "1 index candidate(s) were dropped");
+        Assert.DoesNotContain("HcRecListDropped", r);
+    }
+
     /// <summary>A hop the node budget ended reads as cut, not as a hop that reached nothing, and a capped walk is
     /// never also called exhausted.</summary>
     [Fact]
