@@ -2368,7 +2368,7 @@ public sealed class LoadOrderService : IDisposable
         }
 
         var record = ReadEngine.ReadFields(rec, fields, depth, containerHint);   // materialise while the session (overlay) is open
-        record = AnnotateOwnedChildContent(record, rec, view, fk, out var childFields);   // cheap tier — index only, display-only
+        record = AnnotateOwnedChildContent(record, rec, view, session, fk, source, out var childFields);   // the additive union, display-only
         if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // identity of every FormLink token, display-only, on the same open session
         var touching = conflictTree ? view.TouchingPlugins(fk) : null;
         return new ReadOutcome(fk, record, source, winner.Value.WinnerPlugin, winner.Value.OverrideDepth, touching, null)
@@ -2402,25 +2402,25 @@ public sealed class LoadOrderService : IDisposable
         return rebuilt is null ? rf : rf with { Fields = rebuilt };
     }
 
-    /// <summary>On a read of a field that OWNS CHILD RECORDS, say that other plugins touch this record and that this
-    /// read did not open them. Index only; no body is fetched.
+    /// <summary>On a read of a field that OWNS CHILD RECORDS, state the ADDITIVE UNION the game assembles there —
+    /// every distinct child every touching plugin declares, keyed by FormID (#342 / #487).
     /// <para>Placed references, a topic's INFOs and a worldspace's cells are declared per plugin and assembled by the
     /// game from every plugin that declares them. An override touching a cell for an unrelated reason (occlusion,
     /// lighting, music) carries no references and deletes none, so reading its <c>Persistent</c>/<c>Temporary</c>
-    /// reports an empty cell the game actually fills. Without this note a caller auditing "what is in this cell"
-    /// through the winner gets a silently wrong answer.</para>
-    /// <para>This tier deliberately claims little: naming which plugins declare children requires their bodies, and
-    /// it unions nothing — "what is actually live in this parent" is separate work, since naive concatenation would
-    /// multi-count children that overlapping overrides both declare. See
-    /// `docs/architecture/records-owned-child-declarers.md`.</para>
+    /// reports an empty cell the game actually fills. The union is what the engine has; the field's own VALUE stays
+    /// the read body's own list, because that is what a write addresses by index.</para>
     /// <para>Assembly is over the whole touching set, so a <c>plugin=</c>-scoped read of a base master is annotated
     /// too: the plugins above it declare children it cannot see.</para>
+    /// <para>It costs one body per touching plugin, seeked by the record's own type, and only on a read that
+    /// actually EMITTED a child-bearing field — a projection that names none pays nothing. See
+    /// `docs/architecture/records-owned-child-declarers.md`.</para>
     /// <para>Display-only: it rides <see cref="FieldValue.Display"/>, never the round-trip
     /// <see cref="FieldValue.Token"/>, so it is invisible to the write surface, the read-proof oracle and the
     /// conflict diff, and reaches every render through that one carrier.</para></summary>
     static RecordFields AnnotateOwnedChildContent(RecordFields rf, IMajorRecordGetter body,
-                                                  LoadOrderResolver.IndexView view, FormKey fk,
-                                                  out IReadOnlyDictionary<string, OwnedChildShape>? annotated)
+                                                  LoadOrderResolver.IndexView view,
+                                                  LoadOrderResolver.OverlaySession session, FormKey fk, string source,
+                                                  out IReadOnlyDictionary<string, ChildUnion>? annotated)
     {
         annotated = null;
         // Empty for all but three record types, so this is where the overwhelming majority of reads leave, before
@@ -2435,24 +2435,25 @@ public sealed class LoadOrderService : IDisposable
             if (owning.ContainsKey(rf.Fields[i].Path)) (hits ??= new List<int>()).Add(i);
         if (hits is null) return rf;
 
-        var touching = view.TouchingPlugins(fk);
-        if (touching is null || touching.Count <= 1) return rf;   // sole toucher: its own body IS the whole story
+        // Narrowed to the fields this read emitted: the union opens a body per touching plugin, and assembling a
+        // worldspace's cells for a read that asked for EditorID would be a cost nobody asked for.
+        var wanted = new Dictionary<string, OwnedChildShape>(hits.Count, StringComparer.Ordinal);
+        foreach (var i in hits) wanted[rf.Fields[i].Path] = owning[rf.Fields[i].Path];
+        var unions = OwnedChildUnion.Compute(view, session, fk, source, body, wanted);
+        if (unions is null) return rf;                            // sole toucher: its own body IS the whole story
 
-        // Index only — no body is opened here. The default read states just what the index settles for free: that
-        // other plugins touch this record and this read did not look at what they declare. The tree form, which has
-        // already paid for every body, states which ones do.
-        var note = ReadSentences.NotReadNote(touching.Count - 1);
         var rebuilt = new List<FieldValue>(rf.Fields);
-        // The ANNOTATED paths and their shapes travel with the outcome, because the render decides its
+        // The ANNOTATED paths and their unions travel with the outcome, because the render decides its
         // response-level clause off the fields it actually emitted — a path that never reaches the medium (a cap
         // hit inside the field loop, a truncated json array, a manifest-only spill) must not earn a clause.
-        var map = new Dictionary<string, OwnedChildShape>(hits.Count, StringComparer.Ordinal);
+        var map = new Dictionary<string, ChildUnion>(hits.Count, StringComparer.Ordinal);
         foreach (var i in hits)
         {
+            var u = unions[rebuilt[i].Path];
             // These fields are containers and owned records; the only other producer of Display is the flags
             // decode, which fires on [Flags] enum leaves alone — so there is no annotation here to displace.
-            rebuilt[i] = rebuilt[i] with { Display = note };
-            map[rebuilt[i].Path] = owning[rebuilt[i].Path];
+            rebuilt[i] = rebuilt[i] with { Display = ReadSentences.UnionNote(u) };
+            map[rebuilt[i].Path] = u;
         }
         annotated = map;
         return rf with { Fields = rebuilt };
@@ -8783,13 +8784,13 @@ public sealed record ReadOutcome(
     /// render's conflict-tree fill reads the same build the stamp names. Internal render plumbing.</summary>
     internal LoadOrderService.ViewPin? Pin { get; init; }
 
-    /// <summary>Which fields in <see cref="Record"/> carry the owned-child annotation, each with its
-    /// <see cref="OwnedChildShape"/>, so a response render can state the clause once over the fields it actually
-    /// emitted and name them. Null when this read annotated nothing.
+    /// <summary>Which fields in <see cref="Record"/> carry the owned-child annotation, each with the
+    /// <see cref="ChildUnion"/> the order assembles there, so a response render can state the clause once over the
+    /// fields it actually emitted and name them. Null when this read annotated nothing.
     /// <para>Carried structurally rather than recovered by scanning the rendered prose for a marker, and carrying the
     /// paths rather than a bool: a clause that merely knows something was annotated cannot tell whether that
     /// something survived the medium's own truncation.</para></summary>
-    public IReadOnlyDictionary<string, OwnedChildShape>? OwnedChildFields { get; init; }
+    public IReadOnlyDictionary<string, ChildUnion>? OwnedChildFields { get; init; }
 
     /// <summary>Did this read annotate anything at all — the cheap question, for callers that only need to know
     /// whether a clause is POSSIBLE (the budget reservation) rather than which fields it would name.</summary>

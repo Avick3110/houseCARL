@@ -673,21 +673,35 @@ public static class WriteEngine
     /// the property drops out of the set and the count check in <see cref="RestoreChildGroup"/> refuses — so the
     /// constant is a tripwire, not a correctness assumption.</summary>
     static bool ReachesOwnedRecord(Type t, HashSet<Type> seen, int depth)
+        => OwnedRecordTypeOf(t, seen, depth, throughInterfaces: false) is not null;
+
+    /// <summary>The record type <paramref name="t"/> reaches, or null when it reaches none — the same walk
+    /// <see cref="ReachesOwnedRecord"/> is, answering WHICH record rather than whether. The read side needs the
+    /// type to ask Mutagen's containment enumeration for a field's OWN children: enumerating a worldspace block
+    /// untyped yields its cells AND every placed reference inside them, which is a different field's content.
+    /// <para>It steps through INTERFACES as well as classes, which the write-side walk does not: a read is handed
+    /// an overlay body, whose containers are getter interfaces all the way down
+    /// (<c>IWorldspaceBlockGetter</c> → <c>IWorldspaceSubBlockGetter</c> → <c>ICellGetter</c>). The write walk's
+    /// answer — the child-bearing property SET, pinned over every record type — is left exactly as it was.</para></summary>
+    internal static Type? OwnedRecordTypeOf(Type t) => OwnedRecordTypeOf(t, new HashSet<Type>(), 0, throughInterfaces: true);
+
+    static Type? OwnedRecordTypeOf(Type t, HashSet<Type> seen, int depth, bool throughInterfaces)
     {
-        if (depth > 6 || !seen.Add(t)) return false;
+        if (depth > 6 || !seen.Add(t)) return null;
         // `seen` is a PATH set, not a memo: the entry comes back out on the way up. Left in, a type first reached at
         // the depth bound would be recorded as unreachable and then skipped when a shallower branch reaches it, which
         // memoizes a depth-truncated answer as a depth-independent one. Cycles are still closed — a type on the
         // CURRENT path is what the set holds (a Cell reaches a Cell through a Worldspace).
         try
         {
-            if (typeof(IFormLinkGetter).IsAssignableFrom(t)) return false;   // a reference, not a child
-            if (typeof(IMajorRecordGetter).IsAssignableFrom(t)) return true;
-            if (ElementTypeOf(t) is { } elem) return ReachesOwnedRecord(elem, seen, depth + 1);
-            if (!t.IsClass || t.Namespace?.StartsWith("Mutagen", StringComparison.Ordinal) != true) return false;
+            if (typeof(IFormLinkGetter).IsAssignableFrom(t)) return null;    // a reference, not a child
+            if (typeof(IMajorRecordGetter).IsAssignableFrom(t)) return t;
+            if (ElementTypeOf(t) is { } elem) return OwnedRecordTypeOf(elem, seen, depth + 1, throughInterfaces);
+            if (!t.IsClass && !(throughInterfaces && t.IsInterface)) return null;
+            if (t.Namespace?.StartsWith("Mutagen", StringComparison.Ordinal) != true) return null;
             foreach (var p in t.GetProperties(BindingFlags.Public | BindingFlags.Instance))
-                if (ReachesOwnedRecord(p.PropertyType, seen, depth + 1)) return true;
-            return false;
+                if (OwnedRecordTypeOf(p.PropertyType, seen, depth + 1, throughInterfaces) is { } found) return found;
+            return null;
         }
         finally { seen.Remove(t); }
     }

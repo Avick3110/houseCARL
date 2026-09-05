@@ -17,33 +17,65 @@ namespace HousecarlMcp;
 /// </summary>
 internal static class ReadSentences
 {
-    // ---- the cheap fact every read can state from the index alone ------------------------------------
+    // ---- what the game assembles: the additive union across every touching plugin --------------------
 
-    /// <summary>The per-field half of the cheap tier. It may claim only what the index knows: other plugins touch
-    /// this record and this read did not look at what they declare — never that they do or do not.</summary>
-    [MustState("were not read")]
-    internal const string NotRead = "other plugin(s) touch this record; their declarations for this field were not read";
+    /// <summary>The word every per-field owned-child note carries, whichever shape it is in. It is what a caller
+    /// (and a test) can look for to know the field's content is assembled from more than the body it read.</summary>
+    [NoClaims("a word shared by the notes below; each states its own claim")]
+    internal const string ChildContent = "child record";
 
-    /// <summary>The response-level half of the cheap tier, naming the lane that answers precisely. The remedy must
-    /// name the tool and the form, not a bare parameter: this clause ships from every lane that renders record
-    /// fields, including artifact manifests, and a spelling the recipient's surface rejects is a remedy nobody can
-    /// run. <c>{0}</c> is filled with the fields the response actually annotated
-    /// (<see cref="FieldList"/>).</summary>
-    [MustState("declared per plugin", "\"form\": \"tree\"", ToolNames.Records)]
-    internal const string NotReadFraming =
+    /// <summary>The per-field label for the MANY-child shape. The value beside it is the body's OWN list; this is
+    /// the whole set, so the two must never read as the same quantity.</summary>
+    [NoClaims("a label; the claim — what a union is and why it differs from the value — is UnionFraming's")]
+    internal const string UnionLabel = "additive union";
+
+    /// <summary>The negative, stated rather than omitted: nobody touching this record declares children here. Its
+    /// absence would read as the union never having been assembled.</summary>
+    [MustState("no plugin", "declares child record")]
+    internal const string NoUnionMembers = UnionLabel + ": no plugin touching this record declares " + ChildContent + "s here";
+
+    /// <summary>The response-level clause. It must say that the value and the union are DIFFERENT quantities, or a
+    /// reader takes the union for the field's contents and a write addressed by index lands on the wrong child.
+    /// <c>{0}</c> is filled with the fields the response actually annotated (<see cref="FieldList"/>).</summary>
+    [MustState("declared per plugin", UnionLabel, "own list", ToolNames.Records)]
+    internal const string UnionFraming =
         "note: this response annotates field(s) that hold CHILD RECORDS ({0}). Child records are declared per " +
-        "plugin — so what one plugin's body carries is not the whole story for that field. This read did not open " +
-        "the other plugins' bodies to see what they declare. To get a read that does, and names them: " +
+        "plugin and the game assembles the parent's from every plugin that declares any, so one body's list is " +
+        "not the whole content. The VALUE shown for such a field is this body's own list, in this body's own " +
+        "order — the addresses a write uses; the " + UnionLabel + " beside it is the whole set the game " +
+        "assembles, keyed by FormID so a child two plugins both declare counts once. To see which plugin " +
         // This string is a string.Format TEMPLATE ({0} is the field list), so every literal brace is doubled.
-        ToolNames.Records + " with project={{\"form\": \"tree\"}} — the same formids, every touching plugin's " +
-        "declaration, in text or json, and it spills to to_file like any other form.";
+        "declares what: " + ToolNames.Records + " with project={{\"form\": \"tree\"}}.";
 
-    /// <summary>The cheap tier's response-level clause over the fields <paramref name="fields"/> the response
-    /// actually emitted an annotation for.</summary>
-    internal static string NotReadClause(IReadOnlyCollection<string> fields) => string.Format(NotReadFraming, FieldList(fields));
+    /// <summary>The response-level clause over the fields <paramref name="fields"/> the response actually emitted
+    /// an annotation for.</summary>
+    internal static string UnionClause(IReadOnlyCollection<string> fields) => string.Format(UnionFraming, FieldList(fields));
 
-    /// <summary>The cheap tier's per-field line: the count the index knows, and the honest limit.</summary>
-    internal static string NotReadNote(int others) => $"{others} {NotRead}";
+    /// <summary>How many contributing plugins a union names before it summarises the rest as a count.</summary>
+    internal const int UnionDeclarerCap = 3;
+
+    /// <summary>The per-field line: what the game assembles here, who contributes it, and how much of it this
+    /// body's own list carries. A SINGULAR child is not a union — its declarers override one record — so it says
+    /// which plugin's copy is live instead of adding counts that would be a fiction.</summary>
+    internal static string UnionNote(ChildUnion u)
+    {
+        string head;
+        if (u.Shape == OwnedChildShape.Singular)
+            head = u.LivePlugin is null
+                ? $"no plugin touching this record declares this {ChildContent}"
+                : $"one {ChildContent}: {u.Declarers.Count} plugin(s) hold a copy and OVERRIDE each other; " +
+                  $"the live copy is {u.LivePlugin}'s";
+        else if (u.Total == 0) head = NoUnionMembers;
+        else
+            head = $"{UnionLabel}: {u.Total} {ChildContent}(s) across {u.Declarers.Count} plugin(s) — "
+                 + string.Join(", ", u.Declarers.Take(UnionDeclarerCap).Select(d => $"{d.Plugin} {d.Count}"))
+                 + (u.Declarers.Count > UnionDeclarerCap ? $" (+{u.Declarers.Count - UnionDeclarerCap} more)" : "")
+                 + $"; this body's own list carries {u.OwnCount}";
+        return u.Unreadable.Count == 0 ? head
+            : head + $"; {u.Unreadable.Count} plugin(s) {CouldNotRead} "
+              + $"({string.Join(", ", u.Unreadable.Take(UnionDeclarerCap))}"
+              + (u.Unreadable.Count > UnionDeclarerCap ? ", …" : "") + ")";
+    }
 
     // ---- the precise tier: WHICH providers declare, off bodies the tree has already fetched ----------
 
@@ -133,8 +165,8 @@ internal static class ReadSentences
     /// <summary>The worst-case chars the response-level clause can cost, reserved out of <c>max_chars</c> before
     /// the body renders. The clause is load-bearing, so it cannot be dropped at the cap; appending it past the cap
     /// instead would overrun invisibly to the <c>truncated</c> flag the auto-spill trigger reads.</summary>
-    internal static int ClauseReserve(bool notRead) =>
-        notRead ? NotReadFraming.Length + ClauseFieldsMaxChars + ClauseGlue : 0;
+    internal static int ClauseReserve(bool mayState) =>
+        mayState ? UnionFraming.Length + ClauseFieldsMaxChars + ClauseGlue : 0;
 
     // ---- the sweep response's omission accounting ----
     //

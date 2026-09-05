@@ -237,7 +237,7 @@ static class JsonWire
     /// <param name="emitted">Collects the annotated paths this array ACTUALLY carried — the response-level clause is
     /// stated over these, so a field the truncation above dropped states nothing.</param>
     static void WriteFieldsArray(Utf8JsonWriter w, RecordFields r, MemoryStream ms, int cap,
-                                 IReadOnlyDictionary<string, OwnedChildShape>? annotated = null, ICollection<string>? emitted = null,
+                                 IReadOnlyDictionary<string, ChildUnion>? annotated = null, ICollection<string>? emitted = null,
                                  LeverNames? levers = null)
     {
         var lv = levers ?? LeverNames.Legacy;
@@ -257,6 +257,7 @@ static class JsonWire
             var f = r.Fields[i];
             w.WriteStartObject();
             WriteLeaf(w, f);
+            if (annotated is not null && annotated.TryGetValue(f.Path, out var union)) WriteChildUnion(w, union);
             if (f.Cells is { } cells)
             {
                 // A folded row (the 'rows' form): the line's own text is prose, so the leaves it folded ride here
@@ -293,6 +294,44 @@ static class JsonWire
             w.WriteEndObject();
         }
     }
+
+    /// <summary>The additive union of a child-bearing field, as structure rather than only as the prose on
+    /// <c>display</c> — the FormIDs are the answer to "what is in this cell", and a caller reads them back through
+    /// the same <c>formids=</c> door it came in by. <c>members</c> is capped at
+    /// <see cref="ChildUnionMemberCap"/> with <c>members_omitted</c> naming the rest, because a worldspace's union
+    /// runs to tens of thousands and a field annotation is not a listing surface.</summary>
+    static void WriteChildUnion(Utf8JsonWriter w, ChildUnion u)
+    {
+        w.WriteStartObject("owned_child_union");
+        w.WriteString("shape", u.Shape.ToString());
+        w.WriteNumber("total", u.Total);
+        w.WriteNumber("own", u.OwnCount);
+        WriteNullable(w, "live_plugin", u.LivePlugin);
+        w.WriteStartArray("declarers");
+        foreach (var d in u.Declarers)
+        {
+            w.WriteStartObject();
+            w.WriteString("plugin", d.Plugin);
+            w.WriteNumber("count", d.Count);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        if (u.Unreadable.Count > 0)
+        {
+            w.WriteStartArray("unreadable");
+            foreach (var p in u.Unreadable) w.WriteStringValue(p);
+            w.WriteEndArray();
+        }
+        w.WriteStartArray("members");
+        for (int i = 0; i < u.Members.Count && i < ChildUnionMemberCap; i++) w.WriteStringValue(u.Members[i].ToString());
+        w.WriteEndArray();
+        if (u.Members.Count > ChildUnionMemberCap) w.WriteNumber("members_omitted", u.Members.Count - ChildUnionMemberCap);
+        w.WriteEndObject();
+    }
+
+    /// <summary>How many union members one field object lists. A cell's union is hundreds and a worldspace's is
+    /// tens of thousands, so the array is a sample with its remainder counted, never the whole set.</summary>
+    internal const int ChildUnionMemberCap = 100;
 
     /// <summary>Serialize a resolved record: identity + winner/override_depth/source + the fields array. Shared by
     /// read_record, batch_record_detail, and the cross_plugin_query detail path (one shape, no drift). <paramref
@@ -331,7 +370,7 @@ static class JsonWire
     /// the lane that has the bodies to name declarers does not exist here.</para></summary>
     static void WriteOwnedChildNote(Utf8JsonWriter w, IReadOnlyCollection<string> fields)
     {
-        if (fields.Count > 0) w.WriteString("owned_child_note", ReadSentences.NotReadClause(fields));
+        if (fields.Count > 0) w.WriteString("owned_child_note", ReadSentences.UnionClause(fields));
     }
 
     // ---- housecarl_batch_record_detail --------------------------------------------------------------

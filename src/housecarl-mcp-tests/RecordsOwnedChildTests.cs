@@ -38,6 +38,9 @@ public sealed class OwnedChildWorld : IDisposable
     /// and nothing anywhere declares Landscape or NavigationMeshes, so the precise tier has both a positive
     /// naming two plugins and a negative it must state rather than omit.</summary>
     public FormKey CellF { get; }
+    /// <summary>OVERLAPPING — the base declares 3 references and the mid plugin re-declares the FIRST of them
+    /// plus one of its own. The union is 4, and a concatenation would say 5.</summary>
+    public FormKey CellG { get; }
     public FormKey Topic { get; }
     /// <summary>A 3-toucher record with no child-bearing field at all.</summary>
     public FormKey Weapon { get; }
@@ -64,6 +67,7 @@ public sealed class OwnedChildWorld : IDisposable
 
         CellA = new FormKey(baseKey, 0xC01); CellB = new FormKey(baseKey, 0xC02); CellC = new FormKey(baseKey, 0xC03);
         CellD = new FormKey(baseKey, 0xC04); CellE = new FormKey(baseKey, 0xC05); CellF = new FormKey(baseKey, 0xC06);
+        CellG = new FormKey(baseKey, 0xC07);
         Topic = new FormKey(baseKey, 0xD01); Weapon = new FormKey(baseKey, 0xE01); Worldspace = new FormKey(baseKey, 0xF01);
 
         var baseDir = Path.Combine(mods, "BaseMod"); Directory.CreateDirectory(baseDir);
@@ -98,6 +102,11 @@ public sealed class OwnedChildWorld : IDisposable
             f.Persistent.Add(new PlacedObject(new FormKey(baseKey, 0xC6A), SkyrimRelease.SkyrimSE) { EditorID = "HcOcFPers0" });
             FileInterior(m, f);
 
+            var g = new Cell(CellG, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellG", Flags = Cell.Flag.IsInteriorCell };
+            for (int i = 0; i < 3; i++)
+                g.Temporary.Add(new PlacedObject(new FormKey(baseKey, (uint)(0xC70 + i)), SkyrimRelease.SkyrimSE) { EditorID = $"HcOcGTemp{i}" });
+            FileInterior(m, g);
+
             var t = new DialogTopic(Topic, SkyrimRelease.SkyrimSE) { EditorID = "HcOcTopic" };
             for (int i = 0; i < 2; i++)
             {
@@ -131,6 +140,13 @@ public sealed class OwnedChildWorld : IDisposable
             f.Temporary.Add(new PlacedObject(new FormKey(midKey, 0xA60), SkyrimRelease.SkyrimSE) { EditorID = "HcOcMidFTemp0" });
             f.Persistent.Add(new PlacedObject(new FormKey(midKey, 0xA6A), SkyrimRelease.SkyrimSE) { EditorID = "HcOcMidFPers0" });
             FileInterior(m, f);
+
+            // CellG: the mid plugin RE-DECLARES the base's first reference and adds one of its own, so the union
+            // has to be keyed by FormID rather than concatenated.
+            var g = new Cell(CellG, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellG", Flags = Cell.Flag.IsInteriorCell };
+            g.Temporary.Add(new PlacedObject(new FormKey(baseKey, 0xC70), SkyrimRelease.SkyrimSE) { EditorID = "HcOcGTemp0" });
+            g.Temporary.Add(new PlacedObject(new FormKey(midKey, 0xA70), SkyrimRelease.SkyrimSE) { EditorID = "HcOcMidGTemp0" });
+            FileInterior(m, g);
 
             m.Weapons.GetOrAddAsOverride(baseOv.Weapons.First(w => w.FormKey == Weapon)).BasicStats!.Damage = 7;
             m.BeginWrite.ToPath(Path.Combine(midDir, MidName)).WithLoadOrder(new ISkyrimModGetter[] { baseOv }).Write();
@@ -260,22 +276,61 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     public void TheDeclaringPluginsOwnBodyCarriesTheThreeReferencesTheWinnerDoesNotShow() =>
         Assert.StartsWith("Temporary = [list: 3 item(s)]", FieldLine(Read(_w.CellA, source: _w.BaseName), "Temporary"));
 
-    // ---- the cheap tier: what every read states from the index alone ------------------------------
+    // ---- the union: what the game assembles, on every read ----------------------------------------
+
+    /// <summary>#342 in one assertion: the winner's own list reads 0 and the union says the cell holds 3, naming
+    /// the plugin that declares them.</summary>
+    [Fact]
+    public void AChildBearingFieldStatesTheAdditiveUnionTheGameAssembles() =>
+        Assert.Contains($"{ReadSentences.UnionLabel}: 3 child record(s) across 1 plugin(s) — {_w.BaseName} 3; "
+                        + "this body's own list carries 0", FieldLine(Read(_w.CellA), "Temporary"));
+
+    /// <summary>The value beside the union is still the read body's OWN list, in its own order — those are the
+    /// indices a Remove addresses, and a union spliced into them would move them.</summary>
+    [Fact]
+    public void TheUnionNeverReplacesTheBodysOwnList() =>
+        Assert.StartsWith("Temporary = [list: 0 item(s)]", FieldLine(Read(_w.CellA), "Temporary"));
+
+    /// <summary>A child two plugins both declare is ONE child. CellG's mid plugin re-declares the base's first
+    /// reference and adds one of its own, so a naive concatenation would say 5 where the game has 4.</summary>
+    [Fact]
+    public void AChildTwoPluginsBothDeclareIsCountedOnce_NotConcatenated() =>
+        Assert.Contains($"{ReadSentences.UnionLabel}: 4 child record(s) across 2 plugin(s) — "
+                        + $"{_w.BaseName} 3, {_w.MidName} 2", FieldLine(Read(_w.CellG), "Temporary"));
+
+    /// <summary>A plugin=-scoped read is unioned too, and its "own list" is that plugin's, not the winner's: the
+    /// plugins above a base master declare children it cannot see.</summary>
+    [Fact]
+    public void APluginScopedReadIsUnionedAgainstTheWholeOrder_AndOwnIsThatPluginsOwn() =>
+        Assert.Contains("this body's own list carries 3",
+                        FieldLine(Read(_w.CellA, source: _w.BaseName), "Temporary"));
+
+    /// <summary>A SINGULAR owned child is not a union — its declarers override one record — so the note says
+    /// which plugin's copy is live rather than adding counts that would be a fiction.</summary>
+    [Fact]
+    public void ASingularChildSaysWhichPluginsCopyIsLive_NeverAUnionCount()
+    {
+        var line = FieldLine(Read(_w.CellA), "Landscape");
+        Assert.Contains($"the live copy is {_w.BaseName}'s", line);
+        Assert.DoesNotContain(ReadSentences.UnionLabel, line);
+    }
 
     [Fact]
-    public void AChildBearingFieldSaysOtherPluginsTouchThisRecordAndTheirDeclarationsWereNotRead() =>
-        Assert.Contains("2 " + ReadSentences.NotRead, FieldLine(Read(_w.CellA), "Temporary"));
+    public void AFieldNobodyTouchingTheRecordDeclaresSaysSo_NeverSilence() =>
+        Assert.Contains(ReadSentences.NoUnionMembers, FieldLine(Read(_w.CellA), "NavigationMeshes"));
 
     [Fact]
-    public void TheCheapTierClaimsNothingAboutWhoDeclares_NoDeclarerNamingOnTheDefaultLane()
+    public void TheDefaultReadDoesNotBorrowTheTreeFormsDeclarersBlock()
     {
         var r = Read(_w.CellA);
+        Assert.DoesNotContain(ReadSentences.DeclarersLead, r);
         Assert.DoesNotContain(ReadSentences.DeclaredBy, r);
         Assert.DoesNotContain(ReadSentences.CarriedBy, r);
     }
 
     /// <summary>The grid is the record type's OWN child-bearing set, so a Mutagen bump that grows it grows this
-    /// theory — and it covers fields nobody in this world declares, which is the claim: "not read" is true of all.</summary>
+    /// theory — and it covers fields nobody in this world declares, which is the claim: every child-bearing field
+    /// is answered, positive or negative.</summary>
     public static TheoryData<string> CellChildBearingFields()
     {
         var data = new TheoryData<string>();
@@ -288,16 +343,16 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Theory]
     [MemberData(nameof(CellChildBearingFields))]
     public void EveryChildBearingFieldOfTheTypeCarriesTheAnnotation_IncludingOnesNobodyDeclares(string field) =>
-        Assert.Contains(ReadSentences.NotRead, FieldLine(Read(_w.CellA), field));
+        Assert.Contains(ReadSentences.ChildContent, FieldLine(Read(_w.CellA), field));
 
     [Fact]
     public void TheNotReadClauseIsStatedOnceOverTheWholeResponse_NotOncePerAnnotatedField() =>
-        Assert.Equal(1, Occurrences(Read(_w.CellA), ClauseHead(ReadSentences.NotReadFraming)));
+        Assert.Equal(1, Occurrences(Read(_w.CellA), ClauseHead(ReadSentences.UnionFraming)));
 
     [Fact]
     public void TheClauseNamesTheAnnotatedFieldsAndPointsAtNoPositionAtAll()
     {
-        var clause = ClauseLine(Read(_w.CellA), ReadSentences.NotReadFraming);
+        var clause = ClauseLine(Read(_w.CellA), ReadSentences.UnionFraming);
         Assert.Contains("Temporary", clause);
         Assert.Contains("Persistent", clause);
         Assert.DoesNotContain("above", clause, StringComparison.OrdinalIgnoreCase);
@@ -308,21 +363,21 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     public void TheClausesFieldNamesAreDerived_EveryFieldItNamesIsOneTheResponseAnnotated()
     {
         var r = Read(_w.CellA);
-        var named = NamedFields(ClauseLine(r, ReadSentences.NotReadFraming), ReadSentences.NotReadFraming);
+        var named = NamedFields(ClauseLine(r, ReadSentences.UnionFraming), ReadSentences.UnionFraming);
         Assert.NotEmpty(named);
-        foreach (var f in named) Assert.Contains(ReadSentences.NotRead, FieldLine(r, f));
+        foreach (var f in named) Assert.Contains(ReadSentences.ChildContent, FieldLine(r, f));
     }
 
     [Fact]
     public void ARecordOnlyOnePluginTouchesIsNotAnnotatedAtAll() =>
-        Assert.DoesNotContain(ReadSentences.NotRead, FieldLine(Read(_w.CellC), "Temporary"));
+        Assert.DoesNotContain(ReadSentences.ChildContent, FieldLine(Read(_w.CellC), "Temporary"));
 
     [Fact]
     public void AProjectionThatRequestsNoChildBearingFieldCarriesNoAnnotationAndNoClause()
     {
         var r = Read(_w.CellA, new RecordsTools.RecordsProject { form = "fields", fields = new[] { "EditorID" } });
-        Assert.DoesNotContain(ReadSentences.NotRead, r);
-        Assert.Null(ClauseLineOrNull(r, ReadSentences.NotReadFraming));
+        Assert.DoesNotContain(ReadSentences.ChildContent, r);
+        Assert.Null(ClauseLineOrNull(r, ReadSentences.UnionFraming));
     }
 
     [Fact]
@@ -330,29 +385,36 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     {
         var r = Read(_w.Weapon);
         Assert.Contains("winner=" + _w.TopName, r);
-        Assert.DoesNotContain(ReadSentences.NotRead, r);
+        Assert.DoesNotContain(ReadSentences.ChildContent, r);
     }
 
+    /// <summary>The base declares two INFOs and the winner re-declares the first, so the union is 2 — the same
+    /// FormID-keyed rule on a second record type, from the same derived field set.</summary>
     [Fact]
-    public void ADialogTopicsResponsesIsAnnotated_TheFieldSetIsDerivedNotAListOfCellFields() =>
-        Assert.Contains(ReadSentences.NotRead, FieldLine(Read(_w.Topic), "Responses"));
+    public void ADialogTopicsResponsesIsUnioned_TheFieldSetIsDerivedNotAListOfCellFields() =>
+        Assert.Contains($"{ReadSentences.UnionLabel}: 2 child record(s) across 2 plugin(s)",
+                        FieldLine(Read(_w.Topic), "Responses"));
 
+    /// <summary>A worldspace's cells sit two container levels down (block → sub-block → cell) and each cell holds
+    /// references of its own. The union is the three CELLS the base declares, never the contents of those cells:
+    /// the walk stops at the first record level.</summary>
     [Fact]
-    public void AWorldspacesSubCellsIsAnnotated_TheSameDerivedFieldSetReachesAThirdType() =>
-        Assert.Contains(ReadSentences.NotRead, FieldLine(Read(_w.Worldspace), "SubCells"));
+    public void AWorldspacesSubCellsIsUnionedToItsCells_NotToWhatThoseCellsContain() =>
+        Assert.Contains($"{ReadSentences.UnionLabel}: 3 child record(s) across 1 plugin(s) — {_w.BaseName} 3",
+                        FieldLine(Read(_w.Worldspace), "SubCells"));
 
     [Fact]
     public void AtDepthTwoTheContainersOwnSummaryLineStillCarriesTheAnnotation() =>
-        Assert.Contains(ReadSentences.NotRead,
+        Assert.Contains(ReadSentences.ChildContent,
                         FieldLine(Read(_w.CellA, new RecordsTools.RecordsProject { form = "everything", depth = 2 }), "Temporary"));
 
     [Fact]
     public void TwoAnnotatedRecordsInOneResponseStillStateTheClauseOnce() =>
-        Assert.Equal(1, Occurrences(ReadBoth(_w.CellA, _w.CellB), ClauseHead(ReadSentences.NotReadFraming)));
+        Assert.Equal(1, Occurrences(ReadBoth(_w.CellA, _w.CellB), ClauseHead(ReadSentences.UnionFraming)));
 
     [Fact]
     public void AResponseWithNothingAnnotatedCarriesNoClause() =>
-        Assert.Equal(0, Occurrences(Read(_w.Weapon), ClauseHead(ReadSentences.NotReadFraming)));
+        Assert.Equal(0, Occurrences(Read(_w.Weapon), ClauseHead(ReadSentences.UnionFraming)));
 
     // ---- emission: the clause is earned by a field LINE, not by the decision to annotate ----------
 
@@ -361,16 +423,16 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     {
         var r = Read(_w.CellA, maxChars: 300);
         Assert.Contains("truncated: showing", r);
-        Assert.DoesNotContain(ReadSentences.NotRead, r);
-        Assert.Null(ClauseLineOrNull(r, ReadSentences.NotReadFraming));
+        Assert.DoesNotContain(ReadSentences.ChildContent, r);
+        Assert.Null(ClauseLineOrNull(r, ReadSentences.UnionFraming));
     }
 
     [Fact]
     public void TheSameReadWithRoomForTheAnnotatedFieldStatesTheClauseOverIt()
     {
         var r = Read(_w.CellA);
-        Assert.Contains(ReadSentences.NotRead, r);
-        Assert.NotNull(ClauseLineOrNull(r, ReadSentences.NotReadFraming));
+        Assert.Contains(ReadSentences.ChildContent, r);
+        Assert.NotNull(ClauseLineOrNull(r, ReadSentences.UnionFraming));
     }
 
     /// <summary>The annotated fields go FIRST so they survive the cut, with filler behind them so the body
@@ -388,7 +450,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         var r = Read(_w.CellA, new RecordsTools.RecordsProject { form = "fields", fields = PaddedCellFields }, maxChars: 1400);
         int longest = r.Split('\n').Max(l => l.Length + 1);
         Assert.Contains("truncated: showing", r);
-        Assert.NotNull(ClauseLineOrNull(r, ReadSentences.NotReadFraming));
+        Assert.NotNull(ClauseLineOrNull(r, ReadSentences.UnionFraming));
         Assert.True(r.Length <= 1400 + longest, $"len={r.Length} cap=1400 longest-line={longest}");
     }
 
@@ -408,8 +470,8 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         using var doc = JsonDocument.Parse(Read(_w.CellA, format: "json"));
         Assert.True(doc.RootElement.TryGetProperty("owned_child_note", out var note));
         var s = note.GetString()!;
-        Assert.StartsWith(ClauseHead(ReadSentences.NotReadFraming), s);
-        Assert.Contains("Temporary", NamedFields(s, ReadSentences.NotReadFraming));
+        Assert.StartsWith(ClauseHead(ReadSentences.UnionFraming), s);
+        Assert.Contains("Temporary", NamedFields(s, ReadSentences.UnionFraming));
     }
 
     [Fact]
@@ -421,9 +483,35 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.True(note > fields, $"note-at={note} fields-at={fields}");
     }
 
+    /// <summary>The union is RETURNED, not only described: the member FormIDs ride the field object, so a caller
+    /// reads them back through the same <c>formids=</c> door it came in by.</summary>
+    [Fact]
+    public void Json_TheUnionsMembersAreTheFormIdsOfTheChildrenTheGameAssembles()
+    {
+        using var doc = JsonDocument.Parse(Read(_w.CellA, format: "json"));
+        var u = doc.RootElement.GetProperty("records")[0].GetProperty("fields").EnumerateArray()
+                   .Single(f => f.GetProperty("path").GetString() == "Temporary")
+                   .GetProperty("owned_child_union");
+        Assert.Equal(3, u.GetProperty("total").GetInt32());
+        Assert.Equal(0, u.GetProperty("own").GetInt32());
+        Assert.Equal(new[] { "000C10", "000C11", "000C12" }.Select(h => $"{h}:{_w.BaseName}"),
+                     u.GetProperty("members").EnumerateArray().Select(m => m.GetString()));
+    }
+
+    [Fact]
+    public void Json_TheOverlappingUnionListsEachChildOnce()
+    {
+        using var doc = JsonDocument.Parse(Read(_w.CellG, format: "json"));
+        var u = doc.RootElement.GetProperty("records")[0].GetProperty("fields").EnumerateArray()
+                   .Single(f => f.GetProperty("path").GetString() == "Temporary")
+                   .GetProperty("owned_child_union");
+        Assert.Equal(4, u.GetProperty("total").GetInt32());
+        Assert.Equal(4, u.GetProperty("members").GetArrayLength());
+    }
+
     [Fact]
     public void Json_TheAnnotationsPerFieldHalfRidesDisplay() =>
-        Assert.Contains(ReadSentences.NotRead, JsonField(Read(_w.CellA, format: "json"), "Temporary", "display"));
+        Assert.Contains(ReadSentences.ChildContent, JsonField(Read(_w.CellA, format: "json"), "Temporary", "display"));
 
     /// <summary>The annotation is DISPLAY-ONLY: it never replaces the leaf's own round-trip token, on either lane.</summary>
     [Fact]
@@ -470,7 +558,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.Contains(doc.RootElement.GetProperty("fields").EnumerateArray(),
                         f => f.TryGetProperty("path", out var p) && p.GetString() == "Temporary"
                              && f.TryGetProperty("display", out var d)
-                             && d.GetString()!.Contains(ReadSentences.NotRead, StringComparison.Ordinal));
+                             && d.GetString()!.Contains(ReadSentences.ChildContent, StringComparison.Ordinal));
     }
 
     /// <summary>The manifest is line 1 and the rows are lines 2..N, so a clause pointing "above" would point away
@@ -482,14 +570,14 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Read(_w.CellA, toFile: art);
         using var doc = JsonDocument.Parse(File.ReadAllLines(art)[0]);
         var note = doc.RootElement.GetProperty("notes")[0].GetString()!;
-        Assert.Contains("Temporary", NamedFields(note, ReadSentences.NotReadFraming));
+        Assert.Contains("Temporary", NamedFields(note, ReadSentences.UnionFraming));
         Assert.DoesNotContain("above", note, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("below", note, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
     public void Artifact_TheManifestOnlyResponseDoesNotStateAClauseOverRowsItDidNotRender() =>
-        Assert.Null(ClauseLineOrNull(Read(_w.CellA, toFile: _w.Scratch("inline.jsonl")), ReadSentences.NotReadFraming));
+        Assert.Null(ClauseLineOrNull(Read(_w.CellA, toFile: _w.Scratch("inline.jsonl")), ReadSentences.UnionFraming));
 
     // ---- the remedy the clause names ------------------------------------------------------------
     //
@@ -531,7 +619,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void TheRemedySaysNothingForAnAnnotatedFieldNobodyElseDeclares()
     {
-        var named = NamedFields(ClauseLine(Read(_w.CellA), ReadSentences.NotReadFraming), ReadSentences.NotReadFraming);
+        var named = NamedFields(ClauseLine(Read(_w.CellA), ReadSentences.UnionFraming), ReadSentences.UnionFraming);
         Assert.Contains("NavigationMeshes", named);
         Assert.DoesNotContain("NavigationMeshes", DiffBlock(Tree(_w.CellA)));
     }
@@ -620,7 +708,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void TheRemedyNamedByTheCheapClauseAnswersPreciselyForEveryFieldTheClauseNamed()
     {
-        var named = NamedFields(ClauseLine(Read(_w.CellF), ReadSentences.NotReadFraming), ReadSentences.NotReadFraming);
+        var named = NamedFields(ClauseLine(Read(_w.CellF), ReadSentences.UnionFraming), ReadSentences.UnionFraming);
         Assert.NotEmpty(named);
         var block = DeclarersBlock(Tree(_w.CellF));
         foreach (var f in named)
@@ -628,10 +716,10 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     }
 
     [Fact]
-    public void TheDefaultReadOfTheSameCellStillStatesOnlyTheCheapTier()
+    public void TheDefaultReadOfTheSameCellUnionsItWithoutBorrowingTheTreesBlock()
     {
         var r = Read(_w.CellF);
-        Assert.Contains("2 " + ReadSentences.NotRead, FieldLine(r, "Temporary"));
+        Assert.Contains($"{ReadSentences.UnionLabel}: 3 child record(s) across 2 plugin(s)", FieldLine(r, "Temporary"));
         Assert.DoesNotContain(ReadSentences.DeclarersLead, r);
         Assert.DoesNotContain(ReadSentences.DeclaredBy, r);
         Assert.DoesNotContain(ReadSentences.CarriedBy, r);

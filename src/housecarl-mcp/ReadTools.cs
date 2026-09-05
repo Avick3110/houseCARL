@@ -149,7 +149,7 @@ static class Wire
     {
         var fields = n.Fields();
         if (fields.Count == 0) return;
-        sb.Append('\n').Append(ReadSentences.NotReadClause(fields)).Append('\n');
+        sb.Append('\n').Append(ReadSentences.UnionClause(fields)).Append('\n');
     }
 
     /// <summary>Render one record, keeping the cheap index-only annotation the service already put on the outcome.
