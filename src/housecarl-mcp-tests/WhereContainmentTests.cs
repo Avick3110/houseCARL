@@ -133,4 +133,24 @@ public sealed class WhereContainmentTests
     [Fact]
     public void ParentOnTheLinkSideWithNoFieldAfterItRefuses_AContainingRecordIsNotALink() =>
         Assert.Contains("not a link-bearing field", Refusal("*parent->editorid = X"));
+
+    // ---- which type a quantified step is judged against -------------------------------------------
+
+    /// <summary>A quantified step BELOW a hop is rooted at the CONTAINING record's type, so the scan's schema check
+    /// must not judge it against the scanned type — the same rule the right side of a '-&gt;' already follows.
+    /// Getting this wrong refuses a valid call, or silences a real refusal, wherever a child and its container both
+    /// carry a field of that name with different cardinality.</summary>
+    [Fact]
+    public void AQuantifiedStepBelowAHopIsNotRootedAtTheScannedType()
+    {
+        static FieldPredicateSet Set(string clause)
+        {
+            var (set, err) = FieldPredicateSet.Parse(new[] { clause });
+            Assert.Null(err);
+            return set!;
+        }
+        Assert.True(Assert.Single(Set("Responses[*any].Text = hi").QuantifiedSteps).OnScannedType);
+        Assert.False(Assert.Single(Set("*parent.Responses[*any].Text = hi").QuantifiedSteps).OnScannedType);
+        Assert.False(Assert.Single(Set("*parent.Keywords[*any]->editorid = X").QuantifiedSteps).OnScannedType);
+    }
 }

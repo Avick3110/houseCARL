@@ -222,8 +222,9 @@ public sealed class FieldPredicateSet
     /// fold, how it is spelled, and the predicate's own text for the message. A scan with a NAMED type scope walks
     /// these against the schema, so "that step is not a list on this type" refuses the call rather than becoming a
     /// whole-scan accounting note. <paramref name="OnScannedType"/> says whether the step is rooted at the SCANNED
-    /// record type: the right side of a <c>-&gt;</c> is rooted at the link TARGET's type instead, and asking the
-    /// scanned type's schema about it would judge a field it was never on.</summary>
+    /// record type: the right side of a <c>-&gt;</c> is rooted at the link TARGET's type instead, and a side that
+    /// opens with a <c>*parent</c> hop at the CONTAINING record's — asking the scanned type's schema about either
+    /// would judge a field the step was never on.</summary>
     public readonly record struct QuantifiedStep(IReadOnlyList<string> Path, int Index, string Token, string Text,
                                                  bool OnScannedType);
 
@@ -236,10 +237,10 @@ public sealed class FieldPredicateSet
             var steps = new List<QuantifiedStep>();
             foreach (var p in _predicates)
             {
-                // The link side always roots at the scanned type; the path side does only when there is no link,
-                // because with one it is the tail read on the resolved target.
-                Collect(p.LinkPath, p.LinkFolds, p, true);
-                Collect(p.PathSegments, p.PathFolds, p, p.LinkPath is null);
+                // A side roots at the scanned type only when nothing has moved off it first: a '*parent' hop roots
+                // that side at the CONTAINING record's type, and the right side of a '->' at the link target's.
+                Collect(p.LinkPath, p.LinkFolds, p, p.LinkParentHops == 0);
+                Collect(p.PathSegments, p.PathFolds, p, p.LinkPath is null && p.ParentHops == 0);
             }
             return steps;
 
