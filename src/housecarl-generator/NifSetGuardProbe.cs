@@ -367,7 +367,7 @@ internal static class NifSetGuardProbe
                        "non-SE stream → named refusal (no cross-game write)");
         }
 
-        // ---- service lanes end-to-end (REAL LoadOrderService over a synthetic MO2 instance — PlaceAssetProbe pattern) ----
+        // ---- service lanes end-to-end (REAL LoadOrderService over a synthetic MO2 instance — PlaceProbe pattern) ----
         Console.WriteLine();
         Console.WriteLine("--- service: new-folder + in-place lanes + persistent consent (real LoadOrderService) ---");
         const string MeshRel = @"meshes\actors\character\facegendata\facegeom\Test.esp\00000001.nif";
@@ -663,7 +663,7 @@ internal static class NifSetGuardProbe
         return (outMs.ToArray(), shapeIdx, childIdx);
     }
 
-    // ---- synthetic MO2 layout helpers (the PlaceAssetProbe / AssetStatusProbe pattern) ----
+    // ---- synthetic MO2 layout helpers (the PlaceProbe / AssetStatusProbe pattern) ----
 
     internal static (string mods, string data, string prof) MakeInstance(string inst)
     {
