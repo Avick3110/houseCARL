@@ -5971,7 +5971,7 @@ public sealed class LoadOrderService : IDisposable
             // one caller's sentence here would make a fact about a different file load-bearing in this one.
             return WritePatchBuilder.RemovalOutcome.Fail(
                 "patch is required — name the houseCARL patch to remove the record from (removal only targets a patch that already carries it)."
-                + (inPlaceRemedy is null ? "" : " " + inPlaceRemedy));
+                + (inPlaceRemedy is null ? "" : " " + inPlaceRemedy + WriteSentences.InPlaceAnyFilename));
 
         // Parse every formid first, collecting ALL problems (all-or-nothing, like the edit path). Pure — outside the gate.
         var keys = new List<FormKey>(formids.Count);
@@ -6004,7 +6004,10 @@ public sealed class LoadOrderService : IDisposable
             string outPath;
             try { outPath = ResolveOutputPath(patchName: null, into: patch, out _, out _,
                                               laneClause: WriteSentences.RemoveNoFreshPatch
-                                                          + (inPlaceRemedy is null ? "" : " " + inPlaceRemedy),
+                                                          + (inPlaceRemedy is null ? "" : " " + inPlaceRemedy + WriteSentences.InPlaceAnyFilename),
+                                              // The un-owned arm states the same no-create rule, and names the plugin
+                                              // the in-place lane can take there rather than the placeholder.
+                                              unownedFresh: WriteSentences.RemoveNoFreshPatch,
                                               inPlaceLane: inPlaceRemedy); }
             catch (Exception ex) { return WritePatchBuilder.RemovalOutcome.Fail(ex.Message); }
 
@@ -7822,11 +7825,12 @@ public sealed class LoadOrderService : IDisposable
     /// remove it again and "no patch written" leaves no orphan accreting suffixes on retry.
     /// <paramref name="freshPatch"/> and <paramref name="laneClause"/> pass through to the not-found refusal's
     /// remedy, so the calling operation states how its own fresh-write path works. Both default to claiming nothing,
-    /// so a caller added later cannot inherit a sentence that is false for it. <paramref name="inPlaceLane"/> is the
-    /// same for the un-owned-folder refusal: the caller's own spelling of the in-place lane, or nothing.</summary>
+    /// so a caller added later cannot inherit a sentence that is false for it. <paramref name="inPlaceLane"/> and
+    /// <paramref name="unownedFresh"/> are the same for the un-owned-folder refusal: the caller's own spelling of the
+    /// in-place lane, and its fresh-lane statement where the enum cannot express one.</summary>
     string ResolveOutputPath(string? patchName, string? into, out bool extend, out bool createdFolder, bool create = true,
                              FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? laneClause = null,
-                             string? inPlaceLane = null)
+                             string? inPlaceLane = null, string? unownedFresh = null)
     {
         lock (_gate)
         {
@@ -7842,7 +7846,8 @@ public sealed class LoadOrderService : IDisposable
                 // the fast path only short-circuits a folder that actually holds <stem>.esp; the .esp to extend is
                 // then picked inside the resolved folder — the <stem>.esp it holds, or, where the folder and plugin
                 // names differ, the folder's single plugin, refusing if it holds none or several.
-                var folder = ResolveOwnedPatchFolder(into, needEsp: true, freshPatch, laneClause, inPlaceLane: inPlaceLane);
+                var folder = ResolveOwnedPatchFolder(into, needEsp: true, freshPatch, laneClause,
+                                                     inPlaceLane: inPlaceLane, unownedFresh: unownedFresh);
                 var direct = Path.Combine(folder, PatchStem(into) + ".esp");
                 if (File.Exists(direct)) return direct;
                 var sole = SoleEspInFolder(folder, out var why);
@@ -8466,12 +8471,15 @@ public sealed class LoadOrderService : IDisposable
     /// patch, and decides only the not-found refusal's remedy; <paramref name="laneClause"/> is that same lane's
     /// extra next step, appended to that one arm. Both are deliberately separate from
     /// <paramref name="needEsp"/>. <paramref name="inPlaceLane"/> is the caller's own spelling of the in-place lane,
-    /// the other reading of a name that lands on a foreign folder; it rides that arm only, and a caller that has no
-    /// such lane passes nothing. Both refusals close with the owned patches, so neither dead-ends (#359, #380).</summary>
+    /// the other reading of a name that lands on a foreign folder; it rides that arm only, offered only when that
+    /// folder holds a plugin the lane can actually take, and a caller that has no such lane passes nothing.
+    /// <paramref name="unownedFresh"/> rides the same arm: a lane whose fresh-write statement the enum cannot
+    /// express (removal, which creates nothing) hands it in. Both refusals close with the owned patches, so neither
+    /// dead-ends (#359, #380).</summary>
     string ResolveOwnedPatchFolder(string into, bool needEsp,
                                    FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? laneClause = null,
                                    RiderNaming? riderNaming = null, string? riderDefaultStem = null,
-                                   string? inPlaceLane = null)
+                                   string? inPlaceLane = null, string? unownedFresh = null)
     {
         var stem = PatchStem(into);                             // strips a trailing .esp/.esm/.esl; no directory parts (can't escape ModsDir)
         var espName = stem + ".esp";
@@ -8507,14 +8515,20 @@ public sealed class LoadOrderService : IDisposable
         {
             var candPath = string.IsNullOrEmpty(cand) ? null : Path.Combine(_modsDir, cand);
             if (candPath is not null && Directory.Exists(candPath) && !IsHouseCarlOwned(candPath))
+            {
                 // Both readings of the name are answered, because reaching a foreign folder BY NAME does not say
                 // which was meant: a fresh patch, whose parameter is the calling lane's own, or an edit of that
                 // mod's plugin, which is the consent-gated in-place lane and only some callers declare it. The fresh
                 // clause deliberately does not hand the caller their own stem back — a "<stem>.esp" minted beside
                 // this folder's inactive "<stem>.esp" is two plugins that cannot both be active (#359).
+                // The in-place half is offered only where it would WORK: in_place= resolves a plugin FILENAME
+                // through the active load order, so a folder holding no plugin, or only ones MO2 has not enabled,
+                // has no in-place lane and gets no sentence claiming one.
+                var inPlaceClause = inPlaceLane is null ? "" : WriteSentences.InPlaceLane(inPlaceLane, ActiveInPlaceTargets(candPath));
                 throw new InvalidOperationException(
                     $"cannot extend: mod folder '{cand}' exists but was NOT created by houseCARL (no marker) — " +
                     "refusing to write into a folder houseCARL doesn't own (originals untouched, Q3). " +
+                    (unownedFresh is null ? "" : unownedFresh + " ") +
                     (riderNaming is { } fr
                         ? $"Omit into= and pass {fr.Param}= a name no mod folder already uses to create a fresh one. "
                           + (fr.Caveat is null ? "" : fr.Caveat + " ")
@@ -8525,8 +8539,9 @@ public sealed class LoadOrderService : IDisposable
                             FreshPatchRemedy.CreatedByOmittingInto => "Omit into= to create a fresh patch. ",
                             _ => "",
                         }) +
-                    (inPlaceLane is null ? "" : inPlaceLane + " ") +
-                    OwnedPatchCandidates(needEsp));
+                    (inPlaceClause.Length == 0 ? "" : inPlaceClause + " ") +
+                    OwnedPatchCandidates(needEsp, stem));
+            }
         }
         // The fresh-write remedy is the caller's to authorize: each operation states its OWN fresh-write path,
         // because it is not inferable here and the lane bit does not separate it. Three independent properties make
@@ -8558,15 +8573,15 @@ public sealed class LoadOrderService : IDisposable
             ". " + (laneClause is null ? "" : laneClause + " ") + (riderNaming is { } rn
             ? $"Omit into= and pass {rn.Param}=\"{stem}\" to create it fresh under a name you choose, or omit "
               + $"{rn.Param} too and houseCARL names the folder \"{ModFolderName(riderDefaultStem ?? "")}\" — either name auto-suffixed "
-              + "if already taken. " + (rn.Caveat is null ? "" : rn.Caveat + " ") + OwnedPatchCandidates(needEsp)
+              + "if already taken. " + (rn.Caveat is null ? "" : rn.Caveat + " ") + OwnedPatchCandidates(needEsp, stem)
             : freshPatch switch
             {
                 FreshPatchRemedy.NamedByPatchParam =>
                     $"Omit into= and pass patch=\"{stem}\" to create it fresh under a name you choose, or omit patch= "
                     + "too and houseCARL names it \"Patch\" — either name auto-suffixed if already taken. "
-                    + OwnedPatchCandidates(needEsp),
-                FreshPatchRemedy.CreatedByOmittingInto => "Omit into= to create it fresh. " + OwnedPatchCandidates(needEsp),
-                _ => OwnedPatchCandidates(needEsp),
+                    + OwnedPatchCandidates(needEsp, stem),
+                FreshPatchRemedy.CreatedByOmittingInto => "Omit into= to create it fresh. " + OwnedPatchCandidates(needEsp, stem),
+                _ => OwnedPatchCandidates(needEsp, stem),
             }));
     }
 
@@ -8586,18 +8601,41 @@ public sealed class LoadOrderService : IDisposable
         return hits;
     }
 
-    /// <summary>The houseCARL-owned patches under ModsDir, rendered as the <c>into=</c> spellings that reach them,
-    /// so an extend refusal names candidates instead of asking the caller to guess. The folder's own name is the
-    /// token, because that spelling resolves through the folder catch-all whether or not the folder was renamed, and
-    /// the plugins it holds are quoted beside it so a caller who knows only the plugin name can still pick.
+    /// <summary>The plugins in <paramref name="folder"/> that the in-place lane could actually take: in_place= names
+    /// a FILENAME and resolves it through the ACTIVE load order, so a plugin MO2 has not enabled is not reachable by
+    /// it. Empty when the folder holds no plugin or none of them is active — which is the whole point, since the
+    /// caller is then offered no in-place sentence at all rather than one that leads to a second refusal.</summary>
+    IReadOnlyList<string> ActiveInPlaceTargets(string folder)
+    {
+        var active = ActivePluginBasenames();
+        try
+        {
+            return Directory.EnumerateFiles(folder).Select(f => Path.GetFileName(f)!)
+                .Where(n => PluginExts.Any(ext => n.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) && active.Contains(n))
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        catch (IOException) { return Array.Empty<string>(); }
+        catch (UnauthorizedAccessException) { return Array.Empty<string>(); }
+    }
+
+    /// <summary>One owned patch folder as this refusal saw it: the plugins are read for EVERY owned folder, not just
+    /// the rendered ones, because whether a token resolves depends on which OTHER folders hold the same plugin.</summary>
+    readonly record struct OwnedPatch(string Dir, string Name, IReadOnlyList<string> Plugins);
+
+    /// <summary>The houseCARL-owned patches under ModsDir, rendered as <c>into=</c> spellings, so an extend refusal
+    /// names candidates instead of asking the caller to guess (#380). Every spelling emitted is one that RESOLVES
+    /// back to the row it is printed for: each candidate token is run through this resolver's own three arms against
+    /// the folders read here, and on the record lane it must also land on a definite plugin, so a caller who takes a
+    /// row literally never meets a second refusal. A folder no token reaches is counted in the tail rather than
+    /// printed with a spelling that would fail. Rows near <paramref name="stem"/> come first — the caller who reached
+    /// this refusal typed something close to what they meant — ranked by the shared name-suggester.
     /// <paramref name="needEsp"/> drops the folders holding no plugin, which the record lane could not extend anyway.
     /// Best-effort and capped: an unreadable ModsDir yields the no-patches clause rather than failing the refusal, and
     /// a long list is truncated so the sentence stays readable.</summary>
-    string OwnedPatchCandidates(bool needEsp)
+    string OwnedPatchCandidates(bool needEsp, string stem)
     {
         const int cap = 8;
-        var rows = new List<string>();
-        var more = 0;
+        var owned = new List<OwnedPatch>();
         try
         {
             foreach (var dir in Directory.EnumerateDirectories(_modsDir).OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
@@ -8605,21 +8643,92 @@ public sealed class LoadOrderService : IDisposable
                 if (!IsHouseCarlOwned(dir)) continue;
                 var plugins = Directory.EnumerateFiles(dir)
                     .Where(f => PluginExts.Any(ext => f.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
-                    .Select(Path.GetFileName).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
-                if (needEsp && plugins.Count == 0) continue;
-                if (rows.Count == cap) { more++; continue; }
-                var name = Path.GetFileName(dir);
-                rows.Add(plugins.Count == 0
-                    ? $"into=\"{name}\""
-                    : $"into=\"{name}\" ({string.Join(", ", plugins)})");
+                    .Select(f => Path.GetFileName(f)!).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+                owned.Add(new OwnedPatch(dir, Path.GetFileName(dir), plugins));
             }
         }
         catch (IOException) { } catch (UnauthorizedAccessException) { }
+
+        // Near-stem first (#380 asks for candidates near what the caller typed, not the alphabet's first eight).
+        // Ranked by the same suggester the missed-plugin lookups use, over both the folder names and the plugin
+        // names, so a typo'd folder and a typo'd plugin both float. Anything it does not rank keeps its alphabetical
+        // place behind them.
+        var near = PluginNameSuggest.Nearest(stem, owned.SelectMany(o => o.Plugins.Prepend(o.Name)), max: 32);
+        int Rank(OwnedPatch o)
+        {
+            int best = int.MaxValue;
+            for (int i = 0; i < near.Count; i++)
+                if (near[i].Equals(o.Name, StringComparison.OrdinalIgnoreCase)
+                    || o.Plugins.Any(p => near[i].Equals(p, StringComparison.OrdinalIgnoreCase)))
+                { best = i; break; }
+            return best;
+        }
+
+        var rows = new List<string>();
+        var more = 0;
+        foreach (var o in owned.OrderBy(Rank))
+        {
+            if (needEsp && o.Plugins.Count == 0) continue;
+            var tokens = ReachingTokens(owned, o, needEsp);
+            if (tokens.Count == 0) { more++; continue; }                    // no spelling reaches it — never print a false one
+            foreach (var t in tokens)
+            {
+                if (rows.Count == cap) { more++; continue; }
+                rows.Add(t);
+            }
+        }
         if (rows.Count == 0)
             return needEsp
                 ? "houseCARL owns no patch holding a plugin yet."
                 : "houseCARL owns no patch folder yet.";
         return "houseCARL owns: " + string.Join("  |  ", rows) + (more > 0 ? $"  |  +{more} more" : "") + ".";
+    }
+
+    /// <summary>The <c>into=</c> spellings for one owned patch that this resolver actually routes back to it. The
+    /// folder's own name first, since it is the most legible; where that name resolves elsewhere — another owned
+    /// folder holds "&lt;folder name&gt;.esp", the by-plugin arm running before the folder catch-all — or where the
+    /// folder holds several plugins and the record lane could not tell which to extend, the PLUGIN filenames stand in,
+    /// one row each. Empty when nothing reaches it.</summary>
+    static List<string> ReachingTokens(List<OwnedPatch> owned, OwnedPatch target, bool needEsp)
+    {
+        var tokens = new List<string>();
+        if (Reaches(target.Name)) tokens.Add(target.Plugins.Count == 0
+            ? $"into=\"{target.Name}\""
+            : $"into=\"{target.Name}\" ({string.Join(", ", target.Plugins)})");
+        else
+            foreach (var p in target.Plugins)
+                if (Reaches(p)) tokens.Add($"into=\"{p}\" (in {target.Name})");
+        return tokens;
+
+        // The three resolution arms above, read off the folders already in hand rather than the disk: canonical
+        // fast path, then the owned folder holding <stem>.esp, then the folder catch-all. A token also has to land
+        // on ONE plugin on the record lane, which is what ResolveOutputPath does with the folder it gets back.
+        bool Reaches(string token)
+        {
+            var s = PatchStem(token);
+            var esp = s + ".esp";
+            var canonicalName = ModFolderName(s);
+            string? hit = null;
+            var canon = owned.FirstOrDefault(o => o.Name.Equals(canonicalName, StringComparison.OrdinalIgnoreCase));
+            if (canon.Dir is not null && (!needEsp || canon.Plugins.Contains(esp, StringComparer.OrdinalIgnoreCase)))
+                hit = canon.Dir;
+            if (hit is null)
+            {
+                var byEsp = owned.Where(o => o.Plugins.Contains(esp, StringComparer.OrdinalIgnoreCase)).ToList();
+                if (byEsp.Count > 1) return false;                          // the ambiguous arm refuses instead
+                if (byEsp.Count == 1) hit = byEsp[0].Dir;
+            }
+            if (hit is null)
+                foreach (var cand in new[] { Path.GetFileName(token.Trim()), canonicalName })
+                {
+                    var named = owned.FirstOrDefault(o => o.Name.Equals(cand, StringComparison.OrdinalIgnoreCase));
+                    if (named.Dir is not null) { hit = named.Dir; break; }
+                }
+            if (hit is null || !hit.Equals(target.Dir, StringComparison.OrdinalIgnoreCase)) return false;
+            return !needEsp
+                || target.Plugins.Contains(esp, StringComparer.OrdinalIgnoreCase)   // the <stem>.esp fast path
+                || target.Plugins.Count == 1;                                        // else the folder's sole plugin
+        }
     }
 
     /// <summary>A houseCARL-owned mod folder named exactly <paramref name="rawName"/> or

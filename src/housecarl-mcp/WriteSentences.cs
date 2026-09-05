@@ -561,10 +561,10 @@ internal static class WriteSentences
     /// may have meant that mod's own plugin, which is the consent-gated in-place lane. Shared by the write tools that
     /// spell that lane the same way (<c>housecarl_apply</c>, <c>housecarl_create</c>, <c>housecarl_forward</c>);
     /// removal has its own wording. It does not spell out the first-touch confirmation, which the in-place lane
-    /// prompts for on its own.</summary>
-    [MustState("pass in_place=\"<plugin filename>\"")]
+    /// prompts for on its own. Completed by <see cref="InPlaceLane"/> with the filename to pass.</summary>
+    [MustState("pass in_place=")]
     internal const string ExtendInPlaceLane =
-        "To write into an existing plugin IN PLACE instead, pass in_place=\"<plugin filename>\".";
+        "To write into an existing plugin IN PLACE instead, pass in_place=";
 
     /// <summary>Removal's own half of that refusal: why no create remedy is offered here. It states the RULE and
     /// stops rather than predicting what a patch created next would contain — an apply into that patch first would
@@ -577,10 +577,21 @@ internal static class WriteSentences
     /// the first-touch confirmation and must not be read as promising one: that consent is persisted, survives the
     /// session, and is shared across the edit / create / remove in-place lanes, so a caller who acknowledged this
     /// plugin in any lane gets no prompt. The sentence lives on the TOOL because the service cannot tell which
-    /// caller's parameter spelling to name.</summary>
-    [MustState("pass in_place=\"<plugin filename>\"")]
+    /// caller's parameter spelling to name. Completed by <see cref="InPlaceLane"/> with the filename to pass.</summary>
+    [MustState("pass in_place=")]
     internal const string RemoveInPlaceLane =
-        "To remove from an existing plugin IN PLACE instead, pass in_place=\"<plugin filename>\".";
+        "To remove from an existing plugin IN PLACE instead, pass in_place=";
+
+    /// <summary>The completion when no plugin can be named — the refusal knows the lane but not the file.</summary>
+    [NoClaims("a completion fragment; the claim lives in the lane sentence it finishes")]
+    internal const string InPlaceAnyFilename = "\"<plugin filename>\".";
+
+    /// <summary>One lane sentence, finished. <paramref name="plugins"/> are the plugins the in-place lane could
+    /// actually take here — a plugin must be in the ACTIVE load order for in_place= to resolve it — so an empty set
+    /// means the lane is unavailable and the sentence is not offered at all.</summary>
+    internal static string InPlaceLane(string lane, IReadOnlyList<string> plugins)
+        => plugins.Count == 0 ? ""
+         : lane + string.Join(" or ", plugins.Select(p => $"\"{p}\"")) + ".";
 
     /// <summary>Sentences the SAME outcome must carry on BOTH transports. Members are whole invariant strings on
     /// purpose: a sentence interpolating a cap or a filename cannot be compared verbatim across lanes, so
