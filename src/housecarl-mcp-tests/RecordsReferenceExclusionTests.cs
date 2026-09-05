@@ -67,6 +67,28 @@ public sealed class RecordsReferenceExclusionTests : RecordsTestBase
     }
 
     [Fact]
+    public void ALinkPredicatesRightSideIsNotJudgedAgainstTheScannedType()
+    {
+        // 'Name' is a substruct on Spell, but this step lands on the link TARGET (a MagicEffect), so the scanned
+        // type's schema has no say — refusing it here would name a field the step was never rooted at.
+        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" },
+                                     where: new[] { "Effects[*any].BaseEffect->Name[*count] > 0" });
+        Assert.DoesNotContain("on Spell", r);
+    }
+
+    [Fact]
+    public void AnUncheckableRightSideStepDoesNotSilenceACheckableOne()
+    {
+        // 'Conditions' is not a field on Spell at all, so that step has no schema answer; the second predicate's
+        // step is plainly checkable and must still be refused.
+        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" },
+                                     where: new[] { "Effects[*any].BaseEffect->Conditions[*count] > 0",
+                                                    "Description[*any] = x" });
+        Assert.Contains("not a list", r);
+        Assert.Contains("on Spell", r);
+    }
+
+    [Fact]
     public void AQuantifierOnAListStepPassesTheSchemaCheck()
     {
         var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, where: new[] { "Effects[*count] > 0" });

@@ -180,10 +180,14 @@ public sealed class FieldPredicateSet
     /// <summary>One quantified step of one predicate: the segments of the side it sits on, which one carries the
     /// fold, how it is spelled, and the predicate's own text for the message. A scan with a NAMED type scope walks
     /// these against the schema, so "that step is not a list on this type" refuses the call rather than becoming a
-    /// whole-scan accounting note.</summary>
-    public readonly record struct QuantifiedStep(IReadOnlyList<string> Path, int Index, string Token, string Text);
+    /// whole-scan accounting note. <paramref name="OnScannedType"/> says whether the step is rooted at the SCANNED
+    /// record type: the right side of a <c>-&gt;</c> is rooted at the link TARGET's type instead, and asking the
+    /// scanned type's schema about it would judge a field it was never on.</summary>
+    public readonly record struct QuantifiedStep(IReadOnlyList<string> Path, int Index, string Token, string Text,
+                                                 bool OnScannedType);
 
-    /// <summary>Every quantified step in the set, both sides of a <c>-&gt;</c> included.</summary>
+    /// <summary>Every quantified step in the set, both sides of a <c>-&gt;</c> included — each saying which type it
+    /// is rooted at.</summary>
     public IReadOnlyList<QuantifiedStep> QuantifiedSteps
     {
         get
@@ -191,16 +195,18 @@ public sealed class FieldPredicateSet
             var steps = new List<QuantifiedStep>();
             foreach (var p in _predicates)
             {
-                Collect(p.LinkPath, p.LinkFolds, p);
-                Collect(p.PathSegments, p.PathFolds, p);
+                // The link side always roots at the scanned type; the path side does only when there is no link,
+                // because with one it is the tail read on the resolved target.
+                Collect(p.LinkPath, p.LinkFolds, p, true);
+                Collect(p.PathSegments, p.PathFolds, p, p.LinkPath is null);
             }
             return steps;
 
-            void Collect(string[]? segs, Fold[]? folds, Predicate p)
+            void Collect(string[]? segs, Fold[]? folds, Predicate p, bool onScanned)
             {
                 if (segs is null || folds is null) return;
                 for (int i = 0; i < segs.Length && i < folds.Length; i++)
-                    if (folds[i] != Fold.None) steps.Add(new QuantifiedStep(segs, i, FoldToken(folds[i]), p.Text));
+                    if (folds[i] != Fold.None) steps.Add(new QuantifiedStep(segs, i, FoldToken(folds[i]), p.Text, onScanned));
             }
         }
     }
