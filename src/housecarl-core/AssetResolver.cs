@@ -388,6 +388,21 @@ public sealed class AssetResolver : IDisposable
         return new PlacementResolution(rel, sources, sources.Count > 1, snap.Failures.Count > 0);
     }
 
+    /// <summary>The name MO2's overwrite layer answers to as a provider.</summary>
+    public const string OverwriteLayerName = "overwrite";
+
+    /// <summary>The name the game's own Data folder answers to as a provider.</summary>
+    public const string DataLayerName = "Data";
+
+    /// <summary>Is <paramref name="name"/> one of the two LAYER names — the half of the reserved set that does not
+    /// depend on a built resolver? A mod folder carrying one of these names cannot be reached by that name at all
+    /// (<see cref="IsReservedProviderName"/> answers the layer instead), so a sentence that hands the name back as
+    /// a provider is handing back a name that will not work. Stated once, here, so the test that decides what a
+    /// placement refuses and the test that decides what a readback promises cannot drift apart.</summary>
+    public static bool IsReservedLayerName(string name) =>
+        string.Equals(OverwriteLayerName, name, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(DataLayerName, name, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Is <paramref name="name"/> a RESERVED provider name — one that names something other than a mod
     /// folder under <c>mods\</c>: MO2's "overwrite" layer, the game's "Data" folder, or an ACTIVE archive's
     /// filename? These are the names the folder-scan lane must never be handed, because a mod folder literally
@@ -403,8 +418,8 @@ public sealed class AssetResolver : IDisposable
     /// disagree.</para></summary>
     public bool IsReservedProviderName(string name)
     {
-        if (_overwriteDir.Length > 0 && string.Equals("overwrite", name, StringComparison.OrdinalIgnoreCase)) return true;
-        if (_dataDir.Length > 0 && string.Equals("Data", name, StringComparison.OrdinalIgnoreCase)) return true;
+        if (_overwriteDir.Length > 0 && string.Equals(OverwriteLayerName, name, StringComparison.OrdinalIgnoreCase)) return true;
+        if (_dataDir.Length > 0 && string.Equals(DataLayerName, name, StringComparison.OrdinalIgnoreCase)) return true;
         foreach (var a in _archives)
             if (string.Equals(Path.GetFileName(a.Path), name, StringComparison.OrdinalIgnoreCase)) return true;
         return false;

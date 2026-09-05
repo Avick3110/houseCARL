@@ -47,34 +47,52 @@ public enum SourceArmKind
     File,
 }
 
+/// <summary>WHICH MO2 layer a source's file was found in — the BRANCH that answered, not the name it produced.
+/// <para>Carried as a kind because the name alone cannot be read back: a mod folder literally called <c>Data</c>
+/// yields the string "Data" exactly as the game's Data folder does, and a sentence keyed on that string would
+/// describe the mod folder as the layer it is not.</para></summary>
+public enum SourceLayerKind
+{
+    /// <summary>A folder under MO2's <c>mods\</c> — the only kind whose name a placement can be handed.</summary>
+    ModFolder,
+    /// <summary>MO2's overwrite layer.</summary>
+    Overwrite,
+    /// <summary>The game's own Data folder.</summary>
+    GameData,
+}
+
+/// <summary>The layer a source's file sits in: which branch answered, and the name that branch produced.</summary>
+public sealed record SourceLayer(SourceLayerKind Kind, string Name);
+
 /// <summary>One element of an ordered source universe: the caller's own spelling, how it resolved, a human
 /// description of WHERE it resolved to, and the fetch itself.
 /// <para><paramref name="Spelling"/> is kept verbatim because every sentence about this arm must name the source
 /// the way the CALLER wrote it — a refusal that renames the caller's input is a refusal they cannot act on.
 /// <paramref name="Where"/> is the resolution's own account of itself (the located path, the winner's plugin),
 /// which is a different claim and is rendered beside it, never instead of it.</para>
-/// <para><paramref name="Provider"/> is the MO2 mod FOLDER the arm's file was read from, null when the arm resolved
-/// out of the ACTIVE order (no single folder stands behind it). It is carried as data rather than left inside
-/// <paramref name="Where"/>'s prose because it is the name a following asset placement passes as its provider: a
-/// caller that has to parse it back out of a sentence is a caller guessing.</para></summary>
+/// <para><paramref name="Layer"/> is the MO2 layer the arm's file was read from — the branch AND the name — null
+/// only when there is no layer to name: the bare 'winner' pole (the whole order stands behind it), or a file
+/// outside mods, overwrite and Data. It is carried as data rather than left inside <paramref name="Where"/>'s
+/// prose because a mod folder's name is what a following asset placement passes as its provider: a caller that has
+/// to parse it back out of a sentence is a caller guessing.</para></summary>
 public sealed record SourceArm(
     string Spelling,
     SourceArmKind Kind,
     string Where,
     Func<FormKey, IMajorRecordGetter?> Fetch,
-    string? Provider = null);
+    SourceLayer? Layer = null);
 
 /// <summary>One arm as a READBACK names it: the caller's own spelling, how it resolved, and the layer behind it,
 /// with the fetch left off. Carried into an outcome so a response can name where each source resolved from after the
 /// chain and its overlays are gone.
-/// <para><paramref name="Kind"/> travels because a null <paramref name="Provider"/> means two different things: an
-/// ACTIVE arm has no single folder behind it, while a FILE arm whose path is outside mods/overwrite/Data has a
+/// <para><paramref name="Kind"/> travels because a null <paramref name="Layer"/> means two different things: the
+/// 'winner' pole has no single folder behind it, while a FILE arm whose path is outside mods/overwrite/Data has a
 /// folder that simply cannot be named. Saying "from the active load order" about the second is a claim that the
 /// plugin is in the order when by construction it is not.</para></summary>
-public sealed record SourceArmRef(string Spelling, SourceArmKind Kind, string? Provider)
+public sealed record SourceArmRef(string Spelling, SourceArmKind Kind, SourceLayer? Layer)
 {
     /// <summary>The arm, minus its fetch.</summary>
-    public static SourceArmRef Of(SourceArm arm) => new(arm.Spelling, arm.Kind, arm.Provider);
+    public static SourceArmRef Of(SourceArm arm) => new(arm.Spelling, arm.Kind, arm.Layer);
 }
 
 /// <summary>A hit: the body, and WHICH arm produced it. The arm index is the provenance the readback is required

@@ -217,8 +217,10 @@ internal static class WriteSentences
     [MustState("MO2 mod folder")]
     internal const string CopyArmFolderLead = "MO2 mod folder ";
 
-    /// <summary>…and the other arm: the source resolved through the ACTIVE order, which is not one folder. Said
-    /// rather than left blank, so a missing folder name is never read as an omission.</summary>
+    /// <summary>…and the other arm: the source resolved through the ACTIVE order. Said rather than left blank, so
+    /// a missing folder name is never read as an omission. It is the WHOLE claim only for the bare 'winner' pole,
+    /// which is the order itself; a named active plugin sits in one mod folder and gets that folder named after
+    /// this, because the placement that follows needs it for an enabled donor too.</summary>
     [MustState("active load order")]
     internal const string CopyArmActive = "from the active load order";
 
@@ -241,21 +243,40 @@ internal static class WriteSentences
         "read straight off disk, outside your mods, overwrite and Data folders — no MO2 mod folder to pass as " +
         "source_provider= for its files";
 
-    /// <summary>One source arm as a caller acts on it: their own spelling, and where it actually resolved.
+    /// <summary>A mod folder whose NAME is one the placement surface reserves for a layer. The name is still stated
+    /// — it is that folder's real name — but the promise attached to every other folder name is withdrawn in the
+    /// same breath, because <see cref="AssetResolver.IsReservedProviderName"/> answers the LAYER for it and the
+    /// folder scan never reaches the mod. Saying nothing here is what would walk the caller into a false "does not
+    /// supply", or into the wrong bytes when the layer holds that path too.</summary>
+    [MustState("RESERVED", "source_provider=", "Rename that mod folder")]
+    internal const string CopyArmReservedFolderTail =
+        " — but that name is RESERVED for MO2's overwrite layer and the game's Data folder, so it cannot be passed " +
+        "as source_provider=: a placement given it reads the layer, not this mod. Rename that mod folder in MO2";
+
+    /// <summary>One source arm as a caller acts on it: their own spelling, and where it actually resolved.</summary>
+    internal static string CopyArm(SourceArmRef arm) => $"{arm.Spelling} ({CopyArmWhere(arm)})";
+
+    /// <summary>…and where it resolved, on its own — the half a sentence that quotes the SPELLING itself appends
+    /// outside its own quotes rather than swallowing whole.
     /// <para>DOUBLE quotes around the layer name, the delimiter #340 settled on: a mod folder can hold an
     /// apostrophe (<c>JK's Skyrim</c>) or parentheses (<c>SkyUI (SE)</c>), and this token is copied verbatim into
-    /// the next call's <c>source_provider=</c>, so the boundary has to be a character the name cannot contain.</para></summary>
-    internal static string CopyArm(SourceArmRef arm) => arm.Kind == SourceArmKind.ActiveOrder
-        ? $"{arm.Spelling} ({CopyArmActive})"
-        : arm.Provider is { } layer
-            ? $"{arm.Spelling} ({LayerPhrase(layer)}\"{layer}\")"
-            : $"{arm.Spelling} ({CopyArmNoFolder})";
-
-    /// <summary>What to call the layer a file arm resolved into — a mod folder, or one of the two that are not.</summary>
-    static string LayerPhrase(string layer) =>
-        string.Equals(layer, "overwrite", StringComparison.OrdinalIgnoreCase) ? CopyArmOverwriteLayer
-        : string.Equals(layer, "Data", StringComparison.OrdinalIgnoreCase) ? CopyArmDataLayer
-        : CopyArmFolderLead;
+    /// the next call's <c>source_provider=</c>, so the boundary has to be a character the name cannot contain.</para>
+    /// <para>An ACTIVE arm names its folder TOO when it has one. A named active plugin sits in exactly one mod
+    /// folder, and the placement that follows a copy needs that folder for an enabled donor exactly as it does for
+    /// a disabled one; only the bare 'winner' pole is the whole order and has none.</para></summary>
+    internal static string CopyArmWhere(SourceArmRef arm)
+    {
+        var active = arm.Kind == SourceArmKind.ActiveOrder ? CopyArmActive : null;
+        if (arm.Layer is not { } layer) return active ?? CopyArmNoFolder;
+        var where = layer.Kind switch
+        {
+            SourceLayerKind.Overwrite => $"{CopyArmOverwriteLayer}\"{layer.Name}\"",
+            SourceLayerKind.GameData => $"{CopyArmDataLayer}\"{layer.Name}\"",
+            _ => $"{CopyArmFolderLead}\"{layer.Name}\""
+                 + (AssetResolver.IsReservedLayerName(layer.Name) ? CopyArmReservedFolderTail : ""),
+        };
+        return active is null ? where : $"{active}, {where}";
+    }
 
     /// <summary>One line per source consulted, in order. Rendered on success AND on a miss — a caller cannot judge
     /// "not found" without knowing where it was looked for.</summary>
