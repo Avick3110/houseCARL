@@ -1523,6 +1523,7 @@ public sealed class LoadOrderService : IDisposable
         // rather than baked into sourceDesc, because the render owns the sentence and a caller cannot infer this from
         // a provider name.
         string? offOrderProvider = null;
+        bool offOrderOwnerEnabled = false;                 // WHICH off-order reason — an unticked mod, or a ticked mod's unloaded archive
         // One normalization point for source=, ahead of both the classification and every consumer: whatever trimming
         // the routing decision depends on must have happened before this line, or a quoted Data-relative source
         // classifies one way and is read another.
@@ -1608,7 +1609,7 @@ public sealed class LoadOrderService : IDisposable
             var (b, desc, err) = ReadResolvedSource(pick.Source!);
             if (err is not null) return PlaceResult.Fail(rel, err, winner);
             bytes = b!;
-            if (pick.Source!.OffOrder) offOrderProvider = pick.Source.ProviderName;
+            if (pick.Source!.OffOrder) { offOrderProvider = pick.Source.ProviderName; offOrderOwnerEnabled = pick.Source.OwnerEnabled; }
             // A source read from a different path than the destination is a rename and the render has to say so,
             // since "placed from ModX" alone hides that the bytes are another file's. Keyed on whether the two paths
             // differ, not on whether a source was named — a provider-scoped placement of the same path is not a
@@ -1632,7 +1633,8 @@ public sealed class LoadOrderService : IDisposable
         if (size != bytes.Length)
             return PlaceResult.Fail(rel,
                 $"wrote '{rel}' but its on-disk size ({size}) does not match the {bytes.Length} source byte(s) — verify before relying on it.", winner);
-        return new PlaceResult(rel, true, bytes.Length, sourceDesc, winner, null) { SourceOffOrderProvider = offOrderProvider };
+        return new PlaceResult(rel, true, bytes.Length, sourceDesc, winner, null)
+            { SourceOffOrderProvider = offOrderProvider, SourceOffOrderOwnerEnabled = offOrderOwnerEnabled };
     }
 
     /// <summary>Read an ON-DISK source= the caller named exactly. Forms: "&lt;archive.bsa&gt;|&lt;entry&gt;" (a specific
@@ -8960,6 +8962,11 @@ public sealed record PlaceResult(string AssetPath, bool Placed, long Bytes, stri
     /// off-order source lane. Null for every read served by the active order. Non-null is a fact the response must
     /// state: the bytes are the ones the caller named, out of a mod the game is not currently loading.</summary>
     public string? SourceOffOrderProvider { get; init; }
+
+    /// <summary>Whether that off-order mod is one MO2 TICKS — which of the two off-order reasons applies. True means
+    /// the bytes came out of a root archive no active plugin binds, not out of an unticked mod, and the response has
+    /// to say the one that is true.</summary>
+    public bool SourceOffOrderOwnerEnabled { get; init; }
 
     public static PlaceResult Fail(string assetPath, string error, string? currentWinner = null)
         => new(assetPath, false, 0, null, currentWinner, error);

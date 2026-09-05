@@ -533,9 +533,6 @@ internal static class WriteSentences
     /// <summary>The provenance line for bytes read out of a mod the active profile does NOT include. About the SOURCE
     /// and nothing else: the placed copy's own "does not win until you enable + sort" is the render's separate,
     /// unconditional line, and neither fact may be stated twice.</summary>
-    // TODO(#388): place_asset's render still calls this without the flag, so an enabled mod's unloaded archive gets
-    // the "NOT enabled in MO2" arm there. The fix is one argument at PlaceAssetTools.cs's call site, which the place
-    // rewrite owns this wave. The NIF surface passes it.
     internal static string PlaceSourceOffOrder(string provider, bool ownerEnabled = false) => ownerEnabled
         // The folder is ticked, so the mod is not the reason: the built universe already answers for an enabled
         // mod's loose tree and every archive the engine loads, which leaves a root archive no active plugin binds.

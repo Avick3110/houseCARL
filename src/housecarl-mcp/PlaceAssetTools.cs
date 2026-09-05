@@ -220,7 +220,7 @@ static class PlaceWire
                 // Bytes served out of a mod MO2 does not load look like any other placement on the line above, so
                 // say so on their own line. This is about the SOURCE; the destination's enable+sort is the block below.
                 if (r.SourceOffOrderProvider is { } offOrder)
-                    sb.Append("        ").Append(WriteSentences.PlaceSourceOffOrder(offOrder)).Append('\n');
+                    sb.Append("        ").Append(WriteSentences.PlaceSourceOffOrder(offOrder, r.SourceOffOrderOwnerEnabled)).Append('\n');
                 // Name the destination folder rather than saying "the mod": the off-order line above can put a
                 // SECOND mod in scope, and it ends by saying enabling THAT one is not required.
                 sb.Append(r.CurrentWinner is not null
