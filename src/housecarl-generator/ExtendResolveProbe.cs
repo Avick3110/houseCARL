@@ -31,7 +31,8 @@ namespace HousecarlGenerator;
 ///   AMBIGUOUS    — two OWNED folders carry the same &lt;esp&gt; → refuse loud, name BOTH + the into="&lt;folder&gt;"
 ///                  disambiguator (Q3 — never guess). Then into=&lt;a folder name&gt; picks one unambiguously.
 ///   MULTI-PLUGIN — into=&lt;a folder holding 2+ plugins&gt; (no &lt;stem&gt;.esp to single out) refuses, naming each plugin.
-///   NOT-FOUND    — into= a name nothing holds/answers to → refuse, naming both places searched + "create it fresh".
+///   NOT-FOUND    — into= a name nothing holds/answers to → refuse in ONE sentence, naming both places searched, then
+///                  the nearest owned patches as into= spellings and the lane's own fresh-patch parameter.
 ///   REMEDY       — that refusal's fresh-write escape NAMES patch=&lt;the guessed name&gt; for the callers whose patch=
 ///                  really does name a fresh patch (#343: the bare "omit into=" it used to offer is the call that
 ///                  yields a generically-named Patch.esp), and the named call is then MADE to prove the sentence
@@ -322,6 +323,10 @@ internal static class ExtendResolveProbe
                 catch (InvalidOperationException ex) { riderErr = ex.Message; }
                 Check(riderErr.Contains("GhostRider.esp", StringComparison.Ordinal) && OneSentence(riderErr),
                       $"the rider lane still refuses in ONE sentence, naming the .esp searched ({riderErr})");
+                // The caveat is a standalone sentence spliced mid-clause, so it reads as a clause: no leading capital
+                // after the semicolon, and the acronym inside it is left alone.
+                Check(riderErr.Contains("; on this tool a bare patch= names the ARCHIVE", StringComparison.Ordinal),
+                      $"…and its spliced caveat reads as a clause, not a capitalised sentence inside one ({riderErr})");
                 Check(riderErr.Contains("patch_name=\"GhostRider\" for a fresh folder", StringComparison.Ordinal)
                       && riderErr.Contains("auto-suffixed if that name is taken", StringComparison.Ordinal),
                       "…and hands back patch_name= with the caller's own guessed name in it, qualified with the auto-suffix");
@@ -622,16 +627,19 @@ internal static class ExtendResolveProbe
                 Directory.CreateDirectory(bare);
                 MarkOwned(bare, "");                                          // an owned folder holding no plugin at all
 
-                var rec = svc.ApplyEdits(new[] { Wgt(1) }, null, "GhostCap");
+                // A near-MISS of the pluginless folder's own name, so the suggester ranks it top on both lanes and the
+                // only thing separating them is the needEsp filter this arm is about — not where the cap fell.
+                const string nearBare = "houseCARL - AssetsOnli";
+                var rec = svc.ApplyEdits(new[] { Wgt(1) }, null, nearBare);
                 Check(!(rec.Error ?? "").Contains("AssetsOnly", StringComparison.Ordinal),
                       "the RECORD lane leaves out an owned folder holding no plugin (it could not extend it)");
                 string riderList = "";
-                try { svc.ResolvePatchModFolder(null, "GhostCap", "houseCARL_Archive", BsaTools.RepackNaming); }
+                try { svc.ResolvePatchModFolder(null, nearBare, "houseCARL_Archive", BsaTools.RepackNaming); }
                 catch (InvalidOperationException ex) { riderList = ex.Message; }
                 Check(riderList.Contains("into=\"houseCARL - AssetsOnly\"", StringComparison.Ordinal),
                       "…and the RIDER lane keeps it, since that lane extends the folder itself");
 
-                // Past the cap the sentence simply stops: three nearest candidates, and it stays one sentence.
+                // Past the cap the sentence names three nearest candidates and COUNTS the rest, staying one sentence.
                 for (int i = 0; i < 9; i++)
                 {
                     var extra = Path.Combine(mods, $"houseCARL - Bulk{i:D2}");
@@ -644,9 +652,24 @@ internal static class ExtendResolveProbe
                 var rows = Candidates(capText);
                 Check(rows.Count == 3 && OneSentence(capText),
                       $"the sentence names three candidates and no more ({string.Join(", ", rows)})");
-                // The shape the ruling asks for, read off the real sentence: "A, B or C, or <fresh>".
-                Check(capText.Contains($"; try {rows[0]}, {rows[1]} or {rows[2]}, or patch=\"GhostCapped\" for a fresh patch", StringComparison.Ordinal),
-                      $"…in the ruled shape — candidates, then the fresh-patch parameter ({capText})");
+                // The suggester vouches for none of these against "GhostCapped", so before the always-answering
+                // distance tiebreak this list was the alphabet's first three and the near-miss went unnamed.
+                Check(rows[0] == "into=\"houseCARL - GhostPatch\"",
+                      $"…led by the near-miss the caller meant, not by whichever name sorts first ({string.Join(", ", rows)})");
+                // The shape the ruling asks for, read off the real sentence: "A, B or C (+N more), or <fresh>".
+                Check(capText.Contains($"; try {rows[0]}, {rows[1]} or {rows[2]} (+", StringComparison.Ordinal)
+                      && capText.Contains(" more), or patch=\"GhostCapped\" for a fresh patch", StringComparison.Ordinal),
+                      $"…in the ruled shape — candidates, the count the cap dropped, then the fresh-patch parameter ({capText})");
+                // The count is a real remainder, not a token: one more offerable patch, one higher. A silent cap reads
+                // as an exhaustive inventory, which is the wrong next step.
+                int Dropped(string s) => int.Parse(System.Text.RegularExpressions.Regex.Match(s, @"\(\+(\d+) more\)").Groups[1].Value);
+                var oneMore = Path.Combine(mods, "houseCARL - Bulk09");
+                Directory.CreateDirectory(oneMore);
+                MarkOwned(oneMore, "Bulk09.esp");
+                File.WriteAllText(Path.Combine(oneMore, "Bulk09.esp"), "b");
+                string capText2 = svc.ApplyEdits(new[] { Wgt(1) }, null, "GhostCapped").Error ?? "";
+                Check(Dropped(capText2) == Dropped(capText) + 1,
+                      $"…and the count tracks the inventory, {Dropped(capText)} then {Dropped(capText2)} with one patch more");
             }
 
             // ---- 9f: owned patches that no single into= spelling reaches are COUNTED, not denied ----
@@ -670,14 +693,17 @@ internal static class ExtendResolveProbe
 
                 // Two owned twins, each holding the SAME two plugins: no folder name resolves (neither holds
                 // "<folder>.esp"), and each plugin name is ambiguous across the pair. Every spelling is refused.
+                // Real plugins, not placeholder bytes: the remedy this arm asserts is FOLLOWED below, and following it
+                // means writing into one of these folders.
                 foreach (var name in new[] { "houseCARL - Twin", "houseCARL - Twin backup" })
                 {
                     var d = Path.Combine(mods2, name);
                     Directory.CreateDirectory(d);
                     File.WriteAllText(Path.Combine(d, "meta.ini"),
                         $"{HousecarlOwnerMeta.Section}\r\ngenerated=true\r\nplugin=Alpha.esp\r\n");
-                    File.WriteAllText(Path.Combine(d, "Alpha.esp"), "a");
-                    File.WriteAllText(Path.Combine(d, "Beta.esp"), "b");
+                    foreach (var n in new[] { "Alpha", "Beta" })
+                        new SkyrimMod(new ModKey(n, ModType.Plugin), SkyrimRelease.SkyrimSE)
+                            .BeginWrite.ToPath(Path.Combine(d, n + ".esp")).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
                 }
 
                 var store2 = new UserConfigStore(Path.Combine(root, "houseCARL.user2.json"));
@@ -690,6 +716,69 @@ internal static class ExtendResolveProbe
                       $"the refusal counts the patches no spelling reaches and says what to do about it ({text})");
                 Check(!text.Contains("owns no patch", StringComparison.Ordinal) && OneSentence(text),
                       "…rather than telling the caller houseCARL owns none, which would send them to mint a duplicate");
+
+                // FOLLOW the remedy, the way 8b and 9c follow theirs: a remedy is a claim about what a call does, so
+                // renaming one of the twins in MO2 has to be the thing that makes an into= spelling resolve.
+                Directory.Move(Path.Combine(mods2, "houseCARL - Twin backup"), Path.Combine(mods2, "houseCARL - Alpha"));
+                svc2.Stats();
+                var renamed = svc2.ApplyEdits(new[] { Wgt(2) }, null, "Alpha");
+                Check(renamed.Success && Ends(renamed.OutputPath, "houseCARL - Alpha", "Alpha.esp"),
+                      $"following it — the rename — makes into=\"Alpha\" resolve to that patch ({renamed.Error ?? renamed.OutputPath})");
+
+                // A folder scan that throws PARTWAY is the dangerous one: reachability is decided by counting the
+                // OTHER owned folders holding the same plugin, so dropping one of a colliding pair makes an ambiguous
+                // token look unambiguous. MO2 holding a meta.ini open is the ordinary way this happens.
+                using (File.Open(Path.Combine(mods2, "houseCARL - Twin", "meta.ini"), FileMode.Open, FileAccess.Read, FileShare.None))
+                {
+                    svc2.Stats();
+                    string locked = svc2.ApplyEdits(new[] { Wgt(3) }, null, "GhostLocked").Error ?? "";
+                    Check(Candidates(locked).Count == 0 && locked.Contains("houseCARL owns no patch", StringComparison.Ordinal),
+                          $"an unreadable folder mid-scan yields NO candidates, not the half the scan got to ({locked})");
+                    // The half it got to would have offered into="Alpha.esp", which is ambiguous once both twins are
+                    // readable again — the second refusal these candidates exist to prevent.
+                    Check(!locked.Contains("into=\"Alpha.esp\"", StringComparison.Ordinal) && OneSentence(locked),
+                          "…so it never names a spelling that only looks unambiguous because a folder went missing");
+                }
+            }
+
+            // ---- 9g: the removal lane on an install owning nothing yet says how the patch gets made --------------
+            //      Its own instance, because the claim is about an inventory with NOTHING in it: no fresh route (the
+            //      removal lane creates nothing) and no candidates is the likeliest first-time path, and it used to
+            //      stop dead after two stacked ", and" clauses.
+            Console.WriteLine();
+            Console.WriteLine("--- 9g: the removal lane owning nothing still says what to try ---");
+            {
+                string inst3 = Path.Combine(root, "instance3");
+                string prof3 = Path.Combine(inst3, "profiles", "Default");
+                string mods3 = Path.Combine(inst3, "mods");
+                Directory.CreateDirectory(prof3); Directory.CreateDirectory(mods3);
+                File.WriteAllText(Path.Combine(inst3, "ModOrganizer.ini"),
+                    "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+                    + Path.Combine(root, "game").Replace(@"\", @"\\") + ")\r\n");
+                var vDir = Path.Combine(mods3, "VictimMod");
+                Directory.CreateDirectory(vDir);
+                FormKey vFk;
+                {
+                    var m = new SkyrimMod(new ModKey("Victim", ModType.Plugin), SkyrimRelease.SkyrimSE);
+                    var w = m.Weapons.AddNew(); w.EditorID = "HcVictim";
+                    w.BasicStats = new WeaponBasicStats { Damage = 3, Weight = 1 };
+                    vFk = w.FormKey;
+                    m.BeginWrite.ToPath(Path.Combine(vDir, "Victim.esp")).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+                }
+                File.WriteAllText(Path.Combine(prof3, "loadorder.txt"), "# header\r\nVictim.esp\r\n");
+                File.WriteAllText(Path.Combine(prof3, "plugins.txt"), "*Victim.esp\r\n");
+                File.WriteAllText(Path.Combine(prof3, "modlist.txt"), "# header\r\n+VictimMod\r\n");
+
+                var store3 = new UserConfigStore(Path.Combine(root, "houseCARL.user3.json"));
+                using var svc3 = LoadOrderService.WithInstance(inst3, 0, store3);
+                svc3.Stats();
+                var bare = RemoveTools.Remove(svc3, new[] { $"{vFk.ID:X6}:Victim.esp" }, into: "Nothing");
+                Check(bare.Contains("houseCARL owns no patch holding a plugin yet", StringComparison.Ordinal) && OneSentence(bare.Trim()),
+                      $"the refusal states the empty inventory in ONE sentence ({bare.Trim()})");
+                Check(!bare.Contains(", and houseCARL will not create a patch here, since a removal only drops a record the patch ITSELF already carries, and", StringComparison.Ordinal),
+                      "…with the facts as clauses rather than two stacked \", and\" openings");
+                Check(bare.Contains("; try making the patch first with a write that creates one", StringComparison.Ordinal),
+                      "…and it says how the patch gets made, instead of stopping dead on the likeliest first-time path");
             }
 
             // ---- 10: ORIGINALS — the master plugin never moved a byte (extends only wrote the patch folder) ----
