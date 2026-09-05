@@ -92,8 +92,11 @@ static class AssetWire
             // appended past the cap. max_chars then means the same on this tool as on every other.
             reserve: AccountingReserve(d));
 
-        return body + Compose(Tally(d, rendered), everySentence: false);
+        return body + TransportAccounting.Compose(Tally(d, rendered), RowNoun, everySentence: false);
     }
+
+    /// <summary>What this family's accounting counts.</summary>
+    const string RowNoun = "path(s)";
 
     /// <summary>What each under= selector had to say for itself — a selector that matched nothing, or was rejected.
     /// Above the per-path list, with the other alarms, so a truncated sweep cannot cut it away. Capped like its two
@@ -106,76 +109,17 @@ static class AssetWire
         BatchRender.AppendLines(sb, notes, "selector(s)", cap);
     }
 
-    /// <summary>The numbers one accounting line states. A record so the real line and the widest-case line the reserve
-    /// measures go through ONE composer — a second formatter would be a second spelling, and the reserve would stop
-    /// bounding what is written.</summary>
-    readonly record struct Counts(int Total, int Rendered, int Skipped, int Capped, int Truncated, int Offset,
-                                  int Remaining, int Notes, int NextLimit);
+    /// <summary>What this response actually did, in the shared TRANSPORT vocabulary
+    /// (<see cref="TransportAccounting"/>): the selection total, the window this response rendered, and the four
+    /// distinct omissions.</summary>
+    static TransportCounts Tally(AssetStatusData d, int rendered) =>
+        TransportAccounting.Tally(d.Selected, d.Results.Count, rendered, new RowWindow(d.Offset, d.Limit),
+                                  d.SelectorNotes?.Count ?? 0);
 
-    /// <summary>The window the next-page advice names when the caller passed none. Without a limit= in the advice a
-    /// caller following it calls back with limit=0, which resolves the WHOLE remainder on every page — the paging is
-    /// only cheap if the advice keeps it paged.</summary>
-    internal const int DefaultPageLimit = 200;
-
-    /// <summary>What this response actually did. The four omissions have four distinct causes and each is counted
-    /// once, so <c>skipped + rendered + truncated + capped == total</c>: <c>skipped</c> is what offset= stepped over
-    /// BEFORE the window, <c>capped</c> what limit= left AFTER it, <c>truncated</c> what max_chars cut out of the
-    /// resolved window. <c>remaining</c> and the next page are measured off what was RENDERED, not off the resolved
-    /// window: a caller walking by this line's own advice must land on the first path it has not seen, and paths the
-    /// cap cut were resolved but never shown.</summary>
-    static Counts Tally(AssetStatusData d, int rendered) => new(
-        Total: d.Selected,
-        Rendered: rendered,
-        Skipped: Math.Min(d.Offset, d.Selected),
-        Capped: Math.Max(d.Selected - d.Offset - d.Results.Count, 0),
-        Truncated: Math.Max(d.Results.Count - rendered, 0),
-        Offset: d.Offset,
-        Remaining: Math.Max(d.Selected - (d.Offset + rendered), 0),
-        Notes: d.SelectorNotes?.Count ?? 0,
-        NextLimit: d.Limit > 0 ? d.Limit : DefaultPageLimit);
-
-    /// <summary>The chars held back from max_chars so the accounting block is always affordable — measured by
-    /// composing the WIDEST line this response could write, so no rendering of it can outgrow its own room.</summary>
-    internal static int AccountingReserve(AssetStatusData d) => Compose(Widest(d), everySentence: true).Length;
-
-    /// <summary>The widest line this response could produce: every count at its largest (so every digit slot is at its
-    /// real width) and, with <c>everySentence</c>, every optional sentence present. An upper bound, which is what a
-    /// reserve has to be.</summary>
-    static Counts Widest(AssetStatusData d)
-    {
-        int most = Math.Max(d.Selected, d.Results.Count);
-        return new Counts(most, d.Results.Count, most, most, d.Results.Count, d.Offset, most,
-                          d.SelectorNotes?.Count ?? 0, Math.Max(d.Limit, DefaultPageLimit));
-    }
-
-    /// <summary>The one machine-readable accounting line, always last: how many paths the selection named, how many
-    /// rendered, how many the paging window stepped over or left behind, and how many max_chars cut. A bulk consumer
-    /// keying results by path checks these numbers instead of counting prose it might miss (#246). Room for it is
-    /// reserved out of max_chars by <see cref="Render"/>, so it fits inside the cap rather than past it.</summary>
-    static string Compose(Counts c, bool everySentence)
-    {
-        var sb = new StringBuilder("\n\n[accounting] total=").Append(c.Total)
-            .Append(" rendered=").Append(c.Rendered)
-            .Append(" skipped=").Append(c.Skipped)
-            .Append(" capped=").Append(c.Capped)
-            .Append(" truncated=").Append(c.Truncated)
-            .Append(" offset=").Append(c.Offset)
-            .Append(" remaining=").Append(c.Remaining)
-            .Append(" notes=").Append(c.Notes);
-        // Only what is still AHEAD of what was rendered earns a next page, and the next offset starts at the first
-        // path this response did not show — so a caller following the advice sees every path exactly once. The advice
-        // carries limit= as well: without it the next call resolves the whole remainder instead of one page.
-        if (everySentence || c.Remaining > 0)
-            sb.Append("\nthe selection is longer than this window: re-call with limit=").Append(c.NextLimit)
-              .Append(" offset=").Append(c.Offset + c.Rendered).Append(" for the next page.");
-        // An offset past the end would otherwise be told to re-call at the offset it already used.
-        if (everySentence || (c.Remaining == 0 && c.Total > 0 && c.Offset >= c.Total))
-            sb.Append("\noffset=").Append(c.Offset).Append(" is past the end of the selection (")
-              .Append(c.Total).Append(" path(s)) — the last page starts before it.");
-        if (everySentence || c.Truncated > 0)
-            sb.Append("\nmax_chars cut ").Append(c.Truncated).Append(" resolved path(s) from the render: raise max_chars, or page with limit=/offset=.");
-        return sb.ToString();
-    }
+    /// <summary>The chars held back from max_chars so the accounting block is always affordable.</summary>
+    internal static int AccountingReserve(AssetStatusData d) =>
+        TransportAccounting.Reserve(d.Selected, d.Results.Count, new RowWindow(d.Offset, d.Limit),
+                                    d.SelectorNotes?.Count ?? 0, RowNoun);
 
     static void AppendPath(StringBuilder sb, AssetPathResult r, bool readIncomplete, bool discoveryIncomplete)
     {
