@@ -105,8 +105,13 @@ public sealed class CorpusRulebook
     }
 
     /// <summary>Validate a write rooted at an arbitrary type — a record OR a struct being built from parts (so a
-    /// <see cref="StructSpec"/>'s nested writes validate by the identical leaf/path rules, recursively).</summary>
-    string? ValidateFromType(TypeSchema root, WriteRequest req, IReadOnlyCollection<string>? siblingEditorIds = null)
+    /// <see cref="StructSpec"/>'s nested writes validate by the identical leaf/path rules, recursively).
+    /// <para><paramref name="pathSlot"/> is what the caller's OWN input slot for <see cref="WriteRequest.Path"/> is
+    /// called at this root, and the paths this walk builds are relative to that root: <c>field_path</c> on a record,
+    /// <c>path</c> inside a compose's nested <c>sets</c>. A remedy that names a path must spell the slot for its
+    /// context or it names a call the caller cannot make.</para></summary>
+    string? ValidateFromType(TypeSchema root, WriteRequest req, IReadOnlyCollection<string>? siblingEditorIds = null,
+        string pathSlot = "field_path")
     {
         if (req.Path.Length == 0)
             return "Empty path: a write must target at least one field.";
@@ -199,18 +204,9 @@ public sealed class CorpusRulebook
                 // can't drift. A bare int.TryParse ACCEPTS a negative ('-1' parses), but apply's StepIntoElement list
                 // branch requires idx >= 0 and throws a PLAIN InvalidOperationException, which surfaces as the
                 // misleading "real inconsistency" wrapper. The in-range bound stays apply's job.
-                if (field.Cardinality == "list" && !WriteEngine.IsValidListIndexValue(segKey))
-                    return $"List '{segName}' on '{current.Name}' must be indexed by a non-negative integer; got '{segKey}'.";
-                // dict mid-path key SHAPE — the SAME recognizer pair (DictKeyType + CheckValue's AQ branch) the LEAF
-                // key block uses, so the mid-path hop and the leaf can't drift. Without the key's real CLR type
-                // (DictKeyType -> the dict AQ's args[0], the type apply keys on via StepIntoElement/ApplyDictVerb)
-                // CheckValue falls to the enum-catalog-by-name fallback and MISSES a non-enum key — e.g. Package.Data's
-                // sbyte key ('Data[notasbyte]') is accepted then throws FormatException at apply.
-                if (field.Cardinality == "dict"
-                    && CheckValue(field.KeyType, segKey, $"dict key for '{segName}'", DictKeyType(field)?.AssemblyQualifiedName) is { } ke)
-                    return ke;
+                if (KeyShapeError(field, current.Name, segName, segKey) is { } ke) return ke;
                 current = elem;
-                elementHop = new ElementHop(PathTo(req.Path, i, segName), segKey, field);
+                elementHop = new ElementHop(PathTo(req.Path, i, segName), segKey, field, pathSlot);
             }
         }
 
@@ -234,10 +230,16 @@ public sealed class CorpusRulebook
             var head = $"Path '{req.Path[^1]}' brackets a collection element at the LEAF; brackets navigate mid-path only. ";
             // The remedy carries the caller's OWN key, not just the rule: the bracket they typed already says which
             // element they meant, so the message can hand back the call that works rather than a shape to fill in.
+            // Only when the key PASSES the same shape recognisers the mid-path hop uses, though — an sbyte-keyed dict
+            // handed back 'Data[notasbyte]' would be naming a call that throws at apply, which is the dead end this
+            // refusal exists to close. A key that fails them gets the rule and the verb menu, as before.
             if (bracketed is not null && WriteVerbs.OfField(bracketed, _corpus) is { } bshape)
-                return head + $"Target the collection field itself and address the element with the verb + Key: "
-                       + $"field_path='{PathTo(req.Path, req.Path.Length - 1, leafName)}', key='{leafKey}' — "
-                       + $"{WriteVerbs.HowToAddress(bshape)}.";
+                return KeyShapeError(bracketed, current.Name, leafName, leafKey) is null
+                    ? head + "Target the collection field itself and address the element with the verb + Key: "
+                      + $"{pathSlot}='{PathTo(req.Path, req.Path.Length - 1, leafName)}', key='{leafKey}' — "
+                      + $"{WriteVerbs.HowToAddress(bshape)}."
+                    : head + $"Target the collection field '{leafName}' itself and address the element with the verb "
+                      + $"+ Key — {WriteVerbs.HowToAddress(bshape)}.";
             return head + "Target the collection field itself and address the element with the verb + Key.";
         }
         var leaf = FindField(current, leafName, out var leafOwner, out var leafPolyErr, elementHop);
@@ -994,7 +996,9 @@ public sealed class CorpusRulebook
             // (e.g. a VMAD quest-fragment's Property.Object=@<own quest>) validates by the SAME gates as a top-level
             // value (formlink-only + declared-earlier-or-self), recursively; on the edit path (null) it still rejects
             // loud rather than being silently accepted.
-            if (ValidateFromType(structSchema, s, siblingEditorIds) is { } e) return e;
+            // …and the slot name goes with it: these paths are rooted at the STRUCT, and the caller typed them in the
+            // nested 'path' slot, not the record-level 'field_path'. Any remedy naming a path must say which.
+            if (ValidateFromType(structSchema, s, siblingEditorIds, "path") is { } e) return e;
         return null;
     }
 
@@ -1119,24 +1123,48 @@ public sealed class CorpusRulebook
     }
 
     /// <summary>The bracketed hop that produced the type currently being walked: the collection field's own dotted
-    /// path, the key the caller indexed it with, and its schema. Held for the IMMEDIATELY preceding hop only, so a
-    /// refusal raised on the element's type can name the call that rewrites that element and nothing else.</summary>
-    readonly record struct ElementHop(string Path, string Key, FieldSchema Field);
+    /// path, the key the caller indexed it with, its schema, and the input slot that path belongs in at the root
+    /// this walk started from. Held for the IMMEDIATELY preceding hop only, so a refusal raised on the element's
+    /// type can name the call that rewrites that element and nothing else. The slot travels WITH the hop because
+    /// the path does: both are meaningless without the root they were built against.</summary>
+    readonly record struct ElementHop(string Path, string Key, FieldSchema Field, string Slot);
 
-    /// <summary>The dotted field_path of the hop at <paramref name="index"/>, with its own bracket dropped —
-    /// earlier hops keep theirs, because they are still navigation.</summary>
-    static string PathTo(string[] path, int index, string name) =>
+    /// <summary>The dotted path of the hop at <paramref name="index"/>, with its own bracket dropped — earlier hops
+    /// keep theirs, because they are still navigation. Relative to the root the walk started from, so the slot it is
+    /// printed in is whatever that root's slot is called.</summary>
+    internal static string PathTo(string[] path, int index, string name) =>
         string.Join(".", path.Take(index).Append(name));
+
+    /// <summary>Is <paramref name="key"/> a shape this collection can actually be indexed by? A list wants a
+    /// parseable NON-NEGATIVE int32 (<see cref="WriteEngine.IsValidListIndexValue"/> — the recogniser apply's
+    /// StepIntoElement list branch enforces; a bare int.TryParse accepts '-1', which then throws a plain
+    /// InvalidOperationException that surfaces as the misleading "real inconsistency" wrapper). A dict wants a value
+    /// of the key's real CLR type (DictKeyType → the dict AQ's args[0], the type apply keys on) — without that AQ,
+    /// CheckValue falls to the enum-catalog-by-name fallback and MISSES a non-enum key, e.g. Package.Data's sbyte
+    /// key ('Data[notasbyte]') accepted then throwing FormatException at apply. The in-range bound stays apply's job.
+    /// <para>One recogniser for both the mid-path hop and the leaf bracket, so the two cannot drift on what a usable
+    /// key is — and so a remedy only ever hands back a key it has checked.</para></summary>
+    string? KeyShapeError(FieldSchema field, string ownerName, string segName, string key) => field.Cardinality switch
+    {
+        "list" when !WriteEngine.IsValidListIndexValue(key) =>
+            $"List '{segName}' on '{ownerName}' must be indexed by a non-negative integer; got '{key}'.",
+        "dict" => CheckValue(field.KeyType, key, $"dict key for '{segName}'", DictKeyType(field)?.AssemblyQualifiedName),
+        _ => null,
+    };
 
     /// <summary>What to do about a field the over-arms search refused to pick an arm for. The refusal genuinely
     /// cannot name the arm — that is what it is declining to guess — but when the caller is standing inside a
     /// collection element the WORKING call is a corpus fact the walk already has, so it is named: the container's
     /// path, the caller's own key, and the verbs that shape takes. Without a bracketed hop there is no container to
-    /// name, so it states the rule instead.</summary>
+    /// name, so it states the rule instead.
+    /// <para>The verbs are the PLACING-one filter, not the keyed one: this sentence promises to write the whole
+    /// element in one call, and <see cref="WriteVerbs.HowToAddress"/> would answer it with Remove — a verb that
+    /// composes nothing and deletes the element the caller came to edit. <see cref="WriteVerbs.HowToPlaceOne"/> is
+    /// the filter that matches the sentence.</para></summary>
     string ElementRemedy(ElementHop? elementHop) =>
         elementHop is { } h && WriteVerbs.OfField(h.Field, _corpus) is { } shape
             ? $"Read the element to learn its concrete arm, then write the whole element in one call, composing that " +
-              $"arm: field_path='{h.Path}', key='{h.Key}' — {WriteVerbs.HowToAddress(shape)}."
+              $"arm: {h.Slot}='{h.Path}', key='{h.Key}' — {WriteVerbs.HowToPlaceOne(shape)}."
             : "Read the element first to learn its concrete arm, then target a field whose shape is unambiguous.";
 
     string FieldNotFound(TypeSchema owner, string name)
