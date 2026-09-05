@@ -301,16 +301,28 @@ public static class ReadEngine
             var nav = NavigateValue(record, path);
             if (!nav.ok) return (null, nav.note);
             if (nav.val is null) return (null, AbsentNote);
+            return LinksIn(nav.val, string.Join(".", path));
+        }
+        catch (Exception ex) { return (null, $"(unreadable: {ex.Message})"); }
+    }
+
+    /// <summary>The link-shape half of <see cref="CollectLinksAt"/>, over a value already navigated to — so a
+    /// quantified step can read the links of one list ELEMENT with exactly the same reading the whole-field form
+    /// gives. <paramref name="display"/> only names the value in a miss note.</summary>
+    internal static (List<FormKey>? Links, string? Note) LinksIn(object value, string display)
+    {
+        try
+        {
             var keys = new List<FormKey>();
             var seen = new HashSet<FormKey>();
             void Add(FormKey fk) { if (!fk.IsNull && seen.Add(fk)) keys.Add(fk); }
-            switch (nav.val)
+            switch (value)
             {
                 case IFormLinkGetter link:
                     Add(link.FormKey);
                     break;
                 case string:
-                    return (null, $"(no links: '{string.Join(".", path)}' is a string, not a link-bearing field)");
+                    return (null, $"(no links: '{display}' is a string, not a link-bearing field)");
                 case System.Collections.IEnumerable list:
                     foreach (var item in list)
                     {
@@ -323,11 +335,20 @@ public static class ReadEngine
                     foreach (var l in sub.EnumerateFormLinks()) Add(l.FormKey);
                     break;
                 default:
-                    return (null, $"(no links: '{string.Join(".", path)}' is not a link-bearing field)");
+                    return (null, $"(no links: '{display}' is not a link-bearing field)");
             }
             return (keys, null);
         }
         catch (Exception ex) { return (null, $"(unreadable: {ex.Message})"); }
+    }
+
+    /// <summary>Navigate a path READ-ONLY to its live value — the quantified step's fan-out source. Same walk
+    /// <see cref="ReadLeaf"/> makes, yielding the object, its owning parent, and the miss note in the leaf-note
+    /// vocabulary callers already classify.</summary>
+    internal static (bool Ok, object? Value, object Parent, string? Note) NavigateTo(object record, string[] path)
+    {
+        var nav = NavigateValue(record, path);
+        return (nav.ok, nav.val, nav.parent, nav.note);
     }
 
     /// <summary>A "no such field" note that, when the owner is a collection, points the caller at bracket
