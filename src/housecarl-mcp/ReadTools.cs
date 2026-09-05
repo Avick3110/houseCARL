@@ -779,7 +779,7 @@ static class Wire
         // refused, and which registered ones were never asked, with the spelling that gets them.
         sb.Append(o.ScopeSentence()).Append('\n');
         // The order this whole call answered from was short of plugins — a response-level fact, so it is stated
-        // here rather than per family: the dialogue family carries no epoch and would otherwise be silent (#353).
+        // here once rather than left to whichever families ran (#353).
         if (o.OrderExcluded.Count > 0)
             sb.Append(OrderDegraded.Sentence(o.OrderExcluded)).Append('\n');
 

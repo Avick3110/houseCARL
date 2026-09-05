@@ -96,9 +96,9 @@ public sealed class DegradedOrderMarkerTests
         Assert.Contains("load FAILURE", text);
     }
 
-    /// <summary>A DIALOGUE-ONLY check. That family carries no epoch by design, so before the root marker existed
-    /// this response was silent about an order missing a plugin on both transports — the failure #353 exists to
-    /// end. Its seeds resolve to nothing here, which is a family refusal, not a reason to drop the marker.</summary>
+    /// <summary>A DIALOGUE-ONLY check. Before the root marker existed this response was silent about an order missing
+    /// a plugin on both transports — the failure #353 exists to end. Its seeds resolve to nothing here, which is a
+    /// family refusal, not a reason to drop the marker.</summary>
     [Fact]
     public void ADialogueOnlyCheckStillSaysTheOrderLostPlugins()
     {

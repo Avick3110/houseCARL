@@ -48,10 +48,9 @@ internal sealed record CheckSweep(
 
     /// <summary>The plugins the order this call answered from had LOST to a load failure, captured once before any
     /// family was dispatched and checked afterwards against every family's own stamp, so this really is the build
-    /// the whole response describes. A response-level fact, not a family's: the dialogue family carries no epoch by design
-    /// (see <see cref="DialogueCheckResult"/>), so a dialogue-only call has no family stamp to hang it off and would
-    /// otherwise be silent about an order missing plugins (#353). Empty on a healthy order and on a call refused
-    /// before the order was read.</summary>
+    /// the whole response describes. A response-level fact, not a family's: it is one claim about the build every
+    /// family read, so it is stated once at the root rather than assembled from whichever families happened to run
+    /// (#353). Empty on a healthy order and on a call refused before the order was read.</summary>
     internal IReadOnlyList<string> OrderExcluded => Order?.ExcludedPlugins ?? Array.Empty<string>();
 
     /// <summary>Does this family have a result to render?</summary>
