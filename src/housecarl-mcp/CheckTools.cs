@@ -168,8 +168,7 @@ public static class CheckTools
         // for an answer that is identical both times — and the two cannot disagree about which names resolved.
         var offOrderMemo = new SweepOffOrderMemo();
         // The order every family below answers from, captured once so the response root can say whether it had lost
-        // plugins — the dialogue family carries no epoch, so this is the only lane that can state it for a
-        // dialogue-only call (#353).
+        // plugins once for the whole call, rather than leaving the fact to whichever families ran (#353).
         var order = svc.CaptureView().Stamp;
         ErrorCheckResult? errors = null;
         ScriptCheckResult? scripts = null;

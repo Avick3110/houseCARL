@@ -50,7 +50,7 @@ static class JsonWire
     }
 
     /// <summary>The marker on its own, for a document that states it at the ROOT rather than beside an epoch — the
-    /// merged check, whose dialogue family carries no epoch to hang it off. Silent on a healthy order.</summary>
+    /// merged check, which states it once for every family it ran. Silent on a healthy order.</summary>
     static void WriteOrderDegraded(Utf8JsonWriter w, IReadOnlyCollection<string>? excluded)
     {
         if (excluded is not { Count: > 0 }) return;

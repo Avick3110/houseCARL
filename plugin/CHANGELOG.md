@@ -26,8 +26,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
   beside the epoch, never inside it, so two builds that differ only in health still compare as different builds.
   A healthy order carries nothing. The sentence names up to ten plugins and counts the rest —
   `housecarl_load_order_status` lists them all. `housecarl_check` states the sentence once, at the top of the
-  response, so a dialogue-only check — the one family that carries no epoch — says it too; each swept family
-  carries the flag and the plugin count beside its own `epoch`, the same fact its text head states.
+  response, so a dialogue-only check says it too; each family carries the flag and the plugin count beside its own
+  `epoch`, the same fact its text head states.
 - **`housecarl_records` walks the reverse direction to any depth.** `walk={"direction":"reverse","depth":N}`
   under a reading form now answers "what points at the seeds, and what points at that" — every link at every
   hop, off the reverse-reference index, with no bounding `types=`/`plugins=` scope; the depth>1 refusal is gone.
