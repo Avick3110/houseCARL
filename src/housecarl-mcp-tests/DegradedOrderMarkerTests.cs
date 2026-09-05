@@ -11,8 +11,8 @@ namespace HousecarlMcpTests;
 /// build.
 ///
 /// <para>The PR's claim is about every stamped lane, so there is a case per lane: the record read, the scan, the
-/// merged check's per-family heads, the check ROOT (which a dialogue-only call is the only lane to reach), and the
-/// write lane's dry run.</para></summary>
+/// merged check's per-family heads — the dialogue family's among them, on a seed that resolves — the check ROOT
+/// (which a dialogue-only call is the only lane to reach), and the write lane's dry run.</para></summary>
 [Collection("epoch")]
 [Trait("tier", "integration")]
 public sealed class DegradedOrderMarkerTests
@@ -107,6 +107,27 @@ public sealed class DegradedOrderMarkerTests
 
         var text = CheckTools.CheckTool(Svc, findings: new[] { "dialogue" }, seeds: new[] { Fid });
         Assert.Contains("load FAILURE", text);
+    }
+
+    /// <summary>A dialogue call whose seed RESOLVES, so the family renders a head instead of refusing. The head is the
+    /// lane the sibling families are asserted on above, and the one the refusal case cannot reach: it stamps its own
+    /// `epoch`, so it has to carry the flag and the count beside it on json and the clause beside `epoch=` on text.
+    /// </summary>
+    [Fact]
+    public void TheDialogueFamilyHeadCarriesTheMarkerBesideItsOwnStamp()
+    {
+        var seed = $"{W.View.ID:X6}:{W.View.ModKey.FileName}";
+
+        var json = CheckTools.CheckTool(Svc, findings: new[] { "dialogue" }, seeds: new[] { seed }, format: "json");
+        var fam = JsonDocument.Parse(json).RootElement.GetProperty("families").GetProperty("dialogue");
+        Assert.False(string.IsNullOrEmpty(fam.GetProperty("epoch").GetString()));
+        Assert.True(fam.GetProperty("order_degraded").GetBoolean());
+        Assert.Equal(1, fam.GetProperty("order_degraded_plugins").GetInt32());
+        // The sentence stays the root's alone, as it does on the errors family.
+        Assert.False(fam.TryGetProperty("order_degraded_note", out _));
+
+        var text = CheckTools.CheckTool(Svc, findings: new[] { "dialogue" }, seeds: new[] { seed });
+        Assert.Contains($"epoch={Svc.Stats().epoch} · {Clause}", text);
     }
 
     /// <summary>The write lane, on a dry run so the shared world is not touched. A write's stamp is what tells a
