@@ -904,6 +904,12 @@ public sealed class LoadOrderResolver : IDisposable
         public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk, Type? getterType = null)
             => _r.GetRecord(session, pluginName, fk, _s, getterType);
 
+        /// <summary>Many records from ONE plugin in ONE enumeration (<see cref="LoadOrderResolver.CollectRecords"/>),
+        /// judged against THIS view's build.</summary>
+        public void CollectRecords(OverlaySession session, string pluginName, IReadOnlyCollection<FormKey> wanted,
+                                   IReadOnlyList<Type>? getterTypes, IDictionary<FormKey, IMajorRecordGetter> sink)
+            => _r.CollectRecords(session, pluginName, wanted, getterTypes, sink, _s);
+
         /// <summary>The master filenames a plugin DECLARES in its header (the master table), in declared order — opens
         /// the overlay, reads the header, disposes — the header parses without enumerating records. Throws
         /// on a name not in the order or excluded this build. The integrity sweep diffs this against the masters a
@@ -1040,6 +1046,45 @@ public sealed class LoadOrderResolver : IDisposable
         catch (Exception ex) { throw new PluginUnreadableException(_names[idx], ex); }
         try { return ov.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList(); }
         finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    /// <summary>The bodies ONE plugin holds for a KNOWN set of FormKeys, gathered in a SINGLE enumeration of that
+    /// plugin and written into <paramref name="sink"/>. The counterpart of <see cref="GetRecord"/> for the case where
+    /// the caller wants many records from the same plugin: <see cref="GetRecord"/> costs one walk per record, so N of
+    /// them cost N walks (#251), while this costs one walk however many are wanted, and stops as soon as it has them
+    /// all. <paramref name="getterTypes"/> narrows the walk to the GRUPs those types live in when the caller knows
+    /// them; a typed walk that finds none of the wanted keys falls back to the flat one for the same reason
+    /// <see cref="SeekBody"/> does. A key this plugin does not hold is simply absent from the sink.</summary>
+    public void CollectRecords(OverlaySession session, string pluginName, IReadOnlyCollection<FormKey> wanted,
+                               IReadOnlyList<Type>? getterTypes, IDictionary<FormKey, IMajorRecordGetter> sink)
+        => CollectRecords(session, pluginName, wanted, getterTypes, sink, _snap);
+
+    void CollectRecords(OverlaySession session, string pluginName, IReadOnlyCollection<FormKey> wanted,
+                        IReadOnlyList<Type>? getterTypes, IDictionary<FormKey, IMajorRecordGetter> sink, IndexSnapshot s)
+    {
+        if (wanted.Count == 0) return;
+        if (!_nameToIdx.TryGetValue(pluginName, out int idx)) return;
+        if (s.Excluded.Contains(idx)) return;                              // excluded plugin — never re-enumerate it (would re-throw)
+        var ov = session.Overlay(idx);
+        var want = wanted as HashSet<FormKey> ?? new HashSet<FormKey>(wanted);
+        int got = 0;
+        if (getterTypes is { Count: > 0 })
+        {
+            foreach (var t in getterTypes)
+                foreach (var rec in ov.EnumerateMajorRecords(t, throwIfUnknown: false))
+                    if (want.Contains(rec.FormKey) && !sink.ContainsKey(rec.FormKey))
+                    {
+                        sink[rec.FormKey] = rec;
+                        if (++got == want.Count) return;
+                    }
+            if (got > 0) return;                                           // the typed walk routed; what it did not find, this plugin does not hold
+        }
+        foreach (var rec in ov.EnumerateMajorRecords())
+            if (want.Contains(rec.FormKey) && !sink.ContainsKey(rec.FormKey))
+            {
+                sink[rec.FormKey] = rec;
+                if (++got == want.Count) return;
+            }
     }
 
     /// <summary>Fetch one record body from one overlay by re-enumerating it into the session. Throws if the overlay

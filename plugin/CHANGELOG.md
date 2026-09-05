@@ -169,6 +169,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
   None-property diagnostics read it), and the list's own header keeps its true count. Under `format='json'` a row
   is one entry carrying its folded leaves as `cells`, each with its own value, `link` and count — the values are
   never handed over as a sentence to parse.
+- **A broad `where_source=winner` scan is no longer slower the more records it considers.** Deciding the match on
+  the live winner used to re-read each candidate's winner by walking that plugin's whole record list, once per
+  candidate, so a post-patch audit over a large master could spend minutes doing nothing but re-reading. The
+  winner bodies are now gathered a plugin at a time — one pass per winner plugin however many of its records are
+  wanted — so the cost is bounded by the load order instead of by the number of candidates. On a synthetic order
+  of one 19.2k-record master and nine plugins, an audit of every record the master touches went from 165 s to
+  51 s, which is what the same scan costs with `where_source` left at its default. Same matches, same rows.
+
 - **Reading a cell's `Persistent`/`Temporary` — or a topic's `Responses`, or a worldspace's `SubCells` — now
   states the additive union the game assembles, not just the read body's own list.** These children are declared
   per plugin and the engine assembles a parent's from every plugin that declares any, so a cell whose winner is

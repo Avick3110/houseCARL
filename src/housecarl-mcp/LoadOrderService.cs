@@ -4202,8 +4202,26 @@ public sealed class LoadOrderService : IDisposable
                         return w is null ? null : view.GetRecord(winnerSession!, w.Value.WinnerPlugin, fk);
                     }
                     : null);
+            // where_source=winner needs one body per CANDIDATE, not per record in the order, and fetching them one
+            // at a time is a whole-overlay walk each (#251). The candidate keys are settled by the index-only
+            // filters below, so they are collected in a pre-pass that touches no body, and the winner bodies are
+            // then gathered by plugin — one enumeration per distinct winner plugin, so the whole fetch is bounded
+            // by the order rather than by the candidate count.
+            Dictionary<FormKey, IMajorRecordGetter>? winnerBodies = null;
             try
             {
+                if (whereWinnerActive)
+                {
+                    var candidates = new HashSet<FormKey>();
+                    foreach (var (fk, depth, _, _) in view.RecordsIn(plugins!, types))
+                    {
+                        if (setFilter is not null && !setFilter.Contains(fk)) continue;
+                        if (conflictsOnly && depth <= 1) continue;
+                        if (definedIn && !scopedModKeys!.Contains(fk.ModKey)) continue;
+                        candidates.Add(fk);
+                    }
+                    winnerBodies = WinnerBodies.For(view, winnerSession!, candidates, types);
+                }
                 // Carry the source plugin per record so the render shows the body the scan filtered rather than the
                 // winner: plugins= gives the scoped plugin's filename, type= gives null, meaning the winner.
                 IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string? source)> stream =
@@ -4231,14 +4249,11 @@ public sealed class LoadOrderService : IDisposable
                         IMajorRecordGetter filterBody = body;
                         if (whereWinnerActive)
                         {
-                            var w = view.ResolveWinner(fk);
-                            if (w is null) continue;                              // the key came from the order, so a winner must exist; defensive
-                            var wb = view.GetRecord(winnerSession!, w.Value.WinnerPlugin, fk);
-                            if (wb is null)
+                            if (!winnerBodies!.TryGetValue(fk, out var wb))
                             {
                                 unscannable++;
                                 if (unscannableSamples.Count < 3)
-                                    unscannableSamples.Add($"{fk} — winner '{w.Value.WinnerPlugin}' did not yield the record on winner-source re-fetch");
+                                    unscannableSamples.Add($"{fk} — winner '{view.ResolveWinner(fk)?.WinnerPlugin ?? "?"}' did not yield the record on winner-source re-fetch");
                                 continue;
                             }
                             filterBody = wb;
