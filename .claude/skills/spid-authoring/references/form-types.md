@@ -50,9 +50,21 @@ Keyword = MyVerySpecialKeyword
 
 A keyword created this way is a **dynamic form: it has no owning plugin, so there is no plugin FormID
 to reference it by** — no `0x…~Plugin.esp` exists for it and xEdit will never show it. It is still
-reachable by name, because SPID pushes the new keyword into the game's `BGSKeyword` form array, which
-is what SKSE's `Keyword.GetKeyword("<name>")` looks up. **[source]** (`SPID/src/FormData.h`, the
-`kCreateIfMissing` branch — creates the form via `IFormFactory` and sets its `formEditorID`.)
+reachable by name, and both halves of that are read from source:
+
+- SPID pushes the new keyword into the data handler's `BGSKeyword` form array. **[source]**
+  (`SPID/src/FormData.h`, the `kCreateIfMissing` branch — creates the form via `IFormFactory`, sets
+  its `formEditorID`, and `push_back`s it onto the array.)
+- SKSE's `Keyword.GetKeyword("<name>")` resolves a name against that same array. **[source]**
+  (`ianpatt/skse64`, `skse64/PapyrusKeyword.cpp` — `GetKeyword` walks `DataHandler::keywords` into a
+  `BSFixedString → BGSKeyword*` map keyed on each keyword's string, then looks the name up in it.)
+
+**One caveat that comes with that SKSE code:** the map is built once, lazily, on the first
+`GetKeyword` call of the session, and is never invalidated (the invalidation branch is commented out
+in SKSE's source). Anything added to the keyword array *after* that first call is not found for the
+rest of the session. SPID creates its keywords during form lookup at `kDataLoaded`, before any Papyrus
+runs, so a SPID keyword is in the array before the cache is built — but this is the one way a by-name
+lookup can return `None` for a keyword that genuinely exists.
 
 This is the idiom behind keyword-tagging NPCs for other frameworks/mods to react to. (Recall from
 grammar-core §3 that Keywords distribute first and are topo-sorted, so a dynamically-created keyword
