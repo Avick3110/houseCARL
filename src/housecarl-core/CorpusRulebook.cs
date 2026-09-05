@@ -56,6 +56,45 @@ public sealed class CorpusRulebook
     public int TypeCount => _corpus.TotalTypes;
     public TypeSchema? Type(string name) => _corpus.Types.GetValueOrDefault(name);
 
+    /// <summary>The record types a scope token names — a catalog name, a 4-char signature, or a polymorphic-base
+    /// whose arms are records. Empty where the token names none, which is never a refusal here: the caller's own
+    /// type resolution has already refused an unknown type.</summary>
+    public IReadOnlyList<TypeSchema> RecordTypesNamed(string token)
+    {
+        var t = token.Trim();
+        var hits = new List<TypeSchema>();
+        foreach (var ts in _corpus.Types.Values)
+        {
+            if (ts.Kind == "record"
+                && (string.Equals(ts.Name, t, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(ts.Signature, t, StringComparison.OrdinalIgnoreCase)))
+                hits.Add(ts);
+            else if (ts.Kind == "polymorphic-base" && ts.Arms is { Count: > 0 } arms
+                     && string.Equals(ts.Name, t, StringComparison.OrdinalIgnoreCase))
+                foreach (var arm in arms)
+                    if (Type(arm) is { Kind: "record" } a && !hits.Contains(a)) hits.Add(a);
+        }
+        return hits;
+    }
+
+    /// <summary>The cardinality the schema gives one step of a read path, rooted at <paramref name="root"/> — "list",
+    /// "dict", "substruct", "value", and so on. Null where the schema cannot say (a hop it cannot descend, a field it
+    /// does not know, a polymorphic disagreement), which a caller must read as "no answer", never as a refusal.</summary>
+    public string? StepCardinality(TypeSchema root, IReadOnlyList<string> path, int index)
+    {
+        var current = root;
+        for (int i = 0; i < index; i++)
+        {
+            var hop = FindField(current, path[i], out _, out var hopErr);
+            if (hop is null || hopErr is not null) return null;
+            if (hop.Cardinality is not ("substruct" or "polymorphic") || hop.TypeRef is not { } tr) return null;
+            if (Type(tr) is not { } next) return null;
+            current = next;
+        }
+        var field = FindField(current, path[index], out _, out var err);
+        return err is null ? field?.Cardinality : null;
+    }
+
     /// <summary>The ONE source of truth for where corpus.json lives — every corpus read in the core
     /// resolves through it. Defaults to the dev-harness location ("generated/corpus.json", relative to
     /// the CWD, which is the repo root when the harness runs). The MCP server is launched by MO2 from an

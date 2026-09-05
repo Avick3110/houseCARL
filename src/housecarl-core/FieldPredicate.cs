@@ -177,6 +177,34 @@ public sealed class FieldPredicateSet
     /// <summary>Candidate bodies tested so far — the denominator the accounting reports against.</summary>
     public long Scanned => _scanned;
 
+    /// <summary>One quantified step of one predicate: the segments of the side it sits on, which one carries the
+    /// fold, how it is spelled, and the predicate's own text for the message. A scan with a NAMED type scope walks
+    /// these against the schema, so "that step is not a list on this type" refuses the call rather than becoming a
+    /// whole-scan accounting note.</summary>
+    public readonly record struct QuantifiedStep(IReadOnlyList<string> Path, int Index, string Token, string Text);
+
+    /// <summary>Every quantified step in the set, both sides of a <c>-&gt;</c> included.</summary>
+    public IReadOnlyList<QuantifiedStep> QuantifiedSteps
+    {
+        get
+        {
+            var steps = new List<QuantifiedStep>();
+            foreach (var p in _predicates)
+            {
+                Collect(p.LinkPath, p.LinkFolds, p);
+                Collect(p.PathSegments, p.PathFolds, p);
+            }
+            return steps;
+
+            void Collect(string[]? segs, Fold[]? folds, Predicate p)
+            {
+                if (segs is null || folds is null) return;
+                for (int i = 0; i < segs.Length && i < folds.Length; i++)
+                    if (folds[i] != Fold.None) steps.Add(new QuantifiedStep(segs, i, FoldToken(folds[i]), p.Text));
+            }
+        }
+    }
+
     // ======================================================================
     //  PARSE — "<path> <op> <value>", longest-match the operator.
     //  The path is dotted/bracketed identifiers (no whitespace, no operator

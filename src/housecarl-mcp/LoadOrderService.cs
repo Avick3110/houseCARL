@@ -4026,6 +4026,9 @@ public sealed class LoadOrderService : IDisposable
         }
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }   // unknown type
 
+        if (predicate is not null && hasType && QuantifierShapeRefusal(typeSet!, predicate) is { } qerr)
+            return CrossQueryOutcome.Fail(qerr) with { Epoch = view.Epoch };
+
         var keys = new List<FormKey>();
         var sources = new List<string?>();                                    // parallel to keys: the plugin whose body matched (null ⇒ winner), so the render displays the SAME body it filtered
         List<string?>? matched = multiTarget ? new() : null;                  // parallel to keys: which target(s) each hit referenced (multi-target references= un-merge); null when 0/1 target
@@ -4318,6 +4321,36 @@ public sealed class LoadOrderService : IDisposable
                  UnreadPlugins = unreadablePlugins.Select(u => u.PluginName).ToList() };
     }
 
+    /// <summary>The schema's answer to a quantifier on a step that is not a list: a refusal sentence naming the
+    /// step's real cardinality, or null. Only a NAMED type scope can be asked — the schema decides per record type,
+    /// so an unscoped or mixed scan keeps the per-record accounting as its backstop — and the refusal lands only
+    /// where the step is a non-list on EVERY named type, so a union arm that does hold a list still runs.</summary>
+    string? QuantifierShapeRefusal(IReadOnlyList<string> typeTokens, FieldPredicateSet predicate)
+    {
+        var schemas = new List<TypeSchema>();
+        foreach (var token in typeTokens)
+            foreach (var ts in Rulebook.RecordTypesNamed(token))
+                if (!schemas.Contains(ts)) schemas.Add(ts);
+        if (schemas.Count == 0) return null;
+
+        foreach (var step in predicate.QuantifiedSteps)
+        {
+            var whatItIs = new List<string>();
+            foreach (var ts in schemas)
+            {
+                var card = Rulebook.StepCardinality(ts, step.Path, step.Index);
+                if (card is null) return null;              // the schema cannot say — the runtime accounting answers
+                if (card == "list") { whatItIs.Clear(); break; }
+                whatItIs.Add($"a {card} on {ts.Name}");
+            }
+            if (whatItIs.Count == 0) continue;
+            return $"predicate '{step.Text}': '{step.Path[step.Index]}{step.Token}' quantifies a step that is not a list — " +
+                   $"it is {string.Join(", ", whatItIs.Take(3))}{(whatItIs.Count > 3 ? $", and {whatItIs.Count - 3} more" : "")}. " +
+                   "Drop the quantifier, or point it at a list-valued field.";
+        }
+        return null;
+    }
+
     /// <summary>The negated references= test: true when this body links to ANY excluded target, so the scan drops
     /// it. A record that carries no links at all references nothing and is kept — that is the whole point of the
     /// term, and a DELETED record (no live body to read links from) is the strongest case of it, so it is kept
@@ -4386,6 +4419,9 @@ public sealed class LoadOrderService : IDisposable
             else types = null;
         }
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }
+
+        if (predicate is not null && typeSet is { Count: > 0 } && QuantifierShapeRefusal(typeSet, predicate) is { } qerr)
+            return CrossQueryOutcome.Fail(qerr) with { Epoch = view.Epoch };
 
         var scopeSet = scopePlugins is { Count: > 0 }
             ? new HashSet<string>(scopePlugins.Select(p => p.Trim()), StringComparer.OrdinalIgnoreCase)
