@@ -49,9 +49,11 @@ public static class CopyTools
          "resolves whether that plugin is active OR sitting on disk in a DISABLED mod. Naming several is how you " +
          "read a look from an override patch while its records come from the defining plugin: " +
          "from_source=['Override.esp','Donor.esp']. This is FALLBACK, never a merge — a record present in several " +
-         "sources comes from the FIRST, and the result names which source produced each record — and, for each " +
-         "source, the MO2 MOD FOLDER it was read from, which is the name to pass as the provider when you place " +
-         "that record's files (its FaceGen, say) with " + ToolNames.Place + ". A record no source " +
+         "sources comes from the FIRST, and the result names which source produced each record — and, for a source " +
+         "that resolved into an MO2 MOD FOLDER (active or disabled), that folder, which is the name to pass as the " +
+         "provider when you place that record's files (its FaceGen, say) with " + ToolNames.Place + ". A source " +
+         "with no such folder — the 'winner' pole, MO2's overwrite, the game's Data folder, a file outside all of " +
+         "them — says so instead, so you never have to invent a folder name. A record no source " +
          "has is refused, naming every source consulted. ('winner' is the bare word: plugin names always carry an " +
          "extension, so the two can never collide. 'previous_provider' is refused here — it is relative to a " +
          "subject plugin, and a walk reaching records through links has no subject for it to be relative to.)\n\n" +
