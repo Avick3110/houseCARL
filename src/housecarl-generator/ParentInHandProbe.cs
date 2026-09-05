@@ -173,32 +173,39 @@ static class ParentInHandProbe
     {
         public long Contexts, WithParent, ParentIsRecord, Reparented;
         public readonly Dictionary<ulong, ulong> Map = new();
-        // childType -> parentType, or "(no parent)" / "(parent chain holds no record)" — what the walk hands over.
+        // Filled in Finish. "ChildType -> ParentType" for the rows staged into Map, "(no parent)" /
+        // "(parent chain holds no record)" for the rows that were not.
         public readonly Dictionary<string, long> Edges = new(StringComparer.Ordinal);
+        public readonly Dictionary<string, long> NonEdges = new(StringComparer.Ordinal);
         readonly Dictionary<ModKey, int> _mods = new();
-        // First parent seen per child. Bookkeeping for the re-parent count, dropped in Finish so the reported
-        // memory is the packed map alone.
-        Dictionary<ulong, ulong>? _first = new();
+        // The by-type histogram, keyed on TYPE REFERENCES while the clock runs — a string key per context costs an
+        // allocation and two string hashes each, which on this order is a large fraction of the difference being
+        // measured. The keys are spelled in Finish, after the stopwatch has stopped.
+        readonly Dictionary<(Type Child, Type? Parent, int Hops), long> _shapes = new();
+        // Every staged edge in plugin order, so the re-parent count is DERIVED in Finish rather than maintained by a
+        // second dictionary write per edge inside the timed region. Dropped in Finish, before memory is read.
+        List<(ulong Child, ulong Parent)>? _order = new();
 
         public void Plugin(ISkyrimModGetter ov)
         {
             long contexts = 0, withParent = 0, parentIsRecord = 0;
-            var edges = new Dictionary<string, long>(StringComparer.Ordinal);
+            var shapes = new Dictionary<(Type, Type?, int), long>();
             var staged = new List<(FormKey Child, FormKey Parent)>();
-            void Bump(string k) => edges[k] = edges.GetValueOrDefault(k) + 1;
+            void Bump(Type child, Type? parent, int hops) =>
+                shapes[(child, parent, hops)] = shapes.GetValueOrDefault((child, parent, hops)) + 1;
 
             foreach (var c in ov.EnumerateMajorRecordContexts())
             {
                 contexts++;
-                var child = Short(c.Record.GetType());
+                var child = c.Record.GetType();
                 var parent = (c as IModContext)?.Parent;
-                if (parent is null) { Bump($"{child} -> (no parent)"); continue; }
+                if (parent is null) { Bump(child, null, NoParent); continue; }
                 withParent++;
                 if (parent.Record is IMajorRecordGetter pr)
                 {
                     parentIsRecord++;
                     staged.Add((c.Record.FormKey, pr.FormKey));
-                    Bump($"{child} -> {Short(pr.GetType())}");
+                    Bump(child, pr.GetType(), 0);
                 }
                 else
                 {
@@ -210,34 +217,55 @@ static class ParentInHandProbe
                     {
                         parentIsRecord++;
                         staged.Add((c.Record.FormKey, anc.FormKey));
-                        Bump($"{child} -> {Short(anc.GetType())} (via {hops} group hop(s))");
+                        Bump(child, anc.GetType(), hops);
                     }
-                    else Bump($"{child} -> (parent chain holds no record)");
+                    else Bump(child, null, NoRecordInChain);
                 }
             }
 
             Contexts += contexts;
             WithParent += withParent;
             ParentIsRecord += parentIsRecord;
-            foreach (var kv in edges) Edges[kv.Key] = Edges.GetValueOrDefault(kv.Key) + kv.Value;
-            foreach (var (child, parent) in staged) Put(child, parent);
+            foreach (var kv in shapes) _shapes[kv.Key] = _shapes.GetValueOrDefault(kv.Key) + kv.Value;
+            foreach (var (child, parent) in staged)
+            {
+                var ck = Pack(child); var pk = Pack(parent);
+                _order!.Add((ck, pk));
+                Map[ck] = pk;
+            }
         }
 
-        // Does a LATER plugin ever leave the same child under a DIFFERENT parent? That is what decides whether one
-        // whole-order map is well-defined or the map has to be per-plugin. Counted as DISTINCT children whose final
-        // parent differs from the first one seen — not as overwrite events, which double-count a child moved twice
-        // and count a child moved away and back as two.
-        void Put(FormKey child, FormKey parent)
-        {
-            var ck = Pack(child); var pk = Pack(parent);
-            _first!.TryAdd(ck, pk);
-            Map[ck] = pk;
-        }
+        // Sentinel hop counts for the two shapes that stage nothing into Map, so one histogram carries every context.
+        const int NoParent = -1, NoRecordInChain = -2;
 
         public void Finish()
         {
-            Reparented = _first!.Count(kv => Map[kv.Key] != kv.Value);
-            _first = null;
+            // Does a LATER plugin ever leave the same child under a DIFFERENT parent? That is what decides whether one
+            // whole-order map is well-defined or the map has to be per-plugin. Counted as DISTINCT children whose final
+            // parent differs from the first one seen — not as overwrite events, which double-count a child moved twice
+            // and count a child moved away and back as two.
+            var first = new Dictionary<ulong, ulong>(Map.Count);
+            foreach (var (child, parent) in _order!) first.TryAdd(child, parent);
+            Reparented = first.Count(kv => Map[kv.Key] != kv.Value);
+            _order = null;
+
+            foreach (var (key, count) in _shapes)
+            {
+                var child = Short(key.Child);
+                if (key.Hops is NoParent or NoRecordInChain)
+                {
+                    var nk = key.Hops == NoParent ? $"{child} -> (no parent)" : $"{child} -> (parent chain holds no record)";
+                    NonEdges[nk] = NonEdges.GetValueOrDefault(nk) + count;
+                }
+                else
+                {
+                    var k = key.Hops == 0
+                        ? $"{child} -> {Short(key.Parent!)}"
+                        : $"{child} -> {Short(key.Parent!)} (via {key.Hops} group hop(s))";
+                    Edges[k] = Edges.GetValueOrDefault(k) + count;
+                }
+            }
+            _shapes.Clear();
         }
 
         ulong Pack(FormKey k)
