@@ -284,6 +284,23 @@ public static class NativePairingProbe
                 && !mixed.Contains("paired only to a DEBUG BUILD") && !mixed.Contains("DEBUG BUILD —"));
             Check("A3i: …and the debug sibling's own line still carries the debug-CRT clause under filter=",
                 Render(mixedData, filter: "MixedUtil").Contains("debug CRT"));
+            // A3j (review finding): the same mix with the clean sibling version-LOCKED and the runtime UNKNOWN, so that
+            // sibling reads VERIFY rather than LOADS. It still implements the class on every machine matching its lock,
+            // so calling the class debug-only would print "loads on THIS machine and nowhere else" over a file that is
+            // simply unresolved — a claim the data does not support.
+            var lockedCleanInfo = new SksePluginReader.SksePluginInfo("Clean.dll", SksePluginReader.SksePluginKind.Modern, true,
+                Ver(independent: false, compat: new[] { "1.5.97" }), null);
+            var lockedMixedData = Data(new[] { Cls("LockedMixedUtil", NativeProvenance.ThirdParty, NativePairingRung.SameMod, "MixedMod", new[]
+            {
+                new NativePairedDll(@"SKSE\Plugins\Dbg.dll", "Dbg.dll", "", "MixedMod", dbgInfo, null),
+                new NativePairedDll(@"SKSE\Plugins\Clean.dll", "Clean.dll", "", "MixedMod", lockedCleanInfo, null),
+            }) }, runtime: null);
+            var lockedMixed = Render(lockedMixedData);
+            Check("A3j: a clean version-LOCKED sibling on VERIFY also keeps the class off the debug-only finding",
+                lockedMixed.Contains("paired healthy (1 class(es))") && lockedMixed.Contains("MixedMod: LockedMixedUtil")
+                && !lockedMixed.Contains("paired only to a DEBUG BUILD") && !lockedMixed.Contains("DEBUG BUILD —"));
+            Check("A3k: …and that sibling's debug line still carries the clause under filter=",
+                Render(lockedMixedData, filter: "LockedMixedUtil").Contains("debug CRT"));
         }
         {
             // Arm A4 (review finding): a version-LOCKED debug build with the runtime unknown lands on VERIFY, and the
