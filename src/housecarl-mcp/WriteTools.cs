@@ -807,19 +807,25 @@ public static class WriteTools
             // Why the flag was not carried, never a bare drop. The REASON is which of the two conditions failed; the
             // REMEDY is a separate question, because compact renumbers every id into the light window and so answers
             // both reasons — until the record count itself overflows that window, which is the only case it cannot
-            // answer. So the reason is written per condition and the remedy per count, and the four combinations each
-            // get the true sentence.
+            // answer. So the reason is written per condition and the remedy per count. The ids-fit condition itself
+            // fails two ways — a donor id already above the ceiling, or a merge with more records than the window
+            // holds — and only the count tells them apart, so the reason reads it too rather than blaming a high
+            // donor id a crowded merge does not have.
             const int lightCapacity = (int)(HousecarlCore.FormIdRange.EslWindowCeiling - HousecarlCore.FormIdRange.EslWindowFloor + 1);
             string window = "0x" + HousecarlCore.FormIdRange.EslWindowFloor.ToString("X3") + "–0x" +
                             HousecarlCore.FormIdRange.EslWindowCeiling.ToString("X3");
+            bool countFits = o.OriginatingRecords <= lightCapacity;
             sb.Append(" carried the LIGHT (ESL) status; ")
               .Append(o.OutputName).Append(" does NOT — it is written as a full plugin and takes a full load-order slot. ")
               .Append(light.Count < o.Donors.Count
                   ? "Not every donor was light (" + light.Count + " of " + o.Donors.Count + " were), and merged content " +
                     "that was never light-legal as a whole cannot be carried as light. "
-                  : "Every donor was light, but not every merged object id landed inside the light window (" + window +
-                    ") — a merge renumbers only what it must, so an id already above the ceiling is kept where it is. ")
-              .Append(o.OriginatingRecords <= lightCapacity
+                  : countFits
+                      ? "Every donor was light, but not every merged object id landed inside the light window (" + window +
+                        ") — a merge renumbers only what it must, so an id already above the ceiling is kept where it is. "
+                      : "Every donor was light, but the donors together define more records than the light window (" +
+                        window + ") holds, so merged ids land outside it. ")
+              .Append(countFits
                   ? "To make it light run " + ToolNames.CompactPlugin + " on '" + o.OutputName + "' (its esl defaults " +
                     "true) — but that renumbers object ids from 0x800 upward, so the ids listed as kept above will move.\n"
                   : ToolNames.CompactPlugin + " cannot make it light either: it renumbers into the same window, and " +
