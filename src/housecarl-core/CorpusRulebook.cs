@@ -314,8 +314,9 @@ public sealed class CorpusRulebook
                    "field deletes that record and every record under it, implicitly and in one call. The list form of " +
                    "this family deletes a child too, but by INDEX — you name which one; there is no such target here. " +
                    "Delete it on the record axis instead, where the record is named: " + ToolNames.Remove +
-                   " with the child's own FormID. (To see which record this is: read the parent at depth=2 — the " +
-                   $"'{leaf.Name}' field shows the child's FormID.)";
+                   " with the child's own FormID, plus the FormIDs of any records that child carries — the delete " +
+                   "refuses until every record it would drop is named. (To see which record this is: read the " +
+                   $"parent at depth=2 — the '{leaf.Name}' field shows the child's FormID.)";
 
         // (3b) record identity (FormKey/ModKey) is a flat, honest reject regardless of Mutagen's setter.
         if (leaf.IsIdentity)

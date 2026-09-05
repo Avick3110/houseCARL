@@ -103,6 +103,23 @@ public sealed class OwnedChildLifecycleDrivenTests
         Assert.Contains("already exists in this patch", again.Error);
     }
 
+    /// <summary>The field-lane refusal sends the caller to the record axis, and a child that carries records of its
+    /// own — a top cell holds the worldspace's persistent references — refuses until those are named too. The
+    /// sentence says so, so the call it names works on the first try.</summary>
+    [Fact]
+    public void TheFieldLaneRemoveRefusalSaysToNameTheRecordsUnderTheChild()
+    {
+        using var w = new OwnedChildWorld();   // stands up the generated corpus this rulebook loads
+        var refusal = CorpusRulebook.Load().Validate(new WriteRequest
+        {
+            RecordType = "Worldspace", Path = new[] { "TopCell" }, Verb = "Remove",
+        });
+
+        Assert.NotNull(refusal);
+        Assert.Contains(ToolNames.Remove, refusal!);
+        Assert.Contains("refuses until every record it would drop is named", refusal);
+    }
+
     /// <summary>The route the rewritten refusals name — parent= plus collection='TopCell' — is reachable from the
     /// tool. It was not: every Cell spec with a parent was intercepted before the slot resolver ran and refused for
     /// a missing grid=.</summary>
