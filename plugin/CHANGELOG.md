@@ -123,11 +123,16 @@ saying it sets an expectation their install may contradict. Say what is known, a
   field's value is unchanged — it is still that body's own list, in its own order, which is what a write
   addresses by index — and the union sits beside it: how many distinct children the order declares, which
   plugins contribute how many, and how much of it this body carries. A child two plugins both declare counts
-  once. In json the union also carries the member FormIDs, so they can be read straight back through
-  `formids=`. A field whose child is SINGULAR (`Cell.Landscape`, `Worldspace.TopCell`) is not a union — those
-  declarers override one record — so it says which plugin's copy is live instead. A plugin whose body could not
-  be read is named beside the union, never absorbed into it. `project={"form":"tree"}` still names which
-  provider declares what.
+  once. In json the union also carries a SAMPLE of the member FormIDs — up to 100, and fewer when `max_chars`
+  is tight, with `members_omitted` counting the rest — so a short union can be read straight back through
+  `formids=` and a long one still says how much it left out. A field whose child is SINGULAR (`Cell.Landscape`,
+  `Worldspace.TopCell`) is not a union — those declarers override one record — so it says which plugin's copy is
+  live instead. A plugin whose body could not be read is named beside the union, never absorbed into it.
+  `project={"form":"tree"}` still names which provider declares what.
+- **The union is stated on reads that NAME the records** — `formids=`, whether one or a batch. A scan
+  (`types=`, `plugins=`, `references=`) discovers its own row count, so opening a body per touching plugin per
+  row would be a cost nobody asked for: a scan still flags such a field, saying other plugins touch the record
+  and their declarations were not read, and names the `formids=` lane that assembles the union.
 - **A record body is now fetched from a named plugin by a typed group seek rather than a scan of the whole
   plugin.** Finding one cell no longer steps over every placed reference in the plugin, which is what makes the
   union above affordable on every read; the conflict tree takes the same path. Measured on a synthetic order of

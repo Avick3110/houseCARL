@@ -29,19 +29,47 @@ record — so the note says which plugin's copy is live instead of adding counts
 The union claims DECLARATION, not liveness: whether a member's own winner is deleted or initially disabled is a
 fact about that child record, and asserting it here would cost one fetch per member.
 
+## Which lanes assemble it
+
+The union costs a body per touching plugin, so it runs only where the CALLER named the records: the single read,
+`batch_record_detail`, and the `records` source pole. Those lanes are handed a formid list, and one
+`LoadOrderService.ChildUnionMemo` per call assembles each record once however many times it is named.
+
+The SCAN lanes — the `cross_plugin_query` detail rows, the dense grid, and the artifact spill of either —
+discover their row count instead of being handed it, so a body per toucher per row is a cost nobody asked for.
+They annotate with the index-only note (`ReadSentences.NotRead`): other plugins touch this record and their
+declarations were not read, plus a clause naming the formids lane that does assemble the union. Annotated either
+way — the field is a false-empty on both — but a scan never claims a quantity it did not compute.
+
 ## What it costs
 
 One body per touching plugin, and only on a read that actually emitted a child-bearing field — a projection
 naming none pays nothing. The bodies are seeked by the record's own type
 (`LoadOrderResolver.IndexView.GetRecord` takes it), which is #354: Mutagen's typed enumeration walks only the
 GRUPs that can hold that type, so finding a cell does not step over the placed references that outnumber it.
-Measured on a #354-shaped synthetic order (one 20k-record master, nine 2k plugins, ten touchers of one cell with
-209 references in its union): the ten bodies cost **80 ms** fetched flat and **4 ms** seeked by type, and the
-whole union read answers in 3.3 ms against 1.0 ms for the same read projecting `EditorID` alone.
 
-That measurement is why the union is the default rather than a second tier. The earlier per-toucher walk was
-withdrawn on a real load order at 27ms -> 588ms for one Dawnstar cell and 21ms -> 1.3s for Tamriel; the typed
-seek is the ceiling those numbers were paying.
+Measured on a #354-shaped synthetic order — one 19.2k-record master and nine ~2k plugins, a worldspace of 200
+exterior cells each carrying 40 placed references, every plugin overriding the worldspace and every cell while
+declaring no references (the #342 shape), so every cell has ten touchers:
+
+| shape | without the union | with |
+|---|---|---|
+| one cell, `fields=["EditorID"]` / `fields=["Temporary"]` | 1.9 ms | 5.7 ms |
+| the worldspace, `fields=["EditorID"]` / `fields=["SubCells"]` (union of 200 cells) | 1.8 ms | 8.8 ms |
+| 200 cells named by `formids=` | — | 1.04 s |
+| the same 200 cells as a `types=["CELL"]` SCAN | 0.24 s (index-only) | not run |
+
+That is what the per-toucher walk was withdrawn over, re-measured. The withdrawal's five numbers were 27ms ->
+588ms for a Dawnstar cell, 21ms -> 1.3s for Tamriel, a worldspace read to 2.5s, 6.3s -> 126s for a 200-cell
+query, and an artifact job that never finished. The typed seek is what the first three were paying: a worldspace
+read here is 8.8 ms, because the seek finds the parent without stepping over the references, and `ChildKeys`
+stops at the cells rather than descending into them. The last two are answered by the lane split rather than by
+the seek — a 200-cell query is a scan, and a scan states the index-only note, so neither it nor the artifact job
+it spills to multiplies the union by N rows. Naming those 200 cells by formid still costs a second, which is one
+body per toucher per named record and is what the caller asked for.
+
+Both numbers are from this synthetic, not from a real load order; the shapes a real order adds are more touchers
+per cell and bigger plugins, both of which the per-toucher cost scales with linearly.
 
 ## The tree form still names WHICH
 
