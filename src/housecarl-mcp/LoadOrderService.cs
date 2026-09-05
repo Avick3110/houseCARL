@@ -1826,6 +1826,18 @@ public sealed class LoadOrderService : IDisposable
             view.Epoch);
     }
 
+    /// <summary>The LOCALIZED header flag of ONE plugin, for housecarl_load_order_status' lookup= (#376): a localized
+    /// plugin's text lives in .STRINGS files rather than in the plugin, which is what the in-place write lanes refuse
+    /// on, so a caller can see that refusal coming instead of meeting it mid-job. Null when the name is not a plugin
+    /// this order resolved to a file; otherwise the three-way read, Unreadable included — never a bool.</summary>
+    public LocalizedFlagRead? PluginLocalizedFlag(string pluginName)
+    {
+        LoadOrderResolver.IndexView view;
+        lock (_gate) { view = Resolver.Capture(); }
+        var path = view.PluginPath(pluginName);
+        return path is null ? null : WriteEngine.PluginIsLocalized(path);
+    }
+
     /// <summary>Read MO2's OWN local Nexus update cache — the modid / version / newestVersion / ignoredVersion /
     /// lastNexusUpdate fields in every managed mod's meta.ini — with NO network (MO2 already paid the API cost). The
     /// cheap local pre-filter for update triage: it names which mods MO2 already learned a newer version for, plus the

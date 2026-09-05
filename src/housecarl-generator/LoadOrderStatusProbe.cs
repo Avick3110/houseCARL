@@ -62,7 +62,7 @@ internal static class LoadOrderStatusProbe
 
             var logs = Array.Empty<LogFolderView>();   // render needs a log list; the log surface is out of scope here
             string Render(LoadOrderService svc, NamedProfileResult profiles, string? profileReq) =>
-                StatusWire.Render(svc.StatusData(), logs, profiles, lookup: null, cap: 80_000);
+                StatusWire.Render(svc.StatusData(), logs, profiles, lookup: null, localized: null, cap: 80_000);
 
             void WriteIni(string inst, string profile, string? baseDir = null)
             {
@@ -250,10 +250,10 @@ internal static class LoadOrderStatusProbe
             {
                 // masterName is "HcLosMaster.esm" — look it up WITHOUT the extension (the bare folder/no-ext case).
                 string noExt = Path.GetFileNameWithoutExtension(masterName);
-                var hit = StatusWire.Render(svc.StatusData(), logs, svc.NamedProfileComposition(null), lookup: noExt, cap: 80_000);
+                var hit = StatusWire.Render(svc.StatusData(), logs, svc.NamedProfileComposition(null), lookup: noExt, localized: svc.PluginLocalizedFlag(noExt), cap: 80_000);
                 Check(hit.Contains("not in the load order") && hit.Contains("Did you mean") && hit.Contains(masterName),
                       $"lookup='{noExt}' (no extension) → the plugin-miss line suggests '{masterName}'");
-                var farMiss = StatusWire.Render(svc.StatusData(), logs, svc.NamedProfileComposition(null), lookup: "ZzzNothingLikeIt.esp", cap: 80_000);
+                var farMiss = StatusWire.Render(svc.StatusData(), logs, svc.NamedProfileComposition(null), lookup: "ZzzNothingLikeIt.esp", localized: svc.PluginLocalizedFlag("ZzzNothingLikeIt.esp"), cap: 80_000);
                 Check(farMiss.Contains("not in the load order") && !farMiss.Contains("Did you mean"),
                       "an unrelated lookup renders the miss with NO suggestion (no spurious 'did you mean')");
             }
