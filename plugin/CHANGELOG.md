@@ -64,7 +64,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   per element instead. Under `format='dense'` the extra rows repeat the record's identity columns, and an
   unquantified column repeats its own cell beside them. `[*any]`/`[*all]`/`[*none]` fold to a boolean, which is not
   a row, and stay refused here by name. A quantifier on a step that is not a list fails that record with one
-  sentence naming the path, what the step actually holds, and the two ways to read it.
+  sentence naming the path, what the step actually holds, and the two ways to read it. An EMPTY list answers with
+  its own summary line under the caller's spelling, so it can never be mistaken for a path that was not asked for,
+  and a read the engine cut short says so beside the shortened rows. Under `format='dense'` a row is keyed by its
+  element index — a sub-path an element does not carry leaves that row's cell empty rather than shifting the next
+  element's value onto it — the ceiling is checked per row, `rows_rendered` counts them, and two different lists in
+  one call are refused by name, since one row cannot be an element of both.
 
 - **`housecarl_asset_status` and `housecarl_place` take `format='json'`.** Both answered text only, so a caller
   reading them from a script parsed prose. The json document carries the same data as the text render: for
