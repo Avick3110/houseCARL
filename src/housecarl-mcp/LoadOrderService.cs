@@ -2309,17 +2309,20 @@ public sealed class LoadOrderService : IDisposable
     /// tallied for one section of a merged response. Deliberately thin — the family's own grammar (seed parse,
     /// cost refusal, seed budget, tally) lives in <see cref="DialogueSweep"/> rather than in this file.</summary>
     public DialogueCheckResult CheckDialogue(IReadOnlyList<string>? seeds, int limit, bool countsOnly = false)
-    {
-        // One resolver and one view for the whole call, the contract the sibling families keep: every seed is validated
-        // against the same build, so the stamp below names the build the response was actually answered from rather
-        // than whichever one the last seed happened to catch.
-        var resolver = Resolver;
-        var view = resolver.Capture();
-        // The seed door is pinned to that same view: a door of its own would capture a second build on the first
-        // runtime FormID, so the seeds could name records from a build other than the one the response stamps.
-        return DialogueSweep.Run(fk => DialogueValidate.Run(resolver, Assets, fk, view),
-                                 FormIdDoor.On(view).Parse, seeds, limit, countsOnly, view.Epoch);
-    }
+        // Bound LAZILY: the sweep calls this only once it has seeds to validate, so a call with no seeds= refuses
+        // without building the index — the rule SweepSharedInput states, and what this family did before it stamped.
+        => DialogueSweep.Run(() =>
+        {
+            // One resolver and one view for the whole call, the contract the sibling families keep: every seed is
+            // validated against the same build, so the stamp names the build the response was actually answered from
+            // rather than whichever one the last seed happened to catch.
+            var resolver = Resolver;
+            var view = resolver.Capture();
+            // The seed door is pinned to that same view: a door of its own would capture a second build on the first
+            // runtime FormID, so the seeds could name records from a build other than the one the response stamps.
+            return new DialogueSweep.Binding(fk => DialogueValidate.Run(resolver, Assets, fk, view),
+                                             FormIdDoor.On(view).Parse, view.Epoch);
+        }, seeds, limit, countsOnly);
 
     /// <summary>The read body, answered entirely off ONE captured view: the excluded-check, the winner and the
     /// touching-plugin list all describe the same build, so a freshness rebuild landing mid-read cannot make a

@@ -1683,32 +1683,42 @@ public static class CheckMergeProbe
     /// <summary>Drive the real <c>DialogueSweep.Run</c> with a stub validator: <c>000A01</c> is a quest owning
     /// <see cref="Topics"/> topics, and every other resolvable seed is a named miss.</summary>
     static DialogueCheckResult DialogueSweep_Run(IReadOnlyList<string>? seeds, int limit)
-        => DialogueSweep.Run(fk => fk.ID == 0x000A01 || fk.ModKey.Name == "A" ? QuestReport(fk)
-                                 : DialogueValidationReport.ForError(fk, "no DIAL, QUST, DLVW or DLBR with this FormID is in the active order"),
-                             PluginQualified, seeds, limit);
+        => DialogueSweep.Run(() => Bind(fk => fk.ID == 0x000A01 || fk.ModKey.Name == "A" ? QuestReport(fk)
+                                 : DialogueValidationReport.ForError(fk, "no DIAL, QUST, DLVW or DLBR with this FormID is in the active order")),
+                             seeds, limit);
+
+    /// <summary>The stub binding every dialogue fixture runs through: the stub validator, the plugin-qualified parse,
+    /// and a FIXED stamp — so the epoch line and its coverage keys are inside every shape the matrix sweeps, at a
+    /// width that does not move between runs.</summary>
+    static DialogueSweep.Binding Bind(Func<FormKey, DialogueValidationReport> validate)
+        => new(validate, PluginQualified, ProbeEpoch);
+
+    /// <summary>A stamp of the width a real one has (16 hex characters), so a shape measured here is the shape a real
+    /// call renders.</summary>
+    const string ProbeEpoch = "7af654ddc8af948e";
 
     /// <summary>A sweep whose every reached seed is a RECORD-LEVEL kind — a DLVW and a DLBR, both passing. Neither
     /// owns an INFO list, so neither runs any of the graph, voice, script or condition checks; what the response
     /// says about them, and what its boundary claims on their behalf, is round-3 finding A1's subject.</summary>
     static DialogueCheckResult RecordLevelFixture()
-        => DialogueSweep.Run(fk => RecordLevelReport(fk, fk.ID == 0x000E01 ? "view" : "branch", Array.Empty<DialogueIssue>()),
-                             PluginQualified, new[] { "000E01:HcCm.esp", "000E02:HcCm.esp" }, 1000);
+        => DialogueSweep.Run(() => Bind(fk => RecordLevelReport(fk, fk.ID == 0x000E01 ? "view" : "branch", Array.Empty<DialogueIssue>())),
+                             new[] { "000E01:HcCm.esp", "000E02:HcCm.esp" }, 1000);
 
     /// <summary>The same two kinds, both FAILING their parity — the other side of the OK line, so an arm asking for
     /// the verdict cannot pass by finding a sentence that is printed either way.</summary>
     static DialogueCheckResult RecordLevelFailingFixture()
-        => DialogueSweep.Run(fk => RecordLevelReport(fk, fk.ID == 0x000E01 ? "view" : "branch",
+        => DialogueSweep.Run(() => Bind(fk => RecordLevelReport(fk, fk.ID == 0x000E01 ? "view" : "branch",
                                        new[] { new DialogueIssue(DialogueIssueSeverity.Problem,
-                                                   "the DNAM byte subrecord the Creation Kit always writes is absent") }),
-                             PluginQualified, new[] { "000E01:HcCm.esp", "000E02:HcCm.esp" }, 1000);
+                                                   "the DNAM byte subrecord the Creation Kit always writes is absent") })),
+                             new[] { "000E01:HcCm.esp", "000E02:HcCm.esp" }, 1000);
 
     /// <summary>A MIXED sweep: one quest that owns topics, one passing DLVW. The family's boundary can take only
     /// one arm and takes the wide one here — true of the response, and not of the view seed, which is why that seed
     /// carries a record-level scope note of its own.</summary>
     static DialogueCheckResult MixedKindFixture()
-        => DialogueSweep.Run(fk => fk.ID == 0x000A01 ? QuestReport(fk)
-                                 : RecordLevelReport(fk, "view", Array.Empty<DialogueIssue>()),
-                             PluginQualified, new[] { "000A01:HcCm.esp", "000E01:HcCm.esp" }, 1000);
+        => DialogueSweep.Run(() => Bind(fk => fk.ID == 0x000A01 ? QuestReport(fk)
+                                 : RecordLevelReport(fk, "view", Array.Empty<DialogueIssue>())),
+                             new[] { "000A01:HcCm.esp", "000E01:HcCm.esp" }, 1000);
 
     /// <summary>The seed parse these probes drive the sweep with: the plugin-qualified form only, since there is no
     /// load order here to resolve a runtime FormID against.</summary>
