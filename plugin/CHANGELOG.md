@@ -72,6 +72,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
   way it scopes an active one, and the epoch stamp says it does not cover a file located outside the index. Each
   attached script's `.pex` is still read from the active order, so a script that ships only inside the
   not-yet-enabled mod is reported UNVERIFIABLE — the same answer an uncompiled script gets, never a clean pass.
+  `format="json"` carries that same caveat as `off_order_coverage`, beside the roster it qualifies.
+
+- **The scripts family now collapses a repeated "could not verify" note.** An unreadable script class produces the
+  same note on every record that attaches it, and those notes sit outside `limit=`; a mod whose whole `Scripts/`
+  folder is out of the VFS could therefore fill the listing with one sentence and push the unbound findings past
+  `max_chars`. The first record carrying a class's note lists it, the repeats are counted, and the head says how
+  many were collapsed. The unverifiable total still counts every one of them.
+
+- **A `plugins=` name found neither in the active order nor on disk keeps its did-you-mean.** The refusal that says
+  both halves now ends with the near-miss suggestion, so a typo or a guessed `.esp`/`.esl` extension names the
+  plugin you meant.
 
 - **`housecarl_load_order_status` now names the running server's build in its header** — a `server:` line carrying
   the informational version the binary embeds (the release version `build-plugin.ps1` stamps from `plugin.json`,
