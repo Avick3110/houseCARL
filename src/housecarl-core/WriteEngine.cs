@@ -2764,6 +2764,12 @@ public static class WriteEngine
                      ?? ClosedInterface(prop.PropertyType, typeof(IReadOnlyList<>));
         if (listIface is not null)
         {
+            // A '*' key is a where= fold token that reached a walk which indexes one concrete element — say that,
+            // rather than reporting an unbuilt capability as a malformed index.
+            if (key.Length > 0 && key[0] == '*')
+                throw new InvalidOperationException(
+                    $"List '{name}' cannot take the quantifier token '[{key}]' here — the fold tokens [*any], [*all], [*none] " +
+                    $"and [*count] are where= path steps; index a concrete element ('{name}[0]') instead.");
             if (!int.TryParse(key, NumberStyles.Integer, CultureInfo.InvariantCulture, out var idx) || idx < 0)
                 throw new InvalidOperationException($"List '{name}' must be indexed by a non-negative integer; got '{key}'.");
             int j = 0;
