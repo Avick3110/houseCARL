@@ -200,6 +200,17 @@ public sealed class DialogueFamilyTests
         Assert.False(fam.GetProperty("epoch_covers_all_inputs").GetBoolean());
         Assert.Equal(DialogueSweepRender.EpochUncovered,
                      fam.GetProperty("epoch_uncovered").EnumerateArray().Select(e => e.GetString()).ToArray());
+
+        // A refusal carries the BARE stamp, as the sibling families' refusals do (EpochCheckSweepTests.FactE5_6):
+        // the view is pinned before the seeds are read, so there is a build to name, and nothing was covered by it.
+        var refused = Svc.CheckDialogue(new[] { "not-a-formid" }, 1000);
+        Assert.NotNull(refused.Error);
+        Assert.Equal(result.Epoch, refused.Epoch);
+        Assert.Contains($"epoch={refused.Epoch}",
+                        Wire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: refused), 20000));
+        var refusedJson = JsonWire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: refused), 20000);
+        Assert.Equal(refused.Epoch, JsonDocument.Parse(refusedJson).RootElement.GetProperty("epoch").GetString());
+        Assert.DoesNotContain("epoch_covers_all_inputs", refusedJson);
     }
 
     /// <summary>Everything AFTER the seed prefix the sweep echoes — the composed refusal itself. The sweep writes
