@@ -306,6 +306,10 @@ static class JsonWire
         w.WriteString("shape", u.Shape.ToString());
         w.WriteNumber("total", u.Total);
         w.WriteNumber("own", u.OwnCount);
+        // Stated only where it changes what `own`/`total` mean against the field's `value`: on a nested field
+        // (Worldspace.SubCells) the value counts the CONTAINERS and these count the records under them, so a
+        // consumer comparing the two numbers without this key is comparing different units.
+        if (u.Nested) w.WriteBoolean("nested", true);
         // A SINGULAR field's declarers override one record, so one of them IS live. A COLLECTION is additive —
         // every declarer's children are live — so naming one plugin there would be the #342 misreading this exists
         // to remove; it is named as what it is, the highest plugin that declares anything.

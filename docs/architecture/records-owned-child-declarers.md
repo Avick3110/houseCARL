@@ -104,6 +104,16 @@ field (`Cell.Landscape`, `Worldspace.TopCell`) is one record several plugins ove
 would be the same noise; the line is a COUNT instead. `DeclarersLead` states both shapes once per record, not
 once per field — the same response/field split the cheap tier's own clause established.
 
+## The unit a count is in
+
+A union counts RECORDS; a field's rendered value counts the field's own ELEMENTS. On every flat field those are
+the same things. On `Worldspace.SubCells` they are not: the value counts blocks, and the cells sit two container
+levels under them — a worldspace declaring no cells at all still renders `[list: 2 item(s)]` for empty block
+scaffolding. Setting an own-share of 0 beside a value of 2 with nothing saying they differ is a contradiction on
+the face of the line, so the nested shape names its unit (`ReadSentences.OwnShare`) and json carries `nested`.
+Which fields are nested is `OwnedChildContent.NestedFields` — the element type of the property, off the same
+reflected child-bearing set as the shape, never a list naming `SubCells`.
+
 ## Placement: above the diff, not inside it
 
 The diff renders differences; a provider whose content in a child-bearing field equals the reference's is

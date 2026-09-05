@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Reflection;
 using System.Security.Cryptography;
 using Mutagen.Bethesda;
@@ -708,7 +708,7 @@ public static class WriteEngine
 
     /// <summary>The element type <paramref name="t"/> enumerates, or null if it is not a collection. <c>string</c> is
     /// excluded explicitly — it enumerates chars and would otherwise recurse pointlessly on every text field.</summary>
-    static Type? ElementTypeOf(Type t)
+    internal static Type? ElementTypeOf(Type t)
     {
         if (t.IsArray) return t.GetElementType();
         if (t == typeof(string) || !typeof(System.Collections.IEnumerable).IsAssignableFrom(t)) return null;

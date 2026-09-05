@@ -101,12 +101,26 @@ internal static class ReadSentences
             head = $"{UnionLabel}: {u.Total} {ChildContent}(s) across {u.Declarers.Count} plugin(s) — "
                  + string.Join(", ", u.Declarers.Take(UnionDeclarerCap).Select(d => $"{d.Plugin} {d.Count}"))
                  + (u.Declarers.Count > UnionDeclarerCap ? $" (+{u.Declarers.Count - UnionDeclarerCap} more)" : "")
-                 + $"; this body's own list carries {u.OwnCount}";
+                 + "; " + OwnShare(u);
         return u.Unreadable.Count == 0 ? head
             : head + $"; {u.Unreadable.Count} plugin(s) {CouldNotRead} "
               + $"({string.Join(", ", u.Unreadable.Take(UnionDeclarerCap))}"
               + (u.Unreadable.Count > UnionDeclarerCap ? ", …" : "") + ")";
     }
+
+    /// <summary>How much of the union THIS body declares, in the unit the value beside it is in.
+    ///
+    /// <para>On a flat field the value's items ARE the children, so the two numbers are the same unit and the
+    /// share reads as a fraction of what is rendered. On a NESTED one (<c>Worldspace.SubCells</c>) the value counts
+    /// the blocks and the share counts the cells under them, so a worldspace declaring nothing renders
+    /// <c>[list: 2 item(s)]</c> beside a share of 0 — true of two different units, and a contradiction if the
+    /// sentence does not say which. So the nested arm names its unit rather than borrowing "this body's own
+    /// list", which on that shape means the blocks.</para></summary>
+    static string OwnShare(ChildUnion u) =>
+        u.CountsTheRenderedUnit
+            ? $"this body's own list carries {u.OwnCount}"
+            : $"this body declares {u.OwnCount} of them — the value beside this counts the CONTAINERS holding " +
+              $"them, not the {ChildContent}s themselves";
 
     // ---- the precise tier: WHICH providers declare, off bodies the tree has already fetched ----------
 

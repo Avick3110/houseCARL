@@ -26,10 +26,16 @@ public sealed record ChildUnion(
     int OwnCount,
     IReadOnlyList<ChildUnionDeclarer> Declarers,
     IReadOnlyList<string> Unreadable,
-    string? LivePlugin)
+    string? LivePlugin,
+    bool Nested)
 {
     /// <summary>Distinct child records the order declares for this field.</summary>
     public int Total => Members.Count;
+
+    /// <summary>Do <see cref="OwnCount"/> and the field's RENDERED value count the same unit? False on a nested
+    /// field (<c>Worldspace.SubCells</c>), where the value counts the blocks and these counts count the cells
+    /// under them — the one place a note may not put the two numbers side by side unsaid.</summary>
+    public bool CountsTheRenderedUnit => !Nested;
 
 }
 
@@ -106,11 +112,14 @@ public static class OwnedChildUnion
             }
         }
 
+        // The unit the counts are in, against the unit the field's value renders in — a fact about the property,
+        // asked once off the subject's type.
+        var nested = OwnedChildContent.NestedFields(subjectBody);
         var result = new Dictionary<string, ChildUnion>(fields.Count, StringComparer.Ordinal);
         foreach (var (f, shape) in fields)
             result[f] = new ChildUnion(f, shape,
                                        shape == OwnedChildShape.Singular ? liveKeys[f] : members[f],
-                                       own[f], declarers[f], unreadable[f], live[f]);
+                                       own[f], declarers[f], unreadable[f], live[f], nested.Contains(f));
         return result;
     }
 

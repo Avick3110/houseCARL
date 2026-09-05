@@ -75,6 +75,37 @@ public static class OwnedChildContent
 
     static readonly ConcurrentDictionary<Type, IReadOnlyDictionary<string, OwnedChildShape>> _byType = new();
 
+    /// <summary>The child-bearing fields whose child records sit BELOW the field's own elements —
+    /// <c>Worldspace.SubCells</c> holds BLOCKS, and its cells are two container levels under them.
+    ///
+    /// <para>It is the unit question, and it is a fact about the PROPERTY, so it is answered off the type beside
+    /// the shape. A field's rendered VALUE is the field's own elements; a child count counts records. On a flat
+    /// field (a cell's Persistent/Temporary, a topic's Responses) those are the same things and a note may put the
+    /// two numbers side by side. On a NESTED one they are different units — a worldspace declaring no cells at all
+    /// still renders <c>[list: 2 item(s)]</c> for its empty blocks — so a note carrying both has to say which it
+    /// is counting or it states a contradiction.</para></summary>
+    public static IReadOnlySet<string> NestedFields(IMajorRecordGetter body) =>
+        _nestedByType.GetOrAdd(body.GetType(), static t =>
+        {
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            // The same getter → concrete hop Fields makes, for the same reason: the overlay type is not the type
+            // the child-bearing walk was written against.
+            var getter = WriteEngine.PrimaryGetter(t);
+            var concrete = getter is null ? null : WriteEngine.ConcreteOf(getter);
+            if (concrete is null) return (IReadOnlySet<string>)set;
+            foreach (var p in WriteEngine.ChildBearingProperties(concrete))
+            {
+                if (typeof(IMajorRecordGetter).IsAssignableFrom(p.PropertyType)) continue;   // singular: the value IS the child
+                var elem = WriteEngine.ElementTypeOf(p.PropertyType);
+                // An element that is itself a record makes the list the child list. Anything else — a block, or a
+                // shape this walk cannot name an element type for — holds its children deeper down.
+                if (elem is null || !typeof(IMajorRecordGetter).IsAssignableFrom(elem)) set.Add(p.Name);
+            }
+            return (IReadOnlySet<string>)set;
+        });
+
+    static readonly ConcurrentDictionary<Type, IReadOnlySet<string>> _nestedByType = new();
+
     /// <summary>The shape of one field on <paramref name="body"/>'s type, or <see cref="OwnedChildShape.None"/>
     /// when the field owns no children.</summary>
     public static OwnedChildShape ShapeOf(IMajorRecordGetter body, string field) =>
