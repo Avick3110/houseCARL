@@ -114,11 +114,15 @@ public static class RecordsTools
          "or bracket is not expressible in a list; test it with '='), ONE '->' link step " +
          "'Perks->editorid startswith REQ_NULL_', and the provenance term 'winner = X.esp' — which records does X " +
          "WIN; that term forces winner resolution over the scanned scope, the same declared cost as any winner " +
-         "scan) | references= (reverse, one step — requires a bounding types=/plugins= scope; the reverse-reference " +
-         "index that would lift the bound is a known future capability. A '!' before an entry NEGATES it — " +
+         "scan) | references= (reverse, one step; needs no bounding scope — unbounded, it is answered off the " +
+         "reverse-reference index, which is built on the first such call, costs one whole-order link-walk, and " +
+         "reports that cost and its own per-plugin freshness key in the response. A bounded references= is " +
+         "unchanged and still cheaper. A '!' before an entry NEGATES it — " +
          "references=[\"!XXXXXX:A.esm\"] keeps only records that do NOT reference that target, and plain and " +
          "negated entries in one call compose by AND; the sigil takes the @file spelling too — " +
-         "references=[\"!@C:/work/targets.jsonl\"] excludes every target the file names). UNION-ARM tip: when a field is one of " +
+         "references=[\"!@C:/work/targets.jsonl\"] excludes every target the file names; an unbounded negated " +
+         "entry ALONE has the whole order as its " +
+         "universe, so bound it unless you mean that). UNION-ARM tip: when a field is one of " +
          "several shapes (an NPC's Configuration.Level is a fixed level OR a PC-level multiplier), a scalar " +
          "predicate on one arm's sub-field doubles as an ARM-PRESENCE test: where=[\"Configuration.Level.LevelMult " +
          ">= 0\"] returns exactly the NPCs on a multiplier. formids= COMPOSES with the scan terms: the identity set " +
@@ -178,7 +182,7 @@ public static class RecordsTools
             string[]? where = null,
         [Description("Which BODY the where= predicates decide the MATCH on: 'scoped' (default — the body the scan streams) or 'winner' (the live load-order winner regardless of scan scope; the post-patch audit answer). Match only — fields_source= independently governs display.")]
             string? where_source = null,
-        [Description("SELECT: find records that REFERENCE these FormIDs (reverse, one step; OR over the list, each match names which target(s) it hit). Requires a bounding types= or plugins= scope — see the cost declaration in the tool description. Accepts [\"@<path>\"] like formids=.")]
+        [Description("SELECT: find records that REFERENCE these FormIDs (reverse, one step; OR over the list, each match names which target(s) it hit). Needs no bounding scope: unbounded it is answered off the reverse-reference index, built on the first such call at the cost of one whole-order link-walk, declared in the response — see the tool description. A bounding types= or plugins= is still cheaper. Accepts [\"@<path>\"] like formids=.")]
             string[]? references = null,
         [Description("SOURCE: whose version to read — the SUBJECT of the call. Omit or \"winner\" for the load-order winner; a plugin filename (e.g. \"OldPatch.esp\") for that plugin's version WHEREVER it lives — active or on disk out of the order (the response states which); {\"file\": \"X.esp\", \"mod\": \"<mod folder>\"} when two mods ship the same filename; {\"overlay\": \"skypatcher\", \"state\": \"pre\"|\"post\"} for the runtime view around the SkyPatcher INI layer (post = after it replays; INI content sits OUTSIDE the epoch fingerprint and the response says so). \"previous_provider\" is a versus= value only — it is measured FROM the subject this parameter names.")]
             JsonElement? source = null,
@@ -996,10 +1000,13 @@ public static class RecordsTools
             // subject, info_order the merge, a walk its re-entered read. The tree has no subject, so the scan's
             // selection statement stays — it is what discloses an off-order or scoped selection universe.
             bool pipelineArms = form == "delta" || form == "info_order" || walk is not null;
-            if (hasBodyFilter && !hasTypes && !hasScope && !hasFormids)
-                return Wire.Refuse(json, "error: where=/references= is a body scan and must be combined with types=, plugins=, or a formids= set to bound the work " +
-                       "(conflicts_only= alone is not enough — an unbounded body scan over the whole order is refused; the " +
-                       "reverse-reference index that would lift this is a known future capability).");
+            // An unbounded references= is answered off the reverse-reference index; every other body filter still
+            // needs a bound, because the index knows links, not field values.
+            bool onlyReverseFilter = where is not { Length: > 0 };
+            if (hasBodyFilter && !hasTypes && !hasScope && !hasFormids && !onlyReverseFilter)
+                return Wire.Refuse(json, "error: where= is a body scan and must be combined with types=, plugins=, or a formids= set to bound the work " +
+                       "(conflicts_only= alone is not enough — an unbounded body scan over the whole order is refused). " +
+                       "Only references= is unbounded, off the reverse-reference index.");
             if (plugins is { defined_in: true } && !hasScope)
                 return Wire.Refuse(json, "error: plugins.defined_in=true keeps records DEFINED in the scoped plugins, so plugins.names must name that scope.");
 

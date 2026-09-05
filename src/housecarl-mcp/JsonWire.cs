@@ -1326,11 +1326,12 @@ static class JsonWire
     /// json is never a silently degraded mode next to text. Omitted when there are none.</summary>
     static void WriteNotes(Utf8JsonWriter w, CrossQueryOutcome q, string? extra = null)
     {
-        if (q.PredicateNote is null && q.ScanNote is null && q.WhereSourceNote is null && extra is null) return;
+        if (q.PredicateNote is null && q.ScanNote is null && q.WhereSourceNote is null && q.ReverseIndexNote is null && extra is null) return;
         w.WriteStartArray("notes");
         if (q.PredicateNote is not null) w.WriteStringValue(q.PredicateNote);
         if (q.ScanNote is not null) w.WriteStringValue(q.ScanNote);
         if (q.WhereSourceNote is not null) w.WriteStringValue(q.WhereSourceNote);   // where_source=winner redundancy under a type=-only scope
+        if (q.ReverseIndexNote is not null) w.WriteStringValue(q.ReverseIndexNote);   // the reverse-reference index's build cost + per-plugin freshness key
         if (extra is not null) w.WriteStringValue(extra);   // the scoped-vs-winner fields note
         w.WriteEndArray();
     }

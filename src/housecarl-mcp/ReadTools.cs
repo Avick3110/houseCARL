@@ -264,6 +264,7 @@ static class Wire
         if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');   // where= accounting: wrong path / no value
         if (q.ScanNote is not null) sb.Append(q.ScanNote).Append('\n');             // records Mutagen could not parse
         if (q.WhereSourceNote is not null) sb.Append(q.WhereSourceNote).Append('\n');   // where_source=winner is redundant under a type=-only scope
+        if (q.ReverseIndexNote is not null) sb.Append(q.ReverseIndexNote).Append('\n');   // the reverse-reference index's build cost and per-plugin freshness key
         // Under a plugins= scope the per-match fields are the SCOPED plugin's own values, not the live winner's —
         // silently wrong otherwise, so name it once. The helper covers all four winner_fields=/where_source=
         // combinations so the note never claims a scoped-body match the scan did not make, and the json and dense
@@ -338,6 +339,7 @@ static class Wire
         sb.Append('\n');
         if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');
         if (q.ScanNote is not null) sb.Append(q.ScanNote).Append('\n');
+        if (q.ReverseIndexNote is not null) sb.Append(q.ReverseIndexNote).Append('\n');
         for (int i = 0; i < groups.Count && !(spill?.ManifestOnly ?? false); i++)   // to_file: rows live in the file
         {
             if (sb.Length >= cap)
