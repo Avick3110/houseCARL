@@ -149,16 +149,28 @@ saying it sets an expectation their install may contradict. Say what is known, a
   ESL-flagged edition compacts its records into 0x800+) and the call that lists what it does define; an absent one
   keeps the load-order explanation it always had. The same repair reaches the unresolved-link annotation, which used
   to assert `target not in the active order` when the plugin usually is.
+- **A record that resolves nowhere now says which of the three causes it is, in every form that reads records.**
+  One sentence used to serve a plugin that is not installed, a plugin excluded this session, and an installed plugin
+  that has no such record, so telling them apart took a second call. A present plugin is now named as present, with
+  the call that lists what it does define. The wrong-edition cause — an ESL-flagged edition compacts its records
+  into 0x800+ — is stated where the load order says that plugin is light-flagged, and not otherwise, because 0x800
+  is also where a plain full master's own records start. An absent plugin keeps its load-order explanation, and
+  drops the check-the-filename hint when a real cause follows. The identity, tree, `info_order`, walk-seed and
+  comparison-pole forms all emit that one sentence, where each used to compose its own `not present in the active
+  order`; so does the unresolved-link annotation.
 
-- **A `where=` predicate whose path hops through a list is now told to use brackets instead of to check the
-  schema.** `where=["Effects.Data.Magnitude > 0"]` is a correct field reached by a path missing its brackets, and it
-  was reported as a mistyped field name. The accounting note now names the collection it dead-ended on and the
-  bracketed spelling. `where=`'s own description also states that a wildcard over a list is not built.
+- **A `where=` predicate whose path hops through a list is now told what will actually fix it, checked against the
+  element type.** `where=["Effects.Data.Magnitude > 0"]` is a correct field reached by a path missing its brackets,
+  and it was reported as a mistyped field name. The note now resolves the trailing segment against the collection's
+  element type: where it is a field there, the exact bracketed path is printed (`Effects[0].Data`); where it is not,
+  it says the segment is not a field on that element type and offers the nearest real field, rather than asserting a
+  bracket that would not help. `where=`'s own description also states that a wildcard over a list is not built.
 
 - **`housecarl_records` remedies now name levers the call actually accepts.** The `everything` form no longer
   offers `project.fields=`, which that form refuses by name; a capped walk names `walk.max_nodes` rather than
-  `limit=`, which windows the seeds and would have changed nothing; `project.group_by='type'` without a
-  body-bearing scope refuses in this tool's own spelling; and a summary row labels the override depth
+  `limit=`, which windows the seeds and would have changed nothing; an in-order `project.group_by='type'` without a
+  body-bearing scope refuses in this tool's own spelling, while the off-order file scan — where the file's own
+  records are the universe — keeps the refusal it already had; and a summary row labels the override depth
   `override_depth=`, no longer colliding with `project.depth=`. `project.form='chain'` is described as the form it
   now is, rather than as refused until it lands.
 
