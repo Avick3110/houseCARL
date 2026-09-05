@@ -232,22 +232,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
   plugin.** Finding one cell no longer steps over every placed reference in the plugin, which is what makes the
   union above affordable on every read; the conflict tree takes the same path. Measured on a synthetic order of
   one 20k-record master and nine 2k plugins, ten touchers of one cell: 80 ms of body fetches became 4 ms.
-- **An `into=` that names no houseCARL patch now lists the patches houseCARL owns.** Both refusals close with the
-  owned patches as `into=` spellings, nearest what you typed first, and every spelling printed is one that resolves
-  back to the patch it is printed for — a folder holding two plugins is listed by each plugin, not by a folder name
-  the next call would refuse. The list is capped, and says so when it is; the record lane leaves out folders holding
-  no plugin, which it could not extend. Where houseCARL owns patches but no single `into=` spelling reaches any of
-  them, the refusal says how many there are instead of saying it owns none. Naming a mod folder houseCARL does
-  **not** own is still refused with the originals untouched, but that refusal now names the calling tool's own
-  fresh-patch parameter and, where the plugin your load order resolves to that folder is one that folder holds, the
-  `in_place=` lane for that plugin by name — the other reading of a name that landed on someone else's folder. A
-  folder shipping a copy of a plugin some other mod wins gets no such sentence, since the lane would open the other
-  mod's file. That lane reads last on both refusals, behind the candidates you can take without touching anyone
-  else's plugin, and names a few plugins with a count rather than every plugin in a large folder. It does not hand
-  back the name you passed: a patch
-  minted under that stem would sit beside the foreign plugin of the same name. houseCARL does not check the name you
-  pass `patch=` next against inactive plugins in other people's mod folders, so that collision is still yours to
-  avoid.
+- **An `into=` that names no houseCARL patch, or names a folder houseCARL does not own, now tells you what to try.**
+  Each refusal is one sentence: what went wrong, then the nearest houseCARL-owned patches to extend instead, named
+  as `into=` spellings (at most three, nearest what you typed first), and the calling tool's own fresh-patch
+  parameter. Every spelling offered is one that resolves back to the patch it stands for — a folder holding two
+  plugins is offered by a plugin, not by a folder name the next call would refuse — and the record lane leaves out
+  folders holding no plugin, which it could not extend. Where houseCARL owns patches but no single `into=` spelling
+  reaches any of them, the refusal says how many there are and to rename one in MO2, instead of saying it owns none.
+  Naming a mod folder houseCARL does not own is still refused with the originals untouched; that refusal does not
+  hand back the name you passed, since a patch minted under that stem would sit beside the foreign plugin of the
+  same name. houseCARL does not check the name you pass `patch=` next against inactive plugins in other people's mod
+  folders, so that collision is still yours to avoid.
 
 - **`housecarl_load_order_status` now names the running server's build in its header** — a `server:` line carrying
   the informational version the binary embeds (the release version `build-plugin.ps1` stamps from `plugin.json`,
