@@ -40,7 +40,7 @@ the per-record files.
 | Distributable form types | **10 / 10** (`form-types.md`) |
 | Filter sections | **4 / 4** (`filters.md`) |
 | Flat enums | skill indices, trait letters, package-list types, form signatures, distribution order, defaults (`value-tables.md`) |
-| **Gaps** | **none in the article's scope.** Two article-*silent* details (comment syntax, whitespace tolerance) were resolved from source — see Confidence. |
+| **Gaps** | **The article does not cover verification behaviour.** Four details a user hits when checking whether a rule landed — player exclusion, the once-per-launch config read, the dynamic keyword's missing plugin FormID, and its reachability by name — are absent from article 6617 and were resolved from source (marked **[source]**; see Confidence). Two other article-*silent* details (comment syntax, whitespace tolerance) came from source the same way. Expect further gaps outside the article's grammar scope. |
 
 ## Confidence
 
@@ -54,6 +54,13 @@ the per-record files.
   - **Whitespace around `|` and `,` is stripped**, **`" - "` ⇒ `~`** (xEdit paste form), and FormID
     zero-padding is forgiven — from `sanitize()`.
   - **Chance `!`** deterministic flag and **Level `w`** weight prefix — confirmed in the parsers.
+  - **The player is never distributed to** — `should_process_NPC` in `DistributeManager.cpp` gates
+    every path on `!IsPlayer() && !IsDeleted()`. Not in the article.
+  - **Configs are read once per game launch** (`main.cpp`, `kPostLoad`/`kDataLoaded`), so a rule added
+    mid-session needs a restart. Not in the article.
+  - **A dynamically created keyword has no plugin FormID but is pushed into the game's keyword array**
+    (`FormData.h`, `kCreateIfMissing`), which is why SKSE's `Keyword.GetKeyword` finds it by name. The
+    article documents dynamic creation but neither consequence.
 - **One residual confidence caveat:** comment syntax. SPID parses configs via **CSimpleIniA**
   (source-confirmed); the **`;`** line-comment character is CSimpleIni's documented *library default*
   rather than a SPID line of code we read. Stated in the corpus as "standard INI `;` comments (via
@@ -66,7 +73,9 @@ the per-record files.
 `powerof3/Spell-Perk-Item-Distributor` (GitHub, `master`, **MIT License**) was read for grammar facts
 only — no code vendored. Files consulted (all `SPID/src/`): `LookupConfigs.cpp` (`sanitize()`, parser
 chain), `LookupConfigs.h` (`TraitsFilterComponentParser`, `ChanceComponentParser`,
-`LevelFiltersComponentParser`), `Defs.h` (`Traits` struct). MIT (unlike SkyPatcher's unlicensed repo)
+`LevelFiltersComponentParser`), `Defs.h` (`Traits` struct), `DistributeManager.cpp`
+(`detail::should_process_NPC`, the load hooks), `FormData.h` (`kCreateIfMissing`), `main.cpp`
+(config read and lookup timing). MIT (unlike SkyPatcher's unlicensed repo)
 would permit vendoring, but the corpus documents grammar, it doesn't embed source.
 
 ## Structure

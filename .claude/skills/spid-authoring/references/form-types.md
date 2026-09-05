@@ -48,6 +48,12 @@ any plugin:
 Keyword = MyVerySpecialKeyword
 ```
 
+A keyword created this way is a **dynamic form: it has no owning plugin, so there is no plugin FormID
+to reference it by** — no `0x…~Plugin.esp` exists for it and xEdit will never show it. It is still
+reachable by name, because SPID pushes the new keyword into the game's `BGSKeyword` form array, which
+is what SKSE's `Keyword.GetKeyword("<name>")` looks up. **[source]** (`SPID/src/FormData.h`, the
+`kCreateIfMissing` branch — creates the form via `IFormFactory` and sets its `formEditorID`.)
+
 This is the idiom behind keyword-tagging NPCs for other frameworks/mods to react to. (Recall from
 grammar-core §3 that Keywords distribute first and are topo-sorted, so a dynamically-created keyword
 can be used as a filter by a later keyword entry.)
