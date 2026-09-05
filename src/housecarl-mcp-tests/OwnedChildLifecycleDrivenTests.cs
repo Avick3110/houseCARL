@@ -83,6 +83,26 @@ public sealed class OwnedChildLifecycleDrivenTests
         Assert.Contains("NOTHING created", o.Error);
     }
 
+    /// <summary>A cell reached through the singular slot is the same identity the coordinate routes build, so it
+    /// gets their editorid dedup: cell create does not upsert, and without this the patch carries two cells named
+    /// the same.</summary>
+    [Fact]
+    public void ACellThroughTheSingularSlotGetsTheSameEditorIdDedupAsTheOtherCellRoutes()
+    {
+        using var w = new OwnedChildWorld();
+        var interior = w.Svc.CreateRecordsBatch(
+            new[] { new CreateOp { RecordType = "Cell", Editorid = "HcOcTwiceNamed" } }, "HcOcDedup", null);
+        Assert.True(interior.Success, "refused: " + interior.Error);
+        var patchFile = Path.GetFileName(interior.OutputPath);
+
+        var again = w.Svc.CreateRecordsBatch(
+            new[] { new CreateOp { RecordType = "Cell", Editorid = "HcOcTwiceNamed", Parent = Fid(w.Worldspace), Collection = "TopCell" } },
+            null, patchFile);
+
+        Assert.False(again.Success);
+        Assert.Contains("already exists in this patch", again.Error);
+    }
+
     /// <summary>The route the rewritten refusals name — parent= plus collection='TopCell' — is reachable from the
     /// tool. It was not: every Cell spec with a parent was intercepted before the slot resolver ran and refused for
     /// a missing grid=.</summary>

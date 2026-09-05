@@ -1464,6 +1464,12 @@ public static class WriteEngine
                 "room to create another. Edit the one that is there by its own FormID, or remove it first with " +
                 ToolNames.Remove + " and create again.");
 
+        // A SINGULAR slot does not upsert either, and the record it holds can also be reachable by another route
+        // into the same patch — a worldspace's TopCell is a Cell, the identity the coordinate routes build — so the
+        // slot route runs their dedup rather than letting a second record at the same editorid in behind it. The
+        // COLLECTION route keeps its documented append: those children carry no stable editorid handle.
+        if (shape == OwnedChildShape.Singular) EnsureNoDuplicateEditorId(patchMod, childType, editorId);
+
         EnsureFormIdFloor(patchMod);   // a rehydrated (into=) counter below 0x800 would hand out engine-reserved IDs
         EnsureAllocatable(patchMod);
         var child = ConstructRecord(childType, AllocateNextFormKey(patchMod));
@@ -1503,7 +1509,7 @@ public static class WriteEngine
     public static Cell AddExteriorCell(SkyrimMod patchMod, Worldspace worldspaceInPatch, int gridX, int gridY, string? editorId)
     {
         // Floor + dedup BEFORE mutating the block tree — nothing is mutated before validation.
-        EnsureNoDuplicateCellEditorId(patchMod, editorId);   // no silent duplicate on an into= re-run (cells have a stable EditorID)
+        EnsureNoDuplicateEditorId(patchMod, typeof(Cell), editorId);   // no silent duplicate on an into= re-run (cells have a stable EditorID)
         EnsureFormIdFloor(patchMod);   // 0x800 floor, exactly like flat/nested create
         EnsureAllocatable(patchMod);
         int bx = FloorDiv(gridX, 32), by = FloorDiv(gridY, 32), sx = FloorDiv(gridX, 8), sy = FloorDiv(gridY, 8);
@@ -1532,7 +1538,7 @@ public static class WriteEngine
     /// <see cref="ApplyVerb"/> path).</summary>
     public static Cell AddInteriorCell(SkyrimMod patchMod, string? editorId)
     {
-        EnsureNoDuplicateCellEditorId(patchMod, editorId);   // no silent duplicate on an into= re-run (cells have a stable EditorID)
+        EnsureNoDuplicateEditorId(patchMod, typeof(Cell), editorId);   // no silent duplicate on an into= re-run (cells have a stable EditorID)
         EnsureFormIdFloor(patchMod);
         EnsureAllocatable(patchMod);
         var fk = AllocateNextFormKey(patchMod);
@@ -1549,20 +1555,22 @@ public static class WriteEngine
         return cell;
     }
 
-    /// <summary>Refuse loud if <paramref name="patchMod"/> ALREADY defines a cell with <paramref name="editorId"/>.
-    /// Coordinate-keyed cell create does NOT upsert (unlike flat <see cref="GenericUpsertNew"/>), so an into= re-run would
-    /// otherwise silently APPEND a second cell at the same identity — and a cell DOES carry a stable EditorID, so
-    /// WritePatchBuilder's "no stable handle to de-dup on" carve-out for nested children does not transfer to cells.
-    /// A no-op on a fresh patch. Within a single bulk_create, same-editorid specs are already caught by the pre-flight's
-    /// per-call editorid set; this closes the cross-call into= gap.</summary>
-    static void EnsureNoDuplicateCellEditorId(SkyrimMod patchMod, string? editorId)
+    /// <summary>Refuse loud if <paramref name="patchMod"/> ALREADY carries a <paramref name="recordType"/> record with
+    /// <paramref name="editorId"/>. Coordinate-keyed and singular-slot create do NOT upsert (unlike flat
+    /// <see cref="GenericUpsertNew"/>), so an into= re-run would otherwise silently carry a second record at the same
+    /// identity — and a cell reached through a worldspace's TopCell slot is the same identity the coordinate routes
+    /// build, so the two routes have to ask the same question. A no-op on a fresh patch. Within a single bulk_create,
+    /// same-editorid specs are already caught by the pre-flight's per-call editorid set; this closes the cross-call
+    /// into= gap.</summary>
+    static void EnsureNoDuplicateEditorId(SkyrimMod patchMod, Type recordType, string? editorId)
     {
         if (string.IsNullOrEmpty(editorId)) return;
-        foreach (var existing in patchMod.EnumerateMajorRecords<ICellGetter>())
-            if (string.Equals(existing.EditorID, editorId, StringComparison.Ordinal))
+        foreach (var existing in patchMod.EnumerateMajorRecords())
+            if (recordType.IsInstanceOfType(existing) && string.Equals(existing.EditorID, editorId, StringComparison.Ordinal))
                 throw new InvalidOperationException(
-                    $"a cell with editorid '{editorId}' already exists in this patch ({existing.FormKey}); creating it again " +
-                    "would duplicate it. Cell create does not upsert — edit the existing cell, or use a different editorid.");
+                    $"a {recordType.Name} with editorid '{editorId}' already exists in this patch ({existing.FormKey}); creating " +
+                    $"it again would duplicate it. {recordType.Name} create does not upsert here — edit the existing record, or " +
+                    "use a different editorid.");
     }
 
     static MethodInfo? _overrideMethod;
