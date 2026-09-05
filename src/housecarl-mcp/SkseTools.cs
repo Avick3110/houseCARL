@@ -940,17 +940,22 @@ static class NativePairingWire
         return best;
     }
 
-    /// <summary>True when every candidate DLL that actually loads is a debug build, and at least one does — the class
-    /// whose implementation exists on the author's machine alone (#417). A class with one clean loading candidate is
-    /// healthy however many debug siblings sit beside it; those siblings still carry the note on their own line.</summary>
+    /// <summary>True when every candidate DLL that could implement the class is a debug build, and at least one of them
+    /// loads here — the class whose implementation exists on the author's machine alone (#417). A class with one clean
+    /// candidate is healthy however many debug siblings sit beside it; those siblings still carry the note on their own
+    /// line. A clean VERIFY candidate disqualifies exactly as a clean LOADS one does: it is a version question, not a
+    /// dead DLL, and it implements the class for everyone on a matching runtime — so "loads here and nowhere else"
+    /// would be a claim the data does not support. Only a DEAD candidate is passed over, because it implements the
+    /// class nowhere.</summary>
     static bool IsDebugOnly(NativeClassEntry c, string? runtime)
     {
         bool any = false;
         foreach (var dll in c.PairedDlls)
         {
-            if (Judge(dll, runtime).Fate != DllFate.Loads) continue;
+            var fate = Judge(dll, runtime).Fate;
+            if (fate == DllFate.Dead) continue;
             if (dll.Info is not { } i || i.DebugCrtImports.Count == 0) return false;
-            any = true;
+            any |= fate == DllFate.Loads;
         }
         return any;
     }
