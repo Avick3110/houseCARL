@@ -121,19 +121,39 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
     // ---- a mid-path list hop is a missing bracket, not a mistyped field (#461) ----------------------------
 
     [Fact]
-    public void APredicateHoppingThroughAListIsToldToUseBracketsNotToCheckTheSchema()
+    public void APredicateHoppingThroughAListIsToldTheExactBracketedSpelling()
     {
         var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, where: new[] { "Effects.Data.Magnitude > 0" });
-        Assert.Contains("BRACKETS", r);
         Assert.Contains("'Effects'", r);
+        // The leaf IS a field on the element type, so the remedy is the fixed path, not a placeholder.
+        Assert.Contains("'Effects[0].Data'", r);
+        Assert.DoesNotContain("[0]. …", r);
         Assert.DoesNotContain("check the field name against the record's schema", r);
+    }
+
+    /// <summary>The bracket is only half the diagnosis: a trailing segment that is not a field on the ELEMENT type
+    /// gets no bracket assertion, because adding one would not fix it.</summary>
+    [Fact]
+    public void ALeafThatIsNotAFieldOnTheElementTypeIsToldThat_NotToAddABracket()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, where: new[] { "Effects.NotOnAnEffect > 0" });
+        Assert.Contains("is not a field on its element type", r);
+        Assert.DoesNotContain("'Effects[0].NotOnAnEffect'", r);
+    }
+
+    /// <summary>And where a near miss exists, the fixed path it names is a real one.</summary>
+    [Fact]
+    public void ANearMissOnTheElementTypeIsOfferedTheRealFieldName()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, where: new[] { "Effects.Dat > 0" });
+        Assert.Contains("did you mean 'Effects[0].Data'?", r);
     }
 
     [Fact]
     public void APresenceOperatorGetsTheSameDiagnosis_TheOperatorDoesNotDecideWhyThePathMissed()
     {
         var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, where: new[] { "Effects.Data.Magnitude exists" });
-        Assert.Contains("BRACKETS", r);
+        Assert.Contains("'Effects[0].Data'", r);
         Assert.DoesNotContain("check the field name against the record's schema", r);
     }
 
@@ -141,7 +161,7 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
     public void AMixedScanWhereOnlySomeTypesCarryTheListStillGetsTheBracketAdvice()
     {
         var r = RecordsTools.Records(Svc, types: new[] { "SPEL", "WEAP" }, where: new[] { "Effects.Data.Magnitude > 0" });
-        Assert.Contains("BRACKETS", r);
+        Assert.Contains("'Effects[0].Data'", r);
         Assert.Contains("on the rest the path is not a field at all", r);
     }
 

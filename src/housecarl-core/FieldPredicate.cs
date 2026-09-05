@@ -85,6 +85,7 @@ public sealed class FieldPredicateSet
     readonly long[] _unreadable;  // per-predicate SUBSET of _noValue: the path READ FAULTED (Mutagen-unparseable content) — a fault, NOT an unset value
     readonly long[] _listHop;     // per-predicate SUBSET of _noField: the path hopped THROUGH a list/dict with a dotted segment (a missing bracket, not a mistyped name)
     readonly string?[] _listHopOwner;  // the collection field the hop dead-ended on, for the remedy sentence
+    readonly string?[] _listHopRemedy; // the leaf-checked remedy the read engine composed for that hop, quoted verbatim
     long _scanned;
     string? _fatal;
 
@@ -136,6 +137,7 @@ public sealed class FieldPredicateSet
         _unreadable = new long[predicates.Count];
         _listHop = new long[predicates.Count];
         _listHopOwner = new string?[predicates.Count];
+        _listHopRemedy = new string?[predicates.Count];
     }
 
     /// <summary>Set once when a numeric operator meets a non-numeric field value on the first value-bearing
@@ -510,7 +512,7 @@ public sealed class FieldPredicateSet
                 case EvalKind.NoField: _noField[k]++; _noValue[k]++; all = false; break;
                 // A list hop IS a no-such-field miss, so it keeps that bucket; the extra counter is what lets the
                 // rollup tell a missing bracket from a mistyped name.
-                case EvalKind.ListHop: _noField[k]++; _listHop[k]++; _noValue[k]++; _listHopOwner[k] ??= _lastListHopOwner; all = false; break;
+                case EvalKind.ListHop: _noField[k]++; _listHop[k]++; _noValue[k]++; _listHopOwner[k] ??= _lastListHopOwner; _listHopRemedy[k] ??= _lastListHopRemedy; all = false; break;
                 case EvalKind.Container: _container[k]++; _noValue[k]++; all = false; break;
                 case EvalKind.Unreadable: _unreadable[k]++; _noValue[k]++; all = false; break;
                 default: _noValue[k]++; all = false; break;   // Unset — a valid, value-less path
@@ -527,16 +529,30 @@ public sealed class FieldPredicateSet
     /// <summary>The collection field named by the most recent list-hop note, stashed for the rollup.</summary>
     string? _lastListHopOwner;
 
+    /// <summary>And the remedy that note carried — composed by the read engine, which had the collection's element
+    /// TYPE in hand and checked the trailing segment against it. The rollup quotes this rather than composing its
+    /// own, so the per-record leaf note and the whole-scan sentence cannot disagree about the same path.</summary>
+    string? _lastListHopRemedy;
+
+    /// <summary>Sentence-case a remedy fragment lifted from a leaf note, which is composed lowercase to read
+    /// mid-sentence there. Leading punctuation (a quoted field name) passes through unchanged.</summary>
+    static string Capitalize(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
+
     /// <summary>Classify a leaf note beginning "(no field": the read engine emits a bracket-aware variant when the
     /// path stepped THROUGH a list/dict, and that is a missing-bracket miss, not a mistyped name.</summary>
     EvalKind ClassifyNoField(string note)
     {
-        // "(no field 'X': 'Owner' is a list/dict — …)" vs the plain "(no field X)".
+        // "(no field 'X': 'Owner' is a list/dict — <remedy>)" vs the plain "(no field X)".
         const string marker = "' is a list/dict";
         int at = note.IndexOf(marker, StringComparison.Ordinal);
         if (at < 0) return EvalKind.NoField;
         int open = at > 0 ? note.LastIndexOf('\'', at - 1) : -1;
         _lastListHopOwner = open >= 0 ? note[(open + 1)..at] : null;
+        const string sep = " — ";
+        int rem = note.IndexOf(sep, at, StringComparison.Ordinal);
+        _lastListHopRemedy = rem >= 0 && note.EndsWith(")", StringComparison.Ordinal)
+            ? note[(rem + sep.Length)..^1]
+            : null;
         return EvalKind.ListHop;
     }
 
@@ -851,13 +867,18 @@ public sealed class FieldPredicateSet
                     // a mistyped name, and the schema is the wrong place to send the caller. One list hop is enough
                     // to say so — on a mixed scan the other types simply have no such field, which is stated too.
                     var owner = _listHopOwner[k];
+                    // The remedy is the READ ENGINE's, not this rollup's: it checked the trailing segment against
+                    // the collection's element type, so it knows whether this is a missing bracket or a leaf that
+                    // is not a field on the element at all — a distinction no count here can make, and one the old
+                    // sentence papered over by asserting a bracket and printing a placeholder path.
+                    var remedy = _listHopRemedy[k]
+                        ?? "index an element with BRACKETS (e.g. 'Effects[0].Data.Magnitude'), not a dotted segment";
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — the path steps THROUGH " +
                              (owner is not null ? $"'{owner}', which is a list/dict, " : "a list/dict ") +
                              $"with a dotted segment, which dead-ends (on {_listHop[k]:N0} of them" +
                              (_listHop[k] == _scanned ? "" : "; on the rest the path is not a field at all") +
-                             "). Index the element with BRACKETS (e.g. " +
-                             (owner is not null ? $"'{owner}[0]. …'" : "'Effects[0].Data.Magnitude'") +
-                             "); a wildcard over a list is not supported. For list->FormID membership use references=.";
+                             $"). {Capitalize(remedy)}; a wildcard over a list is not supported. " +
+                             "For list->FormID membership use references=.";
                 }
                 else if (_noField[k] == _scanned)
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — it is NOT A FIELD on these records " +
