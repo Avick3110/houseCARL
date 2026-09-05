@@ -4,6 +4,7 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
+using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -22,6 +23,9 @@ public sealed class OwnedChildWorld : IDisposable
 
     public string BaseName { get; }
     public string MidName { get; }
+    /// <summary>The MID plugin's file on disk, so a test can take an exclusive handle on it and see what a read
+    /// does when a sibling body will not open.</summary>
+    public string MidPath { get; }
     public string TopName { get; }
 
     /// <summary>The false-empty cell: winner touches it carrying nothing, base declares Temporary/Persistent/Landscape.</summary>
@@ -41,6 +45,9 @@ public sealed class OwnedChildWorld : IDisposable
     /// <summary>OVERLAPPING — the base declares 3 references and the mid plugin re-declares the FIRST of them
     /// plus one of its own. The union is 4, and a concatenation would say 5.</summary>
     public FormKey CellG { get; }
+    /// <summary>OVER THE MEMBER CAP — the base declares 101 references and the mid plugin overrides the cell
+    /// declaring none, so the union is 101 against a json member cap of 100.</summary>
+    public FormKey CellH { get; }
     public FormKey Topic { get; }
     /// <summary>A 3-toucher record with no child-bearing field at all.</summary>
     public FormKey Weapon { get; }
@@ -67,7 +74,7 @@ public sealed class OwnedChildWorld : IDisposable
 
         CellA = new FormKey(baseKey, 0xC01); CellB = new FormKey(baseKey, 0xC02); CellC = new FormKey(baseKey, 0xC03);
         CellD = new FormKey(baseKey, 0xC04); CellE = new FormKey(baseKey, 0xC05); CellF = new FormKey(baseKey, 0xC06);
-        CellG = new FormKey(baseKey, 0xC07);
+        CellG = new FormKey(baseKey, 0xC07); CellH = new FormKey(baseKey, 0xC08);
         Topic = new FormKey(baseKey, 0xD01); Weapon = new FormKey(baseKey, 0xE01); Worldspace = new FormKey(baseKey, 0xF01);
 
         var baseDir = Path.Combine(mods, "BaseMod"); Directory.CreateDirectory(baseDir);
@@ -107,6 +114,11 @@ public sealed class OwnedChildWorld : IDisposable
                 g.Temporary.Add(new PlacedObject(new FormKey(baseKey, (uint)(0xC70 + i)), SkyrimRelease.SkyrimSE) { EditorID = $"HcOcGTemp{i}" });
             FileInterior(m, g);
 
+            var h = new Cell(CellH, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellH", Flags = Cell.Flag.IsInteriorCell };
+            for (int i = 0; i < 101; i++)
+                h.Temporary.Add(new PlacedObject(new FormKey(baseKey, (uint)(0x1000 + i)), SkyrimRelease.SkyrimSE) { EditorID = $"HcOcHTemp{i}" });
+            FileInterior(m, h);
+
             var t = new DialogTopic(Topic, SkyrimRelease.SkyrimSE) { EditorID = "HcOcTopic" };
             for (int i = 0; i < 2; i++)
             {
@@ -131,6 +143,7 @@ public sealed class OwnedChildWorld : IDisposable
         }
 
         var midDir = Path.Combine(mods, "MidMod"); Directory.CreateDirectory(midDir);
+        MidPath = Path.Combine(midDir, MidName);
         {
             using var baseOv = SkyrimMod.CreateFromBinaryOverlay(basePath, SkyrimRelease.SkyrimSE);
             var m = new SkyrimMod(midKey, SkyrimRelease.SkyrimSE);
@@ -140,6 +153,10 @@ public sealed class OwnedChildWorld : IDisposable
             f.Temporary.Add(new PlacedObject(new FormKey(midKey, 0xA60), SkyrimRelease.SkyrimSE) { EditorID = "HcOcMidFTemp0" });
             f.Persistent.Add(new PlacedObject(new FormKey(midKey, 0xA6A), SkyrimRelease.SkyrimSE) { EditorID = "HcOcMidFPers0" });
             FileInterior(m, f);
+
+            // CellH: the mid plugin touches the cell for an unrelated reason and declares nothing, so the union
+            // is the base's 101 -- one past the json member cap.
+            FileInterior(m, new Cell(CellH, SkyrimRelease.SkyrimSE) { EditorID = "HcOcCellH", Flags = Cell.Flag.IsInteriorCell });
 
             // CellG: the mid plugin RE-DECLARES the base's first reference and adds one of its own, so the union
             // has to be keyed by FormID rather than concatenated.
@@ -196,6 +213,11 @@ public sealed class OwnedChildWorld : IDisposable
         File.WriteAllText(Path.Combine(profiles, "loadorder.txt"), "# header\r\n" + BaseName + "\r\n" + MidName + "\r\n" + TopName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "plugins.txt"), "*" + BaseName + "\r\n*" + MidName + "\r\n*" + TopName + "\r\n");
         File.WriteAllText(Path.Combine(profiles, "modlist.txt"), "# header\r\n+TopMod\r\n+MidMod\r\n+BaseMod\r\n");
+
+        // The scan lanes validate against the corpus rulebook, so this world generates one like the others.
+        var genDir = Path.Combine(Root, "corpus-gen");
+        CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
+        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
         Svc.Stats();
@@ -578,6 +600,111 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void Artifact_TheManifestOnlyResponseDoesNotStateAClauseOverRowsItDidNotRender() =>
         Assert.Null(ClauseLineOrNull(Read(_w.CellA, toFile: _w.Scratch("inline.jsonl")), ReadSentences.UnionFraming));
+
+    // ---- the member sample: what json lists, and what it counts instead ---------------------------
+
+    static JsonElement Union(string json, FormKey _, string field)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.GetProperty("records")[0].GetProperty("fields").EnumerateArray()
+                  .Single(f => f.GetProperty("path").GetString() == field)
+                  .GetProperty("owned_child_union").Clone();
+    }
+
+    /// <summary>A union past the cap lists a SAMPLE and counts the rest — the array is never the whole set, and a
+    /// caller who round-trips it can see from members_omitted that it is not.</summary>
+    [Fact]
+    public void Json_AUnionPastTheMemberCapListsASampleAndCountsWhatItLeftOut()
+    {
+        var u = Union(Read(_w.CellH, format: "json"), _w.CellH, "Temporary");
+        Assert.Equal(101, u.GetProperty("total").GetInt32());
+        Assert.Equal(100, u.GetProperty("members").GetArrayLength());
+        Assert.Equal(1, u.GetProperty("members_omitted").GetInt32());
+    }
+
+    /// <summary>The sample is bounded by what is LEFT of max_chars too. A hundred FormKey strings is ~3KB, so a
+    /// field object that only obeyed the flat cap could double a small response before the field loop noticed.</summary>
+    [Fact]
+    public void Json_TheMemberSampleShrinksToTheRemainingBudget_AndTheOmissionIsStillCounted()
+    {
+        var u = Union(Read(_w.CellH, new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Temporary" } },
+                           format: "json", maxChars: 2000), _w.CellH, "Temporary");
+        int listed = u.GetProperty("members").GetArrayLength();
+        Assert.InRange(listed, 0, 99);
+        Assert.Equal(101 - listed, u.GetProperty("members_omitted").GetInt32());
+    }
+
+    /// <summary>An additive union has no single live declarer — every declarer's children are live — so the json
+    /// names the highest declarer as that, and keeps live_plugin for the SINGULAR shape where it is true.</summary>
+    [Fact]
+    public void Json_ACollectionNamesItsHighestDeclarer_AndOnlyASingularNamesALivePlugin()
+    {
+        var json = Read(_w.CellA, format: "json");
+        var coll = Union(json, _w.CellA, "Temporary");
+        Assert.Equal(_w.BaseName, coll.GetProperty("highest_declarer").GetString());
+        Assert.False(coll.TryGetProperty("live_plugin", out _));
+        var sing = Union(json, _w.CellA, "Landscape");
+        Assert.Equal(_w.BaseName, sing.GetProperty("live_plugin").GetString());
+        Assert.False(sing.TryGetProperty("highest_declarer", out _));
+    }
+
+    // ---- a plugin the union could not open --------------------------------------------------------
+
+    /// <summary>A sibling plugin holding an exclusive handle (xEdit, MO2, an AV scan) must not fault the read: the
+    /// subject's own body answers, and the plugin that would not open is NAMED beside the union rather than
+    /// counted into it as declaring nothing.</summary>
+    [Fact]
+    public void ASiblingPluginThatWillNotOpenIsNamedBesideTheUnion_NeverFatalAndNeverANegative()
+    {
+        string line;
+        using (new FileStream(_w.MidPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            line = FieldLine(Read(_w.CellF), "Temporary");
+        Assert.Contains(ReadSentences.CouldNotRead, line);
+        Assert.Contains(_w.MidName, line);
+        // The base's declaration still counted: the read degraded by one plugin, and said so.
+        Assert.Contains(ReadSentences.UnionLabel, line);
+    }
+
+    /// <summary>And the same read once the handle is gone: the plugin is back in the union, so the arm above is a
+    /// statement about THAT read, not a sticky verdict.</summary>
+    [Fact]
+    public void TheSameReadAfterTheHandleIsReleasedNamesNothingUnreadable() =>
+        Assert.DoesNotContain(ReadSentences.CouldNotRead, FieldLine(Read(_w.CellF), "Temporary"));
+
+    // ---- the scan lanes: annotated, but index-only --------------------------------------------------
+
+    string ScanCells(string? format = null) =>
+        RecordsTools.Records(Svc, types: new[] { "CELL" },
+                             project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Temporary" } },
+                             format: format);
+
+    /// <summary>A scan discovers its row count, so it does not open a body per touching plugin per row. It still
+    /// annotates — the field is a false-empty either way — with the index-only note.</summary>
+    [Fact]
+    public void AScanStatesTheIndexOnlyNote_NotTheUnionItWouldPayPerRowFor()
+    {
+        var r = ScanCells();
+        Assert.Contains(ReadSentences.NotRead, r);
+        // The clause's remedy NAMES the union, so the absent thing is the union NOTE — a label with a count after it.
+        Assert.DoesNotContain(ReadSentences.UnionLabel + ":", r);
+    }
+
+    /// <summary>And the clause over those rows is the index-only tier's, naming the lane that DOES assemble the
+    /// union — a scan must not ship a sentence describing a quantity its rows do not carry.</summary>
+    [Fact]
+    public void AScansClauseIsTheIndexOnlyOneAndNamesTheFormidsLane()
+    {
+        using var doc = JsonDocument.Parse(ScanCells("json"));
+        var note = doc.RootElement.GetProperty("owned_child_note").GetString()!;
+        Assert.StartsWith(ClauseHead(ReadSentences.NotReadFraming), note);
+        Assert.Contains("formids=", note);
+    }
+
+    /// <summary>The same cell named by formid IS unioned, so the two lanes differ by what the caller asked for,
+    /// not by what is true.</summary>
+    [Fact]
+    public void TheSameCellNamedByFormidIsUnioned() =>
+        Assert.Contains(ReadSentences.UnionLabel, FieldLine(Read(_w.CellA), "Temporary"));
 
     // ---- the remedy the clause names ------------------------------------------------------------
     //
