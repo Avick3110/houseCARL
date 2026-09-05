@@ -64,7 +64,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `epoch_covers_all_inputs: false` and `epoch_uncovered`, which names the verdicts read off disk rather than off the
   record index: voiced lines (.fuz on disk), the result-script .pex chain, and .seq coverage and staleness. The text
   render states the same stamp and the same three classes on its own line. Compare two responses' `epoch` to know
-  whether the record half changed between them; the named classes are outside that comparison.
+  whether the record half changed between them; the named classes are outside that comparison. A refusal — no seeds,
+  or every seed unresolvable — carries the bare `epoch` with no coverage claim beside it, which is what the errors and
+  scripts families' refusals carry.
 
 - **`housecarl_asset_status` and `housecarl_place` take `format='json'`.** Both answered text only, so a caller
   reading them from a script parsed prose. The json document carries the same data as the text render: for
