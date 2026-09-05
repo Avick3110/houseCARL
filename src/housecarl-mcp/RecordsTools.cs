@@ -58,7 +58,7 @@ public static class RecordsTools
         [Description("The link path followed at every LATER hop. \"*\" (default) walks every link — full closure. A named path restricts to one chain, e.g. \"Template\" for NPC template inheritance, or \"*parent\" to climb containment.")]
         public string? follow { get; set; }
 
-        [Description("'forward' (default) — what the seeds point AT (cheap: each hop is one link resolve). 'reverse' — what points AT the seeds; depth 1 only (reverse is a bounded scan; transitive reverse is refused naming the reverse-reference index as the future capability). The general reverse spelling on this surface IS references= (same construct); walk.direction='reverse' serves the typed MGEF lane — magic-effect seeds get per-carrier magnitude/area/duration (types= narrows the carrier types; walk.max_nodes bounds each seed's carrier rows; limit=/offset= window the SEEDS).")]
+        [Description("'forward' (default) — what the seeds point AT (cheap: each hop is one link resolve). 'reverse' — what points AT the seeds; depth 1 only (transitive reverse is not wired to the reverse-reference index on this lane yet, so depth>1 is still refused). The general reverse spelling on this surface IS references=, which needs no bounding scope; walk.direction='reverse' serves the typed MGEF lane — magic-effect seeds get per-carrier magnitude/area/duration (types= narrows the carrier types; walk.max_nodes bounds each seed's carrier rows; limit=/offset= window the SEEDS).")]
         public string? direction { get; set; }
 
         [Description("Maximum hops from a seed (default 16). Nodes AT the cap are recorded, not entered, and the response says the cap cut the walk — never a silent stop.")]
@@ -120,9 +120,11 @@ public static class RecordsTools
          "unchanged and still cheaper. A '!' before an entry NEGATES it — " +
          "references=[\"!XXXXXX:A.esm\"] keeps only records that do NOT reference that target, and plain and " +
          "negated entries in one call compose by AND; the sigil takes the @file spelling too — " +
-         "references=[\"!@C:/work/targets.jsonl\"] excludes every target the file names; an unbounded negated " +
-         "entry ALONE has the whole order as its " +
-         "universe, so bound it unless you mean that). UNION-ARM tip: when a field is one of " +
+         "references=[\"!@C:/work/targets.jsonl\"] excludes every target the file names. A negated entry ALONE " +
+         "with no types=/plugins= scope is the " +
+         "ORPHAN sweep: the universe becomes every record nothing in the order references, and the named target " +
+         "then excludes any of those that link it — bound the call if you meant the narrower question). " +
+         "UNION-ARM tip: when a field is one of " +
          "several shapes (an NPC's Configuration.Level is a fixed level OR a PC-level multiplier), a scalar " +
          "predicate on one arm's sub-field doubles as an ARM-PRESENCE test: where=[\"Configuration.Level.LevelMult " +
          ">= 0\"] returns exactly the NPCs on a multiplier. formids= COMPOSES with the scan terms: the identity set " +
@@ -351,11 +353,11 @@ public static class RecordsTools
             if (walkDirection == "reverse")
             {
                 if (walk.depth is > 1)
-                    return Wire.Refuse(json, "error: walk.direction='reverse' with depth>1 is a TRANSITIVE reverse lookup — no index exists for it today, so it is refused rather than run as an unbounded scan-of-scans (the reverse-reference index is the known future capability that lifts this). Depth-1 reverse: references= with a bounding types=/plugins=, or MGEF seeds under form='chain' for the typed carrier lane.");
+                    return Wire.Refuse(json, "error: walk.direction='reverse' with depth>1 is a TRANSITIVE reverse lookup — the reverse-reference index that answers it now ships, but this walk lane is not wired to it yet, so it is refused rather than run as a scan-of-scans. Depth-1 reverse: references= (no bounding scope needed), or MGEF seeds under form='chain' for the typed carrier lane.");
                 if (walk.seed_paths is { Length: > 0 } || walk.exclusions is { Length: > 0 } || walk.follow is not null)
                     return Wire.Refuse(json, "error: walk.seed_paths/follow/exclusions shape a FORWARD expansion — a reverse walk scans TOWARD the seeds. Drop them.");
                 if (form != "chain")
-                    return Wire.Refuse(json, "error: the reverse walk's general spelling on this surface IS references= (the same construct, depth 1, bounded by types=/plugins=) — walk.direction='reverse' serves form='chain' with MGEF seeds (per-carrier magnitude/area/duration).");
+                    return Wire.Refuse(json, "error: the reverse walk's general spelling on this surface IS references= (the same construct, depth 1, and it needs no bounding scope) — walk.direction='reverse' serves form='chain' with MGEF seeds (per-carrier magnitude/area/duration).");
             }
             if (references is { Length: > 0 })
                 return Wire.Refuse(json, "error: walk= and references= are the same construct (references= IS the reverse walk at depth 1) — use one spelling per call.");
@@ -1084,6 +1086,13 @@ public static class RecordsTools
                 if (neg!.Count > 0) refNoneFks = neg.Distinct().ToList();
             }
 
+            // The negated-only unbounded spelling selects the whole orphan set — millions of records on a real
+            // order — and the derived forms consume EVERY match uncapped (effLimit below is int.MaxValue for them),
+            // so each match would also be compared, merged or walked. Refused with the bound named, rather than
+            // run. A positive references= is not this: its universe is what links the target.
+            if (refNoneFks is not null && refFks is null && !hasTypes && !hasScope && !hasFormids && derivedSelection)
+                return Wire.Refuse(json, $"error: a negated references= with no types=/plugins=/formids= bound is the orphan sweep — every record nothing in the order references — and the '{form}' form compares or merges EVERY match, uncapped. Add types= or plugins= to bound it, or run the sweep as a plain scan with to_file= and re-enter the artifact via formids=[\"@<file>\"].");
+
             var scanPlugins = scopePlusPole ? plugins!.names : (srcName is not null ? new[] { srcName } : plugins?.names);
             bool definedIn = plugins?.defined_in ?? false;
             // group_by=type names each match's record type, which only a body-bearing scope can supply. The engine
@@ -1144,6 +1153,17 @@ public static class RecordsTools
                 Add("source", srcName ?? (srcSpec.Kind != LoadOrderService.PoleKind.Winner ? srcSpec.Label : null));
                 if (versusSpec is not null) Add("versus", versusSpec.Label);
                 return e;
+            }
+
+            // The reverse-reference index's accounting belongs to the response whatever consumes the scan. The two
+            // CrossQuery renderers read it off the outcome themselves; every form BELOW renders its own pipeline's
+            // response and would drop it, so it rides their header and envelope. One place, so no form forgets.
+            if (outcome.ReverseIndexNote is not null && outcome.Error is null && outcome.Groups is null
+                && (walk is not null || comparisonForm || form == "info_order"
+                    || ((form == "everything" || (form == "fields" && scopePlusPole)) && !counts_only)))
+            {
+                envelope.Add(new("reverse_index", outcome.ReverseIndexNote));
+                headerLine += "\n" + outcome.ReverseIndexNote;
             }
 
             // ---- walk= on a scan: the scan's matches are the seeds and the walk lane takes it from there,
