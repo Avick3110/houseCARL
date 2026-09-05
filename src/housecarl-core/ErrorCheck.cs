@@ -376,7 +376,7 @@ public static class ErrorCheck
                     // Pass 2 — the link walk, per-record fault isolation (the active loop's exact contract).
                     try
                     {
-                        foreach (var rec in wantDangling ? OffOrderRecords(ov, recordScope) : Enumerable.Empty<IMajorRecordGetter>())
+                        foreach (var rec in wantDangling ? SweepScope.RecordsFrom(ov, recordScope) : Enumerable.Empty<IMajorRecordGetter>())
                         {
                             try
                             {
@@ -489,14 +489,6 @@ public static class ErrorCheck
                                     bySource is null ? null : SweepFindings.Histogram(bySource),
                                     baselineDangling, baseSwept, nonBaseInScope, limit);
     }
-
-    /// <summary>The off-order file's record stream, type-scoped when the caller asked for one — the overlay
-    /// counterpart of <c>RecordsIn</c>'s getter-type filter, so a <c>type=</c> scope costs nothing per skipped record on
-    /// this lane either.</summary>
-    static IEnumerable<IMajorRecordGetter> OffOrderRecords(ISkyrimModGetter ov, SweepScope? scope)
-        => scope?.Types is { Count: > 0 } types
-            ? types.SelectMany(t => ov.EnumerateMajorRecords(t, throwIfUnknown: true)).Cast<IMajorRecordGetter>()
-            : ov.EnumerateMajorRecords();
 
     /// <summary>Bump the <c>counts_only=</c> dangling histogram for one broken target: keyed by the PLUGIN the target
     /// form lives in, which is the diagnostic the per-source-plugin grouping never gave — "480 of these point into

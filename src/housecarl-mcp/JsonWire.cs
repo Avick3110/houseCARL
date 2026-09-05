@@ -1233,7 +1233,7 @@ static class JsonWire
         bool didDangling = r.Classes.HasFlag(ErrorFindingClass.Dangling);
         bool didMasters = r.Classes.HasFlag(ErrorFindingClass.MissingMasters);
         w.WriteNumber("scanned_plugins", r.PluginsScanned);
-        WriteSweepEpoch(w, r);   // the swept INDEXED build + whether it covers every swept input
+        WriteSweepEpoch(w, r.Epoch, r.OffOrderScanned);   // the swept INDEXED build + whether it covers every swept input
         // null (not 0) for a class nobody looked for — see the summary.
         if (didDangling) { w.WriteNumber("dangling", r.TotalDangling); w.WriteNumber("unscannable_records", r.TotalUnscannableRecords); }
         else { w.WriteNull("dangling"); w.WriteNull("unscannable_records"); }
@@ -1539,15 +1539,15 @@ static class JsonWire
         return Size(w, ms) - before;
     }
 
-    /// <summary>The errors family's stamp and coverage as data: <c>epoch_covers_all_inputs</c> is false exactly when
+    /// <summary>A swept family's stamp and coverage as data: <c>epoch_covers_all_inputs</c> is false exactly when
     /// off-order files were swept beside the index, since their content is outside the fingerprint and
-    /// <c>off_order_scanned</c> names them. The scripts family needs no coverage flag — it has no off-order lane.
+    /// <c>off_order_scanned</c> names them. Both swept families have that lane, so both write it through here.
     /// Success path only; a refusal swept nothing and carries the bare stamp.</summary>
-    static void WriteSweepEpoch(Utf8JsonWriter w, ErrorCheckResult r)
+    static void WriteSweepEpoch(Utf8JsonWriter w, string? epoch, IReadOnlyList<string>? offOrderScanned)
     {
-        if (r.Epoch is null) return;
-        w.WriteString("epoch", r.Epoch);
-        w.WriteBoolean("epoch_covers_all_inputs", r.OffOrderScanned is not { Count: > 0 });
+        if (epoch is null) return;
+        w.WriteString("epoch", epoch);
+        w.WriteBoolean("epoch_covers_all_inputs", offOrderScanned is not { Count: > 0 });
     }
 
     // ---- housecarl_check — the merged, multi-family document ----------------------------------------
@@ -1697,8 +1697,6 @@ static class JsonWire
         {
             var f = sections[i];
             w.WriteStartObject(SweepFamilySelection.Token(f));
-            // The off-order asymmetry, ABOVE whatever this family goes on to say, refusal included.
-            if (o.OffOrder(f) is { } skipped) w.WriteString("off_order_not_swept", skipped);
             // A family that refused says so HERE, rather than the refusal becoming the whole call's error.
             if (o.Refusal(f) is { } refusal)
             {
@@ -1740,7 +1738,7 @@ static class JsonWire
         bool didNull = r.Classes.HasFlag(ScriptFindingClass.BoundNull);
 
         w.WriteNumber("scanned_plugins", r.PluginsScanned);
-        WriteNullable(w, "epoch", r.Epoch);   // the swept build
+        WriteSweepEpoch(w, r.Epoch, r.OffOrderScanned);   // the swept INDEXED build + whether it covers every swept input
         w.WriteNumber("records_with_scripts", r.RecordsWithScripts);
         if (didObject || didScalar) w.WriteNumber("unbound", r.TotalUnbound); else w.WriteNull("unbound");
         if (didObject) w.WriteNumber("unbound_object", r.TotalUnboundObject); else w.WriteNull("unbound_object");
@@ -1753,6 +1751,7 @@ static class JsonWire
         // a consumer has to be able to read that asymmetry off the document.
         WriteNullable(w, "property_contains", r.PropertyContains);
         WriteNullable(w, "filter_note", r.FilterNote);
+        WriteStringArray(w, "off_order_scanned", r.OffOrderScanned ?? Array.Empty<string>());
         w.WriteBoolean("read_incomplete", r.ReadIncomplete);
         w.WriteBoolean("counts_only", r.CountsOnly);
     }

@@ -46,9 +46,7 @@ public static class CheckTools
          "failures — records houseCARL/Mutagen could not read, plus whole plugins the index excluded as unparseable. " +
          "A scoped name NOT in the active order is resolved on disk (any mod folder — enabled, disabled, or not yet " +
          "listed in MO2) and swept OFF-ORDER: its own records, links resolved against the active order PLUS the " +
-         "file's own definitions — the pre-enable verify sweep for a patch houseCARL just wrote. ONLY this family has " +
-         "an off-order lane, and a response whose scope named such a file states per family which ones it did not " +
-         "sweep. BOUNDARY (never a silent claim of more — Q3): it covers the FormLink-resolution / missing-master / " +
+         "file's own definitions — the pre-enable verify sweep for a patch houseCARL just wrote. BOUNDARY (never a silent claim of more — Q3): it covers the FormLink-resolution / missing-master / " +
          "parse class. It does NOT verify navmesh or terrain spatial integrity (CRC/grid — a Mutagen-delta " +
          "residual), does NOT flag a required field left null (a null FormLink is a legal optional, not an error), " +
          "does NOT list unused-master cleanup (a FormLink scan cannot prove a master is unused), and does NOT " +
@@ -68,7 +66,10 @@ public static class CheckTools
          "sometimes filled at runtime). BOUNDARY: it checks Auto (CK-editable) properties only, not code-driven full " +
          "properties; 'unbound may be intentional' (a runtime-filled link), so a finding is a flag to VERIFY; and if " +
          "a script's .pex is not on disk (uncompiled / not in the order) the attachment is reported UNVERIFIABLE, " +
-         "never passed clean. " +
+         "never passed clean. It has the SAME off-order lane as the errors family: a scoped name not in the active " +
+         "order is swept from its file on disk, so a fresh patch's bindings can be checked BEFORE it is enabled — " +
+         "the .pex chain is still read from the ACTIVE order, so a script shipped only inside the not-yet-enabled " +
+         "mod reads UNVERIFIABLE rather than clean. " +
          // ---- family: dialogue (harvested from housecarl_validate_dialogue) ------------------------
          "DIALOGUE FAMILY — a topic's whole graph as the GAME sees it, and it is SEEDED, not swept: seeds= names " +
          "what to validate and findings=['dialogue'] without it is REFUSED on cost (a whole-order pass is a " +
@@ -108,7 +109,7 @@ public static class CheckTools
          "listing NAMES which source plugins lost entries.")]
     public static string CheckTool(
         LoadOrderService svc,
-        [Description("Optional. Plugin filenames to sweep (e.g. 'MyMod.esp'). A name not in the active order is resolved on disk (a fresh houseCARL patch, a disabled mod) and swept OFF-ORDER by the ERRORS family; found nowhere (or in several folders) it is an error. The scripts family has no off-order lane and the response says per family which named files it did not sweep. Omit to sweep the WHOLE active order — thorough but heavier; scope to one plugin for a fast, focused check like the CK's per-plugin 'Check For Errors'.")]
+        [Description("Optional. Plugin filenames to sweep (e.g. 'MyMod.esp'). A name not in the active order is resolved on disk (a fresh houseCARL patch, a disabled mod) and swept OFF-ORDER by BOTH swept families — errors and scripts; found nowhere (or in several folders) it is an error. Omit to sweep the WHOLE active order — thorough but heavier; scope to one plugin for a fast, focused check like the CK's per-plugin 'Check For Errors'.")]
             string[]? plugins = null,
         [Description("Optional. Record type to sweep — a 4-char signature ('WEAP') or catalog name ('Weapon'). Applied at the record STREAM, so it is the CHEAPEST scope: skipped records cost nothing (no link walk, no .pex chain read). An unknown type is refused, naming what is expected.")]
             string? type = null,
@@ -160,31 +161,17 @@ public static class CheckTools
             return json ? JsonWire.RenderCheck(refusal, max_chars, lim) : Wire.RenderCheck(refusal, max_chars, lim);
         }
 
-        // Which family can sweep which plugin. The errors family resolves a name not in the active order on disk and
-        // sweeps it off-order; the scripts family has no such lane. On one plugins= list feeding both, the scripts
-        // family is handed the ACTIVE subset and the response states per family what it left out, rather than one
-        // family being silently widened or a call the errors family can answer being refused.
-        var active = new HashSet<string>(svc.ActivePluginNames, StringComparer.OrdinalIgnoreCase);
-        // The Where() drops nothing in practice — a blank entry refused above — but the trim is what makes the
-        // active-set comparison honest.
-        var named = (plugins ?? Array.Empty<string>()).Select(p => (p ?? "").Trim())
-                                                      .Where(p => p.Length > 0).ToArray();
-        var offOrder = named.Where(p => !active.Contains(p)).ToArray();
-        var activeNamed = named.Where(active.Contains).ToArray();
-
+        // Both swept families take the same plugins= list whole: each resolves a name the active order does not hold
+        // on disk and sweeps it off-order, so one list means the same scope in both sections.
         ErrorCheckResult? errors = null;
         ScriptCheckResult? scripts = null;
         if (selection.Ran.Contains(SweepFamily.Errors))
             errors = svc.CheckErrors(plugins, lim, formids, editorid_contains, type,
                                      SweepFindings.Tokens(selection.ErrorClasses), counts_only, exclude);
         if (selection.Ran.Contains(SweepFamily.Scripts))
-            scripts = svc.ValidateScripts(activeNamed.Length > 0 ? activeNamed : null, lim, formids, editorid_contains,
+            scripts = svc.ValidateScripts(plugins, lim, formids, editorid_contains,
                                           type, property_contains, SweepFindings.Tokens(selection.ScriptClasses),
-                                          counts_only, exclude,
-                                          // A caller whose every named plugin resolved off-order has given this
-                                          // family an empty scope; passing null instead would widen it to the whole
-                                          // order, a sweep the caller did not ask for.
-                                          noneInScope: named.Length > 0 && activeNamed.Length == 0);
+                                          counts_only, exclude);
         DialogueCheckResult? dialogue = null;
         if (selection.Ran.Contains(SweepFamily.Dialogue))
             // Its own scope, not the plugins= list: this family selects records, not plugins, so handing it
@@ -192,7 +179,7 @@ public static class CheckTools
             // than widening to the whole order.
             dialogue = svc.CheckDialogue(seeds, lim, counts_only);
 
-        var sweep = new CheckSweep(selection, errors, scripts, offOrder, dialogue);
+        var sweep = new CheckSweep(selection, errors, scripts, dialogue);
         return json ? JsonWire.RenderCheck(sweep, max_chars, lim) : Wire.RenderCheck(sweep, max_chars, lim);
     });
 }

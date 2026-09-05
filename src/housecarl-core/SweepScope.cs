@@ -75,6 +75,14 @@ public sealed class SweepScope
             return string.Join(", ", parts);
         }
     }
+
+    /// <summary>An OFF-ORDER file's record stream, type-scoped when the caller asked for one — the overlay
+    /// counterpart of <c>RecordsIn</c>'s getter-type filter, so a <c>type=</c> scope costs nothing per skipped
+    /// record on that lane either. One home, because both sweep families walk an off-order file the same way.</summary>
+    public static IEnumerable<IMajorRecordGetter> RecordsFrom(IModGetter ov, SweepScope? scope)
+        => scope?.Types is { Count: > 0 } types
+            ? types.SelectMany(t => ov.EnumerateMajorRecords(t, throwIfUnknown: true)).Cast<IMajorRecordGetter>()
+            : ov.EnumerateMajorRecords();
 }
 
 /// <summary>One row of a <c>counts_only=true</c> histogram: a key (a property name, a target plugin) and how many
