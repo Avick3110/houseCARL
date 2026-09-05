@@ -167,6 +167,10 @@ public static class CheckTools
         // that split, so the default findings set does not read the MO2 composition and sweep every mod folder twice
         // for an answer that is identical both times — and the two cannot disagree about which names resolved.
         var offOrderMemo = new SweepOffOrderMemo();
+        // The order every family below answers from, captured once so the response root can say whether it had lost
+        // plugins — the dialogue family carries no epoch, so this is the only lane that can state it for a
+        // dialogue-only call (#353).
+        var order = svc.CaptureView().Stamp;
         ErrorCheckResult? errors = null;
         ScriptCheckResult? scripts = null;
         if (selection.Ran.Contains(SweepFamily.Errors))
@@ -183,7 +187,7 @@ public static class CheckTools
             // than widening to the whole order.
             dialogue = svc.CheckDialogue(seeds, lim, counts_only);
 
-        var sweep = new CheckSweep(selection, errors, scripts, dialogue);
+        var sweep = new CheckSweep(selection, errors, scripts, dialogue, Order: order);
         return json ? JsonWire.RenderCheck(sweep, max_chars, lim) : Wire.RenderCheck(sweep, max_chars, lim);
     });
 }

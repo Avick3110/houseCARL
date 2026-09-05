@@ -38,12 +38,24 @@ static class JsonWire
     /// <para>A sibling of the stamp, never inside it: the epoch is opaque and compared only for equality, so folding
     /// health into the string would leave two builds that differ only in health comparing as merely "different" —
     /// today's ambiguity re-spelled.</para></summary>
-    static void WriteEpoch(Utf8JsonWriter w, string? epoch)
+    static void WriteEpoch(Utf8JsonWriter w, OrderStamp? stamp) =>
+        WriteEpoch(w, stamp?.Epoch, stamp?.ExcludedPlugins);
+
+    /// <summary>The same writer for a lane that holds the epoch and the excluded roster as two carried values (the
+    /// sweep results, which have both on the result) rather than as one stamp.</summary>
+    static void WriteEpoch(Utf8JsonWriter w, string? epoch, IReadOnlyCollection<string>? excluded)
     {
         WriteNullable(w, "epoch", epoch);
-        if (OrderHealth.NoteFor(epoch) is not { } note) return;
+        WriteOrderDegraded(w, excluded);
+    }
+
+    /// <summary>The marker on its own, for a document that states it at the ROOT rather than beside an epoch — the
+    /// merged check, whose dialogue family carries no epoch to hang it off. Silent on a healthy order.</summary>
+    static void WriteOrderDegraded(Utf8JsonWriter w, IReadOnlyCollection<string>? excluded)
+    {
+        if (excluded is not { Count: > 0 }) return;
         w.WriteBoolean("order_degraded", true);
-        w.WriteString("order_degraded_note", note);
+        w.WriteString("order_degraded_note", OrderDegraded.Sentence(excluded));
     }
 
     /// <summary>A record's runtime address on the json lanes: <c>runtime_formid</c> always present (null when the
@@ -88,7 +100,7 @@ static class JsonWire
     /// one <c>{formid,type,editorid,name,winner}</c> row per resolvable input, or <c>{formid,error}</c> for a
     /// bad/absent one, so the batch survives. Over max_chars it drops trailing rows and flags <c>truncated</c>,
     /// keeping the document valid JSON with an exact <c>count</c>.</summary>
-    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, string epoch)
+    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch)
         => RenderResolve(rows, maxChars, epoch, null, out _);
 
     /// <summary>Optional response-envelope pairs (form=, the resolved source arm, …) written as top-level string
@@ -103,7 +115,7 @@ static class JsonWire
         foreach (var kv in envelope) w.WriteString(kv.Key, kv.Value);
     }
 
-    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, string epoch, SpillState? spill, out bool truncated,
+    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch, SpillState? spill, out bool truncated,
                                        IReadOnlyList<KeyValuePair<string, string>>? envelope = null)
     {
         truncated = false;
@@ -173,7 +185,7 @@ static class JsonWire
     /// <para>On the read surface <c>ok</c> marks refusals ONLY — a served read document carries no <c>ok</c>, and
     /// its absence means the call was answered. Deliberate asymmetry with the write surface, which writes the flag
     /// on both outcomes.</para></summary>
-    internal static string RenderError(string error, string? epoch)
+    internal static string RenderError(string error, OrderStamp? epoch)
     {
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
@@ -404,7 +416,7 @@ static class JsonWire
     /// <param name="stateChildNote">Single-read lane only: this record object IS the response, so the clause
     /// belongs on it — written AFTER <c>fields</c> and only over what <c>fields</c> carried.</param>
     internal static void WriteReadRecord(Utf8JsonWriter w, ReadOutcome o, MemoryStream ms, int cap, string? matches = null,
-                                         string? epoch = null, ICollection<string>? childFields = null, bool stateChildNote = false,
+                                         OrderStamp? epoch = null, ICollection<string>? childFields = null, bool stateChildNote = false,
                                          LeverNames? levers = null)
     {
         var r = o.Record!;
@@ -458,7 +470,7 @@ static class JsonWire
             w.WriteNumber("count", outcomes.Count);
             // The whole batch reads ONE captured build (ResolveBatch) — response-level accounting, first non-null
             // (a malformed-FormID row never consulted a view and carries none).
-            WriteEpoch(w, outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch);
+            WriteEpoch(w, outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp);
             w.WriteStartArray("records");
             int rendered = 0; bool rowsTruncated = false;
             var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the annotated fields the rows RENDERED carried
@@ -493,7 +505,7 @@ static class JsonWire
     /// is the refusal grammar's boolean discriminant, so an integer under that key would read as a refusal to one
     /// consumer and fail to parse for another. The TEXT twin keeps <c>ok=</c> — prose has no discriminant to
     /// collide with.</para></summary>
-    public static string RenderCounts(IReadOnlyList<KeyValuePair<string, string>> envelope, int count, int ok, int errors, string? epoch)
+    public static string RenderCounts(IReadOnlyList<KeyValuePair<string, string>> envelope, int count, int ok, int errors, OrderStamp? epoch)
     {
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
@@ -512,7 +524,7 @@ static class JsonWire
     /// <summary>records counts_only for forms whose census has named counters (delta: differing/identical;
     /// tree: contested) — the envelope plus the counters, no rows.</summary>
     public static string RenderNamedCounts(IReadOnlyList<KeyValuePair<string, string>> envelope,
-                                           IReadOnlyList<KeyValuePair<string, int>> counts, string? epoch)
+                                           IReadOnlyList<KeyValuePair<string, int>> counts, OrderStamp? epoch)
     {
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
@@ -541,7 +553,7 @@ static class JsonWire
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
             w.WriteNumber("count", outcomes.Count);
-            WriteEpoch(w, outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch);
+            WriteEpoch(w, outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp);
             w.WriteStartArray("records");
             int rendered = 0; bool rowsTruncated = false;   // summary rows carry no fields, so no owned-child annotation
             foreach (var o in outcomes)
@@ -577,7 +589,7 @@ static class JsonWire
     /// <summary>records form=aggregate on the list lane: the count table over resolved rows, per-item errors
     /// counted apart so they are never silently dropped from a census.</summary>
     public static string RenderListAggregate(string groupBy, IReadOnlyList<KeyValuePair<string, int>> rows,
-                                             int count, int errors, string? epoch,
+                                             int count, int errors, OrderStamp? epoch,
                                              IReadOnlyList<KeyValuePair<string, string>>? envelope = null)
     {
         using var ms = new MemoryStream();
@@ -647,7 +659,7 @@ static class JsonWire
     /// <summary>records form=delta: <c>{…envelope, count, differing, identical, errors, epoch, rows:[…]}</c>.
     /// The identical count only counts COMPLETE comparisons — a truncated deep read is neither, and its row says
     /// so via <c>complete:false</c>.</summary>
-    public static string RenderDelta(IReadOnlyList<LoadOrderService.DeltaRow> rows, int maxChars, string? epoch,
+    public static string RenderDelta(IReadOnlyList<LoadOrderService.DeltaRow> rows, int maxChars, OrderStamp? epoch,
                                      IReadOnlyList<KeyValuePair<string, string>> envelope,
                                      IReadOnlyList<KeyValuePair<string, int>> counts,
                                      SpillState? spill, out bool truncated)
@@ -767,7 +779,7 @@ static class JsonWire
     }
 
     /// <summary>records form=tree: <c>{…envelope, count, contested, errors, epoch, rows:[…]}</c>.</summary>
-    public static string RenderTree(IReadOnlyList<LoadOrderService.TreeRow> rows, int maxChars, string? epoch,
+    public static string RenderTree(IReadOnlyList<LoadOrderService.TreeRow> rows, int maxChars, OrderStamp? epoch,
                                     IReadOnlyList<KeyValuePair<string, string>> envelope,
                                     IReadOnlyList<KeyValuePair<string, int>> counts,
                                     SpillState? spill, out bool truncated, LeverNames? levers = null)
@@ -866,7 +878,7 @@ static class JsonWire
     }
 
     /// <summary>records form=chain: <c>{…envelope, seeds, errors, epoch, rows:[…]}</c>.</summary>
-    public static string RenderChain(IReadOnlyList<LoadOrderService.WalkSeedResult> rows, int maxChars, string? epoch,
+    public static string RenderChain(IReadOnlyList<LoadOrderService.WalkSeedResult> rows, int maxChars, OrderStamp? epoch,
                                      IReadOnlyList<KeyValuePair<string, string>> envelope,
                                      IReadOnlyList<KeyValuePair<string, int>> counts,
                                      SpillState? spill, out bool truncated)
@@ -905,7 +917,7 @@ static class JsonWire
     /// MATCHING entry's payload — magnitudes AS AUTHORED (conditions not evaluated), the effect_chain contract.</summary>
     public static string RenderEffectChains(IReadOnlyList<(string Seed, EffectChainResult Result)> results,
                                             int maxChars, IReadOnlyList<KeyValuePair<string, string>> envelope,
-                                            IReadOnlyList<KeyValuePair<string, int>> counts, string? epoch,
+                                            IReadOnlyList<KeyValuePair<string, int>> counts, OrderStamp? epoch,
                                             SpillState? spill, out bool outTruncated)
     {
         outTruncated = false;
@@ -1016,7 +1028,7 @@ static class JsonWire
     }
 
     /// <summary>records form=info_order: <c>{…envelope, count, contested, errors, epoch, rows:[…]}</c>.</summary>
-    public static string RenderInfoOrder(IReadOnlyList<LoadOrderService.InfoOrderRow> rows, int maxChars, string? epoch,
+    public static string RenderInfoOrder(IReadOnlyList<LoadOrderService.InfoOrderRow> rows, int maxChars, OrderStamp? epoch,
                                          IReadOnlyList<KeyValuePair<string, string>> envelope,
                                          IReadOnlyList<KeyValuePair<string, int>> counts,
                                          SpillState? spill, out bool truncated)
@@ -1077,12 +1089,12 @@ static class JsonWire
             WriteEnvelope(w, envelope);
             // Post-capture refusals are epoch-stamped; pre-capture validation refusals carry null and render bare,
             // same as the text twin.
-            if (q.Error is not null) { WriteRefusal(w, q.Error); if (q.Epoch is not null) WriteEpoch(w, q.Epoch); }
+            if (q.Error is not null) { WriteRefusal(w, q.Error); if (q.Stamp is not null) WriteEpoch(w, q.Stamp); }
             else if (q.Groups is not null)                                   // group_by= → count table
             {
                 WriteNullable(w, "group_by", q.GroupBy);
                 w.WriteNumber("total", q.Total);
-                WriteEpoch(w, q.Epoch);
+                WriteEpoch(w, q.Stamp);
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
                 WriteNotes(w, q);
                 w.WriteStartArray("groups");
@@ -1107,7 +1119,7 @@ static class JsonWire
                 string? p5 = anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner, levers) : null;
                 w.WriteNumber("total", q.Total);
                 w.WriteBoolean("capped", q.Capped);
-                WriteEpoch(w, q.Epoch);                         // offset= windows tile ONLY within one epoch
+                WriteEpoch(w, q.Stamp);                         // offset= windows tile ONLY within one epoch
                 if (q.Offset > 0) w.WriteNumber("offset", q.Offset);        // the window's start, in-band
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
                 WriteNotes(w, q, p5);
@@ -1205,14 +1217,14 @@ static class JsonWire
             w.WriteStartObject();
             WriteEnvelope(w, envelope);
             // Post-capture refusals are epoch-stamped; pre-capture validation refusals stay bare.
-            if (q.Error is not null) { WriteRefusal(w, q.Error); if (q.Epoch is not null) WriteEpoch(w, q.Epoch); }
+            if (q.Error is not null) { WriteRefusal(w, q.Error); if (q.Stamp is not null) WriteEpoch(w, q.Stamp); }
             else
             {
                 bool detail = fields is { Count: > 0 };
                 bool anyScoped = AnyScopedFieldRow(q, fields);   // the shared test: any row read from a scoped body
                 w.WriteNumber("total", q.Total);
                 w.WriteBoolean("capped", q.Capped);
-                WriteEpoch(w, q.Epoch);                           // offset= windows tile ONLY within one epoch
+                WriteEpoch(w, q.Stamp);                           // offset= windows tile ONLY within one epoch
                 if (q.Offset > 0) w.WriteNumber("offset", q.Offset);
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
                 WriteNotes(w, q, anyScoped ? ScopedFieldsNote(winnerFields, q.WhereWinner, levers) : null);
@@ -1362,7 +1374,7 @@ static class JsonWire
         bool didDangling = r.Classes.HasFlag(ErrorFindingClass.Dangling);
         bool didMasters = r.Classes.HasFlag(ErrorFindingClass.MissingMasters);
         w.WriteNumber("scanned_plugins", r.PluginsScanned);
-        WriteSweepEpoch(w, r.Epoch, r.OffOrderScanned);   // the swept INDEXED build + whether it covers every swept input
+        WriteSweepEpoch(w, r.Epoch, r.ExcludedPlugins, r.OffOrderScanned);   // the swept INDEXED build + whether it covers every swept input
         // null (not 0) for a class nobody looked for — see the summary.
         if (didDangling) { w.WriteNumber("dangling", r.TotalDangling); w.WriteNumber("unscannable_records", r.TotalUnscannableRecords); }
         else { w.WriteNull("dangling"); w.WriteNull("unscannable_records"); }
@@ -1672,10 +1684,11 @@ static class JsonWire
     /// off-order files were swept beside the index, since their content is outside the fingerprint and
     /// <c>off_order_scanned</c> names them. Both swept families have that lane, so both write it through here.
     /// Success path only; a refusal swept nothing and carries the bare stamp.</summary>
-    static void WriteSweepEpoch(Utf8JsonWriter w, string? epoch, IReadOnlyList<string>? offOrderScanned)
+    static void WriteSweepEpoch(Utf8JsonWriter w, string? epoch, IReadOnlyDictionary<string, string> excluded,
+                                IReadOnlyList<string>? offOrderScanned)
     {
         if (epoch is null) return;
-        WriteEpoch(w, epoch);
+        WriteEpoch(w, epoch, excluded.Keys.ToArray());
         w.WriteBoolean("epoch_covers_all_inputs", offOrderScanned is not { Count: > 0 });
     }
 
@@ -1723,7 +1736,7 @@ static class JsonWire
             {
                 ew.WriteStartObject();
                 WriteRefusal(ew, o.Error);
-                WriteEpoch(ew, o.Epoch);
+                WriteEpoch(ew, o.Epoch, o.OrderExcluded);
                 ew.WriteEndObject();
                 ew.Flush();
             }
@@ -1826,6 +1839,9 @@ static class JsonWire
         }
         w.WriteEndArray();
         w.WriteString("findings_scope", o.ScopeSentence());
+        // A response-level fact, like the roster below: the order this whole call answered from was short of
+        // plugins. Stated here rather than per family so a dialogue-only check says it too (#353).
+        WriteOrderDegraded(w, o.OrderExcluded);
 
         // Above `families` for the reason the text lane states: an accounting reports what has been emitted,
         // and every family's accounting is written inside the loop below.
@@ -1877,7 +1893,7 @@ static class JsonWire
         bool didNull = r.Classes.HasFlag(ScriptFindingClass.BoundNull);
 
         w.WriteNumber("scanned_plugins", r.PluginsScanned);
-        WriteSweepEpoch(w, r.Epoch, r.OffOrderScanned);   // the swept INDEXED build + whether it covers every swept input
+        WriteSweepEpoch(w, r.Epoch, r.ExcludedPlugins, r.OffOrderScanned);   // the swept INDEXED build + whether it covers every swept input
         w.WriteNumber("records_with_scripts", r.RecordsWithScripts);
         if (didObject || didScalar) w.WriteNumber("unbound", r.TotalUnbound); else w.WriteNull("unbound");
         if (didObject) w.WriteNumber("unbound_object", r.TotalUnboundObject); else w.WriteNull("unbound_object");
@@ -2241,7 +2257,7 @@ static class JsonWire
             w.WriteBoolean("needs_acknowledge", o.NeedsAcknowledge);
             w.WriteBoolean("dry_run", o.DryRun);
             w.WriteString("lane", lane);
-            WriteEpoch(w, o.Epoch);
+            WriteEpoch(w, o.Stamp);
             if (!o.Success)
             {
                 // NeedsAcknowledge carries its prompt in Error — labelled as a prompt, never as an error string.
@@ -2342,7 +2358,7 @@ static class JsonWire
             w.WriteBoolean("ok", o.Success);
             w.WriteBoolean("needs_acknowledge", o.NeedsAcknowledge);
             w.WriteString("lane", lane);
-            WriteEpoch(w, o.Epoch);
+            WriteEpoch(w, o.Stamp);
             if (!o.Success)
             {
                 WriteNullable(w, o.NeedsAcknowledge ? "confirmation" : "error", o.Error);
@@ -2524,7 +2540,7 @@ static class JsonWire
             w.WriteBoolean("ok", o.Success);
             w.WriteBoolean("needs_acknowledge", o.NeedsAcknowledge);
             w.WriteString("lane", lane);
-            WriteEpoch(w, o.Epoch);
+            WriteEpoch(w, o.Stamp);
             if (!o.Success)
             {
                 WriteNullable(w, o.NeedsAcknowledge ? "confirmation" : "error", o.Error);
@@ -2587,7 +2603,7 @@ static class JsonWire
             w.WriteBoolean("needs_acknowledge", o.NeedsAcknowledge);
             w.WriteBoolean("dry_run", o.DryRun);
             w.WriteString("lane", lane);
-            WriteEpoch(w, o.Epoch);
+            WriteEpoch(w, o.Stamp);
             if (!o.Success)
             {
                 WriteNullable(w, o.NeedsAcknowledge ? "confirmation" : "error", o.Error);
@@ -2824,7 +2840,7 @@ static class JsonWire
                 w.WriteString("error", o.Error);
                 // The same three keys RenderError writes: a refusal from the outcome and a refusal from the tool
                 // layer are one shape, so a consumer reading doc["epoch"] on a refusal never throws on one of them.
-                WriteEpoch(w, null);
+                WriteEpoch(w, null, null);
                 w.WriteEndObject();
                 w.Flush();          // INSIDE the using — an unflushed refusal renders EMPTY. See RenderPatchOutcome.
                 return Finish(ms);

@@ -10,6 +10,15 @@ namespace HousecarlMcp;
 /// and response-size estimation whose cut is always explicit, never silent.</summary>
 static class Wire
 {
+    /// <summary>The text lane's stamp on its OWN LINE: <c>epoch=</c> and, when the build lost plugins to a load
+    /// failure, the clause saying how many (#353). Empty when the outcome consulted no build. The marker comes off
+    /// the stamp the answer is carrying, never a lookup that could come back empty.</summary>
+    internal static string EpochLine(OrderStamp? stamp) => stamp is null ? "" : $"\nepoch={stamp.Epoch}{stamp.Clause}";
+
+    /// <summary>The same stamp INLINE in a head line, after the counts. Empty when there is no build to name.
+    /// </summary>
+    internal static string EpochInline(OrderStamp? stamp) => stamp is null ? "" : $"  epoch={stamp.Epoch}{stamp.Clause}";
+
     /// <summary>Server default char budget for one tool response (~20k tokens). A caller raises it per-call via max_chars.</summary>
     public const int DefaultMaxChars = 80_000;
 
@@ -50,7 +59,7 @@ static class Wire
     /// straight back, so without this a caller who asked for json gets a bare string. Text is returned unchanged;
     /// json strips <see cref="RefusalPrefix"/> and renders through <see cref="JsonWire.RenderError"/>. Whole-call
     /// only — a failed row inside a successful call keeps its per-row <c>error</c> field.</summary>
-    internal static string Refuse(bool json, string message, string? epoch = null)
+    internal static string Refuse(bool json, string message, OrderStamp? epoch = null)
     {
         if (!json) return message;
         var bare = message.StartsWith(RefusalPrefix, StringComparison.Ordinal)
@@ -80,16 +89,16 @@ static class Wire
     /// <summary>Render the bulk name-resolution result: one compact identity line per input FormID, or
     /// <c>error=</c> for a bad or absent one — per item, so the batch survives. Budget-bounded with the same
     /// explicit cut the other reads use.</summary>
-    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, string epoch)
+    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch)
         => RenderResolve(rows, maxChars, epoch, null, out _);
 
-    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, string epoch, SpillState? spill, out bool truncated)
+    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch, SpillState? spill, out bool truncated)
     {
         truncated = false;
         int cap = Cap(maxChars);
         var sb = new StringBuilder();
         sb.Append("resolve: ").Append(rows.Count).Append(rows.Count == 1 ? " formid" : " formids")
-          .Append("  epoch=").Append(epoch).Append(OrderHealth.ClauseFor(epoch)).Append('\n');
+          .Append(Wire.EpochInline(epoch)).Append('\n');
         for (int i = 0; i < rows.Count && !(spill?.ManifestOnly ?? false); i++)
         {
             if (sb.Length >= cap)
@@ -187,7 +196,7 @@ static class Wire
         sb.Append("batch: ").Append(outcomes.Count).Append(outcomes.Count == 1 ? " record" : " records");
         // The whole batch reads one captured build, so the epoch is response-level: take the first non-null, since
         // a malformed-FormID row never consulted a view and carries none.
-        if (outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch is { } epoch) sb.Append("  epoch=").Append(epoch).Append(OrderHealth.ClauseFor(epoch));
+        if (outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp is { } stamp) sb.Append(Wire.EpochInline(stamp));
         sb.Append('\n');
         int rendered = 0;
         foreach (var o in outcomes)
@@ -233,7 +242,7 @@ static class Wire
         var lv = levers ?? LeverNames.Legacy;
         // A refusal made after the build was captured is stamped with the epoch; a pre-capture validation refusal
         // carries null and renders bare.
-        if (q.Error is not null) return "error: " + q.Error + (q.Epoch is not null ? $"\nepoch={q.Epoch}{OrderHealth.ClauseFor(q.Epoch)}" : "");
+        if (q.Error is not null) return "error: " + q.Error + Wire.EpochLine(q.Stamp);
         int cap = Cap(maxChars);
         if (q.Groups is not null) return RenderCrossQueryGroups(q, cap, spill, out truncated);   // group_by= → a count table, not per-match lines
         bool detail = fields is { Count: > 0 };          // expand matches, vs. one-line summaries
@@ -259,7 +268,7 @@ static class Wire
             }
         }
         else if (q.Capped) sb.Append(" (showing first ").Append(q.Keys.Count).Append("; raise limit=, page with offset=, or narrow to see more)");
-        if (q.Epoch is not null) sb.Append("  epoch=").Append(q.Epoch).Append(OrderHealth.ClauseFor(q.Epoch));   // offset= windows tile ONLY within one epoch
+        if (q.Stamp is not null) sb.Append(Wire.EpochInline(q.Stamp));   // offset= windows tile ONLY within one epoch
         sb.Append('\n');
         if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');   // where= accounting: wrong path / no value
         if (q.ScanNote is not null) sb.Append(q.ScanNote).Append('\n');             // records Mutagen could not parse
@@ -335,7 +344,7 @@ static class Wire
           .Append(q.Total).Append(q.Total == 1 ? " match" : " matches")
           .Append(" across ").Append(groups.Count).Append(groups.Count == 1 ? " group" : " groups");
         if (q.ScopeLabel is not null) sb.Append(" (DEFINED IN ").Append(q.ScopeLabel).Append(')');
-        if (q.Epoch is not null) sb.Append("  epoch=").Append(q.Epoch).Append(OrderHealth.ClauseFor(q.Epoch));
+        if (q.Stamp is not null) sb.Append(Wire.EpochInline(q.Stamp));
         sb.Append('\n');
         if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');
         if (q.ScanNote is not null) sb.Append(q.ScanNote).Append('\n');
@@ -368,13 +377,13 @@ static class Wire
     /// added to fix — a new caller must state its own spelling.</param>
     public static string RenderEffectChain(EffectChainResult r, int maxChars, string carrierBound)
     {
-        if (r.Error is not null) return "error: " + r.Error + (r.Epoch is not null ? $"\nepoch={r.Epoch}{OrderHealth.ClauseFor(r.Epoch)}" : "");
+        if (r.Error is not null) return "error: " + r.Error + Wire.EpochLine(r.Stamp);
         int cap = Cap(maxChars);
         var sb = new StringBuilder();
         sb.Append("chain for ").Append(r.Mgef).Append(" (").Append(r.MgefEditorId).Append(", MagicEffect): ")
           .Append(r.Total).Append(r.Total == 1 ? " carrier row" : " carrier rows");
         if (r.Capped) sb.Append(" (showing first ").Append(r.Rows.Count).Append("; raise ").Append(carrierBound).Append(" or narrow to see more)");
-        if (r.Epoch is not null) sb.Append("  epoch=").Append(r.Epoch).Append(OrderHealth.ClauseFor(r.Epoch));
+        if (r.Stamp is not null) sb.Append(Wire.EpochInline(r.Stamp));
         sb.Append('\n');
         // The whole-order negative is only the scan's to make when the scan read the whole order; with a plugin left
         // out it states the scope it covered and leaves the note below to name what it missed.
@@ -428,7 +437,9 @@ static class Wire
           .Append(didDangling ? $"{r.TotalDangling} dangling ref(s)" : "dangling refs NOT CHECKED (findings= excluded 'dangling')").Append(" · ")
           .Append(didMasters ? $"{r.TotalMissingMasters} missing master(s)" : "missing masters NOT CHECKED (findings= excluded 'missing_masters')").Append(" · ")
           .Append(didDangling ? $"{r.TotalUnscannableRecords} unscannable record(s)" : "unscannable records NOT COUNTED (the record walk was skipped)");
-        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(OrderHealth.ClauseFor(r.Epoch)).Append(EpochOffOrderQualifier(r.OffOrderScanned));
+        // The excluded roster is on the result, so the head line counts what it is holding rather than looking the
+        // build's health up from its epoch.
+        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(OrderDegraded.Clause(r.ExcludedPlugins.Count)).Append(EpochOffOrderQualifier(r.OffOrderScanned));
         sb.Append('\n');
         if (r.FilterNote is not null) sb.Append(r.FilterNote).Append('\n');
         if (r.OffOrderScanned is { Count: > 0 } off)
@@ -701,7 +712,9 @@ static class Wire
         // What this response actually did, composed once and handed to everything below, the skeleton pass
         // included, so the fixed part is measured over the same claims the response writes.
         var o = CheckOutcome.For(s);
-        if (o.Error is not null) return "error: " + o.Error + (o.Epoch is not null ? $"\nepoch={o.Epoch}{OrderHealth.ClauseFor(o.Epoch)}" : "");
+        if (o.Error is not null)
+            return "error: " + o.Error + (o.Epoch is not null ? $"\nepoch={o.Epoch}" : "")
+                   + OrderDegraded.Clause(o.OrderExcluded.Count);
         int cap = Cap(maxChars);
         var sections = o.Sections;
         var accts = o.Accountings(cap);
@@ -765,6 +778,10 @@ static class Wire
         // The scope sentence, above everything a budget can refuse: which families answered, which selected ones
         // refused, and which registered ones were never asked, with the spelling that gets them.
         sb.Append(o.ScopeSentence()).Append('\n');
+        // The order this whole call answered from was short of plugins — a response-level fact, so it is stated
+        // here rather than per family: the dialogue family carries no epoch and would otherwise be silent (#353).
+        if (o.OrderExcluded.Count > 0)
+            sb.Append(OrderDegraded.Sentence(o.OrderExcluded)).Append('\n');
 
         // The excluded-plugin roster goes ABOVE the family sections: it is part of what the scope sentence claims,
         // and its position is load-bearing. Each family's accounting is composed in the loop below and can only
@@ -845,7 +862,9 @@ static class Wire
           .Append(ReadSentences.ScriptNullTotal(r, didNull))
           .Append(" · ")
           .Append(r.TotalUnverifiable).Append(" unverifiable");
-        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(OrderHealth.ClauseFor(r.Epoch)).Append(EpochOffOrderQualifier(r.OffOrderScanned));
+        // The excluded roster is on the result, so the head line counts what it is holding rather than looking the
+        // build's health up from its epoch.
+        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(OrderDegraded.Clause(r.ExcludedPlugins.Count)).Append(EpochOffOrderQualifier(r.OffOrderScanned));
         sb.Append('\n');
         if (r.FilterNote is not null) sb.Append(r.FilterNote).Append('\n');
         if (r.OffOrderScanned is { Count: > 0 } off)
