@@ -13,6 +13,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **`spid-authoring` now covers checking that a distribution reached a live actor.** A parsed
+  `_DISTR.ini` and a clean SPID log show what SPID looked up, not what an NPC received. The skill's new
+  "Verifying a distribution actually happened" section says what to assert instead: the player is never
+  a distribution target, a rule added mid-session needs a game restart because the INIs are read once
+  per launch, and a keyword SPID creates at runtime has no plugin FormID but is still found by name from
+  a script. The reference corpus carries the same facts with their source. Reported and drafted by
+  juggernaunt46-star (#384).
+
 - **A response answered off an order that lost plugins to a load failure says so.** When a plugin cannot be
   opened or parsed it is excluded from the index build, and reads after that answer off the narrowed order —
   shallower override depths, fewer touching plugins, sometimes a different winner. The epoch stamp changed, but
