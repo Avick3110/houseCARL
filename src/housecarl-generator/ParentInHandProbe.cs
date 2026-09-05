@@ -108,7 +108,9 @@ static class ParentInHandProbe
         // Per-property distinct counts, and the parent-naming check run on live bodies while the overlay is still
         // open. Both would distort the figures above, so they get their own untimed sweep.
         var describe = new DescribePass();
-        Sweep(paths, dataDir, describe, "describe");
+        var d = Sweep(paths, dataDir, describe, "describe");
+        if (d.Opened == 0) { Console.WriteLine("every plugin failed to open, so nothing was measured — check the instance path and the profile's load order."); return 1; }
+        Console.WriteLine($"   plugins excluded : {d.Skipped}");
 
         var temporary = describe.PerProperty.GetValueOrDefault("Cell.Temporary")?.Count ?? 0;
         var nonTemporary = describe.PerProperty.Where(k => k.Key != "Cell.Temporary")
