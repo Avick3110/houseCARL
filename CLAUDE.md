@@ -41,7 +41,7 @@ Code comments call the first two of these the cornerstones. A design question th
 | `plugin/` | The shipped Claude Code plugin's manifest, changelog, and notices; skills are copied in at build |
 | `.claude/skills/` | Skill sources (`/housecarl:<name>`) |
 | `docs/` | Architecture notes and design decisions |
-| `standards/` | Testing, naming, and skill authoring |
+| `standards/` | Testing and naming |
 | `dev/projects/tool-surface-2.0/` | The tool-surface charter and spec (private) |
 | `dev/BACKLOG.md` | What is next, in order (private) |
 | `dev/DECISIONS.md` | Aaron's rulings, one line each (private) |
