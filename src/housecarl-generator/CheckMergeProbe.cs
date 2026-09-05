@@ -1539,6 +1539,15 @@ public static class CheckMergeProbe
             && Count(mixedText, "record-level CK-parity check only") == 1,
             $"recordLevel=[{Trim(rlText)}] mixed=[{Trim(mixedText)}]");
 
+        Arm("DIALOGUE-THE-STAMP-DECLARES-ONLY-THE-BOUND-THIS-RESPONSE-HAS: the epoch line names the asset-substrate classes it does not cover only where those checks RAN. A call whose every seed was a DLVW or DLBR answered off the record substrate alone, so its stamp covers the whole answer — an uncovered set beside a boundary saying no voice file or result script was checked would contradict it inside one section",
+            rlText.Contains("it covers every verdict here", StringComparison.Ordinal)
+            && !rlText.Contains("does not cover", StringComparison.Ordinal)
+            && questText.Contains("does not cover: voiced lines (.fuz on disk)", StringComparison.Ordinal)
+            && !questText.Contains("it covers every verdict here", StringComparison.Ordinal)
+            // The mixed call reached a quest, so the graph checks ran and the bound is named.
+            && mixedText.Contains("does not cover: voiced lines (.fuz on disk)", StringComparison.Ordinal),
+            $"recordLevel=[{Trim(rlText)}] quest=[{Trim(questText)}]");
+
         // …and the json transport states the same, off the same value — one computation, two transports.
         bool rlJson;
         try
@@ -1559,7 +1568,13 @@ public static class CheckMergeProbe
                      && Strings(Arr(At(Arr(questFam, "seeds"), 0), "checks_run"))
                             .SequenceEqual(new[] { "record_parity", "topic_graph" })
                      && Str(questFam, "boundary") is { } qb
-                     && qb.Contains("LinkTo and previous-link targets", StringComparison.Ordinal);
+                     && qb.Contains("LinkTo and previous-link targets", StringComparison.Ordinal)
+                     // The coverage keys fork on the same value: a record-substrate-only answer claims full coverage
+                     // and names no classes, a quest names the three it read off disk.
+                     && Bool(fam, "epoch_covers_all_inputs") == true
+                     && Arr(fam, "epoch_uncovered") is null
+                     && Bool(questFam, "epoch_covers_all_inputs") == false
+                     && Strings(Arr(questFam, "epoch_uncovered")).Length == 3;
         }
         catch { rlJson = false; }
         Arm("DIALOGUE-THE-KIND-AWARE-VERDICT-AND-BOUNDARY-ARE-THE-SAME-IN-JSON: the record-level boundary and the seed's own CK-parity verdict read the same value in both transports — the sentence is composed once and stated whole by each, which is the rule the first fold of this defect broke by patching one site",
