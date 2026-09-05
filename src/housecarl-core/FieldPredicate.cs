@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 
