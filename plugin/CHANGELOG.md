@@ -44,11 +44,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   link, `follow="Effects[].BaseEffect"` is the typed MGEF carrier walk (per-carrier magnitude/area/duration,
   `types=` narrowing the carrier types), which follows the effect link at every hop and so reaches nothing past
   hop 1 — said out loud when a depth was asked for. The form then only picks the view, as it does forward:
-  `'chain'` renders the walk's rows and a reading form consumes the same reached set. One declared exception
-  keeps the existing carrier spelling working: `form='chain'` with `follow` unset means the carrier walk,
-  because the transitive walk expands one shared frontier and has no per-seed path for `chain` to draw;
-  `form='chain'` with `follow="*"` refuses and names both alternatives. Any other `follow` on reverse refuses
-  naming the two the index can serve. `walk.max_nodes` says which reading it spends: per seed on the carrier
+  `'chain'` renders the walk's rows and a reading form consumes the same reached set. No default `follow`
+  implies a walk under any form: `form='chain'` on a reverse walk with `follow` unset now refuses and names
+  both follows the index can serve, and says that `chain` has no per-seed path to draw for the transitive
+  walk; `form='chain'` with `follow="*"` refuses as before. A reverse `chain` call — including the one the
+  retired `housecarl_effect_chain` redirect teaches — therefore says `follow="Effects[].BaseEffect"`. Any
+  other `follow` on reverse refuses naming the two the index can serve. `walk.max_nodes` says which reading it spends: per seed on the carrier
   walk, one shared budget across every seed and hop on the transitive walk.
 
 - **`housecarl_asset_status` and `housecarl_place` take `format='json'`.** Both answered text only, so a caller
