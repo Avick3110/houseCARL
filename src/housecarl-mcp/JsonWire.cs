@@ -2525,6 +2525,191 @@ static class JsonWire
         return Finish(ms);
     }
 
+    // ---- housecarl_asset_status (S2 read) -----------------------------------------------------------
+    /// <summary>The machine-readable twin of <see cref="AssetWire"/>'s render — the SAME data: the build-level
+    /// caveats, one row per queried path with its winner and full provider chain, and the §2.1 accounting in-band.
+    /// <para>A provider is <c>{name, kind}</c>, not the printed <c>"Name" (kind)</c> token: the reusable value is
+    /// the NAME ALONE, which is what <c>housecarl_place</c>'s <c>source_provider=</c> accepts, so a consumer reads
+    /// the field rather than parsing the display token apart.</para>
+    /// <para><c>truncated</c> is the boolean every json document carries; <c>truncated_rows</c> is the text lane's
+    /// <c>truncated=</c> count — how many RESOLVED paths max_chars cut, which the other seven counters need to add
+    /// up against.</para></summary>
+    public static string RenderAssetStatus(AssetStatusData d, int maxChars)
+    {
+        int cap = Cap(maxChars);
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteString("profile", d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)");
+            // The caveats lead, as they do in the text render: an ABSENT below is only authoritative when both are
+            // empty, and a document that truncates its rows must not be able to cut the reason away.
+            w.WriteBoolean("read_incomplete", d.ReadIncomplete);
+            WriteStringArray(w, "bsa_failures", d.BsaFailures);
+            WriteStringArray(w, "warnings", d.Warnings);
+            WriteNullableStringArray(w, "selector_notes", d.SelectorNotes);
+
+            w.WriteStartArray("results");
+            int rendered = 0;
+            bool truncated = false;
+            foreach (var r in d.Results)
+            {
+                if (Over(w, ms, cap)) { truncated = true; break; }
+                WriteAssetRow(w, r, d.ReadIncomplete, d.Warnings.Count > 0);
+                rendered++;
+            }
+            w.WriteEndArray();
+
+            // The same eight counters the text accounting line states, from the same four causes, so
+            // skipped + rendered + truncated_rows + capped == total on both lanes.
+            w.WriteNumber("total", d.Selected);
+            w.WriteNumber("rendered", rendered);
+            w.WriteNumber("skipped", Math.Min(d.Offset, d.Selected));
+            w.WriteNumber("capped", Math.Max(d.Selected - d.Offset - d.Results.Count, 0));
+            w.WriteNumber("truncated_rows", Math.Max(d.Results.Count - rendered, 0));
+            w.WriteNumber("offset", d.Offset);
+            int remaining = Math.Max(d.Selected - (d.Offset + rendered), 0);
+            w.WriteNumber("remaining", remaining);
+            w.WriteNumber("notes", d.SelectorNotes?.Count ?? 0);
+            w.WriteBoolean("truncated", truncated);
+            // Measured off what was RENDERED, like the text advice: a consumer paging by these lands on the first
+            // path it has not seen, and the limit rides along or the next call resolves the whole remainder.
+            if (remaining > 0)
+            {
+                w.WriteNumber("next_limit", d.Limit > 0 ? d.Limit : AssetWire.DefaultPageLimit);
+                w.WriteNumber("next_offset", d.Offset + rendered);
+            }
+            if (remaining == 0 && d.Selected > 0 && d.Offset >= d.Selected)
+                w.WriteString("offset_note", $"offset={d.Offset} is past the end of the selection ({d.Selected} path(s)) — the last page starts before it.");
+            if (truncated)
+                w.WriteString("truncated_note",
+                    $"max_chars={cap} cut trailing resolved path(s) from this document — raise max_chars, or page with limit=/offset=.");
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
+    static void WriteAssetRow(Utf8JsonWriter w, AssetPathResult r, bool readIncomplete, bool discoveryIncomplete)
+    {
+        w.WriteStartObject();
+        w.WriteString("path", r.RelPath);
+        if (r.Error is not null)                                  // a rejected path: drive-rooted, or escaping with '..'
+        {
+            // A per-ROW error, never the document's discriminant: the call succeeded and rendered a row that failed.
+            w.WriteString("error", r.Error);
+            w.WriteEndObject();
+            return;
+        }
+        var hit = r.Hit!;
+        w.WriteNull("error");
+        w.WriteBoolean("exists", hit.Exists);
+        if (hit.Winner is { } win) WriteAssetProvider(w, "winner", win); else w.WriteNull("winner");
+        w.WriteStartArray("providers");
+        foreach (var p in hit.Providers) WriteAssetProvider(w, null, p);
+        w.WriteEndArray();
+        w.WriteBoolean("ambiguous", hit.Ambiguous);
+        if (!hit.Exists)
+        {
+            WriteNullableStringArray(w, "prefix_suggestions", r.PrefixSuggestions);
+            // The two ways an ABSENT can be wrong, per row rather than only at the top: the text render hedges the
+            // answer where it is read, and a json consumer branching on exists=false needs the same hedge.
+            w.WriteBoolean("absent_may_be_incomplete", readIncomplete || discoveryIncomplete);
+        }
+        w.WriteEndObject();
+    }
+
+    /// <summary>One provider. <paramref name="name"/> null writes it as an array element.</summary>
+    static void WriteAssetProvider(Utf8JsonWriter w, string? name, AssetProvider p)
+    {
+        if (name is null) w.WriteStartObject(); else w.WriteStartObject(name);
+        w.WriteString("name", p.Source);
+        w.WriteString("kind", p.Kind == AssetKind.Bsa ? "BSA" : "loose");
+        w.WriteEndObject();
+    }
+
+    // ---- housecarl_place (S2 write) -----------------------------------------------------------------
+    /// <summary>The machine-readable twin of <see cref="PlaceWire"/>'s render — the SAME data on the write
+    /// surface's contract: <c>ok</c> on both outcomes, a refusal is a document, and the "this does not win until
+    /// you enable and sort the mod" instruction rides in-band as <c>next_step</c>. It is written from the same
+    /// helper the text lane calls, because a truncated json document that dropped the instruction would be the
+    /// silently degraded mode json is not allowed to be.</summary>
+    public static string RenderPlaceOutcome(PlaceOutcome o, int maxChars, IReadOnlySet<string>? poleWithheld = null)
+    {
+        int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteBoolean("ok", o.Success);
+            if (!o.Success)
+            {
+                w.WriteString("error", o.Error);
+                w.WriteEndObject();
+                w.Flush();          // INSIDE the using — an unflushed refusal renders EMPTY. See RenderPatchOutcome.
+                return Finish(ms);
+            }
+
+            int placed = 0;
+            foreach (var r in o.Results) if (r.Placed) placed++;
+            var modFolder = o.ModFolder is null ? null : Path.GetFileName(o.ModFolder);
+            WriteNullable(w, "mod_folder", modFolder);
+            WriteStringArray(w, "warnings", o.Warnings);
+
+            w.WriteStartArray("results");
+            int rendered = 0;
+            bool truncated = false;
+            foreach (var r in o.Results)
+            {
+                if (Over(w, ms, cap)) { truncated = true; break; }
+                WritePlaceRow(w, r, modFolder, poleWithheld?.Contains(r.AssetPath) == true);
+                rendered++;
+            }
+            w.WriteEndArray();
+
+            w.WriteNumber("total", o.Results.Count);
+            w.WriteNumber("rendered", rendered);
+            w.WriteNumber("placed", placed);
+            w.WriteNumber("failed", o.Results.Count - placed);
+            w.WriteBoolean("truncated", truncated);
+            // Not "raise max_chars to see the rest": the bytes are already on disk, so a re-issue would place again.
+            if (truncated)
+                w.WriteString("truncated_note",
+                    $"the render hit max_chars={cap} and dropped trailing destination rows — the WRITE is unaffected; " +
+                    "raise max_chars and re-read with " + ToolNames.AssetStatus + " rather than placing again.");
+            if (o.LeftoverFolder is not null)
+                w.WriteString("leftover_folder_note", PlaceWire.LeftoverNote(o.LeftoverFolder));
+            WriteNullable(w, "leftover_folder", o.LeftoverFolder);
+            if (placed > 0) w.WriteString("next_step", PlaceWire.EnableAndSort(o, modFolder));
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
+    static void WritePlaceRow(Utf8JsonWriter w, PlaceResult r, string? modFolder, bool poleWithheld)
+    {
+        w.WriteStartObject();
+        w.WriteString("path", r.AssetPath);
+        w.WriteBoolean("placed", r.Placed);
+        WriteNullable(w, "error", r.Error);
+        if (r.Placed)
+        {
+            w.WriteNumber("bytes", r.Bytes);
+            WriteNullable(w, "source", r.SourceDesc);
+            WriteNullable(w, "current_winner", r.CurrentWinner);
+            w.WriteString("winner_note", r.CurrentWinner is not null
+                ? $"{r.CurrentWinner} currently wins the VFS — sort the new mod ABOVE it"
+                : $"nothing else provides this path — once '{modFolder ?? "(the new folder)"}' is enabled, the placed copy wins");
+            // Bytes served out of a mod MO2 does not load are a fact of the SOURCE, and look like any other
+            // placement without it.
+            if (r.SourceOffOrderProvider is { } offOrder)
+                w.WriteString("source_off_order_note", WriteSentences.PlaceSourceOffOrder(offOrder, r.SourceOffOrderOwnerEnabled));
+            WriteNullable(w, "source_off_order_provider", r.SourceOffOrderProvider);
+        }
+        // An input the call carried but this destination could not use is SAID on both lanes, not dropped.
+        w.WriteBoolean("set_provider_withheld", poleWithheld);
+        w.WriteEndObject();
+    }
+
     /// <summary>The voice-coverage report as data (a created dialogue line with no .fuz plays SILENT in game). The
     /// text render's "[!] WILL BE SILENT" becomes <c>fuz_present:false</c> + the path to put the audio at.</summary>
     static void WriteVoiceReport(Utf8JsonWriter w, VoiceReport? report, MemoryStream ms, int cap, ref bool truncated)
