@@ -60,29 +60,27 @@ public static class SkyPatcherDiscovery
         IReadOnlyList<string> Notes,
         bool ReadIncomplete);
 
-    /// <summary>Per-file INI parse cache — the same cheap-mtime freshness discipline the rest of
-    /// houseCARL uses. Keyed on the winning loose file's full path; an entry is fresh while its
-    /// (mtime, length) pair matches, so an edited/replaced INI re-reads on the next scan and an
-    /// untouched layer costs zero re-parses per post-state call. Thread-safe (a post-state call runs
+    /// <summary>Per-file INI parse cache — the same cheap freshness discipline the rest of houseCARL
+    /// uses, on the same <see cref="FileStamp"/> key. Keyed on the winning loose file's full path; an
+    /// entry is fresh while its stamp matches, so an edited/replaced INI re-reads on the next scan and
+    /// an untouched layer costs zero re-parses per post-state call. Thread-safe (a post-state call runs
     /// outside the service gate). Entries for deleted files just stop being hit — bounded by the
     /// layer's INI count.</summary>
     public sealed class ParseCache
     {
         readonly object _lock = new();
-        readonly Dictionary<string, (DateTime MtimeUtc, long Length, IReadOnlyList<SkyPatcherLine> Lines)> _byPath = new(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, (FileStamp Stamp, IReadOnlyList<SkyPatcherLine> Lines)> _byPath = new(StringComparer.OrdinalIgnoreCase);
 
         internal IReadOnlyList<SkyPatcherLine> GetOrParse(string path)
         {
-            var fi = new FileInfo(path);
-            var mtime = fi.LastWriteTimeUtc;
-            var length = fi.Length;
+            var stamp = FileStamp.Of(path);
             lock (_lock)
-                if (_byPath.TryGetValue(path, out var hit) && hit.MtimeUtc == mtime && hit.Length == length)
+                if (_byPath.TryGetValue(path, out var hit) && hit.Stamp == stamp)
                     return hit.Lines;
             // (If the file changes between the stamp and the read, the stale content is keyed under the
             //  OLD stamp and the next call's fresh stamp misses it — self-healing, never wedged.)
             var lines = SkyPatcherParse.ParseFile(File.ReadAllText(path));
-            lock (_lock) _byPath[path] = (mtime, length, lines);
+            lock (_lock) _byPath[path] = (stamp, lines);
             return lines;
         }
     }
