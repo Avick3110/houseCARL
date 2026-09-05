@@ -1053,7 +1053,7 @@ public sealed class LoadOrderResolver : IDisposable
     /// the caller wants many records from the same plugin: <see cref="GetRecord"/> costs one walk per record, so N of
     /// them cost N walks (#251), while this costs one walk however many are wanted, and stops as soon as it has them
     /// all. <paramref name="getterTypes"/> narrows the walk to the GRUPs those types live in when the caller knows
-    /// them; a typed walk that finds none of the wanted keys falls back to the flat one for the same reason
+    /// them; anything the typed walk did not produce falls through to the flat one, per KEY, for the same reason
     /// <see cref="SeekBody"/> does. A key this plugin does not hold is simply absent from the sink.</summary>
     public void CollectRecords(OverlaySession session, string pluginName, IReadOnlyCollection<FormKey> wanted,
                                IReadOnlyList<Type>? getterTypes, IDictionary<FormKey, IMajorRecordGetter> sink)
@@ -1068,6 +1068,8 @@ public sealed class LoadOrderResolver : IDisposable
         var ov = session.Overlay(idx);
         var want = wanted as HashSet<FormKey> ?? new HashSet<FormKey>(wanted);
         int got = 0;
+        foreach (var fk in want) if (sink.ContainsKey(fk)) got++;          // already in hand from an earlier call
+        if (got == want.Count) return;
         if (getterTypes is { Count: > 0 })
         {
             foreach (var t in getterTypes)
@@ -1077,7 +1079,11 @@ public sealed class LoadOrderResolver : IDisposable
                         sink[rec.FormKey] = rec;
                         if (++got == want.Count) return;
                     }
-            if (got > 0) return;                                           // the typed walk routed; what it did not find, this plugin does not hold
+            // Fall through for whatever is STILL missing, per key. "The typed walk routed something, so what it
+            // did not find is not here" is the inference SeekBody's own doc comment warns against: with two types
+            // where Mutagen routes one and silently routes nothing for the other, the routed type's hits would
+            // otherwise declare the unrouted type's records absent. The flat pass costs the same as SeekBody's
+            // fallback on a miss, and it cannot answer wrong.
         }
         foreach (var rec in ov.EnumerateMajorRecords())
             if (want.Contains(rec.FormKey) && !sink.ContainsKey(rec.FormKey))
