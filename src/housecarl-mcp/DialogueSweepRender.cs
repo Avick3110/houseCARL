@@ -56,7 +56,9 @@ internal static class DialogueSweepRender
         sb.Append(string.Format(ReadSentences.DialogueCounts, d.SeedsValidated, d.SeedsReached, d.TopicsFound,
                                 d.FindingsFound));
         if (o.Sweep.Dialogue?.Epoch is { } epoch)
-            sb.Append(string.Format(ReadSentences.DialogueEpochBound, epoch, string.Join(", ", EpochUncovered)));
+            sb.Append(UncoveredBy(d) is { Length: > 0 } unc
+                          ? string.Format(ReadSentences.DialogueEpochBound, epoch, string.Join(", ", unc))
+                          : string.Format(ReadSentences.DialogueEpochWhole, epoch));
         if (d.CountsOnly) sb.Append(ReadSentences.DialogueCountsOnly);
     }
 
@@ -69,6 +71,14 @@ internal static class DialogueSweepRender
         ReadSentences.DialogueUncoveredScripts,
         ReadSentences.DialogueUncoveredSeq,
     };
+
+    /// <summary>Which of those classes THIS response actually carried, off the same per-kind table the boundary reads:
+    /// all three verdicts live behind the graph checks, and a call whose every seed was a DLVW or DLBR ran none of
+    /// them. Its answer is record substrate throughout, so the stamp covers all of it and names nothing — otherwise
+    /// the head would caveat voice, script and .seq verdicts the boundary two lines down says were never checked.
+    /// </summary>
+    internal static string[] UncoveredBy(DialogueOutcome d)
+        => d.ChecksRun.HasFlag(DialogueChecks.TopicGraph) ? EpochUncovered : Array.Empty<string>();
 
     /// <summary>The family's rows. Everything here goes through <paramref name="body"/>, so everything here is
     /// refusable and everything refused is accounted for.</summary>
@@ -167,7 +177,7 @@ internal static class DialogueSweepRender
         w.WriteBoolean("seeded_not_swept", true);
         // The stamp in the shape the swept families write, with the bound declared: this family also reports asset
         // verdicts, so it names them rather than claiming the fingerprint covers them.
-        JsonWire.WriteSweepEpoch(w, o.Sweep.Dialogue?.Epoch, o.Sweep.OrderExcluded.Count, null, EpochUncovered);
+        JsonWire.WriteSweepEpoch(w, o.Sweep.Dialogue?.Epoch, o.Sweep.OrderExcluded.Count, null, UncoveredBy(d));
         w.WriteBoolean("counts_only", d.CountsOnly);
         w.WriteNumber("seeds_named", d.SeedsNamed);
         w.WriteNumber("seeds_reached", d.SeedsReached);

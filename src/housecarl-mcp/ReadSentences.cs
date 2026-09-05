@@ -707,6 +707,13 @@ internal static class ReadSentences
     internal const string DialogueEpochBound =
         "epoch={0} — the record build these verdicts were read from; it does not cover: {1}.\n";
 
+    /// <summary>The same stamp where the call answered off the record substrate alone — every seed a DLVW or DLBR, so
+    /// none of the asset-substrate checks ran. It says the stamp covers the whole answer rather than printing an
+    /// uncovered set for verdicts this response never produced.</summary>
+    [MustState("epoch=", "covers every verdict")]
+    internal const string DialogueEpochWhole =
+        "epoch={0} — the record build these verdicts were read from; it covers every verdict here.\n";
+
     /// <summary>One of the three verdict classes the record fingerprint does not describe: whether a line's voice file
     /// is on disk, which is an asset the fingerprint never sees.</summary>
     [MustState(".fuz")]
