@@ -513,10 +513,15 @@ public sealed class CorpusRulebook
     /// lane cannot produce.</summary>
     static string OwnedChildSetRefusal(FieldSchema leaf) =>
         $"'{leaf.Name}' holds an owned child RECORD ({leaf.TypeRef}): a record is not a part of its parent, so it is " +
-        "neither built from parts (compose= / composes=) nor set from a value (value=). Address the child record " +
-        $"itself by its own FormID — read the parent at depth=2 and the '{leaf.Name}' field shows it. A path through " +
+        $"neither built from parts (compose= / composes=) nor set from a value (value=). {AddressChildByFormId(leaf.Name)} A path through " +
         "the parent reaches a child only when the record being written already carries one, which a patch's fresh " +
         "override of a parent never does; giving a parent a child it lacks is an open gap (#350).";
+
+    /// <summary>How an owned child record that ALREADY EXISTS is written: on the record axis, by its own FormID.
+    /// One sentence, shared by the value-shaped Set refusal and the element remedy, so the two doors cannot drift
+    /// on where the caller is being sent.</summary>
+    static string AddressChildByFormId(string fieldName) =>
+        $"Address the child record itself by its own FormID — read the parent at depth=2 and the '{fieldName}' field shows it.";
 
     /// <summary>True iff a leaf is the COLLECTION form of the owned-child shape — a list/dict whose ELEMENT is an
     /// owned child record (<c>Cell.Persistent</c>, <c>DialogTopic.Responses</c>, the typed record groups). The
@@ -1157,14 +1162,22 @@ public sealed class CorpusRulebook
     /// collection element the WORKING call is a corpus fact the walk already has, so it is named: the container's
     /// path, the caller's own key, and the verbs that shape takes. Without a bracketed hop there is no container to
     /// name, so it states the rule instead.
-    /// <para>The verbs are the PLACING-one filter, not the keyed one: this sentence promises to write the whole
-    /// element in one call, and <see cref="WriteVerbs.HowToAddress"/> would answer it with Remove — a verb that
-    /// composes nothing and deletes the element the caller came to edit. <see cref="WriteVerbs.HowToPlaceOne"/> is
-    /// the filter that matches the sentence.</para></summary>
+    /// <para>The verbs are the placing-one-AT-a-key filter, not the keyed one: this sentence promises to write the
+    /// whole element in one call, and <see cref="WriteVerbs.HowToAddress"/> would answer it with Remove — a verb
+    /// that composes nothing and deletes the element the caller came to edit. It is not the plain
+    /// <see cref="WriteVerbs.HowToPlaceOne"/> either: that names a list's keyless Add first, and the caller reading
+    /// this has just been handed a key. <see cref="WriteVerbs.HowToPlaceOneAt"/> is the filter that matches the
+    /// sentence.</para>
+    /// <para>An OWNED-RECORD element has no such call at all — the element is a record, reached on the record axis
+    /// by its own FormID — so that shape names no container path and no key: printing them would offer a call
+    /// nothing consumes.</para></summary>
     string ElementRemedy(ElementHop? elementHop) =>
         elementHop is { } h && WriteVerbs.OfField(h.Field, _corpus) is { } shape
-            ? $"Read the element to learn its concrete arm, then write the whole element in one call, composing that " +
-              $"arm: {h.Slot}='{h.Path}', key='{h.Key}' — {WriteVerbs.HowToPlaceOne(shape)}."
+            ? shape.Element == ElementPlacement.OwnedRecord
+                ? $"'{h.Field.Name}' holds owned child RECORDS ({h.Field.ElementTypeRef}), so no write verb reaches " +
+                  $"the element through its parent. {AddressChildByFormId(h.Field.Name)}"
+                : $"Read the element to learn its concrete arm, then write the whole element in one call, composing " +
+                  $"that arm: {h.Slot}='{h.Path}', key='{h.Key}' — {WriteVerbs.HowToPlaceOneAt(shape)}."
             : "Read the element first to learn its concrete arm, then target a field whose shape is unambiguous.";
 
     string FieldNotFound(TypeSchema owner, string name)

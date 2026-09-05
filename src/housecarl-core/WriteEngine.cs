@@ -1834,11 +1834,19 @@ public static class WriteEngine
             // A property that resolves to no collection at all still gets the rule, with no verb named.
             var head = $"Path segment '{req.Path[^1]}' brackets a collection element at the LEAF. Brackets navigate "
                        + "mid-path only; ";
+            // …including the KEY gate. The gate side checks the key's shape (CorpusRulebook.KeyShapeError) before
+            // promoting it into a call to make; the engine cannot read that corpus check, but it owns the same two
+            // runtime recognisers apply itself keys on, so it applies those instead. A key that fails them falls
+            // back to the keyless form — echoing it would name a call that throws at apply, which is the dead end
+            // this message exists to close.
             if (bracketProp is not null && WriteVerbs.OfRuntimeType(bracketProp.PropertyType) is { } bshape)
                 throw new InvalidOperationException(head
-                    + "to operate on that element, target the field itself and use the verb + Key: "
-                    + $"{pathSlot}='{CorpusRulebook.PathTo(req.Path, req.Path.Length - 1, leafName)}', "
-                    + $"key='{leafKey}' — {WriteVerbs.HowToAddress(bshape)}.");
+                    + (KeyShapeUsable(bracketProp.PropertyType, leafKey)
+                        ? "to operate on that element, target the field itself and use the verb + Key: "
+                          + $"{pathSlot}='{CorpusRulebook.PathTo(req.Path, req.Path.Length - 1, leafName)}', "
+                          + $"key='{leafKey}' — {WriteVerbs.HowToAddress(bshape)}."
+                        : $"to operate on that element, target the field '{leafName}' itself and use the verb "
+                          + $"+ Key — {WriteVerbs.HowToAddress(bshape)}."));
             throw new InvalidOperationException(head
                 + "to operate on a collection element at the leaf, target the collection field and use the verb + Key.");
         }
@@ -2970,6 +2978,20 @@ public static class WriteEngine
     //  index is left to apply, where it fails named. Same shared-recognizer discipline as IsValidFormLinkValue.
     /// <summary>True iff <paramref name="text"/> is a legal list INDEX SHAPE: a non-negative int32 under the same
     /// parse the apply path uses (<see cref="ApplyListVerb"/>). Shape only — the in-range check is apply's.</summary>
+    /// <summary>Can this collection actually be indexed by <paramref name="key"/>? The runtime twin of
+    /// <c>CorpusRulebook.KeyShapeError</c>, built from the SAME two things apply keys on — a dict entry is reached
+    /// by <c>Coerce(key, keyType)</c>, a list element by a non-negative int32 — so a key this accepts is one
+    /// StepIntoElement can use, and the in-range bound stays apply's job. Only the leaf-bracket throw asks, and
+    /// only to decide whether the key is safe to hand back as part of a call to make.</summary>
+    static bool KeyShapeUsable(Type collectionType, string key)
+    {
+        if (ClosedInterface(collectionType, typeof(IDictionary<,>)) is { } di)
+            return TryCoerce(key, di.GetGenericArguments()[0], out _);
+        if (ClosedInterface(collectionType, typeof(IList<>)) is not null)
+            return IsValidListIndexValue(key);
+        return true;
+    }
+
     internal static bool IsValidListIndexValue(string? text) =>
         text is not null && int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i) && i >= 0;
 

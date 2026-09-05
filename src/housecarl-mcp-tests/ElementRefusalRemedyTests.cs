@@ -96,6 +96,50 @@ public sealed class ElementRefusalRemedyTests : BulkRecordsTestBase
         Assert.DoesNotContain("Remove", r);
     }
 
+    // ---- the verb a keyed call leads with ----
+
+    /// <summary>On a LIST container the remedy has just printed <c>key='0'</c>, so every verb it then names must
+    /// consume that key. The keyless <c>Add</c> is the one wrong first choice on this branch that does NOT refuse:
+    /// it appends, leaving element 0 untouched, which on a CTDA OR-run changes what the record gates on.</summary>
+    [Fact]
+    public void AListElementRemedyNamesOnlyVerbsThatTakeTheKeyItPrinted()
+    {
+        var r = Book().Validate(new WriteRequest
+        {
+            RecordType = "Faction", Path = new[] { "Conditions[0]", "ComparisonValue" }, Verb = "Set", Value = "1",
+        });
+
+        Assert.NotNull(r);
+        Assert.Contains("field_path='Conditions'", r!);
+        Assert.Contains("key='0'", r);
+        Assert.Contains("SetAtIndex (compose= + key=)", r);
+        Assert.DoesNotContain("Add (compose=)", r);          // the keyless append
+        Assert.True(r.IndexOf("SetAtIndex", StringComparison.Ordinal)
+                    < r.IndexOf("InsertAtIndex", StringComparison.Ordinal),
+            "overwrite-in-place must lead insert-and-shift: " + r);
+    }
+
+    // ---- the shape with no call to name ----
+
+    /// <summary>A collection of owned child RECORDS has no write verb that places an element, so the remedy names
+    /// no container path and no key — nothing would consume them. It sends the caller to the record axis, the same
+    /// place the value-shaped Set refusal does.</summary>
+    [Fact]
+    public void AnOwnedRecordElementNamesNoContainerCall()
+    {
+        var r = Book().Validate(new WriteRequest
+        {
+            RecordType = "Cell", Path = new[] { "Persistent[0]", "MajorFlags" }, Verb = "Set", Value = "1",
+        });
+
+        Assert.NotNull(r);
+        Assert.Contains("CONFLICTING shapes", r!);
+        Assert.Contains("owned child RECORDS", r);
+        Assert.Contains("its own FormID", r);
+        Assert.DoesNotContain("field_path=", r);
+        Assert.DoesNotContain("key=", r);
+    }
+
     // ---- the slot a named path belongs in ----
 
     /// <summary>Rooted inside a compose's nested <c>sets</c>, the path the remedy names is relative to the STRUCT
@@ -185,6 +229,26 @@ public sealed class ElementRefusalRemedyTests : BulkRecordsTestBase
             Assert.Contains(fact, engine);
             Assert.Contains(fact, gate!);
         }
+    }
+
+    /// <summary>…and it withholds a key the same way, off its own runtime recognisers rather than the corpus: a
+    /// dict key that will not coerce to the dict's key type, and a negative list index, are both refused by apply,
+    /// so neither is promoted into a call to make. The rulebook's gate is schema-side; this is the twin.</summary>
+    [Theory]
+    [InlineData("Data[notasbyte]", "notasbyte")]   // Package.Data is sbyte-keyed — FormatException at apply
+    [InlineData("Effects[-3]", "-3")]              // refused by StepIntoElement's list branch
+    public void TheEngineTwinWithholdsAKeyThatCannotIndexTheCollection(string segment, string key)
+    {
+        var record = segment.StartsWith("Data", StringComparison.Ordinal)
+            ? (Mutagen.Bethesda.Plugins.Records.IMajorRecord)new Package(FormKey.Null, SkyrimRelease.SkyrimSE)
+            : new Perk(FormKey.Null, SkyrimRelease.SkyrimSE);
+        var msg = Assert.Throws<InvalidOperationException>(() => WriteEngine.ApplyVerb(
+            record, new WriteRequest { RecordType = "x", Path = new[] { segment }, Verb = "Set" })).Message;
+
+        Assert.Contains("brackets a collection element at the LEAF", msg);
+        Assert.DoesNotContain($"key='{key}'", msg);
+        Assert.DoesNotContain("field_path=", msg);
+        Assert.Contains("verb + Key", msg);            // the rule and the menu still stand
     }
 
     /// <summary>The engine names the compose slot too, on the lane that actually reaches it: a compose's nested
