@@ -79,18 +79,24 @@ saying it sets an expectation their install may contradict. Say what is known, a
   GreetingsTopic"]`, `project={"form":"fields","fields":["*parent.EditorID"]}`, and a walk's `seed_paths`/`follow`.
   It leads a path and it chains, so `*parent.*parent` reaches a placed reference's worldspace, and everything below
   the hop — `editorid`, `winner`, `formid` membership, leaves, quantified steps — reads the containing record with
-  no separate spelling. A `*parent` after a field step, carrying a quantifier, or with nothing after it refuses by
-  name; a record nothing contains is stated as such, naming the properties containment runs from, never returned as
-  an empty answer. The parent set is Mutagen's own containment walk, captured at index build, so a Mutagen version
-  that adds a child-bearing container grows `*parent`'s reach with no further change. Index build costs about 0.3 s
-  more over a 3,800-plugin order; check yours against the build time `housecarl_load_order_status` reports.
+  no separate spelling. A record a patch DELETED still answers the question — the hop reads its identity, not its
+  body — which is the crash-log case exactly, since patches delete placed references constantly. A `*parent` after
+  a field step, carrying a quantifier, or with nothing after it refuses by name, in the same words on every surface
+  that takes a path; a record nothing contains is stated as such, naming the properties containment runs from,
+  never returned as an empty answer; and over an out-of-load-order file (`source=`), where the containment of the
+  file's own records was never indexed, `*parent` refuses rather than answering from the active order's map. The
+  parent set is Mutagen's own containment walk, captured at index build, so a Mutagen version that adds a
+  child-bearing container grows `*parent`'s reach with no further change. Index build costs about 0.3 s more over a
+  3,800-plugin order, and `housecarl_load_order_status` now reports how many child records the map holds, so its
+  size is stated rather than discovered.
 - **A `where=` path step can now quantify a list, so "does ANY element match?" is one call.** Four tokens go in the
   step where the list binds: `Conditions[*any].Data.Function = IsGuard` (some element), `[*all]` (every one, and
   vacuously true on an empty list), `[*none]` (absence, proved — `Effects[*none].BaseEffect->editorid startswith REQ_`),
   and `[*count]`, which yields the number of elements for a numeric or membership comparison (`Effects[*count] > 2`).
   A quantified step composes with the `->` link step and with another quantified step, at the cost the tool
   description declares (per-candidate work times list length, and one winner fetch per element under `->`). The bare
-  `[*]` is the element SET and is refused in `where=`, naming the three fold tokens; a quantifier pointed at a field
+  `[*]` is the element SET and is refused in `where=`, naming the three fold tokens; a quantifier on `editorid`,
+  `winner` or `formid` refuses by name, since a record has one identity rather than a list of them; a quantifier pointed at a field
   that is not a list — a scalar, a dict, a raw byte block — refuses the call by naming the step's real cardinality
   wherever `types=` says which record type it lands on, and where the scope cannot say (no `types=`, or a mixed one)
   the scan's accounting names what that step read instead; either way, never a silent non-match. An absent list reads as EMPTY, and so does one whose parent substruct
