@@ -139,9 +139,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
   unchanged in outcome; what changed is that it no longer claims an absence nothing checked.
 
 - **`housecarl_merge_plugins`'s `.esl` refusal no longer states a reason that is false for a light donor.** It said a
-  merge keeps the donors' object ids in the full range; renaming an already-light plugin — a single-donor merge — has
-  ids that are all inside the light window. The refusal now says what the merge does not do (it never renumbers into
-  the light range) and points at `housecarl_compact_plugin`, which does.
+  merge keeps the donors' object ids where they already are; a merge renumbers cross-donor collisions and ids below
+  the write floor, and renaming an already-light plugin — a single-donor merge — has ids that are all inside the light
+  window anyway. The refusal now says what the merge does not do (it never constrains object ids to the light window)
+  and points at `housecarl_compact_plugin`, which does.
 
 - **`housecarl_asset_status` under a `max_chars` its header and alarms already fill now renders the first path's
   answer instead of cutting to none.** `housecarl_nif_inspect` already did; both tools now render through one batch

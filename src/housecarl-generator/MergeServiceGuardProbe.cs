@@ -400,6 +400,14 @@ public static class MergeServiceGuardProbe
                 Check(!r.Success && (r.Error?.Contains(".esl", StringComparison.OrdinalIgnoreCase) ?? false)
                                  && (r.Error?.Contains("compact", StringComparison.OrdinalIgnoreCase) ?? false),
                     $"REFUSE .esl output with the compact-after remedy ({r.Error?.Split('—')[0].Trim()})");
+                // The REASON, not just the refusal. It may only claim what holds on every path: a merge does not
+                // constrain ids to the light window. Saying it keeps each donor's ids where they are is false —
+                // BuildMergeRemap renumbers collisions and below-floor ids from 0x800 up, and the report prints that
+                // count — and a single already-light donor's ids are all inside the window anyway.
+                Check((r.Error?.Contains("never constrains object ids to the light window", StringComparison.Ordinal) ?? false)
+                      && !(r.Error?.Contains("keeps each donor's object ids", StringComparison.Ordinal) ?? true)
+                      && !(r.Error?.Contains("where they already are", StringComparison.Ordinal) ?? true),
+                    $"…and its reason is the claim that holds on every path [{r.Error}]");
             }
 
             // ---- RENAME: donor A ALONE into a new name (#345). Same walk, empty collision set. ----
