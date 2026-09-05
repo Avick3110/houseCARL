@@ -61,6 +61,28 @@ public sealed class OwnedChildLifecycleDrivenTests
         Assert.Contains("NOTHING created", o.Error);
     }
 
+    /// <summary>…and the same refusal holds when the patch ALREADY carries the parent: that copy is an override and
+    /// carries none of the parent's children, so reading it alone would read the slot free and ship a second terrain
+    /// record under a cell that already declares one.</summary>
+    [Fact]
+    public void AnOccupiedSingularSlotIsRefusedWhenThePatchAlreadyCarriesTheParent()
+    {
+        using var w = new OwnedChildWorld();
+        var first = w.Svc.CreateRecordsBatch(
+            new[] { new CreateOp { RecordType = "PlacedObject", Editorid = "HcOcCarriedRef", Parent = Fid(w.CellA), Collection = "Persistent" } },
+            "HcOcCarriedParent", null);
+        Assert.True(first.Success, "refused: " + first.Error);
+        var patchFile = Path.GetFileName(first.OutputPath);
+
+        var o = w.Svc.CreateRecordsBatch(
+            new[] { new CreateOp { RecordType = "Landscape", Editorid = "HcOcCarriedLand", Parent = Fid(w.CellA) } },
+            null, patchFile);
+
+        Assert.False(o.Success);
+        Assert.Contains("already holds", o.Error);
+        Assert.Contains("NOTHING created", o.Error);
+    }
+
     /// <summary>The route the rewritten refusals name — parent= plus collection='TopCell' — is reachable from the
     /// tool. It was not: every Cell spec with a parent was intercepted before the slot resolver ran and refused for
     /// a missing grid=.</summary>
