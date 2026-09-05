@@ -288,8 +288,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   folders holding no plugin, which it could not extend. Where houseCARL owns patches but no single `into=` spelling
   reaches any of them, the refusal says how many there are and to rename one in MO2, instead of saying it owns none;
   where a mod folder could not be read while the patches were being counted, no candidate is offered at all rather
-  than the half the scan reached. `housecarl_remove` cannot create a patch, so on an install owning none yet it now
-  names the writes that can make one instead of stopping at what went wrong.
+  than the half the scan reached, and the refusal says the scan failed rather than that houseCARL owns no patch — a
+  claim it could not have established. `housecarl_remove` cannot create a patch, so on an install owning none yet it
+  now names the writes that can make one instead of stopping at what went wrong. The fresh-patch remedy says to drop
+  `into=` as well as which parameter to pass: every lane takes the extend branch whenever `into=` is set, so merely
+  adding the parameter to the failed call returns the same refusal.
   Naming a mod folder houseCARL does not own is still refused with the originals untouched; that refusal does not
   hand back the name you passed, since a patch minted under that stem would sit beside the foreign plugin of the
   same name. houseCARL does not check the name you pass `patch=` next against inactive plugins in other people's mod

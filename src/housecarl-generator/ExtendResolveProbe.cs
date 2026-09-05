@@ -334,6 +334,24 @@ internal static class ExtendResolveProbe
                       "…and corrects patch= on the one tool where it binds to the .bsa instead");
                 Check(!riderErr.Contains("patch=\"", StringComparison.Ordinal),
                       "…and never offers patch= itself on this lane, where it would rename the caller's archive");
+
+                // The remedy has to say to DROP into=, not merely to add the parameter: this lane takes the extend
+                // branch on ANY non-blank into= and never reads patch_name=, and no rider tool declares an
+                // into=/patch_name= exclusivity check to intercept a caller who adds one to the other.
+                Check(riderErr.Contains("dropping into= and passing patch_name=\"GhostRider\"", StringComparison.Ordinal),
+                      "…and says to DROP into=, so following it is not a loop");
+                string bothErr = "";
+                try { svc.ResolvePatchModFolder("GhostRider", "GhostRider", "houseCARL_Archive", BsaTools.RepackNaming); }
+                catch (InvalidOperationException ex) { bothErr = ex.Message; }
+                Check(bothErr == riderErr,
+                      "…which is the point: keeping into= and adding patch_name= returns the IDENTICAL refusal");
+
+                // FOLLOW it, the way 8b follows its own: dropping into= makes the folder the sentence promised.
+                var madeFresh = svc.ResolvePatchModFolder("GhostRider", null, "houseCARL_Archive", BsaTools.RepackNaming);
+                Check(Path.GetFileName(madeFresh.ModFolder) == "houseCARL - GhostRider" && madeFresh.CreatedFresh,
+                      $"…and following it creates that folder fresh ({madeFresh.ModFolder})");
+                Directory.Delete(madeFresh.ModFolder, recursive: true);        // later arms count the owned inventory
+                svc.Stats();
             }
 
             // ---- 8c2: a rider that names NO folder parameter still offers nothing it cannot back ----
@@ -658,7 +676,7 @@ internal static class ExtendResolveProbe
                       $"…led by the near-miss the caller meant, not by whichever name sorts first ({string.Join(", ", rows)})");
                 // The shape the ruling asks for, read off the real sentence: "A, B or C (+N more), or <fresh>".
                 Check(capText.Contains($"; try {rows[0]}, {rows[1]} or {rows[2]} (+", StringComparison.Ordinal)
-                      && capText.Contains(" more), or patch=\"GhostCapped\" for a fresh patch", StringComparison.Ordinal),
+                      && capText.Contains(" more), or dropping into= and passing patch=\"GhostCapped\" for a fresh patch", StringComparison.Ordinal),
                       $"…in the ruled shape — candidates, the count the cap dropped, then the fresh-patch parameter ({capText})");
                 // The count is a real remainder, not a token: one more offerable patch, one higher. A silent cap reads
                 // as an exhaustive inventory, which is the wrong next step.
@@ -732,12 +750,26 @@ internal static class ExtendResolveProbe
                 {
                     svc2.Stats();
                     string locked = svc2.ApplyEdits(new[] { Wgt(3) }, null, "GhostLocked").Error ?? "";
-                    Check(Candidates(locked).Count == 0 && locked.Contains("houseCARL owns no patch", StringComparison.Ordinal),
+                    Check(Candidates(locked).Count == 0,
                           $"an unreadable folder mid-scan yields NO candidates, not the half the scan got to ({locked})");
+                    // A failed scan is a THIRD empty list. Saying "houseCARL owns no patch" here is a positive claim
+                    // the scan never established — on a real install it sends a user with forty patches off to mint a
+                    // duplicate — so the sentence says the scan failed and what to try instead.
+                    Check(!locked.Contains("owns no patch", StringComparison.Ordinal)
+                          && locked.Contains("could not scan it just now", StringComparison.Ordinal),
+                          $"…and says the scan failed rather than claiming houseCARL owns none ({locked})");
                     // The half it got to would have offered into="Alpha.esp", which is ambiguous once both twins are
                     // readable again — the second refusal these candidates exist to prevent.
                     Check(!locked.Contains("into=\"Alpha.esp\"", StringComparison.Ordinal) && OneSentence(locked),
                           "…so it never names a spelling that only looks unambiguous because a folder went missing");
+
+                    // The removal lane is where the false claim did real harm: with no fresh route it also told the
+                    // caller to go make a patch, beside the ones the scan failed to see.
+                    string lockedRm = RemoveTools.Remove(svc2, new[] { fid }, into: "GhostLocked");
+                    Check(!lockedRm.Contains("owns no patch", StringComparison.Ordinal)
+                          && !lockedRm.Contains("making the patch first", StringComparison.Ordinal)
+                          && OneSentence(lockedRm.Trim()),
+                          $"…and the removal lane no longer sends them to mint one on a scan that failed ({lockedRm.Trim()})");
                 }
             }
 
@@ -779,6 +811,12 @@ internal static class ExtendResolveProbe
                       "…with the facts as clauses rather than two stacked \", and\" openings");
                 Check(bare.Contains("; try making the patch first with a write that creates one", StringComparison.Ordinal),
                       "…and it says how the patch gets made, instead of stopping dead on the likeliest first-time path");
+                // A remedy naming a RETIRED tool hands the caller a second refusal, so the names come from the
+                // constants: housecarl_create_record and housecarl_forward_record are absorbed and off the surface.
+                Check(bare.Contains($"({ToolNames.Apply}, {ToolNames.Create} or {ToolNames.Forward})", StringComparison.Ordinal)
+                      && !bare.Contains("housecarl_create_record", StringComparison.Ordinal)
+                      && !bare.Contains("housecarl_forward_record", StringComparison.Ordinal),
+                      $"…naming the tools that are ON the surface, not their retired spellings ({bare.Trim()})");
             }
 
             // ---- 10: ORIGINALS — the master plugin never moved a byte (extends only wrote the patch folder) ----

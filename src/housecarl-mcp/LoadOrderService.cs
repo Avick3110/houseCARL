@@ -8504,11 +8504,11 @@ public sealed class LoadOrderService : IDisposable
                     noFreshRule,
                     OwnedPatchCandidates(needEsp, stem),
                     riderNaming is { } fr
-                        ? $"{fr.Param}= a name no mod folder already uses for a fresh folder"
+                        ? $"dropping into= and passing {fr.Param}= a name no mod folder already uses for a fresh folder"
                           + (fr.Caveat is null ? "" : $" ({AsClause(fr.Caveat)})")
                         : freshPatch switch
                         {
-                            FreshPatchRemedy.NamedByPatchParam => "patch= a name no mod folder already uses for a fresh patch",
+                            FreshPatchRemedy.NamedByPatchParam => "dropping into= and passing patch= a name no mod folder already uses for a fresh patch",
                             FreshPatchRemedy.CreatedByOmittingInto => "omitting into= for a fresh patch",
                             _ => null,
                         }));
@@ -8531,6 +8531,9 @@ public sealed class LoadOrderService : IDisposable
         // and suffixes it otherwise, so the fresh clause qualifies the name it offers rather than promising a file.
         // A rider that named its own folder parameter answers with THAT parameter; the enum arms are the record
         // lanes', where the spelling is the same on every caller (#357).
+        // It says to DROP into= because every lane here takes the extend branch on a non-blank into= and never looks
+        // at the fresh name: adding the parameter to the call that just failed returns this same refusal — a loop on
+        // the rider lanes, which declare no into=/patch_name= exclusivity check to intercept it.
         throw new InvalidOperationException(ExtendRefusal(
             $"no houseCARL patch named '{stem}' — no owned folder holds '{espName}' and none is named "
             + $"'{ModFolderName(stem)}'"
@@ -8538,11 +8541,11 @@ public sealed class LoadOrderService : IDisposable
             noFreshRule,
             OwnedPatchCandidates(needEsp, stem),
             riderNaming is { } rn
-                ? $"{rn.Param}=\"{stem}\" for a fresh folder (auto-suffixed if that name is taken"
+                ? $"dropping into= and passing {rn.Param}=\"{stem}\" for a fresh folder (auto-suffixed if that name is taken"
                   + (rn.Caveat is null ? ")" : $"; {AsClause(rn.Caveat)})")
                 : freshPatch switch
                 {
-                    FreshPatchRemedy.NamedByPatchParam => $"patch=\"{stem}\" for a fresh patch (auto-suffixed if that name is taken)",
+                    FreshPatchRemedy.NamedByPatchParam => $"dropping into= and passing patch=\"{stem}\" for a fresh patch (auto-suffixed if that name is taken)",
                     FreshPatchRemedy.CreatedByOmittingInto => "omitting into= to create it fresh",
                     _ => null,
                 }));
@@ -8551,8 +8554,10 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>The owned patches this refusal may offer: the <c>into=</c> spellings it will name, nearest first and
     /// capped, how many further spellings the cap dropped, plus how many owned patches no single spelling reaches (the
     /// count is what the sentence says when there is nothing to name, since "houseCARL owns none" would send the caller
-    /// off to mint a duplicate).</summary>
-    readonly record struct PatchCandidates(IReadOnlyList<string> Tokens, int BeyondCap, int Unreachable, bool NeedEsp);
+    /// off to mint a duplicate). <paramref name="ScanFailed"/> is the third way the list comes back empty — the scan
+    /// itself threw — and it is not "houseCARL owns none" either.</summary>
+    readonly record struct PatchCandidates(IReadOnlyList<string> Tokens, int BeyondCap, int Unreachable, bool NeedEsp,
+                                           bool ScanFailed);
 
     /// <summary>One extend refusal, composed: what went wrong, then what to try, in ONE sentence with the nearest
     /// owned patches named inside it (Aaron, 2026-09-06). <paramref name="noFreshRule"/> is a lane's own statement
@@ -8561,7 +8566,7 @@ public sealed class LoadOrderService : IDisposable
     /// tool that declares it.</summary>
     static string ExtendRefusal(string wentWrong, string? noFreshRule, PatchCandidates candidates, string? fresh)
     {
-        var nothingOwned = candidates.Tokens.Count == 0 && candidates.Unreachable == 0;
+        var nothingOwned = candidates.Tokens.Count == 0 && candidates.Unreachable == 0 && !candidates.ScanFailed;
 
         var tries = new List<string>();
         if (candidates.Tokens.Count > 0)
@@ -8574,13 +8579,19 @@ public sealed class LoadOrderService : IDisposable
         else if (candidates.Unreachable > 0)
             tries.Add($"renaming one of the {candidates.Unreachable} patch{(candidates.Unreachable == 1 ? "" : "es")} houseCARL owns "
                     + "in MO2, since no single into= spelling reaches any of them (their folder and plugin names collide)");
+        // A scan that threw is the third empty list, and the one thing that must NOT be said on it is that houseCARL
+        // owns nothing: a user with forty patches would be sent to mint a duplicate beside them.
+        else if (candidates.ScanFailed)
+            tries.Add("again once the mods folder can be read, since houseCARL could not scan it just now and so cannot "
+                    + "name a patch or tell whether it owns any");
         if (fresh is not null) tries.Add(fresh);
         // A lane with no fresh route, on an install owning nothing yet, otherwise stops dead — the likeliest first-time
         // path, and the dead end #359/#380 are about. There is nothing to extend, but there is something to say: the
         // patch has to exist before this lane can touch it, and only a writing lane can make one.
+        // The tools are named from the constants, so a rename cannot leave this handing out a retired spelling.
         if (tries.Count == 0 && noFreshRule is not null && nothingOwned)
-            tries.Add("making the patch first with a write that creates one (housecarl_apply, housecarl_create_record "
-                    + "or housecarl_forward_record), then naming it here");
+            tries.Add($"making the patch first with a write that creates one ({ToolNames.Apply}, {ToolNames.Create} "
+                    + $"or {ToolNames.Forward}), then naming it here");
 
         // Each fact is its own clause and only the LAST takes "and", so two of them cannot stack into ", and … , and …".
         var facts = new List<string> { wentWrong };
@@ -8633,11 +8644,13 @@ public sealed class LoadOrderService : IDisposable
     /// the alphabet wherever the suggester declines. Capped at three so the refusal stays one readable sentence, with
     /// the drops counted so the named few never read as the whole inventory. <paramref name="needEsp"/> drops the
     /// folders holding no plugin, which the record lane could not extend anyway. Best-effort: an unreadable ModsDir
-    /// yields no candidates — not a partial set, which could name a spelling the next call refuses.</summary>
+    /// yields no candidates — not a partial set, which could name a spelling the next call refuses — and the scan's
+    /// failure is carried out so the refusal says that rather than that houseCARL owns nothing.</summary>
     PatchCandidates OwnedPatchCandidates(bool needEsp, string stem)
     {
         const int cap = 3;
         var owned = new List<OwnedPatch>();
+        var scanFailed = false;
         try
         {
             foreach (var dir in Directory.EnumerateDirectories(_modsDir).OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
@@ -8652,7 +8665,9 @@ public sealed class LoadOrderService : IDisposable
         // A throw partway through leaves a PARTIAL set, and reachability is decided by counting how many OTHER owned
         // folders hold the same plugin — so a dropped folder can make an ambiguous token look unambiguous and print a
         // spelling the next call refuses. No candidates is the documented degradation; half of them is a wrong answer.
-        catch (IOException) { owned.Clear(); } catch (UnauthorizedAccessException) { owned.Clear(); }
+        // The failure is carried out, because an empty list from a failed scan is not the same fact as an empty one.
+        catch (IOException) { owned.Clear(); scanFailed = true; }
+        catch (UnauthorizedAccessException) { owned.Clear(); scanFailed = true; }
 
         // Near-stem first (#380 asks for candidates near what the caller typed, not the alphabet's first eight).
         // Ranked by the same suggester the missed-plugin lookups use, over both the folder names and the plugin
@@ -8687,8 +8702,9 @@ public sealed class LoadOrderService : IDisposable
         // Two different facts reach an empty list, and only one of them is "there is nothing to extend". When every
         // owned patch was dropped because no single into= spelling reaches it, saying houseCARL owns none sends the
         // caller off to mint a fresh patch beside patches they could have extended — so the count is carried out.
-        // The cap's own drops are counted too, so a named list never reads as the whole inventory.
-        return new PatchCandidates(rows, beyondCap, unreachable, needEsp);
+        // The cap's own drops are counted too, so a named list never reads as the whole inventory. A scan that threw
+        // is the third empty list, and it is not "there is nothing to extend" either.
+        return new PatchCandidates(rows, beyondCap, unreachable, needEsp, scanFailed);
     }
 
     /// <summary>The <c>into=</c> spellings for one owned patch that this resolver actually routes back to it. The
