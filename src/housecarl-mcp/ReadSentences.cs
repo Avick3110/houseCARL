@@ -51,6 +51,37 @@ internal static class ReadSentences
     /// an annotation for.</summary>
     internal static string UnionClause(IReadOnlyCollection<string> fields) => string.Format(UnionFraming, FieldList(fields));
 
+    // ---- the index-only tier: what the SCAN lanes state, where a union per row is not affordable ----
+
+    /// <summary>The per-field line on a lane that did not assemble the union. It may claim only what the index
+    /// knows: other plugins touch this record and this read did not look at what they declare — never that they
+    /// do or do not.</summary>
+    [MustState("were not read")]
+    internal const string NotRead = "other plugin(s) touch this record; their declarations for this " + ChildContent + " field were not read";
+
+    /// <summary>The response-level half of the index-only tier, naming the lane that assembles the union. The
+    /// remedy must name the tool and the form, not a bare parameter: this clause ships from every scan lane that
+    /// renders record fields, including artifact manifests, and a spelling the recipient's surface rejects is a
+    /// remedy nobody can run. <c>{0}</c> is filled with the fields the response actually annotated.</summary>
+    [MustState("declared per plugin", "were not read", ToolNames.Records)]
+    internal const string NotReadFraming =
+        "note: this response annotates field(s) that hold CHILD RECORDS ({0}). Child records are declared per " +
+        "plugin and the game assembles the parent's from every plugin that declares any, so one body's list is " +
+        "not the whole content. A scan answers many rows, so it did not open the other plugins' bodies and their " +
+        "declarations were not read. For the " + UnionLabel + " on a record you name: " +
+        ToolNames.Records + " with formids=, which states it on every child-bearing field it emits.";
+
+    /// <summary>The index-only tier's per-field line: the count the index knows, and the honest limit.</summary>
+    internal static string NotReadNote(int others) => $"{others} {NotRead}";
+
+    /// <summary>The response-level clause for whichever tier the response actually stated. One door, so a lane
+    /// cannot state a union clause over index-only notes or the reverse.</summary>
+    internal static string OwnedChildClause(IReadOnlyCollection<string> fields, bool unioned) =>
+        string.Format(unioned ? UnionFraming : NotReadFraming, FieldList(fields));
+
+    /// <summary>The clause framing a tier uses, for the reserve and for a test that has to find the clause line.</summary>
+    internal static string ClauseFraming(bool unioned) => unioned ? UnionFraming : NotReadFraming;
+
     /// <summary>How many contributing plugins a union names before it summarises the rest as a count.</summary>
     internal const int UnionDeclarerCap = 3;
 
@@ -166,7 +197,9 @@ internal static class ReadSentences
     /// the body renders. The clause is load-bearing, so it cannot be dropped at the cap; appending it past the cap
     /// instead would overrun invisibly to the <c>truncated</c> flag the auto-spill trigger reads.</summary>
     internal static int ClauseReserve(bool mayState) =>
-        mayState ? UnionFraming.Length + ClauseFieldsMaxChars + ClauseGlue : 0;
+        // The longer of the two tiers: the reserve is taken before the fields render, and which tier the response
+        // will state is not settled until one of them is emitted.
+        mayState ? Math.Max(UnionFraming.Length, NotReadFraming.Length) + ClauseFieldsMaxChars + ClauseGlue : 0;
 
     // ---- the sweep response's omission accounting ----
     //

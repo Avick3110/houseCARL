@@ -237,7 +237,7 @@ static class JsonWire
     /// <param name="emitted">Collects the annotated paths this array ACTUALLY carried — the response-level clause is
     /// stated over these, so a field the truncation above dropped states nothing.</param>
     static void WriteFieldsArray(Utf8JsonWriter w, RecordFields r, MemoryStream ms, int cap,
-                                 IReadOnlyDictionary<string, ChildUnion>? annotated = null, ICollection<string>? emitted = null,
+                                 IReadOnlyDictionary<string, ChildUnion?>? annotated = null, ICollection<string>? emitted = null,
                                  LeverNames? levers = null)
     {
         var lv = levers ?? LeverNames.Legacy;
@@ -257,7 +257,7 @@ static class JsonWire
             var f = r.Fields[i];
             w.WriteStartObject();
             WriteLeaf(w, f);
-            if (annotated is not null && annotated.TryGetValue(f.Path, out var union)) WriteChildUnion(w, union);
+            if (annotated is not null && annotated.TryGetValue(f.Path, out var union) && union is not null) WriteChildUnion(w, union);
             if (f.Cells is { } cells)
             {
                 // A folded row (the 'rows' form): the line's own text is prose, so the leaves it folded ride here
@@ -357,7 +357,7 @@ static class JsonWire
         WriteNullable(w, "source", o.SourcePlugin);   // the body these field VALUES came from (scoped plugin vs winner)
         if (matches is not null) w.WriteString("matches", matches);
         WriteFieldsArray(w, r, ms, cap, o.OwnedChildFields, childFields, levers);
-        if (stateChildNote && childFields is IReadOnlyCollection<string> { Count: > 0 } stated) WriteOwnedChildNote(w, stated);
+        if (stateChildNote && childFields is IReadOnlyCollection<string> { Count: > 0 } stated) WriteOwnedChildNote(w, stated, o.OwnedChildUnioned);
         w.WriteEndObject();
     }
 
@@ -368,9 +368,9 @@ static class JsonWire
     ///
     /// <para>json only ever states the cheap tier's clause: <c>conflict_tree=true</c> is refused in json mode, so
     /// the lane that has the bodies to name declarers does not exist here.</para></summary>
-    static void WriteOwnedChildNote(Utf8JsonWriter w, IReadOnlyCollection<string> fields)
+    static void WriteOwnedChildNote(Utf8JsonWriter w, IReadOnlyCollection<string> fields, bool unioned)
     {
-        if (fields.Count > 0) w.WriteString("owned_child_note", ReadSentences.UnionClause(fields));
+        if (fields.Count > 0) w.WriteString("owned_child_note", ReadSentences.OwnedChildClause(fields, unioned));
     }
 
     // ---- housecarl_batch_record_detail --------------------------------------------------------------
@@ -415,7 +415,7 @@ static class JsonWire
             // Over the annotated fields this document actually carries — never the input list, and never a field
             // some row's own truncation dropped. A manifest-only (to_file) or truncated response carries none, and
             // states none.
-            WriteOwnedChildNote(w, childFields);
+            WriteOwnedChildNote(w, childFields, outcomes.Any(o => o.OwnedChildUnioned));
             truncated = rowsTruncated;
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
             w.WriteEndObject();
@@ -1053,6 +1053,7 @@ static class JsonWire
                 w.WriteStartArray("matches");
                 int rendered = 0; bool rowsTruncated = false;
                 var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the clause once, over the fields the rows carried
+                bool childUnioned = false;   // which TIER those rows stated — the scan lanes annotate index-only
                 for (int i = 0; i < q.Keys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
                 {
                     w.Flush();
@@ -1067,7 +1068,7 @@ static class JsonWire
                         var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth, resolveNames: resolveNames, linkMemo: linkMemo,
                                                   containerHint: (levers ?? LeverNames.Legacy).ContainerHint);   // a collapsed cell names the caller's own expansion knob
                         if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", fk.ToString()); w.WriteString("error", o.Error); if (matches is not null) w.WriteString("matches", matches); w.WriteEndObject(); }
-                        else WriteReadRecord(w, o, ms, cap, matches, childFields: childFields, levers: levers);
+                        else { WriteReadRecord(w, o, ms, cap, matches, childFields: childFields, levers: levers); childUnioned |= o.OwnedChildUnioned; }
                     }
                     else
                     {
@@ -1079,7 +1080,7 @@ static class JsonWire
                 w.WriteEndArray();
                 w.WriteNumber("rendered", rendered);
                 w.WriteBoolean("truncated", rowsTruncated);
-                WriteOwnedChildNote(w, childFields);
+                WriteOwnedChildNote(w, childFields, childUnioned);
                 truncated = rowsTruncated;
             }
             if (spill is not null && q.Error is null) Artifacts.WriteSpillStateJson(w, spill);
@@ -1166,6 +1167,7 @@ static class JsonWire
                 List<(string Formid, string Error)>? errors = null;
                 int rendered = 0; bool rowsTruncated = false;
                 var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the clause once, over the cells the rows carried
+                bool childUnioned = false;   // which TIER those rows stated — the scan lanes annotate index-only
                 w.WriteStartArray("rows");
                 for (int i = 0; i < q.Keys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
                 {
@@ -1188,7 +1190,7 @@ static class JsonWire
                             WriteCell(w, DenseCell(f));
                             // Registered at EMISSION, like every other lane, so the clause is earned by what the
                             // document carries rather than by the outcome's intent.
-                            if (o.OwnedChildFields?.ContainsKey(f.Path) == true) childFields.Add(f.Path);
+                            if (o.OwnedChildFields?.ContainsKey(f.Path) == true) { childFields.Add(f.Path); childUnioned |= o.OwnedChildUnioned; }
                         }
                         if (anyScoped) WriteCell(w, o.SourcePlugin);          // the body this row's values were read from (winner_fields=true → the winner)
                         if (hasMatches) WriteCell(w, matches);
@@ -1220,7 +1222,7 @@ static class JsonWire
                 }
                 w.WriteNumber("rendered", rendered);
                 w.WriteBoolean("truncated", rowsTruncated);
-                WriteOwnedChildNote(w, childFields);
+                WriteOwnedChildNote(w, childFields, childUnioned);
                 truncated = rowsTruncated;
             }
             if (spill is not null && q.Error is null) Artifacts.WriteSpillStateJson(w, spill);

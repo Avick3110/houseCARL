@@ -2281,7 +2281,8 @@ public sealed class LoadOrderService : IDisposable
     {
         var resolver = Resolver;
         var view = resolver.Capture();
-        return ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint)
+        return ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint,
+                           new ChildUnionMemo())   // one named record: the union lane
                with { Epoch = view.Epoch, Pin = new ViewPin(resolver, view) };   // stamped and pinned here, off the view actually read
     }
 
@@ -2315,7 +2316,8 @@ public sealed class LoadOrderService : IDisposable
     ReadOutcome ResolveRead(LoadOrderResolver resolver, LoadOrderResolver.IndexView view,
                             FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth,
                             bool resolveNames = false, LinkMemo? linkMemo = null,
-                            string? containerHint = ReadEngine.DepthExpandHint)
+                            string? containerHint = ReadEngine.DepthExpandHint,
+                            ChildUnionMemo? unionMemo = null)
     {
         // An explicitly-requested plugin excluded this session (unparseable or unopenable) is said so, rather than
         // falling through to a misleading "does not define this record".
@@ -2372,7 +2374,7 @@ public sealed class LoadOrderService : IDisposable
         }
 
         var record = ReadEngine.ReadFields(rec, fields, depth, containerHint);   // materialise while the session (overlay) is open
-        record = AnnotateOwnedChildContent(record, rec, view, session, fk, source, out var childFields);   // the additive union, display-only
+        record = AnnotateOwnedChildContent(record, rec, view, session, fk, source, unionMemo, out var childFields);   // the additive union (or the index-only note), display-only
         if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // identity of every FormLink token, display-only, on the same open session
         var touching = conflictTree ? view.TouchingPlugins(fk) : null;
         return new ReadOutcome(fk, record, source, winner.Value.WinnerPlugin, winner.Value.OverrideDepth, touching, null)
@@ -2424,7 +2426,8 @@ public sealed class LoadOrderService : IDisposable
     static RecordFields AnnotateOwnedChildContent(RecordFields rf, IMajorRecordGetter body,
                                                   LoadOrderResolver.IndexView view,
                                                   LoadOrderResolver.OverlaySession session, FormKey fk, string source,
-                                                  out IReadOnlyDictionary<string, ChildUnion>? annotated)
+                                                  ChildUnionMemo? memo,
+                                                  out IReadOnlyDictionary<string, ChildUnion?>? annotated)
     {
         annotated = null;
         // Empty for all but three record types, so this is where the overwhelming majority of reads leave, before
@@ -2443,24 +2446,49 @@ public sealed class LoadOrderService : IDisposable
         // worldspace's cells for a read that asked for EditorID would be a cost nobody asked for.
         var wanted = new Dictionary<string, OwnedChildShape>(hits.Count, StringComparer.Ordinal);
         foreach (var i in hits) wanted[rf.Fields[i].Path] = owning[rf.Fields[i].Path];
-        var unions = OwnedChildUnion.Compute(view, session, fk, source, body, wanted);
-        if (unions is null) return rf;                            // sole toucher: its own body IS the whole story
+
+        IReadOnlyDictionary<string, ChildUnion>? unions = null;
+        if (memo is not null) unions = memo.Union(fk, () => OwnedChildUnion.Compute(view, session, fk, source, body, wanted));
+        else if (view.TouchingPlugins(fk) is not { Count: > 1 }) return rf;   // sole toucher: its own body IS the whole story
+        if (memo is not null && unions is null) return rf;                    // same, on the union lane
+        var others = unions is null ? view.TouchingPlugins(fk)!.Count - 1 : 0;
 
         var rebuilt = new List<FieldValue>(rf.Fields);
         // The ANNOTATED paths and their unions travel with the outcome, because the render decides its
         // response-level clause off the fields it actually emitted — a path that never reaches the medium (a cap
-        // hit inside the field loop, a truncated json array, a manifest-only spill) must not earn a clause.
-        var map = new Dictionary<string, ChildUnion>(hits.Count, StringComparer.Ordinal);
+        // hit inside the field loop, a truncated json array, a manifest-only spill) must not earn a clause. A NULL
+        // value is the index-only tier: annotated, but by a lane that did not open the other bodies.
+        var map = new Dictionary<string, ChildUnion?>(hits.Count, StringComparer.Ordinal);
         foreach (var i in hits)
         {
-            var u = unions[rebuilt[i].Path];
+            var u = unions?[rebuilt[i].Path];
             // These fields are containers and owned records; the only other producer of Display is the flags
             // decode, which fires on [Flags] enum leaves alone — so there is no annotation here to displace.
-            rebuilt[i] = rebuilt[i] with { Display = ReadSentences.UnionNote(u) };
+            rebuilt[i] = rebuilt[i] with { Display = u is null ? ReadSentences.NotReadNote(others) : ReadSentences.UnionNote(u) };
             map[rebuilt[i].Path] = u;
         }
         annotated = map;
         return rf with { Fields = rebuilt };
+    }
+
+    /// <summary>One CALL's assembled unions, keyed by record. The union costs a body per touching plugin, so a
+    /// formid named twice in one batch pays once; the projection and the <c>plugin=</c> scope are fixed for a whole
+    /// call, so the record is the whole key.
+    /// <para>Its presence is also the SWITCH: a lane that hands one in gets the union, a lane that hands null gets
+    /// the index-only note. The scan lanes (<c>cross_plugin_query</c> detail rows, the dense grid, the artifact
+    /// spill of a scan) discover their row count rather than being handed it, so a body-per-toucher per row is a
+    /// cost the caller never asked for — they state the index-only tier and name the formids lane, which assembles
+    /// the union for records the caller named.</para></summary>
+    internal sealed class ChildUnionMemo
+    {
+        readonly Dictionary<FormKey, IReadOnlyDictionary<string, ChildUnion>?> _byRecord = new();
+
+        internal IReadOnlyDictionary<string, ChildUnion>? Union(
+            FormKey fk, Func<IReadOnlyDictionary<string, ChildUnion>?> compute)
+        {
+            if (!_byRecord.TryGetValue(fk, out var u)) _byRecord[fk] = u = compute();
+            return u;
+        }
     }
 
     /// <summary>Why a FormID resolved to nothing. "Not present" has three causes and one sentence used to serve
@@ -2546,7 +2574,10 @@ public sealed class LoadOrderService : IDisposable
     /// each row re-gates and re-captures, so a freshness rebuild landing mid-render would fill the remaining rows from
     /// a build the header's epoch does not name; pinning also drops the per-row stat sweep. Bodies are still fetched
     /// from disk at fill time — the pin freezes winner IDENTITY, and a file that changed under a pinned fetch surfaces
-    /// as the named fetch-inconsistency error. Falls back to the public path when the outcome carries no pin.</summary>
+    /// as the named fetch-inconsistency error. Falls back to the public path when the outcome carries no pin.
+    /// <para>No <see cref="ChildUnionMemo"/> is handed in: this is the SCAN detail lane, whose row count is
+    /// discovered rather than named, so a child-bearing field here states the index-only note and names the
+    /// formids lane instead of opening a body per touching plugin per row.</para></summary>
     internal ReadOutcome ResolveReadOn(CrossQueryOutcome q, FormKey fk, string? plugin, IReadOnlyList<string>? fields,
                                        bool conflictTree, int depth = 1, bool resolveNames = false,
                                        LinkMemo? linkMemo = null,
@@ -2768,13 +2799,14 @@ public sealed class LoadOrderService : IDisposable
         }
         var pin = new ViewPin(resolver, view);
         var linkMemo = resolveNames ? new LinkMemo() : null;   // one link-resolution cache across the whole batch
+        var unionMemo = new ChildUnionMemo();                  // the caller NAMED these records: the union lane, one assembly per record
         var outcomes = new List<ReadOutcome>(formids.Count);
         foreach (var raw in formids)
         {
             FormKey fk;
             try { fk = view.ParseFormId(raw); }
             catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
-            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint)
+            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, unionMemo)
                          with { Epoch = view.Epoch, Pin = pin });   // the batch's one build, stamped and pinned per item
         }
         return outcomes;
@@ -2902,13 +2934,14 @@ public sealed class LoadOrderService : IDisposable
             // Active arm: the same per-item reads ResolveBatch(plugin=) does, off the same captured view, with
             // excluded-plugin and untouched-record refusals per item and the touchers named.
             var linkMemo = resolveNames ? new LinkMemo() : null;
+            var unionMemo = new ChildUnionMemo();   // named records again: the union lane
             var outcomes = new List<ReadOutcome>(formids.Count);
             foreach (var raw in formids)
             {
                 FormKey fk;
                 try { fk = view.ParseFormId(raw); }
                 catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
-                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint)
+                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint, unionMemo)
                              with { Epoch = view.Epoch, Pin = pin });
             }
             return outcomes;
@@ -8787,7 +8820,11 @@ public sealed record ReadOutcome(
     /// <para>Carried structurally rather than recovered by scanning the rendered prose for a marker, and carrying the
     /// paths rather than a bool: a clause that merely knows something was annotated cannot tell whether that
     /// something survived the medium's own truncation.</para></summary>
-    public IReadOnlyDictionary<string, ChildUnion>? OwnedChildFields { get; init; }
+    public IReadOnlyDictionary<string, ChildUnion?>? OwnedChildFields { get; init; }
+
+    /// <summary>Did this read ASSEMBLE the union, or state the index-only note? The scan lanes annotate without
+    /// opening the other bodies, and the response-level clause has to say which of the two it is stating.</summary>
+    public bool OwnedChildUnioned => OwnedChildFields is { } m && m.Values.Any(v => v is not null);
 
     /// <summary>Did this read annotate anything at all — the cheap question, for callers that only need to know
     /// whether a clause is POSSIBLE (the budget reservation) rather than which fields it would name.</summary>
