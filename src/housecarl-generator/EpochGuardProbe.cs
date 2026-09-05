@@ -12,9 +12,10 @@ namespace HousecarlGenerator;
 /// stamps the identity of the build it was answered from, so cross-page drift is DETECTABLE instead of silently
 /// incoherent, and a future artifact re-entry can be epoch-checked. Arms:
 ///
-///   1  IDENTITY — the fingerprint is a deterministic function of the world-state (plugin names + mtimes, in
-///      order): same order twice = same epoch, a SECOND resolver over the same files (the restart case) = same
-///      epoch, and the resolver/view/format contracts hold (16 lowercase hex; view epoch == resolver epoch).
+///   1  IDENTITY — the fingerprint is a deterministic function of the world-state (plugin names + last-write +
+///      size, in order): same order twice = same epoch, a SECOND resolver over the same files (the restart case)
+///      = same epoch, and the resolver/view/format contracts hold (the format tag then 16 lowercase hex; view
+///      epoch == resolver epoch).
 ///   2  SENSITIVITY — a content edit (mtime change, NEWER or OLDER — the restored-backup case must not be
 ///      invisible), a reorder, and a set change each produce a DIFFERENT epoch; RefreshIfStale over an
 ///      unchanged order keeps it.
@@ -44,9 +45,11 @@ internal static class EpochGuardProbe
         void Check(bool c, string label) { Console.WriteLine((c ? "  PASS  " : "  FAIL  ") + label); if (!c) fail++; }
         // A format tag, a dash, then 16 hex chars. The tag is what lets a consumer tell an epoch this build cannot
         // compare against (one written before the formula changed) from one that simply names a different world.
+        // Both halves are read off the tag itself: a bumped tag of any width is the event this guard has to survive.
         static bool IsEpochToken(string? e) =>
-            e is { Length: 19 } && LoadOrderResolver.IsCurrentEpochFormat(e)
-            && e.Substring(3).All(ch => ch is (>= '0' and <= '9') or (>= 'a' and <= 'f'));
+            e is not null && LoadOrderResolver.IsCurrentEpochFormat(e)
+            && e.Substring(e.IndexOf('-') + 1) is { Length: 16 } hex
+            && hex.All(ch => ch is (>= '0' and <= '9') or (>= 'a' and <= 'f'));
 
         var root = Path.Combine(Path.GetTempPath(), "hc-epoch-guard-" + Guid.NewGuid().ToString("N"));
         try
@@ -109,7 +112,7 @@ internal static class EpochGuardProbe
             string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
 
             // ---- 1: identity — deterministic over the world-state; stable across resolver instances ----
-            Console.WriteLine("--- 1: identity — a deterministic function of (names, mtimes, order) ---");
+            Console.WriteLine("--- 1: identity — a deterministic function of (names, last-write, size, order) ---");
             {
                 var paths = new[] { masterFile, ovFile };
                 using var r1 = LoadOrderResolver.Build(paths);
@@ -123,6 +126,9 @@ internal static class EpochGuardProbe
                 Check(LoadOrderResolver.IsCurrentEpochFormat(r1.Epoch)
                       && !LoadOrderResolver.IsCurrentEpochFormat("0123456789abcdef"),
                       "an epoch from an older format is distinguishable from one this build wrote");
+                // The hex half is 16 chars whatever the tag's width, so the shape check survives the next tag bump.
+                Check(r1.Epoch.IndexOf('-') > 0 && r1.Epoch.Length == r1.Epoch.IndexOf('-') + 17,
+                      "the epoch is a tag, a dash, then exactly 16 hex — the tag's width is not part of the contract");
             }
 
             // ---- 2: sensitivity — content, order, and set changes each re-fingerprint ----
