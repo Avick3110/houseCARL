@@ -97,14 +97,21 @@ public static class RecordsTools
          "earlier call (its identity column becomes the list, epoch-checked against the then-current build).\n\n" +
          "SELECT: formids= | types= | plugins= (scope: which records are considered) | conflicts_only= | where= " +
          "(body predicates, ANDed: comparisons 'BasicStats.Damage >= 50', 'editorid contains Iron', 'editorid " +
-         "startswith REQ_', flag tests 'BodyTemplate.FirstPersonFlags has Body', presence 'VirtualMachineAdapter " +
+         "startswith REQ_', flag tests 'BodyTemplate.FirstPersonFlags has Body' — every operand bit set — with " +
+         "'has_any' (at least one set) and 'has_none' (none set) as the other two folds over the same bits, " +
+         "QUANTIFIED STEPS over a list field: 'Conditions[*any].Data.Function = IsGuard', " +
+         "'Effects[*none].BaseEffect->editorid startswith REQ_' (absence, proved), 'Effects[*count] > 2' — " +
+         "[*any]/[*all]/[*none] fold the elements into a boolean, [*count] into their number, and [*all] is " +
+         "vacuously true on an empty list, presence 'VirtualMachineAdapter " +
          "exists', membership 'formid not in @<file>' / 'Race in [XXXXXX:A.esm, YYYYYY:B.esm]' (list entries " +
          "separate on commas/newlines with brackets and quotes stripped — a value that itself contains a comma " +
          "or bracket is not expressible in a list; test it with '='), ONE '->' link step " +
          "'Perks->editorid startswith REQ_NULL_', and the provenance term 'winner = X.esp' — which records does X " +
          "WIN; that term forces winner resolution over the scanned scope, the same declared cost as any winner " +
          "scan) | references= (reverse, one step — requires a bounding types=/plugins= scope; the reverse-reference " +
-         "index that would lift the bound is a known future capability). UNION-ARM tip: when a field is one of " +
+         "index that would lift the bound is a known future capability. A '!' before an entry NEGATES it — " +
+         "references=[\"!XXXXXX:A.esm\"] keeps only records that do NOT reference that target, and plain and " +
+         "negated entries in one call compose by AND). UNION-ARM tip: when a field is one of " +
          "several shapes (an NPC's Configuration.Level is a fixed level OR a PC-level multiplier), a scalar " +
          "predicate on one arm's sub-field doubles as an ARM-PRESENCE test: where=[\"Configuration.Level.LevelMult " +
          ">= 0\"] returns exactly the NPCs on a multiplier. formids= COMPOSES with the scan terms: the identity set " +
@@ -1016,17 +1023,13 @@ public static class RecordsTools
                 if (xerr is not null) return Wire.Refuse(json, xerr);
                 refs = toks!; refDemand = demand; refEcho = echoSrc;
             }
-            IReadOnlyList<FormKey>? refFks = null;
+            IReadOnlyList<FormKey>? refFks = null, refNoneFks = null;
             if (refs is { Length: > 0 })
             {
-                var list = new List<FormKey>();
-                foreach (var r in refs)
-                {
-                    if (string.IsNullOrWhiteSpace(r)) continue;
-                    try { list.Add(door.Parse(r)); }
-                    catch (Exception ex) { return Wire.Refuse(json, $"error: bad references FormID '{r}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
-                }
-                if (list.Count > 0) refFks = list.Distinct().ToList();
+                var (pos, neg, rerr) = SplitReferenceTargets(refs, door);
+                if (rerr is not null) return Wire.Refuse(json, rerr);
+                if (pos!.Count > 0) refFks = pos.Distinct().ToList();
+                if (neg!.Count > 0) refNoneFks = neg.Distinct().ToList();
             }
 
             var scanPlugins = scopePlusPole ? plugins!.names : (srcName is not null ? new[] { srcName } : plugins?.names);
@@ -1057,7 +1060,8 @@ public static class RecordsTools
             if (fidDemand is not null) demandsList.Add(fidDemand);
             var outcome = svc.CrossQuery(types, refFks, null, conflicts_only, scanPlugins, where,
                                          effLimit, definedIn, groupBy, offset, where_source,
-                                         demandsList.Count > 0 ? demandsList : null, formidSet, door.CapturedView);
+                                         demandsList.Count > 0 ? demandsList : null, formidSet, door.CapturedView,
+                                         refNoneFks);
             // The probe-to-scan seam is epoch-compared: the source statement must describe the same build the
             // rows were scanned from.
             if (probeEpoch is not null && outcome.Error is null && outcome.Epoch is not null && outcome.Epoch != probeEpoch)
@@ -1326,17 +1330,13 @@ public static class RecordsTools
                 if (xerr is not null) return Wire.Refuse(json, xerr);
                 refs = toks!; refDemand = demand; refEcho = echoSrc2;
             }
-            IReadOnlyList<FormKey>? refFks = null;
+            IReadOnlyList<FormKey>? refFks = null, refNoneFks = null;
             if (refs is { Length: > 0 })
             {
-                var list = new List<FormKey>();
-                foreach (var r in refs)
-                {
-                    if (string.IsNullOrWhiteSpace(r)) continue;
-                    try { list.Add(door.Parse(r)); }
-                    catch (Exception ex) { return Wire.Refuse(json, $"error: bad references FormID '{r}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'."); }
-                }
-                if (list.Count > 0) refFks = list.Distinct().ToList();
+                var (pos, neg, rerr) = SplitReferenceTargets(refs, door);
+                if (rerr is not null) return Wire.Refuse(json, rerr);
+                if (pos!.Count > 0) refFks = pos.Distinct().ToList();
+                if (neg!.Count > 0) refNoneFks = neg.Distinct().ToList();
             }
             HousecarlCore.ArtifactDemand? fidDemand = null; string? fidEcho = null;
             IReadOnlyList<FormKey>? formidSet = null;
@@ -1364,7 +1364,8 @@ public static class RecordsTools
 
             var outcome = svc.OffOrderQuery(pole, types, refFks, null, plugins?.names,
                                             plugins?.defined_in ?? false, where, offLimit, offGroupBy, offset,
-                                            formidSet, offDemands.Count > 0 ? offDemands : null, door.CapturedView);
+                                            formidSet, offDemands.Count > 0 ? offDemands : null, door.CapturedView,
+                                            refNoneFks);
 
             List<KeyValuePair<string, string>> Echo()
             {
@@ -1994,5 +1995,27 @@ public static class RecordsTools
         foreach (var (key, count) in rows.Select(r => (r.Key, r.Value)))
             sb.Append("  ").Append(count.ToString().PadLeft(6)).Append("  ").Append(key).Append('\n');
         return sb.ToString();
+    }
+
+    /// <summary>Split references= into the targets a match must link to and the ones it must NOT: a leading '!'
+    /// negates that entry. The two compose by AND — "links to A and to neither B nor C" is one call. A FormID
+    /// never begins with '!', so the sigil cannot collide with a target token.</summary>
+    static (List<FormKey>? Positive, List<FormKey>? Negative, string? Error)
+        SplitReferenceTargets(string[] refs, FormIdDoor door)
+    {
+        var pos = new List<FormKey>();
+        var neg = new List<FormKey>();
+        foreach (var r in refs)
+        {
+            if (string.IsNullOrWhiteSpace(r)) continue;
+            var tok = r.Trim();
+            bool negated = tok[0] == '!';
+            if (negated) tok = tok[1..].Trim();
+            if (tok.Length == 0)
+                return (null, null, "error: a references= entry is just '!' and names no target — write '!XXXXXX:Plugin.esp' to exclude the records that reference it.");
+            try { (negated ? neg : pos).Add(door.Parse(tok)); }
+            catch (Exception ex) { return (null, null, $"error: bad references FormID '{r}': {ex.Message}. Expected 'XXXXXX:Plugin.esp', or '!XXXXXX:Plugin.esp' to exclude."); }
+        }
+        return (pos, neg, null);
     }
 }

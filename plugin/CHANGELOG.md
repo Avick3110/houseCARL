@@ -42,6 +42,22 @@ saying it sets an expectation their install may contradict. Say what is known, a
   collection whose elements are owned child records (`Cell.Persistent`) is sent to the record axis rather than handed
   a container call no verb takes. Inside
   a `compose=`'s nested `sets`, the path is named in the `path` slot it belongs to rather than `field_path`.
+- **A `where=` path step can now quantify a list, so "does ANY element match?" is one call.** Four tokens go in the
+  step where the list binds: `Conditions[*any].Data.Function = IsGuard` (some element), `[*all]` (every one, and
+  vacuously true on an empty list), `[*none]` (absence, proved — `Effects[*none].BaseEffect->editorid startswith REQ_`),
+  and `[*count]`, which yields the number of elements for a numeric or membership comparison (`Effects[*count] > 2`).
+  A quantified step composes with the `->` link step and with another quantified step, at the cost the tool
+  description declares (per-candidate work times list length, and one winner fetch per element under `->`). The bare
+  `[*]` is the element SET and is refused in `where=`, naming the three fold tokens; a quantifier pointed at a field
+  that is not a list on the scanned records is named in the scan's accounting with what that step read instead, never
+  counted as a silent non-match. Reaching a list with a dotted segment still refuses, and its remedy now offers the
+  quantified spelling alongside the bracketed index.
+- **`where=` gains the two exclusion folds of `has`, and `references=` gains a negated entry.**
+  `BodyTemplate.FirstPersonFlags has_any 44,45` is true when at least one operand bit is set and `has_none` when
+  none is, beside the existing `has` (every operand bit set). A `!` before a `references=` entry inverts it —
+  `references=["!XXXXXX:A.esm"]` keeps only the records that do NOT reference that target — and plain and negated
+  entries in one call compose by AND. The negated form takes the same bounding `types=`/`plugins=`/`formids=` scope
+  the plain form takes.
 - **`housecarl_load_order_status` now names the running server's build in its header** — a `server:` line carrying
   the informational version the binary embeds (the release version `build-plugin.ps1` stamps from `plugin.json`,
   then `+` and the full commit sha: `1.9.5-dev+e942910…`), so checking that the installed houseCARL is the build you expect no longer means
