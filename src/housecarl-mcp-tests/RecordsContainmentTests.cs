@@ -167,6 +167,18 @@ public sealed class RecordsContainmentTests : IClassFixture<OwnedChildFixture>
         Assert.Contains("DialogTopic.Responses", r);
     }
 
+    /// <summary>Reading a child-bearing field THROUGH the hop is the same question as reading it on the container
+    /// directly, so it must carry the same owned-child note. Without it the crash-log reading this PR headlines —
+    /// a placed reference up to its cell's contents — would be the one spelling that reports the winner's contents
+    /// as the whole story.</summary>
+    [Fact]
+    public void AReadThroughTheHopCarriesTheContainingCellsOwnedChildNote()
+    {
+        const string note = "their declarations for this field were not read";
+        Assert.Contains(note, Read(_w.CellA, "Temporary"));
+        Assert.Contains(note, Read(new FormKey(_w.CellA.ModKey, 0xC10), "*parent.Temporary"));
+    }
+
     // ---- filtering on it -------------------------------------------------------------------------
 
     [Fact]
