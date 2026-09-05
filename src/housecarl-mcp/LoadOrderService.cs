@@ -196,6 +196,8 @@ public sealed class LoadOrderService : IDisposable
     /// a refusal, never on a hot path, so the extra three-file parse is free.</para>
     /// <para>Vocabulary is deliberate: a MOD is enabled/disabled (MO2's left pane), a PLUGIN is active/inactive (its
     /// right pane).</para></summary>
+    internal int AbsenceExplanations;   // how many times the explainer has parsed the profile — a test seam for the memo
+
     string? ExplainPluginAbsence(string name)
     {
         // Snapshot the roots together under the gate so the four cannot be read across a mid-switch reassignment.
@@ -204,6 +206,7 @@ public sealed class LoadOrderService : IDisposable
         if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(profileDir)) return null;
         var fn = Path.GetFileName(name.Trim());
         if (fn.Length == 0) return null;
+        Interlocked.Increment(ref AbsenceExplanations);
         Mo2Composition comp;
         try { comp = Mo2LoadOrder.ReadComposition(profileDir); }
         catch { return null; }                       // unreadable profile → say nothing rather than guess
@@ -2234,7 +2237,7 @@ public sealed class LoadOrderService : IDisposable
     /// touching-plugin list. Recoverable named errors — not-in-order, plugin-doesn't-touch, fetch inconsistency —
     /// never a silent empty result.</summary>
     public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
-                                   bool resolveNames = false, Dictionary<FormKey, ResolvedRef>? linkMemo = null,
+                                   bool resolveNames = false, LinkMemo? linkMemo = null,
                                    string? containerHint = ReadEngine.DepthExpandHint)
     {
         var resolver = Resolver;
@@ -2272,7 +2275,7 @@ public sealed class LoadOrderService : IDisposable
     /// fetch-inconsistency error rather than a silently re-resolved winner.</summary>
     ReadOutcome ResolveRead(LoadOrderResolver resolver, LoadOrderResolver.IndexView view,
                             FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth,
-                            bool resolveNames = false, Dictionary<FormKey, ResolvedRef>? linkMemo = null,
+                            bool resolveNames = false, LinkMemo? linkMemo = null,
                             string? containerHint = ReadEngine.DepthExpandHint)
     {
         // An explicitly-requested plugin excluded this session (unparseable or unopenable) is said so, rather than
@@ -2346,8 +2349,10 @@ public sealed class LoadOrderService : IDisposable
     /// An unresolvable target is a named unresolved <see cref="ResolvedRef"/> (Resolved=false), never dropped, bar
     /// the engine-implicit forms, which <see cref="ResolveRefOne"/> answers with their hardcoded identity.
     /// Copy-on-first-write: a record with no form-reference leaves returns the SAME instance.</summary>
+    /// <remarks>The memo carries the absence cache too, so a lane annotating many dangling links into ONE absent
+    /// plugin pays the explainer's profile parse and install sweep once, not once per FormKey.</remarks>
     static RecordFields AnnotateLinks(RecordFields rf, LoadOrderResolver.IndexView view,
-                                      LoadOrderResolver.OverlaySession session, Dictionary<FormKey, ResolvedRef> memo)
+                                      LoadOrderResolver.OverlaySession session, LinkMemo memo)
     {
         List<FieldValue>? rebuilt = null;
         for (int i = 0; i < rf.Fields.Count; i++)
@@ -2504,7 +2509,7 @@ public sealed class LoadOrderService : IDisposable
     /// as the named fetch-inconsistency error. Falls back to the public path when the outcome carries no pin.</summary>
     internal ReadOutcome ResolveReadOn(CrossQueryOutcome q, FormKey fk, string? plugin, IReadOnlyList<string>? fields,
                                        bool conflictTree, int depth = 1, bool resolveNames = false,
-                                       Dictionary<FormKey, ResolvedRef>? linkMemo = null,
+                                       LinkMemo? linkMemo = null,
                                        string? containerHint = ReadEngine.DepthExpandHint)
         => q.Pin is { } p
             ? ResolveRead(p.Resolver, p.View, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint)
@@ -2560,6 +2565,18 @@ public sealed class LoadOrderService : IDisposable
     static string? ReadDisplayName(IMajorRecordGetter body) =>
         body is INamedGetter named && !string.IsNullOrEmpty(named.Name) ? named.Name : null;
 
+    /// <summary>The name-resolution caches one lane carries: a target's identity per FormKey, and the absence tail
+    /// per missing plugin name. Both are per-lane, never global — they describe ONE captured build.</summary>
+    public sealed class LinkMemo
+    {
+        /// <summary>Resolved identity per target, so a keyword recurring across a batch resolves once.</summary>
+        public Dictionary<FormKey, ResolvedRef> Refs { get; } = new();
+
+        /// <summary>The unresolved-FormID tail per missing plugin, so the absence explainer — a profile parse plus
+        /// an install sweep — runs once per plugin rather than once per dangling FormKey.</summary>
+        public Dictionary<string, string> Absences { get; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+
     /// <summary>Resolve ONE FormKey to its load-order identity (type/editorid/name/winner) off a captured view + open
     /// session, memoised so a target that recurs across a batch (the SAME keyword on 500 items) resolves once. A
     /// FormKey not in the order is a named unresolved result (Resolved=false), never dropped or guessed — except the
@@ -2567,10 +2584,9 @@ public sealed class LoadOrderService : IDisposable
     /// answer with their hardcoded identity and winner "&lt;engine&gt;", the same <see cref="EngineImplicit"/>
     /// exemption the error and dialogue checks apply.</summary>
     static ResolvedRef ResolveRefOne(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
-                                     FormKey fk, Dictionary<FormKey, ResolvedRef> memo,
-                                     Dictionary<string, string>? absenceMemo = null)
+                                     FormKey fk, LinkMemo memo)
     {
-        if (memo.TryGetValue(fk, out var hit)) return hit;
+        if (memo.Refs.TryGetValue(fk, out var hit)) return hit;
         ResolvedRef result;
         var w = view.ResolveWinner(fk);
         if (w is null)
@@ -2578,7 +2594,7 @@ public sealed class LoadOrderService : IDisposable
                 ? new ResolvedRef(fk.ToString(), Resolved: true, Type: eiType, EditorId: eiEditorId, Winner: "<engine>")   // engine-implicit: hardcoded, real, defined by no plugin
                 // Valid FormKey, no active plugin defines it. The reason is the three-cause sentence every other
                 // lane states, so the identity form's row says WHICH cause instead of a bare "not present".
-                : new ResolvedRef(fk.ToString(), Resolved: false, Error: UnresolvedFormId(view, fk, absenceMemo));
+                : new ResolvedRef(fk.ToString(), Resolved: false, Error: UnresolvedFormId(view, fk, memo.Absences));
         else
         {
             var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
@@ -2587,7 +2603,7 @@ public sealed class LoadOrderService : IDisposable
                 : new ResolvedRef(fk.ToString(), Resolved: true, Type: RecordNaming.StripOverlay(body.GetType().Name),
                                   EditorId: body.EditorID, Name: ReadDisplayName(body), Winner: w.Value.WinnerPlugin);
         }
-        memo[fk] = result;
+        memo.Refs[fk] = result;
         return result;
     }
 
@@ -2629,8 +2645,7 @@ public sealed class LoadOrderService : IDisposable
             return Array.Empty<ResolvedRef>();
         }
         using var session = resolver.OpenSession();
-        var memo = new Dictionary<FormKey, ResolvedRef>();
-        var absenceMemo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var memo = new LinkMemo();
         var results = new List<ResolvedRef>(formids.Count);
         foreach (var raw in formids)
         {
@@ -2638,7 +2653,7 @@ public sealed class LoadOrderService : IDisposable
             FormKey fk;
             try { fk = view.ParseFormId(t); }
             catch (Exception ex) { results.Add(new ResolvedRef(t, Resolved: false, Error: $"bad FormID: {ex.Message}. Expected 'XXXXXX:Plugin.esp'.")); continue; }
-            results.Add(ResolveRefOne(view, session, fk, memo, absenceMemo));
+            results.Add(ResolveRefOne(view, session, fk, memo));
         }
         return results;
     }
@@ -2712,7 +2727,7 @@ public sealed class LoadOrderService : IDisposable
             return Array.Empty<ReadOutcome>();
         }
         var pin = new ViewPin(resolver, view);
-        var linkMemo = resolveNames ? new Dictionary<FormKey, ResolvedRef>() : null;   // one link-resolution cache across the whole batch
+        var linkMemo = resolveNames ? new LinkMemo() : null;   // one link-resolution cache across the whole batch
         var outcomes = new List<ReadOutcome>(formids.Count);
         foreach (var raw in formids)
         {
@@ -2846,7 +2861,7 @@ public sealed class LoadOrderService : IDisposable
         {
             // Active arm: the same per-item reads ResolveBatch(plugin=) does, off the same captured view, with
             // excluded-plugin and untouched-record refusals per item and the touchers named.
-            var linkMemo = resolveNames ? new Dictionary<FormKey, ResolvedRef>() : null;
+            var linkMemo = resolveNames ? new LinkMemo() : null;
             var outcomes = new List<ReadOutcome>(formids.Count);
             foreach (var raw in formids)
             {
@@ -2908,7 +2923,7 @@ public sealed class LoadOrderService : IDisposable
                 return Array.Empty<ReadOutcome>();
             }
 
-            var linkMemo = resolveNames ? new Dictionary<FormKey, ResolvedRef>() : null;
+            var linkMemo = resolveNames ? new LinkMemo() : null;
             using var session = resolveNames ? resolver.OpenSession() : null;   // resolve_names annotates against the ACTIVE order
             foreach (var (index, fk) in parsed)
             {
@@ -3356,7 +3371,7 @@ public sealed class LoadOrderService : IDisposable
         // would run every INI line onto the already-mutated copy — AddEntry would append twice, Mult and AddNumeric
         // would compound. One replay per key; duplicates reuse its outcome.
         var replayMemo = new Dictionary<FormKey, ReadOutcome>();
-        Dictionary<FormKey, ResolvedRef>? overlayLinkMemo = null;   // resolve_names cache, one per batch
+        LinkMemo? overlayLinkMemo = null;   // resolve_names cache, one per batch
         var outcomes = new List<ReadOutcome>(formids.Count);
         foreach (var raw in formids)
         {
@@ -3386,7 +3401,7 @@ public sealed class LoadOrderService : IDisposable
                 }
             }
             var record = ReadEngine.ReadFields(bodyToRead!, fields, depth, containerHint);
-            if (resolveNames) record = AnnotateLinks(record, view, session, overlayLinkMemo ??= new Dictionary<FormKey, ResolvedRef>());
+            if (resolveNames) record = AnnotateLinks(record, view, session, overlayLinkMemo ??= new LinkMemo());
             var ok = (new ReadOutcome(fk, record, winner.Value.WinnerPlugin, winner.Value.WinnerPlugin,
                                       winner.Value.OverrideDepth, null, null)
                       with { Epoch = view.Epoch, Pin = pin }).WithRuntime(view.RuntimeAddressOf(fk));
