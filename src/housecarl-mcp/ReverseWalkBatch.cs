@@ -12,11 +12,20 @@ namespace HousecarlMcp;
 /// </summary>
 public static class ReverseWalkBatch
 {
+    /// <summary>Why the body check dropped index candidates, one count per cause: the walk judges the winner, and
+    /// "the winner does not carry the link" is only one of the four ways a candidate fails it. An unreadable
+    /// winner is a coverage gap, not a verdict, so it is never rendered as one.</summary>
+    public sealed record DropCensus(int NoLink, int Unreadable, int NoLiveBody, int NoWinner)
+    {
+        public static readonly DropCensus Empty = new(0, 0, 0, 0);
+        public int Total => NoLink + Unreadable + NoLiveBody + NoWinner;
+    }
+
     /// <summary>What one reverse walk produced: the per-hop reached sets (an empty hop is kept and reported), the
-    /// selection the reading forms consume, the count of index candidates the body check dropped, the index's own
+    /// selection the reading forms consume, the index candidates the body check dropped and why, the index's own
     /// accounting line, and the build the whole answer was read from.</summary>
     public sealed record Result(IReadOnlyList<ReverseSelection.Hop> Hops, IReadOnlyList<string> Selection,
-                                int Seeds, bool Capped, int Dropped, string? IndexNote, string? Epoch,
+                                int Seeds, bool Capped, DropCensus Dropped, string? IndexNote, string? Epoch,
                                 string? Refusal);
 
     /// <summary>Run the walk from these seeds. Every seed is parsed against the captured build, so a bad FormID is
@@ -28,7 +37,7 @@ public static class ReverseWalkBatch
         var view = pin.View;
         var epoch = view.Epoch;
         if (demand is not null && demand.Epoch != epoch)
-            return new Result(Array.Empty<ReverseSelection.Hop>(), Array.Empty<string>(), 0, false, 0, null, epoch,
+            return new Result(Array.Empty<ReverseSelection.Hop>(), Array.Empty<string>(), 0, false, DropCensus.Empty, null, epoch,
                               LoadOrderService.ArtifactEpochMismatch(demand, epoch));
 
         // Seeds are deduplicated: two spellings of one key (a runtime FormID and its ID:Plugin form) parse to the
@@ -41,14 +50,14 @@ public static class ReverseWalkBatch
             try { fk = view.ParseFormId(raw); }
             catch (Exception ex)
             {
-                return new Result(Array.Empty<ReverseSelection.Hop>(), Array.Empty<string>(), 0, false, 0, null, epoch,
+                return new Result(Array.Empty<ReverseSelection.Hop>(), Array.Empty<string>(), 0, false, DropCensus.Empty, null, epoch,
                                   $"bad FormID '{raw}': {ex.Message} — every seed of a reverse walk must parse before the walk starts.");
             }
             if (seedSeen.Add(fk)) seedKeys.Add(fk);
         }
 
         var built = view.EnsureReverseIndex();
-        int dropped = 0;
+        int noLink = 0, unreadable = 0, noLiveBody = 0, noWinner = 0;
         using var session = pin.Resolver.OpenSession();
         // The index answers in candidates — it says SOME plugin's copy carries the link. references= then re-tests
         // each candidate against the body it judges, and so does this: a record whose winner dropped the link is
@@ -57,21 +66,22 @@ public static class ReverseWalkBatch
         bool Verify(FormKey candidate, IReadOnlySet<FormKey> frontier)
         {
             var w = view.ResolveWinner(candidate);
-            if (w is null) { dropped++; return false; }
+            if (w is null) { noWinner++; return false; }
             IMajorRecordGetter? body;
             // Any throw out of the lazy overlay seek — an unreadable plugin, a malformed subrecord — is a
             // coverage gap on that one record, counted and skipped, never the end of the whole walk. The same
             // rule references= keeps.
             try { body = view.GetRecord(session, w.Value.WinnerPlugin, candidate); }
-            catch (Exception) { dropped++; return false; }
-            if (body is null || DeletedRecordRule.HasNoLiveBody(body) || body is not IFormLinkContainerGetter flc)
+            catch (Exception) { unreadable++; return false; }
+            if (body is null) { unreadable++; return false; }
+            if (DeletedRecordRule.HasNoLiveBody(body) || body is not IFormLinkContainerGetter flc)
             {
-                dropped++;
+                noLiveBody++;
                 return false;
             }
             foreach (var l in flc.EnumerateFormLinks())
                 if (frontier.Contains(l.FormKey)) return true;
-            dropped++;
+            noLink++;
             return false;
         }
 
@@ -84,6 +94,7 @@ public static class ReverseWalkBatch
         foreach (var hop in hops)
             foreach (var k in hop.Reached) selection.Add(k.ToString());
 
-        return new Result(hops, selection, seedKeys.Count, capped, dropped, built.Note, epoch, null);
+        return new Result(hops, selection, seedKeys.Count, capped,
+                          new DropCensus(noLink, unreadable, noLiveBody, noWinner), built.Note, epoch, null);
     }
 }

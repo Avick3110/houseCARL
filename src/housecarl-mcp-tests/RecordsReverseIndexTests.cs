@@ -271,6 +271,14 @@ public sealed class RecordsReverseIndexTests : RecordsTestBase
                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 1 }),
                "index candidate(s) were dropped");
 
+    /// <summary>The drop line names the cause it actually saw rather than asserting one for all four: this
+    /// candidate's winner dropped the link, and an unreadable winner would have read as a coverage gap.</summary>
+    [Fact]
+    public void TheDropLineNamesTheCauseRatherThanAssertingOne() =>
+        Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellHop) },
+                                    walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 1 }),
+               "whose winner does not carry the link");
+
     /// <summary>A hop the node budget ended reads as cut, not as a hop that reached nothing, and a capped walk is
     /// never also called exhausted.</summary>
     [Fact]

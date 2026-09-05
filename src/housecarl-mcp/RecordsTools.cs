@@ -729,8 +729,18 @@ public static class RecordsTools
                 if (rev.IndexNote is not null) envelope.Add(new("reverse_index", rev.IndexNote));
                 headerLine += $"\nwalk=reverse (every link) depth={walkDepth}: {hopLine} — selection = {rev.Selection.Count} record(s) ({reachedRev} referrer(s), seeds included)";
                 if (rev.IndexNote is not null) headerLine += "\n" + rev.IndexNote;
-                if (rev.Dropped > 0)
-                    headerLine += $"\n{rev.Dropped} index candidate(s) were dropped: the index says some plugin's copy carries the link, and the body this walk judges — the load-order winner — does not, so they are not reached and were not expanded (the same second step references= takes).";
+                if (rev.Dropped.Total > 0)
+                {
+                    // Each cause is named with its own count: an unreadable winner is a coverage gap and a dropped
+                    // link is a verdict, and one sentence for both would tell a caller the wrong thing about half
+                    // of them.
+                    var causes = new List<string>(4);
+                    if (rev.Dropped.NoLink > 0) causes.Add($"{rev.Dropped.NoLink} whose winner does not carry the link");
+                    if (rev.Dropped.Unreadable > 0) causes.Add($"{rev.Dropped.Unreadable} whose winning plugin could not be read — a coverage gap, not a verdict");
+                    if (rev.Dropped.NoLiveBody > 0) causes.Add($"{rev.Dropped.NoLiveBody} whose winner is deleted or carries no links");
+                    if (rev.Dropped.NoWinner > 0) causes.Add($"{rev.Dropped.NoWinner} with no resolvable winner");
+                    headerLine += $"\n{rev.Dropped.Total} index candidate(s) were dropped — the index names a plugin copy that carries the link, and this walk judges the load-order winner (the same second step references= takes): {string.Join("; ", causes)}. None of them was reached or expanded.";
+                }
                 if (rev.Capped)
                     headerLine += $"\n[!] the walk.max_nodes budget ({walkMaxNodes}, one budget shared across every seed and hop on this lane) was reached — what is listed IS reached and proved, and the hop it cut is marked; raise walk.max_nodes to walk further.";
                 expectEpoch = rev.Epoch;
