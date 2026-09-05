@@ -75,7 +75,11 @@ public static class ScriptPropertyCheck
     ///
     /// <para>UNVERIFIABLE attachments ride through every filter untouched. A script whose <c>.pex</c> could not be read
     /// might be the very one declaring the property being filtered for, so dropping the note under a filter would turn
-    /// "could not check" into a clean answer.</para></summary>
+    /// "could not check" into a clean answer. They are outside <paramref name="limit"/> too, so a repeat of a note
+    /// already listed for the same script class is COLLAPSED — counted in
+    /// <see cref="ScriptCheckResult.UnverifiableCollapsed"/> and in the total, listed once. Off-order or not, one
+    /// unreadable class hits every record that attaches it, and an uncapped wall of one sentence would push the
+    /// findings the caller asked for past <c>max_chars</c>.</para></summary>
     public static ScriptCheckResult Run(LoadOrderResolver resolver, AssetResolver assets,
                                         IReadOnlyList<string>? scope, int limit,
                                         SweepScope? recordScope = null, string? propertyContains = null,
@@ -192,6 +196,10 @@ public static class ScriptPropertyCheck
         int totalUnboundObject = 0, totalUnboundScalar = 0;
         int findingBudget = limit;
         bool capped = false;
+        // One unreadable script class produces the SAME note on every record that attaches it. The first is listed;
+        // the repeats are counted here and the head says how many, so the true total stays exact.
+        var seenUnverifiable = new HashSet<(string Script, string Reason)>();
+        int collapsedUnverifiable = 0;
         // counts_only=: the unbound-by-property-name tally, over EVERY unbound finding in scope, never limit-capped,
         // since the point is an exact before/after comparison. Built only when a class that FEEDS it is actually
         // being collected: with both unbound classes excluded nothing can be tallied, and an empty-but-present
@@ -289,9 +297,22 @@ public static class ScriptPropertyCheck
             foreach (var u in unbound) { if (findingBudget > 0) { keptUnbound.Add(u); findingBudget--; } else capped = true; }
             foreach (var n in nulls)   { if (findingBudget > 0) { keptNull.Add(n);   findingBudget--; } else capped = true; }
 
+            // Unverifiable notes ride outside the finding budget, and one unreadable script class hits EVERY record
+            // that attaches it — a disabled mod puts all of them outside the VFS at once, so the same sentence would
+            // fill the listing and push the unbound findings past max_chars. The first record carrying a given
+            // class+reason lists it; the repeats are counted and the collapse is stated in the head.
+            var keptUnver = new List<ScriptUnverifiable>();
+            foreach (var uv in unver)
+            {
+                if (seenUnverifiable.Add((uv.Script, uv.Reason))) keptUnver.Add(uv);
+                else collapsedUnverifiable++;
+            }
+            // A record whose only findings were repeats has nothing left to say that has not been said.
+            if (unbound.Count == 0 && nulls.Count == 0 && keptUnver.Count == 0) return;
+
             reports.Add(new RecordScriptFindings(
                 fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID, plugin,
-                keptUnbound, keptNull, unver));
+                keptUnbound, keptNull, keptUnver));
         }
 
         foreach (var plugin in targets)
@@ -360,7 +381,7 @@ public static class ScriptPropertyCheck
                                      totalNull, totalUnverifiable, capped, av.ReadIncomplete, view.ExcludedPlugins, null,
                                      filterNote, histogram is null ? null : SweepFindings.Histogram(histogram), countsOnly,
                                      classes, totalUnboundObject, totalUnboundScalar, propFilter, view.Epoch, limit,
-                                     offOrderScanned);
+                                     offOrderScanned, collapsedUnverifiable);
     }
 
     /// <summary>One record's fault, appended to the plugin's running scan-error line — the same sentence on both
@@ -560,7 +581,8 @@ public sealed record ScriptCheckResult(
     string? PropertyContains = null,
     string? Epoch = null,   // the swept INDEXED build's fingerprint; null only on the pre-sweep refusals. OffOrderScanned files are located OUTSIDE the index — their content is not under this fingerprint, so the renders qualify the stamp when any were swept
     int Limit = 0,   // the finding budget this sweep was GIVEN, so the response names the knob to raise off the number actually used
-    IReadOnlyList<string>? OffOrderScanned = null)   // the files swept OFF-ORDER: on disk, not in the active order — the pre-enable verify lane
+    IReadOnlyList<string>? OffOrderScanned = null,   // the files swept OFF-ORDER: on disk, not in the active order — the pre-enable verify lane
+    int UnverifiableCollapsed = 0)   // records whose unverifiable note repeated one already listed for the same script class; counted in TotalUnverifiable, not listed again
 {
     public bool Success => Error is null;
     public static ScriptCheckResult Fail(string error) =>
