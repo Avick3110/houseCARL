@@ -6723,7 +6723,7 @@ public sealed class LoadOrderService : IDisposable
                 plan.Donors, build.Conflicts, id.ExternalPlugins, id.ExternalOverriders,
                 id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples, build.Bytes, note,
                 assetRename, voiceRename, seqRegen, build.LightDonors, build.HeaderMetaDonors, build.MasterDonors,
-                id.UnscannablePlugins, localizedDonors, id.MasterDeclarers);
+                id.UnscannablePlugins, localizedDonors, id.MasterDeclarers, build.LightCarried);
         }
     }
 

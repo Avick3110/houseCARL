@@ -33,13 +33,13 @@ namespace HousecarlGenerator;
 ///               headline (derived from the accounting, so a PURE-OVERRIDE donor claims no re-keying), the per-donor
 ///               renumber cause, the two external-referencer remedy orderings, and the mod-folder default. Each has
 ///               arms on BOTH sides — the multi-donor checks above are the negatives.
-///   HEADER    — nothing in a donor's header comes into the output: light (ESL) status, MASTER status, and
-///               Author/Description. Light and master are each counted BY FLAG OR BY EXTENSION (the engine treats
-///               .esl/.esm that way whatever the bit says), which is why one donor exists per spelling. Measured on
-///               the written file, then REPORTED: the ESL note carries the compact remedy's own cost (it renumbers
-///               from the floor) and suppresses the flat closing pointer so the costed advice is the one read last;
-///               master and header-text name no remedy because the surface has none. All three are keyed on what the
-///               DONORS carried, never on the donor count — a mixed multi-donor merge raises them too.
+///   HEADER    — MASTER status and Author/Description never come into the output; LIGHT (ESL) status is carried when
+///               every donor was light and the merged ids fit the window, and dropped with the reason otherwise
+///               (#363). Light and master are each counted BY FLAG OR BY EXTENSION (the engine treats .esl/.esm that
+///               way whatever the bit says), which is why one donor exists per spelling. Measured on the written
+///               file, then REPORTED: a carried flag suppresses the flat closing compact pointer, since the output is
+///               already light; master and header-text name no remedy because the surface has none. All are keyed on
+///               what the DONORS carried, never on the donor count — a mixed multi-donor merge raises them too.
 ///   REFUSE    — ZERO donors / unknown donor / output already active / output == donor / .esl output, all loud,
 ///               nothing written.
 ///   UNTOUCHED — the donor files are byte-identical after the merge (new-file lane only).
@@ -520,37 +520,35 @@ public static class MergeServiceGuardProbe
                         $"RENAME a below-floor id renumbers even with nothing to collide with (kept {dSolo?.Kept}, renumbered {dSolo?.Renumbered})");
                 }
 
-                // HEADER LOSS, positive side: the merged plugin is built as a bare mod, so a donor's light flag and
-                // its Author/Description do not come along. Both are stated rather than refused, and the ESL note's
-                // compact remedy carries the consequence that makes it honest — compact renumbers from the floor.
+                // HEADER, positive side: the merged plugin is built as a bare mod, so a donor's Author/Description do
+                // not come along, and the LIGHT flag comes along only under the #363 rule — every donor light and
+                // every merged id inside the window, which a single light donor with in-window ids satisfies.
                 var oEsl = svc.MergePlugins(new[] { "HcMgEsl.esp" }, "HcMgEslRenamed.esp");
-                bool eslDropped = false;
+                bool eslKept = false;
                 if (oEsl.Success && !string.IsNullOrEmpty(oEsl.OutputPath) && File.Exists(oEsl.OutputPath))
                 {
                     using var em = SkyrimMod.CreateFromBinaryOverlay(oEsl.OutputPath, SkyrimRelease.SkyrimSE);
-                    eslDropped = !em.IsSmallMaster                                        // the loss is REAL, not just claimed
-                              && string.IsNullOrEmpty(em.ModHeader.Author)
-                              && string.IsNullOrEmpty(em.ModHeader.Description);
+                    eslKept = em.IsSmallMaster                                            // the carry is REAL, not just claimed
+                           && string.IsNullOrEmpty(em.ModHeader.Author)                   // header text still dropped
+                           && string.IsNullOrEmpty(em.ModHeader.Description);
                 }
                 var renderedEsl = oEsl.Success ? WriteTools.RenderMerge(oEsl) : "";
-                Check(eslDropped, $"RENAME the donor's light flag and header text really are absent from the output (success {oEsl.Success})");
-                Check(renderedEsl.Contains("HcMgEsl.esp carried the LIGHT (ESL) status")
-                      && renderedEsl.Contains("takes a full load-order slot")
-                      && renderedEsl.Contains("renumbers object ids from 0x800 upward"),
-                    "RENAME the light-flag loss is REPORTED, with the compact remedy's own cost stated");
+                Check(eslKept, $"RENAME the donor's light flag is carried onto the output, its header text is not (success {oEsl.Success})");
+                Check(oEsl.LightCarried && renderedEsl.Contains("is written LIGHT too"),
+                    "RENAME the carried light flag is REPORTED, so the caller need not open the file to know");
                 Check(renderedEsl.Contains("header Author/Description carried by HcMgEsl.esp")
                       && !renderedEsl.Contains("housecarl_create_plugin on"),
                     "RENAME the header-text loss is stated bare — no remedy invented for it");
-                // ONE home for the compact recommendation: where the qualified note fired, the flat closing tail must
-                // not repeat it un-costed. Its negative is the plain merge, which has no note and so keeps the tail.
+                // ONE home for the compact recommendation: an output that is already light must not be told to run
+                // compact to become light. Its negative is the plain merge, which has no note and so keeps the tail.
                 Check(!renderedEsl.Contains("Want it light?"),
-                    "RENAME the flat 'want it light' tail steps aside when the qualified ESL note fired");
+                    "RENAME the flat 'want it light' tail steps aside when the output is already light");
 
                 // Light and master each arrive by EXTENSION as well as by flag; a flag-only reading misses these two
                 // donors entirely, which is the whole reason they exist.
                 var oEslExt = svc.MergePlugins(new[] { "HcMgEslExt.esl" }, "HcMgEslExtRenamed.esp");
                 var renderedEslExt = oEslExt.Success ? WriteTools.RenderMerge(oEslExt) : "";
-                Check(oEslExt.Success && renderedEslExt.Contains("HcMgEslExt.esl carried the LIGHT (ESL) status"),
+                Check(oEslExt.Success && oEslExt.LightCarried && renderedEslExt.Contains("is written LIGHT too"),
                     $"RENAME a .esl-EXTENSION donor counts as light even with the header bit unset (success {oEslExt.Success})");
                 var oEsm = svc.MergePlugins(new[] { "HcMgEsm.esm" }, "HcMgEsmRenamed.esp");
                 var renderedEsm = oEsm.Success ? WriteTools.RenderMerge(oEsm) : "";
@@ -564,8 +562,9 @@ public static class MergeServiceGuardProbe
                 // has quietly become count-keying (PR #346 R5 / PR #360 F2 class).
                 var oMixed = svc.MergePlugins(new[] { "HcMgEsl.esp", "HcMgEsm.esm" }, "HcMgMixed.esp");
                 var renderedMixed = oMixed.Success ? WriteTools.RenderMerge(oMixed) : "";
-                Check(oMixed.Success && oMixed.Donors.Count == 2
+                Check(oMixed.Success && oMixed.Donors.Count == 2 && !oMixed.LightCarried
                       && renderedMixed.Contains("carried the LIGHT (ESL) status")
+                      && renderedMixed.Contains("Not every donor was light (1 of 2 were)")
                       && renderedMixed.Contains("carried MASTER status")
                       && renderedMixed.Contains("header Author/Description carried by")
                       && renderedMixed.Contains("from 2 donors"),
