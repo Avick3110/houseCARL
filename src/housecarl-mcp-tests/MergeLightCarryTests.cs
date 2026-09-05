@@ -72,27 +72,46 @@ public sealed class MergeLightCarryTests : IClassFixture<MergeLightCarryWorld>
         Assert.Contains("carried MASTER status", WriteTools.RenderMerge(o));
     }
 
-    /// <summary>The second reason the flag can be dropped, at the render seam: every donor was light but the ids did
-    /// not fit, which is the one case compact cannot rescue — so the report must not send the caller there.</summary>
+    /// <summary>The second reason the flag can be dropped, end to end: every donor is light, but one of them defines
+    /// an id above the light ceiling, which the merge keeps where it is. Two records, so compact IS the remedy — the
+    /// report must not blame a record count the merge does not have.</summary>
     [Fact]
-    public void AllDonorsLightButTheIdsOverflowingReportsTheWindowAndOffersNoCompact()
+    public void AllDonorsLightWithAnIdAboveTheCeilingDropsTheFlagAndStillOffersCompact()
     {
-        var o = _w.Svc.MergePlugins(new[] { MergeLightCarryWorld.LightA, MergeLightCarryWorld.LightB }, "HcLcOverflowRender.esp");
+        var o = _w.Svc.MergePlugins(new[] { MergeLightCarryWorld.LightA, MergeLightCarryWorld.LightHighId }, "HcLcHighId.esp");
+
         Assert.True(o.Success, o.Error);
-        // The same outcome, re-stated as the overflow shape: both donors light, the flag not carried.
-        var overflowed = o with { LightCarried = false };
+        Assert.False(o.LightCarried);
+        Assert.False(WrittenLight(o));
+        var rendered = WriteTools.RenderMerge(o);
+        Assert.Contains("Every donor was light, but not every merged object id landed inside the light window", rendered);
+        Assert.DoesNotContain("Not every donor was light", rendered);
+        Assert.Contains("To make it light run", rendered);
+        Assert.DoesNotContain("cannot make it light either", rendered);
+    }
 
-        var rendered = WriteTools.RenderMerge(overflowed);
+    /// <summary>The merged plugin defines more records than a light plugin holds, so compact would refuse — the report
+    /// says that instead of sending the caller to a tool that cannot help.</summary>
+    [Fact]
+    public void TooManyRecordsForTheWindowSaysCompactCannotRescueIt()
+    {
+        var o = _w.Svc.MergePlugins(new[] { MergeLightCarryWorld.LightA, MergeLightCarryWorld.Crowd }, "HcLcCrowded.esp");
 
-        Assert.Contains("Every donor was light, but the merged object ids do not all fit the light window", rendered);
-        Assert.DoesNotContain("Want it light?", rendered);
+        Assert.True(o.Success, o.Error);
+        Assert.False(o.LightCarried);
+        Assert.Equal(MergeLightCarryWorld.CrowdRecords + 1, o.OriginatingRecords);
+        var rendered = WriteTools.RenderMerge(o);
+        Assert.Contains("Not every donor was light (1 of 2 were)", rendered);
         Assert.Contains("cannot make it light either", rendered);
+        Assert.DoesNotContain("To make it light run", rendered);
     }
 }
 
 /// <summary>A synthetic MO2 instance for the merge light-carry arms: two light donors (one by header flag, one by the
-/// .esl extension with the bit unset) whose object ids sit inside the light window, one full plugin, and one master.
-/// Every donor originates a single weapon, so a merge of any pair keeps every id where it is.</summary>
+/// .esl extension with the bit unset) whose object ids sit inside the light window, a third light donor whose single
+/// id sits ABOVE the light ceiling, one full plugin, one full plugin with more records than the light window holds,
+/// and one master. Every donor but the crowded one originates a single weapon, so a merge of any pair of those keeps
+/// every id where it is.</summary>
 public sealed class MergeLightCarryWorld : IDisposable
 {
     public string Root { get; }
@@ -100,8 +119,13 @@ public sealed class MergeLightCarryWorld : IDisposable
 
     public const string LightA = "HcLcLightA.esp";     // header bit set
     public const string LightB = "HcLcLightB.esl";     // .esl extension, bit unset
+    public const string LightHighId = "HcLcLightC.esl";// .esl extension, one record at 0x5000 — outside the light window
     public const string Full = "HcLcFull.esp";
+    public const string Crowd = "HcLcCrowd.esp";       // more originating records than the light window's 2048 ids
     public const string Master = "HcLcMaster.esm";
+
+    /// <summary>One more than the light window holds, so any merge including this donor overflows it.</summary>
+    public const int CrowdRecords = 2049;
 
     public MergeLightCarryWorld()
     {
@@ -119,24 +143,35 @@ public sealed class MergeLightCarryWorld : IDisposable
         Write(mods, "LightBMod", new ModKey("HcLcLightB", ModType.Light), 0x802, light: false);
         Write(mods, "FullMod", new ModKey("HcLcFull", ModType.Plugin), 0x803, light: false);
         Write(mods, "MasterMod", new ModKey("HcLcMaster", ModType.Master), 0x804, light: false);
+        Write(mods, "CrowdMod", new ModKey("HcLcCrowd", ModType.Plugin), 0x801, light: false, count: CrowdRecords);
+        // Written under the .esp ModKey and renamed, because Mutagen refuses to serialize an id above the ESL ceiling
+        // under a light ModKey. A plugin file carries no copy of its own name, so the renamed file reads back as the
+        // .esl the engine force-treats as light — which is the donor shape this arm needs.
+        WriteRenamed(mods, "LightCMod", new ModKey("HcLcLightC", ModType.Plugin), 0x5000, LightHighId);
 
-        var order = new[] { Master, LightA, LightB, Full };
+        var order = new[] { Master, LightA, LightB, LightHighId, Full, Crowd };
         File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", order) + "\r\n");
         File.WriteAllText(Path.Combine(profile, "plugins.txt"), string.Join("\r\n", order.Select(p => "*" + p)) + "\r\n");
         File.WriteAllText(Path.Combine(profile, "modlist.txt"),
-            "# header\r\n+MasterMod\r\n+FullMod\r\n+LightBMod\r\n+LightAMod\r\n");
+            "# header\r\n+MasterMod\r\n+CrowdMod\r\n+FullMod\r\n+LightCMod\r\n+LightBMod\r\n+LightAMod\r\n");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
     }
 
-    static void Write(string mods, string folder, ModKey key, uint id, bool light)
+    static string Write(string mods, string folder, ModKey key, uint id, bool light, int count = 1)
     {
         var dir = Path.Combine(mods, folder);
         Directory.CreateDirectory(dir);
         var m = new SkyrimMod(key, SkyrimRelease.SkyrimSE) { IsSmallMaster = light };
-        m.Weapons.Add(new Weapon(new FormKey(key, id), SkyrimRelease.SkyrimSE) { EditorID = key.Name + "Weap" });
-        m.BeginWrite.ToPath(Path.Combine(dir, key.FileName.String)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        for (int i = 0; i < count; i++)
+            m.Weapons.Add(new Weapon(new FormKey(key, id + (uint)i), SkyrimRelease.SkyrimSE) { EditorID = key.Name + "Weap" + i });
+        var path = Path.Combine(dir, key.FileName.String);
+        m.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        return path;
     }
+
+    static void WriteRenamed(string mods, string folder, ModKey key, uint id, string fileName)
+        => File.Move(Write(mods, folder, key, id, light: false), Path.Combine(mods, folder, fileName));
 
     public void Dispose()
     {

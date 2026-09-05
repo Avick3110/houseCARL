@@ -40,10 +40,32 @@ public sealed class StatusLocalizedLookupTests : IClassFixture<StatusLocalizedWo
     {
         Assert.DoesNotContain("localized:", Lookup("PlainMod"));
     }
+
+    /// <summary>An inactive plugin is one houseCARL still reads on request, so its header answers too — the plugin
+    /// verdict must not come back with the localized half silently missing.</summary>
+    [Fact]
+    public void AnInactivePluginStillGetsItsLocalizedAnswer()
+    {
+        var text = Lookup(StatusLocalizedWorld.Inactive);
+
+        Assert.Contains("INACTIVE", text);
+        Assert.Contains("no (header flag clear)", text);
+    }
+
+    /// <summary>A plugin whose header will not parse asserts neither answer — the third value, not a quiet "no".</summary>
+    [Fact]
+    public void AnUnreadableHeaderIsReportedAsUnknown()
+    {
+        var text = Lookup(StatusLocalizedWorld.Unreadable);
+
+        Assert.Contains("UNKNOWN — houseCARL could not read this plugin's header", text);
+        Assert.DoesNotContain("header flag clear", text);
+    }
 }
 
-/// <summary>A synthetic MO2 instance with one plugin flagged LOCALIZED in its header and one not. The flag is stamped
-/// onto the written file's TES4 header rather than set through Mutagen, so the fixture needs no string tables.</summary>
+/// <summary>A synthetic MO2 instance with one plugin flagged LOCALIZED in its header, one not, one unticked, and one
+/// unticked file that is not a plugin at all. The flag is stamped onto the written file's TES4 header rather than set
+/// through Mutagen, so the fixture needs no string tables.</summary>
 public sealed class StatusLocalizedWorld : IDisposable
 {
     public string Root { get; }
@@ -52,6 +74,8 @@ public sealed class StatusLocalizedWorld : IDisposable
 
     public const string Localized = "HcLocLoc.esp";
     public const string Plain = "HcLocPlain.esp";
+    public const string Inactive = "HcLocOff.esp";        // in loadorder.txt, unticked in plugins.txt
+    public const string Unreadable = "HcLocJunk.esp";     // unticked too, and not a plugin file at all
 
     /// <summary>The LOCALIZED bit in the TES4 record's flags field, which starts at byte 8 of a plugin file.</summary>
     const byte LocalizedBit = 0x80;
@@ -71,15 +95,22 @@ public sealed class StatusLocalizedWorld : IDisposable
 
         var locPath = Write(mods, "LocMod", new ModKey("HcLocLoc", ModType.Plugin));
         Write(mods, "PlainMod", new ModKey("HcLocPlain", ModType.Plugin));
+        Write(mods, "OffMod", new ModKey("HcLocOff", ModType.Plugin));
+        // Not a plugin: the header read fails on it, which is the whole point of the third value. It stays UNTICKED so
+        // the resolver never tries to index it — an unreadable file in the active order is a different lane's story.
+        Directory.CreateDirectory(Path.Combine(mods, "JunkMod"));
+        File.WriteAllText(Path.Combine(mods, "JunkMod", Unreadable), "not a plugin");
 
         var bytes = File.ReadAllBytes(locPath);
         bytes[HeaderFlagsOffset] |= LocalizedBit;
         File.WriteAllBytes(locPath, bytes);
 
-        var order = new[] { Localized, Plain };
-        File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", order) + "\r\n");
-        File.WriteAllText(Path.Combine(profile, "plugins.txt"), string.Join("\r\n", order.Select(p => "*" + p)) + "\r\n");
-        File.WriteAllText(Path.Combine(profile, "modlist.txt"), "# header\r\n+PlainMod\r\n+LocMod\r\n");
+        var active = new[] { Localized, Plain };
+        File.WriteAllText(Path.Combine(profile, "loadorder.txt"),
+            "# header\r\n" + string.Join("\r\n", active.Concat(new[] { Inactive, Unreadable })) + "\r\n");
+        File.WriteAllText(Path.Combine(profile, "plugins.txt"),
+            string.Join("\r\n", active.Select(p => "*" + p).Concat(new[] { Inactive, Unreadable })) + "\r\n");
+        File.WriteAllText(Path.Combine(profile, "modlist.txt"), "# header\r\n+JunkMod\r\n+OffMod\r\n+PlainMod\r\n+LocMod\r\n");
 
         var store = new UserConfigStore(Path.Combine(Root, "houseCARL.user.json"));
         Svc = LoadOrderService.WithInstance(instance, 0, store);

@@ -1829,13 +1829,33 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>The LOCALIZED header flag of ONE plugin, for housecarl_load_order_status' lookup= (#376): a localized
     /// plugin's text lives in .STRINGS files rather than in the plugin, which is what the in-place write lanes refuse
     /// on, so a caller can see that refusal coming instead of meeting it mid-job. Null when the name is not a plugin
-    /// this order resolved to a file; otherwise the three-way read, Unreadable included — never a bool.</summary>
+    /// at all (a mod folder, a typo — nothing has a header to read); otherwise the three-way read, Unreadable
+    /// included — never a bool.
+    /// <para>An INACTIVE plugin gets an answer too: the resolver indexes only the active order, so its path comes from
+    /// the same on-disk locate every other lane uses. Reading an inactive plugin is a surface houseCARL advertises, and
+    /// a plugin answer with the localized half silently missing is the worse outcome.</para></summary>
     public LocalizedFlagRead? PluginLocalizedFlag(string pluginName)
     {
         LoadOrderResolver.IndexView view;
         lock (_gate) { view = Resolver.Capture(); }
-        var path = view.PluginPath(pluginName);
-        return path is null ? null : WriteEngine.PluginIsLocalized(path);
+        if (view.PluginPath(pluginName) is { } activePath) return WriteEngine.PluginIsLocalized(activePath);
+
+        string modsDir, dataDir, overwriteDir, profileDir;
+        try { lock (_gate) { EnsurePathsDerived(); modsDir = _modsDir; dataDir = _dataDir; overwriteDir = _overwriteDir; profileDir = _profileDir; } }
+        catch { return null; }
+        Mo2Composition comp;
+        try { comp = Mo2LoadOrder.ReadComposition(profileDir); }
+        catch { return null; }
+        // Only a name the profile lists as a plugin: a mod folder and a typo both have no header, and inventing an
+        // UNKNOWN line for them would claim there is a plugin here whose flag simply could not be read.
+        bool isPlugin = comp.OrderedPluginNames.Any(n => n.Equals(pluginName, StringComparison.OrdinalIgnoreCase))
+                        || comp.InactivePluginNames.Any(n => n.Equals(pluginName, StringComparison.OrdinalIgnoreCase))
+                        || comp.ImplicitPluginNames.Any(n => n.Equals(pluginName, StringComparison.OrdinalIgnoreCase));
+        if (!isPlugin) return null;
+        var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, pluginName, null, offerModParam: false);
+        // Listed as a plugin but no single file behind the name (missing, or several folders provide it): the flag is
+        // not established, which is exactly what the third value says.
+        return loc.Path is null ? LocalizedFlagRead.Unreadable : WriteEngine.PluginIsLocalized(loc.Path);
     }
 
     /// <summary>Read MO2's OWN local Nexus update cache — the modid / version / newestVersion / ignoredVersion /
@@ -6535,8 +6555,9 @@ public sealed class LoadOrderService : IDisposable
                 $"refused — '{outName}' has the .esl extension, which the game engine force-treats as a LIGHT master regardless " +
                 "of the header flag, but a merge never constrains object ids to the light window: it renumbers only what it must " +
                 "(cross-donor collisions, and ids below the write floor), so an id above 0xFFF would be misread in game. Merge to " +
-                "a '.esp' instead, then run " + ToolNames.CompactPlugin + " on it to make it light — that renumbers every id into " +
-                "the light window (the tools compose). Nothing was written.");
+                "a '.esp' instead: if every donor was light and every merged id landed in the window, the output is written LIGHT " +
+                "already; otherwise the report says so, and " + ToolNames.CompactPlugin + " on it renumbers every id into the light " +
+                "window (the tools compose). Nothing was written.");
         if (donorsRaw.Any(d => string.Equals(d, outName, StringComparison.OrdinalIgnoreCase)))
             return WritePatchBuilder.MergeOutcome.Fail($"the output '{outName}' cannot also be a donor — name a NEW plugin file.");
 
@@ -6723,7 +6744,7 @@ public sealed class LoadOrderService : IDisposable
                 plan.Donors, build.Conflicts, id.ExternalPlugins, id.ExternalOverriders,
                 id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples, build.Bytes, note,
                 assetRename, voiceRename, seqRegen, build.LightDonors, build.HeaderMetaDonors, build.MasterDonors,
-                id.UnscannablePlugins, localizedDonors, id.MasterDeclarers, build.LightCarried);
+                id.UnscannablePlugins, localizedDonors, id.MasterDeclarers, build.LightCarried, build.OriginatingRecords);
         }
     }
 

@@ -280,8 +280,8 @@ static class StatusWire
         // The LOCALIZED header flag (#376): a localized plugin's text lives in .STRINGS files rather than in the
         // plugin, and that is what the in-place write lanes refuse on — so the refusal is visible here, before a job
         // meets it halfway through. Three answers, never a bool: an unreadable header asserts nothing either way.
-        // Rendered only when the name resolved to a plugin file; an inactive plugin has no resolved path, and the
-        // plugin verdict above already said so.
+        // Rendered for every name the profile lists as a plugin, active or inactive — an inactive plugin is one a
+        // caller may still read, so it gets the answer too. A mod folder or a typo has no header and gets no line.
         if (localized is { } flag)
             sb.Append("  localized:   ").Append(flag switch
             {

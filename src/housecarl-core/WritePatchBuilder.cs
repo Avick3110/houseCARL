@@ -2105,7 +2105,7 @@ public static class WritePatchBuilder
         IReadOnlyList<string>? MasterDonors = null, IReadOnlyList<RemapEngine.UnscannablePlugin>? UnscannablePlugins = null,
         IReadOnlyList<string>? LocalizedDonors = null,
         IReadOnlyList<RemapEngine.MasterDeclarer>? MasterDeclarers = null,
-        bool LightCarried = false)
+        bool LightCarried = false, int OriginatingRecords = 0)
     {
         public static MergeOutcome Fail(string error) =>
             new(false, error, "", "", Array.Empty<string>(), Array.Empty<string>(), 0, 0,
@@ -2519,12 +2519,15 @@ public static class WritePatchBuilder
     /// a dangling donor reference that would keep a donor as a master, an absent master, a serialize fault).
     /// <para><see cref="LightCarried"/> is whether the output got the LIGHT (ESL) header flag — true only when every
     /// donor was light and every merged id fit the light window. <see cref="LightDonors"/> stays the measured donor
-    /// set either way, so the report can say what was carried or what was dropped and why (#363).</para></summary>
+    /// set either way, so the report can say what was carried or what was dropped and why (#363).
+    /// <see cref="OriginatingRecords"/> is how many records the output DEFINES, which is the count a later
+    /// <c>compact_plugin</c> has to fit into the light window — the report needs it to know whether compact is a real
+    /// remedy for a dropped flag or a refusal waiting to happen.</para></summary>
     public sealed record MergeBuildResult(
         bool Success, string? Error, IReadOnlyList<string> Masters, int RecordsCopied, int RecordsRenumbered,
         IReadOnlyList<RemapEngine.MergeConflict> Conflicts, long Bytes,
         IReadOnlyList<string>? LightDonors = null, IReadOnlyList<string>? HeaderMetaDonors = null,
-        IReadOnlyList<string>? MasterDonors = null, bool LightCarried = false)
+        IReadOnlyList<string>? MasterDonors = null, bool LightCarried = false, int OriginatingRecords = 0)
     {
         public static MergeBuildResult Fail(string error) =>
             new(false, error, Array.Empty<string>(), 0, 0, Array.Empty<RemapEngine.MergeConflict>(), 0);
@@ -2597,9 +2600,11 @@ public static class WritePatchBuilder
 
         // The LIGHT (ESL) header flag, under the #363 rule. Carried only when BOTH hold: every donor was light — one
         // full donor means the merged content was never light-legal as a whole — AND every renumbered originating id
-        // fits the light window, which is the same bound compact enforces (the merge remap runs to the full 24-bit
-        // range, so a large merge lands ids above the ceiling and a light write of them would throw). The MASTER
-        // (ESM) flag is never carried at all; both drops are stated by the caller's report, carried or not.
+        // fits the light window, because a light write of an id above 0xFFF throws. The merge remap runs to the full
+        // 24-bit range and keeps any unclaimed id it finds there, so an id lands outside the light window either from
+        // a donor that already carried one or from a merge too big for 0x800–0xFFF — the fit check does not
+        // distinguish them, and the report reads the record count to tell which. The MASTER (ESM) flag is never
+        // carried at all; both drops are stated by the caller's report, carried or not.
         bool lightIdsFit = true;
         foreach (var nk in dict.Values) if (nk.ID < FormIdRange.EslWindowFloor || nk.ID > FormIdRange.EslWindowCeiling) { lightIdsFit = false; break; }
         bool lightCarried = lightDonors.Count == donorsByLoadOrder.Count && lightIdsFit;
@@ -2674,7 +2679,7 @@ public static class WritePatchBuilder
         }
         catch { /* best-effort read-back; the union is a correct superset */ }
         return new MergeBuildResult(true, null, writtenMasters, mr.RecordsCopied, mr.RecordsRenumbered, mr.Conflicts, bytes,
-            lightDonors, headerMetaDonors, masterDonors, lightCarried);
+            lightDonors, headerMetaDonors, masterDonors, lightCarried, dict.Count);
     }
 
     /// <summary>
