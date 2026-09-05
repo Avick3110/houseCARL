@@ -52,12 +52,29 @@ public enum SourceArmKind
 /// <para><paramref name="Spelling"/> is kept verbatim because every sentence about this arm must name the source
 /// the way the CALLER wrote it — a refusal that renames the caller's input is a refusal they cannot act on.
 /// <paramref name="Where"/> is the resolution's own account of itself (the located path, the winner's plugin),
-/// which is a different claim and is rendered beside it, never instead of it.</para></summary>
+/// which is a different claim and is rendered beside it, never instead of it.</para>
+/// <para><paramref name="Provider"/> is the MO2 mod FOLDER the arm's file was read from, null when the arm resolved
+/// out of the ACTIVE order (no single folder stands behind it). It is carried as data rather than left inside
+/// <paramref name="Where"/>'s prose because it is the name a following asset placement passes as its provider: a
+/// caller that has to parse it back out of a sentence is a caller guessing.</para></summary>
 public sealed record SourceArm(
     string Spelling,
     SourceArmKind Kind,
     string Where,
-    Func<FormKey, IMajorRecordGetter?> Fetch);
+    Func<FormKey, IMajorRecordGetter?> Fetch,
+    string? Provider = null);
+
+/// <summary>One arm as a READBACK names it: the caller's own spelling and the mod folder behind it, with the fetch
+/// left off. Carried into an outcome so a response can name where each source resolved from after the chain and its
+/// overlays are gone.</summary>
+public sealed record SourceArmRef(string Spelling, string? Provider)
+{
+    /// <summary>The arm, minus its fetch.</summary>
+    public static SourceArmRef Of(SourceArm arm) => new(arm.Spelling, arm.Provider);
+
+    /// <summary>A source named with no folder behind it — what a caller-side test or a synthetic outcome spells.</summary>
+    public static SourceArmRef Named(string spelling) => new(spelling, null);
+}
 
 /// <summary>A hit: the body, and WHICH arm produced it. The arm index is the provenance the readback is required
 /// to state — "first hit wins" is only honest if the caller is told which hit that was.</summary>

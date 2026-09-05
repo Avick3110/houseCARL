@@ -1,3 +1,5 @@
+using HousecarlCore;
+
 namespace HousecarlMcp;
 
 /// <summary>The load-bearing phrases a shared sentence MUST still contain, declared beside the sentence so they move
@@ -209,16 +211,33 @@ internal static class WriteSentences
         ". This is not a missing record: adding another source will not help. Repair or replace that plugin, or " +
         "name a different one in from_source=.";
 
+    /// <summary>The MO2 mod folder an arm's file was read from. Named beside the plugin filename because the
+    /// filename alone does not say which folder ships the FaceGen and textures beside it, and that folder is what
+    /// the following placement has to be given.</summary>
+    [MustState("MO2 mod folder")]
+    internal const string CopyArmFolderLead = "MO2 mod folder ";
+
+    /// <summary>…and the other arm: the source resolved through the ACTIVE order, which is not one folder. Said
+    /// rather than left blank, so a missing folder name is never read as an omission.</summary>
+    [MustState("active load order")]
+    internal const string CopyArmActive = "from the active load order";
+
+    /// <summary>One source arm as a caller acts on it: their own spelling, and where it actually resolved.</summary>
+    internal static string CopyArm(SourceArmRef arm) =>
+        arm.Provider is { } folder
+            ? $"{arm.Spelling} ({CopyArmFolderLead}'{folder}')"
+            : $"{arm.Spelling} ({CopyArmActive})";
+
     /// <summary>One line per source consulted, in order. Rendered on success AND on a miss — a caller cannot judge
     /// "not found" without knowing where it was looked for.</summary>
-    internal static string CopySourcesConsulted(IReadOnlyList<string> sources) =>
+    internal static string CopySourcesConsulted(IReadOnlyList<SourceArmRef> sources) =>
         sources.Count == 1
-            ? $"{CopySourceSingleLabel}{sources[0]}\n"
-            : $"{CopySourceListLabel}{string.Join(" -> ", sources)}\n";
+            ? $"{CopySourceSingleLabel}{CopyArm(sources[0])}\n"
+            : $"{CopySourceListLabel}{string.Join(" -> ", sources.Select(CopyArm))}\n";
 
     /// <summary>The miss refusal, composed from the three consts above.</summary>
-    internal static string CopySourceMiss(string what, IReadOnlyList<string> sources) =>
-        CopySourceMissLead + what + CopySourceMissConsulted + string.Join(", ", sources) + CopySourceMissRemedy;
+    internal static string CopySourceMiss(string what, IReadOnlyList<SourceArmRef> sources) =>
+        CopySourceMissLead + what + CopySourceMissConsulted + string.Join(", ", sources.Select(CopyArm)) + CopySourceMissRemedy;
 
     /// <summary>The fault refusal, composed from its two.</summary>
     internal static string CopySourceFault(string what, string source, string cause) =>

@@ -692,7 +692,7 @@ public sealed class LoadOrderService : IDisposable
         // names its shipper: mods\<mod>\X.bsa → that mod; overwrite\ → "overwrite"; Data → "Data".
         var archiveShipper = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var a in archives)
-            if (ShipperOfArchivePath(a.Path, modsDir, overwriteDir, dataDir) is { } shipper)
+            if (LayerOfInstallPath(a.Path, modsDir, overwriteDir, dataDir) is { } shipper)
                 archiveShipper[Path.GetFileName(a.Path)] = shipper;
 
         // ---- DLL candidates: one SKSE\Plugins pass. A mod "ships" a DLL when it appears anywhere in that file's
@@ -861,10 +861,10 @@ public sealed class LoadOrderService : IDisposable
             view.BsaFailures, view.ReadIncomplete, warnings, profileName);
     }
 
-    /// <summary>The MOD a physical archive path belongs to — the pairing identity behind a BSA provider name:
-    /// mods\&lt;mod&gt;\X.bsa → that mod folder; the overwrite layer → "overwrite"; the game Data folder → "Data";
-    /// anywhere else → null (no translation — the archive name stands).</summary>
-    internal static string? ShipperOfArchivePath(string archivePath, string modsDir, string overwriteDir, string dataDir)
+    /// <summary>The MO2 LAYER a physical file path belongs to — the mod folder behind a BSA provider name, and the
+    /// same answer for a plugin file: mods\&lt;mod&gt;\X → that mod folder; the overwrite layer → "overwrite"; the
+    /// game Data folder → "Data"; anywhere else → null (no translation).</summary>
+    internal static string? LayerOfInstallPath(string archivePath, string modsDir, string overwriteDir, string dataDir)
     {
         // Full-path-normalize both sides so forward slashes, '..' segments or a trailing-separator root from config
         // cannot make the under-root test disagree with the rest of the plumbing.
@@ -5532,8 +5532,11 @@ public sealed class LoadOrderService : IDisposable
             // later arm's version of a record this arm actually carries would be a silently wrong answer.
             var cache = ov.ToImmutableLinkCache();
             var where = $"file '{Path.GetFileName(loc.Path!)}' ({loc.Where}{(loc.WhyNotActive is { } why ? $"; NOT active — {why}" : "")})";
+            // The layer this file physically sits in, read off the path by the shared rule rather than parsed back
+            // out of `where`: it is the name a following asset placement passes as its provider.
+            var provider = LayerOfInstallPath(loc.Path!, modsDir, overwriteDir, dataDir);
             arms.Add(new SourceArm(spelling, SourceArmKind.File, where,
-                fk => cache.TryResolve(fk, out var body) ? body : null));
+                fk => cache.TryResolve(fk, out var body) ? body : null, provider));
         }
 
         overlays.AddRange(openedHere);
@@ -5565,7 +5568,7 @@ public sealed class LoadOrderService : IDisposable
             {
                 var chain = BuildSourceChain(view, session, sourcePoles, "from_source", overlays, out var chainError);
                 if (chain is null) return ClosureCopyOutcome.Fail(engine: chainError);
-                var consulted = chain.Arms.Select(a => a.Spelling).ToList();
+                var consulted = chain.Arms.Select(SourceArmRef.Of).ToList();
 
                 var srcFetch = chain.Fetch(sourceKey, "from");
                 if (srcFetch.Fault is { } f)

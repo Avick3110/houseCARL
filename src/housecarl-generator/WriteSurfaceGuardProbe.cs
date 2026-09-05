@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
@@ -2880,17 +2880,19 @@ public static class WriteSurfaceGuardProbe
             new(new FormKey(src, 0x800), new FormKey(patch, 0x800), "HeadPart", "SrcHair", 0, "CopySrc.esp", "Npc.HeadParts"),
         };
         var stripped = new List<StripEntry> { new("Factions[0]", new FormKey(src, 0x802).ToString()) };
-        var sources = new[] { "CopySrc.esp" };
+        // The single source carries a mod FOLDER, so the folder arm of the source line is rendered here rather than
+        // only in the multi-source arm below.
+        var sources = new[] { new SourceArmRef("CopySrc.esp", "TheDonorMod") };
 
         ClosureCopyOutcome Make(bool mastered, string? warning, IReadOnlyList<StripEntry> strips,
                                IReadOnlyList<StripEntry>? attach = null, IReadOnlyList<WalkBoundary>? kept = null,
-                               IReadOnlyList<string>? assets = null, IReadOnlyList<string>? srcs = null,
+                               IReadOnlyList<string>? assets = null, IReadOnlyList<SourceArmRef>? srcs = null,
                                bool nothingBound = false) => new(
             true, null, null, null, strips.Count > 0 ? "clone" : "attach",
             new FormKey(src, 0x803), new FormKey(patch, 0x900), outPath, false,
             copied, kept ?? Array.Empty<WalkBoundary>(), Array.Empty<WalkCycle>(),
             attach ?? Array.Empty<StripEntry>(), strips, srcs ?? sources,
-            "CopySrc.esp", assets ?? Array.Empty<string>(),
+            sources[0], assets ?? Array.Empty<string>(),
             new[] { "Skyrim.esm" }, mastered, nothingBound, 1234, warning);
 
         var keptBoth = new List<WalkBoundary>
@@ -2912,18 +2914,18 @@ public static class WriteSurfaceGuardProbe
                 attach: new List<StripEntry> { new("HeadParts", "2 link(s)"), new("WornArmor", "cleared", Cleared: true) },
                 kept: keptBoth,
                 assets: new[] { @"meshes\actors\character\facegendata\facegeom\CopySrc.esp\00000800.nif" },
-                srcs: new[] { "Override.esp", "CopySrc.esp" })),
+                srcs: new[] { new SourceArmRef("Override.esp", "TheOverhaulMod"), new SourceArmRef("CopySrc.esp", null) })),
             // …and the two REFUSAL sentences that were method-form and outside the content net entirely.
             CopyTools.Render(ClosureCopyOutcome.Fail(
                 walk: new WalkRefusal(WalkRefusalKind.SourceMiss, new FormKey(src, 0x820), "Npc.HeadParts",
                     Array.Empty<FormKey>(), "", Miss: null),
-                sources: new[] { "Override.esp", "CopySrc.esp" })),
+                sources: new[] { new SourceArmRef("Override.esp", "TheOverhaulMod"), new SourceArmRef("CopySrc.esp", null) })),
             CopyTools.Render(ClosureCopyOutcome.Fail(
                 walk: new WalkRefusal(WalkRefusalKind.SourceFault, new FormKey(src, 0x821), "Npc.HeadParts",
                     Array.Empty<FormKey>(), "the record could not be parsed",
                     Fault: new SourceFault(new FormKey(src, 0x821), "Npc.HeadParts", 0,
                         new SourceArm("CopySrc.esp", SourceArmKind.File, "on disk", _ => null), "the record could not be parsed")),
-                sources: new[] { "Override.esp", "CopySrc.esp" })),
+                sources: new[] { new SourceArmRef("Override.esp", "TheOverhaulMod"), new SourceArmRef("CopySrc.esp", null) })),
             // The two shape-ruling refusals. Both are reachable end to end (copy-parser-guard drives them through
             // the wire), but they are rendered here too so the sentence-reach net owns them the same way it owns
             // every other outer-class sentence — the net is about wiring, and a sentence only one probe can reach
