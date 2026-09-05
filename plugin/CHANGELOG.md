@@ -31,9 +31,18 @@ saying it sets an expectation their install may contradict. Say what is known, a
   folder switched off was reachable by its mod name. Both spellings now work either way. On the NIF tools the named
   provider is also answered before the ABSENT check, so a donor outside the active set produces a refusal that names
   the mod and says where houseCARL looked, rather than reporting the mesh as absent. When bytes do come from a copy
-  the game is not loading, the NIF response says so and says which of the two reasons it is — the mod is not enabled,
-  or the archive is one no active plugin binds — and `nif_set`'s `in_place` lane refuses such a copy, because its
-  handshake is written about the winning file.
+  the game is not loading, the response says so and says which of the two reasons it is — the mod is not enabled, or
+  the archive is one no active plugin binds — on `housecarl_place_asset` as well as on the NIF tools, and `nif_set`'s
+  `in_place` lane refuses such a copy, because its handshake is written about the winning file.
+
+- **A `mod=` answer no longer suppresses the caveats and the branches the same answer gets without one.** `mod=` is
+  answered before the ABSENT check (see the entry above), which left three sentences reachable only through it and
+  therefore never reached. `housecarl_nif_inspect` with the `*winner` pole over a path nothing active provides now
+  carries the same "this build's scan was incomplete" hedges the plain ABSENT does. `housecarl_nif_set` writing a
+  copy read from a mod nothing else duplicates now says nothing else provides the path and names the folder to
+  enable, instead of telling you to sort above a winner that does not exist. And the "read out of a root archive the
+  engine does not load" sentence is now stated for an archive read only, not for a loose file found in the same
+  enabled folder.
 
 - **`housecarl_nif_inspect` takes `npc=`: NPC FormIDs whose FaceGen head mesh houseCARL derives and reads.** Each
   FormID becomes the `facegeom` `.nif` path its FormKey defines — the folder is the plugin that defines the NPC,

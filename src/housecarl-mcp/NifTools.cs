@@ -750,9 +750,17 @@ static class NifSetWire
         else
         {
             sb.Append("\n  wrote the verified mesh into a new mod folder: ").Append(d.OutputModFolder).Append('\n');
-            sb.Append("  TO MAKE IT WIN: enable this folder in MO2 and sort it ABOVE ")
-              .Append(d.CurrentWinner ?? "the current winner")
-              .Append(" (loose beats BSA; among loose, the later mod wins). 'Wrote it' is not 'it wins' until you do.\n");
+            // mod= is answered ahead of the ABSENT return, so a successful write can land with NO current winner —
+            // the donor was off-order and nothing active supplied the path. There is nothing to sort above then, and
+            // saying so would name a winner that does not exist. Same branch place_asset's render already has.
+            if (d.CurrentWinner is null)
+                sb.Append("  TO MAKE IT WIN: nothing else provides this path — once '")
+                  .Append(Path.GetFileName(d.OutputModFolder) is { Length: > 0 } f ? f : "the new folder")
+                  .Append("' is enabled in MO2, the edited copy wins. 'Wrote it' is not 'it wins' until you do.\n");
+            else
+                sb.Append("  TO MAKE IT WIN: enable this folder in MO2 and sort it ABOVE ")
+                  .Append(d.CurrentWinner)
+                  .Append(" (loose beats BSA; among loose, the later mod wins). 'Wrote it' is not 'it wins' until you do.\n");
         }
 
         if (d.Warnings.Count > 0)
