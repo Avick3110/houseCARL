@@ -121,6 +121,8 @@ public sealed class LoadOrderResolver : IDisposable
     readonly Dictionary<string, int> _nameToIdx;       // plugin filename → index (last copy of a duplicate name wins = priority)
     FileStamp[] _stamps;                               // last-write AND length at the last index build, per path (freshness baseline)
     readonly string? _dataDir;                         // real game-Data folder (Skyrim.esm's dir) — localized-strings fallback source (OpenOverlay)
+    ReverseReferenceIndex? _reverse;                   // lazy, held BESIDE the snapshot so a snapshot swap does not drop it
+    readonly object _reverseGate = new();              // one build at a time; a second caller waits rather than walking the order twice
 
     /// <summary>The real game-Data folder this order resolved, for callers OUTSIDE the session that must open a plugin
     /// through <see cref="OpenOverlay"/> and get the same strings resolution the index reads with. The in-place write's
@@ -914,6 +916,20 @@ public sealed class LoadOrderResolver : IDisposable
         /// <summary>Distinct children this build recorded a containing record for.</summary>
         public int ContainedRecordCount => _s.Containment.Count;
 
+        /// <summary>Every FormKey in the order, in no promised order beyond being stable for one build — the
+        /// universe an unbounded selection starts from when nothing narrows it.</summary>
+        public IEnumerable<FormKey> RecordKeys() => _s.Index.Keys;
+
+        /// <summary>Build the reverse-reference index if nothing has needed it yet, refresh the partitions whose
+        /// plugin bytes changed, and hand back what that cost — see
+        /// <see cref="LoadOrderResolver.EnsureReverseIndex"/>. The index is the resolver's, not this build's, so a
+        /// freshness rebuild between two calls keeps every partition it did not invalidate.</summary>
+        public ReverseReferenceIndex.Refreshed EnsureReverseIndex() => _r.EnsureReverseIndex(_s);
+
+        /// <summary>The reverse-reference index itself, once <see cref="EnsureReverseIndex"/> has built it; null
+        /// before that.</summary>
+        public ReverseReferenceIndex? ReverseIndex => _r.ReverseIndex;
+
         /// <summary>Every FormKey overridden by more than one plugin (the whole-order conflict set).</summary>
         public IEnumerable<FormKey> ConflictKeys() => _s.Overriders.Keys;
 
@@ -1273,6 +1289,25 @@ public sealed class LoadOrderResolver : IDisposable
         _snap = BuildIndex();                                              // ONE reference write — in-flight readers keep their captured build
         return true;
     }
+
+    // ---- The reverse-reference index: lazy, per-plugin, beside the snapshot ----------------
+
+    /// <summary>Build the reverse-reference index if this is the first call that needs it, and bring its per-plugin
+    /// partitions up to date against the files on disk. Held on the RESOLVER, not on the snapshot: the snapshot's
+    /// epoch is order-wide and a snapshot swap would drop the whole index, where this refresh rebuilds only the
+    /// partitions whose own (path, mtime) changed. Returns what the refresh cost and what it holds, for the
+    /// response's accounting.</summary>
+    internal ReverseReferenceIndex.Refreshed EnsureReverseIndex(IndexSnapshot s)
+    {
+        lock (_reverseGate)
+        {
+            _reverse ??= new ReverseReferenceIndex();
+            return _reverse.Refresh(_names, _paths, i => OpenOverlay(_paths[i], _dataDir), s.Excluded);
+        }
+    }
+
+    /// <summary>The current reverse index, or null when nothing has needed it yet.</summary>
+    internal ReverseReferenceIndex? ReverseIndex { get { lock (_reverseGate) return _reverse; } }
 
     /// <summary>The resolver holds NO plugin file handles at rest (only the pure-data index), so there is nothing to
     /// release — Dispose is a no-op, kept so the service can treat a resolver as a disposable resource it builds and
