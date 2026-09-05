@@ -17,8 +17,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
   the informational version the binary embeds (the release version `build-plugin.ps1` stamps from `plugin.json`,
   then `+` and the full commit sha: `1.9.5-dev+e942910…`), so checking that the installed houseCARL is the build you expect no longer means
   reading `ProductVersion` off `housecarl-mcp.exe`. The line leads every answer the tool gives, including the
-  setup prompt a server with no MO2 instance configured returns. A binary built without that stamp says so on
-  the line and points at the file properties, rather than printing a blank.
+  setup prompt a server with no MO2 instance configured returns. A binary built without that stamp reports the
+  same `0.0.0-dev` the MCP handshake reports, plus a short `(no build stamp)` clause, rather than printing a blank.
 
 - **`housecarl_asset_status` under a `max_chars` its header and alarms already fill now renders the first path's
   answer instead of cutting to none.** `housecarl_nif_inspect` already did; both tools now render through one batch

@@ -35,6 +35,14 @@ public class ServerBuildLineTests
         Assert.Contains("server:   " + stamped, Render("Requiem.esp"));
     }
 
+    /// <summary>The handshake version and the status line come from one reader, so the shorter is always the start of
+    /// the longer — on a stamped build (the sha is the only difference) and on an unstamped one alike.</summary>
+    [Fact]
+    public void TheHandshakeVersionStartsTheStatusLineVersion()
+    {
+        Assert.StartsWith(ServerBuild.Handshake, ServerBuild.Line);
+    }
+
     /// <summary>An unconfigured server — a staged install nobody pointed at an MO2 instance yet — answers with the
     /// setup prompt and nothing else. That is the case the build line exists for, so it renders ahead of it.</summary>
     [Fact]
