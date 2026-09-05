@@ -134,6 +134,17 @@ public sealed class WhereContainmentTests
     public void ParentOnTheLinkSideWithNoFieldAfterItRefuses_AContainingRecordIsNotALink() =>
         Assert.Contains("not a link-bearing field", Refusal("*parent->editorid = X"));
 
+    /// <summary>A presence test BELOW the hop is a real filter, not an identity that always exists: an exterior
+    /// CELL usually has no EditorID at all, so "which placed references sit in an unnamed cell" must parse and
+    /// answer rather than being refused as unfilterable.</summary>
+    [Fact]
+    public void APresenceTestOnTheParentsEditorIdIsAFilter_NotARefusal()
+    {
+        Assert.Null(Refusal("*parent.EditorID missing"));
+        Assert.True(Run("*parent.EditorID exists", _info).Matched);
+        Assert.False(Run("*parent.EditorID missing", _info).Matched);
+    }
+
     // ---- which type a quantified step is judged against -------------------------------------------
 
     /// <summary>A quantified step BELOW a hop is rooted at the CONTAINING record's type, so the scan's schema check
