@@ -18,15 +18,21 @@ namespace HousecarlCore;
 /// <para><b>Partitioned by plugin, keyed on (path, mtime).</b> This is the one place the resolver's existing
 /// freshness machinery does not fit: <c>RefreshIfStale</c> is all-or-nothing and <c>Epoch</c> is order-wide, so an
 /// index hung off the snapshot would die wholesale on every MO2 touch and pay the full walk again. The index is
-/// held BESIDE the snapshot and carried across a snapshot swap; a refresh drops and rebuilds only the partitions
-/// whose own key changed. Stale-and-silent is what the partition key makes structurally impossible.</para>
+/// held BESIDE the snapshot and carried across a snapshot swap AND across a resolver swap; a refresh drops and
+/// rebuilds only the partitions whose own key changed. Stale-and-silent is what the partition key makes
+/// structurally impossible.</para>
+///
+/// <para><b>Generational, so a read is never torn.</b> A refresh builds whole new collections and publishes them
+/// with one field assignment; a reader takes the current generation once and works off it. No reader ever sees a
+/// half-rebuilt order, and no reader takes the build lock.</para>
 ///
 /// <para><b>Plugin-atomic.</b> A plugin whose enumeration throws part-way contributes NO partition content and is
 /// named in the report, so a half-read plugin never leaves partial reverse edges behind and a caller can say the
 /// answer is short rather than call it complete.</para>
 ///
 /// <para><b>Packed.</b> Entries are ulong ((interned mod index &lt;&lt; 32) | FormID), not FormKey: 8 bytes a pair
-/// instead of 24. Pure derived data — no bodies, no file handles at rest.</para>
+/// instead of 24. Pure derived data — no bodies, no file handles at rest. It is resident until the resolver it
+/// hangs off is dropped: there is no eviction policy and no ceiling knob, which is the accepted ruling.</para>
 ///
 /// <para><b>What it is not.</b> Not the position-seek index (a different question), and not reverse over the
 /// runtime layers (SkyPatcher, SPID): plugin FormLinks only, like the sweep it rides.</para></summary>
@@ -35,6 +41,7 @@ public sealed class ReverseReferenceIndex
     sealed class Partition
     {
         public string Path = "";
+        public string Name = "";
         public DateTime Mtime;
         public Dictionary<ulong, ulong[]> ByTarget = new();
         public long Pairs;
@@ -42,31 +49,66 @@ public sealed class ReverseReferenceIndex
         public string? Unreadable;                     // set ⇒ this plugin contributed nothing, and why
     }
 
-    readonly Dictionary<string, Partition> _byPlugin = new(StringComparer.OrdinalIgnoreCase);
-    readonly List<string> _order = new();              // plugin names in priority order — what makes a candidate list deterministic
-    readonly Dictionary<ModKey, int> _modToIdx = new();
-    readonly List<ModKey> _idxToMod = new();
+    /// <summary>One published, immutable state of the index. Everything a read touches lives here, so a read takes
+    /// the field once and is consistent for its whole run even while a refresh builds the next one.</summary>
+    sealed class Generation
+    {
+        // Keyed on the plugin PATH, not its filename: the resolver's order is addressed by position and tolerates
+        // two entries sharing a filename (last copy wins = priority), so a filename key would silently drop the
+        // lower-priority copy's edges and re-walk both plugins on every call.
+        public Dictionary<string, Partition> ByPath = new(StringComparer.OrdinalIgnoreCase);
+        public List<string> Order = new();             // partition paths in priority order — what makes a candidate list deterministic
+        public Dictionary<ModKey, int> ModToIdx = new();
+        public List<ModKey> IdxToMod = new();
+        public string Key = "";
+
+        Lazy<HashSet<ulong>>? _referenced;
+
+        /// <summary>Every target something in the order links, as one set — the orphan question answered in a
+        /// lookup rather than a scan over every partition. Built on first ask and thrown away with the
+        /// generation.</summary>
+        public HashSet<ulong> Referenced =>
+            (_referenced ??= new Lazy<HashSet<ulong>>(BuildReferenced, LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+        HashSet<ulong> BuildReferenced()
+        {
+            var set = new HashSet<ulong>();
+            foreach (var path in Order)
+                if (ByPath.TryGetValue(path, out var p))
+                    foreach (var t in p.ByTarget.Keys) set.Add(t);
+            return set;
+        }
+
+        public bool TryPack(FormKey k, out ulong packed)
+        {
+            if (!ModToIdx.TryGetValue(k.ModKey, out int i)) { packed = 0; return false; }
+            packed = ((ulong)(uint)i << 32) | k.ID;
+            return true;
+        }
+
+        public FormKey Unpack(ulong packed) => new(IdxToMod[(int)(packed >> 32)], (uint)packed);
+    }
+
+    volatile Generation _gen = new();
 
     /// <summary>Plugins with a partition in this index.</summary>
-    public int PartitionCount => _byPlugin.Count;
+    public int PartitionCount => _gen.ByPath.Count;
 
     /// <summary>Distinct (target, plugin) slots — one per target a plugin links at all.</summary>
-    public int TargetSlotCount => _byPlugin.Values.Sum(p => p.ByTarget.Count);
+    public int TargetSlotCount => _gen.ByPath.Values.Sum(p => p.ByTarget.Count);
 
     /// <summary>Distinct (target, referencing record) pairs held.</summary>
-    public long PairCount => _byPlugin.Values.Sum(p => p.Pairs);
+    public long PairCount => _gen.ByPath.Values.Sum(p => p.Pairs);
 
     /// <summary>What the index holds, to the nearest useful order of magnitude: eight bytes a pair plus the
     /// per-target slot overhead of the dictionaries. Reported, not enforced — there is no ceiling knob.</summary>
     public long ApproxBytes => PairCount * 8 + (long)TargetSlotCount * 40;
 
-    /// <summary>Does anything in the order link to this record? The whole of the orphan question.</summary>
+    /// <summary>Does anything in the order link to this record? The whole of the orphan question, in one lookup.</summary>
     public bool HasAnyReferencer(FormKey target)
     {
-        if (!TryPack(target, out var pt)) return false;
-        foreach (var name in _order)
-            if (_byPlugin.TryGetValue(name, out var p) && p.ByTarget.ContainsKey(pt)) return true;
-        return false;
+        var g = _gen;
+        return g.TryPack(target, out var pt) && g.Referenced.Contains(pt);
     }
 
     /// <summary>Every record that links to ANY of these targets, deduped, in load order then plugin-enumeration
@@ -75,17 +117,18 @@ public sealed class ReverseReferenceIndex
     /// still decides on the body it means to judge (a later override may have dropped it).</summary>
     public IReadOnlyList<FormKey> ReferencersOf(IReadOnlyList<FormKey> targets)
     {
+        var g = _gen;
         var packed = new List<ulong>(targets.Count);
-        foreach (var t in targets) if (TryPack(t, out var pt)) packed.Add(pt);
+        foreach (var t in targets) if (g.TryPack(t, out var pt)) packed.Add(pt);
         var seen = new HashSet<ulong>();
         var outp = new List<FormKey>();
-        foreach (var name in _order)
+        foreach (var path in g.Order)
         {
-            if (!_byPlugin.TryGetValue(name, out var p)) continue;
+            if (!g.ByPath.TryGetValue(path, out var p)) continue;
             foreach (var pt in packed)
                 if (p.ByTarget.TryGetValue(pt, out var arr))
                     foreach (var r in arr)
-                        if (seen.Add(r)) outp.Add(Unpack(r));
+                        if (seen.Add(r)) outp.Add(g.Unpack(r));
         }
         return outp;
     }
@@ -96,57 +139,86 @@ public sealed class ReverseReferenceIndex
                                    long ApproxBytes, IReadOnlyList<string> Unreadable, int UnscannableRecords,
                                    string Key)
     {
-        /// <summary>The one accounting line, or null when this call changed nothing and so paid nothing.</summary>
-        public string? Note => Rebuilt == 0 ? null
-            : $"reverse-reference index: built {Rebuilt} plugin partition(s) in {ElapsedMs} ms "
-              + $"({Pairs} target→referencer pairs over {TargetSlots} target slots, ~{ApproxBytes / (1024 * 1024)} MB held), "
-              + $"key={Key} (per plugin, path+mtime — beside the order-wide epoch, not riding it)."
-              + (Unreadable.Count > 0
-                     ? $" {Unreadable.Count} plugin(s) contributed nothing because the walk could not read them: {string.Join(", ", Unreadable)} — the answer is short by whatever they reference."
-                     : "")
-              + (UnscannableRecords > 0
-                     ? $" {UnscannableRecords} record(s) Mutagen could not parse were excluded from the walk."
-                     : "");
+        /// <summary>The one accounting line. The BUILD clause is only true of the call that paid it; the freshness
+        /// key and the coverage disclosures are true of every answer the index serves, so they are unconditional —
+        /// a cached call that dropped them would read as complete when it is short.</summary>
+        public string Note
+        {
+            get
+            {
+                var sb = new StringBuilder("reverse-reference index: ");
+                sb.Append(Rebuilt > 0 ? $"built {Rebuilt} plugin partition(s) in {ElapsedMs} ms"
+                                      : $"unchanged, {Partitions} plugin partition(s) held");
+                sb.Append($" ({Pairs} target→referencer pairs over {TargetSlots} target slots, ~{ApproxBytes / (1024 * 1024)} MB held), ");
+                sb.Append($"key={Key} (per plugin, path+mtime — beside the order-wide epoch, not riding it).");
+                if (Unreadable.Count > 0)
+                    sb.Append($" {Unreadable.Count} plugin(s) contributed nothing because the walk could not read them: ")
+                      .Append(string.Join(", ", Unreadable))
+                      .Append(" — the answer is short by whatever they reference.");
+                if (UnscannableRecords > 0)
+                    sb.Append($" {UnscannableRecords} record(s) Mutagen could not parse were excluded from the walk.");
+                return sb.ToString();
+            }
+        }
     }
 
     /// <summary>Bring every partition up to date against the files on disk: keep the ones whose (path, mtime) is
-    /// unchanged, rebuild the ones whose is not, drop the ones whose plugin left the order. The opener is the
-    /// resolver's, so one plugin is open at a time and none is held at rest.</summary>
+    /// unchanged, rebuild the ones whose is not, drop the ones whose plugin left the order. The whole result is
+    /// staged in fresh collections and published in one assignment, so a concurrent read sees the old generation
+    /// or the new one and never a mixture. The opener is the resolver's, so one plugin is open at a time and none
+    /// is held at rest.</summary>
     internal Refreshed Refresh(IReadOnlyList<string> names, IReadOnlyList<string> paths,
                                Func<int, ISkyrimModGetter> open, ICollection<int> excluded)
     {
         var sw = Stopwatch.StartNew();
+        var prev = _gen;
+        var next = new Generation
+        {
+            // The mod-key interning carries forward, so a partition retained from the previous generation keeps
+            // meaning what it meant: an index into this list, which only ever grows at the tail.
+            IdxToMod = new List<ModKey>(prev.IdxToMod),
+            ModToIdx = new Dictionary<ModKey, int>(prev.ModToIdx),
+        };
         int rebuilt = 0;
         var unreadable = new List<string>();
-        var live = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        _order.Clear();
         for (int i = 0; i < names.Count; i++)
         {
-            if (excluded.Contains(i)) continue;                    // excluded from the index build; excluded here too
-            var name = names[i];
-            live.Add(name);
-            _order.Add(name);
-            var mtime = SafeMtime(paths[i]);
-            if (_byPlugin.TryGetValue(name, out var have) && have.Path == paths[i] && have.Mtime == mtime)
+            if (excluded.Contains(i))
             {
-                if (have.Unreadable is not null) unreadable.Add(name);
-                continue;                                          // this plugin's bytes are the ones it was built from
+                // Excluded from the snapshot's own index because it could not be opened or parsed. The reverse
+                // walk cannot see it either, so the answer is short by whatever it references — said out loud on
+                // every answer, not only on the call that discovered it.
+                unreadable.Add(names[i]);
+                continue;
             }
-            var built = BuildPartition(paths[i], mtime, () => open(i));
-            _byPlugin[name] = built;
+            var path = paths[i];
+            if (next.ByPath.ContainsKey(path)) continue;           // the same file twice in the order is one partition
+            next.Order.Add(path);
+            var mtime = SafeMtime(path);
+            if (prev.ByPath.TryGetValue(path, out var have) && have.Mtime == mtime)
+            {
+                next.ByPath[path] = have;                          // this plugin's bytes are the ones it was built from
+                if (have.Unreadable is not null) unreadable.Add(have.Name);
+                continue;
+            }
+            int pos = i;
+            var built = BuildPartition(path, names[i], mtime, () => open(pos), next);
+            next.ByPath[path] = built;
             rebuilt++;
-            if (built.Unreadable is not null) unreadable.Add(name);
+            if (built.Unreadable is not null) unreadable.Add(built.Name);
         }
-        foreach (var gone in _byPlugin.Keys.Where(k => !live.Contains(k)).ToList()) _byPlugin.Remove(gone);
+        next.Key = FreshnessKey(next);
+        _gen = next;                                               // one assignment: the generation a reader sees is whole
         sw.Stop();
-        return new Refreshed(_byPlugin.Count, rebuilt, sw.ElapsedMilliseconds, TargetSlotCount, PairCount,
-                             ApproxBytes, unreadable, _byPlugin.Values.Sum(p => p.Unscannable), FreshnessKey());
+        return new Refreshed(next.ByPath.Count, rebuilt, sw.ElapsedMilliseconds,
+                             next.ByPath.Values.Sum(p => p.ByTarget.Count), next.ByPath.Values.Sum(p => p.Pairs),
+                             ApproxBytes, unreadable, next.ByPath.Values.Sum(p => p.Unscannable), next.Key);
     }
 
     /// <summary>One plugin's reverse edges, staged whole and committed only if the enumeration finished.</summary>
-    Partition BuildPartition(string path, DateTime mtime, Func<ISkyrimModGetter> open)
+    Partition BuildPartition(string path, string name, DateTime mtime, Func<ISkyrimModGetter> open, Generation into)
     {
-        var part = new Partition { Path = path, Mtime = mtime };
+        var part = new Partition { Path = path, Name = name, Mtime = mtime };
         ISkyrimModGetter ov;
         try { ov = open(); }
         catch (Exception ex) { part.Unreadable = ex.GetType().Name; return part; }
@@ -162,12 +234,12 @@ public sealed class ReverseReferenceIndex
                     // exclusion the dangling sweep makes, before the walk that would throw on such a body.
                     if (DeletedRecordRule.HasNoLiveBody(rec)) continue;
                     if (rec is not IFormLinkContainerGetter flc) continue;
-                    ulong src = Pack(rec.FormKey);
+                    ulong src = Pack(into, rec.FormKey);
                     foreach (var link in flc.EnumerateFormLinks())
                     {
                         var target = link.FormKey;
                         if (target.IsNull) continue;
-                        ulong pt = Pack(target);
+                        ulong pt = Pack(into, target);
                         if (!acc.TryGetValue(pt, out var list)) acc[pt] = list = new List<ulong>(1);
                         // One record's links arrive together, so the same record linking a target twice is the
                         // tail of this list — deduped without a per-target set.
@@ -194,12 +266,12 @@ public sealed class ReverseReferenceIndex
 
     /// <summary>The index's own freshness key: a digest over every partition's (plugin, mtime). Distinct from the
     /// order-wide epoch by construction — it names which plugin BODIES the reverse edges were computed from.</summary>
-    string FreshnessKey()
+    static string FreshnessKey(Generation g)
     {
         var sb = new StringBuilder();
-        foreach (var name in _order)
-            if (_byPlugin.TryGetValue(name, out var p))
-                sb.Append(name).Append('|').Append(p.Mtime.Ticks).Append('\n');
+        foreach (var path in g.Order)
+            if (g.ByPath.TryGetValue(path, out var p))
+                sb.Append(p.Path).Append('|').Append(p.Mtime.Ticks).Append('\n');
         var hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()));
         return Convert.ToHexString(hash.AsSpan(0, 4)).ToLowerInvariant();
     }
@@ -209,24 +281,16 @@ public sealed class ReverseReferenceIndex
         try { return File.GetLastWriteTimeUtc(path); } catch { return DateTime.MinValue; }
     }
 
-    ulong Pack(FormKey k)
+    // Interning happens only on the generation being built, which no reader can see yet.
+    static ulong Pack(Generation g, FormKey k)
     {
-        if (!_modToIdx.TryGetValue(k.ModKey, out int i))
+        if (!g.ModToIdx.TryGetValue(k.ModKey, out int i))
         {
-            _modToIdx[k.ModKey] = i = _idxToMod.Count;
-            _idxToMod.Add(k.ModKey);
+            g.ModToIdx[k.ModKey] = i = g.IdxToMod.Count;
+            g.IdxToMod.Add(k.ModKey);
         }
         return ((ulong)(uint)i << 32) | k.ID;
     }
-
-    bool TryPack(FormKey k, out ulong packed)
-    {
-        if (!_modToIdx.TryGetValue(k.ModKey, out int i)) { packed = 0; return false; }
-        packed = ((ulong)(uint)i << 32) | k.ID;
-        return true;
-    }
-
-    FormKey Unpack(ulong packed) => new(_idxToMod[(int)(packed >> 32)], (uint)packed);
 }
 
 /// <summary>What an UNBOUNDED reverse selection scans. The index turns "who references X" from a refusal into a
@@ -234,30 +298,28 @@ public sealed class ReverseReferenceIndex
 /// means to judge and a later override that dropped the link is not counted.</summary>
 public static class ReverseSelection
 {
-    /// <summary>Which question a NEGATED, unbounded <c>references=</c> asks. Two readings are live and Aaron has
-    /// not ruled between them: <c>false</c> is what the bounded term ships today — "does not reference X", whose
-    /// unbounded universe is therefore every record in the order — and <c>true</c> is the orphan sweep, "referenced
-    /// by nothing anywhere", which the index answers directly and for which the named target is advisory. The index
-    /// carries both; this constant is the switch.</summary>
-    public const bool NegatedMeansUnreferencedByAnything = false;
-
-    /// <summary>The scan universe for an unbounded reverse selection. With targets it is every record some plugin
-    /// links to one of them; with none — the negated-only form — it is the whole order under the shipped reading,
-    /// or only the unreferenced records under the other one.</summary>
+    /// <summary>The scan universe for an unbounded reverse selection. With positive targets it is every record
+    /// some plugin links to one of them. With none — the negated-only form — it is the ORPHAN sweep: every record
+    /// nothing in the order references, which is the unbounded question SPEC §2.2's and §3.2's 2026-09-05
+    /// amendments name for this spelling. The named negated targets still apply after it, as the AND term they are
+    /// everywhere else.</summary>
     public static IReadOnlyList<FormKey> Universe(LoadOrderResolver.IndexView view, ReverseReferenceIndex index,
                                                   IReadOnlyList<FormKey>? references)
     {
         if (references is { Count: > 0 }) return index.ReferencersOf(references);
-        return NegatedMeansUnreferencedByAnything
-            ? view.RecordKeys().Where(k => !index.HasAnyReferencer(k)).ToList()
-            : view.RecordKeys().ToList();
+        var orphans = new List<FormKey>();
+        foreach (var k in view.RecordKeys())
+            if (!index.HasAnyReferencer(k)) orphans.Add(k);
+        return orphans;
     }
 
-    /// <summary>The sentence a caller gets when the unbounded reverse universe is the whole order: it is the
-    /// shipped reading's honest cost, declared rather than discovered.</summary>
-    public static string? WholeOrderNote(IReadOnlyList<FormKey>? references, int universe)
-        => references is { Count: > 0 } || NegatedMeansUnreferencedByAnything ? null
-            : $"a negated references= with no types=/plugins= scope asks which records do NOT link the target, so "
-              + $"its universe is the whole order — {universe} records, each winner body read. Add types= or "
-              + "plugins= if you meant a narrower question.";
+    /// <summary>The sentence a caller gets for the negated-only unbounded form: its universe is the orphan set, not
+    /// the whole order and not the same question a bounded negated <c>references=</c> asks. Declared, never
+    /// discovered.</summary>
+    public static string? UniverseNote(IReadOnlyList<FormKey>? references, int universe)
+        => references is { Count: > 0 } ? null
+            : $"a negated references= with no types=/plugins= scope is the ORPHAN sweep: its universe is the "
+              + $"{universe} record(s) nothing in the order references, and the named target(s) then exclude any of "
+              + "those that link them. A bounded negated references= asks the narrower question instead — records "
+              + "in that scope that do not link the target — so add types= or plugins= if that is what you meant.";
 }
