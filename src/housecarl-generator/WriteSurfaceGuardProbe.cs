@@ -2438,13 +2438,10 @@ public static class WriteSurfaceGuardProbe
         Observe(RemoveTools.Remove(fx.Svc, new[] { fx.SubjectFid }, into: "W2TwinNoSuchPatch"),
                 RemoveTools.Remove(fx.Svc, new[] { fx.SubjectFid }, into: "W2TwinNoSuchPatch", format: "json"));
 
-        // …and the UN-OWNED half of the same resolver, where apply's own in-place spelling reaches a caller (#359).
-        // A marker-less mod folder is enough to reach it, and it is inert to every other arm: nothing lists it, no
-        // profile enables it, and the call is a refusal, so the fixture stays as the later arms expect it.
-        // It has to hold a plugin the in-place lane could take, or the sentence is correctly withheld and this
-        // observation would pass on a render that never carried it. That means the folder the LOAD ORDER resolves
-        // the plugin to, not merely a folder holding a file of that name — a losing copy is offered no lane. So the
-        // subject is W2Repl itself: an ordinary enabled mod folder, un-owned, whose replacer plugin is the winner.
+        // …and the UN-OWNED half of the same resolver, the other refusal a caller reaches with into= (#359). A
+        // marker-less mod folder is enough to reach it, and it is inert to every other arm: nothing lists it, no
+        // profile enables it, and the call is a refusal, so the fixture stays as the later arms expect it. The
+        // subject is W2Repl: an ordinary enabled mod folder houseCARL did not create.
         var foreignOps = Json($$"""[{"formid":"{{fx.SubjectFid}}","field_path":"Name","value":"x"}]""");
         Observe(ApplyTools.Apply(fx.Svc, ops: foreignOps, into: "W2Repl"),
                 ApplyTools.Apply(fx.Svc, ops: foreignOps, into: "W2Repl", format: "json"));

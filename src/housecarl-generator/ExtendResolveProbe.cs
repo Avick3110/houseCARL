@@ -55,6 +55,13 @@ internal static class ExtendResolveProbe
         Console.WriteLine();
         int fail = 0;
         void Check(bool c, string label) { Console.WriteLine((c ? "  PASS  " : "  FAIL  ") + label); if (!c) fail++; }
+        // Aaron's ruling (2026-09-06): each extend refusal is ONE sentence. Read as one terminating period and no
+        // sentence break inside it — a plugin basename's dot is followed by a letter, never by a space.
+        static bool OneSentence(string s) =>
+            s.EndsWith('.') && !s.AsSpan(0, s.Length - 1).Contains(". ", StringComparison.Ordinal);
+        // The candidates the sentence offers, in the order it names them, for the ordering and cap arms.
+        static List<string> Candidates(string s) =>
+            System.Text.RegularExpressions.Regex.Matches(s, "into=\"[^\"]*\"").Select(m => m.Value).ToList();
 
         var root = Path.Combine(Path.GetTempPath(), "hc-extend-resolve-guard-" + Guid.NewGuid().ToString("N"));
         try
@@ -221,25 +228,28 @@ internal static class ExtendResolveProbe
                 var r = svc.ApplyEdits(new[] { Wgt(1) }, null, "GhostPatch");
                 bool named = r.Error is not null
                     && r.Error.Contains("GhostPatch.esp", StringComparison.Ordinal)
-                    && r.Error.Contains("houseCARL - GhostPatch", StringComparison.Ordinal)
-                    && r.Error.Contains("create it fresh", StringComparison.OrdinalIgnoreCase);
-                Check(!r.Success && named, "into=\"GhostPatch\" refuses, naming the .esp + the folder searched + 'create it fresh'");
+                    && r.Error.Contains("houseCARL - GhostPatch", StringComparison.Ordinal);
+                Check(!r.Success && named, "into=\"GhostPatch\" refuses, naming the .esp + the folder searched");
 
                 // #343: the fresh-write escape must NAME the parameter that gives the new patch a name, with the
                 // caller's own guessed name already in it — the bare "omit into=" it used to offer is precisely the
-                // call that produces a generically-named Patch.esp. Both halves of the sentence are asserted because
-                // both were measured before it was written: patch="GhostPatch" writes GhostPatch.esp (arm 8b below
-                // re-proves it end to end), and omitting both lanes writes Patch.esp.
-                bool remedy = r.Error is not null
-                    && r.Error.Contains("pass patch=\"GhostPatch\"", StringComparison.Ordinal)
-                    && r.Error.Contains("houseCARL names it \"Patch\"", StringComparison.Ordinal);
-                Check(remedy, "…and the remedy names patch=\"GhostPatch\" + what omitting it costs (#343)");
+                // call that produces a generically-named Patch.esp. Measured before it was written: patch="GhostPatch"
+                // writes GhostPatch.esp (arm 8b below re-proves it end to end).
+                Check(r.Error is not null && r.Error.Contains("patch=\"GhostPatch\" for a fresh patch", StringComparison.Ordinal),
+                      "…and the remedy names patch=\"GhostPatch\" (#343)");
 
                 // The qualifier is load-bearing, not padding: it is the only thing keeping the sentence true in the
-                // collision case arm 8b2 exercises, and it must cover BOTH names the sentence mentions — the chosen
-                // one and the "Patch" default — because the same auto-suffix arm falsifies either.
-                Check(r.Error is not null && r.Error.Contains("either name auto-suffixed if already taken", StringComparison.Ordinal),
-                      "…and qualifies BOTH names it offers with the auto-suffix, rather than promising a filename");
+                // collision case arm 8b2 exercises, where the fresh write auto-suffixes off an active plugin.
+                Check(r.Error is not null && r.Error.Contains("auto-suffixed if that name is taken", StringComparison.Ordinal),
+                      "…and qualifies the name it offers with the auto-suffix, rather than promising a filename");
+
+                // Aaron's ruling (2026-09-06): ONE sentence — what went wrong, then what to try, with the candidates
+                // named inside it. Every arm below pins the same three properties, so a clause creeping back in on
+                // any one lane reddens: one terminating period, the "try" remedy, and no in-place lane.
+                Check(OneSentence(r.Error ?? ""), $"…and the whole refusal is ONE sentence ({r.Error})");
+                Check(r.Error is not null && r.Error.Contains("; try ", StringComparison.Ordinal)
+                      && !r.Error.Contains("in_place", StringComparison.Ordinal),
+                      "…that names what to try and never the in-place lane (that lane lives on the tool that declares it)");
             }
 
             // ---- 8b: the remedy is TRUE — following it produces the patch the caller asked for ----
@@ -274,7 +284,7 @@ internal static class ExtendResolveProbe
 
                 var r = svc.ApplyEdits(new[] { Wgt(4) }, null, "GhostActive");
                 Check(!r.Success && r.Error is not null
-                      && r.Error.Contains("pass patch=\"GhostActive\"", StringComparison.Ordinal),
+                      && r.Error.Contains("patch=\"GhostActive\" for a fresh patch", StringComparison.Ordinal),
                       "into=\"GhostActive\" (an active plugin, foreign folder) still refuses with the naming remedy");
 
                 var followed = svc.ApplyEdits(new[] { Wgt(4) }, "GhostActive", null);
@@ -310,18 +320,15 @@ internal static class ExtendResolveProbe
                 string riderErr = "";
                 try { svc.ResolvePatchModFolder(null, "GhostRider", "houseCARL_Archive", BsaTools.RepackNaming); }
                 catch (InvalidOperationException ex) { riderErr = ex.Message; }
-                Check(riderErr.Contains("GhostRider.esp", StringComparison.Ordinal)
-                      && riderErr.Contains("create it fresh", StringComparison.OrdinalIgnoreCase),
-                      "the rider lane still refuses, naming the .esp searched + 'create it fresh'");
-                Check(riderErr.Contains("pass patch_name=\"GhostRider\"", StringComparison.Ordinal),
-                      "…and hands back patch_name= with the caller's own guessed name in it");
-                // The default half is the second thing #343 got wrong on this lane: every rider passes its own stem,
-                // so "houseCARL names it Patch" was false on all of them. Asserted against the real folder name.
-                Check(riderErr.Contains("houseCARL - houseCARL_Archive", StringComparison.Ordinal)
-                      && riderErr.Contains("either name auto-suffixed if already taken", StringComparison.Ordinal),
-                      "…and names THIS lane's default folder, qualified with the auto-suffix");
+                Check(riderErr.Contains("GhostRider.esp", StringComparison.Ordinal) && OneSentence(riderErr),
+                      $"the rider lane still refuses in ONE sentence, naming the .esp searched ({riderErr})");
+                Check(riderErr.Contains("patch_name=\"GhostRider\" for a fresh folder", StringComparison.Ordinal)
+                      && riderErr.Contains("auto-suffixed if that name is taken", StringComparison.Ordinal),
+                      "…and hands back patch_name= with the caller's own guessed name in it, qualified with the auto-suffix");
                 Check(riderErr.Contains("a bare patch= names the ARCHIVE", StringComparison.Ordinal),
                       "…and corrects patch= on the one tool where it binds to the .bsa instead");
+                Check(!riderErr.Contains("patch=\"", StringComparison.Ordinal),
+                      "…and never offers patch= itself on this lane, where it would rename the caller's archive");
             }
 
             // ---- 8c2: a rider that names NO folder parameter still offers nothing it cannot back ----
@@ -338,11 +345,10 @@ internal static class ExtendResolveProbe
                       && !bareErr.Contains("patch_name=", StringComparison.Ordinal)
                       && !bareErr.Contains("patch=", StringComparison.Ordinal),
                       "a null naming refuses without offering a parameter it was never told about");
-                // #380: the always-true tail used to be "Check the name.", which named no candidate at all. It is now
-                // the owned-patch list — the one thing true for every caller that also tells them something.
-                Check(bareErr.Contains("houseCARL owns:", StringComparison.Ordinal)
-                      && bareErr.Contains("into=\"", StringComparison.Ordinal),
-                      "…and closes with the patches houseCARL owns, as into= spellings (#380)");
+                // #380: the always-true remedy used to be "Check the name.", which named no candidate at all. It is
+                // now the nearest owned patches — the one thing true for every caller that also tells them something.
+                Check(bareErr.Contains("; try into=\"", StringComparison.Ordinal) && OneSentence(bareErr),
+                      $"…and names the owned patches to try, as into= spellings, in one sentence ({bareErr})");
             }
 
             // ---- 8d: the REMOVAL lane must not get the naming sentence either ----
@@ -368,14 +374,14 @@ internal static class ExtendResolveProbe
                 // a lane that starts stating CreatedByOmittingInto, or a default that starts assuming one, reddens here.
                 Check(r.Error is not null && !r.Error.Contains("create it fresh", StringComparison.OrdinalIgnoreCase),
                       "…and no longer offers 'create it fresh' — the remedy this lane could not perform (#356)");
-                Check(r.Error is not null && r.Error.Contains("houseCARL owns", StringComparison.Ordinal),
-                      "…it falls back to the always-true default tail, which is now the owned-patch list (#380)");
+                Check(r.Error is not null && r.Error.Contains("; try into=\"", StringComparison.Ordinal),
+                      "…it falls back to the always-true default remedy, which is now the owned candidates (#380)");
                 Check(r.Error is not null && r.Error.Contains(WriteSentences.RemoveNoFreshPatch, StringComparison.Ordinal),
                       "…and the LANE states why there is no create route here (removal needs a patch that already carries it)");
-                // A direct SERVICE call names no in-place spelling at all — the two tools spell that lane
-                // differently, so the honest thing at this altitude is the half that is true at both.
-                Check(r.Error is not null && !r.Error.Contains("in_place", StringComparison.Ordinal),
-                      "…and at the SERVICE altitude names no in-place spelling (the tools own that sentence)");
+                // One sentence, and no in-place clause on it: this lane's in-place spelling is the TOOL's, and it
+                // rides the missing-patch= refusal rather than this one (Aaron, 2026-09-06).
+                Check(r.Error is not null && OneSentence(r.Error) && !r.Error.Contains("in_place", StringComparison.Ordinal),
+                      $"…and the whole refusal is ONE sentence naming no in-place lane ({r.Error})");
 
                 // remove's OTHER no-patch refusal renders the caller's own spelling on the same terms: a direct
                 // service call hands none, so it names none.
@@ -393,17 +399,13 @@ internal static class ExtendResolveProbe
             Console.WriteLine();
             Console.WriteLine("--- 8d3: the remove TOOL's refusal names the lane IT declares ---");
             {
+                // The extend refusal is one sentence about the extend that failed: no in-place clause rides it at
+                // TOOL altitude either, even though this tool has a spelling to hand down (Aaron, 2026-09-06).
                 var modern = RemoveTools.Remove(svc, new[] { fid }, into: "GhostRemove");
-                Check(modern.Contains(WriteSentences.RemoveInPlaceLane, StringComparison.Ordinal),
-                      "housecarl_remove names in_place=\"<plugin filename>\" — the lane it actually declares");
-                Check(!modern.Contains("target=", StringComparison.Ordinal),
-                      "…and never names target=, which that tool does not declare");
-                // Both arms of this resolver read the same way about emphasis: the consent-gated lane comes after
-                // the candidates the caller can take without touching anyone else's file (#380). The not-found arm
-                // used to carry it inside the lane clause, ahead of the list.
-                int ownsFirst = modern.IndexOf("houseCARL owns", StringComparison.Ordinal);
-                Check(ownsFirst >= 0 && ownsFirst < modern.IndexOf("in_place=", StringComparison.Ordinal),
-                      "…and the NOT-FOUND arm reads the candidates before the in-place lane, like the un-owned one");
+                Check(!modern.Contains("in_place", StringComparison.Ordinal) && !modern.Contains("target=", StringComparison.Ordinal),
+                      "housecarl_remove's not-found refusal names no in-place lane, and never target=");
+                Check(modern.Contains("; try into=\"", StringComparison.Ordinal),
+                      "…and offers the owned candidates instead, which touch nobody else's file");
 
                 // The 2.0 tool refuses first, in its own spelling. Kept as a statement about the TOOL — it is
                 // no longer what makes anything in the service correct.
@@ -413,13 +415,13 @@ internal static class ExtendResolveProbe
                       "housecarl_remove answers a lane-less call itself, before the service's own arm");
             }
 
-            // ---- 8d2: the removal remedy is TRUE — following it removes the record -------------------------------
-            //      Driven through housecarl_remove, in the spelling that tool declares (arm 8d3's subject).
-            //      Same standard as arm 8b: a remedy is a claim about what a call does, so it is checked by MAKING
-            //      the call. Its own throwaway active plugin, never the master — arm 10 asserts that file is
-            //      byte-untouched, and an in-place removal would be exactly the write that falsifies it.
+            // ---- 8d2: the in-place lane the extend refusal no longer names still WORKS ---------------------------
+            //      The refusal is one sentence about the extend that failed, so it stops at the candidates; the lane
+            //      stays discoverable on housecarl_remove itself, which is only worth saying if the lane is real.
+            //      Its own throwaway active plugin, never the master — arm 10 asserts that file is byte-untouched,
+            //      and an in-place removal would be exactly the write that falsifies it.
             Console.WriteLine();
-            Console.WriteLine("--- 8d2: following the removal remedy (in_place=\"<plugin filename>\") removes the record ---");
+            Console.WriteLine("--- 8d2: in_place=\"<plugin filename>\" on housecarl_remove removes the record ---");
             {
                 var ipDir = Path.Combine(mods, "RemoveHereMod");
                 Directory.CreateDirectory(ipDir);
@@ -438,19 +440,17 @@ internal static class ExtendResolveProbe
                 svc.Stats();                                                   // let the resolver see the changed order
 
                 string ipFid = $"{ipFk.ID:X6}:RemoveHere.esp";
-                // Driven through the 2.0 TOOL, not the service: the sentence under test is the one that tool
-                // renders, in the spelling that tool declares, so following it has to mean passing what it says.
+                // Driven through the 2.0 TOOL, not the service, since the in-place spelling is the tool's own.
                 var refused = RemoveTools.Remove(svc, new[] { ipFid }, into: "GhostRemove");
-                Check(refused.Contains(WriteSentences.RemoveInPlaceLane, StringComparison.Ordinal),
-                      "the not-found refusal fires for this record too, naming the in-place lane");
+                Check(refused.Contains("cannot extend: no houseCARL patch named 'GhostRemove'", StringComparison.Ordinal),
+                      "the not-found refusal fires for this record too");
 
-                // Following it lands on the first-touch CONSENT handshake, not a write and not an error. That is
-                // what THIS fixture shows and all it shows: the plugin has never been acknowledged. Against one
-                // that has — consent is persisted and shared across the in-place lanes — the same call writes with
-                // no prompt, which is why the sentence does not promise a confirmation (#359).
+                // The lane lands on the first-touch CONSENT handshake, not a write and not an error. That is what
+                // THIS fixture shows and all it shows: the plugin has never been acknowledged. Against one that has
+                // — consent is persisted and shared across the in-place lanes — the same call writes with no prompt.
                 var prompted = RemoveTools.Remove(svc, new[] { ipFid }, in_place: "RemoveHere.esp");
                 Check(prompted.Contains("first-time confirmation", StringComparison.Ordinal),
-                      "following it reaches the in-place first-touch confirmation (a prompt, not a refusal)");
+                      "the lane reaches the in-place first-touch confirmation (a prompt, not a refusal)");
 
                 var done = RemoveTools.Remove(svc, new[] { ipFid }, in_place: "RemoveHere.esp", acknowledge: true);
                 Check(done.Contains("removed 1 record from RemoveHere.esp IN PLACE", StringComparison.Ordinal),
@@ -476,13 +476,13 @@ internal static class ExtendResolveProbe
                 // A name nothing holds — arm 8b's remedy call created "GhostPatch", so reusing it would resolve.
                 var fwd = svc.ForwardRecords(new[] { fid }, mKey.FileName, null, "GhostFwd");
                 Check(!fwd.Success && fwd.Error is not null
-                      && fwd.Error.Contains("pass patch=\"GhostFwd\"", StringComparison.Ordinal),
+                      && fwd.Error.Contains("patch=\"GhostFwd\" for a fresh patch", StringComparison.Ordinal),
                       "housecarl_forward's not-found refusal names patch=<the guessed name>");
 
                 var cre = svc.CreateRecordsBatch(new[] { new CreateOp { RecordType = "Keyword", Editorid = "HcExtKw" } },
                                                  null, "GhostCre");
                 Check(!cre.Success && cre.Error is not null
-                      && cre.Error.Contains("pass patch=\"GhostCre\"", StringComparison.Ordinal),
+                      && cre.Error.Contains("patch=\"GhostCre\" for a fresh patch", StringComparison.Ordinal),
                       "housecarl_create's does too");
             }
 
@@ -503,25 +503,23 @@ internal static class ExtendResolveProbe
                 Check(!r.Success && refused, "into=\"Foreign\" (un-owned folder) is REFUSED — houseCARL won't edit a folder it doesn't own");
                 Check(File.ReadAllBytes(foreignEsp).SequenceEqual(foreignBefore), "the un-owned plugin is byte-untouched after the refusal");
 
-                // #359: the refusal must not dead-end. It names the fresh lane's own parameter, the owned patches to
-                // extend instead, and — at the TOOL altitude, where the spelling is known — the in-place lane, the
-                // other reading of a name that landed on someone else's folder.
-                Check(r.Error is not null && r.Error.Contains("pass patch= a name no mod folder already uses", StringComparison.Ordinal),
+                // #359: the refusal must not dead-end. In ONE sentence it names the fresh lane's own parameter and
+                // the owned patches to extend instead (Aaron, 2026-09-06).
+                Check(r.Error is not null && r.Error.Contains("patch= a name no mod folder already uses for a fresh patch", StringComparison.Ordinal),
                       "…the un-owned refusal names the fresh lane's parameter (#359)");
                 Check(r.Error is not null && !r.Error.Contains("patch=\"Foreign\"", StringComparison.Ordinal),
                       "…and does NOT hand back the colliding stem, which would shadow the foreign plugin (#359)");
-                Check(r.Error is not null && r.Error.Contains("houseCARL owns", StringComparison.Ordinal),
-                      "…and lists the patches houseCARL owns instead of 'Use a different patch name.'");
-                Check(r.Error is not null && !r.Error.Contains("in_place", StringComparison.Ordinal),
-                      "…and at the SERVICE altitude names no in-place spelling (the tools own that sentence)");
+                Check(r.Error is not null && r.Error.Contains("; try into=\"", StringComparison.Ordinal),
+                      "…and names the patches houseCARL owns instead of 'Use a different patch name.'");
+                Check(r.Error is not null && OneSentence(r.Error) && !r.Error.Contains("in_place", StringComparison.Ordinal),
+                      $"…and is ONE sentence with no in-place clause ({r.Error})");
 
-                // This folder's plugin is NOT in the active order, so the in-place lane cannot take it — in_place=
-                // resolves a filename through the load order. The sentence is withheld rather than offered false,
-                // which is the whole point of gating it on what the folder actually holds.
+                // Same at TOOL altitude, where the in-place spelling IS known: the refusal still stops at the
+                // candidates, and the removal lane says why it has no fresh-patch route.
                 var tooled = RemoveTools.Remove(svc, new[] { fid }, into: "Foreign");
-                Check(!tooled.Contains("in_place=", StringComparison.Ordinal)
-                      && tooled.Contains("houseCARL owns", StringComparison.Ordinal),
-                      "housecarl_remove's un-owned refusal offers NO in-place lane for a folder with no active plugin, and still lists the owned patches");
+                Check(!tooled.Contains("in_place", StringComparison.Ordinal)
+                      && tooled.Contains("; try into=\"", StringComparison.Ordinal),
+                      "housecarl_remove's un-owned refusal offers no in-place lane either, and still names the owned patches");
 
                 // the rider lane refuses the un-owned folder too (shared resolver — same gate)
                 string riderErr2 = "";
@@ -529,49 +527,43 @@ internal static class ExtendResolveProbe
                 catch (InvalidOperationException ex) { riderErr2 = ex.Message; }
                 Check(riderErr2.Contains("NOT created by houseCARL", StringComparison.Ordinal),
                       "the RIDER lane also refuses the un-owned folder (same ownership gate, no foreign-plugin door)");
-                Check(riderErr2.Contains("pass patch_name= a name no mod folder already uses", StringComparison.Ordinal)
-                      && riderErr2.Contains("houseCARL owns", StringComparison.Ordinal),
-                      "…and names THAT lane's own parameter plus the owned patches, never patch= or a dead end (#359)");
+                Check(riderErr2.Contains("patch_name= a name no mod folder already uses for a fresh folder", StringComparison.Ordinal)
+                      && riderErr2.Contains("; try into=\"", StringComparison.Ordinal) && OneSentence(riderErr2),
+                      "…and names THAT lane's own parameter plus the owned patches, in one sentence, never patch= or a dead end (#359)");
             }
 
-            // ---- 9b: the un-owned refusal at TOOL altitude, on a folder whose plugin the in-place lane CAN take ----
+            // ---- 9b: the un-owned refusal at TOOL altitude, on a folder holding an ACTIVE plugin -----------------
             //      "RemoveHereMod" is un-owned and holds RemoveHere.esp, which arm 8d2 put in the active order and
-            //      then removed a record from in place — so the lane the sentence offers is one this fixture has
-            //      already proved works. Each of the four write tools is called, because the spelling is handed DOWN
-            //      from the tool: delete the hand-down at any one call site and only that tool's check reddens.
+            //      then removed a record from in place — so this is the folder where an in-place clause would have
+            //      been true, and Aaron's ruling still keeps it out. Each of the four write tools is called, because
+            //      each renders the refusal for itself: a clause creeping back into any one of them reddens here.
             Console.WriteLine();
-            Console.WriteLine("--- 9b: every write tool's un-owned refusal names ITS in-place lane, with the plugin ---");
+            Console.WriteLine("--- 9b: every write tool's un-owned refusal is one sentence, with no in-place clause ---");
             {
                 static JsonElement Doc(string s) => JsonDocument.Parse(s).RootElement;
-                string named = "in_place=\"RemoveHere.esp\"";
 
                 var ap = ApplyTools.Apply(svc, ops: Doc($"[{{\"formid\":\"{fid}\",\"field_path\":\"BasicStats.Weight\",\"value\":\"2\"}}]"),
                                           into: "RemoveHereMod");
-                Check(ap.Contains(WriteSentences.ExtendInPlaceLane, StringComparison.Ordinal) && ap.Contains(named, StringComparison.Ordinal),
-                      "housecarl_apply names the in-place lane AND the plugin in that folder the lane can take");
-                // The one clause here that rewrites a file the caller did not author reads LAST, behind both lanes
-                // that leave every original untouched (#380). The list has to be PRESENT for the order to mean
-                // anything — IndexOf returns -1 for a missing substring, which would satisfy any "before" test.
-                int ownsAt = ap.IndexOf("houseCARL owns:", StringComparison.Ordinal);
-                Check(ownsAt >= 0 && ownsAt < ap.IndexOf("in_place=", StringComparison.Ordinal),
-                      "…and the safe candidate list is read BEFORE the consent-gated lane");
+                Check(!ap.Contains("in_place", StringComparison.Ordinal) && ap.Contains("; try into=\"", StringComparison.Ordinal),
+                      "housecarl_apply names the owned candidates and no in-place lane, on a folder whose plugin the lane could take");
+                Check(OneSentence(ap.Trim()), $"…and the refusal it renders is ONE sentence ({ap.Trim()})");
 
                 var cr = CreateTools.Create(svc, records: Doc("[{\"record_type\":\"Keyword\",\"editorid\":\"HcExtUnowned\"}]"),
                                             into: "RemoveHereMod");
-                Check(cr.Contains(WriteSentences.ExtendInPlaceLane, StringComparison.Ordinal) && cr.Contains(named, StringComparison.Ordinal),
-                      "housecarl_create does too (its hand-down had no arm before)");
+                Check(!cr.Contains("in_place", StringComparison.Ordinal) && cr.Contains("; try into=\"", StringComparison.Ordinal),
+                      "housecarl_create does the same");
 
                 var fw = ForwardTools.Forward(svc, formids: new[] { fid }, source: mKey.FileName.String, into: "RemoveHereMod");
-                Check(fw.Contains(WriteSentences.ExtendInPlaceLane, StringComparison.Ordinal) && fw.Contains(named, StringComparison.Ordinal),
+                Check(!fw.Contains("in_place", StringComparison.Ordinal) && fw.Contains("; try into=\"", StringComparison.Ordinal),
                       "housecarl_forward does too");
 
                 var rm = RemoveTools.Remove(svc, new[] { fid }, into: "RemoveHereMod");
-                Check(rm.Contains(WriteSentences.RemoveInPlaceLane, StringComparison.Ordinal) && rm.Contains(named, StringComparison.Ordinal),
-                      "housecarl_remove names the lane IT declares, with the same plugin");
+                Check(!rm.Contains("in_place", StringComparison.Ordinal) && rm.Contains("; try into=\"", StringComparison.Ordinal),
+                      "housecarl_remove does too, in the lane that has an in-place spelling to hand down");
                 // The un-owned arm used to say nothing about why there is no fresh-patch route on the one lane that
                 // has none, so a caller who reached for patch= met a second refusal.
                 Check(rm.Contains(WriteSentences.RemoveNoFreshPatch, StringComparison.Ordinal)
-                      && !rm.Contains("pass patch=", StringComparison.Ordinal),
+                      && !rm.Contains("patch=", StringComparison.Ordinal),
                       "…and states why removal offers no fresh patch here, rather than leaving it to be guessed");
             }
 
@@ -590,16 +582,19 @@ internal static class ExtendResolveProbe
                 new SkyrimMod(new ModKey("Solo", ModType.Plugin), SkyrimRelease.SkyrimSE)
                     .BeginWrite.ToPath(Path.Combine(soloDir, "Solo.esp")).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
-                var miss = svc.ApplyEdits(new[] { Wgt(1) }, null, "GhostList");
-                string list = miss.Error ?? "";
-                Check(list.Contains("houseCARL owns: ", StringComparison.Ordinal) && list.Contains("into=\"", StringComparison.Ordinal),
-                      "the refusal closes with the LIST form, not the empty-inventory clause (#380)");
+                // Each shape is reached by a stem NEAR it, since the sentence names only the three nearest — the cap
+                // is the arm below, and a claim about which spelling is offered has to be read where it is offered.
+                var missSolo = svc.ApplyEdits(new[] { Wgt(1) }, null, "Soloo");
+                string list = missSolo.Error ?? "";
+                Check(list.Contains("; try into=\"", StringComparison.Ordinal) && OneSentence(list),
+                      $"the refusal names candidates in one sentence, not the owns-nothing clause (#380) ({list})");
                 Check(!list.Contains("into=\"SeedA\"", StringComparison.Ordinal)
-                      && list.Contains("into=\"Solo.esp\" (in SeedA)", StringComparison.Ordinal),
-                      "a folder whose own name resolves elsewhere is printed by its PLUGIN instead");
-                Check(list.Contains("into=\"Alpha.esp\"", StringComparison.Ordinal) && list.Contains("into=\"Beta.esp\"", StringComparison.Ordinal)
-                      && !list.Contains("into=\"houseCARL - TwoEsp\"", StringComparison.Ordinal),
-                      "a folder holding two plugins is printed as one row per plugin, not as the folder spelling it would refuse");
+                      && list.Contains("into=\"Solo.esp\"", StringComparison.Ordinal),
+                      "a folder whose own name resolves elsewhere is named by its PLUGIN instead");
+                string two = svc.ApplyEdits(new[] { Wgt(1) }, null, "Alphaa").Error ?? "";
+                Check(two.Contains("into=\"Alpha.esp\"", StringComparison.Ordinal)
+                      && !two.Contains("into=\"houseCARL - TwoEsp\"", StringComparison.Ordinal),
+                      "a folder holding two plugins is named by a plugin, not by the folder spelling it would refuse");
 
                 // Followed, both of them, since that is the only way to check a claim about what a call does.
                 var followedSolo = svc.ApplyEdits(new[] { Wgt(6) }, null, "Solo.esp");
@@ -609,20 +604,19 @@ internal static class ExtendResolveProbe
                 Check(followedAlpha.Success && Ends(followedAlpha.OutputPath, "houseCARL - TwoEsp", "Alpha.esp"),
                       "following into=\"Alpha.esp\" extends the named plugin inside the two-plugin folder");
 
-                // Near-stem first (#380): a caller who typo'd one patch's plugin gets that row ahead of the alphabet.
+                // Near-stem FIRST (#380): with only three candidates named, ranking is the whole of what the caller
+                // gets, so a typo'd plugin has to come first, not merely appear.
                 var typo = svc.ApplyEdits(new[] { Wgt(1) }, null, "Betta");
-                string ranked = typo.Error ?? "";
-                Check(ranked.IndexOf("into=\"Beta.esp\"", StringComparison.Ordinal) >= 0
-                      && ranked.IndexOf("into=\"Beta.esp\"", StringComparison.Ordinal)
-                         < ranked.IndexOf("into=\"houseCARL - DupHome\"", StringComparison.Ordinal),
-                      "into=\"Betta\" floats the near-stem row above the alphabetically-first one");
+                var ranked = Candidates(typo.Error ?? "");
+                Check(ranked.Count > 0 && ranked[0] == "into=\"Beta.esp\"",
+                      $"into=\"Betta\" names the near-stem candidate FIRST, ahead of the alphabet ({string.Join(", ", ranked)})");
             }
 
-            // ---- 9d: the pluginless folder, and the cap ----
-            //      Both halves of the list's own contract, neither of which any arm read: the record lane leaves out
-            //      a folder it could not extend, the rider lane keeps it, and a long inventory says it was cut.
+            // ---- 9d: the pluginless folder, and the cap of three ----
+            //      Both halves of the candidates' own contract: the record lane leaves out a folder it could not
+            //      extend, the rider lane keeps it, and a modlist full of patches still yields one short sentence.
             Console.WriteLine();
-            Console.WriteLine("--- 9d: pluginless folders are record-lane-only omissions, and the list is capped ---");
+            Console.WriteLine("--- 9d: pluginless folders are record-lane-only omissions, and three candidates is the cap ---");
             {
                 var bare = Path.Combine(mods, "houseCARL - AssetsOnly");
                 Directory.CreateDirectory(bare);
@@ -637,7 +631,7 @@ internal static class ExtendResolveProbe
                 Check(riderList.Contains("into=\"houseCARL - AssetsOnly\"", StringComparison.Ordinal),
                       "…and the RIDER lane keeps it, since that lane extends the folder itself");
 
-                // Past the cap the sentence says so rather than growing without bound.
+                // Past the cap the sentence simply stops: three nearest candidates, and it stays one sentence.
                 for (int i = 0; i < 9; i++)
                 {
                     var extra = Path.Combine(mods, $"houseCARL - Bulk{i:D2}");
@@ -647,40 +641,19 @@ internal static class ExtendResolveProbe
                 }
                 var capped = svc.ApplyEdits(new[] { Wgt(1) }, null, "GhostCapped");
                 string capText = capped.Error ?? "";
-                int rowCount = capText.Split("into=\"", StringSplitOptions.None).Length - 1;
-                Check(rowCount == 8 && capText.Contains(" more.", StringComparison.Ordinal),
-                      $"the list stops at 8 rows and counts the rest ({rowCount} rows rendered)");
-            }
-
-            // ---- 9e: the in-place lane is offered only for the copy the game actually LOADS ----
-            //      Two mod folders can ship the same plugin basename and only one wins. Offering the lane on a
-            //      filename match alone points a consent-gated write at the OTHER folder's file — a plugin the
-            //      sentence never named. The twin here is not enabled, so RemoveHereMod's copy stays the winner.
-            Console.WriteLine();
-            Console.WriteLine("--- 9e: a folder holding a losing copy of an active plugin gets NO in-place lane ---");
-            {
-                var twin = Path.Combine(mods, "TwinRemoveMod");                // un-owned, and NOT in modlist.txt
-                Directory.CreateDirectory(twin);
-                File.Copy(Path.Combine(mods, "RemoveHereMod", "RemoveHere.esp"), Path.Combine(twin, "RemoveHere.esp"));
-
-                var twinned = RemoveTools.Remove(svc, new[] { fid }, into: "TwinRemoveMod");
-                Check(twinned.Contains("NOT created by houseCARL", StringComparison.Ordinal)
-                      && !twinned.Contains("in_place=", StringComparison.Ordinal),
-                      "the un-owned refusal offers no in-place lane for a copy the load order does not resolve here");
-                Check(twinned.Contains("houseCARL owns", StringComparison.Ordinal),
-                      "…and still closes with the owned patches rather than dead-ending");
-
-                // The folder that DOES win keeps its sentence, so the gate is a path check and not a blanket refusal.
-                var winner = RemoveTools.Remove(svc, new[] { fid }, into: "RemoveHereMod");
-                Check(winner.Contains("in_place=\"RemoveHere.esp\"", StringComparison.Ordinal),
-                      "…while the folder whose copy the game loads still names the lane, with the plugin");
+                var rows = Candidates(capText);
+                Check(rows.Count == 3 && OneSentence(capText),
+                      $"the sentence names three candidates and no more ({string.Join(", ", rows)})");
+                // The shape the ruling asks for, read off the real sentence: "A, B or C, or <fresh>".
+                Check(capText.Contains($"; try {rows[0]}, {rows[1]} or {rows[2]}, or patch=\"GhostCapped\" for a fresh patch", StringComparison.Ordinal),
+                      $"…in the ruled shape — candidates, then the fresh-patch parameter ({capText})");
             }
 
             // ---- 9f: owned patches that no single into= spelling reaches are COUNTED, not denied ----
-            //      rows.Count == 0 has two causes and only one of them is "there is nothing to extend". Its own
-            //      instance, because the claim is about the WHOLE inventory being unreachable.
+            //      An empty candidate set has two causes and only one of them is "there is nothing to extend". Its
+            //      own instance, because the claim is about EVERY owned patch being unreachable.
             Console.WriteLine();
-            Console.WriteLine("--- 9f: an inventory nothing reaches says so, instead of claiming none exists ---");
+            Console.WriteLine("--- 9f: patches nothing reaches are counted, instead of claiming none exists ---");
             {
                 string inst2 = Path.Combine(root, "instance2");
                 string prof2 = Path.Combine(inst2, "profiles", "Default");
@@ -712,26 +685,11 @@ internal static class ExtendResolveProbe
                 svc2.Stats();
                 var unreachable = svc2.ApplyEdits(new[] { Wgt(1) }, null, "GhostNowhere");
                 string text = unreachable.Error ?? "";
-                Check(text.Contains("houseCARL owns 2 patches, none reachable", StringComparison.Ordinal),
-                      $"the refusal counts the patches no spelling reaches ({text})");
-                Check(!text.Contains("owns no patch", StringComparison.Ordinal),
+                Check(text.Contains("try renaming one of the 2 patches houseCARL owns in MO2", StringComparison.Ordinal)
+                      && text.Contains("no single into= spelling reaches any of them", StringComparison.Ordinal),
+                      $"the refusal counts the patches no spelling reaches and says what to do about it ({text})");
+                Check(!text.Contains("owns no patch", StringComparison.Ordinal) && OneSentence(text),
                       "…rather than telling the caller houseCARL owns none, which would send them to mint a duplicate");
-            }
-
-            // ---- 9g: the in-place lane sentence is capped like the list beside it ----
-            //      A compilation folder ships dozens of active plugins; the sibling clause caps at 8 rows for the
-            //      same reason. Rendered directly — building 30 active plugins to see one sentence is not the claim.
-            Console.WriteLine();
-            Console.WriteLine("--- 9g: the in-place lane names a few plugins and counts the rest ---");
-            {
-                var many = Enumerable.Range(0, 25).Select(i => $"Pack{i:D2}.esp").ToList();
-                var sentence = WriteSentences.InPlaceLane(WriteSentences.ExtendInPlaceLane, many);
-                int quoted = sentence.Split('"').Length / 2;
-                Check(quoted == 4 && sentence.Contains("or one of 21 others in that folder", StringComparison.Ordinal),
-                      $"25 active plugins render 4 names plus a count, not 25 filenames ({sentence})");
-                var few = WriteSentences.InPlaceLane(WriteSentences.ExtendInPlaceLane, new[] { "OnlyOne.esp" });
-                Check(few.Contains("\"OnlyOne.esp\".", StringComparison.Ordinal) && !few.Contains("others", StringComparison.Ordinal),
-                      "…and a folder under the cap still names every plugin, with no tail");
             }
 
             // ---- 10: ORIGINALS — the master plugin never moved a byte (extends only wrote the patch folder) ----
