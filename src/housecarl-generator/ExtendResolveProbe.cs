@@ -56,7 +56,7 @@ internal static class ExtendResolveProbe
         Console.WriteLine();
         int fail = 0;
         void Check(bool c, string label) { Console.WriteLine((c ? "  PASS  " : "  FAIL  ") + label); if (!c) fail++; }
-        // Aaron's ruling (2026-09-06): each extend refusal is ONE sentence. Read as one terminating period and no
+        // Aaron's ruling (2026-09-05): each extend refusal is ONE sentence. Read as one terminating period and no
         // sentence break inside it — a plugin basename's dot is followed by a letter, never by a space.
         static bool OneSentence(string s) =>
             s.EndsWith('.') && !s.AsSpan(0, s.Length - 1).Contains(". ", StringComparison.Ordinal);
@@ -244,7 +244,7 @@ internal static class ExtendResolveProbe
                 Check(r.Error is not null && r.Error.Contains("auto-suffixed if that name is taken", StringComparison.Ordinal),
                       "…and qualifies the name it offers with the auto-suffix, rather than promising a filename");
 
-                // Aaron's ruling (2026-09-06): ONE sentence — what went wrong, then what to try, with the candidates
+                // Aaron's ruling (2026-09-05): ONE sentence — what went wrong, then what to try, with the candidates
                 // named inside it. Every arm below pins the same three properties, so a clause creeping back in on
                 // any one lane reddens: one terminating period, the "try" remedy, and no in-place lane.
                 Check(OneSentence(r.Error ?? ""), $"…and the whole refusal is ONE sentence ({r.Error})");
@@ -402,7 +402,7 @@ internal static class ExtendResolveProbe
                 Check(r.Error is not null && r.Error.Contains(WriteSentences.RemoveNoFreshPatch, StringComparison.Ordinal),
                       "…and the LANE states why there is no create route here (removal needs a patch that already carries it)");
                 // One sentence, and no in-place clause on it: this lane's in-place spelling is the TOOL's, and it
-                // rides the missing-patch= refusal rather than this one (Aaron, 2026-09-06).
+                // rides the missing-patch= refusal rather than this one (Aaron, 2026-09-05).
                 Check(r.Error is not null && OneSentence(r.Error) && !r.Error.Contains("in_place", StringComparison.Ordinal),
                       $"…and the whole refusal is ONE sentence naming no in-place lane ({r.Error})");
 
@@ -423,7 +423,7 @@ internal static class ExtendResolveProbe
             Console.WriteLine("--- 8d3: the remove TOOL's refusal names the lane IT declares ---");
             {
                 // The extend refusal is one sentence about the extend that failed: no in-place clause rides it at
-                // TOOL altitude either, even though this tool has a spelling to hand down (Aaron, 2026-09-06).
+                // TOOL altitude either, even though this tool has a spelling to hand down (Aaron, 2026-09-05).
                 var modern = RemoveTools.Remove(svc, new[] { fid }, into: "GhostRemove");
                 Check(!modern.Contains("in_place", StringComparison.Ordinal) && !modern.Contains("target=", StringComparison.Ordinal),
                       "housecarl_remove's not-found refusal names no in-place lane, and never target=");
@@ -527,7 +527,7 @@ internal static class ExtendResolveProbe
                 Check(File.ReadAllBytes(foreignEsp).SequenceEqual(foreignBefore), "the un-owned plugin is byte-untouched after the refusal");
 
                 // #359: the refusal must not dead-end. In ONE sentence it names the fresh lane's own parameter and
-                // the owned patches to extend instead (Aaron, 2026-09-06).
+                // the owned patches to extend instead (Aaron, 2026-09-05).
                 Check(r.Error is not null && r.Error.Contains("patch= a name no mod folder already uses for a fresh patch", StringComparison.Ordinal),
                       "…the un-owned refusal names the fresh lane's parameter (#359)");
                 Check(r.Error is not null && !r.Error.Contains("patch=\"Foreign\"", StringComparison.Ordinal),
