@@ -146,7 +146,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
   field's value is unchanged — it is still that body's own list, in its own order, which is what a write
   addresses by index — and the union sits beside it: how many distinct children the order declares, which
   plugins contribute how many, and how much of it this body carries. A child two plugins both declare counts
-  once. In json the union also carries a SAMPLE of the member FormIDs — up to 100, and fewer when `max_chars`
+  once. On `Worldspace.SubCells` the value counts the worldspace's BLOCKS and its children are the cells under
+  them, so the note names that unit instead of setting the two numbers beside each other as if they matched. In json the union also carries a SAMPLE of the member FormIDs — up to 100, and fewer when `max_chars`
   is tight, with `members_omitted` counting the rest — so a short union can be read straight back through
   `formids=` and a long one still says how much it left out. A field whose child is SINGULAR (`Cell.Landscape`,
   `Worldspace.TopCell`) is not a union — those declarers override one record — so it says which plugin's copy is

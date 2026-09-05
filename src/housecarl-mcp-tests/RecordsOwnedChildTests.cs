@@ -434,6 +434,40 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.Contains($"{ReadSentences.UnionLabel}: 3 child record(s) across 1 plugin(s) — {_w.BaseName} 3",
                         FieldLine(Read(_w.Worldspace), "SubCells"));
 
+    /// <summary>A nested field's VALUE counts its containers and its union counts the records under them. The
+    /// winner here declares two EMPTY blocks, so the line carries "2 item(s)" and an own share of 0 at once —
+    /// true of two different units, and a contradiction unless the note says which it is counting.</summary>
+    [Fact]
+    public void ANestedFieldsNoteNamesItsUnit_TheValueCountsContainersAndTheUnionCountsRecords()
+    {
+        var line = FieldLine(Read(_w.Worldspace), "SubCells");
+        Assert.StartsWith("SubCells = [list: 2 item(s)]", line);
+        Assert.Contains("this body declares 0 of them", line);
+        Assert.Contains("counts the CONTAINERS holding them", line);
+        // The flat wording would put "own list carries 0" beside a value of 2 with nothing saying they differ.
+        Assert.DoesNotContain("own list carries", line);
+    }
+
+    /// <summary>And the flat shape keeps the plain wording: a cell's Temporary IS the list of its children, so
+    /// the value and the own share are one unit and the note says so without a caveat.</summary>
+    [Fact]
+    public void AFlatFieldsNoteStillReadsAsAShareOfTheValueBesideIt()
+    {
+        var line = FieldLine(Read(_w.CellG), "Temporary");
+        Assert.StartsWith("Temporary = [list: 2 item(s)]", line);
+        Assert.Contains("this body's own list carries 2", line);
+        Assert.DoesNotContain("CONTAINERS", line);
+    }
+
+    /// <summary>json carries the unit as a key rather than only in the prose, because a consumer comparing
+    /// <c>own</c>/<c>total</c> against <c>value</c> has no sentence to read.</summary>
+    [Fact]
+    public void JsonMarksTheNestedFieldAndLeavesTheFlatOneUnmarked()
+    {
+        Assert.True(UnionKey(Read(_w.Worldspace, format: "json"), "SubCells", "nested")?.GetBoolean());
+        Assert.Null(UnionKey(Read(_w.CellG, format: "json"), "Temporary", "nested"));
+    }
+
     [Fact]
     public void AtDepthTwoTheContainersOwnSummaryLineStillCarriesTheAnnotation() =>
         Assert.Contains(ReadSentences.ChildContent,
@@ -1392,6 +1426,17 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
             if (f.GetProperty("path").GetString() == path && f.TryGetProperty(member, out var v))
                 return v.GetString() ?? "";
         throw new Xunit.Sdk.XunitException($"no '{member}' on json field '{path}'");
+    }
+
+    /// <summary>One key of a field's <c>owned_child_union</c>, or NULL when the union does not carry it — a claim
+    /// about a key's PRESENCE, which <see cref="JsonField"/> cannot make because it throws on an absent one.</summary>
+    static JsonElement? UnionKey(string json, string path, string key)
+    {
+        using var doc = JsonDocument.Parse(json);
+        foreach (var f in doc.RootElement.GetProperty("records")[0].GetProperty("fields").EnumerateArray())
+            if (f.GetProperty("path").GetString() == path)
+                return f.GetProperty("owned_child_union").TryGetProperty(key, out var v) ? v.Clone() : null;
+        throw new Xunit.Sdk.XunitException($"no json field '{path}'");
     }
 
     /// <summary>A clause's field-INDEPENDENT head, up to the "{0}" its derived field list fills — so "is it
