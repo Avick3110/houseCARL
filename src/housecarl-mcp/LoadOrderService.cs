@@ -347,10 +347,13 @@ public sealed class LoadOrderService : IDisposable
                 if (sel.Length == 0) { notes.Add("under: an empty selector was skipped — pass a Data-relative directory or glob."); continue; }
                 try
                 {
-                    var matched = AssetGlob.Select(view, sel);
+                    var matched = AssetGlob.Select(view, sel, out var namedOneFile);
+                    // A selector that named a FILE is said out loud too, so the sweep's own count is explained.
+                    if (namedOneFile)
+                        notes.Add($"under '{sel}' names a file, not a directory — it was resolved as that one path.");
                     // A selector that matched nothing is said out loud: read as a silent no-op it looks identical to a
                     // folder no enabled mod provides, and a typo would then read as a clean sweep.
-                    if (matched.Count == 0)
+                    else if (matched.Count == 0)
                         notes.Add($"under '{sel}' matched no file in the active load order — check the spelling, or nothing enabled provides that folder.");
                     foreach (var m in matched) if (seen.Add(m)) selected.Add(m);
                 }

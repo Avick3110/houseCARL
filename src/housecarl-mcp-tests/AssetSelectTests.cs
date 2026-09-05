@@ -126,6 +126,26 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.Contains("notes=1", AssetWire.Render(d, 80_000));
     }
 
+    /// <summary>A wildcard-free selector that names an existing FILE is answered as that one path. Enumerating a file
+    /// finds nothing beneath it, and saying "nothing provides that folder" would contradict what asset_paths= answers
+    /// for the very same string — which is what a modder pasting a path into under= would read.</summary>
+    [Fact]
+    public void AWildcardFreeSelectorThatNamesAFileIsAnsweredAsThatFile()
+    {
+        var rel = _w.Rel("0001.nif");
+
+        var d = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { rel });
+
+        var r = Assert.Single(d.Results);
+        Assert.Equal(rel, r.RelPath);
+        Assert.True(r.Hit!.Exists);
+        // The same string through asset_paths= agrees, winner and all.
+        Assert.Equal(_w.Svc.AssetStatus(new[] { rel }).Results[0].Hit!.Winner!.Source, r.Hit.Winner!.Source);
+        // And the note says what under= did with it, rather than claiming nothing provides the folder.
+        Assert.Contains(d.SelectorNotes!, n => n.Contains("names a file", StringComparison.Ordinal));
+        Assert.DoesNotContain(d.SelectorNotes!, n => n.Contains("matched no file", StringComparison.Ordinal));
+    }
+
     /// <summary>The escape guard covers the selector too — a drive-rooted or '..'-escaping directory is refused by
     /// name, never enumerated outside the load order.</summary>
     [Fact]
