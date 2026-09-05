@@ -2374,7 +2374,9 @@ public sealed class LoadOrderService : IDisposable
                 $"Touched by (load order, winner last): {string.Join(", ", touchers)}.");
         }
 
-        var record = ReadEngine.ReadFields(rec, fields, depth, containerHint);   // materialise while the session (overlay) is open
+        // materialise while the session (overlay) is open; the *parent hop climbs the index's containment map and
+        // fetches the containing record's winner body through the same session
+        var record = ReadEngine.ReadFields(rec, fields, depth, containerHint, ContainmentIndex.ReadHop(view, session));
         record = AnnotateOwnedChildContent(record, rec, view, session, fk, source, unionMemo, out var childFields);   // the additive union (or the index-only note), display-only
         if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // identity of every FormLink token, display-only, on the same open session
         var touching = conflictTree ? view.TouchingPlugins(fk) : null;
@@ -3486,7 +3488,7 @@ public sealed class LoadOrderService : IDisposable
                     continue;
                 }
             }
-            var record = ReadEngine.ReadFields(bodyToRead!, fields, depth, containerHint);
+            var record = ReadEngine.ReadFields(bodyToRead!, fields, depth, containerHint, ContainmentIndex.ReadHop(view, session));
             if (resolveNames) record = AnnotateLinks(record, view, session, overlayLinkMemo ??= new LinkMemo());
             var ok = (new ReadOutcome(fk, record, winner.Value.WinnerPlugin, winner.Value.WinnerPlugin,
                                       winner.Value.OverrideDepth, null, null)
@@ -3694,7 +3696,25 @@ public sealed class LoadOrderService : IDisposable
                         if (!link.FormKey.IsNull && seen.Add(link.FormKey)) list.Add(link.FormKey);
                 return list;
             }
-            var (links, n) = ReadEngine.CollectLinksAt(body, segs);
+            // The '*parent' containment step: hop to the record that CONTAINS this one, then read the rest of the
+            // path there. A path that is nothing but hops IS the edge — the parent is what the walk crosses to.
+            int hops = 0;
+            while (hops < segs.Length && string.Equals(segs[hops], ContainmentIndex.ParentToken, StringComparison.OrdinalIgnoreCase)) hops++;
+            for (int i = 0; i < hops; i++)
+            {
+                var pk = view.ParentOf(body.FormKey);
+                if (pk is null)
+                {
+                    note = $"(no record contains this {TypeOf(body)} — containment runs from these properties only: {ContainmentIndex.ChildBearingSurface()})";
+                    return new List<FormKey>();
+                }
+                if (i == hops - 1 && hops == segs.Length) return new List<FormKey> { pk.Value };
+                var up = Fetch(pk.Value);
+                if (up is null) { note = $"(the containing record {pk.Value} would not fetch)"; return new List<FormKey>(); }
+                body = up;
+            }
+
+            var (links, n) = ReadEngine.CollectLinksAt(body, hops == 0 ? segs : segs[hops..]);
             note = n;
             return links ?? new List<FormKey>();
         }

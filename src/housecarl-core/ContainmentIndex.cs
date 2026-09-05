@@ -29,6 +29,12 @@ namespace HousecarlCore;
 /// fifths. Pure data — no bodies, no file handles.</para></summary>
 public sealed class ContainmentIndex
 {
+    /// <summary>The one spelling of the containment step, shared by every surface that takes a path — a
+    /// predicate, a field projection, a walk's seed paths and follow. The <c>*</c> sigil is §5.5's rule: the
+    /// co-resident space is field names, and <c>Worldspace.Parent</c> is a real field, so a bare <c>parent</c> is
+    /// takeable.</summary>
+    public const string ParentToken = "*parent";
+
     readonly Dictionary<ulong, ulong> _map = new();
     readonly Dictionary<ModKey, int> _modToIdx = new();
     readonly List<ModKey> _idxToMod = new();
@@ -76,6 +82,26 @@ public sealed class ContainmentIndex
         }
         return ((ulong)(uint)i << 32) | k.ID;
     }
+
+    /// <summary>The <c>*parent</c> hop a field read takes: this build's containment map, then the containing
+    /// record's winner body through the caller's own session, so a read that already holds one plugin open pays
+    /// nothing extra. A record nothing contains comes back with the plain sentence saying so and naming the
+    /// properties containment runs from — never a null the render has to guess at.</summary>
+    public static Func<IMajorRecordGetter, (IMajorRecordGetter? Parent, string? Why)> ReadHop(
+        LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session) => child =>
+    {
+        var pk = view.ParentOf(child.FormKey);
+        if (pk is null)
+            return (null, $"no record contains this {RecordNaming.StripOverlay(child.GetType().Name)} — containment runs " +
+                          $"from these properties only: {ChildBearingSurface()}");
+        var winner = view.ResolveWinner(pk.Value);
+        if (winner is null)
+            return (null, $"the containing record {pk.Value} is not in the active load order");
+        var body = view.GetRecord(session, winner.Value.WinnerPlugin, pk.Value);
+        return body is null
+            ? (null, $"the containing record {pk.Value} would not fetch from its winner '{winner.Value.WinnerPlugin}'")
+            : (body, null);
+    };
 
     /// <summary>The child-bearing property surface, spelled <c>Type.Property</c> — what a <c>*parent</c> refusal
     /// names as the reason a record has no containing record. Derived from

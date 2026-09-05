@@ -489,9 +489,6 @@ public sealed class FieldPredicateSet
         return (outSegs, folds, null);
     }
 
-    /// <summary>The containment step token: reverse containment, spelled with the <c>*</c> sigil because
-    /// <c>Worldspace.Parent</c> is a real field and a bare <c>parent</c> is takeable.</summary>
-    internal const string ParentToken = "*parent";
 
     /// <summary>Strip a side's leading <c>*parent</c> hops and hand back the rest of the path. A hop leads a path
     /// by definition — the containing record is a property of the RECORD, not of a field value — so a <c>*parent</c>
@@ -504,15 +501,15 @@ public sealed class FieldPredicateSet
         for (int i = hops; i < segs.Length; i++)
         {
             if (IsParentStep(segs[i]))
-                return (segs, 0, $"predicate '{raw}': '{ParentToken}' is the record that CONTAINS this one, so it can only lead a path — " +
-                                 $"in '{display}' it follows a field step. Write the hops first ('{ParentToken}.EditorID').");
+                return (segs, 0, $"predicate '{raw}': '{ContainmentIndex.ParentToken}' is the record that CONTAINS this one, so it can only lead a path — " +
+                                 $"in '{display}' it follows a field step. Write the hops first ('{ContainmentIndex.ParentToken}.EditorID').");
             var s = segs[i];
             int open = s.IndexOf('[');
             if (open > 0 && s.EndsWith("]", StringComparison.Ordinal)
-                && string.Equals(s[..open], ParentToken, StringComparison.OrdinalIgnoreCase))
-                return (segs, 0, $"predicate '{raw}': '{s}' — '{ParentToken}' names ONE containing record, not a list, so it takes no quantifier. Write '{ParentToken}'.");
+                && string.Equals(s[..open], ContainmentIndex.ParentToken, StringComparison.OrdinalIgnoreCase))
+                return (segs, 0, $"predicate '{raw}': '{s}' — '{ContainmentIndex.ParentToken}' names ONE containing record, not a list, so it takes no quantifier. Write '{ContainmentIndex.ParentToken}'.");
             if (s.Length > 0 && s[0] == '*' && open != 0)
-                return (segs, 0, $"predicate '{raw}': '{s}' is not a path token — the tokens are '{ParentToken}' (the containing record) and the quantifiers [*any], [*all], [*none] and [*count] on a list step.");
+                return (segs, 0, $"predicate '{raw}': '{s}' is not a path token — the tokens are '{ContainmentIndex.ParentToken}' (the containing record) and the quantifiers [*any], [*all], [*none] and [*count] on a list step.");
         }
         if (hops == 0) return (segs, 0, null);
         if (hops == segs.Length)
@@ -522,7 +519,7 @@ public sealed class FieldPredicateSet
         return (segs[hops..], hops, null);
     }
 
-    static bool IsParentStep(string seg) => string.Equals(seg, ParentToken, StringComparison.OrdinalIgnoreCase);
+    static bool IsParentStep(string seg) => string.Equals(seg, ContainmentIndex.ParentToken, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The token a fold is spelled with, for a message.</summary>
     static string FoldToken(Fold f) => f switch
@@ -1040,7 +1037,7 @@ public sealed class FieldPredicateSet
     {
         if (_parentOf is null || _fetchWinnerBody is null)
         {
-            _fatal = $"internal: a '{ParentToken}' containment predicate was evaluated without a bound resolution context — this scan surface does not support it.";
+            _fatal = $"internal: a '{ContainmentIndex.ParentToken}' containment predicate was evaluated without a bound resolution context — this scan surface does not support it.";
             return (null, EvalKind.Definite);
         }
         for (int i = 0; i < hops; i++)
