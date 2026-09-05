@@ -700,19 +700,20 @@ internal static class ReadSentences
     internal const string DialogueCounts =
         "{0} of the {1} seed(s) reached were validated, {2} topic(s), {3} finding(s) across them.\n";
 
-    /// <summary>The dialogue family's stamp line: the record build the verdicts were read from, and the classes that
-    /// build does not describe. The stamp is never omitted in place of declaring the bound — an answer with no
-    /// freshness claim at all is less readable than one that says how far its claim reaches.</summary>
+    /// <summary>The dialogue family's stamp line: the record build the verdicts were read from, the degraded-order
+    /// clause the sibling families print beside their own stamps, and the classes that build does not describe. The
+    /// stamp is never omitted in place of declaring the bound — an answer with no freshness claim at all is less
+    /// readable than one that says how far its claim reaches.</summary>
     [MustState("epoch=", "does not cover")]
     internal const string DialogueEpochBound =
-        "epoch={0} — the record build these verdicts were read from; it does not cover: {1}.\n";
+        "epoch={0}{1} — the record build these verdicts were read from; it does not cover: {2}.\n";
 
     /// <summary>The same stamp where the call answered off the record substrate alone — every seed a DLVW or DLBR, so
     /// none of the asset-substrate checks ran. It says the stamp covers the whole answer rather than printing an
     /// uncovered set for verdicts this response never produced.</summary>
     [MustState("epoch=", "covers every verdict")]
     internal const string DialogueEpochWhole =
-        "epoch={0} — the record build these verdicts were read from; it covers every verdict here.\n";
+        "epoch={0}{1} — the record build these verdicts were read from; it covers every verdict here.\n";
 
     /// <summary>One of the three verdict classes the record fingerprint does not describe: whether a line's voice file
     /// is on disk, which is an asset the fingerprint never sees.</summary>

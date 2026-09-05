@@ -56,9 +56,14 @@ internal static class DialogueSweepRender
         sb.Append(string.Format(ReadSentences.DialogueCounts, d.SeedsValidated, d.SeedsReached, d.TopicsFound,
                                 d.FindingsFound));
         if (o.Sweep.Dialogue?.Epoch is { } epoch)
+        {
+            // The degraded clause sits beside the stamp exactly as the sibling families print it, so all three heads
+            // state the same fact in the same place.
+            var clause = OrderDegraded.Clause(o.Sweep.OrderExcluded.Count);
             sb.Append(UncoveredBy(d) is { Length: > 0 } unc
-                          ? string.Format(ReadSentences.DialogueEpochBound, epoch, string.Join(", ", unc))
-                          : string.Format(ReadSentences.DialogueEpochWhole, epoch));
+                          ? string.Format(ReadSentences.DialogueEpochBound, epoch, clause, string.Join(", ", unc))
+                          : string.Format(ReadSentences.DialogueEpochWhole, epoch, clause));
+        }
         if (d.CountsOnly) sb.Append(ReadSentences.DialogueCountsOnly);
     }
 
