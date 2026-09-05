@@ -1824,7 +1824,7 @@ public sealed class LoadOrderService : IDisposable
         var comp = Mo2LoadOrder.ReadComposition(profileDir);       // fresh composition (always current)
         return new LoadOrderStatusData(
             comp, warnings, view.PluginCount, _maxPlugins, profileChanged, profileDir, profileName, instanceDir, view.ExcludedPlugins,
-            view.Epoch);
+            view.Epoch, view.ContainedRecordCount);
     }
 
     /// <summary>The LOCALIZED header flag of ONE plugin, for housecarl_load_order_status' lookup= (#376): a localized
@@ -3698,8 +3698,10 @@ public sealed class LoadOrderService : IDisposable
             }
             // The '*parent' containment step: hop to the record that CONTAINS this one, then read the rest of the
             // path there. A path that is nothing but hops IS the edge — the parent is what the walk crosses to.
-            int hops = 0;
-            while (hops < segs.Length && string.Equals(segs[hops], ContainmentIndex.ParentToken, StringComparison.OrdinalIgnoreCase)) hops++;
+            // Same grammar the where= and project.fields surfaces enforce, so a misspelled step refuses by name
+            // here too rather than falling through to a "no such field" hint.
+            var (hops, gerr) = ContainmentIndex.SplitHops(segs, string.Join(".", segs), allowBare: true);
+            if (gerr is not null) { note = $"({gerr})"; return new List<FormKey>(); }
             for (int i = 0; i < hops; i++)
             {
                 var pk = view.ParentOf(body.FormKey);
@@ -4223,6 +4225,12 @@ public sealed class LoadOrderService : IDisposable
                         return w is null ? null : view.GetRecord(winnerSession!, w.Value.WinnerPlugin, fk);
                     }
                     : null,
+                // The containment map is WHOLE-ORDER and later-wins, on both lanes — including the plugins= lane,
+                // where every other term reads the scoped plugin's OWN body. That is deliberate and it is the only
+                // well-defined reading: which record contains a child is a fact about the assembled order, not
+                // about one file (thousands of children across a real order sit under a different parent than the
+                // first plugin that declared them). So plugins=["A.esp"] where=["*parent.EditorID = X"] filters
+                // A.esp's own bodies by the order's containment, and a later plugin's re-parenting is what answers.
                 predicate.NeedsContainment ? fk => view.ParentOf(fk) : null);
             // where_source=winner needs one body per CANDIDATE, not per record in the order, and fetching them one
             // at a time is a whole-overlay walk each (#251). So the scan buffers a CHUNK of candidates off the one
@@ -4525,6 +4533,17 @@ public sealed class LoadOrderService : IDisposable
             var (set, perr) = FieldPredicateSet.Parse(where, FormIdDoor.On(view).Parse);
             if (perr is not null) return CrossQueryOutcome.Fail(perr);
             predicate = set;
+            // The containment map is built from the ACTIVE order's plugins only. An off-order file's own records
+            // are not in it, and worse, a file sharing a filename with an active plugin — the routine case of
+            // inspecting a disabled or older copy of Foo.esp — resolves to the ACTIVE order's parent for the same
+            // FormID, so the scan would filter this file's bodies against an edge another file declared. Refused
+            // by name rather than answered from the wrong index.
+            if (predicate.NeedsContainment)
+                return CrossQueryOutcome.Fail(
+                    $"'{ContainmentIndex.ParentToken}' reads the containment map built from the ACTIVE load order, and this scan streams an " +
+                    $"out-of-load-order FILE whose own containment was never indexed — the answer would come from a different file's " +
+                    $"edges. Drop source= to filter on containment in the active order, or filter this file on its own body instead.")
+                    with { Epoch = view.Epoch };
         }
         foreach (var demand in (artifactDemands ?? Array.Empty<ArtifactDemand>()).Concat(
                      predicate?.ArtifactDemands ?? (IReadOnlyList<ArtifactDemand>)Array.Empty<ArtifactDemand>()))
@@ -4599,7 +4618,7 @@ public sealed class LoadOrderService : IDisposable
                             return w is null ? null : view.GetRecord(sess!, w.Value.WinnerPlugin, fk);
                         }
                         : null,
-                    predicate.NeedsContainment ? fk => view.ParentOf(fk) : null);
+                    parentOf: null);   // refused above: this file's containment is not in the active order's map
             }
             var seen = new HashSet<FormKey>();
             foreach (var rec in ov.EnumerateMajorRecords())
@@ -9009,7 +9028,8 @@ public sealed record LoadOrderStatusData(
     string ProfileName,         // the ACTIVE profile (instance mode: MO2's selected_profile; explicit: the dir name) — captured under the gate, not re-derived at render
     string? InstanceDir,        // the resolved MO2 instance folder houseCARL is pointed at; null ⇒ explicit-paths / unconfigured mode
     IReadOnlyDictionary<string, string> ExcludedPlugins,
-    string? Epoch = null);      // the resolver's current build fingerprint (SPEC §2.1.1) — the status line names it so a caller can match responses/artifacts to the build; nullable like every other carrier
+    string? Epoch = null,       // the resolver's current build fingerprint (SPEC §2.1.1) — the status line names it so a caller can match responses/artifacts to the build; nullable like every other carrier
+    int ContainedRecordCount = 0);  // children this build recorded a containing record for — the '*parent' map's size, declared in band per SPEC §2.1 rather than left for a user to discover as memory
 
 /// <summary>The data behind housecarl_update_status: MO2's own local Nexus update cache read from meta.ini, with no
 /// network. <see cref="Entries"/> is one row per Nexus-linked mod (installed vs newest version, modid, enabled state);
