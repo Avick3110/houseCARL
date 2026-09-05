@@ -820,8 +820,13 @@ public static class RecordsTools
                     if (carrierSel.Count == 0)
                         return json ? JsonWire.RenderError($"the reverse carrier walk reached nothing readable ({seedErrs2} seed error(s) — run form='chain' to see each seed's outcome).", epochR)
                                     : $"error: the reverse carrier walk reached nothing readable ({seedErrs2} seed error(s) — run form='chain' to see each seed's outcome)." + (epochR is not null ? $"\nepoch={epochR}" : "");
-                    envelope.Add(new("selection", $"the {carrierSel.Count} record(s) the carrier walk reached (seeds included)"));
+                    // A seed that failed contributed no carriers, and the reading form says so: a partial answer
+                    // over some of the seeds must never read as an answer over all of them.
+                    envelope.Add(new("selection", $"the {carrierSel.Count} record(s) the carrier walk reached (seeds included)"
+                                                  + (seedErrs2 > 0 ? $"; {seedErrs2} seed error(s), listed via form='chain'" : "")));
                     headerLine += $"\nwalk: selection = {carrierSel.Count} reached record(s) (seeds included)";
+                    if (seedErrs2 > 0)
+                        headerLine += $"\n[!] {seedErrs2} seed(s) failed and contributed no carriers — run form='chain' to see each seed's outcome.";
                     if (cappedSeeds > 0)
                         headerLine += $"\n[!] {cappedSeeds} seed(s) hit the walk.max_nodes carrier bound ({walkMaxNodes}, per seed on this lane) — the selection is a prefix of the {carrierTotal} carrier(s) reached; raise walk.max_nodes.";
                     expectEpoch = epochR;
