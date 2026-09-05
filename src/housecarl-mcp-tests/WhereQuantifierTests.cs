@@ -251,6 +251,33 @@ public sealed class WhereQuantifierTests
     }
 
     [Fact]
+    public void ANonListStepIsNamedTheSameWhetherItIsCarriedOrNull()
+    {
+        // Only an OVERLAY body splits the two spellings: the carried value reflects as BodyTemplateBinaryOverlay
+        // while the null one falls back to the declared IBodyTemplateGetter, so the fixture must be read from disk.
+        var bare = _mod.Armors.AddNew(); bare.EditorID = "QArmorNamingNull";   // BodyTemplate left null
+        var dir = Path.Combine(Path.GetTempPath(), "hc-quant-naming-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var path = Path.Combine(dir, _mod.ModKey.FileName.String);
+            _mod.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            using var ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
+            var carried = ov.Armors.First(a => a.EditorID == "QArmorHands");
+            var nulled = ov.Armors.First(a => a.EditorID == "QArmorNamingNull");
+            Assert.NotNull(carried.BodyTemplate);
+            Assert.Null(nulled.BodyTemplate);
+
+            var carriedNote = RunWithNote("BodyTemplate[*all].FirstPersonFlags has Head", new[] { (IMajorRecordGetter)carried }).Note;
+            var nullNote = RunWithNote("BodyTemplate[*all].FirstPersonFlags has Head", new[] { (IMajorRecordGetter)nulled }).Note;
+            Assert.Contains("a single BodyTemplate value", carriedNote);
+            Assert.Contains("a single BodyTemplate value", nullNote);
+            Assert.DoesNotContain("IBodyTemplateGetter", nullNote);
+        }
+        finally { try { Directory.Delete(dir, true); } catch { } }
+    }
+
+    [Fact]
     public void ADictStepIsNamedADict_NotFoldedOverItsEntries()
     {
         var cls = _mod.Classes.AddNew(); cls.EditorID = "QClass";

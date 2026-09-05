@@ -802,7 +802,9 @@ public sealed class FieldPredicateSet
         if (WriteEngine.ClosedInterface(t, typeof(IList<>)) is not null
             || WriteEngine.ClosedInterface(t, typeof(IReadOnlyList<>)) is not null)
             return null;
-        return $"a single {RecordNaming.StripOverlay((val?.GetType() ?? t).Name)} value";
+        // Both strips, in that order: a CARRIED value reflects as BodyTemplateBinaryOverlay and a null one falls back
+        // to the declared IBodyTemplateGetter, so without both the same field is named two ways on two records.
+        return $"a single {RecordNaming.StripGetterInterface(RecordNaming.StripOverlay((val?.GetType() ?? t).Name))} value";
     }
 
     /// <summary>Fold one step's element verdicts into the record's. Same accounting shape
