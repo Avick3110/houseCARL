@@ -527,6 +527,13 @@ static class ParentInHandProbe
         if (args.Length > 0 && args[0] == "--plugin")
         {
             if (args.Length < 2) { Console.WriteLine("usage: parent-in-hand --plugin <path> [dataDir]"); return null; }
+            // Checked here so a typo'd path says so, instead of throwing inside OpenOverlay and landing on the
+            // instance-and-profile sentence, which names nothing the caller actually got wrong.
+            if (!File.Exists(args[1]))
+            {
+                Console.WriteLine($"no plugin file at {args[1]} — pass the path to an existing .esp/.esm/.esl.");
+                return null;
+            }
             dataDir = args.Length > 2 ? args[2] : Path.GetDirectoryName(args[1]);
             label = $"single plugin {Path.GetFileName(args[1])}";
             return new[] { args[1] };
