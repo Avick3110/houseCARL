@@ -278,6 +278,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   plugin.** Finding one cell no longer steps over every placed reference in the plugin, which is what makes the
   union above affordable on every read; the conflict tree takes the same path. Measured on a synthetic order of
   one 20k-record master and nine 2k plugins, ten touchers of one cell: 80 ms of body fetches became 4 ms.
+- **An `into=` that names no houseCARL patch now lists the patches houseCARL owns.** Both refusals close with the
+  owned patch folders as `into=` spellings, with the plugins each holds, so a typo or an auto-suffixed name is
+  answered with the candidates instead of "Check the name." The list is capped, and says so when it is; the record
+  lane leaves out folders holding no plugin, which it could not extend. Naming a mod folder houseCARL does **not**
+  own is still refused with the originals untouched, but that refusal now names the calling tool's own fresh-patch
+  parameter and, on `housecarl_apply` / `housecarl_create` / `housecarl_forward` / `housecarl_remove`, the
+  `in_place=` lane — the other reading of a name that landed on someone else's folder. It does not hand back the
+  name you passed: a patch minted under that stem would sit beside the foreign plugin of the same name.
+
 - **`housecarl_load_order_status` now names the running server's build in its header** — a `server:` line carrying
   the informational version the binary embeds (the release version `build-plugin.ps1` stamps from `plugin.json`,
   then `+` and the full commit sha: `1.9.5-dev+e942910…`), so checking that the installed houseCARL is the build you expect no longer means

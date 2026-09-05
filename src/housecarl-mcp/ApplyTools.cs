@@ -215,7 +215,10 @@ public static class ApplyTools
             return Refuse($"refused — {problems.Count} of {edits.Count} operation(s) malformed; NOTHING written:\n  - "
                         + string.Join("\n  - ", problems));
 
-        var outcome = svc.ApplyEdits(wire, patchName ?? "Patch", into, readback, in_place, hasInPlace, acknowledge, dry_run, fromRecords, origins);
+        // The in-place lane's spelling is handed DOWN: the un-owned-folder refusal names it as the other reading of
+        // the folder the caller pointed at, and the service cannot know which parameter this tool exposes.
+        var outcome = svc.ApplyEdits(wire, patchName ?? "Patch", into, readback, in_place, hasInPlace, acknowledge, dry_run, fromRecords, origins,
+                                     inPlaceRemedy: WriteSentences.ExtendInPlaceLane);
         // The lane the CALL named — stated, not derived from the outcome's flags, which are at their defaults on a
         // refusal and on the consent prompt.
         return json

@@ -556,12 +556,15 @@ internal static class WriteSentences
         "source_provider= only applies to a Data-relative source resolved through the VFS. The source you passed is an "
       + "on-disk path, which already names one exact copy — drop source_provider=, or pass source= the Data-relative path.";
 
-    // ---- the into=-extend not-found refusal ----------------------------------------------------------
-    /// <summary>The whole remedy an operation that has stated nothing about creating a patch may offer: check what you
-    /// typed. The DEFAULT tail of the shared not-found refusal, deliberately the weakest thing true for every caller —
-    /// a stronger claim is one an operation makes for itself, never one the resolver assumes on its behalf.</summary>
-    [MustState("Check the name")]
-    internal const string ExtendCheckTheName = "Check the name.";
+    // ---- the into=-extend refusals -------------------------------------------------------------------
+    /// <summary>The other reading of an <c>into=</c> that lands on a mod folder houseCARL does not own: the caller
+    /// may have meant that mod's own plugin, which is the consent-gated in-place lane. Shared by the write tools that
+    /// spell that lane the same way (<c>housecarl_apply</c>, <c>housecarl_create</c>, <c>housecarl_forward</c>);
+    /// removal has its own wording. It does not spell out the first-touch confirmation, which the in-place lane
+    /// prompts for on its own.</summary>
+    [MustState("pass in_place=\"<plugin filename>\"")]
+    internal const string ExtendInPlaceLane =
+        "To write into an existing plugin IN PLACE instead, pass in_place=\"<plugin filename>\".";
 
     /// <summary>Removal's own half of that refusal: why no create remedy is offered here. It states the RULE and
     /// stops rather than predicting what a patch created next would contain — an apply into that patch first would

@@ -325,16 +325,20 @@ internal static class ExtendResolveProbe
             //      unreachable for them — but they pass null naming rather than borrowing a sibling's sentence, and
             //      null must degrade to the weakest true remedy rather than to a wrong one.
             Console.WriteLine();
-            Console.WriteLine("--- 8c2: a rider with no naming falls back to 'Check the name.' ---");
+            Console.WriteLine("--- 8c2: a rider with no naming falls back to the owned-patch list ---");
             {
                 string bareErr = "";
                 try { svc.ResolvePatchModFolder(null, "GhostRider", "houseCARL_Extract", naming: null); }
                 catch (InvalidOperationException ex) { bareErr = ex.Message; }
                 Check(bareErr.Contains("GhostRider.esp", StringComparison.Ordinal)
-                      && bareErr.Contains("Check the name.", StringComparison.Ordinal)
                       && !bareErr.Contains("patch_name=", StringComparison.Ordinal)
                       && !bareErr.Contains("patch=", StringComparison.Ordinal),
                       "a null naming refuses without offering a parameter it was never told about");
+                // #380: the always-true tail used to be "Check the name.", which named no candidate at all. It is now
+                // the owned-patch list — the one thing true for every caller that also tells them something.
+                Check(bareErr.Contains("houseCARL owns:", StringComparison.Ordinal)
+                      && bareErr.Contains("into=\"", StringComparison.Ordinal),
+                      "…and closes with the patches houseCARL owns, as into= spellings (#380)");
             }
 
             // ---- 8d: the REMOVAL lane must not get the naming sentence either ----
@@ -360,8 +364,8 @@ internal static class ExtendResolveProbe
                 // a lane that starts stating CreatedByOmittingInto, or a default that starts assuming one, reddens here.
                 Check(r.Error is not null && !r.Error.Contains("create it fresh", StringComparison.OrdinalIgnoreCase),
                       "…and no longer offers 'create it fresh' — the remedy this lane could not perform (#356)");
-                Check(r.Error is not null && r.Error.Contains(WriteSentences.ExtendCheckTheName, StringComparison.Ordinal),
-                      "…it falls back to the always-true default tail (check what you typed)");
+                Check(r.Error is not null && r.Error.Contains("houseCARL owns", StringComparison.Ordinal),
+                      "…it falls back to the always-true default tail, which is now the owned-patch list (#380)");
                 Check(r.Error is not null && r.Error.Contains(WriteSentences.RemoveNoFreshPatch, StringComparison.Ordinal),
                       "…and the LANE states why there is no create route here (removal needs a patch that already carries it)");
                 // A direct SERVICE call names no in-place spelling at all — the two tools spell that lane
@@ -489,11 +493,32 @@ internal static class ExtendResolveProbe
                 Check(!r.Success && refused, "into=\"Foreign\" (un-owned folder) is REFUSED — houseCARL won't edit a folder it doesn't own");
                 Check(File.ReadAllBytes(foreignEsp).SequenceEqual(foreignBefore), "the un-owned plugin is byte-untouched after the refusal");
 
+                // #359: the refusal must not dead-end. It names the fresh lane's own parameter, the owned patches to
+                // extend instead, and — at the TOOL altitude, where the spelling is known — the in-place lane, the
+                // other reading of a name that landed on someone else's folder.
+                Check(r.Error is not null && r.Error.Contains("pass patch= a name no mod folder already uses", StringComparison.Ordinal),
+                      "…the un-owned refusal names the fresh lane's parameter (#359)");
+                Check(r.Error is not null && !r.Error.Contains("patch=\"Foreign\"", StringComparison.Ordinal),
+                      "…and does NOT hand back the colliding stem, which would shadow the foreign plugin (#359)");
+                Check(r.Error is not null && r.Error.Contains("houseCARL owns", StringComparison.Ordinal),
+                      "…and lists the patches houseCARL owns instead of 'Use a different patch name.'");
+                Check(r.Error is not null && !r.Error.Contains("in_place", StringComparison.Ordinal),
+                      "…and at the SERVICE altitude names no in-place spelling (the tools own that sentence)");
+
+                var tooled = RemoveTools.Remove(svc, new[] { fid }, into: "Foreign");
+                Check(tooled.Contains(WriteSentences.RemoveInPlaceLane, StringComparison.Ordinal)
+                      && tooled.Contains("houseCARL owns", StringComparison.Ordinal),
+                      "housecarl_remove's un-owned refusal names the in-place lane IT declares, beside the owned patches (#359)");
+
                 // the rider lane refuses the un-owned folder too (shared resolver — same gate)
-                bool riderRefused = false;
+                string riderErr2 = "";
                 try { svc.ResolvePatchModFolder(null, "Foreign", "houseCARL_Archive", BsaTools.RepackNaming); }
-                catch (InvalidOperationException ex) { riderRefused = ex.Message.Contains("NOT created by houseCARL", StringComparison.Ordinal); }
-                Check(riderRefused, "the RIDER lane also refuses the un-owned folder (same ownership gate, no foreign-plugin door)");
+                catch (InvalidOperationException ex) { riderErr2 = ex.Message; }
+                Check(riderErr2.Contains("NOT created by houseCARL", StringComparison.Ordinal),
+                      "the RIDER lane also refuses the un-owned folder (same ownership gate, no foreign-plugin door)");
+                Check(riderErr2.Contains("pass patch_name= a name no mod folder already uses", StringComparison.Ordinal)
+                      && riderErr2.Contains("houseCARL owns", StringComparison.Ordinal),
+                      "…and names THAT lane's own parameter plus the owned patches, never patch= or a dead end (#359)");
             }
 
             // ---- 10: ORIGINALS — the master plugin never moved a byte (extends only wrote the patch folder) ----

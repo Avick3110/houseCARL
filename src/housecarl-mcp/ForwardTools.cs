@@ -117,7 +117,8 @@ public static class ForwardTools
         // sourceParam: the engine's refusals are shared, so the caller's own spelling of the source pole is handed
         // down rather than guessed there.
         var outcome = svc.ForwardRecords(targets, source.Trim(), patchName, into, readback, in_place, hasInPlace, acknowledge, dry_run,
-                                         sourceParam: "source=");
+                                         sourceParam: "source=",
+                                         inPlaceRemedy: WriteSentences.ExtendInPlaceLane);   // this tool's spelling of the in-place lane, for the un-owned-folder refusal
         // The lane the CALL named — stated, not derived from the outcome's flags.
         return json
             ? JsonWire.RenderForwardOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")
