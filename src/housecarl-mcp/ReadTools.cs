@@ -714,7 +714,7 @@ static class Wire
         var o = CheckOutcome.For(s);
         if (o.Error is not null)
             return "error: " + o.Error + (o.Epoch is not null ? $"\nepoch={o.Epoch}" : "")
-                   + OrderDegraded.Clause(o.OrderExcluded.Count);
+                   + (o.OrderExcluded.Count > 0 ? "\n" + OrderDegraded.Sentence(o.OrderExcluded) : "");
         int cap = Cap(maxChars);
         var sections = o.Sections;
         var accts = o.Accountings(cap);

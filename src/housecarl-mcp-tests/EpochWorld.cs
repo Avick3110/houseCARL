@@ -1,6 +1,8 @@
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
+using HousecarlCore;
+using HousecarlGenerator;
 using HousecarlMcp;
 using Xunit;
 
@@ -28,8 +30,14 @@ public sealed class EpochWorld : IDisposable
     public LoadOrderService Svc { get; }
     public FormKey Weapon { get; }
 
+    readonly string _priorCorpusPath;
+
     public EpochWorld()
     {
+        // CorpusRulebook.CorpusPath is a process-global: capture before repointing, and restore before the
+        // directory the new value names is deleted. The scan and write lanes need a corpus to resolve against.
+        _priorCorpusPath = CorpusRulebook.CorpusPath;
+
         Root = Path.Combine(Path.GetTempPath(), "hc-epoch-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
 
@@ -69,6 +77,10 @@ public sealed class EpochWorld : IDisposable
         // OldMod is UNTICKED ('-' prefix) — off-order: on disk, not in the active order.
         File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n-OldMod\r\n+BadMod\r\n+MasterMod\r\n");
 
+        var genDir = Path.Combine(Root, "corpus-gen");
+        CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
+        CorpusRulebook.CorpusPath = Path.Combine(genDir, "corpus.json");
+
         var store = new UserConfigStore(Path.Combine(Root, "user.json"));
         Svc = LoadOrderService.WithInstance(Instance, 0, store);
     }
@@ -76,6 +88,7 @@ public sealed class EpochWorld : IDisposable
     public void Dispose()
     {
         Svc.Dispose();
+        CorpusRulebook.CorpusPath = _priorCorpusPath;
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }
