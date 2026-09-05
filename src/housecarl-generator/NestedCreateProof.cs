@@ -23,6 +23,8 @@ namespace HousecarlGenerator;
 ///   N12 — a Cell under a Worldspace with NEITHER route named → refused naming both (collection= and grid=).
 ///   N13 — DELETE a singular owned child: remove the N10 Landscape by its own FormID → re-open, the cell holds
 ///         none. Mutagen's typed remove reaches no singular owned child, so this is the detach path end to end.
+///   N14 — REJECT the same occupied slot on the into= lane, where the patch ALREADY carries the parent: that copy
+///         is an override and holds no terrain, so the order's body is what the refusal is decided from.
 ///   N3 — PlacedObject into an EXISTING Cell, collection='Persistent' (the named discriminator) →
 ///        re-open: the new ref is in the cell's Persistent list.
 ///   N4 — REJECT a nested type with NO parent: create 'DialogResponses' alone → refused, names the need for a parent.
@@ -238,6 +240,23 @@ public static class NestedCreateProof
             bool gone = File.Exists(n10Path) && CellLandscape(n10Path, landlessCellFk) is null;
             results.Add(("N13 singular child removed", removed && gone,
                 $"removed={YN(removed)} slot-empty-on-reopen={YN(gone)}" + (rem.Success ? "" : "  err=" + (rem.Error ?? "").Replace('\n', ' '))));
+        }
+
+        // ===================== N14 — REJECT an occupied singular slot on a parent the PATCH ALREADY CARRIES =====================
+        //   Call 1 puts a placed ref in the cell, so the patch carries the cell as a fresh override that holds no
+        //   terrain. Reading only that copy reads the slot free and ships a second LAND under a cell that has one.
+        {
+            var outPath = Path.Combine(outDir, "houseCARL_NestedCreate_N14.esp");
+            var s1 = WritePatchBuilder.CreateRecords(resolver, rulebook,
+                new[] { new WritePatchBuilder.CreateSpec { RecordType = "PlacedObject", EditorId = "HC_N14_Ref", ParentRef = terrainCellFk.ToString(), IntoCollection = "Persistent", Edits = Array.Empty<WriteRequest>() } },
+                outPath, extend: false);
+            var s2 = WritePatchBuilder.CreateRecords(resolver, rulebook,
+                new[] { new WritePatchBuilder.CreateSpec { RecordType = "Landscape", EditorId = "HC_N14_Land", ParentRef = terrainCellFk.ToString(), Edits = Array.Empty<WriteRequest>() } },
+                outPath, extend: true);
+            bool refused = !s2.Success && (s2.Error ?? "").Contains("already holds", StringComparison.OrdinalIgnoreCase);
+            bool noLand = File.Exists(outPath) && CellLandscape(outPath, terrainCellFk) is null;
+            results.Add(("N14 reject occupied slot, carried parent", s1.Success && refused && noLand,
+                $"call1-ok={YN(s1.Success)} refused={YN(refused)} no-land-in-patch={YN(noLand)}{Err(s2)}"));
         }
 
         // ===================== N4 — REJECT nested with no parent =====================

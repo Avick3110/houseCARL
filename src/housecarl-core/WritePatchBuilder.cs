@@ -2849,6 +2849,12 @@ public static class WritePatchBuilder
             if (parentBodies.TryGetValue((plugin, fk), out var hit)) return hit;
             return parentBodies[(plugin, fk)] = view.GetRecord(session, plugin, fk);
         }
+        // The parent's real body in the LOAD ORDER — its definer's copy, else its winner's. Asked when the
+        // destination already carries the parent, because that copy is an override and carries none of the
+        // parent's children. Rides the same memo as every other parent-body read.
+        IMajorRecordGetter? OrderBodyOf(FormKey fk)
+            => ParentBodyFrom(fk.ModKey.FileName.String, fk)
+               ?? (view.ResolveWinner(fk) is { } ow ? ParentBodyFrom(ow.WinnerPlugin, fk) : null);
         Dictionary<FormKey, IMajorRecord>? carried = null;
         IMajorRecord? AlreadyCarried(FormKey fk)
         {
@@ -2999,13 +3005,20 @@ public static class WritePatchBuilder
                 else if (!WriteEngine.TryResolveChildSlot(s.RecordType, parentType, s.IntoCollection, out var slotName, out var slotShape, out var nestedWhy))
                 { problems.Add($"{s.RecordType} '{s.EditorId}': {nestedWhy}"); continue; }
                 // A SINGULAR slot holds exactly one child, so an occupied one is not something create can resolve —
-                // and occupancy is knowable HERE, from the parent body this call will host in, before a FormKey is
-                // allocated. Reading the patch's copy instead would answer for whatever the override carried, which
-                // on the into= lane is not the parent the caller is looking at.
+                // and occupancy is knowable HERE, from the parent bodies this call can see, before a FormKey is
+                // allocated.
                 else if (slotShape == OwnedChildShape.Singular)
                 {
-                    var body = parentPlans[i]!.Value.body ?? (IMajorRecordGetter?)parentPlans[i]!.Value.patchParent;
-                    if (body is not null && OwnedChildLifecycle.OccupantOf(body, slotName!) is { } occupant)
+                    // BOTH copies answer: the one the destination already carries, and the parent's real body in
+                    // the order. An override carries none of the parent's children, so on the into= and in-place
+                    // lanes the carried copy alone reads the slot free while the record the caller is looking at
+                    // declares a child — and creating there ships a second one under the same parent.
+                    var plan = parentPlans[i]!.Value;
+                    IMajorRecordGetter? Occupant(IMajorRecordGetter? b)
+                        => b is null ? null : OwnedChildLifecycle.OccupantOf(b, slotName!);
+                    var inOrder = plan.body
+                        ?? (plan.patchParent is not null && FormKey.TryFactory(s.ParentRef!, out var orderFk) ? OrderBodyOf(orderFk) : null);
+                    if ((Occupant(plan.patchParent) ?? Occupant(inOrder)) is { } occupant)
                     {
                         problems.Add($"{s.RecordType} '{s.EditorId}': '{parentType.Name}.{slotName}' already holds a {s.RecordType} ({occupant.FormKey}"
                             + (occupant.EditorID is { } oe ? $" editorid={oe}" : "") + ") and it holds exactly one, so there is no room to create another. "
