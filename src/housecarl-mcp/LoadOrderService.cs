@@ -9364,6 +9364,10 @@ public sealed record PlaceResult(string AssetPath, bool Placed, long Bytes, stri
 public sealed record PlaceOutcome(
     IReadOnlyList<PlaceResult> Results, string? ModFolder, IReadOnlyList<string> Warnings, string? LeftoverFolder, string? Error)
 {
+    /// <summary>Whether the CALL was served at all — not whether every destination placed. A served call with
+    /// failed rows is a success carrying per-row errors, the way every other write outcome reads.</summary>
+    public bool Success => Error is null;
+
     public static PlaceOutcome Fail(string error)
         => new(Array.Empty<PlaceResult>(), null, Array.Empty<string>(), null, error);
 }

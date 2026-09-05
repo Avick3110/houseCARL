@@ -59,40 +59,55 @@ public static class PlaceTools
             string? patch = null,
         [Description("LANE: filename of an EXISTING houseCARL patch mod to place into instead of a fresh folder (accumulate across calls). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null,
+        [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, the accounting and the enable+sort instruction in-band).")]
+            string? format = null,
         [Description("TRANSPORT: character ceiling on the per-destination list. Past it, trailing rows are dropped with an explicit notice (never silent); the WRITE is unaffected, and the accounting line and the enable+sort instruction always render. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.Place, () =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        // format first, so the unconfigured-MO2 prompt answers a json caller as a document.
+        bool json = Wire.WantsJson(format, out var ferr);
+        if (ferr is not null) return ferr;
+        if (svc.ConfigPromptOrNull() is { } prompt)
+            return json ? JsonWire.RenderError(prompt, null) : prompt;
         if (assets is not { } el || el.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
-            return "error: assets is empty. Pass one or more { path|formid, kind?, source?, source_provider? } destinations.";
+            return Refuse(json, "assets is empty. Pass one or more { path|formid, kind?, source?, source_provider? } destinations.");
         // The strict reader, not the SDK's binder: a member the shape does not declare is refused by name at its
         // element. Dropped silently, a mistyped source_provider would auto-resolve some other provider's copy and
         // read back as a successful place.
         var (items, listErr) = ListParams.Read<PlaceTarget>(el, "assets", "{path|formid, kind?, source?, source_provider?}");
-        if (listErr is not null) return "error: " + listErr;
-        return PlaceTargets(svc, items!, source_provider, kind, patch, into, max_chars);
+        if (listErr is not null) return Refuse(json, listErr);
+        return PlaceTargets(svc, items!, source_provider, kind, patch, into, max_chars, json);
     });
 
     /// <summary>The same call over destinations already read — the seam the probes and tests drive with typed
     /// members, while a real call comes through the strict reader above.</summary>
     internal static string Place(LoadOrderService svc, PlaceTarget[] assets, string? source_provider = null,
-                                 string? kind = null, string? patch = null, string? into = null, int max_chars = 0)
+                                 string? kind = null, string? patch = null, string? into = null,
+                                 string? format = null, int max_chars = 0)
         => Guard.Tool(ToolNames.Place, () =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        bool json = Wire.WantsJson(format, out var ferr);
+        if (ferr is not null) return ferr;
+        if (svc.ConfigPromptOrNull() is { } prompt)
+            return json ? JsonWire.RenderError(prompt, null) : prompt;
         if (assets is null || assets.Length == 0)
-            return "error: assets is empty. Pass one or more { path|formid, kind?, source?, source_provider? } destinations.";
-        return PlaceTargets(svc, assets, source_provider, kind, patch, into, max_chars);
+            return Refuse(json, "assets is empty. Pass one or more { path|formid, kind?, source?, source_provider? } destinations.");
+        return PlaceTargets(svc, assets, source_provider, kind, patch, into, max_chars, json);
     });
 
+    /// <summary>The write surface's one refusal shape, in the transport the caller asked for — the text lane's
+    /// "error: " prefix, or the json refusal document.</summary>
+    static string Refuse(bool json, string message)
+        => json ? JsonWire.RenderError(message, null) : "error: " + message;
+
     static string PlaceTargets(LoadOrderService svc, PlaceTarget[] assets, string? source_provider,
-                               string? kind, string? patch, string? into, int max_chars)
+                               string? kind, string? patch, string? into, int max_chars, bool json)
     {
         // The set-level slot is validated ONCE, under its own name: attributed to a member it would blame input the
         // caller never wrote there and repeat it per member, and on a set of nothing but path= members, which ignore
         // it, a bad token would never be noticed at all.
         if (ParseSlot(NullIfBlank(kind), out var setKindErr) is null && setKindErr is not null)
-            return "error: " + setKindErr;
+            return Refuse(json, setKindErr);
 
         // Malformed members refuse the WHOLE call (all-or-nothing, like create); placement-time issues
         // (ambiguous/absent/unreadable source) are per-member (the resolver isn't consulted until the place loop).
@@ -114,9 +129,12 @@ public static class PlaceTools
             }
         }
         if (problems.Count > 0)
-            return $"error: refused — {problems.Count} malformed destination(s); nothing placed:\n  - " + string.Join("\n  - ", problems);
+            return Refuse(json, $"refused — {problems.Count} malformed destination(s); nothing placed:\n  - " + string.Join("\n  - ", problems));
 
-        return PlaceWire.Render(svc.PlaceAssets(all, patch, into), max_chars > 0 ? max_chars : 80_000, poleWithheld);
+        var outcome = svc.PlaceAssets(all, patch, into);
+        int cap = max_chars > 0 ? max_chars : 80_000;
+        return json ? JsonWire.RenderPlaceOutcome(outcome, cap, poleWithheld)
+                    : PlaceWire.Render(outcome, cap, poleWithheld);
     }
 
     /// <summary>Map one destination to its placement request(s): path → one request; formid+kind → one request (the
@@ -238,21 +256,29 @@ static class PlaceWire
            .Append(" truncated=").Append(rendered < o.Results.Count ? "true" : "false").Append('\n');
 
         if (o.LeftoverFolder is not null)
-            sb2.Append("note: the fresh folder at '").Append(o.LeftoverFolder)
-               .Append("' holds a partial result — delete it or retry with into=.\n");
+            sb2.Append("note: ").Append(LeftoverNote(o.LeftoverFolder)).Append('\n');
 
-        if (placed > 0)
-        {
-            bool anyContended = false;
-            foreach (var r in o.Results) if (r.Placed && r.CurrentWinner is not null) { anyContended = true; break; }
-            sb2.Append("\nIMPORTANT — \"wrote it\" is not \"it wins\": the placed file(s) do NOT win the VFS yet. Enable the mod '")
-               .Append(modFolder ?? "(the new folder)").Append("' in MO2");
-            sb2.Append(anyContended
-                ? " and SORT it (left pane) ABOVE the current winner(s) listed above. Only then does the placed copy win.\n"
-                : ". Nothing else provided these path(s), so once enabled the placed copy wins (sort it above any mod you later add that also provides them).\n");
-        }
+        if (placed > 0) sb2.Append('\n').Append(EnableAndSort(o, modFolder)).Append('\n');
 
         return sb2.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>A fresh folder kept because the write half-landed, said once for both transports.</summary>
+    internal static string LeftoverNote(string leftoverFolder)
+        => $"the fresh folder at '{leftoverFolder}' holds a partial result — delete it or retry with into=.";
+
+    /// <summary>The instruction a placement is incomplete without: written bytes do not win the VFS until the mod is
+    /// enabled, and sorted above the current winner when one exists. One home, because both transports have to carry
+    /// it verbatim — a json caller told only that the write succeeded would enable nothing.</summary>
+    internal static string EnableAndSort(PlaceOutcome o, string? modFolder)
+    {
+        bool anyContended = false;
+        foreach (var r in o.Results) if (r.Placed && r.CurrentWinner is not null) { anyContended = true; break; }
+        return "IMPORTANT — \"wrote it\" is not \"it wins\": the placed file(s) do NOT win the VFS yet. Enable the mod '"
+             + (modFolder ?? "(the new folder)") + "' in MO2"
+             + (anyContended
+                 ? " and SORT it (left pane) ABOVE the current winner(s) listed above. Only then does the placed copy win."
+                 : ". Nothing else provided these path(s), so once enabled the placed copy wins (sort it above any mod you later add that also provides them).");
     }
 
     static void AppendResult(StringBuilder sb, PlaceResult r, string? modFolder, bool poleWithheld)

@@ -27,7 +27,8 @@ public static class AssetTools
          "'meshes/actors/character/facegendata/facegeom/Skyrim.esm' answers for every facegen mesh a master defines, " +
          "with no path list at all. The two select forms compose in one call. An archive that cannot be read, or a " +
          "Skyrim.ini base-archive list that cannot be found, is reported LOUD — so an 'absent' answer is never silently " +
-         "trusted when the scan was incomplete. Read-only: resolves nothing to disk, writes nothing, changes no load order.")]
+         "trusted when the scan was incomplete. format='json' returns the same data machine-readably, with the same " +
+         "accounting in-band. Read-only: resolves nothing to disk, writes nothing, changes no load order.")]
     public static string AssetStatus(
         LoadOrderService svc,
         [Description("The Data-relative asset path(s) to resolve, e.g. " +
@@ -47,19 +48,28 @@ public static class AssetTools
             int limit = 0,
         [Description("Optional. Where in the selection the rendered window starts, for paging a large under= sweep. 0 = the beginning.")]
             int offset = 0,
+        [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
+            string? format = null,
         [Description("Optional. Max characters before the per-path list is cut with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.AssetStatus, () =>
     {
-        if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
+        // format first, so the unconfigured-MO2 prompt answers a json caller as a document.
+        bool json = Wire.WantsJson(format, out var ferr);
+        if (ferr is not null) return ferr;
+        if (svc.ConfigPromptOrNull() is { } prompt)
+            return json ? JsonWire.RenderError(prompt, null) : prompt;
+        string Refuse(string message) => json ? JsonWire.RenderError(message, null) : "error: " + message;
+
         if ((asset_paths is null || asset_paths.Length == 0) && (under is null || under.Length == 0))
-            return "error: asset_paths and under are both empty. Pass Data-relative asset path(s) in asset_paths " +
-                   "(e.g. 'textures/armor/iron/cuirass_1.dds'), or a Data-relative directory or glob in under " +
-                   "(e.g. 'meshes/actors/character/facegendata/facegeom/Skyrim.esm').";
+            return Refuse("asset_paths and under are both empty. Pass Data-relative asset path(s) in asset_paths " +
+                          "(e.g. 'textures/armor/iron/cuirass_1.dds'), or a Data-relative directory or glob in under " +
+                          "(e.g. 'meshes/actors/character/facegendata/facegeom/Skyrim.esm').");
         // The window's own refusal, from the window: this tool and housecarl_skse answer the same input class, so the
         // sentence is spelled once rather than reworded in two places.
-        if (new RowWindow(offset, limit).Error is { } bad) return bad;
+        if (new RowWindow(offset, limit).Error is { } bad) return Wire.Refuse(json, bad);
         var data = svc.AssetStatus(asset_paths ?? Array.Empty<string>(), under, limit, offset);
-        return AssetWire.Render(data, max_chars > 0 ? max_chars : 80_000);
+        int cap = max_chars > 0 ? max_chars : 80_000;
+        return json ? JsonWire.RenderAssetStatus(data, cap) : AssetWire.Render(data, cap);
     });
 }
 
