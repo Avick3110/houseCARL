@@ -132,8 +132,8 @@ public static class WriteTools
          "A donor's HEADER mostly does not come along: master (ESM) status and Author/Description are always dropped, and the " +
          "report names each one it actually dropped. Light (ESL) status IS carried when every donor was light and every merged " +
          "object id fits the light window 0x800–0xFFF; otherwise it is dropped and the report says which of the two reasons it " +
-         "was. Want a dropped light flag back? Run " + ToolNames.CompactPlugin + " on the merged " +
-         "plugin afterward (the tools compose) — but it renumbers object ids from 0x800 upward, so ids the merge kept move.")]
+         "was, and whether " + ToolNames.CompactPlugin + " can still make it light — it can, by renumbering every id into that " +
+         "window (so ids the merge kept move), unless the merged plugin defines more than 2048 records, which no light plugin holds.")]
     public static string MergePlugins(
         LoadOrderService svc,
         [Description("The donor plugin filenames to merge (at least one, e.g. [\"CoolMod.esp\", \"CoolMod Patch.esp\"]) — each must be active in your load order. A SINGLE donor renames it into output=. This is a SET: a name repeated is still one donor. Argument order does not matter: houseCARL uses LOAD order for id priority and conflict resolution.")]
@@ -804,20 +804,27 @@ public static class WriteTools
         {
             sb.Append("NOTE — ").Append(string.Join(", ", light.Take(10)));
             if (light.Count > 10) sb.Append(" (+").Append(light.Count - 10).Append(" more)");
+            // Why the flag was not carried, never a bare drop. The REASON is which of the two conditions failed; the
+            // REMEDY is a separate question, because compact renumbers every id into the light window and so answers
+            // both reasons — until the record count itself overflows that window, which is the only case it cannot
+            // answer. So the reason is written per condition and the remedy per count, and the four combinations each
+            // get the true sentence.
+            const int lightCapacity = (int)(HousecarlCore.FormIdRange.EslWindowCeiling - HousecarlCore.FormIdRange.EslWindowFloor + 1);
+            string window = "0x" + HousecarlCore.FormIdRange.EslWindowFloor.ToString("X3") + "–0x" +
+                            HousecarlCore.FormIdRange.EslWindowCeiling.ToString("X3");
             sb.Append(" carried the LIGHT (ESL) status; ")
               .Append(o.OutputName).Append(" does NOT — it is written as a full plugin and takes a full load-order slot. ")
-              // Why the flag was not carried, never a bare drop — and the two reasons take different remedies, so the
-              // remedy is written per reason rather than once for both.
               .Append(light.Count < o.Donors.Count
                   ? "Not every donor was light (" + light.Count + " of " + o.Donors.Count + " were), and merged content " +
-                    "that was never light-legal as a whole cannot be carried as light. To make it light run " +
-                    ToolNames.CompactPlugin + " on '" + o.OutputName + "' (its esl defaults true) — but that renumbers " +
-                    "object ids from 0x800 upward, so the ids listed as kept above will move.\n"
-                  : "Every donor was light, but the merged object ids do not all fit the light window (0x" +
-                    HousecarlCore.FormIdRange.EslWindowFloor.ToString("X3") + "–0x" +
-                    HousecarlCore.FormIdRange.EslWindowCeiling.ToString("X3") + ") — the donors together define more " +
-                    "originating records than one light plugin holds, so " + ToolNames.CompactPlugin + " cannot make " +
-                    "it light either. Merge fewer donors if a light output is what you need.\n");
+                    "that was never light-legal as a whole cannot be carried as light. "
+                  : "Every donor was light, but not every merged object id landed inside the light window (" + window +
+                    ") — a merge renumbers only what it must, so an id already above the ceiling is kept where it is. ")
+              .Append(o.OriginatingRecords <= lightCapacity
+                  ? "To make it light run " + ToolNames.CompactPlugin + " on '" + o.OutputName + "' (its esl defaults " +
+                    "true) — but that renumbers object ids from 0x800 upward, so the ids listed as kept above will move.\n"
+                  : ToolNames.CompactPlugin + " cannot make it light either: it renumbers into the same window, and " +
+                    o.OriginatingRecords + " originating records do not fit its " + lightCapacity + " ids. Merge fewer " +
+                    "donors if a light output is what you need.\n");
         }
         if (o.MasterDonors is { Count: > 0 } masters)
         {
