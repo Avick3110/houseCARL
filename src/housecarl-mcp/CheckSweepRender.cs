@@ -18,13 +18,18 @@ namespace HousecarlMcp;
 /// input to every family that could have used it (<see cref="SweepSharedInput"/>). A whole-call answer by
 /// construction: no family ran, so there is no section for it to sit in and no sibling answer it could be throwing
 /// away. Null on every call whose shared inputs parsed.</param>
+/// <param name="OrderSeamError">the ground for refusing after the families ran: they did not all answer off the
+/// same index build, so the response-level order marker would describe a build some section did not use. Also a
+/// whole-call answer — the sections that did run cannot be trusted together, which is the whole point of saying
+/// it. Null whenever every family that ran stamped the build the call captured.</param>
 internal sealed record CheckSweep(
     SweepFamilySelection Selection,
     ErrorCheckResult? Errors = null,
     ScriptCheckResult? Scripts = null,
     DialogueCheckResult? Dialogue = null,
     string? SharedInputError = null,
-    OrderStamp? Order = null)
+    OrderStamp? Order = null,
+    string? OrderSeamError = null)
 {
     /// <summary>This family's own ground for producing no result — the refusal its result carries. Whether that
     /// ground is the whole call's answer or one section's is <see cref="CheckOutcome"/>'s question.</summary>
@@ -36,12 +41,13 @@ internal sealed record CheckSweep(
         _ => null,
     };
 
-    /// <summary>The epoch any family stamped, for a refusal render. Both sweep families capture the same build.
-    /// </summary>
+    /// <summary>The epoch any family stamped, for a refusal render. Either family will do: a call whose families
+    /// stamped different builds refuses through <see cref="OrderSeamError"/> and never reaches here.</summary>
     internal string? Epoch => Errors?.Epoch ?? Scripts?.Epoch;
 
     /// <summary>The plugins the order this call answered from had LOST to a load failure, captured once before any
-    /// family was dispatched. A response-level fact, not a family's: the dialogue family carries no epoch by design
+    /// family was dispatched and checked afterwards against every family's own stamp, so this really is the build
+    /// the whole response describes. A response-level fact, not a family's: the dialogue family carries no epoch by design
     /// (see <see cref="DialogueCheckResult"/>), so a dialogue-only call has no family stamp to hang it off and would
     /// otherwise be silent about an order missing plugins (#353). Empty on a healthy order and on a call refused
     /// before the order was read.</summary>

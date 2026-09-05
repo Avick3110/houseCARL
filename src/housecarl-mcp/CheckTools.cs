@@ -187,6 +187,23 @@ public static class CheckTools
             // than widening to the whole order.
             dialogue = svc.CheckDialogue(seeds, lim, counts_only);
 
+        // One call, one build. The root marker is a RESPONSE-level claim about the order every family answered
+        // from, and nothing holds the captures together: a freshness rebuild between them would state it from one
+        // build beside a family's epoch from another — naming plugins that build did not lose, or staying silent
+        // about ones it did, which is the ambiguity #353 exists to end. Compared here and refused loud, the way
+        // the records seams do, rather than answered from two builds.
+        string? Seam(string? familyEpoch, string family) =>
+            familyEpoch is not null && familyEpoch != order.Epoch
+                ? $"the load order changed while this check was running (epoch={order.Epoch} when the call started, " +
+                  $"epoch={familyEpoch} when the {family} family answered) — the response would describe two " +
+                  "builds. Retry the call."
+                : null;
+        if ((Seam(errors?.Epoch, "errors") ?? Seam(scripts?.Epoch, "scripts")) is { } seam)
+        {
+            var torn = new CheckSweep(selection, OrderSeamError: seam);
+            return json ? JsonWire.RenderCheck(torn, max_chars, lim) : Wire.RenderCheck(torn, max_chars, lim);
+        }
+
         var sweep = new CheckSweep(selection, errors, scripts, dialogue, Order: order);
         return json ? JsonWire.RenderCheck(sweep, max_chars, lim) : Wire.RenderCheck(sweep, max_chars, lim);
     });

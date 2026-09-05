@@ -52,7 +52,9 @@ internal sealed class CheckOutcome
         // so it collapses anyway. A shared-input ground short-circuits the collapse rather than joining it: it was
         // decided before any family was dispatched, so there is no second ground it could be discarding.
         var grounds = refused.Select(f => s.Ground(f)!).Distinct(StringComparer.Ordinal).ToArray();
-        Error = s.SharedInputError
+        // An order-seam ground short-circuits it for the same reason from the other side: the families disagreed
+        // about which build they read, so no section is an answer to keep.
+        Error = s.SharedInputError ?? s.OrderSeamError
              ?? (ran.Count == 0 && refused.Count > 0 && grounds.Length == 1 ? grounds[0] : null);
         Refused = Error is null ? refused : Array.Empty<SweepFamily>();
 
