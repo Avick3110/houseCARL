@@ -90,6 +90,23 @@ public sealed class MergeLightCarryTests : IClassFixture<MergeLightCarryWorld>
         Assert.DoesNotContain("cannot make it light either", rendered);
     }
 
+    /// <summary>Every donor light, every donor id inside the window, and the merge still overflows it on record count
+    /// alone — the reason must say the count, not blame a donor id above the ceiling that no donor has.</summary>
+    [Fact]
+    public void AllDonorsLightButTooManyRecordsBlamesTheCountNotAHighId()
+    {
+        var o = _w.Svc.MergePlugins(new[] { MergeLightCarryWorld.LightA, MergeLightCarryWorld.LightCrowd }, "HcLcLightCrowded.esp");
+
+        Assert.True(o.Success, o.Error);
+        Assert.False(o.LightCarried);
+        Assert.False(WrittenLight(o));
+        Assert.Equal(MergeLightCarryWorld.LightCrowdRecords + 1, o.OriginatingRecords);
+        var rendered = WriteTools.RenderMerge(o);
+        Assert.Contains("Every donor was light, but the donors together define more records than the light window", rendered);
+        Assert.DoesNotContain("an id already above the ceiling is kept where it is", rendered);
+        Assert.Contains("cannot make it light either", rendered);
+    }
+
     /// <summary>The merged plugin defines more records than a light plugin holds, so compact would refuse — the report
     /// says that instead of sending the caller to a tool that cannot help.</summary>
     [Fact]
@@ -109,9 +126,9 @@ public sealed class MergeLightCarryTests : IClassFixture<MergeLightCarryWorld>
 
 /// <summary>A synthetic MO2 instance for the merge light-carry arms: two light donors (one by header flag, one by the
 /// .esl extension with the bit unset) whose object ids sit inside the light window, a third light donor whose single
-/// id sits ABOVE the light ceiling, one full plugin, one full plugin with more records than the light window holds,
-/// and one master. Every donor but the crowded one originates a single weapon, so a merge of any pair of those keeps
-/// every id where it is.</summary>
+/// id sits ABOVE the light ceiling, a fourth light donor that fills the window exactly, one full plugin, one full
+/// plugin with more records than the light window holds, and one master. Every donor but the two crowded ones
+/// originates a single weapon, so a merge of any pair of those keeps every id where it is.</summary>
 public sealed class MergeLightCarryWorld : IDisposable
 {
     public string Root { get; }
@@ -122,10 +139,15 @@ public sealed class MergeLightCarryWorld : IDisposable
     public const string LightHighId = "HcLcLightC.esl";// .esl extension, one record at 0x5000 — outside the light window
     public const string Full = "HcLcFull.esp";
     public const string Crowd = "HcLcCrowd.esp";       // more originating records than the light window's 2048 ids
+    public const string LightCrowd = "HcLcLightFull.esl"; // light, and fills the window exactly — one more record overflows it
     public const string Master = "HcLcMaster.esm";
 
     /// <summary>One more than the light window holds, so any merge including this donor overflows it.</summary>
     public const int CrowdRecords = 2049;
+
+    /// <summary>Exactly the light window's capacity, so this donor is light-legal alone and any second donor pushes the
+    /// merge over — the overflow with every donor light and every donor id in the window.</summary>
+    public const int LightCrowdRecords = 2048;
 
     public MergeLightCarryWorld()
     {
@@ -144,16 +166,17 @@ public sealed class MergeLightCarryWorld : IDisposable
         Write(mods, "FullMod", new ModKey("HcLcFull", ModType.Plugin), 0x803, light: false);
         Write(mods, "MasterMod", new ModKey("HcLcMaster", ModType.Master), 0x804, light: false);
         Write(mods, "CrowdMod", new ModKey("HcLcCrowd", ModType.Plugin), 0x801, light: false, count: CrowdRecords);
+        Write(mods, "LightFullMod", new ModKey("HcLcLightFull", ModType.Light), 0x800, light: true, count: LightCrowdRecords);
         // Written under the .esp ModKey and renamed, because Mutagen refuses to serialize an id above the ESL ceiling
         // under a light ModKey. A plugin file carries no copy of its own name, so the renamed file reads back as the
         // .esl the engine force-treats as light — which is the donor shape this arm needs.
         WriteRenamed(mods, "LightCMod", new ModKey("HcLcLightC", ModType.Plugin), 0x5000, LightHighId);
 
-        var order = new[] { Master, LightA, LightB, LightHighId, Full, Crowd };
+        var order = new[] { Master, LightA, LightB, LightHighId, LightCrowd, Full, Crowd };
         File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", order) + "\r\n");
         File.WriteAllText(Path.Combine(profile, "plugins.txt"), string.Join("\r\n", order.Select(p => "*" + p)) + "\r\n");
         File.WriteAllText(Path.Combine(profile, "modlist.txt"),
-            "# header\r\n+MasterMod\r\n+CrowdMod\r\n+FullMod\r\n+LightCMod\r\n+LightBMod\r\n+LightAMod\r\n");
+            "# header\r\n+MasterMod\r\n+CrowdMod\r\n+FullMod\r\n+LightFullMod\r\n+LightCMod\r\n+LightBMod\r\n+LightAMod\r\n");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
     }
