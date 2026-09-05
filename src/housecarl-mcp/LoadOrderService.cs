@@ -8286,7 +8286,7 @@ public sealed class LoadOrderService : IDisposable
                 // beside this folder's inactive "<stem>.esp" is two plugins that cannot both be active (#359). The
                 // in-place lane, the other reading of a name that lands on a foreign folder, is NOT offered here:
                 // this refusal is one sentence about the extend that failed, and the consent-gated lane stays
-                // discoverable on the tool that declares it (Aaron, 2026-09-06).
+                // discoverable on the tool that declares it (Aaron, 2026-09-05).
                 throw new InvalidOperationException(ExtendRefusal(
                     $"mod folder '{cand}' exists but was NOT created by houseCARL (no marker), so writing into it "
                     + "would touch a mod houseCARL doesn't own (originals untouched, Q3)",
@@ -8349,7 +8349,7 @@ public sealed class LoadOrderService : IDisposable
                                            bool ScanFailed);
 
     /// <summary>One extend refusal, composed: what went wrong, then what to try, in ONE sentence with the nearest
-    /// owned patches named inside it (Aaron, 2026-09-06). <paramref name="noFreshRule"/> is a lane's own statement
+    /// owned patches named inside it (Aaron, 2026-09-05). <paramref name="noFreshRule"/> is a lane's own statement
     /// that it has no fresh-write route and why, and <paramref name="fresh"/> is that route where a lane has one;
     /// each is omitted when the lane offers neither. No in-place clause rides here: that lane is discoverable on the
     /// tool that declares it.</summary>
