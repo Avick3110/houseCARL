@@ -51,6 +51,10 @@ namespace HousecarlCore;
 /// </summary>
 public static class ScriptPropertyCheck
 {
+    /// <summary>The script name an attachment with no class name is reported under. Not a real class, so the
+    /// unverifiable collapse skips it: the record, not the name, is the identity of that defect.</summary>
+    public const string NamelessScript = "(unnamed)";
+
     /// <summary>Sweep <paramref name="scope"/> (plugin filenames; null/empty = the whole active order minus excluded
     /// plugins) over the order <paramref name="resolver"/> holds, resolving each attached script's <c>.pex</c> through
     /// <paramref name="assets"/>. <paramref name="limit"/> caps the number of property FINDINGS collected across the
@@ -79,7 +83,9 @@ public static class ScriptPropertyCheck
     /// already listed for the same script class is COLLAPSED — counted in
     /// <see cref="ScriptCheckResult.UnverifiableCollapsed"/> and in the total, listed once. Off-order or not, one
     /// unreadable class hits every record that attaches it, and an uncapped wall of one sentence would push the
-    /// findings the caller asked for past <c>max_chars</c>.</para></summary>
+    /// findings the caller asked for past <c>max_chars</c>. A NAMELESS attachment (<see cref="NamelessScript"/>) is
+    /// exempt from the collapse: it names no class, so the record is the only identity the defect has and every one
+    /// carrying it is listed.</para></summary>
     public static ScriptCheckResult Run(LoadOrderResolver resolver, AssetResolver assets,
                                         IReadOnlyList<string>? scope, int limit,
                                         SweepScope? recordScope = null, string? propertyContains = null,
@@ -228,7 +234,7 @@ public static class ScriptPropertyCheck
                 var scriptClass = entry.Name?.Trim();
                 if (string.IsNullOrEmpty(scriptClass))
                 {
-                    unver.Add(new ScriptUnverifiable("(unnamed)",
+                    unver.Add(new ScriptUnverifiable(NamelessScript,
                         "the script attachment carries no class name — can't resolve its .pex to check its properties."));
                     continue;
                 }
@@ -301,10 +307,12 @@ public static class ScriptPropertyCheck
             // that attaches it — a disabled mod puts all of them outside the VFS at once, so the same sentence would
             // fill the listing and push the unbound findings past max_chars. The first record carrying a given
             // class+reason lists it; the repeats are counted and the collapse is stated in the head.
+            // A NAMELESS attachment is exempt: its note carries no class name, so the RECORD is the only identity the
+            // defect has — collapsing it would leave the caller a count and no way to learn which records to open.
             var keptUnver = new List<ScriptUnverifiable>();
             foreach (var uv in unver)
             {
-                if (seenUnverifiable.Add((uv.Script, uv.Reason))) keptUnver.Add(uv);
+                if (uv.Script == NamelessScript || seenUnverifiable.Add((uv.Script, uv.Reason))) keptUnver.Add(uv);
                 else collapsedUnverifiable++;
             }
             // A record whose only findings were repeats has nothing left to say that has not been said.

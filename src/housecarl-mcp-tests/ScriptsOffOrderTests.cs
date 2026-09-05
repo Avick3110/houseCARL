@@ -33,6 +33,13 @@ public sealed class ScriptsOffOrderTests : IDisposable
     const string ActiveName = "HcOoActive.esp";
     const string PendingName = "HcOoPending.esp";
 
+    /// <summary>A third off-order file whose records carry a VMAD script entry with NO class name — a corrupt or
+    /// hand-edited adapter. Its own file so the counts the other tests pin stay put.</summary>
+    const string NamelessName = "HcOoNameless.esp";
+
+    /// <summary>Records in <see cref="NamelessName"/>, every one carrying a nameless attachment.</summary>
+    const int NamelessRecords = 3;
+
     /// <summary>Records in the off-order plugin that attach <see cref="SharedScript"/> and bind nothing.</summary>
     const int PendingUnbound = 2;
 
@@ -67,6 +74,9 @@ public sealed class ScriptsOffOrderTests : IDisposable
         // the one that makes the unverifiable note repeat.
         WritePlugin(Path.Combine(pendingDir, PendingName), "HcOoPending",
                     new[] { SharedScript, SharedScript, PendingOnlyScript, PendingOnlyScript, PendingOnlyScript });
+        // Every record here attaches a script entry with no class name — the note that names no class.
+        WritePlugin(Path.Combine(pendingDir, NamelessName), "HcOoNameless",
+                    Enumerable.Repeat("", NamelessRecords).ToArray());
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -194,6 +204,24 @@ public sealed class ScriptsOffOrderTests : IDisposable
 
         var fam = ScriptsFamily(JsonWire.RenderCheck(new CheckSweep(Sel("scripts"), Scripts: r), 20000));
         Assert.Equal(PendingUnverifiable - 1, fam.GetProperty("unverifiable_collapsed").GetInt32());
+    }
+
+    /// <summary>The collapse keys on the script CLASS, so a note that names no class must be exempt: the record is
+    /// the only identity a nameless attachment has, and collapsing it would leave the caller a count and no way to
+    /// learn which records to open.</summary>
+    [Fact]
+    public void ANamelessAttachmentIsListedOnEveryRecordRatherThanCollapsed()
+    {
+        var r = _svc.ValidateScripts(new[] { NamelessName }, 1000);
+
+        Assert.Null(r.Error);
+        Assert.Equal(NamelessRecords, r.TotalUnverifiable);
+        Assert.Equal(0, r.UnverifiableCollapsed);
+        Assert.Equal(NamelessRecords, r.Reports.Count);
+        Assert.Equal(NamelessRecords,
+                     r.Reports.Sum(rep => rep.Unverifiable.Count(u => u.Script == "(unnamed)")));
+        // …and each record is named, which is the whole point: the listing says which ones to open.
+        Assert.Equal(NamelessRecords, r.Reports.Select(rep => rep.EditorId).Distinct().Count());
     }
 
     [Fact]
