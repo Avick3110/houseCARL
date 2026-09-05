@@ -101,7 +101,7 @@ public sealed class WhereGrammarTests
 
     [Fact]
     public void LinkStep_SelectsTheSpellWhoseEffectTargetMatches() =>
-        Assert.Equal(new[] { _w.SpellA, _w.SpellC }.ToHashSet(),
+        Assert.Equal(new[] { _w.SpellA, _w.SpellC, _w.SpellHop }.ToHashSet(),
                      Run("Effects->editorid startswith HcRec", _w.SpellBodies, null, Fetch));
 
     [Fact]

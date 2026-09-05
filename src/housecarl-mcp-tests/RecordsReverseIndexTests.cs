@@ -126,6 +126,55 @@ public sealed class RecordsReverseIndexTests : RecordsTestBase
     public void AnUnboundedReferencesWithAWhereIsStillRefused() =>
         Refused(RecordsTools.Records(Svc, references: new[] { Fid(W.MgefA) },
                                      where: new[] { "EditorID = HcRecSpellA" }), "types=");
+
+    // ---- the transitive reverse walk (walk.direction='reverse' under a reading form) -------------------
+
+    /// <summary>Depth repeats the follow rule at every hop: hop 1 is what links the seed, hop 2 what links those.
+    /// MgefHop &lt;- SpellHop &lt;- ListHop, so the second hop is the one that proves transitivity.</summary>
+    [Fact]
+    public void AReverseWalkAtDepthTwoReachesTheSecondHopReferrer()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 2 });
+        Served(r, "HcRecSpellHop", "HcRecListHop", "hop 1: 1", "hop 2: 1");
+    }
+
+    /// <summary>Depth 1 is the same walk with one hop: the second-hop referrer is NOT in it, so the depth is doing
+    /// the work rather than the lane reaching everything and calling it a depth.</summary>
+    [Fact]
+    public void AReverseWalkAtDepthOneStopsAtTheFirstHop()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 1 });
+        Served(r, "HcRecSpellHop", "hop 1: 1");
+        Assert.DoesNotContain("HcRecListHop", r);
+    }
+
+    /// <summary>An exhausted walk says which hops it did not need to walk, so a depth-6 call that ran out at hop 3
+    /// reads as exhausted rather than as a silent stop.</summary>
+    [Fact]
+    public void AReverseWalkThatRunsOutOfReferrersSaysSo()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 6 });
+        Served(r, "hop 3: 0", "nothing left to expand");
+    }
+
+    /// <summary>The index's accounting rides this lane too — the build cost, the freshness key and the coverage
+    /// disclosures are true of the walk's answer exactly as they are of a references= answer.</summary>
+    [Fact]
+    public void TheIndexAccountingRidesTheReverseWalk() =>
+        Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
+                                    walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 2 }),
+               "reverse-reference index", "key=");
+
+    /// <summary>types= narrows the typed carrier lane's carrier types; this lane reaches every type, so the pair
+    /// refuses with the re-entry spelling named rather than filtering something else.</summary>
+    [Fact]
+    public void TypesOnTheTransitiveReverseWalkRefusesNamingTheReEntrySpelling() =>
+        Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) }, types: new[] { "Spell" },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 2 }),
+                "to_file");
 }
 
 /// <summary>The index's own lifecycle: what a build costs, that a second call pays nothing, that a plugin whose

@@ -135,11 +135,15 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
         Assert.True(r.Contains("MagicEffect") || r.Contains("MGEF"), "the refusal names the required type");
     }
 
+    /// <summary>The carrier lane follows the effect link at every hop, so a depth past 1 reaches nothing — and the
+    /// response says the empty hops rather than answering a depth-3 call with a depth-1 answer and no word.</summary>
     [Fact]
-    public void ReverseDepthGreaterThanOneRefusesNamingTheReverseReferenceIndexAsTheFutureCapability() =>
-        Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
-                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 3 }, project: Chain),
-                "reverse-reference index");
+    public void ReverseDepthOnTheCarrierLaneNamesTheEmptyHopsRatherThanStoppingSilently()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 3 }, project: Chain);
+        Served(r, "hop 2: 0", "hop 3: 0", "not a magic effect");
+    }
 
     [Fact]
     public void InfoOrderOnANonDial_IsATypedPerItemRefusalTeachingTheQuestFanOutComposition() =>

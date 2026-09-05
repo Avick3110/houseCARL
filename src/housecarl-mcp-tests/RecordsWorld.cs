@@ -45,6 +45,11 @@ public sealed class RecordsWorld : IDisposable
     public FormKey BigList { get; }
     public FormKey NpcParent { get; }
     public FormKey NpcChild { get; }
+    // A three-link chain of its own — MgefHop <- SpellHop <- ListHop — so a transitive reverse walk has a second
+    // hop to reach without any existing record gaining a referrer it did not have.
+    public FormKey MgefHop { get; }
+    public FormKey SpellHop { get; }
+    public FormKey ListHop { get; }
 
     public IReadOnlyList<IMajorRecordGetter> WeaponBodies { get; }
     public IReadOnlyList<IMajorRecordGetter> SpellBodies { get; }
@@ -131,6 +136,14 @@ public sealed class RecordsWorld : IDisposable
         { var e = new Effect(); e.BaseEffect.SetTo(MgefA); e.Data = new EffectData { Magnitude = 9 }; spellC.Effects.Add(e); }
         var spellB = master.Spells.AddNew(); spellB.EditorID = "HcRecSpellB"; SpellB = spellB.FormKey;
         { var e = new Effect(); e.BaseEffect.SetTo(MgefB); e.Data = new EffectData { Magnitude = 7 }; spellB.Effects.Add(e); }
+
+        // The reverse chain: nothing here is linked from any record above, so every existing referencer count and
+        // orphan verdict is unchanged.
+        var mgefHop = master.MagicEffects.AddNew(); mgefHop.EditorID = "HcRecMgefHop"; MgefHop = mgefHop.FormKey;
+        var spellHop = master.Spells.AddNew(); spellHop.EditorID = "HcRecSpellHop"; SpellHop = spellHop.FormKey;
+        { var e = new Effect(); e.BaseEffect.SetTo(MgefHop); e.Data = new EffectData { Magnitude = 3 }; spellHop.Effects.Add(e); }
+        var listHop = master.FormLists.AddNew(); listHop.EditorID = "HcRecListHop"; ListHop = listHop.FormKey;
+        listHop.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(SpellHop));
 
         // One element past ReadEngine's expansion budget: the only fixture that reaches the delta form's
         // "TRUNCATED at the cap" sentence (zero deltas AND an incomplete deep read).

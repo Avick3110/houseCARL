@@ -58,7 +58,7 @@ public static class RecordsTools
         [Description("The link path followed at every LATER hop. \"*\" (default) walks every link — full closure. A named path restricts to one chain, e.g. \"Template\" for NPC template inheritance, or \"*parent\" to climb containment.")]
         public string? follow { get; set; }
 
-        [Description("'forward' (default) — what the seeds point AT (cheap: each hop is one link resolve). 'reverse' — what points AT the seeds; depth 1 only (transitive reverse is not wired to the reverse-reference index on this lane yet, so depth>1 is still refused). The general reverse spelling on this surface IS references=, which needs no bounding scope; walk.direction='reverse' serves the typed MGEF lane — magic-effect seeds get per-carrier magnitude/area/duration (types= narrows the carrier types; walk.max_nodes bounds each seed's carrier rows; limit=/offset= window the SEEDS).")]
+        [Description("'forward' (default) — what the seeds point AT (cheap: each hop is one link resolve). 'reverse' — what points AT the seeds, at any depth, needing no bounding scope: it follows EVERY link at every hop, off the reverse-reference index, which is built on the first such call at the cost of one whole-order link-walk and reports that cost in the response. The FORM picks the reverse lane, as it does forward: a reading form (summary/fields/rows/everything/aggregate) consumes the reached set and the response names the count at each hop, empty hops included; form='chain' is the typed MGEF carrier lane instead — magic-effect seeds get per-carrier magnitude/area/duration (types= narrows the carrier types; walk.max_nodes bounds each seed's carrier rows; limit=/offset= window the SEEDS), and it reaches nothing past hop 1 because a carrier is not a magic effect. references= is the same reverse question as one step of SELECT.")]
         public string? direction { get; set; }
 
         [Description("Maximum hops from a seed (default 16). Nodes AT the cap are recorded, not entered, and the response says the cap cut the walk — never a silent stop.")]
@@ -352,12 +352,8 @@ public static class RecordsTools
             }
             if (walkDirection == "reverse")
             {
-                if (walk.depth is > 1)
-                    return Wire.Refuse(json, "error: walk.direction='reverse' with depth>1 is a TRANSITIVE reverse lookup — the reverse-reference index that answers it now ships, but this walk lane is not wired to it yet, so it is refused rather than run as a scan-of-scans. Depth-1 reverse: references= (no bounding scope needed), or MGEF seeds under form='chain' for the typed carrier lane.");
                 if (walk.seed_paths is { Length: > 0 } || walk.exclusions is { Length: > 0 } || walk.follow is not null)
-                    return Wire.Refuse(json, "error: walk.seed_paths/follow/exclusions shape a FORWARD expansion — a reverse walk scans TOWARD the seeds. Drop them.");
-                if (form != "chain")
-                    return Wire.Refuse(json, "error: the reverse walk's general spelling on this surface IS references= (the same construct, depth 1, and it needs no bounding scope) — walk.direction='reverse' serves form='chain' with MGEF seeds (per-carrier magnitude/area/duration).");
+                    return Wire.Refuse(json, "error: walk.seed_paths/follow/exclusions shape a FORWARD expansion — a reverse walk scans TOWARD the seeds and follows every link at every hop. Drop them.");
             }
             if (references is { Length: > 0 })
                 return Wire.Refuse(json, "error: walk= and references= are the same construct (references= IS the reverse walk at depth 1) — use one spelling per call.");
@@ -405,10 +401,18 @@ public static class RecordsTools
         // formids= composes with the scan terms: the identity set intersects the scan's selection, or is the
         // universe when it is the only bound. The reverse MGEF walk keeps its own lane, where formids are seeds.
         bool reverseWalk = walk is not null && walkDirection == "reverse";
+        // The reverse direction has two lanes and they are told apart by the FORM, exactly as the forward direction
+        // is: 'chain' is the typed MGEF carrier lane (per-carrier magnitude/area/duration), every reading form
+        // consumes the reached set of the transitive reverse walk off the reverse-reference index.
+        bool reverseCarrier = reverseWalk && form == "chain";
         if (reverseWalk && (plugins?.names is { Length: > 0 } || conflicts_only || where is { Length: > 0 }))
-            return Wire.Refuse(json, "error: the reverse MGEF walk takes formids= (the effects) and optionally types= (narrowing the carrier types) — the general bounded reverse over other scan terms is the references= spelling.");
+            return Wire.Refuse(json, "error: a reverse walk takes formids= (its seeds) and nothing else as a scope — the bounded reverse over other scan terms is the references= spelling.");
+        if (reverseWalk && !reverseCarrier && types is { Length: > 0 })
+            return Wire.Refuse(json, "error: types= narrows the CARRIER types of the typed MGEF lane (form='chain'), and this reverse walk reaches records of every type — walk with to_file= and re-enter the artifact via formids=[\"@<file>\"] with types= to keep only the types you want.");
         if (reverseWalk && !hasFormids)
-            return Wire.Refuse(json, "error: the reverse walk needs its seeds — pass formids= (the MGEF(s) whose carriers to trace).");
+            return Wire.Refuse(json, reverseCarrier
+                ? "error: the reverse walk needs its seeds — pass formids= (the MGEF(s) whose carriers to trace)."
+                : "error: the reverse walk needs its seeds — pass formids= (the record(s) whose referrers to trace).");
         // The lane, decided once and read wherever a remedy sentence depends on which lane will run. The dispatch
         // below reads this same value, so a refusal cannot disagree with the lane it is refusing for.
         bool scanLane = hasScan && !reverseWalk;
@@ -665,8 +669,9 @@ public static class RecordsTools
 
         // ================================================================================================
         //  WALK lane — forward walks expand the winner link graph (the chain form renders the paths; any other
-        //  form consumes the reached set as its selection); the reverse walk is the typed MGEF lane, tracing
-        //  carriers with their per-hit payload.
+        //  form consumes the reached set as its selection). Reverse splits on the same form line: chain is the
+        //  typed MGEF lane tracing carriers with their per-hit payload, every reading form is the transitive
+        //  reverse walk off the reverse-reference index.
         // ================================================================================================
         string WalkLane(string[] ids, HousecarlCore.ArtifactDemand? demand, string? echoSrc)
         {
@@ -682,7 +687,35 @@ public static class RecordsTools
                 return e;
             }
 
-            if (walkDirection == "reverse")
+            if (reverseWalk && !reverseCarrier)
+            {
+                // The transitive reverse walk: every link, at every hop, off the reverse-reference index. The
+                // reached set is the selection the ordinary reading forms then consume, exactly as a forward walk's
+                // is — so the per-hop census is the only thing this lane renders of its own.
+                var rev = ReverseWalkBatch.Run(svc, ids, walkDepth, walkMaxNodes, demand);
+                if (rev.Refusal is not null)
+                    return json ? JsonWire.RenderError(rev.Refusal, rev.Epoch) : "error: " + rev.Refusal + (rev.Epoch is not null ? $"\nepoch={rev.Epoch}" : "");
+                if (SeamTear(rev.Epoch) is { } rTear)
+                    return json ? JsonWire.RenderError(rTear, rev.Epoch) : "error: " + rTear;
+                // Every hop is named with its count, empty ones included: a walk that ran out of referrers says so
+                // on the response instead of trailing off, so an empty hop 2 is visible and not silent.
+                var hopLine = string.Join(", ", rev.Hops.Select(h => $"hop {h.Depth}: {h.Reached.Count}"));
+                if (rev.Hops.Count < walkDepth)
+                    hopLine += $" (nothing left to expand, so hops {rev.Hops.Count + 1}–{walkDepth} were not walked)";
+                int reachedRev = rev.Selection.Count - ids.Length;
+                envelope.Add(new("walk", $"reverse (every link) depth={walkDepth} — {hopLine}; selection = the {rev.Selection.Count} record(s) the walk reached (seeds included)"));
+                if (rev.IndexNote is not null) envelope.Add(new("reverse_index", rev.IndexNote));
+                headerLine += $"\nwalk=reverse (every link) depth={walkDepth}: {hopLine} — selection = {rev.Selection.Count} record(s) ({reachedRev} referrer(s), seeds included)";
+                if (rev.IndexNote is not null) headerLine += "\n" + rev.IndexNote;
+                if (rev.Capped)
+                    headerLine += $"\n[!] the walk.max_nodes budget ({walkMaxNodes}) was reached — what is listed IS reached and proved; raise walk.max_nodes to walk further.";
+                expectEpoch = rev.Epoch;
+                formids = rev.Selection.ToArray();
+                walk = null;
+                return ListLane();
+            }
+
+            if (reverseCarrier)
             {
                 // The typed MGEF lane: each seed must resolve to a MagicEffect, and a non-MGEF seed fails loud
                 // per item rather than reading as '0 carriers'.
@@ -714,11 +747,18 @@ public static class RecordsTools
                     return json ? JsonWire.RenderError(dref, epochR) : "error: " + dref + Wire.EpochLine(epochR);
                 }
                 Arm("winner (carriers are the load-order-effective versions)");
-                envelope.Add(new("walk", "reverse, depth 1 — the typed MGEF carrier lane"));
-                headerLine += "\nwalk=reverse (per seed: every SPEL/ENCH/ALCH/SCRL/INGR applying it, with the MATCHING entry's magnitude/area/duration — reported AS AUTHORED; conditions are not evaluated, so a row means 'defines it at this strength', not 'it will fire')";
                 // The census separates written rows from the true total and names capped seeds, so the artifact
                 // and its census cannot disagree and a walk.max_nodes cut is always declared.
                 int carrierRows = results.Sum(r => r.Result.Error is null ? r.Result.Rows.Count : 0);
+                // This lane follows the effect link at every hop, and a carrier is not a magic effect — so hop 2
+                // and beyond reach nothing. Said out loud when a depth was asked for, never a silent stop.
+                var carrierHops = $"hop 1: {carrierRows}";
+                if (walkDepth > 1)
+                    carrierHops += string.Concat(Enumerable.Range(2, walkDepth - 1).Select(d => $", hop {d}: 0"))
+                                 + " — the carrier lane follows the effect link at every hop and a carrier is not a magic effect, so nothing is reached past hop 1; the transitive reverse over every link is walk={\"direction\":\"reverse\"} under a reading form.";
+                envelope.Add(new("walk", $"reverse, depth={walkDepth} — the typed MGEF carrier lane; {carrierHops}"));
+                headerLine += "\nwalk=reverse (per seed: every SPEL/ENCH/ALCH/SCRL/INGR applying it, with the MATCHING entry's magnitude/area/duration — reported AS AUTHORED; conditions are not evaluated, so a row means 'defines it at this strength', not 'it will fire')";
+                if (walkDepth > 1) headerLine += $"\n{carrierHops}";
                 int carrierTotal = results.Sum(r => r.Result.Error is null ? r.Result.Total : 0);
                 int cappedSeeds = results.Count(r => r.Result.Error is null && r.Result.Capped);
                 int seedErrs2 = results.Count(r => r.Result.Error is not null);
