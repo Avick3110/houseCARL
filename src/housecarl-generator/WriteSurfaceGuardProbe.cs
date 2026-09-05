@@ -2438,6 +2438,14 @@ public static class WriteSurfaceGuardProbe
         Observe(RemoveTools.Remove(fx.Svc, new[] { fx.SubjectFid }, into: "W2TwinNoSuchPatch"),
                 RemoveTools.Remove(fx.Svc, new[] { fx.SubjectFid }, into: "W2TwinNoSuchPatch", format: "json"));
 
+        // …and the UN-OWNED half of the same resolver, where apply's own in-place spelling reaches a caller (#359).
+        // A marker-less mod folder is enough to reach it, and it is inert to every other arm: nothing lists it, no
+        // profile enables it, and the call is a refusal, so the fixture stays as the later arms expect it.
+        Directory.CreateDirectory(Path.Combine(fx.ModsDir, "W2TwinForeign"));
+        var foreignOps = Json($$"""[{"formid":"{{fx.SubjectFid}}","field_path":"Name","value":"x"}]""");
+        Observe(ApplyTools.Apply(fx.Svc, ops: foreignOps, into: "W2TwinForeign"),
+                ApplyTools.Apply(fx.Svc, ops: foreignOps, into: "W2TwinForeign", format: "json"));
+
         // ---- the three post-write report blocks -------------------------------------------------------
         // Rendered off a built outcome for the same reason the report-budget arm above builds one: a report big
         // enough to cut means dozens of voiced lines, and the claim under test is the RENDERERS' agreement, not the
