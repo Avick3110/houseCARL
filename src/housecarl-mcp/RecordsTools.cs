@@ -230,6 +230,10 @@ public static class RecordsTools
             return Wire.Refuse(json, "error: the 'fields' form names its field paths — pass project.fields=[\"<path>\", …] (or use form='everything' for the full body).");
         if (form == "rows" && project?.fields is not { Length: > 0 })
             return Wire.Refuse(json, "error: the 'rows' form folds a LIST field to one line per element and names that field — pass project.fields=[\"Conditions\"] (or any list path).");
+        // Every entry has to be a path: the fold reads the roots themselves to decide what a line belongs to, so a
+        // null or blank one is bad input and is named as such rather than reaching the fold.
+        if (form == "rows" && project?.fields is { } rowFields && Array.FindIndex(rowFields, p => string.IsNullOrWhiteSpace(p)) is var badAt && badAt >= 0)
+            return Wire.Refuse(json, $"error: project.fields[{badAt}] is empty — the 'rows' form folds the list each entry names, so every entry must be a field path (e.g. [\"Conditions\"]).");
         // The quantifier tokens are where='s, not a projection's — refused by name here so a caller who tries one
         // gets the rule rather than an unreadable-field note from the read walk.
         if (project?.fields is { Length: > 0 } pf)
@@ -288,7 +292,7 @@ public static class RecordsTools
         // The rows form IS the fields form plus this fold, applied wherever a lane produces bodies — so the
         // render, the artifact and the json document all see the same folded rows.
         IReadOnlyList<ReadOutcome> FoldRows(IReadOnlyList<ReadOutcome> read)
-            => form == "rows" ? RowProjection.Apply(read, projFields!) : read;
+            => form == "rows" ? RowProjection.Apply(read, projFields!, depth) : read;
 
         // ---- SOURCE: the pole grammar (source = the subject; versus = the comparison reference) ----
         // ParsePole has no transport in scope, so its refusals take their shape here.
