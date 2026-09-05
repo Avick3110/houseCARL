@@ -95,7 +95,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
   answer now ends on `total / rendered / skipped / capped / truncated / offset / remaining / notes`, so what a window
   or a cap left out is a number rather than a silence. An unrecognized `format=` is refused naming the two the tool
   renders, and a negative `limit=`/`offset=` is refused naming both. Text output with neither knob passed is unchanged
-  apart from that closing accounting line.
+  apart from that closing accounting line. `max_chars` bounds the json document the way it bounds the text render:
+  what it cuts from a list the accounting does not count — one config's references, the inventory's config folders,
+  the pairing's unreadable `.pex` entries — is named on the spot as `references_truncated`,
+  `config_folders_truncated` and `unreadable_pex_truncated`.
 - **`housecarl_load_order_status` now names the running server's build in its header** — a `server:` line carrying
   the informational version the binary embeds (the release version `build-plugin.ps1` stamps from `plugin.json`,
   then `+` and the full commit sha: `1.9.5-dev+e942910…`), so checking that the installed houseCARL is the build you expect no longer means
