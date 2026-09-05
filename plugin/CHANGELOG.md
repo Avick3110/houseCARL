@@ -35,7 +35,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   through an element to a field whose arms disagree on shape (`Data[7].Data`) still refuses to guess the arm, but
   it now prints the container call to make once you have read it: the field's own path, the key you typed, and the
   verbs that collection takes. Bracketing an element at the end of a path (`Data[7]`) prints the same path and key.
-  Which verbs get named comes from the collection's own shape, so a dict caller is never offered `SetAtIndex`.
+  Which verbs get named comes from the collection's own shape, so a dict caller is never offered `SetAtIndex`, and
+  a key the collection cannot actually be indexed by (`Data[notasbyte]`) is not handed back as a call to make. Inside
+  a `compose=`'s nested `sets`, the path is named in the `path` slot it belongs to rather than `field_path`.
 - **`housecarl_load_order_status` now names the running server's build in its header** — a `server:` line carrying
   the informational version the binary embeds (the release version `build-plugin.ps1` stamps from `plugin.json`,
   then `+` and the full commit sha: `1.9.5-dev+e942910…`), so checking that the installed houseCARL is the build you expect no longer means

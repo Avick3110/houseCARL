@@ -1790,8 +1790,12 @@ public static class WriteEngine
     /// element. Dispatch at the leaf is on its <i>runtime</i> shape (dict / list /
     /// scalar), so execution stays corpus-independent: the corpus drives pre-flight (<see cref="CorpusRulebook"/>),
     /// reflection drives the write.
+    /// <para><paramref name="pathSlot"/> is what the caller's own input slot for <c>req.Path</c> is called at THIS
+    /// root — <c>field_path</c> on a record, <c>path</c> when a compose's nested <c>sets</c> are replayed here
+    /// against the freshly-built struct. Only the leaf-bracket throw reads it, and only to name a path the caller
+    /// can actually re-send; it mirrors the same parameter on <c>CorpusRulebook.ValidateFromType</c>.</para>
     /// </summary>
-    public static void ApplyVerb(object record, WriteRequest req)
+    public static void ApplyVerb(object record, WriteRequest req, string pathSlot = "field_path")
     {
         object current = record;
         for (int i = 0; i < req.Path.Length - 1; i++)
@@ -1819,17 +1823,22 @@ public static class WriteEngine
                 throw new InvalidOperationException(
                     $"Gendered field '{leafName}' on {current.GetType().Name} renders as [0]/[1] but is not a list — set " +
                     $"its halves by name: '{leafName}.Male' (=[0]) / '{leafName}.Female' (=[1]).");
-            // The gate's twin, by the same DERIVATION rather than a hand-typed recital. The corpus is not in scope
-            // here — the engine is schema-blind by design — so the shape comes off the live property type;
-            // WriteVerbs.OfRuntimeType and its schema-side sibling must give the same answer on every collection field
-            // in the corpus. A property that resolves to no collection at all still gets the rule, with no verb named.
+            // The gate's twin — its corpus-side recogniser is CorpusRulebook's leaf-bracket refusal, and the two must
+            // agree: same facts, same order, same slot. Pre-flight normally refuses first, so this fires only on a
+            // path that bypasses it (a direct / CLI --op call, or a compose's nested Sets replayed here), which is
+            // exactly why it has to say the same thing rather than a shorter version of it.
+            // Derived, not recited: the corpus is not in scope — the engine is schema-blind by design — so the shape
+            // comes off the live property type; WriteVerbs.OfRuntimeType and its schema-side sibling must give the
+            // same answer on every collection field in the corpus. The container path is joined by CorpusRulebook's
+            // own PathTo rather than a second copy of it, so the two messages cannot drift on the path either.
+            // A property that resolves to no collection at all still gets the rule, with no verb named.
             var head = $"Path segment '{req.Path[^1]}' brackets a collection element at the LEAF. Brackets navigate "
                        + "mid-path only; ";
             if (bracketProp is not null && WriteVerbs.OfRuntimeType(bracketProp.PropertyType) is { } bshape)
                 throw new InvalidOperationException(head
                     + "to operate on that element, target the field itself and use the verb + Key: "
-                    + $"field_path='{string.Join(".", req.Path[..^1].Append(leafName))}', key='{leafKey}' — "
-                    + $"{WriteVerbs.HowToAddress(bshape)}.");
+                    + $"{pathSlot}='{CorpusRulebook.PathTo(req.Path, req.Path.Length - 1, leafName)}', "
+                    + $"key='{leafKey}' — {WriteVerbs.HowToAddress(bshape)}.");
             throw new InvalidOperationException(head
                 + "to operate on a collection element at the leaf, target the collection field and use the verb + Key.");
         }
@@ -2163,7 +2172,9 @@ public static class WriteEngine
             else p.SetValue(instance, Coerce(val, p.PropertyType));
         }
         foreach (var req in spec.Sets ?? new())
-            ApplyVerb(instance, req);     // general nested writes — reuse the verb engine; recurses on struct-element Adds
+            // general nested writes — reuse the verb engine; recurses on struct-element Adds. These paths are rooted
+            // at the built struct and the caller typed them in the nested 'path' slot, so a refusal names that slot.
+            ApplyVerb(instance, req, "path");
         if (EmptyComposeRefusal(spec, type, instance) is { } why) throw new ExpectedApplyRejectionException(why);
         return instance;
     }
