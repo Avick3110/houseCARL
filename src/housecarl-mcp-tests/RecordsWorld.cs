@@ -93,6 +93,24 @@ public sealed class RecordsWorld : IDisposable
         var armo = master.Armors.AddNew(); armo.EditorID = "HcRecA0"; Armor = armo.FormKey;
         var mgefA = master.MagicEffects.AddNew(); mgefA.EditorID = "HcRecMgefFire"; MgefA = mgefA.FormKey;
         var mgefB = master.MagicEffects.AddNew(); mgefB.EditorID = "OtherMgef"; MgefB = mgefB.FormKey;
+        // A condition stack: a struct list whose polymorphic arm carries the value, one row Or-flagged and one
+        // whose arm has no parameters at all. The rows form's headline fixture.
+        mgefB.Conditions.Add(new ConditionFloat
+        {
+            CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f,
+            Data = new GetActorValueConditionData { ActorValue = ActorValue.Conjuration },
+        });
+        mgefB.Conditions.Add(new ConditionFloat
+        {
+            Flags = Condition.Flag.OR,
+            CompareOperator = CompareOperator.GreaterThanOrEqualTo, ComparisonValue = 30f,
+            Data = new GetActorValueConditionData { ActorValue = ActorValue.Destruction },
+        });
+        mgefB.Conditions.Add(new ConditionFloat
+        {
+            CompareOperator = CompareOperator.NotEqualTo, ComparisonValue = 0f,
+            Data = new GetRandomPercentConditionData(),
+        });
 
         var spellA = master.Spells.AddNew(); spellA.EditorID = "HcRecSpellA"; SpellA = spellA.FormKey;
         { var e = new Effect(); e.BaseEffect.SetTo(MgefA); e.Data = new EffectData { Magnitude = 5 }; spellA.Effects.Add(e); }
