@@ -152,4 +152,52 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
         Assert.Contains("check the field name against the record's schema", r);
         Assert.DoesNotContain("BRACKETS", r);
     }
+    // ---- every lane's unresolved-FormID sentence is the SAME three-cause sentence (#460) ------------------
+    //
+    // One ghost FormID in a plugin that IS installed, driven through each form that used to compose its own
+    // "not present in the active order" — the sentence a caller reads must not depend on which form they asked for.
+
+    string Ghost => "FFFFF0:" + W.MasterName;
+
+    [Fact]
+    public void TheTreeFormSaysWhichOfTheThreeCausesItIs() =>
+        Assert.Contains("IS in the load order", RecordsTools.Records(Svc, formids: new[] { Ghost }, project: Form("tree")));
+
+    /// <summary>The forward walk's own form: form='chain' is where a per-seed outcome is listed (the reading forms
+    /// consume the reached set and say only how many seeds errored), so it is where this sentence is read.</summary>
+    [Fact]
+    public void TheWalkSeedSaysWhichOfTheThreeCausesItIs()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]), Ghost }, project: Form("chain"),
+                                     walk: new RecordsTools.RecordsWalk { depth = 1 });
+        Assert.Contains("IS in the load order", r);
+        Assert.Contains("Nothing to walk from", r);
+    }
+
+    [Fact]
+    public void TheInfoOrderFormSaysWhichOfTheThreeCausesItIs() =>
+        Assert.Contains("IS in the load order", RecordsTools.Records(Svc, formids: new[] { Ghost }, project: Form("info_order")));
+
+    [Fact]
+    public void TheDeltaSubjectPoleSaysWhichOfTheThreeCausesItIs() =>
+        Assert.Contains("IS in the load order",
+            RecordsTools.Records(Svc, formids: new[] { Ghost }, project: Form("delta"), versus: Plugin(W.OverrideName)));
+
+    [Fact]
+    public void TheOverlayPrePoleSaysWhichOfTheThreeCausesItIs() =>
+        Assert.Contains("IS in the load order",
+            RecordsTools.Records(Svc, formids: new[] { Ghost }, project: Form("delta"), versus: Overlay("pre")));
+
+    [Fact]
+    public void TheIdentityFormSaysWhichOfTheThreeCausesItIs()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Ghost }, project: Form("identity"));
+        Assert.Contains("IS in the load order", r);
+        Assert.DoesNotContain("error=not present in the active order", r);
+    }
+
+    [Fact]
+    public void AndTheIdentityFormSaysItOnTheJsonLaneToo() =>
+        Assert.Contains("IS in the load order",
+            RecordsTools.Records(Svc, formids: new[] { Ghost }, project: Form("identity"), format: "json"));
 }

@@ -2567,7 +2567,8 @@ public sealed class LoadOrderService : IDisposable
     /// answer with their hardcoded identity and winner "&lt;engine&gt;", the same <see cref="EngineImplicit"/>
     /// exemption the error and dialogue checks apply.</summary>
     static ResolvedRef ResolveRefOne(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
-                                     FormKey fk, Dictionary<FormKey, ResolvedRef> memo)
+                                     FormKey fk, Dictionary<FormKey, ResolvedRef> memo,
+                                     Dictionary<string, string>? absenceMemo = null)
     {
         if (memo.TryGetValue(fk, out var hit)) return hit;
         ResolvedRef result;
@@ -2575,7 +2576,9 @@ public sealed class LoadOrderService : IDisposable
         if (w is null)
             result = EngineImplicit.TryDescribe(fk, out var eiType, out var eiEditorId)
                 ? new ResolvedRef(fk.ToString(), Resolved: true, Type: eiType, EditorId: eiEditorId, Winner: "<engine>")   // engine-implicit: hardcoded, real, defined by no plugin
-                : new ResolvedRef(fk.ToString(), Resolved: false);   // valid FormKey, but no active plugin defines it (a dangling target)
+                // Valid FormKey, no active plugin defines it. The reason is the three-cause sentence every other
+                // lane states, so the identity form's row says WHICH cause instead of a bare "not present".
+                : new ResolvedRef(fk.ToString(), Resolved: false, Error: UnresolvedFormId(view, fk, absenceMemo));
         else
         {
             var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
@@ -2627,6 +2630,7 @@ public sealed class LoadOrderService : IDisposable
         }
         using var session = resolver.OpenSession();
         var memo = new Dictionary<FormKey, ResolvedRef>();
+        var absenceMemo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var results = new List<ResolvedRef>(formids.Count);
         foreach (var raw in formids)
         {
@@ -2634,7 +2638,7 @@ public sealed class LoadOrderService : IDisposable
             FormKey fk;
             try { fk = view.ParseFormId(t); }
             catch (Exception ex) { results.Add(new ResolvedRef(t, Resolved: false, Error: $"bad FormID: {ex.Message}. Expected 'XXXXXX:Plugin.esp'.")); continue; }
-            results.Add(ResolveRefOne(view, session, fk, memo));
+            results.Add(ResolveRefOne(view, session, fk, memo, absenceMemo));
         }
         return results;
     }
@@ -3064,7 +3068,7 @@ public sealed class LoadOrderService : IDisposable
                 {
                     var w = view.ResolveWinner(fk);
                     if (w is null)
-                        return new PoleReading(null, null, null, $"{fk} is not present in the active order.");
+                        return new PoleReading(null, null, null, UnresolvedFormId(view, fk));
                     var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
                     if (body is null)
                         return new PoleReading(null, null, null, $"the winner body of {fk} could not be read from '{w.Value.WinnerPlugin}'.");
@@ -3188,7 +3192,7 @@ public sealed class LoadOrderService : IDisposable
             return (fk, _) =>
             {
                 var w = view.ResolveWinner(fk);
-                if (w is null) return new PoleReading(null, null, null, $"{fk} is not present in the active order.");
+                if (w is null) return new PoleReading(null, null, null, UnresolvedFormId(view, fk));
                 var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
                 if (body is null) return new PoleReading(null, null, null, $"the winner body of {fk} could not be read from '{w.Value.WinnerPlugin}'.");
                 return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth),
@@ -3458,7 +3462,7 @@ public sealed class LoadOrderService : IDisposable
             if (touchers.Count == 0)
             {
                 rows.Add(new TreeRow(fk.ToString(), null, null, Array.Empty<string>(), null, Array.Empty<TreeNodeDelta>(),
-                                     $"{fk} is not present in the active order — no plugin touches it.", Array.Empty<ChildDeclarers>()));
+                                     UnresolvedFormId(view, fk), Array.Empty<ChildDeclarers>()));
                 continue;
             }
             var tree = ResolveTreePinned(new ViewPin(resolver, view), fk, fields);
@@ -3603,8 +3607,13 @@ public sealed class LoadOrderService : IDisposable
             var seedBody = Fetch(seedFk);
             if (seedBody is null)
             {
+                // Fetch returns null for two conditions and they need different sentences: no winner at all (the
+                // three-cause unresolved sentence), or a named winner whose body did not come back on fetch.
+                var seedWin = view.ResolveWinner(seedFk);
                 results.Add(new WalkSeedResult(seedFk.ToString(), null, null, Array.Empty<WalkNodeRow>(), Array.Empty<string>(), null, null,
-                                               $"{seedFk} is not present in the active order — nothing to walk from."));
+                    seedWin is null
+                        ? UnresolvedFormId(view, seedFk) + " Nothing to walk from."
+                        : $"the winner body of {seedFk} could not be read from '{seedWin.Value.WinnerPlugin}' — nothing to walk from."));
                 continue;
             }
             var seedType = TypeOf(seedBody);
@@ -3779,8 +3788,7 @@ public sealed class LoadOrderService : IDisposable
             var win = view.ResolveWinner(fk);
             if (win is null)
             {
-                rows.Add(new InfoOrderRow(fk.ToString(), null, null, null, null,
-                                          $"{fk} is not present in the active order."));
+                rows.Add(new InfoOrderRow(fk.ToString(), null, null, null, null, UnresolvedFormId(view, fk)));
                 continue;
             }
             var body = view.GetRecord(session, win.Value.WinnerPlugin, fk);

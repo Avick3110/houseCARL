@@ -37,9 +37,11 @@ public sealed record FieldValue(string Path, bool HasValue, string? Token, strin
 
 /// <summary>The resolved identity of a form reference — the shared contract behind housecarl_resolve (a full row)
 /// and the resolve_names field annotation. <see cref="Resolved"/> false ⇒ the FormKey is valid but not present in
-/// the active order (a dangling target — named, never dropped or guessed). <see cref="Error"/> is set only on the
-/// housecarl_resolve path when the INPUT string is not a legal FormID at all. As a field annotation it is
-/// DISPLAY-ONLY: it never replaces the leaf's round-trip <see cref="FieldValue.Token"/>.</summary>
+/// the active order (a dangling target — named, never dropped or guessed). <see cref="Error"/> carries the REASON:
+/// the malformed-input sentence when the string is not a legal FormID at all, otherwise the three-cause sentence
+/// saying whether the defining plugin was excluded, is absent from the order, or is present and defines no such
+/// record. As a field annotation it is DISPLAY-ONLY: it never replaces the leaf's round-trip
+/// <see cref="FieldValue.Token"/>, and the annotation renders from Resolved/Winner, not from Error.</summary>
 public sealed record ResolvedRef(
     string Token, bool Resolved, string? Type = null, string? EditorId = null,
     string? Name = null, string? Winner = null, string? Error = null);
