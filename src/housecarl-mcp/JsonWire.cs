@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using HousecarlCore;
 using Mutagen.Bethesda.Plugins;
@@ -1374,7 +1374,7 @@ static class JsonWire
         bool didDangling = r.Classes.HasFlag(ErrorFindingClass.Dangling);
         bool didMasters = r.Classes.HasFlag(ErrorFindingClass.MissingMasters);
         w.WriteNumber("scanned_plugins", r.PluginsScanned);
-        WriteSweepEpoch(w, r.Epoch, r.ExcludedPlugins, r.OffOrderScanned);   // the swept INDEXED build + whether it covers every swept input
+        WriteSweepEpoch(w, r.Epoch, r.ExcludedPlugins.Count, r.OffOrderScanned);   // the swept INDEXED build + whether it covers every swept input
         // null (not 0) for a class nobody looked for — see the summary.
         if (didDangling) { w.WriteNumber("dangling", r.TotalDangling); w.WriteNumber("unscannable_records", r.TotalUnscannableRecords); }
         else { w.WriteNull("dangling"); w.WriteNull("unscannable_records"); }
@@ -1680,12 +1680,16 @@ static class JsonWire
         return Size(w, ms) - before;
     }
 
-    /// <summary>A swept family's stamp and coverage as data: <c>epoch_covers_all_inputs</c> is false exactly when
-    /// off-order files were swept beside the index, since their content is outside the fingerprint and
-    /// <c>off_order_scanned</c> names them. Both swept families have that lane, so both write it through here.
+    /// <summary>A family's stamp and coverage as data: <c>epoch_covers_all_inputs</c> is false when off-order files
+    /// were swept beside the index, since their content is outside the fingerprint and <c>off_order_scanned</c> names
+    /// them — or when the family also reports verdicts read off another substrate, which <paramref name="uncovered"/>
+    /// names in <c>epoch_uncovered</c>. Every family that stamps writes it through here.
     /// Success path only; a refusal swept nothing and carries the bare stamp.</summary>
-    static void WriteSweepEpoch(Utf8JsonWriter w, string? epoch, IReadOnlyDictionary<string, string> excluded,
-                                IReadOnlyList<string>? offOrderScanned)
+    /// <param name="excludedCount">how many plugins the build this family read had lost to a load failure — a count,
+    /// because a family whose own result carries no roster still reports the same fact off the response's stamp.</param>
+    internal static void WriteSweepEpoch(Utf8JsonWriter w, string? epoch, int excludedCount,
+                                         IReadOnlyList<string>? offOrderScanned,
+                                         IReadOnlyList<string>? uncovered = null)
     {
         if (epoch is null) return;
         WriteNullable(w, "epoch", epoch);
@@ -1695,12 +1699,14 @@ static class JsonWire
         // one document three times, beside a roster that already names those plugins WITH their reasons — and the
         // fixed part comes out of the budget the findings are listed from. The count is what the family's TEXT
         // head says beside epoch=, so the two transports state the same thing here.
-        if (excluded.Count > 0)
+        if (excludedCount > 0)
         {
             w.WriteBoolean("order_degraded", true);
-            w.WriteNumber("order_degraded_plugins", excluded.Count);
+            w.WriteNumber("order_degraded_plugins", excludedCount);
         }
-        w.WriteBoolean("epoch_covers_all_inputs", offOrderScanned is not { Count: > 0 });
+        w.WriteBoolean("epoch_covers_all_inputs", offOrderScanned is not { Count: > 0 } && uncovered is not { Count: > 0 });
+        // Named only where there are classes to name, so the key is never a caveat over a stamp that covers everything.
+        if (uncovered is { Count: > 0 }) WriteStringArray(w, "epoch_uncovered", uncovered);
     }
 
     /// <summary>A swept family's off-order roster AND the coverage caveat that makes it readable — the same tail
@@ -1904,7 +1910,7 @@ static class JsonWire
         bool didNull = r.Classes.HasFlag(ScriptFindingClass.BoundNull);
 
         w.WriteNumber("scanned_plugins", r.PluginsScanned);
-        WriteSweepEpoch(w, r.Epoch, r.ExcludedPlugins, r.OffOrderScanned);   // the swept INDEXED build + whether it covers every swept input
+        WriteSweepEpoch(w, r.Epoch, r.ExcludedPlugins.Count, r.OffOrderScanned);   // the swept INDEXED build + whether it covers every swept input
         w.WriteNumber("records_with_scripts", r.RecordsWithScripts);
         if (didObject || didScalar) w.WriteNumber("unbound", r.TotalUnbound); else w.WriteNull("unbound");
         if (didObject) w.WriteNumber("unbound_object", r.TotalUnboundObject); else w.WriteNull("unbound_object");

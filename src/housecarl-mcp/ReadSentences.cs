@@ -700,6 +700,26 @@ internal static class ReadSentences
     internal const string DialogueCounts =
         "{0} of the {1} seed(s) reached were validated, {2} topic(s), {3} finding(s) across them.\n";
 
+    /// <summary>The dialogue family's stamp line: the record build the verdicts were read from, and the classes that
+    /// build does not describe. The stamp is never omitted in place of declaring the bound — an answer with no
+    /// freshness claim at all is less readable than one that says how far its claim reaches.</summary>
+    [MustState("epoch=", "does not cover")]
+    internal const string DialogueEpochBound =
+        "epoch={0} — the record build these verdicts were read from; it does not cover: {1}.\n";
+
+    /// <summary>One of the three verdict classes the record fingerprint does not describe: whether a line's voice file
+    /// is on disk, which is an asset the fingerprint never sees.</summary>
+    [MustState(".fuz")]
+    internal const string DialogueUncoveredVoice = "voiced lines (.fuz on disk)";
+
+    /// <summary>The second uncovered class: the compiled script behind each result fragment.</summary>
+    [MustState(".pex")]
+    internal const string DialogueUncoveredScripts = "result-script .pex chain";
+
+    /// <summary>The third: the .seq verdict, a file-mtime comparison no record fingerprint expresses.</summary>
+    [MustState(".seq")]
+    internal const string DialogueUncoveredSeq = ".seq coverage and staleness";
+
     /// <summary>What <c>counts_only=true</c> leaves out for this family, stated where the listing would have been:
     /// a mode that renders no blocks must say so rather than look like a validation that found nothing.</summary>
     [MustState("counts_only=true", "no per-topic blocks")]

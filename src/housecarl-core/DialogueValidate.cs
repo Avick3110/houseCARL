@@ -242,11 +242,15 @@ public static class DialogueValidate
         return built;
     }
 
-    public static DialogueValidationReport Run(LoadOrderResolver resolver, AssetResolver assets, FormKey fk)
+    /// <param name="pinned">the build to read, when a CALLER has already pinned one — a seed sweep validating several
+    /// records in one response hands its own view down so every seed reads the build the response stamps. Null pins one
+    /// here, which is what a single validation wants.</param>
+    public static DialogueValidationReport Run(LoadOrderResolver resolver, AssetResolver assets, FormKey fk,
+                                               LoadOrderResolver.IndexView? pinned = null)
     {
         try
         {
-            var view = resolver.Capture();                       // pin ONE index build for the whole validation
+            var view = pinned ?? resolver.Capture();             // pin ONE index build for the whole validation
             using var session = resolver.OpenSession();          // one set of overlays, disposed at run end
             var av = assets.Capture();                           // …and ONE asset build, so presence + ReadIncomplete agree
 

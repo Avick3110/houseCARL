@@ -55,8 +55,20 @@ internal static class DialogueSweepRender
         // different quantities under the same word.
         sb.Append(string.Format(ReadSentences.DialogueCounts, d.SeedsValidated, d.SeedsReached, d.TopicsFound,
                                 d.FindingsFound));
+        if (o.Sweep.Dialogue?.Epoch is { } epoch)
+            sb.Append(string.Format(ReadSentences.DialogueEpochBound, epoch, string.Join(", ", EpochUncovered)));
         if (d.CountsOnly) sb.Append(ReadSentences.DialogueCountsOnly);
     }
+
+    /// <summary>The verdict classes this family reports that the record fingerprint does not describe — the ASSET
+    /// substrate half of the answer. Data, read by both transports, so the text sentence and <c>epoch_uncovered</c>
+    /// cannot name different sets.</summary>
+    internal static readonly string[] EpochUncovered =
+    {
+        ReadSentences.DialogueUncoveredVoice,
+        ReadSentences.DialogueUncoveredScripts,
+        ReadSentences.DialogueUncoveredSeq,
+    };
 
     /// <summary>The family's rows. Everything here goes through <paramref name="body"/>, so everything here is
     /// refusable and everything refused is accounted for.</summary>
@@ -153,6 +165,9 @@ internal static class DialogueSweepRender
         var d = o.Dialogue!.Value;
         w.WriteString("scope", ScopeNote(d));
         w.WriteBoolean("seeded_not_swept", true);
+        // The stamp in the shape the swept families write, with the bound declared: this family also reports asset
+        // verdicts, so it names them rather than claiming the fingerprint covers them.
+        JsonWire.WriteSweepEpoch(w, o.Sweep.Dialogue?.Epoch, o.Sweep.OrderExcluded.Count, null, EpochUncovered);
         w.WriteBoolean("counts_only", d.CountsOnly);
         w.WriteNumber("seeds_named", d.SeedsNamed);
         w.WriteNumber("seeds_reached", d.SeedsReached);

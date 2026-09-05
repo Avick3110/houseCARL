@@ -17,9 +17,12 @@ internal static class DialogueSweep
     /// <param name="limit">how many seeds this call may expand. Over it, the extra seeds are not validated and the
     /// response states how many and which knob moves them.</param>
     /// <param name="countsOnly">carry the totals and the unreachable-seed roster, and no topic blocks.</param>
+    /// <param name="epoch">the record build every seed was validated against, stamped onto the result. Left off the
+    /// refusals, as the sibling families leave it off theirs: a family that validated nothing has no build to claim.</param>
     internal static DialogueCheckResult Run(Func<FormKey, DialogueValidationReport> validate,
                                             Func<string?, FormKey> parseFormId,
-                                            IReadOnlyList<string>? seeds, int limit, bool countsOnly = false)
+                                            IReadOnlyList<string>? seeds, int limit, bool countsOnly = false,
+                                            string? epoch = null)
     {
         var named = (seeds ?? Array.Empty<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
         if (named.Length == 0) return DialogueCheckResult.Fail(ReadSentences.DialogueNeedsSeeds);
@@ -68,7 +71,7 @@ internal static class DialogueSweep
                 string.Join(" ", results.Select(r => $"{r.Seed}: {r.Refusal}."))));
 
         return new DialogueCheckResult(results, topics, problems, readIncomplete, Limit: limit,
-                                       SeedsNamed: named.Length, CountsOnly: countsOnly);
+                                       SeedsNamed: named.Length, CountsOnly: countsOnly, Epoch: epoch);
     }
 
     /// <summary>Every finding one report carries, at both levels. Counted off the report rather than off what

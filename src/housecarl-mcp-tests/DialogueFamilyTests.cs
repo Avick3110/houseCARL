@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
@@ -174,6 +175,31 @@ public sealed class DialogueFamilyTests
         var byQuestLine = SeedBlock(r, "quest (QUST)");
         Assert.Contains("quest CK-parity: OK", byQuestLine);
         foreach (var sig in pinQuest) Assert.Contains(sig, byQuestLine);
+    }
+
+    // ---- fact V2 --------------------------------------------------------------------------------------
+    // The family stamps the record build every seed was validated against, and DECLARES the bound rather than
+    // omitting the stamp: both transports name the three verdict classes the record fingerprint does not describe.
+
+    [Fact]
+    public void FactV2_TheStampDeclaresItsBound()
+    {
+        var result = Svc.CheckDialogue(new[] { Fid(W.Topic) }, 1000);
+        Assert.Null(result.Error);
+        Assert.False(string.IsNullOrEmpty(result.Epoch));
+
+        var text = Wire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000);
+        Served(text, $"epoch={result.Epoch}", "does not cover");
+        foreach (var cls in DialogueSweepRender.EpochUncovered) Assert.Contains(cls, text);
+
+        var fam = JsonDocument.Parse(JsonWire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000))
+                              .RootElement.GetProperty("families")
+                              .GetProperty(SweepFamilySelection.Token(SweepFamily.Dialogue));
+        Assert.Equal(result.Epoch, fam.GetProperty("epoch").GetString());
+        // The stamp is a record-build claim only, so the coverage flag is false and the uncovered set says over what.
+        Assert.False(fam.GetProperty("epoch_covers_all_inputs").GetBoolean());
+        Assert.Equal(DialogueSweepRender.EpochUncovered,
+                     fam.GetProperty("epoch_uncovered").EnumerateArray().Select(e => e.GetString()).ToArray());
     }
 
     /// <summary>Everything AFTER the seed prefix the sweep echoes — the composed refusal itself. The sweep writes
