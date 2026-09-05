@@ -189,7 +189,7 @@ internal static class Artifacts
     /// explaining it. The manifest is line 1 and the rows are lines 2..N, so this names the annotated fields
     /// rather than pointing at a position. The precise tier's note is <see cref="PreciseChildNotes"/>.</summary>
     static IReadOnlyList<string>? OwnedChildNotes(IReadOnlyCollection<string> annotatedFields) =>
-        annotatedFields.Count == 0 ? null : new[] { ReadSentences.NotReadClause(annotatedFields) };
+        annotatedFields.Count == 0 ? null : new[] { ReadSentences.UnionClause(annotatedFields) };
 
     /// <summary>The precise tier's response-level note for a tree artifact: <see cref="ReadSentences.DeclarersLead"/>
     /// stated once rather than per row, when any row's <c>child_declarers</c> reached the file.</summary>

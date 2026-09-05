@@ -41,7 +41,7 @@ public static class OwnedChildContentProbe
     [CiProbe("owned-child-content-guard")]
     public static int RunGuard(string[] args)
     {
-        Console.WriteLine("################  #342 stage 1 — owned-child content annotation  ################");
+        Console.WriteLine("################  owned-child content annotation  ################");
         Console.WriteLine();
         _pass = _fail = 0;
 
@@ -186,11 +186,8 @@ public static class OwnedChildContentProbe
             // child-bearing field says other plugins were not read, that no declarer is named, that the clause is
             // stated once and names its fields with no positional claim, and that those names are derived. They
             // drove housecarl_read_record and are tests against housecarl_records in src/housecarl-mcp-tests now.
-            Check("CHEAP: the cheap tier CANNOT read a body — its signature takes no overlay session",
-                typeof(LoadOrderService)
-                    .GetMethod("AnnotateOwnedChildContent", BindingFlags.NonPublic | BindingFlags.Static)!
-                    .GetParameters().All(x => x.ParameterType != typeof(LoadOrderResolver.OverlaySession)),
-                "AnnotateOwnedChildContent takes an OverlaySession — it can fetch bodies");
+            // The arm pinning that the default lane could not open a body went with #342 stage 2: the read now
+            // assembles the additive union, so it opens one body per touching plugin by design.
 
             // The SOLE, UNREQUESTED and NO-CHILDREN reads stood here, driving housecarl_read_record; they are
             // tests in src/housecarl-mcp-tests now. The field-set half of NO-CHILDREN is a fact about the TYPE,
