@@ -1,3 +1,5 @@
+using System.Text.Json;
+using HousecarlCore;
 using HousecarlMcp;
 using Xunit;
 
@@ -28,12 +30,13 @@ public sealed class RecordsFieldFoldTests : RecordsTestBase
     [Fact]
     public void CountReadsTheListWithoutOpeningIt()
     {
-        // A count needs no expansion, so the call costs the depth-1 read even though [*] would force depth 4.
-        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, format: "dense", project: Fields("Effects[*count]"));
-        var doc = Je(r);
-        Assert.Equal(new[] { "formid", "runtime_formid", "editorid", "Effects[*count]" },
-                     doc.GetProperty("columns").EnumerateArray().Select(c => c.GetString()).ToArray());
-        var spellA = doc.GetProperty("rows").EnumerateArray().First(x => x[2].GetString() == "HcRecSpellA");
+        // The cost claim, on the one fixture that can prove it: the over-budget list truncates the moment it is
+        // expanded, so a count that reports the number WITHOUT that note never opened it.
+        var count = RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, project: Fields("Items[*count]"));
+        Served(count, "Items[*count] = " + (ReadEngine.MaxExpandNodes + 1));
+        Assert.DoesNotContain("expansion truncated", count);
+        var dense = Je(RecordsTools.Records(Svc, types: new[] { "SPEL" }, format: "dense", project: Fields("Effects[*count]")));
+        var spellA = dense.GetProperty("rows").EnumerateArray().First(x => x[2].GetString() == "HcRecSpellA");
         Assert.Equal("2", spellA[3].GetString());
     }
 
@@ -93,10 +96,15 @@ public sealed class RecordsFieldFoldTests : RecordsTestBase
         Assert.Contains("'EditorID[*count]' quantifies a LIST", Spell("EditorID[*count]"));
 
     [Fact]
-    public void AnAbsentListIsTheReadsAnswerNotAMisuseOfTheToken() =>
-        // No Effects field on a WEAP at all: the read says so under the caller's own spelling.
-        Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[1]) }, project: Fields("Effects[*count]")),
-               "Effects[*count]");
+    public void AnAbsentListIsTheReadsAnswerNotAMisuseOfTheToken()
+    {
+        // No Effects field on a WEAP at all: the read's own note carries out under the caller's spelling, and the
+        // count is NOT answered with a number — a missing field and an empty list are different answers.
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[1]) }, project: Fields("Effects[*count]"));
+        Served(r, "Effects[*count]");
+        Assert.DoesNotContain("Effects[*count] = 0", r);
+        Assert.Contains("no field", Line(r, "Effects[*count]").ToLowerInvariant());
+    }
 
     [Fact]
     public void ABooleanFoldStaysInWhere() =>
@@ -126,11 +134,125 @@ public sealed class RecordsFieldFoldTests : RecordsTestBase
                     project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects[*]" }, depth = 1 }),
                 "Effects[*count]");
 
-    /// <summary>The one rendered line for a row, by its path.</summary>
-    static string RowLine(string response, string path)
+    // ---- what the read said, carried through the fold ------------------------------------------------
+
+    /// <summary>The read's own cut is the case the fold could silently shorten: the elements past
+    /// <c>MaxExpandNodes</c> are missing from the rows, so the note that NAMES the cut has to survive the fold.
+    /// The fixture's over-budget FormList is the only record that reaches it.</summary>
+    [Fact]
+    public void ATruncatedExpansionStillSaysSoBesideTheShortRows()
     {
-        var line = response.Split('\n').FirstOrDefault(l => l.TrimStart().StartsWith(path + " = ", StringComparison.Ordinal));
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, project: Fields("Items[*]"));
+        Served(r, "expansion truncated");
+        // And with the fold's own remedy, not the fields form's: lowering the depth renders no rows at all.
+        Assert.Contains("the fold runs AFTER the read", r);
+    }
+
+    [Fact]
+    public void TheDenseDocumentCarriesTheCutToo()
+    {
+        var doc = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, types: new[] { "FLST" },
+                                          format: "dense", project: Fields("Items[*]"), max_chars: 400_000));
+        Assert.Contains("expansion truncated", doc.GetProperty("read_note").GetString()!);
+    }
+
+    // ---- an empty list is an answer -----------------------------------------------------------------
+
+    /// <summary>An empty list reads back present with zero elements. The rows form passes its summary line
+    /// through, so this spelling of the same row shape does too — a dropped path would be indistinguishable from
+    /// one that was never asked for.</summary>
+    [Fact]
+    public void AnEmptyListRendersItsOwnLineAndNotNothing()
+    {
+        // Effect 0 carries no conditions; effect 1 does — so the same call proves both halves.
+        Served(Spell("Effects[0].Conditions[*]"), "Effects[0].Conditions[*]");
+        Served(Spell("Effects[1].Conditions[*]"), "Effects[1].Conditions[0]");
+    }
+
+    [Fact]
+    public void CountOnAnEmptyListIsZero() =>
+        Served(Spell("Effects[0].Conditions[*count]"), "Effects[0].Conditions[*count] = 0");
+
+    // ---- dense: a cell belongs to its own element ---------------------------------------------------
+
+    /// <summary>A sub-path column emits no line for an element whose arm does not carry it, so pairing the
+    /// columns by POSITION would sit element 1's value on element 0's row and read as element 0's value.</summary>
+    [Fact]
+    public void ADenseCellSitsBesideItsOwnElementNeverTheNextOne()
+    {
+        var doc = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) }, types: new[] { "SPEL" },
+                                          format: "dense", project: Fields("Effects[*]", "Effects[*].Conditions[0]")));
+        var rows = doc.GetProperty("rows").EnumerateArray().ToList();
+        Assert.Equal(2, rows.Count);
+        Assert.Contains("Data.Magnitude=5", rows[0][3].GetString()!);      // effect 0 — no conditions
+        Assert.Equal(JsonValueKind.Null, rows[0][4].ValueKind);
+        Assert.Contains("Data.Magnitude=4", rows[1][3].GetString()!);      // effect 1 — the only one with a condition
+        Assert.NotEqual(JsonValueKind.Null, rows[1][4].ValueKind);
+    }
+
+    [Fact]
+    public void TwoDifferentListsCannotShareOneDenseRow() =>
+        Refused(RecordsTools.Records(Svc, types: new[] { "SPEL" }, format: "dense",
+                                     project: Fields("Effects[*]", "Keywords[*]")),
+                "different lists", "one call per list");
+
+    /// <summary>The ceiling is a ROW property: one record's element rows are unbounded, so a cap consulted only
+    /// between records lets a single record overrun it.</summary>
+    [Fact]
+    public void DenseCapsTheElementRowsAndNotOnlyTheRecords()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, types: new[] { "FLST" },
+                                     format: "dense", project: Fields("Items[*]"), max_chars: 4000);
+        var doc = Je(r);
+        Assert.True(doc.GetProperty("truncated").GetBoolean());
+        Assert.True(doc.GetProperty("rows").GetArrayLength() < 100, $"rows={doc.GetProperty("rows").GetArrayLength()}");
+        Assert.True(r.Length <= 8000, $"len={r.Length}");
+        // `rendered` counts RECORDS, so the row count is its own number rather than a figure a consumer infers.
+        Assert.Equal(doc.GetProperty("rows").GetArrayLength(), doc.GetProperty("rows_rendered").GetInt32());
+    }
+
+    // ---- one fold, every lane -----------------------------------------------------------------------
+
+    /// <summary>The json document takes the body lane, not the dense render, so it is its own claim.</summary>
+    [Fact]
+    public void TheJsonDocumentCarriesTheSameElementRows()
+    {
+        var doc = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) }, format: "json", project: Fields("Effects[*]")));
+        var paths = doc.GetProperty("records")[0].GetProperty("fields").EnumerateArray()
+                       .Select(f => f.GetProperty("path").GetString()).ToArray();
+        Assert.Equal(new[] { "Effects[0]", "Effects[1]" }, paths);
+    }
+
+    /// <summary>The one rendered line for a row, by its path.</summary>
+    static string RowLine(string response, string path) => Line(response, path + " = ");
+
+    /// <summary>The first rendered line whose own text starts with <paramref name="lead"/>.</summary>
+    static string Line(string response, string lead)
+    {
+        var line = response.Split('\n').FirstOrDefault(l => l.TrimStart().StartsWith(lead, StringComparison.Ordinal));
         Assert.NotNull(line);
         return line!;
+    }
+}
+
+/// <summary>The quantified projection's ARTIFACT lane: a to_file spill takes a different route from the inline
+/// render, and the claim is that both see the same folded fields.</summary>
+[Trait("tier", "integration")]
+public sealed class RecordsFieldFoldArtifactTests : ArtifactTestBase, IClassFixture<ArtifactFixture>
+{
+    public RecordsFieldFoldArtifactTests(ArtifactFixture f) : base(f) { }
+
+    [Fact]
+    public void TheArtifactCarriesTheSameElementRows()
+    {
+        var art = Art("fold-elements.jsonl");
+        RecordsTools.Records(Svc, types: new[] { "SPEL" }, to_file: art,
+                             project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects[*]" } });
+        // The spilled row for the two-effect spell carries the ELEMENT rows and nothing else — not the list's
+        // summary line and not the per-sub-field lines the same depth-4 read would emit unfolded.
+        var row = File.ReadAllLines(art).First(l => l.Contains("HcRecSpellA", StringComparison.Ordinal));
+        var paths = Je(row).GetProperty("fields").EnumerateArray()
+                           .Select(f => f.GetProperty("path").GetString()).ToArray();
+        Assert.Equal(new[] { "Effects[0]", "Effects[1]" }, paths);
     }
 }
