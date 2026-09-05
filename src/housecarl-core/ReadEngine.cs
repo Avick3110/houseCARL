@@ -343,12 +343,13 @@ public static class ReadEngine
     }
 
     /// <summary>Navigate a path READ-ONLY to its live value — the quantified step's fan-out source. Same walk
-    /// <see cref="ReadLeaf"/> makes, yielding the object, its owning parent, and the miss note in the leaf-note
-    /// vocabulary callers already classify.</summary>
-    internal static (bool Ok, object? Value, object Parent, string? Note) NavigateTo(object record, string[] path)
+    /// <see cref="ReadLeaf"/> makes, yielding the object, its DECLARED type (so a caller can judge the step's shape
+    /// even where the value is null), its owning parent, and the miss note in the leaf-note vocabulary callers
+    /// already classify.</summary>
+    internal static (bool Ok, object? Value, Type Declared, object Parent, string? Note) NavigateTo(object record, string[] path)
     {
         var nav = NavigateValue(record, path);
-        return (nav.ok, nav.val, nav.parent, nav.note);
+        return (nav.ok, nav.val, nav.type, nav.parent, nav.note);
     }
 
     /// <summary>A "no such field" note that, when the owner is a collection, points the caller at bracket

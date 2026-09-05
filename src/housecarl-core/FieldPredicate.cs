@@ -733,46 +733,89 @@ public sealed class FieldPredicateSet
 
     /// <summary>Navigate to a quantified step's collection and hand back its elements (with the collection's owning
     /// parent, which the element's token emit needs). An ABSENT collection reads as EMPTY — the same reading
-    /// <see cref="ReadEngine.KeywordKeys"/> already gives a record with no list. A step that is not a list at all
-    /// is a named no-verdict, never a silent non-match.</summary>
+    /// <see cref="ReadEngine.KeywordKeys"/> already gives a record with no list, and it holds whether the LEAF is
+    /// null or a substruct ABOVE it is (a record with no VirtualMachineAdapter carries no scripts either). A step
+    /// that is not a list at all is a named no-verdict, never a silent non-match — judged on the step's DECLARED
+    /// type, so a null non-list field is refused exactly as a carried one is.</summary>
     (List<object>? Elements, object? Parent, EvalKind? Miss) ElementsAt(object obj, string[] segs, Fold[] folds, int from, int q)
     {
-        var (ok, val, parent, note) = ReadEngine.NavigateTo(obj, segs[from..(q + 1)]);
-        if (!ok) return (null, null, ClassifyMiss(note ?? ""));
-        if (val is null) return (new List<object>(), parent, null);
-        if (val is string || val is not System.Collections.IEnumerable en)
+        var (ok, val, declared, parent, note) = ReadEngine.NavigateTo(obj, segs[from..(q + 1)]);
+        if (!ok)
         {
-            _lastNotList = $"'{segs[q]}{FoldToken(folds[q])}' reads as a single " +
-                           $"{RecordNaming.StripOverlay(val.GetType().Name)} value, not a list";
+            // A mid-path substruct that is absent makes the collection absent, which reads as empty like any other
+            // absent collection. Every other miss (no such field, a read fault) keeps its own no-verdict class.
+            if (note == ReadEngine.AbsentNote) return (new List<object>(), parent, null);
+            return (null, null, ClassifyMiss(note ?? ""));
+        }
+        if (NotListShape(declared, val) is { } what)
+        {
+            _lastNotList = $"'{segs[q]}{FoldToken(folds[q])}' reads as {what}, not a list";
             return (null, null, EvalKind.NotAList);
         }
+        if (val is null) return (new List<object>(), parent, null);
         var list = new List<object>();
-        foreach (var e in en) if (e is not null) list.Add(e);
+        foreach (var e in (System.Collections.IEnumerable)val) if (e is not null) list.Add(e);
         return (list, parent, null);
     }
 
+    /// <summary>What a quantified step actually reads where it is not a list — null when it IS one. Keyed on the
+    /// DECLARED type and on the same closed-interface test the read engine's emit side uses, so the two shapes that
+    /// merely happen to enumerate (a raw byte slice, a keyed dict) are named rather than folded over.</summary>
+    static string? NotListShape(Type declared, object? val)
+    {
+        var t = Nullable.GetUnderlyingType(declared) ?? declared;
+        if (t == typeof(object) && val is not null) t = val.GetType();   // a bracketed hop yields the element's own type
+        var name = t.Name;
+        if (name.StartsWith("MemorySlice", StringComparison.Ordinal) || name.StartsWith("ReadOnlyMemorySlice", StringComparison.Ordinal))
+            return "a raw block of bytes";
+        if (WriteEngine.ClosedInterface(t, typeof(IDictionary<,>)) is not null
+            || WriteEngine.ClosedInterface(t, typeof(IReadOnlyDictionary<,>)) is not null)
+            return "a dict of keyed entries";
+        if (WriteEngine.ClosedInterface(t, typeof(IList<>)) is not null
+            || WriteEngine.ClosedInterface(t, typeof(IReadOnlyList<>)) is not null)
+            return null;
+        return $"a single {RecordNaming.StripOverlay((val?.GetType() ?? t).Name)} value";
+    }
+
     /// <summary>Fold one step's element verdicts into the record's. Same accounting shape
-    /// <see cref="EvalLinkStep"/> uses over link targets: a definite verdict decides, and where no element could be
-    /// judged the no-verdict class carries out rather than a silent non-match. An EMPTY list is a definite verdict
-    /// — <c>[*all]</c> and <c>[*none]</c> are vacuously true on it, <c>[*any]</c> false.</summary>
+    /// <see cref="EvalLinkStep"/> uses over link targets: a definite verdict decides, and where an element could
+    /// NOT be judged the no-verdict class carries out rather than a silent non-match. An EMPTY list is a definite
+    /// verdict — <c>[*all]</c> and <c>[*none]</c> are vacuously true on it, <c>[*any]</c> false.
+    /// <para>One unjudged element is enough to sink a fold that the judged ones have not already decided: an
+    /// existential is decided by its first true, a universal (<c>[*all]</c>/<c>[*none]</c>) by its first
+    /// counterexample, and anything short of that is a claim over elements one of which was never read. The class
+    /// that carries out is the loudest one seen, so the rollup names a read fault as a read fault and a genuinely
+    /// value-less element as unset — never the other way round.</para></summary>
     (bool Satisfied, EvalKind Kind) FoldOver(Predicate p, List<object> elems, Fold fold, Func<object, (bool, EvalKind)> eval)
     {
         if (elems.Count == 0) return (fold != Fold.Any, EvalKind.Definite);
-        bool anyVerdict = false, anyTrue = false, anyFalse = false, anyNoField = false, anyListHop = false;
+        bool anyVerdict = false, anyTrue = false, anyFalse = false;
+        EvalKind? unjudged = null;
         foreach (var e in elems)
         {
             var (sat, kind) = eval(e);
             if (_fatal is not null) return (false, EvalKind.Definite);
             if (kind == EvalKind.Definite) { anyVerdict = true; if (sat) anyTrue = true; else anyFalse = true; }
-            else if (kind is EvalKind.NoField or EvalKind.ListHop or EvalKind.NotAList)
-            { anyNoField = true; anyListHop |= kind == EvalKind.ListHop; }
+            else if (unjudged is null || NoVerdictRank(kind) > NoVerdictRank(unjudged.Value)) unjudged = kind;
         }
+        // The decided cases: a true settles any/none whatever else the list held, a false settles all.
         if (fold == Fold.Any && anyTrue) return (true, EvalKind.Definite);
         if (fold == Fold.NoneOf && anyTrue) return (false, EvalKind.Definite);
         if (fold == Fold.All && anyFalse) return (false, EvalKind.Definite);
+        if (unjudged is { } u) return (false, u);
         if (anyVerdict) return (fold != Fold.Any, EvalKind.Definite);
-        return (false, anyNoField ? (anyListHop ? EvalKind.ListHop : EvalKind.NoField) : EvalKind.Unreadable);
+        return (false, EvalKind.Unreadable);
     }
+
+    /// <summary>Which no-verdict class wins when a fold saw more than one: a read fault outranks a schema miss,
+    /// which outranks a container or a genuinely-unset element.</summary>
+    static int NoVerdictRank(EvalKind k) => k switch
+    {
+        EvalKind.Unreadable => 4,
+        EvalKind.ListHop => 3, EvalKind.NotAList => 3, EvalKind.NoField => 3,
+        EvalKind.Container => 2,
+        _ => 1,   // Unset
+    };
 
     /// <summary>Classify a navigation miss into the no-verdict vocabulary the accounting keys on.</summary>
     EvalKind ClassifyMiss(string note)

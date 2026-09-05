@@ -1,4 +1,4 @@
-using Mutagen.Bethesda;
+﻿using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
@@ -70,12 +70,15 @@ public sealed class WhereQuantifierTests
         return a.FormKey;
     }
 
-    HashSet<FormKey> Run(string clause, IEnumerable<IMajorRecordGetter> bodies)
+    HashSet<FormKey> Run(string clause, IEnumerable<IMajorRecordGetter> bodies) => RunWithNote(clause, bodies).Hits;
+
+    (HashSet<FormKey> Hits, string Note) RunWithNote(string clause, IEnumerable<IMajorRecordGetter> bodies)
     {
         var (set, err) = FieldPredicateSet.Parse(new[] { clause });
         Assert.Null(err);
         if (set!.NeedsResolution) set.BindResolution(_ => null, fk => _targets.GetValueOrDefault(fk));
-        return bodies.Where(b => set.Matches(b)).Select(b => b.FormKey).ToHashSet();
+        var hits = bodies.Where(b => set.Matches(b)).Select(b => b.FormKey).ToHashSet();
+        return (hits, set.AccountingNote() ?? "");
     }
 
     static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
@@ -225,6 +228,83 @@ public sealed class WhereQuantifierTests
         var note = set!.AccountingNote() ?? "";
         Assert.Contains("not a list", note);
         Assert.Contains("BodyTemplate[*any]", note);
+    }
+
+    // ---- a quantifier on a NULL non-list step ------------------------------------------------------
+
+    [Fact]
+    public void ANullNonListStepIsStillNamedNotAList_NeverAVacuouslyTrueEmptyList()
+    {
+        var bare = _mod.Armors.AddNew(); bare.EditorID = "QArmorNoTemplate";   // BodyTemplate left null
+        var (hits, note) = RunWithNote("BodyTemplate[*all].FirstPersonFlags has Head", new[] { (IMajorRecordGetter)bare });
+        Assert.Empty(hits);
+        Assert.Contains("not a list", note);
+    }
+
+    [Fact]
+    public void ANullScalarWithCountIsNotAnEmptyList()
+    {
+        var bare = _mod.Armors.AddNew(); bare.EditorID = "QArmorNoName";       // Name left null
+        var (hits, note) = RunWithNote("Name[*count] = 0", new[] { (IMajorRecordGetter)bare });
+        Assert.Empty(hits);
+        Assert.Contains("not a list", note);
+    }
+
+    [Fact]
+    public void ADictStepIsNamedADict_NotFoldedOverItsEntries()
+    {
+        var cls = _mod.Classes.AddNew(); cls.EditorID = "QClass";
+        cls.SkillWeights[Skill.OneHanded] = 5;
+        var (hits, note) = RunWithNote("SkillWeights[*any] = 5", new[] { (IMajorRecordGetter)cls });
+        Assert.Empty(hits);
+        Assert.Contains("dict", note);
+    }
+
+    [Fact]
+    public void AByteBlockStepIsNamedBytes_NotCountedElementByElement()
+    {
+        var st = _mod.Statics.AddNew(); st.EditorID = "QStatic";
+        st.Model = new Model { File = "meshes\\q.nif", Data = new byte[] { 1, 2, 3 } };
+        var (hits, note) = RunWithNote("Model.Data[*count] > 0", new[] { (IMajorRecordGetter)st });
+        Assert.Empty(hits);
+        Assert.Contains("bytes", note);
+    }
+
+    // ---- an absent collection reads as empty, however far up the absence starts --------------------
+
+    [Fact]
+    public void AnAbsentParentSubstructReadsAsAnEmptyCollection()
+    {
+        // No fixture armor carries a VirtualMachineAdapter, so "carries no script" must find all of them.
+        Assert.Equal(_armors.Select(a => a.FormKey).ToHashSet(),
+                     Run("VirtualMachineAdapter.Scripts[*count] = 0", _armors));
+    }
+
+    // ---- an element that could not be judged sinks the universal folds -----------------------------
+
+    [Fact]
+    public void OneUnjudgedElementStopsAllAndNoneClaimingAVerdict()
+    {
+        var s = _mod.Spells.AddNew(); s.EditorID = "QSpellHalfRead";
+        var blind = new Effect(); blind.BaseEffect.SetTo(_mgefPlain);          // no Data — Magnitude cannot be judged
+        var seen = new Effect(); seen.BaseEffect.SetTo(_mgefPlain); seen.Data = new EffectData { Magnitude = 5 };
+        s.Effects.Add(blind); s.Effects.Add(seen);
+        var one = new[] { (IMajorRecordGetter)s };
+        Assert.Empty(Run("Effects[*none].Data.Magnitude > 50", one));          // was a definite "proved absence"
+        Assert.Empty(Run("Effects[*all].Data.Magnitude < 50", one));
+        // …while a fold the judged elements already decide stays definite.
+        Assert.Single(Run("Effects[*any].Data.Magnitude < 50", one));
+    }
+
+    [Fact]
+    public void AnAllUnsetListIsNoVerdict_NotAReadFault()
+    {
+        var s = _mod.Spells.AddNew(); s.EditorID = "QSpellNoBases";
+        s.Effects.Add(new Effect { Data = new EffectData { Magnitude = 1 } }); // BaseEffect null → nothing to judge
+        s.Effects.Add(new Effect { Data = new EffectData { Magnitude = 2 } });
+        var (hits, note) = RunWithNote("Effects[*none].BaseEffect->editorid startswith REQ_", new[] { (IMajorRecordGetter)s });
+        Assert.Empty(hits);
+        Assert.DoesNotContain("read FAULT", note);
     }
 
     // ---- composition: a quantified step inside another ---------------------------------------------
