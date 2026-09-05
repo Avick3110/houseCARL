@@ -75,4 +75,24 @@ static class SkseJsonDoc
         w.Flush();
         return ms.Length >= cap;
     }
+
+    /// <summary>The chars held back from max_chars for the tail every family document closes on — the caveats object,
+    /// the accounting object, and whatever conditional members that family may still write after its row arrays. The
+    /// json twin of <see cref="TransportAccounting.Reserve"/>: without it the row loops fill the document to the cap
+    /// and the tail is written past it. Measured by composing the widest tail, so no rendering of it can outgrow its
+    /// own room.</summary>
+    internal static int TailReserve(bool readIncomplete, IReadOnlyList<string> warnings, IReadOnlyList<string> bsaFailures,
+                                    TransportCounts widest, Action<Utf8JsonWriter>? conditional = null)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, JsonWire.WriterOptions))
+        {
+            w.WriteStartObject();
+            conditional?.Invoke(w);
+            Caveats(w, readIncomplete, warnings, bsaFailures);
+            TransportAccounting.WriteJson(w, widest);
+            w.WriteEndObject();
+        }
+        return (int)ms.Length;
+    }
 }

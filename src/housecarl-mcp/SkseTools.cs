@@ -774,6 +774,10 @@ static class SkseInventoryWire
     /// same three the caveat block renders.</summary>
     internal static int NoteCount(SkseInventoryData d) => (d.ReadIncomplete ? 1 : 0) + d.Warnings.Count + d.BsaFailures.Count;
 
+    /// <summary>The json twin of the text render's "peek=true matched no DLL" notice — one spelling, so the reserve
+    /// measures the string the document actually writes.</summary>
+    const string PeekNoDllNote = "peek=true matched no DLL at all — nothing was peeked.";
+
     /// <summary>The json twin of <see cref="Render"/>: the same census, the same windowed rows, the same accounting,
     /// in named fields. Rows are dropped from the tail when the document reaches max_chars — never a cut of the
     /// serialized string, which would emit malformed json — and the accounting says how many that was.</summary>
@@ -794,6 +798,12 @@ static class SkseInventoryWire
         var all = Split(d.Dlls);
         int notes = NoteCount(d);
         int rendered = 0;
+        int folderCount = d.Configs.Select(e => e.Group).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        // The tail — peek note, the folder cut marker, caveats, accounting — is paid for inside max_chars, not
+        // appended past it, exactly as the text render's own reserve does.
+        cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures,
+            TransportAccounting.Widest(total, windowed, window, notes),
+            tw => { tw.WriteString("peek_note", PeekNoDllNote); tw.WriteNumber("config_folders_truncated", folderCount); }));
 
         return SkseJsonDoc.Write(SkseTools.SkseFamily.Inventory, filter, d.ProfileName, (w, ms) =>
         {
@@ -834,6 +844,7 @@ static class SkseInventoryWire
 
             // The whole-layer view groups configs by folder rather than listing them; the twin states the same table.
             w.WriteStartArray("config_folders");
+            int folders = 0;
             if (!filtered)
                 foreach (var g in d.Configs.GroupBy(e => e.Group, StringComparer.OrdinalIgnoreCase)
                              .Select(g => (Name: g.Key.Length == 0 ? "(top level)" : g.Key, Count: g.Count(),
@@ -848,11 +859,15 @@ static class SkseInventoryWire
                     SkseJsonDoc.Strings(w, "providers", g.Providers!);
                     w.WriteNumber("contested", g.Contested);
                     w.WriteEndObject();
+                    folders++;
                 }
             w.WriteEndArray();
+            // These are not row-list rows, so the accounting does not count them — the cut says so here instead, the
+            // way the text render's "showing N of M folders" notice does.
+            if (!filtered && folders < folderCount) w.WriteNumber("config_folders_truncated", folderCount - folders);
 
             if (d.PeekRequested && allDlls.Count == 0)
-                w.WriteString("peek_note", "peek=true matched no DLL at all — nothing was peeked.");
+                w.WriteString("peek_note", PeekNoDllNote);
             SkseJsonDoc.Caveats(w, d.ReadIncomplete, d.Warnings, d.BsaFailures);
             TransportAccounting.WriteJson(w, TransportAccounting.Tally(total, windowed, rendered, window, notes));
         });
@@ -1178,6 +1193,9 @@ static class SkseConfigAuditWire
         var flatAll = d.Files.SelectMany(x => x.Refs).ToList();
         int notes = NoteCount(d);
         int rendered = 0;
+        // The caveats and accounting tail is paid for inside max_chars rather than appended past it.
+        cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures,
+            TransportAccounting.Widest(allFiles.Count, files.Count, window, notes)));
 
         return SkseJsonDoc.Write(SkseTools.SkseFamily.Config, filter, d.ProfileName, (w, ms) =>
         {
@@ -1209,8 +1227,12 @@ static class SkseConfigAuditWire
                 SkseJsonDoc.Providers(w, file.Providers);
                 SkseJsonDoc.Nullable(w, "read_error", file.ReadError);
                 w.WriteStartArray("references");
+                int refs = 0;
                 foreach (var r in file.Refs)
                 {
+                    // One config can carry tens of thousands of form tokens, so the cap bounds the inner loop too —
+                    // otherwise a single file writes its whole reference array past max_chars in one pass.
+                    if (SkseJsonDoc.Over(w, ms, cap)) break;
                     w.WriteStartObject();
                     w.WriteString("raw", r.Ref.Raw);
                     w.WriteString("shape", r.Ref.Shape == HousecarlCore.SkseRefShape.PathSegmentGate ? "path_segment_gate" : "form_token");
@@ -1220,8 +1242,12 @@ static class SkseConfigAuditWire
                     w.WriteString("verdict", VerdictName(r.Verdict));
                     SkseJsonDoc.Nullable(w, "detail", r.Detail);
                     w.WriteEndObject();
+                    refs++;
                 }
                 w.WriteEndArray();
+                // The file's own row is on the page; how many of its references the cap cut is said here, because the
+                // accounting counts files, not references.
+                if (refs < file.Refs.Count) w.WriteNumber("references_truncated", file.Refs.Count - refs);
                 w.WriteEndObject();
                 rendered++;
             }
@@ -1615,6 +1641,10 @@ static class NativePairingWire
         var all = Classify(d.Classes, d.InstalledRuntime);
         int notes = NoteCount(d);
         int rendered = 0;
+        // The tail — the unreadable-pex cut marker, caveats, accounting — is paid for inside max_chars.
+        cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures,
+            TransportAccounting.Widest(allClasses.Count, classes.Count, window, notes),
+            tw => tw.WriteNumber("unreadable_pex_truncated", d.Unreadable.Count)));
 
         return SkseJsonDoc.Write(SkseTools.SkseFamily.Pairing, filter, d.ProfileName, (w, ms) =>
         {
@@ -1685,6 +1715,7 @@ static class NativePairingWire
             w.WriteEndArray();
 
             w.WriteStartArray("unreadable_pex");
+            int unreadable = 0;
             foreach (var u in d.Unreadable)
             {
                 if (SkseJsonDoc.Over(w, ms, cap)) break;
@@ -1693,8 +1724,12 @@ static class NativePairingWire
                 SkseJsonDoc.Nullable(w, "winning_provider", u.WinningProvider);
                 w.WriteString("reason", u.Reason);
                 w.WriteEndObject();
+                unreadable++;
             }
             w.WriteEndArray();
+            // Not row-list rows, so the accounting does not count them — the cut is named here instead, the way the
+            // text render's own cut notice does.
+            if (unreadable < d.Unreadable.Count) w.WriteNumber("unreadable_pex_truncated", d.Unreadable.Count - unreadable);
 
             SkseJsonDoc.Caveats(w, d.ReadIncomplete, d.Warnings, d.BsaFailures);
             TransportAccounting.WriteJson(w, TransportAccounting.Tally(allClasses.Count, classes.Count, rendered, window, notes));
