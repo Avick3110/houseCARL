@@ -1206,7 +1206,8 @@ static class JsonWire
 
     public static string RenderCrossQueryDense(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields,
                                                SpillState? spill, out bool truncated,
-                                               IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null)
+                                               IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null,
+                                               FoldPlan? fold = null)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -1234,7 +1235,7 @@ static class JsonWire
                 if (detail)
                 {
                     w.WriteStringValue("formid"); w.WriteStringValue("runtime_formid"); w.WriteStringValue("editorid");
-                    foreach (var f in fields!) w.WriteStringValue(f);         // cells align positionally: ReadFields returns exactly one value per requested path, in order
+                    foreach (var f in fold?.Requested ?? fields!) w.WriteStringValue(f);   // cells align positionally: one column per REQUESTED path, in order — a quantified path keeps its own spelling
                     // Under a plugins= scope each row's values are SOME scoped plugin's own body, and with 2+ scoped
                     // plugins the caller cannot reconstruct WHICH from the row alone — a defining esp's stale value
                     // then reads as live truth. Carry the provenance per row, exactly like text ("fields (from X):")
@@ -1260,10 +1261,40 @@ static class JsonWire
                     string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
                     if (detail)
                     {
-                        var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false,
-                                                  resolveNames: resolveNames, linkMemo: linkMemo, containerHint: (levers ?? LeverNames.Legacy).DenseContainerHint);   // dense refuses depth>1, so the hint names the format hop; pinned to the scan's build
+                        var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, fold?.Depth ?? 1,
+                                                  resolveNames: resolveNames, linkMemo: linkMemo, containerHint: (levers ?? LeverNames.Legacy).DenseContainerHint);   // dense refuses depth>1 unless a quantifier asks for it; pinned to the scan's build
                         if (o.Error is not null) { (errors ??= new()).Add((fk.ToString(), o.Error)); rendered++; continue; }
                         var r = o.Record!;
+                        if (fold is not null)
+                        {
+                            // A quantified path makes the requested paths PER ELEMENT, so the record answers with
+                            // one row per element and repeats its identity columns on each. The unquantified
+                            // columns keep their own single cell, which is the same cell an unfolded call renders.
+                            var (cols, ferr) = fold.Columns(r);
+                            if (ferr is not null) { (errors ??= new()).Add((fk.ToString(), ferr)); rendered++; continue; }
+                            int elems = 1;
+                            for (int c = 0; c < cols!.Length; c++) if (fold.Folds[c] is { Fold: HousecarlCore.PathFold.Set }) elems = Math.Max(elems, cols[c].Count);
+                            for (int e = 0; e < elems; e++)
+                            {
+                                w.WriteStartArray();
+                                w.WriteStringValue(r.FormKey);
+                                WriteCell(w, RuntimeCell(o.RuntimeFormId, o.RuntimeFormIdNote));
+                                WriteCell(w, r.EditorId);
+                                for (int c = 0; c < cols.Length; c++)
+                                {
+                                    var col = cols[c];
+                                    var cell = fold.Folds[c] is { Fold: HousecarlCore.PathFold.Set }
+                                        ? (e < col.Count ? col[e] : null)
+                                        : (col.Count > 0 ? col[0] : null);
+                                    WriteCell(w, cell is null ? null : DenseCell(cell));
+                                }
+                                if (anyScoped) WriteCell(w, o.SourcePlugin);
+                                if (hasMatches) WriteCell(w, matches);
+                                w.WriteEndArray();
+                            }
+                            rendered++;
+                            continue;
+                        }
                         w.WriteStartArray();
                         w.WriteStringValue(r.FormKey);
                         WriteCell(w, RuntimeCell(o.RuntimeFormId, o.RuntimeFormIdNote));

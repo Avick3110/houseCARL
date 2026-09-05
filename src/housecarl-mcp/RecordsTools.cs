@@ -34,7 +34,7 @@ public static class RecordsTools
         [Description("The form: 'identity' (FormID -> type/editorid/name/winner — the labeling form; needs formids=) | 'summary' (identity plus winner/override-depth header facts — the default) | 'fields' (named field values; takes fields= and depth=) | 'rows' (a LIST field folded to ONE LINE PER ELEMENT — the compact per-row view: takes fields= naming the list (index one element, 'Conditions[0]', to fold just that one), and depth= (default 4). Each line is the element's own summary plus every sub-field the read FOUND; only ABSENT optionals are omitted, which is what turns a 40-row condition stack from ~1,000 lines into 40. A declared-but-null link is kept — an empty slot is a fact. A named field that is not a list fails loud) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only — source= is the subject, versus= the reference; takes fields= to narrow) | 'tree' (every provider of each record in priority order, winner last, each diffed against the reference pole — default the winner; takes fields=. On a record type that OWNS child records — a cell's placed references, a topic's INFO lines, a worldspace's cells — it also states, per such field, which providers DECLARE children there (a COLLECTION field) or how many do (a SINGULAR one, e.g. Cell.Landscape), and says so when none do) | 'info_order' (DIAL topics only: the effective MERGED INFO sequence across every touching plugin — the order the game walks, with MOVED annotations; the 'why does the wrong line play' diagnostic) | 'chain' (a walk's own paths, endpoints and cycles rather than the records it reached; needs walk=, and carries the NPC-template inheritance report and the reverse MGEF carrier rows).")]
         public string? form { get; set; }
 
-        [Description("fields/rows forms: dotted field paths to read, e.g. [\"BasicStats.Damage\", \"Keywords\", \"Effects\"]. Index a list/dict element with BRACKETS ('Effects[0].Data.Magnitude'). A path may LEAD with the containment step '*parent' — the record that CONTAINS this one, which group nesting makes invisible to references= ('*parent.EditorID' is an INFO's owning DIAL; '*parent.*parent.EditorID' a placed reference's worldspace) — and it chains. On the rows form these name the LIST(S) to fold, one line per element. where='s quantifier tokens are not read here: [*any]/[*all]/[*none] fold to a boolean, which is not a row, and [*] / [*count] as a PROJECTION are not built yet — both are refused by name.")]
+        [Description("fields/rows forms: dotted field paths to read, e.g. [\"BasicStats.Damage\", \"Keywords\", \"Effects\"]. Index a list/dict element with BRACKETS ('Effects[0].Data.Magnitude'). A path may LEAD with the containment step '*parent' — the record that CONTAINS this one, which group nesting makes invisible to references= ('*parent.EditorID' is an INFO's owning DIAL; '*parent.*parent.EditorID' a placed reference's worldspace) — and it chains. On the rows form these name the LIST(S) to fold, one line per element. On the fields form a step may be QUANTIFIED: 'Effects[*count]' is one number per record (how many elements), 'Effects[*]' one row per element in the rows form's own row shape, and 'Effects[*].Data.Magnitude' that leaf per element — under format='dense' the extra rows repeat the record's identity columns. [*any]/[*all]/[*none] fold to a boolean, which is not a row: they belong in where= and are refused here by name.")]
         public string[]? fields { get; set; }
 
         [Description("fields/rows/everything forms: expansion depth for list/dict/substruct CONTENTS (default 1, or 4 on the rows form, where a shallower read renders every element as a bare type). THIS is the expansion knob: fields=[\"Effects\"], depth=4 reaches every effect's Magnitude/Area/Duration — no hand-written index guessing.")]
@@ -148,6 +148,8 @@ public static class RecordsTools
          "line — the element's own summary plus each sub-field the read found, ABSENT optionals omitted. Auditing a " +
          "40-row condition stack (project.fields=[\"Conditions\"]) is one call, not an index probe per row; an indexed path " +
          "(project.fields=[\"Conditions[0]\"]) folds that one element, and a field that is not a list is refused by name. " +
+         "On form='fields' a path may QUANTIFY its step instead: '[*count]' is the element count as one cell, '[*]' one " +
+         "row per element (the same row shape), and dense repeats the identity columns across those rows. " +
          "COMPARISONS (form='delta'/'tree'): a delta reads the SUBJECT (source=) and a REFERENCE (versus=) and " +
          "returns only what differs — each delta line shows the subject's value with the reference's labeled by its " +
          "plugin; versus=\"previous_provider\" answers 'what did this plugin change relative to what sat beneath " +
@@ -244,21 +246,22 @@ public static class RecordsTools
         // null or blank one is bad input and is named as such rather than reaching the fold.
         if (form == "rows" && project?.fields is { } rowFields && Array.FindIndex(rowFields, p => string.IsNullOrWhiteSpace(p)) is var badAt && badAt >= 0)
             return Wire.Refuse(json, $"error: project.fields[{badAt}] is empty — the 'rows' form folds the list each entry names, so every entry must be a field path (e.g. [\"Conditions\"]).");
-        // The quantifier tokens are where='s, not a projection's — refused by name here so a caller who tries one
-        // gets the rule rather than an unreadable-field note from the read walk.
+        // The quantified step's PROJECT half: [*count] is one number per record, [*] one row per element. The
+        // parse runs here, before any read, so a bad token refuses the call rather than each record.
+        FoldPlan? foldPlan = null;
         if (project?.fields is { Length: > 0 } pf)
-            foreach (var path in pf)
-                if (QuantifierToken(path) is { } qt)
-                {
-                    var qtl = qt.ToLowerInvariant();
-                    // A token outside the vocabulary is a typo, not a capability that is coming — say so in the
-                    // parser's own words, so where= and project.fields judge the same token the same way.
-                    if (qtl is not ("[*]" or "[*count]" or "[*any]" or "[*all]" or "[*none]"))
-                        return Wire.Refuse(json, $"error: project.fields path '{path}': '{qt}' is not a quantifier — the tokens are [*], [*count], [*any], [*all] and [*none] (the last three fold to a boolean and belong in where=).");
-                    return Wire.Refuse(json, qtl is "[*any]" or "[*all]" or "[*none]"
-                        ? $"error: project.fields path '{path}' folds the elements into a boolean, and a boolean is not a row — use {qt} in where= to SELECT the records, and name a concrete element ('Effects[0].Data.Magnitude') or the list itself to read one."
-                        : $"error: project.fields path '{path}' uses '{qt}', which is a where= step today — the projection half of the quantified step (a row per element, and the element count as a cell) is not built yet. Name a concrete element ('Effects[0].Data.Magnitude') or the list itself, which renders as a summary with project.depth.");
-                }
+        {
+            var (plan, foldErr) = FieldFolds.Parse(pf);
+            if (foldErr is not null) return Wire.Refuse(json, "error: " + foldErr);
+            foldPlan = plan;
+            // The quantifier belongs to the form that reads a path as a projection. The comparison forms line
+            // their two sides up path for path, and the rows form already folds the list it names, so a token
+            // there is refused by name rather than accepted and dropped.
+            if (foldPlan is not null && form != "fields")
+                return Wire.Refuse(json, form == "rows"
+                    ? $"error: project.fields path '{foldPlan.First.Requested}' quantifies a step, and the 'rows' form already folds the list it names to one line per element — drop the token, or use form='fields' to mix quantified and ordinary paths."
+                    : $"error: project.fields path '{foldPlan.First.Requested}' quantifies a step, and the '{form}' form lines its two sides up path for path — drop the token, or read the elements with form='fields'.");
+        }
         if (project?.depth is { } dv)
         {
             // Any explicit depth is form-scoped — the rule must not depend on the value, or depth:1 is accepted
@@ -272,6 +275,9 @@ public static class RecordsTools
             // depth=1 collapses the list to a count, so the rows form would answer with no rows at all.
             if (dv == 1 && form == "rows")
                 return Wire.Refuse(json, "error: project.depth=1 collapses a list to a count, and the 'rows' form renders its elements — pass depth >= 2 (2 shows each element's type, the default 4 reaches its sub-fields), or use form='fields' for the collapsed line.");
+            // Same reading at the same knob: a [*] path renders elements, which depth 1 collapses away.
+            if (dv == 1 && foldPlan?.Folds.FirstOrDefault(f => f is { Fold: PathFold.Set }) is { } setAt)
+                return Wire.Refuse(json, $"error: project.depth=1 collapses a list to a count, and '{setAt.Requested}' renders its elements — pass depth >= 2 (2 shows each element's type, the default 4 reaches its sub-fields), or use '{setAt.Root}[*count]' for the number of them.");
         }
         if (project?.group_by is not null && form != "aggregate")
             return Wire.Refuse(json, $"error: project.group_by belongs to the 'aggregate' form only (got form='{form}'). Set project.form='aggregate', or drop group_by.");
@@ -293,16 +299,25 @@ public static class RecordsTools
             return Wire.Refuse(json, $"error: project.resolve_names annotates field values and belongs to the 'fields'/'rows'/'everything' forms (got form='{form}').");
         // The rows form's default is its own: at depth 1 every element renders as a bare arm type, which is the
         // gap the form exists to close. Its cost is per-row TEXT, not per-row lines — the fold is one line either way.
-        int depth = project?.depth is { } d && d > 0 ? d : (form == "rows" ? RowProjection.DefaultDepth : 1);
+        bool foldsElements = foldPlan?.RendersElements ?? false;
+        int depth = project?.depth is { } d && d > 0 ? d : (form == "rows" || foldsElements ? RowProjection.DefaultDepth : 1);
+        // A sub-path after [*] names exactly what to read, so reaching it is the token's own requirement rather
+        // than expansion the caller has to budget for.
+        if (foldPlan is not null) { depth = Math.Max(depth, foldPlan.Depth); foldPlan = foldPlan with { Depth = depth }; }
         var projFields = bodyFields || comparisonForm ? project?.fields : null;
+        // The read runs the LIST path a quantifier binds to; the fold puts the caller's own spelling back.
+        var readPaths = foldPlan is null ? projFields : foldPlan.ReadPaths;
         bool resolveNames = project?.resolve_names ?? false;
         // The lever vocabulary is a function of (tool, FORM), not of the tool alone: the 'everything' form refuses
         // project.fields= by name, so a truncation notice there must not offer it as the way to narrow.
         var formLevers = form == "everything" ? LeverNames.Records.WithoutFieldSelector() : LeverNames.Records;
         // The rows form IS the fields form plus this fold, applied wherever a lane produces bodies — so the
-        // render, the artifact and the json document all see the same folded rows.
+        // render, the artifact and the json document all see the same folded rows. A quantified project.fields
+        // path rides the same seam, for the same reason.
         IReadOnlyList<ReadOutcome> FoldRows(IReadOnlyList<ReadOutcome> read)
-            => form == "rows" ? RowProjection.Apply(read, projFields!, depth) : read;
+            => form == "rows" ? RowProjection.Apply(read, projFields!, depth)
+             : foldPlan is not null ? foldPlan.Apply(read)
+             : read;
 
         // ---- SOURCE: the pole grammar (source = the subject; versus = the comparison reference) ----
         // ParsePole has no transport in scope, so its refusals take their shape here.
@@ -604,7 +619,7 @@ public static class RecordsTools
             // paths; everything passes null to dump the modeled fields.
             IReadOnlyList<string>? readFields = form switch
             {
-                "fields" or "rows" => projFields,
+                "fields" or "rows" => readPaths,
                 "summary" or "aggregate" => new[] { "EditorID" },   // cheapest leaf — headers carry the summary facts
                 _ => null,                                          // everything — the full dump
             };
@@ -1352,14 +1367,16 @@ public static class RecordsTools
             // ---- form=everything on a scan: selection here, bodies via the batch lane, window-bounded.
             // counts_only skips the body lane entirely — its census is the scan render below. ----
             // The rows form always takes this lane: its fold is over a body read, and the scan render fills
-            // detail rows of its own that never pass through it.
-            if ((form == "everything" || form == "rows" || (form == "fields" && scopePlusPole)) && !counts_only && outcome.Error is null && outcome.Groups is null)
+            // detail rows of its own that never pass through it. A quantified fields path folds the same way, so
+            // it takes the lane too — except under dense, whose own render carries the per-element rows.
+            if ((form == "everything" || form == "rows" || (form == "fields" && (scopePlusPole || (foldPlan is not null && !dense))))
+                && !counts_only && outcome.Error is null && outcome.Groups is null)
             {
                 var keys = outcome.Keys.Select(k => k.ToString()).ToList();
                 IReadOnlyList<ReadOutcome> bodies;
                 if (srcName is not null)
                 {
-                    bodies = svc.ResolveBatchFromPole(keys, srcName, srcMod, bodyFields ? projFields : null, depth, resolveNames, null,
+                    bodies = svc.ResolveBatchFromPole(keys, srcName, srcMod, bodyFields ? readPaths : null, depth, resolveNames, null,
                                                       out _, out var bref, out var brefEpoch, LeverNames.Records.ContainerHint);
                     // A refusal is judged on the named cause, never on row count: a zero-match scan is an honest
                     // empty result, not a failure.
@@ -1375,7 +1392,7 @@ public static class RecordsTools
                     // fields_source="winner" retargets display to the winner as it does on the fields form.
                     var srcs = outcome.Sources;
                     if (winnerFields || srcs is null || srcs.Take(keys.Count).All(s => s is null))
-                        bodies = svc.ResolveBatch(keys, bodyFields ? projFields : null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint);
+                        bodies = svc.ResolveBatch(keys, bodyFields ? readPaths : null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint);
                     else
                     {
                         var byIndex = new ReadOutcome[keys.Count];
@@ -1390,12 +1407,12 @@ public static class RecordsTools
                         }
                         if (winnerIdx.Count > 0)
                         {
-                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), bodyFields ? projFields : null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint);
+                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), bodyFields ? readPaths : null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint);
                             for (int i = 0; i < winnerIdx.Count; i++) byIndex[winnerIdx[i]] = res[i];
                         }
                         foreach (var kv in bySource)
                         {
-                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), bodyFields ? projFields : null, false, depth, resolveNames, kv.Key, LeverNames.Records.ContainerHint);
+                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), bodyFields ? readPaths : null, false, depth, resolveNames, kv.Key, LeverNames.Records.ContainerHint);
                             for (int i = 0; i < kv.Value.Count; i++) byIndex[kv.Value[i]] = res[i];
                         }
                         bodies = byIndex;
@@ -1454,7 +1471,7 @@ public static class RecordsTools
             SpillState? spill = null;
             if (wantFile && outcome.Error is null)
             {
-                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, projFields, resolveNames, winnerFields, depth, toFile!, "to_file", Echo(), LeverNames.Records);
+                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, toFile!, "to_file", Echo(), LeverNames.Records, fold: foldPlan);
                 if (aerr is not null)
                     return fmt is Wire.QueryFormat.Text ? "error: " + aerr : JsonWire.RenderError(aerr, outcome.Stamp);
                 spill = SpillState.Spilled(s!, manifestOnly: true);
@@ -1464,7 +1481,7 @@ public static class RecordsTools
             var qLevers = projFields is { Length: > 0 } ? LeverNames.Records : LeverNames.Records.WithNothingToDrop();
             string Render(SpillState? sp, out bool trunc) => fmt switch
             {
-                Wire.QueryFormat.Dense when groupBy is null => JsonWire.RenderCrossQueryDense(svc, outcome, projFields, max_chars, resolveNames, winnerFields, sp, out trunc, envelope, qLevers),
+                Wire.QueryFormat.Dense when groupBy is null => JsonWire.RenderCrossQueryDense(svc, outcome, readPaths, max_chars, resolveNames, winnerFields, sp, out trunc, envelope, qLevers, foldPlan),
                 Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, envelope, qLevers),
                 _ => headerLine + "\n" + Wire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, qLevers),
             };
@@ -1472,7 +1489,7 @@ public static class RecordsTools
             if (spill is null && truncated && outcome.Error is null)
             {
                 var path = ResultsStore.NextPath(ToolNames.Records, outcome.Epoch ?? "none");
-                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, projFields, resolveNames, winnerFields, depth, path, "ceiling", Echo(), LeverNames.Records);
+                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, path, "ceiling", Echo(), LeverNames.Records, fold: foldPlan);
                 if (aerr is not null) ResultsStore.Release(path);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
@@ -1618,7 +1635,7 @@ public static class RecordsTools
             if (form is ("fields" or "rows" or "everything") && !counts_only && outcome.Error is null && outcome.Groups is null)
             {
                 var keys = outcome.Keys.Select(k => k.ToString()).ToList();
-                var bodies = svc.ResolveBatchFromPole(keys, pole.Plugin, srcMod, bodyFields ? projFields : null,
+                var bodies = svc.ResolveBatchFromPole(keys, pole.Plugin, srcMod, bodyFields ? readPaths : null,
                                                       depth, resolveNames, null, out _, out var bref, out var brefEpoch,
                                                       LeverNames.Records.ContainerHint);
                 bodies = FoldRows(bodies);
@@ -1665,7 +1682,7 @@ public static class RecordsTools
             SpillState? spill = null;
             if (wantFile && outcome.Error is null)
             {
-                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, toFile!, "to_file", Echo(), LeverNames.Records);
+                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, toFile!, "to_file", Echo(), LeverNames.Records, fold: foldPlan);
                 if (aerr is not null)
                     return fmt is Wire.QueryFormat.Text ? "error: " + aerr : JsonWire.RenderError(aerr, outcome.Stamp);
                 spill = SpillState.Spilled(sp!, manifestOnly: true);
@@ -1682,7 +1699,7 @@ public static class RecordsTools
             if (spill is null && truncated && outcome.Error is null)
             {
                 var path = ResultsStore.NextPath(ToolNames.Records, outcome.Epoch ?? "none");
-                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, path, "ceiling", Echo(), LeverNames.Records);
+                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, path, "ceiling", Echo(), LeverNames.Records, fold: foldPlan);
                 if (aerr is not null) ResultsStore.Release(path);
                 rendered = Render(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
@@ -2187,24 +2204,6 @@ public static class RecordsTools
         foreach (var (key, count) in rows.Select(r => (r.Key, r.Value)))
             sb.Append("  ").Append(count.ToString().PadLeft(6)).Append("  ").Append(key).Append('\n');
         return sb.ToString();
-    }
-
-    /// <summary>The first quantifier token in a projection path, or null — a bracket key beginning '*', spelled back
-    /// as the caller wrote it so the refusal names their own token.</summary>
-    static string? QuantifierToken(string? path)
-    {
-        if (string.IsNullOrEmpty(path)) return null;
-        foreach (var seg in path.Split('.'))
-        {
-            int open = seg.IndexOf('[');
-            if (open < 0 || !seg.EndsWith("]", StringComparison.Ordinal)) continue;
-            // A quantifier on the containment step is that grammar's mistake, not a projection one — leave it to
-            // the read walk's shared check, so where= and project.fields refuse it in the same sentence.
-            if (HousecarlCore.ContainmentIndex.IsParentStep(seg[..open])) continue;
-            var key = seg[(open + 1)..^1];
-            if (key.Length > 0 && key[0] == '*') return $"[{key}]";
-        }
-        return null;
     }
 
     /// <summary>references= @file expansion with the negation sigil carried across it: '!@&lt;path&gt;' excludes every
