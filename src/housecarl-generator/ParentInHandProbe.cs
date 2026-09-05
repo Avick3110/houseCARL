@@ -95,11 +95,20 @@ static class ParentInHandProbe
         var delta = (medE - medA).TotalSeconds;
         Console.WriteLine($"   vs the flat pass : {Math.Abs(delta):N2} s {(delta < 0 ? "less" : "more")} " +
                           $"({(medA.TotalSeconds > 0 ? medE.TotalSeconds / medA.TotalSeconds : 0):N2}x A)");
-        Console.WriteLine("   edges the context walk hands over (child -> parent, by type):");
-        foreach (var kv in ctxFinal.Edges.Where(k => !k.Key.EndsWith("(no parent)", StringComparison.Ordinal))
-                                         .OrderByDescending(k => k.Value))
+        // Only the rows that actually staged an edge into Map print under the edges heading; a row that staged nothing
+        // gets its own heading below, so neither table quietly carries the other's rows.
+        Console.WriteLine($"   edges the context walk hands over (child -> parent, by type; {ctxFinal.Edges.Values.Sum():N0} in total, " +
+                          $"the \"parent is a record\" count — Map holds {ctxFinal.Map.Count:N0} of them, one per distinct child):");
+        foreach (var kv in ctxFinal.Edges.OrderByDescending(k => k.Value))
             Console.WriteLine($"     {kv.Key,-52} {kv.Value,10:N0}");
-        Console.WriteLine($"     (no parent, {ctxFinal.Edges.Where(k => k.Key.EndsWith("(no parent)", StringComparison.Ordinal)).Sum(k => k.Value):N0} top-level records across {ctxFinal.Edges.Count(k => k.Key.EndsWith("(no parent)", StringComparison.Ordinal))} types)\n");
+        Console.WriteLine($"   contexts the walk hands over with NO usable parent ({ctxFinal.NonEdges.Values.Sum():N0} in total, none staged into the map):");
+        // The top-level records are one row per record type and say nothing individually, so they collapse to a tally;
+        // a parent chain that holds no record is the surprising shape, so those are named.
+        var topLevel = ctxFinal.NonEdges.Where(k => k.Key.EndsWith("(no parent)", StringComparison.Ordinal)).ToList();
+        Console.WriteLine($"     {"(no parent) — top-level records",-52} {topLevel.Sum(k => k.Value),10:N0}   across {topLevel.Count} types");
+        foreach (var kv in ctxFinal.NonEdges.Except(topLevel).OrderByDescending(k => k.Value))
+            Console.WriteLine($"     {kv.Key,-52} {kv.Value,10:N0}");
+        Console.WriteLine();
 
         lastCtx = null;
         GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
