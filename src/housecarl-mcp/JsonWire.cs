@@ -256,26 +256,42 @@ static class JsonWire
             }
             var f = r.Fields[i];
             w.WriteStartObject();
-            w.WriteString("path", f.Path);
-            if (f.HasValue) w.WriteString("value", f.Token);   // round-trip parity: identical token to the text render
-            else WriteNullable(w, "note", f.Note);
-            if (f.Display is not null) w.WriteString("display", f.Display);
-            if (f.Link is { } link)
+            WriteLeaf(w, f);
+            if (f.Cells is { } cells)
             {
-                w.WriteStartObject("link");
-                w.WriteBoolean("resolved", link.Resolved);
-                if (link.Resolved)
-                {
-                    WriteNullable(w, "type", link.Type);
-                    WriteNullable(w, "editorid", link.EditorId);
-                    WriteNullable(w, "name", link.Name);
-                }
-                w.WriteEndObject();
+                // A folded row (the 'rows' form): the line's own text is prose, so the leaves it folded ride here
+                // with their tokens, links and counts intact — a consumer reads the row, never parses it.
+                w.WriteStartArray("cells");
+                foreach (var c in cells) { w.WriteStartObject(); WriteLeaf(w, c); w.WriteEndObject(); }
+                w.WriteEndArray();
             }
             w.WriteEndObject();
             if (annotated is not null && emitted is not null && annotated.ContainsKey(f.Path)) emitted.Add(f.Path);
         }
         w.WriteEndArray();
+    }
+
+    /// <summary>One leaf's members, into the object the caller opened: its path, its round-trip value or its
+    /// no-value note, and the display-only annotations. A folded row writes no note — its text is prose and its
+    /// leaves follow in <c>cells</c>.</summary>
+    static void WriteLeaf(Utf8JsonWriter w, FieldValue f)
+    {
+        w.WriteString("path", f.Path);
+        if (f.HasValue) w.WriteString("value", f.Token);   // round-trip parity: identical token to the text render
+        else if (f.Cells is null) WriteNullable(w, "note", f.Note);
+        if (f.Display is not null) w.WriteString("display", f.Display);
+        if (f.Link is { } link)
+        {
+            w.WriteStartObject("link");
+            w.WriteBoolean("resolved", link.Resolved);
+            if (link.Resolved)
+            {
+                WriteNullable(w, "type", link.Type);
+                WriteNullable(w, "editorid", link.EditorId);
+                WriteNullable(w, "name", link.Name);
+            }
+            w.WriteEndObject();
+        }
     }
 
     /// <summary>Serialize a resolved record: identity + winner/override_depth/source + the fields array. Shared by
