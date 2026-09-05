@@ -775,7 +775,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     }
 
     /// <summary>The SOLE-provider control for the same cut branch: CellC at 700 drops declarer lines (its block
-    /// runs 588-805 before completing), so the declarers notice fires — and there is no diff to lose, so the
+    /// runs 591-808 before completing), so the declarers notice fires — and there is no diff to lose, so the
     /// nodes notice must NOT — which pins each notice to the row's actual loss rather than to the branch it
     /// came back through.</summary>
     [Fact]
@@ -806,21 +806,21 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     // The block's framing line is invariant text of a known length, so checking only sb.Length < cap before it
     // writes its whole length past the cap with nothing able to take it back — json reserves the identical
     // sentence (JsonWire's DeclarersLeadReserve) and the cheap tier reserves its own clause (ClauseReserve).
-    // On CellC the block starts at 294 chars, so 587 is the last cap the framing does not fit in and 588 the
+    // On CellC the block starts at 297 chars, so 590 is the last cap the framing does not fit in and 591 the
     // first that it does.
 
     [Fact]
     public void TheFramingLineIsReservedAgainstMaxChars_NotWrittenPastIt()
     {
-        var r = Tree(_w.CellC, maxChars: 587);
+        var r = Tree(_w.CellC, maxChars: 590);
         Assert.DoesNotContain(ReadSentences.DeclarersLead, r);
-        Assert.Contains("[child declarers cut at max_chars=587", r);
+        Assert.Contains("[child declarers cut at max_chars=590", r);
     }
 
     [Fact]
     public void TheFramingLineRidesAtTheFirstCapItFitsInside()
     {
-        Assert.Contains(ReadSentences.DeclarersLead, Tree(_w.CellC, maxChars: 588));
+        Assert.Contains(ReadSentences.DeclarersLead, Tree(_w.CellC, maxChars: 591));
     }
 
     /// <summary>The lead is invariant framing text, not per-record content, so a multi-row response states it once
@@ -888,7 +888,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void Json_ANoChildrenRowsNodesCutStillSetsTruncated_NotCoveredByTheDeclarersLeadCheck()
     {
-        using var doc = JsonDocument.Parse(Tree(_w.Weapon, format: "json", maxChars: 1077));
+        using var doc = JsonDocument.Parse(Tree(_w.Weapon, format: "json", maxChars: 1080));
         Assert.True(doc.RootElement.GetProperty("truncated").GetBoolean());
         Assert.True(doc.RootElement.TryGetProperty("spilled", out _));
     }
@@ -896,7 +896,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void Json_TheSameNoChildrenRowFitsWithRoomToSpareIsNotMarkedTruncated()
     {
-        using var doc = JsonDocument.Parse(Tree(_w.Weapon, format: "json", maxChars: 1078));
+        using var doc = JsonDocument.Parse(Tree(_w.Weapon, format: "json", maxChars: 1081));
         Assert.False(doc.RootElement.GetProperty("truncated").GetBoolean());
     }
 
@@ -1033,13 +1033,13 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     // A Utf8JsonWriter cannot un-write child_declarers_note once appended, so the cap is checked BEFORE deciding
     // to write it, and against every byte that still lands afterwards: the note's own cost
     // (DeclarersLeadReserve), the `truncated` boolean written between the check and the note
-    // (TruncatedPropertyReserve), and the root close (Framing.RootClose). On CellC's json tree (1911 chars full),
-    // 1911 is the last cap that drops the note and spills, 1912 the first that keeps it.
+    // (TruncatedPropertyReserve), and the root close (Framing.RootClose). On CellC's json tree (1914 chars full),
+    // 1914 is the last cap that drops the note and spills, 1915 the first that keeps it.
 
     [Fact]
     public void Json_TheResponseLevelLeadIsDroppedRatherThanOverrunningCap_AndTruncatedIsSet()
     {
-        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1911));
+        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1914));
         Assert.False(doc.RootElement.TryGetProperty("child_declarers_note", out _));
         Assert.True(doc.RootElement.GetProperty("truncated").GetBoolean());
         Assert.True(doc.RootElement.TryGetProperty("spilled", out _));
@@ -1048,7 +1048,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void Json_TheResponseLevelLeadRidesWhenItFitsWithRoomToSpare()
     {
-        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1912));
+        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1915));
         Assert.Equal(ReadSentences.DeclarersLead, doc.RootElement.GetProperty("child_declarers_note").GetString());
         Assert.False(doc.RootElement.GetProperty("truncated").GetBoolean());
     }
