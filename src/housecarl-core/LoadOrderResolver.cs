@@ -892,8 +892,8 @@ public sealed class LoadOrderResolver : IDisposable
         /// excluded-plugin check judged against THIS view's build — so a winner this view resolved and the body
         /// fetched for it can never be vetted by two different builds. The write path resolves every edit of one call
         /// off ONE view; reads pin their fetch to the same view they resolved with.</summary>
-        public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk)
-            => _r.GetRecord(session, pluginName, fk, _s);
+        public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk, Type? getterType = null)
+            => _r.GetRecord(session, pluginName, fk, _s, getterType);
 
         /// <summary>The master filenames a plugin DECLARES in its header (the master table), in declared order — opens
         /// the overlay, reads the header, disposes — the header parses without enumerating records. Throws
@@ -936,11 +936,15 @@ public sealed class LoadOrderResolver : IDisposable
         var overlayIdxs = e.count == 1 ? new[] { e.winner } : s.Overriders[fk];
         var nodes = new ConflictNode[overlayIdxs.Length];
         string? recType = null;
+        // The FIRST body is fetched blind; every one after it seeks by the type that body turned out to be, which is
+        // the same record's type in every provider. On a cell that turns N flat scans into one plus N-1 typed seeks.
+        Type? getterType = null;
         for (int n = 0; n < overlayIdxs.Length; n++)
         {
             int oi = overlayIdxs[n];
-            var rec = FetchBody(session, oi, fk);
+            var rec = FetchBody(session, oi, fk, getterType);
             recType ??= RecordNaming.StripOverlay(rec.GetType().Name);
+            getterType ??= WriteEngine.PrimaryGetter(rec.GetType());
             nodes[n] = new ConflictNode(_names[oi], rec);
         }
         return new ConflictTree(fk, recType ?? "?", nodes);
@@ -978,14 +982,29 @@ public sealed class LoadOrderResolver : IDisposable
     /// the private <see cref="FetchBody"/> (which throws on an index inconsistency). The server's read_record uses this
     /// for an explicit-plugin read, and for the winner's body off <see cref="ResolveWinner"/>. The returned body is
     /// backed by the session's overlay — read it before the session disposes.</summary>
-    public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk)
-        => GetRecord(session, pluginName, fk, _snap);                      // single-shot: this call = its own build (the IndexView overload pins a whole operation)
+    public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk, Type? getterType = null)
+        => GetRecord(session, pluginName, fk, _snap, getterType);          // single-shot: this call = its own build (the IndexView overload pins a whole operation)
 
-    IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk, IndexSnapshot s)
+    IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk, IndexSnapshot s, Type? getterType)
     {
         if (!_nameToIdx.TryGetValue(pluginName, out int idx)) return null;
         if (s.Excluded.Contains(idx)) return null;                         // excluded plugin — never re-enumerate it (would re-throw); the service reports the reason via ExcludedPlugins
-        foreach (var rec in session.Overlay(idx).EnumerateMajorRecords())
+        return SeekBody(session.Overlay(idx), fk, getterType);
+    }
+
+    /// <summary>Find one record in one open overlay. With <paramref name="getterType"/> in hand this is a TYPED
+    /// group seek: Mutagen walks only the GRUPs that can hold that type, so finding a cell does not step over the
+    /// placed references that outnumber it fifty to one (#354 — the cost that shaped the owned-child read's two
+    /// tiers). Without a type it is the flat scan, unchanged.
+    /// <para>A typed walk that yields nothing falls back to the flat one. Mutagen's typed enumeration is a switch
+    /// over the types it models, and a type it does not route would otherwise turn "this plugin has the record"
+    /// into a silent "it does not" — the fallback costs a second pass on a miss and never a wrong answer.</para></summary>
+    static IMajorRecordGetter? SeekBody(ISkyrimModGetter ov, FormKey fk, Type? getterType)
+    {
+        if (getterType is not null)
+            foreach (var rec in ov.EnumerateMajorRecords(getterType, throwIfUnknown: false))
+                if (rec.FormKey == fk) return rec;
+        foreach (var rec in ov.EnumerateMajorRecords())
             if (rec.FormKey == fk) return rec;
         return null;
     }
@@ -1016,10 +1035,9 @@ public sealed class LoadOrderResolver : IDisposable
 
     /// <summary>Fetch one record body from one overlay by re-enumerating it into the session. Throws if the overlay
     /// can't yield a FormKey the index says it contains — a real inconsistency, named rather than swallowed.</summary>
-    IMajorRecordGetter FetchBody(OverlaySession session, int overlayIdx, FormKey fk)
+    IMajorRecordGetter FetchBody(OverlaySession session, int overlayIdx, FormKey fk, Type? getterType = null)
     {
-        foreach (var rec in session.Overlay(overlayIdx).EnumerateMajorRecords())
-            if (rec.FormKey == fk) return rec;
+        if (SeekBody(session.Overlay(overlayIdx), fk, getterType) is { } rec) return rec;
         throw new InvalidOperationException(
             $"body-fetch inconsistency: {_names[overlayIdx]} is indexed as containing {fk} but did not yield it on re-enumeration.");
     }
