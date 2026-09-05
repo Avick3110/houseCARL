@@ -34,7 +34,7 @@ public static class RecordsTools
         [Description("The form: 'identity' (FormID -> type/editorid/name/winner — the labeling form; needs formids=) | 'summary' (identity plus winner/override-depth header facts — the default) | 'fields' (named field values; takes fields= and depth=) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only — source= is the subject, versus= the reference; takes fields= to narrow) | 'tree' (every provider of each record in priority order, winner last, each diffed against the reference pole — default the winner; takes fields=. On a record type that OWNS child records — a cell's placed references, a topic's INFO lines, a worldspace's cells — it also states, per such field, which providers DECLARE children there (a COLLECTION field) or how many do (a SINGULAR one, e.g. Cell.Landscape), and says so when none do) | 'info_order' (DIAL topics only: the effective MERGED INFO sequence across every touching plugin — the order the game walks, with MOVED annotations; the 'why does the wrong line play' diagnostic) | 'chain' (a walk's own paths, endpoints and cycles rather than the records it reached; needs walk=, and carries the NPC-template inheritance report and the reverse MGEF carrier rows).")]
         public string? form { get; set; }
 
-        [Description("fields form only: dotted field paths to read, e.g. [\"BasicStats.Damage\", \"Keywords\", \"Effects\"]. Index a list/dict element with BRACKETS ('Effects[0].Data.Magnitude').")]
+        [Description("fields form only: dotted field paths to read, e.g. [\"BasicStats.Damage\", \"Keywords\", \"Effects\"]. Index a list/dict element with BRACKETS ('Effects[0].Data.Magnitude'). where='s quantifier tokens are not read here: [*any]/[*all]/[*none] fold to a boolean, which is not a row, and [*] / [*count] as a PROJECTION are not built yet — both are refused by name.")]
         public string[]? fields { get; set; }
 
         [Description("fields/everything forms: expansion depth for list/dict/substruct CONTENTS (default 1 = a container shown as a count). THIS is the expansion knob: fields=[\"Effects\"], depth=4 reaches every effect's Magnitude/Area/Duration — no hand-written index guessing.")]
@@ -102,7 +102,9 @@ public static class RecordsTools
          "QUANTIFIED STEPS over a list field: 'Conditions[*any].Data.Function = IsGuard', " +
          "'Effects[*none].BaseEffect->editorid startswith REQ_' (absence, proved), 'Effects[*count] > 2' — " +
          "[*any]/[*all]/[*none] fold the elements into a boolean, [*count] into their number, and [*all] is " +
-         "vacuously true on an empty list, presence 'VirtualMachineAdapter " +
+         "vacuously true on an empty list; a quantified step COSTS the list's length (per-candidate work times the " +
+         "number of elements) and, where its sub-path carries '->', one winner fetch PER ELEMENT — " +
+         "'Temporary[*any]->…' on a dense cell is hundreds of fetches per candidate, presence 'VirtualMachineAdapter " +
          "exists', membership 'formid not in @<file>' / 'Race in [XXXXXX:A.esm, YYYYYY:B.esm]' (list entries " +
          "separate on commas/newlines with brackets and quotes stripped — a value that itself contains a comma " +
          "or bracket is not expressible in a list; test it with '='), ONE '->' link step " +
@@ -220,6 +222,14 @@ public static class RecordsTools
             return Wire.Refuse(json, $"error: project.fields belongs to the 'fields'/'delta'/'tree' forms (got form='{form}'). Set project.form, or drop fields.");
         if (form == "fields" && project?.fields is not { Length: > 0 })
             return Wire.Refuse(json, "error: the 'fields' form names its field paths — pass project.fields=[\"<path>\", …] (or use form='everything' for the full body).");
+        // The quantifier tokens are where='s, not a projection's — refused by name here so a caller who tries one
+        // gets the rule rather than an unreadable-field note from the read walk.
+        if (project?.fields is { Length: > 0 } pf)
+            foreach (var path in pf)
+                if (QuantifierToken(path) is { } qt)
+                    return Wire.Refuse(json, qt.ToLowerInvariant() is "[*any]" or "[*all]" or "[*none]"
+                        ? $"error: project.fields path '{path}' folds the elements into a boolean, and a boolean is not a row — use {qt} in where= to SELECT the records, and name a concrete element ('Effects[0].Data.Magnitude') or the list itself to read one."
+                        : $"error: project.fields path '{path}' uses '{qt}', which is a where= step today — the projection half of the quantified step (a row per element, and the element count as a cell) is not built yet. Name a concrete element ('Effects[0].Data.Magnitude') or the list itself, which renders as a summary with project.depth.");
         if (project?.depth is { } dv)
         {
             // Any explicit depth is form-scoped — the rule must not depend on the value, or depth:1 is accepted
@@ -1995,6 +2005,21 @@ public static class RecordsTools
         foreach (var (key, count) in rows.Select(r => (r.Key, r.Value)))
             sb.Append("  ").Append(count.ToString().PadLeft(6)).Append("  ").Append(key).Append('\n');
         return sb.ToString();
+    }
+
+    /// <summary>The first quantifier token in a projection path, or null — a bracket key beginning '*', spelled back
+    /// as the caller wrote it so the refusal names their own token.</summary>
+    static string? QuantifierToken(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return null;
+        foreach (var seg in path.Split('.'))
+        {
+            int open = seg.IndexOf('[');
+            if (open < 0 || !seg.EndsWith("]", StringComparison.Ordinal)) continue;
+            var key = seg[(open + 1)..^1];
+            if (key.Length > 0 && key[0] == '*') return $"[{key}]";
+        }
+        return null;
     }
 
     /// <summary>Split references= into the targets a match must link to and the ones it must NOT: a leading '!'

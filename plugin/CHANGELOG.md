@@ -49,12 +49,16 @@ saying it sets an expectation their install may contradict. Say what is known, a
   A quantified step composes with the `->` link step and with another quantified step, at the cost the tool
   description declares (per-candidate work times list length, and one winner fetch per element under `->`). The bare
   `[*]` is the element SET and is refused in `where=`, naming the three fold tokens; a quantifier pointed at a field
-  that is not a list on the scanned records is named in the scan's accounting with what that step read instead, never
-  counted as a silent non-match. Reaching a list with a dotted segment still refuses, and its remedy now offers the
-  quantified spelling alongside the bracketed index.
+  that is not a list — a scalar, a dict, a raw byte block — is named in the scan's accounting with what that step read
+  instead, never counted as a silent non-match. An absent list reads as EMPTY, and so does one whose parent substruct
+  is absent, so `VirtualMachineAdapter.Scripts[*count] = 0` finds the records that carry no script at all; where an
+  element cannot be judged, the fold reports no verdict rather than claiming one. Reaching a list with a dotted
+  segment still refuses, and its remedy now offers the quantified spelling alongside the bracketed index.
+  `project.fields` does not take these tokens yet and refuses them by name.
 - **`where=` gains the two exclusion folds of `has`, and `references=` gains a negated entry.**
-  `BodyTemplate.FirstPersonFlags has_any 44,45` is true when at least one operand bit is set and `has_none` when
-  none is, beside the existing `has` (every operand bit set). A `!` before a `references=` entry inverts it —
+  `BodyTemplate.FirstPersonFlags has_any Head,Hands` is true when at least one operand bit is set and `has_none` when
+  none is, beside the existing `has` (every operand bit set). The operand names flag bits — a flag name, a
+  comma-separated list of them, or a bit mask (`0xC000`) — never a biped slot number. A `!` before a `references=` entry inverts it —
   `references=["!XXXXXX:A.esm"]` keeps only the records that do NOT reference that target — and plain and negated
   entries in one call compose by AND. The negated form takes the same bounding `types=`/`plugins=`/`formids=` scope
   the plain form takes.
