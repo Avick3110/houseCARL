@@ -386,12 +386,13 @@ public sealed class FieldPredicateSet
 
         // Pseudo-path classification: 'editorid' (the record's EditorID), 'winner' (the provenance term — which
         // plugin WINS the record, resolution not content), 'formid' (the membership ops' identity path).
-        var pseudo = segs.Length == 1 && !path.Contains('[')
-            ? (path.Equals("editorid", StringComparison.OrdinalIgnoreCase) ? PseudoPath.EditorId
-               : path.Equals("winner", StringComparison.OrdinalIgnoreCase) ? PseudoPath.Winner
-               : path.Equals("formid", StringComparison.OrdinalIgnoreCase) ? PseudoPath.FormId
-               : PseudoPath.None)
-            : PseudoPath.None;
+        // Classified off the segment left AFTER the '*parent' hops, not the raw path, so '*parent.editorid' reads
+        // the containing record's identity rather than falling through to a case-sensitive field walk.
+        var term = segs.Length == 1 && !segs[0].Contains('[') ? segs[0] : "";
+        var pseudo = term.Equals("editorid", StringComparison.OrdinalIgnoreCase) ? PseudoPath.EditorId
+                   : term.Equals("winner", StringComparison.OrdinalIgnoreCase) ? PseudoPath.Winner
+                   : term.Equals("formid", StringComparison.OrdinalIgnoreCase) ? PseudoPath.FormId
+                   : PseudoPath.None;
 
         // Op-compatibility, validated at parse so an unusable pairing refuses the CALL, never a silent all-miss.
         if (pseudo == PseudoPath.Winner)
