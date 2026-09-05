@@ -89,7 +89,7 @@ static class Wire
         int cap = Cap(maxChars);
         var sb = new StringBuilder();
         sb.Append("resolve: ").Append(rows.Count).Append(rows.Count == 1 ? " formid" : " formids")
-          .Append("  epoch=").Append(epoch).Append('\n');
+          .Append("  epoch=").Append(epoch).Append(OrderHealth.ClauseFor(epoch)).Append('\n');
         for (int i = 0; i < rows.Count && !(spill?.ManifestOnly ?? false); i++)
         {
             if (sb.Length >= cap)
@@ -187,7 +187,7 @@ static class Wire
         sb.Append("batch: ").Append(outcomes.Count).Append(outcomes.Count == 1 ? " record" : " records");
         // The whole batch reads one captured build, so the epoch is response-level: take the first non-null, since
         // a malformed-FormID row never consulted a view and carries none.
-        if (outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch is { } epoch) sb.Append("  epoch=").Append(epoch);
+        if (outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch is { } epoch) sb.Append("  epoch=").Append(epoch).Append(OrderHealth.ClauseFor(epoch));
         sb.Append('\n');
         int rendered = 0;
         foreach (var o in outcomes)
@@ -233,7 +233,7 @@ static class Wire
         var lv = levers ?? LeverNames.Legacy;
         // A refusal made after the build was captured is stamped with the epoch; a pre-capture validation refusal
         // carries null and renders bare.
-        if (q.Error is not null) return "error: " + q.Error + (q.Epoch is not null ? $"\nepoch={q.Epoch}" : "");
+        if (q.Error is not null) return "error: " + q.Error + (q.Epoch is not null ? $"\nepoch={q.Epoch}{OrderHealth.ClauseFor(q.Epoch)}" : "");
         int cap = Cap(maxChars);
         if (q.Groups is not null) return RenderCrossQueryGroups(q, cap, spill, out truncated);   // group_by= → a count table, not per-match lines
         bool detail = fields is { Count: > 0 };          // expand matches, vs. one-line summaries
@@ -259,7 +259,7 @@ static class Wire
             }
         }
         else if (q.Capped) sb.Append(" (showing first ").Append(q.Keys.Count).Append("; raise limit=, page with offset=, or narrow to see more)");
-        if (q.Epoch is not null) sb.Append("  epoch=").Append(q.Epoch);   // offset= windows tile ONLY within one epoch
+        if (q.Epoch is not null) sb.Append("  epoch=").Append(q.Epoch).Append(OrderHealth.ClauseFor(q.Epoch));   // offset= windows tile ONLY within one epoch
         sb.Append('\n');
         if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');   // where= accounting: wrong path / no value
         if (q.ScanNote is not null) sb.Append(q.ScanNote).Append('\n');             // records Mutagen could not parse
@@ -335,7 +335,7 @@ static class Wire
           .Append(q.Total).Append(q.Total == 1 ? " match" : " matches")
           .Append(" across ").Append(groups.Count).Append(groups.Count == 1 ? " group" : " groups");
         if (q.ScopeLabel is not null) sb.Append(" (DEFINED IN ").Append(q.ScopeLabel).Append(')');
-        if (q.Epoch is not null) sb.Append("  epoch=").Append(q.Epoch);
+        if (q.Epoch is not null) sb.Append("  epoch=").Append(q.Epoch).Append(OrderHealth.ClauseFor(q.Epoch));
         sb.Append('\n');
         if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');
         if (q.ScanNote is not null) sb.Append(q.ScanNote).Append('\n');
@@ -368,13 +368,13 @@ static class Wire
     /// added to fix — a new caller must state its own spelling.</param>
     public static string RenderEffectChain(EffectChainResult r, int maxChars, string carrierBound)
     {
-        if (r.Error is not null) return "error: " + r.Error + (r.Epoch is not null ? $"\nepoch={r.Epoch}" : "");
+        if (r.Error is not null) return "error: " + r.Error + (r.Epoch is not null ? $"\nepoch={r.Epoch}{OrderHealth.ClauseFor(r.Epoch)}" : "");
         int cap = Cap(maxChars);
         var sb = new StringBuilder();
         sb.Append("chain for ").Append(r.Mgef).Append(" (").Append(r.MgefEditorId).Append(", MagicEffect): ")
           .Append(r.Total).Append(r.Total == 1 ? " carrier row" : " carrier rows");
         if (r.Capped) sb.Append(" (showing first ").Append(r.Rows.Count).Append("; raise ").Append(carrierBound).Append(" or narrow to see more)");
-        if (r.Epoch is not null) sb.Append("  epoch=").Append(r.Epoch);
+        if (r.Epoch is not null) sb.Append("  epoch=").Append(r.Epoch).Append(OrderHealth.ClauseFor(r.Epoch));
         sb.Append('\n');
         // The whole-order negative is only the scan's to make when the scan read the whole order; with a plugin left
         // out it states the scope it covered and leaves the note below to name what it missed.
@@ -428,9 +428,7 @@ static class Wire
           .Append(didDangling ? $"{r.TotalDangling} dangling ref(s)" : "dangling refs NOT CHECKED (findings= excluded 'dangling')").Append(" · ")
           .Append(didMasters ? $"{r.TotalMissingMasters} missing master(s)" : "missing masters NOT CHECKED (findings= excluded 'missing_masters')").Append(" · ")
           .Append(didDangling ? $"{r.TotalUnscannableRecords} unscannable record(s)" : "unscannable records NOT COUNTED (the record walk was skipped)");
-        if (r.ExcludedPlugins.Count > 0)
-            sb.Append(" · ").Append(r.ExcludedPlugins.Count).Append(" plugin(s) excluded (unparseable)");
-        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(EpochOffOrderQualifier(r.OffOrderScanned));
+        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(OrderHealth.ClauseFor(r.Epoch)).Append(EpochOffOrderQualifier(r.OffOrderScanned));
         sb.Append('\n');
         if (r.FilterNote is not null) sb.Append(r.FilterNote).Append('\n');
         if (r.OffOrderScanned is { Count: > 0 } off)
@@ -703,7 +701,7 @@ static class Wire
         // What this response actually did, composed once and handed to everything below, the skeleton pass
         // included, so the fixed part is measured over the same claims the response writes.
         var o = CheckOutcome.For(s);
-        if (o.Error is not null) return "error: " + o.Error + (o.Epoch is not null ? $"\nepoch={o.Epoch}" : "");
+        if (o.Error is not null) return "error: " + o.Error + (o.Epoch is not null ? $"\nepoch={o.Epoch}{OrderHealth.ClauseFor(o.Epoch)}" : "");
         int cap = Cap(maxChars);
         var sections = o.Sections;
         var accts = o.Accountings(cap);
@@ -847,9 +845,7 @@ static class Wire
           .Append(ReadSentences.ScriptNullTotal(r, didNull))
           .Append(" · ")
           .Append(r.TotalUnverifiable).Append(" unverifiable");
-        if (r.ExcludedPlugins.Count > 0)
-            sb.Append(" · ").Append(r.ExcludedPlugins.Count).Append(" plugin(s) excluded (unparseable)");
-        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(EpochOffOrderQualifier(r.OffOrderScanned));
+        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(OrderHealth.ClauseFor(r.Epoch)).Append(EpochOffOrderQualifier(r.OffOrderScanned));
         sb.Append('\n');
         if (r.FilterNote is not null) sb.Append(r.FilterNote).Append('\n');
         if (r.OffOrderScanned is { Count: > 0 } off)

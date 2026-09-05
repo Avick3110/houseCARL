@@ -527,7 +527,7 @@ public static class RecordsTools
             {
                 var ioRows = svc.InfoOrderBatch(ids, demand, out var ioRefusal, out var ioEpoch);
                 if (ioRefusal is not null)
-                    return json ? JsonWire.RenderError(ioRefusal, ioEpoch) : "error: " + ioRefusal + (ioEpoch is not null ? $"\nepoch={ioEpoch}" : "");
+                    return json ? JsonWire.RenderError(ioRefusal, ioEpoch) : "error: " + ioRefusal + (ioEpoch is not null ? $"\nepoch={ioEpoch}{OrderHealth.ClauseFor(ioEpoch)}" : "");
                 var e = new List<KeyValuePair<string, string>>
                 {
                     new("formids", echoSrc ?? $"{ids.Length} inline formid(s)"),
@@ -544,14 +544,14 @@ public static class RecordsTools
                            "it does not take a source= pole. Use form='summary' or 'fields' for a named version's view.");
                 var rows = svc.ResolveRefs(ids, demand, out var epoch, out var refusal);
                 if (refusal is not null)
-                    return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + $"\nepoch={epoch}";
+                    return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + $"\nepoch={epoch}{OrderHealth.ClauseFor(epoch)}";
                 Arm("winner");
                 if (counts_only)
                 {
                     // The census honors counts_only on every list form, this one included.
                     int okI = rows.Count(r => r.Error is null);
                     return json ? JsonWire.RenderCounts(envelope, rows.Count, okI, rows.Count - okI, epoch)
-                                : $"{headerLine}\ncount={rows.Count} ok={okI} errors={rows.Count - okI}\nepoch={epoch}";
+                                : $"{headerLine}\ncount={rows.Count} ok={okI} errors={rows.Count - okI}\nepoch={epoch}{OrderHealth.ClauseFor(epoch)}";
                 }
                 var winRows = Windowed(rows);
                 SpillState? spill = null;
@@ -594,7 +594,7 @@ public static class RecordsTools
                                                 LeverNames.Records.ContainerHint);
                 if (ovRefusal is not null)
                     return json ? JsonWire.RenderError(ovRefusal, ovEpoch)
-                                : "error: " + ovRefusal + (ovEpoch is not null ? $"\nepoch={ovEpoch}" : "");
+                                : "error: " + ovRefusal + (ovEpoch is not null ? $"\nepoch={ovEpoch}{OrderHealth.ClauseFor(ovEpoch)}" : "");
                 Arm("skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays");
                 envelope.Add(new("epoch_covers_source", "false"));
                 headerLine += "\n(the SkyPatcher INI layer's files are OUTSIDE the epoch fingerprint — an INI edit changes answers " +
@@ -606,7 +606,7 @@ public static class RecordsTools
                 outcomes = svc.ResolveBatch(ids, readFields, false, depth, resolveNames, null, demand, out var refusal, out var refusalEpoch, LeverNames.Records.ContainerHint);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, refusalEpoch)
-                                : "error: " + refusal + (refusalEpoch is not null ? $"\nepoch={refusalEpoch}" : "");
+                                : "error: " + refusal + (refusalEpoch is not null ? $"\nepoch={refusalEpoch}{OrderHealth.ClauseFor(refusalEpoch)}" : "");
                 if (!srcOverlay) Arm("winner");
             }
             else
@@ -616,7 +616,7 @@ public static class RecordsTools
                                                     LeverNames.Records.ContainerHint);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, refusalEpoch)
-                                : "error: " + refusal + (refusalEpoch is not null ? $"\nepoch={refusalEpoch}" : "");
+                                : "error: " + refusal + (refusalEpoch is not null ? $"\nepoch={refusalEpoch}{OrderHealth.ClauseFor(refusalEpoch)}" : "");
                 Arm($"{pole!.Plugin} — {pole.Where}");
                 if (!pole.EpochCoversPole)
                 {
@@ -637,7 +637,7 @@ public static class RecordsTools
                 int ok = outcomes.Count(o => o.Error is null), err = outcomes.Count - outcomes.Count(o => o.Error is null);
                 return json
                     ? JsonWire.RenderCounts(envelope, outcomes.Count, ok, err, epoch2)
-                    : $"{headerLine}\ncount={outcomes.Count} ok={ok} errors={err}" + (epoch2 is not null ? $"\nepoch={epoch2}" : "");
+                    : $"{headerLine}\ncount={outcomes.Count} ok={ok} errors={err}" + (epoch2 is not null ? $"\nepoch={epoch2}{OrderHealth.ClauseFor(epoch2)}" : "");
             }
 
             var winOutcomes = Windowed(outcomes);   // render window; census/aggregate/artifacts stay complete
@@ -711,7 +711,7 @@ public static class RecordsTools
                     var dref = epochR is null
                         ? $"artifact '{demand.Path}' carries epoch={demand.Epoch}, but no seed consulted a build to verify it against (every seed failed pre-capture) — fix the seeds and retry."
                         : LoadOrderService.ArtifactEpochMismatch(demand, epochR);
-                    return json ? JsonWire.RenderError(dref, epochR) : "error: " + dref + (epochR is not null ? $"\nepoch={epochR}" : "");
+                    return json ? JsonWire.RenderError(dref, epochR) : "error: " + dref + (epochR is not null ? $"\nepoch={epochR}{OrderHealth.ClauseFor(epochR)}" : "");
                 }
                 Arm("winner (carriers are the load-order-effective versions)");
                 envelope.Add(new("walk", "reverse, depth 1 — the typed MGEF carrier lane"));
@@ -728,7 +728,7 @@ public static class RecordsTools
                 if (counts_only)
                     return json
                         ? JsonWire.RenderNamedCounts(envelope, revCounts, epochR)
-                        : $"{headerLine}\nseeds={results.Count} carrier_rows={carrierRows} carrier_total={carrierTotal} capped_seeds={cappedSeeds} errors={seedErrs2}" + (epochR is not null ? $"\nepoch={epochR}" : "");
+                        : $"{headerLine}\nseeds={results.Count} carrier_rows={carrierRows} carrier_total={carrierTotal} capped_seeds={cappedSeeds} errors={seedErrs2}" + (epochR is not null ? $"\nepoch={epochR}{OrderHealth.ClauseFor(epochR)}" : "");
                 var winResults = Windowed(results);
                 SpillState? revSpill = null;
                 if (wantFile)
@@ -756,7 +756,7 @@ public static class RecordsTools
             var rows = svc.WalkForwardBatch(ids, walk!.seed_paths, walk.follow, walkDepth, walkMaxNodes,
                                             walkExclusions, demand, out var wRefusal, out var wEpoch);
             if (wRefusal is not null)
-                return json ? JsonWire.RenderError(wRefusal, wEpoch) : "error: " + wRefusal + (wEpoch is not null ? $"\nepoch={wEpoch}" : "");
+                return json ? JsonWire.RenderError(wRefusal, wEpoch) : "error: " + wRefusal + (wEpoch is not null ? $"\nepoch={wEpoch}{OrderHealth.ClauseFor(wEpoch)}" : "");
             if (SeamTear(wEpoch) is { } wTear)
                 return json ? JsonWire.RenderError(wTear, wEpoch) : "error: " + wTear;
 
@@ -769,7 +769,7 @@ public static class RecordsTools
                 if (counts_only)
                     return json
                         ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("seeds", rows.Count), KvI("reached", reached), KvI("errors", errs) }, wEpoch)
-                        : $"{headerLine}\nseeds={rows.Count} reached={reached} errors={errs}" + (wEpoch is not null ? $"\nepoch={wEpoch}" : "");
+                        : $"{headerLine}\nseeds={rows.Count} reached={reached} errors={errs}" + (wEpoch is not null ? $"\nepoch={wEpoch}{OrderHealth.ClauseFor(wEpoch)}" : "");
                 var winRows = Windowed(rows);
                 SpillState? spill = null;
                 if (wantFile)
@@ -807,7 +807,7 @@ public static class RecordsTools
             int seedErrs = rows.Count(r => r.Error is not null);
             if (combined.Count == 0)
                 return json ? JsonWire.RenderError($"the walk reached nothing readable ({seedErrs} seed error(s) — run form='chain' to see each seed's outcome).", wEpoch)
-                            : $"error: the walk reached nothing readable ({seedErrs} seed error(s) — run form='chain' to see each seed's outcome)." + (wEpoch is not null ? $"\nepoch={wEpoch}" : "");
+                            : $"error: the walk reached nothing readable ({seedErrs} seed error(s) — run form='chain' to see each seed's outcome)." + (wEpoch is not null ? $"\nepoch={wEpoch}{OrderHealth.ClauseFor(wEpoch)}" : "");
             envelope.Add(new("walk", $"forward{(walk.follow is { } f3 ? $" follow={f3}" : " (closure)")} depth={walkDepth} — selection = the {combined.Count} record(s) the walk reached (seeds included{(seedErrs > 0 ? $"; {seedErrs} seed error(s), listed via form='chain'" : "")})"));
             headerLine += $"\nwalk: selection = {combined.Count} reached record(s) (seeds included)";
             expectEpoch = wEpoch;
@@ -840,7 +840,7 @@ public static class RecordsTools
                 var rows = svc.DeltaBatch(ids, srcSpec, versusSpec!, projFields, demand,
                                           out var sArm, out var rArm, out var covers, out var refusal, out var epoch);
                 if (refusal is not null)
-                    return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + (epoch is not null ? $"\nepoch={epoch}" : "");
+                    return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + (epoch is not null ? $"\nepoch={epoch}{OrderHealth.ClauseFor(epoch)}" : "");
                 return DeltaResponse(rows, sArm, rArm, covers, epoch, Echo());
             }
             else   // tree
@@ -850,7 +850,7 @@ public static class RecordsTools
                 var rows = svc.TreeBatch(ids, versusSpec!, projFields, demand,
                                          out var rArm, out var covers, out var refusal, out var epoch);
                 if (refusal is not null)
-                    return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + (epoch is not null ? $"\nepoch={epoch}" : "");
+                    return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + (epoch is not null ? $"\nepoch={epoch}{OrderHealth.ClauseFor(epoch)}" : "");
                 return TreeResponse(rows, rArm, covers, epoch, Echo());
             }
         }
@@ -870,7 +870,7 @@ public static class RecordsTools
             if (counts_only)
                 return json
                     ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("errors", errs) }, epoch)
-                    : $"{headerLine}\ncount={rows.Count} differing={differing} identical={identical} errors={errs}" + (epoch is not null ? $"\nepoch={epoch}" : "");
+                    : $"{headerLine}\ncount={rows.Count} differing={differing} identical={identical} errors={errs}" + (epoch is not null ? $"\nepoch={epoch}{OrderHealth.ClauseFor(epoch)}" : "");
             var winRows = Windowed(rows);
             SpillState? spill = null;
             if (wantFile)
@@ -911,7 +911,7 @@ public static class RecordsTools
             if (counts_only)
                 return json
                     ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }, epoch)
-                    : $"{headerLine}\ncount={rows.Count} contested={contested} errors={errs}" + (epoch is not null ? $"\nepoch={epoch}" : "");
+                    : $"{headerLine}\ncount={rows.Count} contested={contested} errors={errs}" + (epoch is not null ? $"\nepoch={epoch}{OrderHealth.ClauseFor(epoch)}" : "");
             var winRows = Windowed(rows);
             SpillState? spill = null;
             if (wantFile)
@@ -946,7 +946,7 @@ public static class RecordsTools
             if (counts_only)
                 return json
                     ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }, epoch)
-                    : $"{headerLine}\ncount={rows.Count} contested={contested} errors={errs}" + (epoch is not null ? $"\nepoch={epoch}" : "");
+                    : $"{headerLine}\ncount={rows.Count} contested={contested} errors={errs}" + (epoch is not null ? $"\nepoch={epoch}{OrderHealth.ClauseFor(epoch)}" : "");
             var winRows = Windowed(rows);
             SpillState? spill = null;
             if (wantFile)
@@ -1193,7 +1193,7 @@ public static class RecordsTools
                     var rows = svc.DeltaBatch(cmpKeys, srcSpec, versusSpec!, projFields, null,
                                               out var sArm, out var rArm, out var covers, out var refusal, out var depoch);
                     if (refusal is not null)
-                        return json ? JsonWire.RenderError(refusal, depoch) : "error: " + refusal + (depoch is not null ? $"\nepoch={depoch}" : "");
+                        return json ? JsonWire.RenderError(refusal, depoch) : "error: " + refusal + (depoch is not null ? $"\nepoch={depoch}{OrderHealth.ClauseFor(depoch)}" : "");
                     if (outcome.Epoch is not null && depoch is not null && depoch != outcome.Epoch)
                     {
                         var tear = $"the load order changed between the scan (epoch={outcome.Epoch}) and the comparison " +
@@ -1207,7 +1207,7 @@ public static class RecordsTools
                     var rows = svc.TreeBatch(cmpKeys, versusSpec!, projFields, null,
                                              out var rArm, out var covers, out var refusal, out var tepoch);
                     if (refusal is not null)
-                        return json ? JsonWire.RenderError(refusal, tepoch) : "error: " + refusal + (tepoch is not null ? $"\nepoch={tepoch}" : "");
+                        return json ? JsonWire.RenderError(refusal, tepoch) : "error: " + refusal + (tepoch is not null ? $"\nepoch={tepoch}{OrderHealth.ClauseFor(tepoch)}" : "");
                     if (outcome.Epoch is not null && tepoch is not null && tepoch != outcome.Epoch)
                     {
                         var tear = $"the load order changed between the scan (epoch={outcome.Epoch}) and the comparison " +
@@ -1227,7 +1227,7 @@ public static class RecordsTools
                 headerLine += $"\n{outcome.Total} match(es) selected by the scan";
                 var ioRows = svc.InfoOrderBatch(ioKeys, null, out var ioRefusal, out var ioEpoch);
                 if (ioRefusal is not null)
-                    return json ? JsonWire.RenderError(ioRefusal, ioEpoch) : "error: " + ioRefusal + (ioEpoch is not null ? $"\nepoch={ioEpoch}" : "");
+                    return json ? JsonWire.RenderError(ioRefusal, ioEpoch) : "error: " + ioRefusal + (ioEpoch is not null ? $"\nepoch={ioEpoch}{OrderHealth.ClauseFor(ioEpoch)}" : "");
                 if (outcome.Epoch is not null && ioEpoch is not null && ioEpoch != outcome.Epoch)
                 {
                     var tear = $"the load order changed between the scan (epoch={outcome.Epoch}) and the merge " +
@@ -1253,7 +1253,7 @@ public static class RecordsTools
                     // empty result, not a failure.
                     if (bref is not null)
                         return json ? JsonWire.RenderError(bref, brefEpoch)
-                                    : "error: " + bref + (brefEpoch is not null ? $"\nepoch={brefEpoch}" : "");
+                                    : "error: " + bref + (brefEpoch is not null ? $"\nepoch={brefEpoch}{OrderHealth.ClauseFor(brefEpoch)}" : "");
                 }
                 else
                 {
@@ -1475,7 +1475,7 @@ public static class RecordsTools
                     var rows = svc.DeltaBatch(cmpKeys, srcSpec, versusSpec!, projFields, null,
                                               out var sArm, out var rArm, out var covers, out var refusal, out var depoch);
                     if (refusal is not null)
-                        return json ? JsonWire.RenderError(refusal, depoch) : "error: " + refusal + (depoch is not null ? $"\nepoch={depoch}" : "");
+                        return json ? JsonWire.RenderError(refusal, depoch) : "error: " + refusal + (depoch is not null ? $"\nepoch={depoch}{OrderHealth.ClauseFor(depoch)}" : "");
                     // The file selection's build and the comparison's must agree: the selection filtered through
                     // the active view, same as the in-order seam.
                     if (outcome.Epoch is not null && depoch is not null && depoch != outcome.Epoch)
@@ -1491,7 +1491,7 @@ public static class RecordsTools
                     var rows = svc.TreeBatch(cmpKeys, versusSpec!, projFields, null,
                                              out var rArm, out var covers, out var refusal, out var tepoch);
                     if (refusal is not null)
-                        return json ? JsonWire.RenderError(refusal, tepoch) : "error: " + refusal + (tepoch is not null ? $"\nepoch={tepoch}" : "");
+                        return json ? JsonWire.RenderError(refusal, tepoch) : "error: " + refusal + (tepoch is not null ? $"\nepoch={tepoch}{OrderHealth.ClauseFor(tepoch)}" : "");
                     if (outcome.Epoch is not null && tepoch is not null && tepoch != outcome.Epoch)
                     {
                         var tear = $"the load order changed between the file scan (epoch={outcome.Epoch}) and the comparison " +
@@ -1512,7 +1512,7 @@ public static class RecordsTools
                 bodies = FoldRows(bodies);
                 if (bref is not null)
                     return json ? JsonWire.RenderError(bref, brefEpoch)
-                                : "error: " + bref + (brefEpoch is not null ? $"\nepoch={brefEpoch}" : "");
+                                : "error: " + bref + (brefEpoch is not null ? $"\nepoch={brefEpoch}{OrderHealth.ClauseFor(brefEpoch)}" : "");
                 // The selection's build and the body reads' must agree, the same rule as the in-order body seam:
                 // the bodies re-open the file, but the selection was made on the view.
                 var offBodyEpochs = bodies.Where(o => o.Epoch is not null).Select(o => o.Epoch!).Distinct().ToList();
@@ -1653,7 +1653,7 @@ public static class RecordsTools
         sb.Append(headerLine).Append('\n');
         sb.Append(total).Append(" record(s): ").Append(differing).Append(" differing, ").Append(identical)
           .Append(" identical, ").Append(errors).Append(" error(s)");
-        if (epoch is not null) sb.Append("  epoch=").Append(epoch);
+        if (epoch is not null) sb.Append("  epoch=").Append(epoch).Append(OrderHealth.ClauseFor(epoch));
         sb.Append('\n');
         int rendered = 0;
         foreach (var row in rows)
@@ -1728,7 +1728,7 @@ public static class RecordsTools
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
         sb.Append(total).Append(" record(s): ").Append(contested).Append(" contested, ").Append(errors).Append(" error(s)");
-        if (epoch is not null) sb.Append("  epoch=").Append(epoch);
+        if (epoch is not null) sb.Append("  epoch=").Append(epoch).Append(OrderHealth.ClauseFor(epoch));
         sb.Append('\n');
         int rendered = 0;
         bool declarersLeadWritten = false;
@@ -1858,7 +1858,7 @@ public static class RecordsTools
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
         sb.Append(total).Append(" seed(s), ").Append(reached).Append(" node(s) reached, ").Append(errors).Append(" error(s)");
-        if (epoch is not null) sb.Append("  epoch=").Append(epoch);
+        if (epoch is not null) sb.Append("  epoch=").Append(epoch).Append(OrderHealth.ClauseFor(epoch));
         sb.Append('\n');
         int rendered = 0;
         foreach (var row in rows)
@@ -1929,7 +1929,7 @@ public static class RecordsTools
         sb.Append(totalSeeds).Append(" seed(s), ").Append(carrierRows).Append(" carrier row(s)");
         if (carrierTotal != carrierRows) sb.Append(" of ").Append(carrierTotal).Append(" total");
         sb.Append(", ").Append(errors).Append(" error(s)");
-        if (epoch is not null) sb.Append("  epoch=").Append(epoch);
+        if (epoch is not null) sb.Append("  epoch=").Append(epoch).Append(OrderHealth.ClauseFor(epoch));
         sb.Append('\n');
         int rendered = 0;
         foreach (var (seed, result) in results)
@@ -1963,7 +1963,7 @@ public static class RecordsTools
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
         sb.Append(total).Append(" topic(s): ").Append(contested).Append(" contested, ").Append(errors).Append(" error(s)");
-        if (epoch is not null) sb.Append("  epoch=").Append(epoch);
+        if (epoch is not null) sb.Append("  epoch=").Append(epoch).Append(OrderHealth.ClauseFor(epoch));
         sb.Append('\n');
         int rendered = 0;
         foreach (var row in rows)
@@ -2010,7 +2010,7 @@ public static class RecordsTools
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
         sb.Append(outcomes.Count).Append(" record(s)");
-        if (epoch is not null) sb.Append("  epoch=").Append(epoch);
+        if (epoch is not null) sb.Append("  epoch=").Append(epoch).Append(OrderHealth.ClauseFor(epoch));
         sb.Append('\n');
         int rendered = 0;
         foreach (var o in outcomes)
@@ -2070,7 +2070,7 @@ public static class RecordsTools
         sb.Append(headerLine).Append("  group_by=").Append(gb).Append('\n');
         sb.Append(outcomes.Count).Append(" record(s)");
         if (errors > 0) sb.Append("  (").Append(errors).Append(" per-item error(s) — counted apart, listed via form='summary')");
-        if (epoch is not null) sb.Append("  epoch=").Append(epoch);
+        if (epoch is not null) sb.Append("  epoch=").Append(epoch).Append(OrderHealth.ClauseFor(epoch));
         sb.Append('\n');
         foreach (var (key, count) in rows.Select(r => (r.Key, r.Value)))
             sb.Append("  ").Append(count.ToString().PadLeft(6)).Append("  ").Append(key).Append('\n');
