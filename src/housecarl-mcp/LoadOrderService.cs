@@ -4053,8 +4053,27 @@ public sealed class LoadOrderService : IDisposable
             return CrossQueryOutcome.Fail("a scan needs at least one of: types=, plugins=, formids=, conflicts_only=true, where=, or references=.");
         // A formid set is itself a bound: the scan touches at most those keys, so a body filter over one needs no
         // types= or plugins=.
+        //
+        // An unbounded references= is no longer one of those: the reverse-reference index answers which records
+        // link a target, so the index supplies the scan universe and everything downstream is the ordinary scan.
+        // Every OTHER body filter still needs a bound — the index knows links, not field values.
+        string? reverseNote = null;
+        bool indexUniverse = false;                                    // the scan universe came from the index, not from the caller
         if (bodyFilter && !hasType && !hasPlugins && !hasFormidSet)
-            return CrossQueryOutcome.Fail("where=/references= is a body scan and must be combined with types=, plugins=, or a formids= set to bound it (conflicts_only= alone is not enough — an unbounded body scan over the whole order is refused). A global reverse-reference index is a future capability.");
+        {
+            bool reverseOnly = !hasWhere && string.IsNullOrEmpty(editoridContains);
+            if (!reverseOnly)
+                return CrossQueryOutcome.Fail("where=/editorid_contains= is a body scan and must be combined with types=, plugins=, or a formids= set to bound it (conflicts_only= alone is not enough — an unbounded body scan over the whole order is refused). Only references= is unbounded, off the reverse-reference index.");
+            var built = view.EnsureReverseIndex();
+            var universe = HousecarlCore.ReverseSelection.Universe(view, view.ReverseIndex!, references);
+            var wholeOrder = HousecarlCore.ReverseSelection.WholeOrderNote(references, universe.Count);
+            reverseNote = built.Note is null ? wholeOrder
+                        : wholeOrder is null ? built.Note
+                        : built.Note + " " + wholeOrder;
+            formidSet = universe;
+            hasFormidSet = true;                                       // an empty universe is still the universe: 0 matches, not a refusal
+            indexUniverse = true;
+        }
 
         // defined_in= keeps only records defined in the scoped plugins (by origin FormKey), which is distinct from
         // plugins=, meaning everything a plugin touches. It needs a plugins= scope to mean anything, so it is
@@ -4169,7 +4188,9 @@ public sealed class LoadOrderService : IDisposable
         // than left to read as a clean whole-order scan.
         var unreadablePlugins = new List<PluginUnreadableException>();
 
-        HashSet<FormKey>? setFilter = hasFormidSet ? new HashSet<FormKey>(formidSet!) : null;
+        // Only the type=/plugins= branches consult this, and neither can co-occur with an index-supplied universe —
+        // so the whole-order universe is never copied into a second set.
+        HashSet<FormKey>? setFilter = hasFormidSet && !indexUniverse ? new HashSet<FormKey>(formidSet!) : null;
         // The set-alone branch also owns conflicts_only combined with formidSet, via its in-loop touching-count
         // test: routing that pair to the index-only else-branch would drop every parsed body filter silently.
         if (!hasType && !hasPlugins && hasFormidSet)                          // the formid set ALONE is the universe: per-key winner fetch
@@ -4500,6 +4521,7 @@ public sealed class LoadOrderService : IDisposable
                                      matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null, offset,
                                      whereWinner, whereSourceNote)
                { Epoch = view.Epoch, Pin = new ViewPin(resolver, view),
+                 ReverseIndexNote = reverseNote,
                  UnreadPlugins = unreadablePlugins.Select(u => u.PluginName).ToList() };
     }
 
@@ -9013,6 +9035,10 @@ public sealed record CrossQueryOutcome(
     /// <summary>The captured build the scan ran over. The render stamps it into the in-band accounting so paged
     /// windows are checkably from the same build. Null on the pre-scan refusals.</summary>
     public string? Epoch { get; init; }
+
+    /// <summary>The reverse-reference index's accounting for this call: what a build it triggered cost, the index's
+    /// own per-plugin freshness key, and the whole-order universe declaration. Null when the call did not use it.</summary>
+    public string? ReverseIndexNote { get; init; }
 
     /// <summary>Plugins the winner scan could not open, by filename. A zero-match answer with one of these is bounded
     /// by the lock, not by the filter, and the render must not tell the caller otherwise.</summary>

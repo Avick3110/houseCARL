@@ -106,7 +106,7 @@ public static class EffectChain
                 return FailStamped(
                     $"{mgef} resolves to a {RecordNaming.StripOverlay(mbody.GetType().Name)}, not a MagicEffect — the chain form " +
                     $"needs an MGEF. (To find what references an arbitrary record, use {ToolNames.Records} references=[the FormID] " +
-                    "with types= or plugins= to bound the scan.)");
+                    "— unbounded off the reverse-reference index, or with types= or plugins= for a cheaper bounded scan.)");
             mgefEid = mr.EditorID ?? "<none>";
         }
 
