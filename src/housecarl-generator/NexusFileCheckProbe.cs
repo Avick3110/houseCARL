@@ -123,6 +123,40 @@ internal static class NexusFileCheckProbe
         Check(iRes.Verdict == UpdateVerdict.Current && iRes.Files[0].Verdict == FileVerdict.Live && iRes.Files[0].Category == "PENDING_REVIEW",
               "I: unknown category → treated Live, category carried through (not mis-retired)");
 
+        // K — an installed file the author WITHDREW (REMOVED/DELETED) is its own verdict, never Live. It used to fall
+        //     through the closed OLD/ARCHIVED set and render "'name' v1 [REMOVED] — current", a line contradicting
+        //     itself (#405). The same-name live file is named as a LEAD, and the row says to read the page first.
+        var pulled = new List<(int, string, string?, string, long)>
+        {
+            (30, "Widget Patch", "1", "REMOVED", 100L),
+            (31, "Widget Patch", "2", "MAIN",    200L),
+        };
+        var kRemoved = NexusClient.ComputeStatus(600, true, "Withdrawn", "2", "1", new[] { 30 }, pulled);
+        Check(kRemoved.Verdict == UpdateVerdict.FileRemoved && kRemoved.Files[0].Verdict == FileVerdict.Removed
+              && kRemoved.Files[0].Category == "REMOVED",
+              "K: an installed REMOVED file → FileRemoved, never Live");
+        var kText = Render.Updates(new[] { kRemoved }, Array.Empty<string>());
+        Check(!kText.Contains("— current", StringComparison.Ordinal)
+              && kText.Contains("[REMOVED]", StringComparison.Ordinal)
+              && kText.Contains("REMOVED by the author", StringComparison.Ordinal)
+              && kText.Contains("Read the page", StringComparison.Ordinal),
+              "K: the render says the file was withdrawn and what to do — never 'current' beside a [REMOVED] category");
+        Check(kText.Contains("FILE REMOVED —", StringComparison.Ordinal)
+              && kText.Contains(" 1 file-removed ", StringComparison.Ordinal),
+              "K: the withdrawn mods get their own group and their own count in the summary line");
+        // …and DELETED is the same bucket, while a withdrawn file is never offered as the replacement for a retired
+        // one: the same-name search now tests live, not merely not-retired.
+        var deleted = new List<(int, string, string?, string, long)>
+        {
+            (40, "Widget Patch", "1", "ARCHIVED", 100L),
+            (41, "Widget Patch", "2", "DELETED",  200L),
+        };
+        var kDeleted = NexusClient.ComputeStatus(601, true, "Withdrawn Two", "2", "1", new[] { 41 }, deleted);
+        Check(kDeleted.Verdict == UpdateVerdict.FileRemoved, "K: DELETED is the same withdrawal bucket as REMOVED");
+        var kRetired = NexusClient.ComputeStatus(601, true, "Withdrawn Two", "2", "1", new[] { 40 }, deleted);
+        Check(kRetired.Verdict == UpdateVerdict.Outdated && kRetired.Files[0].NewestSameName is null,
+              "K: a retired file is NOT pointed at a withdrawn same-name file as its replacement");
+
         // ---- id#fileid PARSE (ParseUpdatePairs) ----
         var (pairs, bad) = NexusTools.ParseUpdatePairs("99786#585300, 126608#533265#533266, 12604=6.9, 266 4.3.8a, 3863, 99786#, abc#1, junk");
         Check(pairs.Count == 5, "parse: 5 readable entries");
