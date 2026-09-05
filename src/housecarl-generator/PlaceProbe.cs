@@ -1394,8 +1394,9 @@ internal static class PlaceProbe
 
                 // N1: the true case, which no cell reached before — the render must say the ARCHIVE is what the
                 // engine skips, not that the mod is unticked (it is ticked; saying otherwise is simply false).
-                var text = PlaceAssetTools.PlaceAsset(svcN, asset_path: FacegenRel, source: FacegenRel,
-                                                      source_provider: "EnabledArch", patch_name: "NOwnerEnabled");
+                var text = PlaceTools.Place(svcN, new[]
+                    { new PlaceTarget { Path = FacegenRel, Source = FacegenRel } },
+                    source_provider: "EnabledArch", patch: "NOwnerEnabled");
                 Check(text.Contains("root archive the engine does NOT load", StringComparison.Ordinal),
                       $"N1 an ENABLED mod's unbound archive is described as an archive the engine skips  [RED arm] — {Trim1(text)}");
                 Check(!text.Contains("NOT enabled in MO2", StringComparison.Ordinal),
