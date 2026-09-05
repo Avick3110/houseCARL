@@ -105,12 +105,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `config_folders_truncated` and `unreadable_pex_truncated`.
 - **`housecarl_records` gains `project.form='rows'` — a list field read as ONE LINE PER ELEMENT.**
   `project={"form":"rows","fields":["Conditions"]}` renders each element on its own line: the element's type,
-  then every sub-field that is there — the function, the operator, the value, the `Or` flag, the run-on — with
-  absent optionals and null links omitted. Auditing a 40-row condition stack is one call instead of an index
-  probe per row, and the same call works on any list (`["Effects"]`, `["Perks"]`), not just conditions. Reads
+  then every sub-field the read found — the function, the operator, the value, the `Or` flag, the run-on — with
+  absent optionals omitted. Auditing a 40-row condition stack is one call instead of an index
+  probe per row, and the same call works on any list (`["Effects"]`, `["Perks"]`), not just conditions. An
+  indexed path (`["Conditions[0]"]`) folds that one element; a field that is not a list is refused per record,
+  naming the field, rather than answered with the `fields` form. Reads
   the caller's field paths like the `fields` form and takes the same `depth=` (default 4 here, and `depth=1` is
   refused because it would collapse the list to a count); `resolve_names` annotates a link inside the row.
-  Absent means absent — an unreadable sub-field keeps its note, and the list's own header keeps its true count.
+  Only an ABSENT optional is dropped: a declared-but-null link stays (an empty slot is a fact, and the
+  None-property diagnostics read it), and the list's own header keeps its true count. Under `format='json'` a row
+  is one entry carrying its folded leaves as `cells`, each with its own value, `link` and count — the values are
+  never handed over as a sentence to parse.
 - **`housecarl_load_order_status` now names the running server's build in its header** — a `server:` line carrying
   the informational version the binary embeds (the release version `build-plugin.ps1` stamps from `plugin.json`,
   then `+` and the full commit sha: `1.9.5-dev+e942910…`), so checking that the installed houseCARL is the build you expect no longer means
