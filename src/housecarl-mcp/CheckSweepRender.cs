@@ -41,9 +41,10 @@ internal sealed record CheckSweep(
         _ => null,
     };
 
-    /// <summary>The epoch any family stamped, for a refusal render. Either family will do: a call whose families
-    /// stamped different builds refuses through <see cref="OrderSeamError"/> and never reaches here.</summary>
-    internal string? Epoch => Errors?.Epoch ?? Scripts?.Epoch;
+    /// <summary>The epoch any family stamped, for a refusal render. Any family will do: a call whose families
+    /// stamped different builds refuses through <see cref="OrderSeamError"/> and never reaches here. The dialogue
+    /// family is read here too, so a dialogue-only refusal is stamped like its siblings' are.</summary>
+    internal string? Epoch => Errors?.Epoch ?? Scripts?.Epoch ?? Dialogue?.Epoch;
 
     /// <summary>The plugins the order this call answered from had LOST to a load failure, captured once before any
     /// family was dispatched and checked afterwards against every family's own stamp, so this really is the build

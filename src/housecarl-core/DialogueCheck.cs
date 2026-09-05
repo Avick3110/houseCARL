@@ -50,7 +50,8 @@ public sealed record DialogueSeedResult(string Seed, DialogueValidationReport? R
 /// stamped like the sibling families stamp theirs. It names the record build and nothing else: the verdicts taken off
 /// the ASSET substrate (a line's <c>.fuz</c>, a result script's <c>.pex</c> chain, <c>.seq</c> coverage and staleness)
 /// are outside the fingerprint, so both renders write it with <c>epoch_covers_all_inputs: false</c> and name those
-/// classes rather than omitting the stamp. Null only on a refusal, which validated nothing.</param>
+/// classes rather than omitting the stamp. A refusal carries the bare stamp — the build it was decided against, with
+/// no coverage claim beside it, which is what the sibling families' refusals carry.</param>
 public sealed record DialogueCheckResult(
     IReadOnlyList<DialogueSeedResult> Seeds,
     int TopicsFound,
@@ -80,6 +81,8 @@ public sealed record DialogueCheckResult(
     /// could not evaluate, not a description of the listing.</summary>
     public int ConditionedInfos => Topics.Sum(x => x.Topic.ConditionedInfoCount);
 
-    public static DialogueCheckResult Fail(string error) =>
-        new(Array.Empty<DialogueSeedResult>(), 0, 0, false, error);
+    /// <summary>The family's refusal, stamped with the build it was decided against — the sibling families stamp
+    /// theirs, and a refusal decided after the view was captured has a build to name.</summary>
+    public static DialogueCheckResult Fail(string error, string? epoch = null) =>
+        new(Array.Empty<DialogueSeedResult>(), 0, 0, false, error) { Epoch = epoch };
 }
