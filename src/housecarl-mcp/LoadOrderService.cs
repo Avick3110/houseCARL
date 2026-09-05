@@ -1,4 +1,4 @@
-using Mutagen.Bethesda.Plugins;
+﻿using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Aspects;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
@@ -4080,7 +4080,7 @@ public sealed class LoadOrderService : IDisposable
                         }
                         if (conflictsOnly && (view.TouchingPlugins(fk)?.Count ?? 0) <= 1) continue;
                         if (DeletedRecordRule.HasNoLiveBody(body)
-                            && (refSet is not null || refNone is not null || predicate is { NeedsLiveBody: true })) continue;
+                            && (refSet is not null || predicate is { NeedsLiveBody: true })) continue;
                         if (!string.IsNullOrEmpty(editoridContains)
                             && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
                             continue;
@@ -4202,7 +4202,7 @@ public sealed class LoadOrderService : IDisposable
                         // predicates actually READ body content: the header- and resolution-only terms must see
                         // deleted records exactly as editorid_contains= does.
                         if (DeletedRecordRule.HasNoLiveBody(filterBody)
-                            && (refSet is not null || refNone is not null || predicate is { NeedsLiveBody: true })) continue;
+                            && (refSet is not null || predicate is { NeedsLiveBody: true })) continue;
                         if (!string.IsNullOrEmpty(editoridContains)
                             && (filterBody.EditorID is null || filterBody.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
                             continue;
@@ -4320,9 +4320,11 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>The negated references= test: true when this body links to ANY excluded target, so the scan drops
     /// it. A record that carries no links at all references nothing and is kept — that is the whole point of the
-    /// term.</summary>
+    /// term, and a DELETED record (no live body to read links from) is the strongest case of it, so it is kept
+    /// rather than skipped the way the positive term skips it.</summary>
     static bool ExcludedByReference(IMajorRecordGetter body, HashSet<FormKey> excluded)
     {
+        if (DeletedRecordRule.HasNoLiveBody(body)) return false;
         if (body is not IFormLinkContainerGetter flc) return false;
         foreach (var l in flc.EnumerateFormLinks()) if (excluded.Contains(l.FormKey)) return true;
         return false;
@@ -4452,7 +4454,7 @@ public sealed class LoadOrderService : IDisposable
                         if (touchers is null || !touchers.Any(scopeSet.Contains)) continue;
                     }
                     if (DeletedRecordRule.HasNoLiveBody(rec)
-                        && (refSet is not null || refNone is not null || predicate is { NeedsLiveBody: true })) continue;
+                        && (refSet is not null || predicate is { NeedsLiveBody: true })) continue;
                     if (!string.IsNullOrEmpty(editoridContains)
                         && (rec.EditorID is null || rec.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
                         continue;

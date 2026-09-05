@@ -1,4 +1,4 @@
-using HousecarlMcp;
+﻿using HousecarlMcp;
 using Xunit;
 
 namespace HousecarlMcpTests;
@@ -30,6 +30,15 @@ public sealed class RecordsReferenceExclusionTests : RecordsTestBase
     }
 
     [Fact]
+    public void ANegatedReferenceKeepsADeletedRecord_WhichReferencesNothingAtAll()
+    {
+        // The positive term skips a record with no live body (it can never link the target); the negated term must
+        // not, because that record is the strongest match the term has.
+        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, references: new[] { "!" + Fid(W.MgefA) });
+        Assert.Contains(Fid(W.Weapons[2]), r);
+    }
+
+    [Fact]
     public void ANegatedReferenceStillNeedsABoundingScope() =>
         Refused(RecordsTools.Records(Svc, references: new[] { "!" + Fid(W.MgefA) }), "types=");
 
@@ -45,6 +54,18 @@ public sealed class RecordsReferenceExclusionTests : RecordsTestBase
         Served(r, "HcRecSpellC");
         Assert.DoesNotContain("HcRecSpellA", r);
     }
+
+    [Fact]
+    public void AFoldTokenInProjectFieldsIsRefused_ABooleanIsNotARow() =>
+        Refused(RecordsTools.Records(Svc, types: new[] { "SPEL" },
+                                     project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects[*any].Data.Magnitude" } }),
+                "not a row");
+
+    [Fact]
+    public void TheProjectionHalfOfTheQuantifiedStepIsRefusedAsUnbuilt_NeverSilentlyMisread() =>
+        Refused(RecordsTools.Records(Svc, types: new[] { "SPEL" },
+                                     project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects[*count]" } }),
+                "not built yet");
 
     [Fact]
     public void TheBareStarIsRefusedThroughTheToolNamingTheFoldTokens()
