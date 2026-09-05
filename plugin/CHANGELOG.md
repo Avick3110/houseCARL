@@ -80,9 +80,16 @@ saying it sets an expectation their install may contradict. Say what is known, a
   freshness key. The index is kept per plugin and keyed on that plugin's path and last-write time, so a plugin you
   change rebuilds only its own slice (an unchanged order re-checks in milliseconds), and it is never answered from
   bodies it was not computed from. Nothing else is unbounded: a `where=` or `editorid_contains=` with no scope is
-  still refused, naming the bound. A bounded `references=` is unchanged and still cheaper — it builds no index. The
-  negated spelling `references=["!XXXXXX:Plugin.esp"]` is unbounded too, and keeps its meaning of "does not
-  reference that target", so with no scope its universe is the whole order; the response says so.
+  still refused, naming the bound. A bounded `references=` is unchanged and still cheaper — it builds no index.
+  The index is kept for as long as the load order it was built from, including across a plugin being ticked or
+  re-sorted in MO2, so that walk is paid once and not once per touch.
+
+- **The orphan sweep: `references=["!XXXXXX:Plugin.esp"]` with no scope now asks which records nothing in the
+  order references.** A negated `references=` under a `types=`/`plugins=` scope is unchanged — records in that
+  scope that do not link the target. With no scope at all the universe becomes every record nothing references,
+  and the named target then excludes any of those that link it; the response states which question it answered.
+  The sweep is refused in combination with `form='delta'`/`'tree'`/`'info_order'`, which would compare every one
+  of those records — run it as a plain scan with `to_file=` and re-enter the artifact instead.
 
 - **A path can now step to the record that CONTAINS this one, with `*parent`.** DIAL→INFO, CELL→REFR/ACHR and
   WRLD→CELL ownership is group nesting rather than a form link, so `references=` correctly returns nothing for it
