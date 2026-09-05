@@ -1240,7 +1240,7 @@ static class JsonWire
         if (didMasters) w.WriteNumber("missing_masters", r.TotalMissingMasters); else w.WriteNull("missing_masters");
         WriteStringArray(w, "classes_checked", ClassNames(r.Classes));
         WriteNullable(w, "filter_note", r.FilterNote);
-        WriteStringArray(w, "off_order_scanned", r.OffOrderScanned ?? Array.Empty<string>());
+        WriteOffOrder(w, r.OffOrderScanned, ReadSentences.SweepOffOrderErrorsCoverage);
         w.WriteBoolean("counts_only", r.CountsOnly);
 
         // The baseline split as DATA. base_masters names the set that was counted, because Mutagen's base set is
@@ -1550,6 +1550,16 @@ static class JsonWire
         w.WriteBoolean("epoch_covers_all_inputs", offOrderScanned is not { Count: > 0 });
     }
 
+    /// <summary>A swept family's off-order roster AND the coverage caveat that makes it readable — the same tail
+    /// the text render prints in brackets. The roster alone leaves a json consumer with a file name and, on the
+    /// scripts family, an unverifiable count with nothing tying the two together; null when nothing was swept
+    /// off-order, so the key is never a caveat over a lane that did not run.</summary>
+    static void WriteOffOrder(Utf8JsonWriter w, IReadOnlyList<string>? offOrderScanned, string coverage)
+    {
+        WriteStringArray(w, "off_order_scanned", offOrderScanned ?? Array.Empty<string>());
+        WriteNullable(w, "off_order_coverage", offOrderScanned is { Count: > 0 } ? coverage : null);
+    }
+
     // ---- housecarl_check — the merged, multi-family document ----------------------------------------
     /// <summary>The merged sweep as json: the scope facts flat at the top, then a <c>families</c> object keyed by
     /// family token, each carrying exactly what that family's single-family tool writes as a whole document — its
@@ -1751,7 +1761,8 @@ static class JsonWire
         // a consumer has to be able to read that asymmetry off the document.
         WriteNullable(w, "property_contains", r.PropertyContains);
         WriteNullable(w, "filter_note", r.FilterNote);
-        WriteStringArray(w, "off_order_scanned", r.OffOrderScanned ?? Array.Empty<string>());
+        WriteOffOrder(w, r.OffOrderScanned, ReadSentences.SweepOffOrderScriptsCoverage);
+        w.WriteNumber("unverifiable_collapsed", r.UnverifiableCollapsed);
         w.WriteBoolean("read_incomplete", r.ReadIncomplete);
         w.WriteBoolean("counts_only", r.CountsOnly);
     }

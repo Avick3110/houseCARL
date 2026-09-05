@@ -424,12 +424,12 @@ static class Wire
           .Append(didDangling ? $"{r.TotalUnscannableRecords} unscannable record(s)" : "unscannable records NOT COUNTED (the record walk was skipped)");
         if (r.ExcludedPlugins.Count > 0)
             sb.Append(" · ").Append(r.ExcludedPlugins.Count).Append(" plugin(s) excluded (unparseable)");
-        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(EpochOffOrderQualifier(r));
+        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(EpochOffOrderQualifier(r.OffOrderScanned));
         sb.Append('\n');
         if (r.FilterNote is not null) sb.Append(r.FilterNote).Append('\n');
         if (r.OffOrderScanned is { Count: > 0 } off)
-            sb.Append("swept OFF-ORDER (on disk, not in the active load order): ").Append(string.Join(", ", off))
-              .Append("   [the file's own records; links resolved against the active order + the file's own definitions]\n");
+            sb.Append(string.Format(ReadSentences.SweepOffOrderScanned, string.Join(", ", off),
+                                    ReadSentences.SweepOffOrderErrorsCoverage)).Append('\n');
         AppendBaselineSplit(sb, r, acct);   // how much of the dangling total is vanilla baseline
     }
 
@@ -588,13 +588,9 @@ static class Wire
     /// <summary>The epoch stamp's coverage qualifier: off-order files are located on disk, outside the
     /// fingerprinted order, so the fingerprint does not cover their content and equal epochs must not be read as
     /// "same inputs" across such sweeps. The fact itself is data; this is its header-line rendering.</summary>
-    static string EpochOffOrderQualifier(ErrorCheckResult r) =>
-        r.OffOrderScanned is { Count: > 0 } ? " (indexed plugins only — off-order file content is outside the fingerprint)" : "";
-
-    /// <summary>The scripts family's half of the same qualifier — it has the off-order lane too, so its stamp
-    /// covers only the indexed plugins whenever it swept a file from disk.</summary>
-    static string EpochOffOrderQualifier(ScriptCheckResult r) =>
-        r.OffOrderScanned is { Count: > 0 } ? " (indexed plugins only — off-order file content is outside the fingerprint)" : "";
+    /// <para>Both swept families have the lane, so one method over the roster serves both.</para>
+    static string EpochOffOrderQualifier(IReadOnlyList<string>? offOrderScanned) =>
+        offOrderScanned is { Count: > 0 } ? " (indexed plugins only — off-order file content is outside the fingerprint)" : "";
 
     /// <summary>Reserve every axis's fixed part — its unconditional lines and its closing disclosure — then render
     /// them all. Two passes, because an axis reserving its own room only when its turn came would find a sibling
@@ -847,13 +843,14 @@ static class Wire
           .Append(r.TotalUnverifiable).Append(" unverifiable");
         if (r.ExcludedPlugins.Count > 0)
             sb.Append(" · ").Append(r.ExcludedPlugins.Count).Append(" plugin(s) excluded (unparseable)");
-        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(EpochOffOrderQualifier(r));
+        if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch).Append(EpochOffOrderQualifier(r.OffOrderScanned));
         sb.Append('\n');
         if (r.FilterNote is not null) sb.Append(r.FilterNote).Append('\n');
         if (r.OffOrderScanned is { Count: > 0 } off)
-            sb.Append("swept OFF-ORDER (on disk, not in the active load order): ").Append(string.Join(", ", off))
-              .Append("   [the file's own records; each attached script's .pex read from the ACTIVE order, so a script "
-                    + "that ships only inside the not-yet-enabled mod reads UNVERIFIABLE, not clean]\n");
+            sb.Append(string.Format(ReadSentences.SweepOffOrderScanned, string.Join(", ", off),
+                                    ReadSentences.SweepOffOrderScriptsCoverage)).Append('\n');
+        if (r.UnverifiableCollapsed > 0)
+            sb.Append(string.Format(ReadSentences.SweepScriptUnverifiableCollapsed, r.UnverifiableCollapsed)).Append('\n');
         if (r.ReadIncomplete)
             sb.Append("note: a BSA failed to read this build — a '.pex not on disk' below may merely be unscanned, not truly absent (Q3).\n");
     }
