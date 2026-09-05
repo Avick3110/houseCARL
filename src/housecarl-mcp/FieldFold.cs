@@ -83,7 +83,9 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] ReadPaths, Fiel
     {
         if (o.Record is null) return o;
         var (cols, carried, error) = Columns(o.Record);
-        return error is null ? o with { Record = o.Record with { Fields = cols!.SelectMany(c => c).Concat(carried).ToList() } }
+        // The carried note leads: it is what the read did to the columns below it, and a render that hits its own
+        // ceiling part-way down the rows would drop a note written after them.
+        return error is null ? o with { Record = o.Record with { Fields = carried.Concat(cols!.SelectMany(c => c)).ToList() } }
                              : o with { Record = null, Error = error };
     }
 

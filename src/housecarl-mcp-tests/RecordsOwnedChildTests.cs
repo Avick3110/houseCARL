@@ -856,6 +856,18 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.Contains("formids=", note);
     }
 
+    /// <summary>A quantified path renders the same rows through a fold of its own, and the clause is about the
+    /// cells those rows carry — so the folded dense branch has to register the annotated field too, or the
+    /// document states the values without the sentence that says what they are.</summary>
+    [Fact]
+    public void ADenseFoldStatesTheSameClauseTheUnfoldedRowsDo()
+    {
+        var doc = JsonDocument.Parse(RecordsTools.Records(Svc, types: new[] { "CELL" }, format: "dense",
+                                     project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Temporary[*]" } }));
+        var note = doc.RootElement.GetProperty("owned_child_note").GetString()!;
+        Assert.Contains("Temporary", NamedFields(note, ReadSentences.NotReadFraming));
+    }
+
     /// <summary>The same cell named by formid IS unioned, so the two lanes differ by what the caller asked for,
     /// not by what is true.</summary>
     [Fact]
