@@ -588,10 +588,17 @@ internal static class WriteSentences
 
     /// <summary>One lane sentence, finished. <paramref name="plugins"/> are the plugins the in-place lane could
     /// actually take here — a plugin must be in the ACTIVE load order for in_place= to resolve it — so an empty set
-    /// means the lane is unavailable and the sentence is not offered at all.</summary>
+    /// means the lane is unavailable and the sentence is not offered at all. Capped like the owned-patch list beside
+    /// it: a compilation folder shipping dozens of active plugins would otherwise end the refusal with dozens of
+    /// quoted filenames, and the count says how many were cut.</summary>
     internal static string InPlaceLane(string lane, IReadOnlyList<string> plugins)
-        => plugins.Count == 0 ? ""
-         : lane + string.Join(" or ", plugins.Select(p => $"\"{p}\"")) + ".";
+    {
+        const int cap = 4;
+        if (plugins.Count == 0) return "";
+        var shown = plugins.Take(cap).Select(p => $"\"{p}\"");
+        var rest = plugins.Count - cap;
+        return lane + string.Join(" or ", shown) + (rest > 0 ? $" or one of {rest} others in that folder" : "") + ".";
+    }
 
     /// <summary>Sentences the SAME outcome must carry on BOTH transports. Members are whole invariant strings on
     /// purpose: a sentence interpolating a cap or a filename cannot be compared verbatim across lanes, so

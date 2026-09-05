@@ -398,6 +398,12 @@ internal static class ExtendResolveProbe
                       "housecarl_remove names in_place=\"<plugin filename>\" — the lane it actually declares");
                 Check(!modern.Contains("target=", StringComparison.Ordinal),
                       "…and never names target=, which that tool does not declare");
+                // Both arms of this resolver read the same way about emphasis: the consent-gated lane comes after
+                // the candidates the caller can take without touching anyone else's file (#380). The not-found arm
+                // used to carry it inside the lane clause, ahead of the list.
+                int ownsFirst = modern.IndexOf("houseCARL owns", StringComparison.Ordinal);
+                Check(ownsFirst >= 0 && ownsFirst < modern.IndexOf("in_place=", StringComparison.Ordinal),
+                      "…and the NOT-FOUND arm reads the candidates before the in-place lane, like the un-owned one");
 
                 // The 2.0 tool refuses first, in its own spelling. Kept as a statement about the TOOL — it is
                 // no longer what makes anything in the service correct.
@@ -544,8 +550,10 @@ internal static class ExtendResolveProbe
                 Check(ap.Contains(WriteSentences.ExtendInPlaceLane, StringComparison.Ordinal) && ap.Contains(named, StringComparison.Ordinal),
                       "housecarl_apply names the in-place lane AND the plugin in that folder the lane can take");
                 // The one clause here that rewrites a file the caller did not author reads LAST, behind both lanes
-                // that leave every original untouched (#380).
-                Check(ap.IndexOf("houseCARL owns:", StringComparison.Ordinal) < ap.IndexOf("in_place=", StringComparison.Ordinal),
+                // that leave every original untouched (#380). The list has to be PRESENT for the order to mean
+                // anything — IndexOf returns -1 for a missing substring, which would satisfy any "before" test.
+                int ownsAt = ap.IndexOf("houseCARL owns:", StringComparison.Ordinal);
+                Check(ownsAt >= 0 && ownsAt < ap.IndexOf("in_place=", StringComparison.Ordinal),
                       "…and the safe candidate list is read BEFORE the consent-gated lane");
 
                 var cr = CreateTools.Create(svc, records: Doc("[{\"record_type\":\"Keyword\",\"editorid\":\"HcExtUnowned\"}]"),
@@ -642,6 +650,88 @@ internal static class ExtendResolveProbe
                 int rowCount = capText.Split("into=\"", StringSplitOptions.None).Length - 1;
                 Check(rowCount == 8 && capText.Contains(" more.", StringComparison.Ordinal),
                       $"the list stops at 8 rows and counts the rest ({rowCount} rows rendered)");
+            }
+
+            // ---- 9e: the in-place lane is offered only for the copy the game actually LOADS ----
+            //      Two mod folders can ship the same plugin basename and only one wins. Offering the lane on a
+            //      filename match alone points a consent-gated write at the OTHER folder's file — a plugin the
+            //      sentence never named. The twin here is not enabled, so RemoveHereMod's copy stays the winner.
+            Console.WriteLine();
+            Console.WriteLine("--- 9e: a folder holding a losing copy of an active plugin gets NO in-place lane ---");
+            {
+                var twin = Path.Combine(mods, "TwinRemoveMod");                // un-owned, and NOT in modlist.txt
+                Directory.CreateDirectory(twin);
+                File.Copy(Path.Combine(mods, "RemoveHereMod", "RemoveHere.esp"), Path.Combine(twin, "RemoveHere.esp"));
+
+                var twinned = RemoveTools.Remove(svc, new[] { fid }, into: "TwinRemoveMod");
+                Check(twinned.Contains("NOT created by houseCARL", StringComparison.Ordinal)
+                      && !twinned.Contains("in_place=", StringComparison.Ordinal),
+                      "the un-owned refusal offers no in-place lane for a copy the load order does not resolve here");
+                Check(twinned.Contains("houseCARL owns", StringComparison.Ordinal),
+                      "…and still closes with the owned patches rather than dead-ending");
+
+                // The folder that DOES win keeps its sentence, so the gate is a path check and not a blanket refusal.
+                var winner = RemoveTools.Remove(svc, new[] { fid }, into: "RemoveHereMod");
+                Check(winner.Contains("in_place=\"RemoveHere.esp\"", StringComparison.Ordinal),
+                      "…while the folder whose copy the game loads still names the lane, with the plugin");
+            }
+
+            // ---- 9f: owned patches that no single into= spelling reaches are COUNTED, not denied ----
+            //      rows.Count == 0 has two causes and only one of them is "there is nothing to extend". Its own
+            //      instance, because the claim is about the WHOLE inventory being unreachable.
+            Console.WriteLine();
+            Console.WriteLine("--- 9f: an inventory nothing reaches says so, instead of claiming none exists ---");
+            {
+                string inst2 = Path.Combine(root, "instance2");
+                string prof2 = Path.Combine(inst2, "profiles", "Default");
+                string mods2 = Path.Combine(inst2, "mods");
+                Directory.CreateDirectory(prof2); Directory.CreateDirectory(mods2);
+                File.WriteAllText(Path.Combine(inst2, "ModOrganizer.ini"),
+                    "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+                    + Path.Combine(root, "game").Replace(@"\", @"\\") + ")\r\n");
+                Directory.CreateDirectory(Path.Combine(mods2, "MasterMod"));
+                File.Copy(masterPath, Path.Combine(mods2, "MasterMod", mKey.FileName.String));
+                File.WriteAllText(Path.Combine(prof2, "loadorder.txt"), "# header\r\n" + mKey.FileName + "\r\n");
+                File.WriteAllText(Path.Combine(prof2, "plugins.txt"), "*" + mKey.FileName + "\r\n");
+                File.WriteAllText(Path.Combine(prof2, "modlist.txt"), "# header\r\n+MasterMod\r\n");
+
+                // Two owned twins, each holding the SAME two plugins: no folder name resolves (neither holds
+                // "<folder>.esp"), and each plugin name is ambiguous across the pair. Every spelling is refused.
+                foreach (var name in new[] { "houseCARL - Twin", "houseCARL - Twin backup" })
+                {
+                    var d = Path.Combine(mods2, name);
+                    Directory.CreateDirectory(d);
+                    File.WriteAllText(Path.Combine(d, "meta.ini"),
+                        $"{HousecarlOwnerMeta.Section}\r\ngenerated=true\r\nplugin=Alpha.esp\r\n");
+                    File.WriteAllText(Path.Combine(d, "Alpha.esp"), "a");
+                    File.WriteAllText(Path.Combine(d, "Beta.esp"), "b");
+                }
+
+                var store2 = new UserConfigStore(Path.Combine(root, "houseCARL.user2.json"));
+                using var svc2 = LoadOrderService.WithInstance(inst2, 0, store2);
+                svc2.Stats();
+                var unreachable = svc2.ApplyEdits(new[] { Wgt(1) }, null, "GhostNowhere");
+                string text = unreachable.Error ?? "";
+                Check(text.Contains("houseCARL owns 2 patches, none reachable", StringComparison.Ordinal),
+                      $"the refusal counts the patches no spelling reaches ({text})");
+                Check(!text.Contains("owns no patch", StringComparison.Ordinal),
+                      "…rather than telling the caller houseCARL owns none, which would send them to mint a duplicate");
+            }
+
+            // ---- 9g: the in-place lane sentence is capped like the list beside it ----
+            //      A compilation folder ships dozens of active plugins; the sibling clause caps at 8 rows for the
+            //      same reason. Rendered directly — building 30 active plugins to see one sentence is not the claim.
+            Console.WriteLine();
+            Console.WriteLine("--- 9g: the in-place lane names a few plugins and counts the rest ---");
+            {
+                var many = Enumerable.Range(0, 25).Select(i => $"Pack{i:D2}.esp").ToList();
+                var sentence = WriteSentences.InPlaceLane(WriteSentences.ExtendInPlaceLane, many);
+                int quoted = sentence.Split('"').Length / 2;
+                Check(quoted == 4 && sentence.Contains("or one of 21 others in that folder", StringComparison.Ordinal),
+                      $"25 active plugins render 4 names plus a count, not 25 filenames ({sentence})");
+                var few = WriteSentences.InPlaceLane(WriteSentences.ExtendInPlaceLane, new[] { "OnlyOne.esp" });
+                Check(few.Contains("\"OnlyOne.esp\".", StringComparison.Ordinal) && !few.Contains("others", StringComparison.Ordinal),
+                      "…and a folder under the cap still names every plugin, with no tail");
             }
 
             // ---- 10: ORIGINALS — the master plugin never moved a byte (extends only wrote the patch folder) ----

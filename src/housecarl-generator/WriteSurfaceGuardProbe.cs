@@ -2441,16 +2441,13 @@ public static class WriteSurfaceGuardProbe
         // …and the UN-OWNED half of the same resolver, where apply's own in-place spelling reaches a caller (#359).
         // A marker-less mod folder is enough to reach it, and it is inert to every other arm: nothing lists it, no
         // profile enables it, and the call is a refusal, so the fixture stays as the later arms expect it.
-        // It has to HOLD a plugin the in-place lane could take, or the sentence is correctly withheld and this
-        // observation would pass on a render that never carried it: in_place= resolves a filename through the
-        // ACTIVE load order, so the folder gets a copy of an active plugin's file.
-        var twinForeign = Path.Combine(fx.ModsDir, "W2TwinForeign");
-        Directory.CreateDirectory(twinForeign);
-        if (!File.Exists(Path.Combine(twinForeign, fx.ReplacerName)))
-            File.Copy(Path.Combine(fx.ModsDir, "W2Repl", fx.ReplacerName), Path.Combine(twinForeign, fx.ReplacerName));
+        // It has to hold a plugin the in-place lane could take, or the sentence is correctly withheld and this
+        // observation would pass on a render that never carried it. That means the folder the LOAD ORDER resolves
+        // the plugin to, not merely a folder holding a file of that name — a losing copy is offered no lane. So the
+        // subject is W2Repl itself: an ordinary enabled mod folder, un-owned, whose replacer plugin is the winner.
         var foreignOps = Json($$"""[{"formid":"{{fx.SubjectFid}}","field_path":"Name","value":"x"}]""");
-        Observe(ApplyTools.Apply(fx.Svc, ops: foreignOps, into: "W2TwinForeign"),
-                ApplyTools.Apply(fx.Svc, ops: foreignOps, into: "W2TwinForeign", format: "json"));
+        Observe(ApplyTools.Apply(fx.Svc, ops: foreignOps, into: "W2Repl"),
+                ApplyTools.Apply(fx.Svc, ops: foreignOps, into: "W2Repl", format: "json"));
 
         // ---- the three post-write report blocks -------------------------------------------------------
         // Rendered off a built outcome for the same reason the report-budget arm above builds one: a report big
