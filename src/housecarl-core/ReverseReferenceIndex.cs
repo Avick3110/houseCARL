@@ -338,16 +338,22 @@ public static class ReverseSelection
 
     /// <summary>One hop of a transitive reverse walk: the records reached at this distance from the seeds, first
     /// arrival wins. An EMPTY hop is a fact and is kept in the list, so a walk that ran out of referrers says so
-    /// rather than trailing off.</summary>
-    public sealed record Hop(int Depth, IReadOnlyList<FormKey> Reached);
+    /// rather than trailing off — unless <paramref name="Cut"/>, which says the node budget ended this hop and its
+    /// count is a prefix, not a finding.</summary>
+    public sealed record Hop(int Depth, IReadOnlyList<FormKey> Reached, bool Cut);
 
     /// <summary>The transitive reverse walk: who references the seeds, then who references those, hop after hop.
     /// The follow rule — every link — is the same at every hop, which is what <c>depth</c> means here and
     /// everywhere. Records already reached are not re-reported and not re-expanded, so a reference cycle
-    /// terminates. <paramref name="maxNodes"/> bounds the TOTAL reached across all hops; a breach keeps what was
-    /// proved, stops there, and sets <paramref name="capped"/> so the response can say the cut happened.</summary>
+    /// terminates. The index answers in CANDIDATES, so <paramref name="verify"/> re-tests each one against the body
+    /// the caller means to judge — the same second step <c>references=</c> takes — and a candidate that fails it is
+    /// neither reported nor expanded, so a dropped link cannot seed a false subtree. <paramref name="maxNodes"/>
+    /// bounds the TOTAL reached across all hops; the budget is tested BEFORE the node is consumed, so a raised
+    /// budget on a retry sees the same graph, and the hop the cut landed on is marked
+    /// <see cref="Hop.Cut"/> rather than reading as a hop that reached nothing.</summary>
     public static IReadOnlyList<Hop> Transitive(ReverseReferenceIndex index, IReadOnlyList<FormKey> seeds,
-                                                int depth, int maxNodes, out bool capped)
+                                                int depth, int maxNodes,
+                                                Func<FormKey, IReadOnlySet<FormKey>, bool>? verify, out bool capped)
     {
         capped = false;
         var hops = new List<Hop>();
@@ -356,15 +362,19 @@ public static class ReverseSelection
         int reached = 0;
         for (int d = 1; d <= depth; d++)
         {
+            var frontierSet = new HashSet<FormKey>(frontier);
             var next = new List<FormKey>();
+            bool cut = false;
             foreach (var k in index.ReferencersOf(frontier))
             {
-                if (!visited.Add(k)) continue;
-                if (reached >= maxNodes) { capped = true; break; }
+                if (visited.Contains(k)) continue;
+                if (verify is not null && !verify(k, frontierSet)) continue;
+                if (reached >= maxNodes) { capped = true; cut = true; break; }
+                visited.Add(k);
                 next.Add(k);
                 reached++;
             }
-            hops.Add(new Hop(d, next));
+            hops.Add(new Hop(d, next, cut));
             if (capped || next.Count == 0) break;
             frontier = next;
         }

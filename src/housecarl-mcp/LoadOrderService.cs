@@ -98,6 +98,15 @@ public sealed class LoadOrderService : IDisposable
     /// resolve.</summary>
     internal LoadOrderResolver.IndexView CaptureView() => Resolver.Capture();
 
+    /// <summary>One captured build together with the resolver it came from, for a lane that has to open an overlay
+    /// session against the same resolver it captured — a session from an adjacent build would fetch bodies the
+    /// view's epoch does not name.</summary>
+    internal ViewPin CapturePin()
+    {
+        var r = Resolver;
+        return new ViewPin(r, r.Capture());
+    }
+
     /// <summary>A FormID door for a tool body with no captured view of its own — see <see cref="FormIdDoor"/>.</summary>
     internal FormIdDoor OpenFormIdDoor() => FormIdDoor.For(this);
 

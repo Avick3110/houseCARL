@@ -145,6 +145,18 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
         Served(r, "hop 2: 0", "hop 3: 0", "not a magic effect");
     }
 
+    /// <summary>A plain carrier call asked for no depth, so it is told none: the default 16 must not print fifteen
+    /// empty hops and a paragraph answering a question nobody asked.</summary>
+    [Fact]
+    public void TheCarrierLaneWithNoDepthAskedPrintsNoHopCensus()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse" }, project: Chain);
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.DoesNotContain("hop 2: 0", r);
+        Assert.DoesNotContain("hop 16", r);
+    }
+
     [Fact]
     public void InfoOrderOnANonDial_IsATypedPerItemRefusalTeachingTheQuestFanOutComposition() =>
         Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, project: Form("info_order")),

@@ -34,9 +34,22 @@ saying it sets an expectation their install may contradict. Say what is known, a
   The response names the count reached at each hop, empty hops included, and says which hops it did not need to
   walk, so a walk that ran out of referrers reads as exhausted rather than as a silent stop. The index's own
   accounting — the one-time build cost, its per-plugin freshness key, and any plugin the walk could not read —
-  rides this lane exactly as it rides `references=`. `form='chain'` still selects the typed MGEF carrier lane
-  (per-carrier magnitude/area/duration); it follows the effect link at every hop, so it reaches nothing past
-  hop 1 and now says the empty hops instead of answering a deeper call with a depth-1 answer.
+  rides this lane exactly as it rides `references=`. The reached set is verified against the body the walk
+  judges — the load-order winner — so a record whose winner dropped the link is not reported and not expanded,
+  and the walk and `references=` answer the same question the same way; the response says how many index
+  candidates that check dropped. A hop the `walk.max_nodes` budget ended is marked as cut rather than reading
+  as a hop that reached nothing.
+- **`walk.follow` is legal on `direction='reverse'`, and it is what picks the reverse walk.** `follow` names
+  the edges a walk crosses, backwards as well as forwards: unset or `"*"` is the transitive walk over every
+  link, `follow="Effects[].BaseEffect"` is the typed MGEF carrier walk (per-carrier magnitude/area/duration,
+  `types=` narrowing the carrier types), which follows the effect link at every hop and so reaches nothing past
+  hop 1 — said out loud when a depth was asked for. The form then only picks the view, as it does forward:
+  `'chain'` renders the walk's rows and a reading form consumes the same reached set. One declared exception
+  keeps the existing carrier spelling working: `form='chain'` with `follow` unset means the carrier walk,
+  because the transitive walk expands one shared frontier and has no per-seed path for `chain` to draw;
+  `form='chain'` with `follow="*"` refuses and names both alternatives. Any other `follow` on reverse refuses
+  naming the two the index can serve. `walk.max_nodes` says which reading it spends: per seed on the carrier
+  walk, one shared budget across every seed and hop on the transitive walk.
 
 - **`housecarl_asset_status` and `housecarl_place` take `format='json'`.** Both answered text only, so a caller
   reading them from a script parsed prose. The json document carries the same data as the text render: for

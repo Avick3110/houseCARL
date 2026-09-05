@@ -168,13 +168,107 @@ public sealed class RecordsReverseIndexTests : RecordsTestBase
                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 2 }),
                "reverse-reference index", "key=");
 
-    /// <summary>types= narrows the typed carrier lane's carrier types; this lane reaches every type, so the pair
+    /// <summary>types= narrows the typed carrier walk's carrier types; this walk reaches every type, so the pair
     /// refuses with the re-entry spelling named rather than filtering something else.</summary>
     [Fact]
     public void TypesOnTheTransitiveReverseWalkRefusesNamingTheReEntrySpelling() =>
         Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) }, types: new[] { "Spell" },
                                      walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 2 }),
                 "to_file");
+
+    // ---- follow= is what tells the two reverse walks apart -------------------------------------------
+
+    /// <summary>follow is legal on reverse: it names the edges the walk crosses, which is as meaningful backwards
+    /// as forwards. "*" is the transitive walk, and it reaches the same set the unset spelling does.</summary>
+    [Fact]
+    public void AnExplicitFollowStarOnReverseIsTheTransitiveWalk()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 2, follow = "*" });
+        Served(r, "HcRecSpellHop", "HcRecListHop", "hop 1: 1", "hop 2: 1");
+    }
+
+    /// <summary>The carrier follow picks the typed MGEF walk under a READING form too, so the form only chooses
+    /// the view: the reached set is the carriers either way.</summary>
+    [Fact]
+    public void TheCarrierFollowUnderAReadingFormConsumesTheCarrierReachedSet()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" });
+        Served(r, "HcRecSpellHop");
+        Assert.DoesNotContain("HcRecListHop", r);
+    }
+
+    /// <summary>A follow the reverse index cannot serve refuses naming the two it can, rather than being ignored
+    /// and answering a different question.</summary>
+    [Fact]
+    public void AnUnservableFollowOnReverseRefusesNamingTheTwoItServes() =>
+        Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Template" }),
+                "Effects[].BaseEffect");
+
+    /// <summary>The transitive walk expands one shared frontier, so it has no per-seed path for chain to draw —
+    /// refused with both the reading forms and the carrier follow named.</summary>
+    [Fact]
+    public void ChainOverTheTransitiveReverseWalkRefusesNamingTheCarrierFollow() =>
+        Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "*" },
+                                     project: new RecordsTools.RecordsProject { form = "chain" }),
+                "Effects[].BaseEffect");
+
+    /// <summary>A bad direction is taught the follow that picks the reverse walk, not the deleted depth-1 rule.
+    /// </summary>
+    [Fact]
+    public void ABadDirectionNoLongerTeachesTheDeletedDepthOneRule()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "backward" });
+        Assert.StartsWith("error:", r);
+        Assert.DoesNotContain("depth 1", r);
+    }
+
+    // ---- the candidate set is verified, the budget is honest, the seeds are deduplicated ---------------
+
+    /// <summary>The index names a candidate whose WINNER dropped the link. references= excludes it, and so must
+    /// the walk — the two spellings of one question cannot disagree.</summary>
+    [Fact]
+    public void TheReverseWalkExcludesACandidateWhoseWinnerDroppedTheLink()
+    {
+        var refs = RecordsTools.Records(Svc, references: new[] { Fid(W.SpellHop) });
+        Assert.DoesNotContain("HcRecListDropped", refs);
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellHop) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 1 });
+        Served(r, "HcRecListHop", "hop 1: 1");
+        Assert.DoesNotContain("HcRecListDropped", r);
+    }
+
+    /// <summary>And the drop is said out loud rather than left as a count the caller cannot account for.</summary>
+    [Fact]
+    public void TheReverseWalkSaysHowManyIndexCandidatesTheBodyCheckDropped() =>
+        Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellHop) },
+                                    walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 1 }),
+               "index candidate(s) were dropped");
+
+    /// <summary>A hop the node budget ended reads as cut, not as a hop that reached nothing, and a capped walk is
+    /// never also called exhausted.</summary>
+    [Fact]
+    public void ACappedReverseWalkNamesTheCutHopAndIsNotCalledExhausted()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 6, max_nodes = 1 });
+        Assert.Contains("cut by walk.max_nodes", r);
+        Assert.DoesNotContain("nothing left to expand", r);
+    }
+
+    /// <summary>Two spellings of one seed key are one seed: the selection lists it once.</summary>
+    [Fact]
+    public void RepeatedSeedsAreDeduplicated()
+    {
+        var id = Fid(W.MgefHop);
+        var r = RecordsTools.Records(Svc, formids: new[] { id, id },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 1 });
+        Served(r, "selection = 2 record(s) (1 referrer(s)");
+    }
 }
 
 /// <summary>The index's own lifecycle: what a build costs, that a second call pays nothing, that a plugin whose
