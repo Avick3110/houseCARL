@@ -25,8 +25,12 @@ public static class ReverseWalkBatch
     /// selection the reading forms consume, the index candidates the body check dropped and why, the index's own
     /// accounting line, and the build the whole answer was read from.</summary>
     public sealed record Result(IReadOnlyList<ReverseSelection.Hop> Hops, IReadOnlyList<string> Selection,
-                                int Seeds, bool Capped, DropCensus Dropped, string? IndexNote, string? Epoch,
-                                string? Refusal);
+                                int Seeds, bool Capped, DropCensus Dropped, string? IndexNote, OrderStamp? Stamp,
+                                string? Refusal)
+    {
+        /// <summary>The build's fingerprint alone, for the places that compare epochs rather than render them.</summary>
+        public string? Epoch => Stamp?.Epoch;
+    }
 
     /// <summary>Run the walk from these seeds. Every seed is parsed against the captured build, so a bad FormID is
     /// a refusal naming it rather than a seed that silently reaches nothing.</summary>
@@ -35,10 +39,10 @@ public static class ReverseWalkBatch
     {
         var pin = svc.CapturePin();
         var view = pin.View;
-        var epoch = view.Epoch;
-        if (demand is not null && demand.Epoch != epoch)
-            return new Result(Array.Empty<ReverseSelection.Hop>(), Array.Empty<string>(), 0, false, DropCensus.Empty, null, epoch,
-                              LoadOrderService.ArtifactEpochMismatch(demand, epoch));
+        var stamp = view.Stamp;
+        if (demand is not null && demand.Epoch != stamp.Epoch)
+            return new Result(Array.Empty<ReverseSelection.Hop>(), Array.Empty<string>(), 0, false, DropCensus.Empty, null, stamp,
+                              LoadOrderService.ArtifactEpochMismatch(demand, stamp.Epoch));
 
         // Seeds are deduplicated: two spellings of one key (a runtime FormID and its ID:Plugin form) parse to the
         // same FormKey, and the selection the reading forms consume must list it once.
@@ -50,7 +54,7 @@ public static class ReverseWalkBatch
             try { fk = view.ParseFormId(raw); }
             catch (Exception ex)
             {
-                return new Result(Array.Empty<ReverseSelection.Hop>(), Array.Empty<string>(), 0, false, DropCensus.Empty, null, epoch,
+                return new Result(Array.Empty<ReverseSelection.Hop>(), Array.Empty<string>(), 0, false, DropCensus.Empty, null, stamp,
                                   $"bad FormID '{raw}': {ex.Message} — every seed of a reverse walk must parse before the walk starts.");
             }
             if (seedSeen.Add(fk)) seedKeys.Add(fk);
@@ -114,6 +118,6 @@ public static class ReverseWalkBatch
             foreach (var k in hop.Reached) selection.Add(k.ToString());
 
         return new Result(hops, selection, seedKeys.Count, capped,
-                          new DropCensus(noLink.Count, unreadable, noLiveBody, noWinner), built.Note, epoch, null);
+                          new DropCensus(noLink.Count, unreadable, noLiveBody, noWinner), built.Note, stamp, null);
     }
 }
