@@ -18,8 +18,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   shallower override depths, fewer touching plugins, sometimes a different winner. The epoch stamp changed, but
   a legitimate reorder changes it too, so the two were indistinguishable inside one response unless the call
   happened to name the failed plugin. Every response now carries `order_degraded: true` and one sentence saying
-  how many plugins are missing, which ones, that this is a load failure rather than a change you made, and that
-  `housecarl_load_order_status` gives the reason; the text lane appends the count beside `epoch=`. It rides
+  how many plugins are missing, which ones, that this is a load failure rather than a reorder, and that
+  `housecarl_load_order_status` gives the reason for each; the text lane appends the count beside `epoch=`.
+  It does not guess whether you caused the failure — a plugin Mutagen cannot parse is not your doing, while one
+  that cannot be opened usually is (the mod is off but `plugins.txt` still lists it), and the status tool says
+  which applies per plugin. It rides
   beside the epoch, never inside it, so two builds that differ only in health still compare as different builds.
   A healthy order carries nothing. The sentence names up to ten plugins and counts the rest —
   `housecarl_load_order_status` lists them all. `housecarl_check` states it at the top of the response as well

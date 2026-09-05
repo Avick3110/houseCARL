@@ -41,16 +41,20 @@ public static class OrderDegraded
     /// sentence, and the COUNT is always exact even when the names are not all there.</summary>
     const int NamesShown = 10;
 
-    /// <summary>What the caller needs to know in one sentence: how many plugins are missing, which ones, that this
-    /// is a FAILURE rather than something they did, and where the reason is.</summary>
+    /// <summary>What the caller needs to know in one sentence: how many plugins are missing, which ones, that the
+    /// order is short of them because a LOAD FAILED rather than because the order was rearranged, and where the
+    /// reason is. It does not say whether the caller caused the failure: a plugin is excluded either because
+    /// Mutagen cannot parse a record in it (nothing the caller did) or because it could not be opened, which is
+    /// most often exactly what the caller did — disabled or removed the mod while plugins.txt still lists it.
+    /// Which of the two applies is per-plugin, and <c>housecarl_load_order_status</c> says it per plugin.</summary>
     public static string Sentence(IReadOnlyCollection<string> excludedPlugins)
     {
         var names = excludedPlugins.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
         var shown = string.Join(", ", names.Take(NamesShown));
         if (excludedPlugins.Count > NamesShown) shown += $", and {excludedPlugins.Count - NamesShown} more";
         return $"{excludedPlugins.Count} plugin(s) could not be loaded for this build and are absent from the order " +
-               $"this answer describes ({shown}) — this is a load FAILURE, not a change you made; " +
-               "housecarl_load_order_status gives the reason.";
+               $"this answer describes ({shown}) — this is a load FAILURE, not a reorder; " +
+               "housecarl_load_order_status gives the reason for each.";
     }
 
     /// <summary>The text head line's clause for a build that lost <paramref name="count"/> plugins, or "" for a
