@@ -1252,6 +1252,8 @@ static class JsonWire
                 int rendered = 0; bool rowsTruncated = false;
                 var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the clause once, over the cells the rows carried
                 bool childUnioned = false;   // which TIER those rows stated — the scan lanes annotate index-only
+                var foldNotes = new SortedSet<string>(StringComparer.Ordinal);   // what the read said that no column carries — the truncation note above all
+                int foldRows = 0;            // rows, which a fold makes ELEMENTS; `rendered` stays records
                 w.WriteStartArray("rows");
                 for (int i = 0; i < q.Keys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
                 {
@@ -1270,12 +1272,39 @@ static class JsonWire
                             // A quantified path makes the requested paths PER ELEMENT, so the record answers with
                             // one row per element and repeats its identity columns on each. The unquantified
                             // columns keep their own single cell, which is the same cell an unfolded call renders.
-                            var (cols, ferr) = fold.Columns(r);
+                            var (cols, carried, ferr) = fold.Columns(r);
                             if (ferr is not null) { (errors ??= new()).Add((fk.ToString(), ferr)); rendered++; continue; }
+                            // A row is keyed by its ELEMENT INDEX, never by its place in the column: a sub-path
+                            // column skips an element whose arm does not carry it, and by position that cell
+                            // would land beside a different element's row and read as that element's value.
+                            var byIndex = new Dictionary<int, HousecarlCore.FieldValue>?[cols!.Length];
                             int elems = 1;
-                            for (int c = 0; c < cols!.Length; c++) if (fold.Folds[c] is { Fold: HousecarlCore.PathFold.Set }) elems = Math.Max(elems, cols[c].Count);
+                            for (int c = 0; c < cols.Length; c++)
+                            {
+                                if (fold.Folds[c] is not { Fold: HousecarlCore.PathFold.Set } fc) continue;
+                                var map = byIndex[c] = new Dictionary<int, HousecarlCore.FieldValue>();
+                                for (int k = 0; k < cols[c].Count; k++)
+                                {
+                                    int idx = FoldPlan.ElementIndex(cols[c][k].Path, fc.Root);
+                                    map[idx < 0 ? k : idx] = cols[c][k];
+                                }
+                                foreach (var idx in map.Keys) elems = Math.Max(elems, idx + 1);
+                            }
+                            // The owned-child clause is earned per CELL here as it is on the unfolded row below;
+                            // a folded cell's path is the element's, so the column's own list path is the key.
+                            for (int c = 0; c < cols.Length; c++)
+                            {
+                                var owner = fold.Folds[c]?.Root ?? (cols[c].Count > 0 ? cols[c][0].Path : null);
+                                if (owner is not null && o.OwnedChildFields?.ContainsKey(owner) == true) { childFields.Add(owner); childUnioned |= o.OwnedChildUnioned; }
+                            }
+                            foreach (var note in carried) if (note.Note is { } n) foldNotes.Add(n);
+                            bool cut = false;
                             for (int e = 0; e < elems; e++)
                             {
+                                // The cap is per ROW, not per record: one record's element rows are unbounded, so
+                                // a check that only runs between records lets one blow past the caller's ceiling.
+                                w.Flush();
+                                if (ms.Length >= cap) { rowsTruncated = true; cut = true; break; }
                                 w.WriteStartArray();
                                 w.WriteStringValue(r.FormKey);
                                 WriteCell(w, RuntimeCell(o.RuntimeFormId, o.RuntimeFormIdNote));
@@ -1283,15 +1312,16 @@ static class JsonWire
                                 for (int c = 0; c < cols.Length; c++)
                                 {
                                     var col = cols[c];
-                                    var cell = fold.Folds[c] is { Fold: HousecarlCore.PathFold.Set }
-                                        ? (e < col.Count ? col[e] : null)
-                                        : (col.Count > 0 ? col[0] : null);
+                                    var cell = byIndex[c] is { } map ? (map.TryGetValue(e, out var v) ? v : null)
+                                                                     : (col.Count > 0 ? col[0] : null);
                                     WriteCell(w, cell is null ? null : DenseCell(cell));
                                 }
                                 if (anyScoped) WriteCell(w, o.SourcePlugin);
                                 if (hasMatches) WriteCell(w, matches);
                                 w.WriteEndArray();
+                                foldRows++;
                             }
+                            if (cut) break;                                   // a half-written record is not a rendered one
                             rendered++;
                             continue;
                         }
@@ -1335,8 +1365,13 @@ static class JsonWire
                     w.WriteEndArray();
                 }
                 w.WriteNumber("rendered", rendered);
+                // A fold makes a row an ELEMENT, so `rendered` (records) no longer counts the rows: say both.
+                if (fold is not null) w.WriteNumber("rows_rendered", foldRows);
                 w.WriteBoolean("truncated", rowsTruncated);
                 WriteOwnedChildNote(w, childFields, childUnioned);
+                // The read's own note — a truncated expansion above all — belongs to the document whose rows the
+                // fold shortened, or the answer is short with nothing saying so.
+                if (foldNotes.Count > 0) w.WriteString("read_note", string.Join(" ", foldNotes));
                 truncated = rowsTruncated;
             }
             if (spill is not null && q.Error is null) Artifacts.WriteSpillStateJson(w, spill);
