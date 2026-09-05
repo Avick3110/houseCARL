@@ -171,11 +171,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
   never handed over as a sentence to parse.
 - **A broad `where_source=winner` scan is no longer slower the more records it considers.** Deciding the match on
   the live winner used to re-read each candidate's winner by walking that plugin's whole record list, once per
-  candidate, so a post-patch audit over a large master could spend minutes doing nothing but re-reading. The
-  winner bodies are now gathered a plugin at a time — one pass per winner plugin however many of its records are
-  wanted — so the cost is bounded by the load order instead of by the number of candidates. On a synthetic order
-  of one 19.2k-record master and nine plugins, an audit of every record the master touches went from 165 s to
-  51 s, which is what the same scan costs with `where_source` left at its default. Same matches, same rows.
+  candidate, so a post-patch audit over a large master could spend minutes doing nothing but re-reading. The winner
+  bodies are now gathered a chunk of candidates at a time — one pass per winner plugin in the chunk — and a
+  candidate the scoped plugin itself wins is not re-read at all, since the body the scan already streamed IS the
+  winner's. So the cost is bounded by the load order instead of by the number of candidates, and the scan holds one
+  chunk of bodies at a time rather than one per candidate. On a synthetic order of one 19,200-record master and
+  nine plugins, an audit of every record the master touches went from 34 s to 0.4 s, against the 0.2 s the same
+  scan costs with `where_source` left at its default. Same matches, same rows.
+- **A `where_source=winner` scan now says WHY a winner plugin did not give up its record.** A plugin another
+  program is holding open reports that, with the error underneath it and the plugin named once as a coverage gap,
+  instead of every one of its records reading as a winner the index named that did not re-resolve — a different
+  problem, and not the one the user can act on.
 
 - **Reading a cell's `Persistent`/`Temporary` — or a topic's `Responses`, or a worldspace's `SubCells` — now
   states the additive union the game assembles, not just the read body's own list.** These children are declared
