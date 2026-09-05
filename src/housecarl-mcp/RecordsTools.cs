@@ -1086,27 +1086,31 @@ public static class RecordsTools
                 if (neg!.Count > 0) refNoneFks = neg.Distinct().ToList();
             }
 
+            var scanPlugins = scopePlusPole ? plugins!.names : (srcName is not null ? new[] { srcName } : plugins?.names);
             // The negated-only unbounded spelling selects the whole orphan set — millions of records on a real
             // order — and the derived forms consume EVERY match uncapped (effLimit below is int.MaxValue for them),
             // so each match would also be compared, merged or walked. Refused with the bound named, rather than
-            // run. A positive references= is not this: its universe is what links the target.
-            if (refNoneFks is not null && refFks is null && !hasTypes && !hasScope && !hasFormids && derivedSelection)
+            // run. A positive references= is not this: its universe is what links the target. Read off scanPlugins,
+            // so an in-order source= plugin counts as the scope it is and its one plugin's records are not called
+            // the sweep.
+            if (refNoneFks is not null && refFks is null && !hasTypes && scanPlugins is not { Length: > 0 } && !hasFormids && derivedSelection)
                 return Wire.Refuse(json, $"error: a negated references= with no types=/plugins=/formids= bound is the orphan sweep — every record nothing in the order references — and the '{form}' form compares or merges EVERY match, uncapped. Add types= or plugins= to bound it, or run the sweep as a plain scan with to_file= and re-enter the artifact via formids=[\"@<file>\"].");
 
-            var scanPlugins = scopePlusPole ? plugins!.names : (srcName is not null ? new[] { srcName } : plugins?.names);
             bool definedIn = plugins?.defined_in ?? false;
             // group_by=type names each match's record type, which only a body-bearing scope can supply. The engine
             // refuses it too, in the 1.x spelling (group_by=/type=), so it is pre-checked here in this tool's own
             // levers. Placed on the IN-ORDER lane only — the off-order file scan returned above, where the file's
             // own records ARE the universe and every match has a body — and read off scanPlugins, so an in-order
-            // source= plugin counts as the scope it is.
+            // source= plugin counts as the scope it is. An unbounded references= is body-bearing too: the reverse
+            // index hands the scan a universe of keys, so each match's body is read and can name its type.
             if (form == "aggregate" && walk is null
                 && string.Equals(project!.group_by?.Trim(), "type", StringComparison.OrdinalIgnoreCase)
-                && !hasTypes && scanPlugins is not { Length: > 0 } && formidSet is null)
+                && !hasTypes && scanPlugins is not { Length: > 0 } && formidSet is null
+                && refFks is null && refNoneFks is null)
                 return Wire.Refuse(json, "error: project.group_by='type' counts each match's record TYPE, which only a " +
-                    "body-bearing scope can name — add types=, plugins=, formids=, or an in-order source= plugin. " +
-                    "(where= and references= read bodies too, but each takes one of those as its own bound; 'winner' " +
-                    "and 'defined_in' group without reading a body.)", probeEpoch);
+                    "body-bearing scope can name — add types=, plugins=, formids=, references=, or an in-order source= plugin. " +
+                    "(where= reads bodies too but takes one of those as its own bound; references= brings its own universe " +
+                    "off the reverse-reference index; 'winner' and 'defined_in' group without reading a body.)", probeEpoch);
             // Under walk= the scan only SELECTS the seeds; the aggregate, like every reading form, applies to
             // the reached set after the walk lane re-enters. Grouping the scan itself would label an aggregate
             // of the seeds as the walk's answer.
