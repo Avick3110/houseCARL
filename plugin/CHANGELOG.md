@@ -86,6 +86,16 @@ saying it sets an expectation their install may contradict. Say what is known, a
   both halves now ends with the near-miss suggestion, so a typo or a guessed `.esp`/`.esl` extension names the
   plugin you meant.
 
+- **`housecarl_skse` now carries the same transport every other tool has: `format='json'`, `limit=`/`offset=` paging,
+  and an in-band accounting line on every answer.** `format='json'` returns the machine-readable twin of whichever
+  family ran — the same census, the same rows, the same numbers, in named fields, plus the family that ran and the two
+  that did not (the text footer's prose cannot ride a json document). `limit=`/`offset=` page the family's row list:
+  the DLLs for `findings='inventory'` (with `filter=`, its DLL and config matches), the native-declaring classes for
+  `'pairing'`, the config files for `'config'`. The census above the rows keeps stating the whole layer, and every
+  answer now ends on `total / rendered / skipped / capped / truncated / offset / remaining / notes`, so what a window
+  or a cap left out is a number rather than a silence. An unrecognized `format=` is refused naming the two the tool
+  renders, and a negative `limit=`/`offset=` is refused naming both. Text output with neither knob passed is unchanged
+  apart from that closing accounting line.
 - **`housecarl_load_order_status` now names the running server's build in its header** — a `server:` line carrying
   the informational version the binary embeds (the release version `build-plugin.ps1` stamps from `plugin.json`,
   then `+` and the full commit sha: `1.9.5-dev+e942910…`), so checking that the installed houseCARL is the build you expect no longer means
