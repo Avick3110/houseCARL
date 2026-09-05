@@ -13,6 +13,21 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **`housecarl_merge_plugins` now carries a donor's light (ESL) flag onto the merged plugin where it is valid to.**
+  The flag is carried when every donor was light and every merged object id landed inside the light window
+  `0x800–0xFFF`; the report says the output is light, so it need not be opened to find out. Otherwise the flag is
+  dropped and the report names which of the two conditions failed — a full donor in the set (run
+  `housecarl_compact_plugin` on the output), or ids that overflow the window (compact cannot rescue that one, and
+  the report says so instead of pointing at it). Master (ESM) status and the header Author/Description are still
+  never carried, and each drop is still stated.
+- **`housecarl_load_order_status` reports a plugin's LOCALIZED header flag** when `lookup=` names a plugin the load
+  order resolved to a file. A localized plugin's text lives in separate `.STRINGS` files, which is what an in-place
+  write to it is refused over, so the refusal is visible before a job runs into it. Three answers, not two: a header
+  houseCARL could not read is reported as unknown rather than as "not localized".
+- **`housecarl_asset_status` prints provider names the way the rest of the asset surface does** — inside double
+  quotes, a character a Windows folder or file name cannot contain, with `(loose)` / `(BSA)` outside them. A mod
+  called `Face Extras (SE)` now reads back whole, and the printed token is the token `housecarl_place_asset`'s
+  `source_provider=` accepts.
 - **`housecarl_load_order_status` now names the running server's build in its header** — a `server:` line carrying
   the informational version the binary embeds (the release version `build-plugin.ps1` stamps from `plugin.json`,
   then `+` and the full commit sha: `1.9.5-dev+e942910…`), so checking that the installed houseCARL is the build you expect no longer means

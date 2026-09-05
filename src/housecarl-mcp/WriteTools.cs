@@ -129,8 +129,10 @@ public static class WriteTools
          "same-named plugin is inactive — extract it into the mod folder (" + ToolNames.BsaExtract + ") or load it via a same-named " +
          "dummy plugin (" + ToolNames.CreatePlugin + "). Existing SAVES that depend on the donors will NOT survive (the records now " +
          "live under a different plugin name, and any id that had to be renumbered moved with it) — best for a new game. " +
-         "A donor's HEADER does not come along: light (ESL) status, master status, and Author/Description are dropped, and " +
-         "the report names each one it actually dropped. Want it light/ESL? Run " + ToolNames.CompactPlugin + " on the merged " +
+         "A donor's HEADER mostly does not come along: master (ESM) status and Author/Description are always dropped, and the " +
+         "report names each one it actually dropped. Light (ESL) status IS carried when every donor was light and every merged " +
+         "object id fits the light window 0x800–0xFFF; otherwise it is dropped and the report says which of the two reasons it " +
+         "was. Want a dropped light flag back? Run " + ToolNames.CompactPlugin + " on the merged " +
          "plugin afterward (the tools compose) — but it renumbers object ids from 0x800 upward, so ids the merge kept move.")]
     public static string MergePlugins(
         LoadOrderService svc,
@@ -788,16 +790,34 @@ public static class WriteTools
 
         // The merged plugin is built as a bare mod, so what lived in a donor's HEADER does not come along. Keyed on
         // what the DONORS carried, not on the donor count — a silent header loss has to be stated.
-        bool lightNoteShown = o.LightDonors is { Count: > 0 };
-        if (o.LightDonors is { Count: > 0 } light)
+        bool lightNoteShown = o.LightCarried || o.LightDonors is { Count: > 0 };
+        if (o.LightCarried)
+        {
+            // The one case where nothing is dropped, and it still gets a line: the caller has to know the output is
+            // light without opening it, because that is what decides whether it costs a load-order slot.
+            sb.Append("NOTE — every donor carried the LIGHT (ESL) status and every merged object id landed inside the ")
+              .Append("light window (0x").Append(HousecarlCore.FormIdRange.EslWindowFloor.ToString("X3")).Append("–0x")
+              .Append(HousecarlCore.FormIdRange.EslWindowCeiling.ToString("X3")).Append("), so ").Append(o.OutputName)
+              .Append(" is written LIGHT too — it takes no full load-order slot.\n");
+        }
+        else if (o.LightDonors is { Count: > 0 } light)
         {
             sb.Append("NOTE — ").Append(string.Join(", ", light.Take(10)));
             if (light.Count > 10) sb.Append(" (+").Append(light.Count - 10).Append(" more)");
             sb.Append(" carried the LIGHT (ESL) status; ")
               .Append(o.OutputName).Append(" does NOT — it is written as a full plugin and takes a full load-order slot. ")
-              .Append("To make it light again run " + ToolNames.CompactPlugin + " on '").Append(o.OutputName)
-              .Append("' (its esl defaults true) — but that renumbers object ids from 0x800 upward, so the ids listed as ")
-              .Append("kept above will move.\n");
+              // Why the flag was not carried, never a bare drop — and the two reasons take different remedies, so the
+              // remedy is written per reason rather than once for both.
+              .Append(light.Count < o.Donors.Count
+                  ? "Not every donor was light (" + light.Count + " of " + o.Donors.Count + " were), and merged content " +
+                    "that was never light-legal as a whole cannot be carried as light. To make it light run " +
+                    ToolNames.CompactPlugin + " on '" + o.OutputName + "' (its esl defaults true) — but that renumbers " +
+                    "object ids from 0x800 upward, so the ids listed as kept above will move.\n"
+                  : "Every donor was light, but the merged object ids do not all fit the light window (0x" +
+                    HousecarlCore.FormIdRange.EslWindowFloor.ToString("X3") + "–0x" +
+                    HousecarlCore.FormIdRange.EslWindowCeiling.ToString("X3") + ") — the donors together define more " +
+                    "originating records than one light plugin holds, so " + ToolNames.CompactPlugin + " cannot make " +
+                    "it light either. Merge fewer donors if a light output is what you need.\n");
         }
         if (o.MasterDonors is { Count: > 0 } masters)
         {

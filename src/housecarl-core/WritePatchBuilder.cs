@@ -2104,7 +2104,8 @@ public static class WritePatchBuilder
         IReadOnlyList<string>? LightDonors = null, IReadOnlyList<string>? HeaderMetaDonors = null,
         IReadOnlyList<string>? MasterDonors = null, IReadOnlyList<RemapEngine.UnscannablePlugin>? UnscannablePlugins = null,
         IReadOnlyList<string>? LocalizedDonors = null,
-        IReadOnlyList<RemapEngine.MasterDeclarer>? MasterDeclarers = null)
+        IReadOnlyList<RemapEngine.MasterDeclarer>? MasterDeclarers = null,
+        bool LightCarried = false)
     {
         public static MergeOutcome Fail(string error) =>
             new(false, error, "", "", Array.Empty<string>(), Array.Empty<string>(), 0, 0,
@@ -2515,12 +2516,15 @@ public static class WritePatchBuilder
 
     /// <summary>The result of the core merge build: success + the RESOLVED master set / record accounting / cross-donor
     /// conflicts / byte size, or a loud refusal with <c>outPath</c> UNTOUCHED (an unopenable donor, an engine fault,
-    /// a dangling donor reference that would keep a donor as a master, an absent master, a serialize fault).</summary>
+    /// a dangling donor reference that would keep a donor as a master, an absent master, a serialize fault).
+    /// <para><see cref="LightCarried"/> is whether the output got the LIGHT (ESL) header flag — true only when every
+    /// donor was light and every merged id fit the light window. <see cref="LightDonors"/> stays the measured donor
+    /// set either way, so the report can say what was carried or what was dropped and why (#363).</para></summary>
     public sealed record MergeBuildResult(
         bool Success, string? Error, IReadOnlyList<string> Masters, int RecordsCopied, int RecordsRenumbered,
         IReadOnlyList<RemapEngine.MergeConflict> Conflicts, long Bytes,
         IReadOnlyList<string>? LightDonors = null, IReadOnlyList<string>? HeaderMetaDonors = null,
-        IReadOnlyList<string>? MasterDonors = null)
+        IReadOnlyList<string>? MasterDonors = null, bool LightCarried = false)
     {
         public static MergeBuildResult Fail(string error) =>
             new(false, error, Array.Empty<string>(), 0, 0, Array.Empty<RemapEngine.MergeConflict>(), 0);
@@ -2571,8 +2575,9 @@ public static class WritePatchBuilder
                 mods.Add((name, ov));
                 // The merged plugin is built as a bare SkyrimMod, so anything living in a donor's HEADER is left
                 // behind. Measured here, while the overlay is open, so the report can state the loss instead of the
-                // caller discovering it (a light donor silently costing a full load-order slot). Whether these should
-                // be CARRIED is a separate decision that is not this lane's to make.
+                // caller discovering it (a light donor silently costing a full load-order slot). Of the three, only
+                // LIGHT is ever carried, and only under the two conditions checked after the merge; the other two are
+                // always dropped and always reported.
                 //
                 // LIGHT and MASTER are each read BOTH ways, because either alone under-reports the loss. The header
                 // bit is not the whole model: the engine force-treats the .esl extension as light regardless of the
@@ -2589,6 +2594,16 @@ public static class WritePatchBuilder
         }
         finally { foreach (var d in overlays) { try { d.Dispose(); } catch { /* best-effort */ } } }
         if (!mr.Success) return MergeBuildResult.Fail(mr.Error!);
+
+        // The LIGHT (ESL) header flag, under the #363 rule. Carried only when BOTH hold: every donor was light — one
+        // full donor means the merged content was never light-legal as a whole — AND every renumbered originating id
+        // fits the light window, which is the same bound compact enforces (the merge remap runs to the full 24-bit
+        // range, so a large merge lands ids above the ceiling and a light write of them would throw). The MASTER
+        // (ESM) flag is never carried at all; both drops are stated by the caller's report, carried or not.
+        bool lightIdsFit = true;
+        foreach (var nk in dict.Values) if (nk.ID < FormIdRange.EslWindowFloor || nk.ID > FormIdRange.EslWindowCeiling) { lightIdsFit = false; break; }
+        bool lightCarried = lightDonors.Count == donorsByLoadOrder.Count && lightIdsFit;
+        m.IsSmallMaster = lightCarried;
 
         // 2. Donor-master-survives check: after RemapLinks, NO link may still point into a donor. One that does is
         //    a reference to a FormID the donor never DEFINED (a dangling source ref — the dict maps every real donor key),
@@ -2659,7 +2674,7 @@ public static class WritePatchBuilder
         }
         catch { /* best-effort read-back; the union is a correct superset */ }
         return new MergeBuildResult(true, null, writtenMasters, mr.RecordsCopied, mr.RecordsRenumbered, mr.Conflicts, bytes,
-            lightDonors, headerMetaDonors, masterDonors);
+            lightDonors, headerMetaDonors, masterDonors, lightCarried);
     }
 
     /// <summary>
