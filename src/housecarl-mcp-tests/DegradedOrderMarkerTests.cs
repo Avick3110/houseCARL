@@ -37,7 +37,8 @@ public sealed class DegradedOrderMarkerTests
         Assert.True(o.GetProperty("order_degraded").GetBoolean());
         var note = o.GetProperty("order_degraded_note").GetString()!;
         Assert.Contains(EpochWorld.BadName, note);                  // which plugin is missing
-        Assert.Contains("load FAILURE", note);                      // failure, not a change the caller made
+        Assert.Contains("load FAILURE", note);                      // a failed load, not a reorder
+        Assert.DoesNotContain("not a change you made", note);       // the open-failure class often IS one
         Assert.Contains("housecarl_load_order_status", note);       // where the reason is
     }
 
