@@ -616,7 +616,7 @@ public sealed class LoadOrderResolver : IDisposable
                 foreach (var ctx in ov.EnumerateMajorRecordContexts())
                 {
                     keys.Add(ctx.Record.FormKey);
-                    if (ctx is IModContext c) ContainmentIndex.Stage(c, edges);
+                    ContainmentIndex.Stage(ctx, edges);
                 }
             }
             catch (Exception ex)

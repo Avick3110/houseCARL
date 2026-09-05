@@ -238,17 +238,17 @@ public static class ReadEngine
     /// <summary>The <c>*parent</c> containment step on a read path: strip the leading hops, climb to the record
     /// that CONTAINS this one, and hand back what the rest of the path should be read on. The parent set is
     /// Mutagen's own containment walk, captured at index build — never a per-record-type map here. Returns a note
-    /// instead when the hop cannot be taken: the record has no containing record, or this read surface carries no
-    /// load-order index to ask.</summary>
+    /// instead when the hop cannot be taken: the path spells the step wrongly (one grammar, shared with the
+    /// <c>where=</c> surface via <see cref="ContainmentIndex.SplitHops"/>, so an identical mistake gets an
+    /// identical sentence), the record has no containing record, or this read surface carries no load-order index
+    /// to ask.</summary>
     static (IMajorRecordGetter On, string[] Tail, string? Note) HopToParent(
         IMajorRecordGetter record, string[] segs,
         Func<IMajorRecordGetter, (IMajorRecordGetter? Parent, string? Why)>? parentOf)
     {
-        int hops = 0;
-        while (hops < segs.Length && string.Equals(segs[hops], ContainmentIndex.ParentToken, StringComparison.OrdinalIgnoreCase)) hops++;
+        var (hops, gerr) = ContainmentIndex.SplitHops(segs, string.Join(".", segs));
+        if (gerr is not null) return (record, segs, $"({gerr})");
         if (hops == 0) return (record, segs, null);
-        if (hops == segs.Length)
-            return (record, segs, $"('{ContainmentIndex.ParentToken}' names the containing record, not a value — follow it with a field, e.g. '{ContainmentIndex.ParentToken}.EditorID')");
         if (parentOf is null)
             return (record, segs, $"('{ContainmentIndex.ParentToken}' needs the load-order index, which this read does not carry — read the record through the load order instead)");
         for (int i = 0; i < hops; i++)
