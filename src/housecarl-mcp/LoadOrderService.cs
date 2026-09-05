@@ -2657,10 +2657,17 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>The artifact-epoch mismatch refusal — one wording for every consuming lane, naming both epochs and
     /// the two legitimate next moves. Deliberately no stale-override parameter: re-projecting goes through the
-    /// server, and reading the old file as a snapshot of its own build is the client's lane.</summary>
+    /// server, and reading the old file as a snapshot of its own build is the client's lane.
+    /// <para>Two mismatches, two sentences. An epoch written in a format this build no longer computes
+    /// (<see cref="LoadOrderResolver.IsCurrentEpochFormat"/>) says NOTHING about the load order — the two strings
+    /// are not comparable — so claiming the order changed would be a claim the server cannot support. The next move
+    /// is the same either way, but the reason has to be the true one.</para></summary>
     internal static string ArtifactEpochMismatch(ArtifactDemand d, string current) =>
         $"artifact '{d.Path}' was captured at epoch={d.Epoch}, but the CURRENT load-order build is epoch={current} — " +
-        "the load order changed since the artifact was written, so its rows may resolve differently now. " +
+        (LoadOrderResolver.IsCurrentEpochFormat(d.Epoch)
+            ? "the load order changed since the artifact was written, so its rows may resolve differently now. "
+            : "that epoch was written by an OLDER houseCARL, before the fingerprint formula changed, so the two " +
+              "cannot be compared: your load order may be untouched, and this build still cannot tell. ") +
         "Re-run the producing query (with to_file= to re-materialize) against the current build; the old file stays " +
         "readable with your own tools as an honest snapshot of ITS build. There is deliberately no stale-override switch.";
 

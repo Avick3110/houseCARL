@@ -520,6 +520,22 @@ public sealed class RecordsArtifactEpochTests : IDisposable
         return p;
     }
 
+    /// <summary>An epoch in the shape a houseCARL from before the fingerprint formula changed wrote: 16 bare hex
+    /// chars, no format tag.</summary>
+    const string PreUpgradeEpoch = "0123456789abcdef";
+
+    /// <summary>Write the artifact, then rewrite its manifest epoch into the pre-upgrade shape — the state every
+    /// artifact on disk is in the moment a user upgrades across a formula change, with NOTHING about the load
+    /// order having moved.</summary>
+    string PreUpgrade(string name)
+    {
+        var p = WriteArtifact(name);
+        var text = File.ReadAllText(p);
+        Assert.Contains(_w.Epoch0!, text);
+        File.WriteAllText(p, text.Replace(_w.Epoch0!, PreUpgradeEpoch));
+        return p;
+    }
+
     string Now => _w.Svc.Stats().epoch!;
 
     [Fact]
@@ -539,6 +555,25 @@ public sealed class RecordsArtifactEpochTests : IDisposable
         Assert.StartsWith("error:", r);
         Assert.Contains(_w.Epoch0!, r);
         Assert.Contains(now, r);
+        Assert.Contains("the load order changed", r);
+        Assert.Contains("no stale-override", r);
+    }
+
+    /// <summary>An artifact written before the fingerprint formula changed mismatches over a load order nothing
+    /// touched, so the refusal has to name the upgrade, not blame the order it cannot speak for.</summary>
+    [Fact]
+    public void PreUpgradeReEntry_TheRefusalBlamesTheFormulaChangeAndNotTheLoadOrder()
+    {
+        var art = PreUpgrade("pre-upgrade.jsonl");
+        var now = Now;
+        var r = RecordsTools.Records(_w.Svc, formids: new[] { "@" + art }, project: Everything);
+        Assert.StartsWith("error:", r);
+        Assert.Contains($"epoch={PreUpgradeEpoch}", r);
+        Assert.Contains($"epoch={now}", r);
+        Assert.Contains("written by an OLDER houseCARL", r);
+        // The load order was never touched, so the refusal may not claim it was.
+        Assert.DoesNotContain("the load order changed", r);
+        Assert.Contains("Re-run the producing query", r);
         Assert.Contains("no stale-override", r);
     }
 

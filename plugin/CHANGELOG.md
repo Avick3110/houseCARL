@@ -79,6 +79,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   see that edit. An edit that changes neither term is still invisible; the known write-during-rebuild race is
   unchanged, and both bounds are stated at `ComputeEpoch`.
 
+- **Result artifacts written by an earlier houseCARL need re-running once after this release.** The epoch a
+  `to_file=` artifact carries is the fingerprint of the build that produced it, and adding the length term changed
+  how that fingerprint is computed — so an artifact from before this release no longer matches, even over a load
+  order nothing touched. Re-entering one (`formids=@your.jsonl`) is refused as before, but the refusal now says the
+  formula changed with the upgrade rather than claiming your load order did; the fix either way is to re-run the
+  query that produced the file.
+
 - **`housecarl_check`'s scripts family now sweeps a plugin that is on disk but not in the active load order.**
   A `plugins=` name the order does not hold is located on disk and swept from its own file, exactly as the errors
   family already does it, so a fresh patch's script-property bindings can be checked before it is enabled. Both
