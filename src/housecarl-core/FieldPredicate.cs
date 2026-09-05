@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 
@@ -41,6 +41,13 @@ namespace HousecarlCore;
 /// <c>[*count]</c> into their number; the bare <c>[*]</c> is the element SET and is refused here (a set is not a
 /// boolean). The fold is the same one <see cref="EvalLinkStep"/> already runs over link targets, with the fan-out
 /// source swapped to the step's elements — so it composes with the <c>-&gt;</c> link step and with itself.</para>
+///
+/// <para><b>The containment step.</b> A path may LEAD with <c>*parent</c>, the second edge kind: the record that
+/// CONTAINS this one — a DIAL over its INFO, a CELL over its placed references, a WRLD over its cells
+/// (<c>*parent.EditorID = GreetingsTopic</c>, <c>*parent.*parent.EditorID = Tamriel</c>). It is a step, so it
+/// chains and everything below it — the winner term, <c>editorid</c>, <c>formid</c> membership, leaves, folds —
+/// reads the parent with no second rule. It leads a path by definition: the containing record is a property of the
+/// RECORD, not of a field value, so a <c>*parent</c> anywhere else refuses by name.</para>
 /// </summary>
 public sealed class FieldPredicateSet
 {
@@ -80,12 +87,16 @@ public sealed class FieldPredicateSet
     /// consuming scan must check against the build it captures (see <see cref="ArtifactDemands"/>).
     /// <paramref name="PathFolds"/> / <paramref name="LinkFolds"/> are parallel to the segments of their side and
     /// carry each step's quantifier, null when that side has none — the segments themselves are stored bare, so
-    /// the read walk sees an ordinary field name.</summary>
+    /// the read walk sees an ordinary field name.
+    /// <paramref name="ParentHops"/> / <paramref name="LinkParentHops"/> are how many leading <c>*parent</c>
+    /// containment steps that side opens with; the segments after them are stored bare, so once the hop lands on
+    /// the containing record everything downstream reads an ordinary path.</summary>
     sealed record Predicate(string Text, string[] PathSegments, string PathDisplay, Op Op, string Operand, double NumericOperand,
                             HashSet<FormKey>? FormIds = null, ArtifactDemand? Artifact = null,
                             string[]? LinkPath = null, string? LinkPathDisplay = null,
                             PseudoPath Pseudo = PseudoPath.None, IReadOnlyList<string>? RawMembers = null,
-                            Fold[]? PathFolds = null, Fold[]? LinkFolds = null);
+                            Fold[]? PathFolds = null, Fold[]? LinkFolds = null,
+                            int ParentHops = 0, int LinkParentHops = 0);
 
     /// <summary>The identity pseudo-paths a predicate may name instead of a body leaf. <c>editorid</c> reads the
     /// record's EditorID (always available off the early EDID subrecord — never a reflection walk, and live even on
@@ -106,6 +117,8 @@ public sealed class FieldPredicateSet
     readonly string?[] _listHopRemedy; // the leaf-checked remedy the read engine composed for that hop, quoted verbatim
     readonly long[] _notList;     // per-predicate SUBSET of _noField: a quantified step landed on a value that is not a list — the fold has nothing to fan out over
     readonly string?[] _notListWhat;   // what that step actually read, for the sentence
+    readonly long[] _noParent;    // per-predicate SUBSET of _noField: a '*parent' step found no containing record
+    readonly string?[] _noParentWhat;  // the record type it found none for, for the sentence
     long _scanned;
     string? _fatal;
 
@@ -115,6 +128,9 @@ public sealed class FieldPredicateSet
     // evaluating an unbound term is a FatalError, never a silent non-match.
     Func<FormKey, string?>? _winnerOf;
     Func<FormKey, IMajorRecordGetter?>? _fetchWinnerBody;
+    // The `*parent` containment step reads the index's child→parent map, then fetches that parent's winner body
+    // through _fetchWinnerBody like any other cross-record hop.
+    Func<FormKey, FormKey?>? _parentOf;
     // Link-step targets recur across candidates — fetch once per scan. Unbounded by design for the set's lifetime
     // (one call): magnitude is the DISTINCT link-target population of the scanned scope, which for realistic link
     // paths (Perks, Effects, Keywords) is hundreds-to-low-thousands of record getters, small beside the scan
@@ -125,26 +141,35 @@ public sealed class FieldPredicateSet
     /// <summary>Whether any predicate needs the scan's resolution context (<c>winner</c> term or a <c>-&gt;</c>
     /// link step) — the call site checks this to bind <see cref="BindResolution"/> (and open the body-fetch
     /// session the link step needs) before the first <see cref="Matches"/>.</summary>
-    public bool NeedsResolution => _predicates.Any(p => p.Pseudo == PseudoPath.Winner || p.LinkPath is not null);
+    public bool NeedsResolution => _predicates.Any(p => p.Pseudo == PseudoPath.Winner || p.LinkPath is not null || Hops(p) > 0);
 
-    /// <summary>Whether any predicate follows a <c>-&gt;</c> link step (needs winner BODY fetches, not just the
-    /// winner name) — the call site opens an overlay session for the fetch when true.</summary>
-    public bool NeedsBodyResolution => _predicates.Any(p => p.LinkPath is not null);
+    /// <summary>Whether any predicate follows a <c>-&gt;</c> link step or a <c>*parent</c> containment step (needs
+    /// winner BODY fetches, not just the winner name) — the call site opens an overlay session for the fetch when
+    /// true.</summary>
+    public bool NeedsBodyResolution => _predicates.Any(p => p.LinkPath is not null || Hops(p) > 0);
+
+    /// <summary>Whether any predicate takes a <c>*parent</c> containment step — the call site binds the index's
+    /// child→parent lookup when true.</summary>
+    public bool NeedsContainment => _predicates.Any(p => Hops(p) > 0);
+
+    static int Hops(Predicate p) => p.ParentHops + p.LinkParentHops;
 
     /// <summary>Whether any predicate reads record BODY content (a leaf walk or a link step) — false when every
     /// term is header/resolution-only (`editorid`, `winner`, `formid` membership). The scan's deleted-record check
     /// keys on this: a deleted record has no live body for the CONTENT filters, but its EditorID and its winner
     /// resolution are real facts, so a header-only predicate set must still see it.</summary>
-    public bool NeedsLiveBody => _predicates.Any(p => p.LinkPath is not null || p.Pseudo == PseudoPath.None);
+    public bool NeedsLiveBody => _predicates.Any(p => p.LinkPath is not null || p.Pseudo == PseudoPath.None || Hops(p) > 0);
 
     /// <summary>Bind the scan's resolution context: <paramref name="winnerOf"/> answers "which plugin wins this
     /// FormKey" (the `winner` term), <paramref name="fetchWinnerBody"/> produces a linked target's winner body
     /// (the `-&gt;` link step; null when the target doesn't resolve). Both must come from the SAME captured view
     /// the scan answers from.</summary>
-    public void BindResolution(Func<FormKey, string?> winnerOf, Func<FormKey, IMajorRecordGetter?>? fetchWinnerBody = null)
+    public void BindResolution(Func<FormKey, string?> winnerOf, Func<FormKey, IMajorRecordGetter?>? fetchWinnerBody = null,
+                               Func<FormKey, FormKey?>? parentOf = null)
     {
         _winnerOf = winnerOf;
         _fetchWinnerBody = fetchWinnerBody;
+        _parentOf = parentOf;
     }
 
     FieldPredicateSet(IReadOnlyList<Predicate> predicates)
@@ -160,6 +185,8 @@ public sealed class FieldPredicateSet
         _listHopRemedy = new string?[predicates.Count];
         _notList = new long[predicates.Count];
         _notListWhat = new string?[predicates.Count];
+        _noParent = new long[predicates.Count];
+        _noParentWhat = new string?[predicates.Count];
     }
 
     /// <summary>Set once when a numeric operator meets a non-numeric field value on the first value-bearing
@@ -326,6 +353,21 @@ public sealed class FieldPredicateSet
         if (segs.Length == 0)
             return (null, $"predicate '{raw}': '{path}' is not a usable field path.");
 
+        // The containment step: a leading run of '*parent' hops from the record to the record that CONTAINS it,
+        // and the rest of the side is read on that. Stripped first, because a hop leads a path by definition.
+        int linkParentHops = 0, parentHops;
+        if (linkSegs is not null)
+        {
+            var (lrest, lhops, lherr) = SplitParentHops(raw, linkSegs, linkDisplay!, isLinkLeft: true);
+            if (lherr is not null) return (null, lherr);
+            linkSegs = lrest; linkParentHops = lhops;
+        }
+        {
+            var (rest, hops, herr) = SplitParentHops(raw, segs, path, isLinkLeft: false);
+            if (herr is not null) return (null, herr);
+            segs = rest; parentHops = hops;
+        }
+
         // The quantified step: each side's segments are split into bare field names plus their fold tokens, so the
         // read walk below sees an ordinary path and the fold rides beside it.
         Fold[]? linkFolds = null;
@@ -370,7 +412,7 @@ public sealed class FieldPredicateSet
                 return (null, $"predicate '{raw}': '{path}' always exists (every record has an identity and a winner) — a presence test on it can never filter. Use it with its own operators instead.");
             if (operand.Length != 0)
                 return (null, $"predicate '{raw}': '{OpStr(op)}' is a presence test and takes no value (got '{operand}'). Write it as \"{path} {OpStr(op)}\".");
-            return (new Predicate(text, segs, path, op, "", 0, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, PathFolds: pathFolds, LinkFolds: linkFolds), null);
+            return (new Predicate(text, segs, path, op, "", 0, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops), null);
         }
 
         if (operand.Length == 0)
@@ -391,11 +433,11 @@ public sealed class FieldPredicateSet
             {
                 var (set, artifact, lerr) = ParseFormIdList(text, operand, parseFormId);
                 if (lerr is not null) return (null, lerr);
-                return (new Predicate(text, segs, path, op, operand, 0, set, artifact, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, PathFolds: pathFolds, LinkFolds: linkFolds), null);
+                return (new Predicate(text, segs, path, op, operand, 0, set, artifact, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops), null);
             }
             var (members, mset, martifact, merr) = ParseValueList(text, operand);
             if (merr is not null) return (null, merr);
-            return (new Predicate(text, segs, path, op, operand, 0, mset, martifact, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, RawMembers: members, PathFolds: pathFolds, LinkFolds: linkFolds), null);
+            return (new Predicate(text, segs, path, op, operand, 0, mset, martifact, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, RawMembers: members, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops), null);
         }
         if (pseudo == PseudoPath.FormId)
             return (null, $"predicate '{raw}': 'formid' takes the membership ops only — \"formid in <list>\" / \"formid not in <list>\" (a single record is \"formid in [XXXXXX:Plugin.esp]\").");
@@ -405,7 +447,7 @@ public sealed class FieldPredicateSet
         if (IsNumericOp(op) && !TryNum(operand, out num))
             return (null, $"predicate '{raw}': operator '{OpStr(op)}' needs a numeric value, got '{operand}'.");
 
-        return (new Predicate(text, segs, path, op, operand, num, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, PathFolds: pathFolds, LinkFolds: linkFolds), null);
+        return (new Predicate(text, segs, path, op, operand, num, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops), null);
     }
 
     /// <summary>Split one side's segments into bare field names plus their fold tokens: a bracket key beginning
@@ -446,6 +488,41 @@ public sealed class FieldPredicateSet
         }
         return (outSegs, folds, null);
     }
+
+    /// <summary>The containment step token: reverse containment, spelled with the <c>*</c> sigil because
+    /// <c>Worldspace.Parent</c> is a real field and a bare <c>parent</c> is takeable.</summary>
+    internal const string ParentToken = "*parent";
+
+    /// <summary>Strip a side's leading <c>*parent</c> hops and hand back the rest of the path. A hop leads a path
+    /// by definition — the containing record is a property of the RECORD, not of a field value — so a <c>*parent</c>
+    /// anywhere else refuses by name, as does one carrying a quantifier, one with nothing after it, and any other
+    /// <c>*</c> token.</summary>
+    static (string[] Tail, int Hops, string? Error) SplitParentHops(string raw, string[] segs, string display, bool isLinkLeft)
+    {
+        int hops = 0;
+        while (hops < segs.Length && IsParentStep(segs[hops])) hops++;
+        for (int i = hops; i < segs.Length; i++)
+        {
+            if (IsParentStep(segs[i]))
+                return (segs, 0, $"predicate '{raw}': '{ParentToken}' is the record that CONTAINS this one, so it can only lead a path — " +
+                                 $"in '{display}' it follows a field step. Write the hops first ('{ParentToken}.EditorID').");
+            var s = segs[i];
+            int open = s.IndexOf('[');
+            if (open > 0 && s.EndsWith("]", StringComparison.Ordinal)
+                && string.Equals(s[..open], ParentToken, StringComparison.OrdinalIgnoreCase))
+                return (segs, 0, $"predicate '{raw}': '{s}' — '{ParentToken}' names ONE containing record, not a list, so it takes no quantifier. Write '{ParentToken}'.");
+            if (s.Length > 0 && s[0] == '*' && open != 0)
+                return (segs, 0, $"predicate '{raw}': '{s}' is not a path token — the tokens are '{ParentToken}' (the containing record) and the quantifiers [*any], [*all], [*none] and [*count] on a list step.");
+        }
+        if (hops == 0) return (segs, 0, null);
+        if (hops == segs.Length)
+            return (segs, 0, isLinkLeft
+                ? $"predicate '{raw}': '{display}' is the containing record, which is not a link-bearing field — name one on it ('{display}.Quest->editorid')."
+                : $"predicate '{raw}': '{display}' names the containing record, not a value — follow it with a field ('{display}.EditorID').");
+        return (segs[hops..], hops, null);
+    }
+
+    static bool IsParentStep(string seg) => string.Equals(seg, ParentToken, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The token a fold is spelled with, for a message.</summary>
     static string FoldToken(Fold f) => f switch
@@ -635,6 +712,9 @@ public sealed class FieldPredicateSet
                 // A quantified step on a non-list IS a no-such-field miss for the rollup; the extra counter is what
                 // lets the sentence say the step's real cardinality rather than "mistyped path".
                 case EvalKind.NotAList: _noField[k]++; _notList[k]++; _noValue[k]++; _notListWhat[k] ??= _lastNotList; all = false; break;
+                // A '*parent' step on a record nothing contains is likewise a no-such-field miss for the rollup; the
+                // extra counter is what lets the sentence name the child-bearing properties instead of a typo hint.
+                case EvalKind.NoParent: _noField[k]++; _noParent[k]++; _noValue[k]++; _noParentWhat[k] ??= _lastNoParent; all = false; break;
                 case EvalKind.Container: _container[k]++; _noValue[k]++; all = false; break;
                 case EvalKind.Unreadable: _unreadable[k]++; _noValue[k]++; all = false; break;
                 default: _noValue[k]++; all = false; break;   // Unset — a valid, value-less path
@@ -646,7 +726,11 @@ public sealed class FieldPredicateSet
     /// <summary>How one predicate's evaluation on one record resolved: a DEFINITE verdict (the value was read and
     /// compared, or an identity/presence test decided), or one of the no-verdict classes the accounting keys on.
     /// Mirrors the leaf-note vocabulary: no-such-field / container / read-fault / genuinely-unset.</summary>
-    enum EvalKind { Definite, NoField, ListHop, NotAList, Container, Unreadable, Unset }
+    enum EvalKind { Definite, NoField, ListHop, NotAList, NoParent, Container, Unreadable, Unset }
+
+    /// <summary>The type of the record the most recent <c>*parent</c> hop found no containing record for, stashed
+    /// for the rollup sentence.</summary>
+    string? _lastNoParent;
 
     /// <summary>The collection field named by the most recent list-hop note, stashed for the rollup.</summary>
     string? _lastListHopOwner;
@@ -686,6 +770,16 @@ public sealed class FieldPredicateSet
     /// <see cref="_fatal"/> on a typed predicate error (numeric op vs non-numeric field, unbound winner term).</summary>
     (bool Satisfied, EvalKind Kind) EvalCore(Predicate p, IMajorRecordGetter body)
     {
+        // The `*parent` containment step: climb to the containing record FIRST, then run every term below on it.
+        // That is what makes it a step — the winner term, editorid, formid membership, leaves and folds all read
+        // the parent without a second rule each.
+        if (p.ParentHops > 0)
+        {
+            var (hopped, miss) = HopToParent(body, p.ParentHops);
+            if (miss is { } m) return (false, m);
+            body = hopped!;
+        }
+
         // The `winner` provenance term: reads the record's RESOLUTION off the bound view — never its body.
         if (p.Pseudo == PseudoPath.Winner)
         {
@@ -848,7 +942,7 @@ public sealed class FieldPredicateSet
     static int NoVerdictRank(EvalKind k) => k switch
     {
         EvalKind.Unreadable => 4,
-        EvalKind.ListHop => 3, EvalKind.NotAList => 3, EvalKind.NoField => 3,
+        EvalKind.ListHop => 3, EvalKind.NotAList => 3, EvalKind.NoField => 3, EvalKind.NoParent => 3,
         EvalKind.Container => 2,
         _ => 1,   // Unset
     };
@@ -929,7 +1023,36 @@ public sealed class FieldPredicateSet
             _fatal = "internal: a '->' link-step predicate was evaluated without a bound resolution context — this scan surface does not support it.";
             return (false, EvalKind.Definite);
         }
+        if (p.LinkParentHops > 0)
+        {
+            var (hopped, miss) = HopToParent(body, p.LinkParentHops);
+            if (miss is { } m) return (false, m);
+            body = hopped!;
+        }
         return EvalLinkPath(p, body, 0);
+    }
+
+    /// <summary>Climb <paramref name="hops"/> containment steps from one record to the record that contains it,
+    /// fetching each parent's winner body through the same bound view the <c>-&gt;</c> step resolves through. A
+    /// record with no containing record is a NAMED no-verdict, never a silent non-match: the rollup says which
+    /// properties own children at all.</summary>
+    (IMajorRecordGetter? Body, EvalKind? Miss) HopToParent(IMajorRecordGetter body, int hops)
+    {
+        if (_parentOf is null || _fetchWinnerBody is null)
+        {
+            _fatal = $"internal: a '{ParentToken}' containment predicate was evaluated without a bound resolution context — this scan surface does not support it.";
+            return (null, EvalKind.Definite);
+        }
+        for (int i = 0; i < hops; i++)
+        {
+            var pk = _parentOf(body.FormKey);
+            if (pk is null) { _lastNoParent = RecordNaming.StripOverlay(body.GetType().Name); return (null, EvalKind.NoParent); }
+            if (!_targetCache.TryGetValue(pk.Value, out var parent))
+                _targetCache[pk.Value] = parent = _fetchWinnerBody(pk.Value);
+            if (parent is null) return (null, EvalKind.Unreadable);   // the parent is indexed but its body would not fetch
+            body = parent;
+        }
+        return (body, null);
     }
 
     /// <summary>The link step's left path from segment <paramref name="from"/> down. A quantified step there folds
@@ -979,7 +1102,7 @@ public sealed class FieldPredicateSet
                 anyVerdict = true;
                 if (sat) return (true, EvalKind.Definite);
             }
-            else if (kind is EvalKind.NoField or EvalKind.ListHop) { anyNoField = true; anyListHop |= kind == EvalKind.ListHop; }
+            else if (kind is EvalKind.NoField or EvalKind.ListHop or EvalKind.NoParent) { anyNoField = true; anyListHop |= kind == EvalKind.ListHop; }
         }
         if (anyVerdict) return (false, EvalKind.Definite);
         return (false, anyNoField ? (anyListHop ? EvalKind.ListHop : EvalKind.NoField) : EvalKind.Unreadable);
@@ -1147,7 +1270,16 @@ public sealed class FieldPredicateSet
                 const string loud = "yielded no readable value on any of";
                 long unset = _noValue[k] - _noField[k] - _container[k] - _unreadable[k];   // what is left: genuinely-unset valid fields
                 string reason;
-                if (_noField[k] == _scanned && _notList[k] > 0)
+                if (_noField[k] == _scanned && _noParent[k] > 0)
+                {
+                    // Nothing CONTAINS these records, so the hop has nowhere to go. Name the properties that own
+                    // children at all — that is the whole reason, and it is derived from Mutagen, not a hand list.
+                    reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — no record CONTAINS " +
+                             $"{(_noParentWhat[k] is { } t ? $"a {t}" : "these records")}, on {_noParent[k]:N0} of them" +
+                             (_noParent[k] == _scanned ? "" : "; on the rest the path is not a field at all") +
+                             $". Containment runs from these properties only: {ContainmentIndex.ChildBearingSurface()}.";
+                }
+                else if (_noField[k] == _scanned && _notList[k] > 0)
                 {
                     // The quantifier is the thing to drop, and no schema advice fits: the step exists, it is just
                     // not a list here, and the sentence names what it read instead.
