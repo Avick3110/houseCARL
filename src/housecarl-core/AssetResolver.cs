@@ -459,7 +459,10 @@ public sealed class AssetResolver : IDisposable
     /// what's there). The winner per path is left to <see cref="ResolveForPlacement"/>; here we only need
     /// the set of paths that exist in ANY source. Reuses the <see cref="NormalizeQueryPath"/> escape guard. Pure read of the
     /// snapshot's BSA tables + a bounded recursive loose walk under the prefix; holds nothing. A loose root that won't
-    /// enumerate contributes nothing (its absence flows through <see cref="ReadIncomplete"/>, never a silent half-answer).</summary>
+    /// enumerate contributes nothing (its absence flows through <see cref="ReadIncomplete"/>, never a silent half-answer).
+    /// <para>Every returned path is re-rooted on the NORMALIZED prefix, so one enumeration spells the prefix one way
+    /// across both lanes: the loose walk otherwise echoes back the caller's own casing and the archive tables their
+    /// author's, and a single answer would then carry two spellings of one folder.</para></summary>
     public IReadOnlyCollection<string> EnumerateUnder(string prefix) => EnumerateUnder(prefix, _snap);
 
     IReadOnlyCollection<string> EnumerateUnder(string prefix, Snapshot snap)
@@ -478,7 +481,9 @@ public sealed class AssetResolver : IDisposable
             try
             {
                 foreach (var f in Directory.EnumerateFiles(baseDir, "*", SearchOption.AllDirectories))
-                    found.Add(Normalize(f.Substring(rootDir.Length)));       // f starts with rootDir → the remainder is Data-relative
+                    // Re-rooted on the NORMALIZED prefix, not sliced off rootDir: the walk echoes back the directory
+                    // string it was handed, so slicing carries whatever case the caller typed into every loose row.
+                    found.Add(withSep + Normalize(f.Substring(baseDir.Length)));
             }
             catch { /* a root that won't enumerate contributes nothing; not silently trusted (see the summary) */ }
         }
@@ -487,7 +492,9 @@ public sealed class AssetResolver : IDisposable
         foreach (var t in snap.Tables.Values)
             foreach (var entry in t)
                 if (entry.StartsWith(withSep, StringComparison.OrdinalIgnoreCase))
-                    found.Add(entry);
+                    // Re-rooted on the same prefix as the loose lane. Left as the ARCHIVE spelt it, one answer mixes
+                    // two spellings of the same folder — loose rows one way, archive rows the other.
+                    found.Add(withSep + entry.Substring(withSep.Length));
 
         return found;
     }
