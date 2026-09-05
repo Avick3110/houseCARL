@@ -36,8 +36,15 @@ public static class AssetGlob
     /// <summary>Every Data-relative path the selector names, sorted. Throws ArgumentException (naming the input, never
     /// a parameter) for a drive-rooted or parent-escaping selector, the same gate every other asset query passes, and
     /// for one that names no directory at all.</summary>
-    public static IReadOnlyList<string> Select(AssetResolver.AssetView view, string selector)
+    public static IReadOnlyList<string> Select(AssetResolver.AssetView view, string selector) =>
+        Select(view, selector, out _);
+
+    /// <summary>As <see cref="Select(AssetResolver.AssetView, string)"/>, and says whether the selector turned out to
+    /// name one FILE rather than a folder — the caller pasted a path, and the answer is that path. The caller renders
+    /// that as a note, so the selection and the wording agree about what happened.</summary>
+    public static IReadOnlyList<string> Select(AssetResolver.AssetView view, string selector, out bool namedOneFile)
     {
+        namedOneFile = false;
         var norm = AssetResolver.ValidateRelPath(selector).TrimEnd('\\');
         var prefix = LiteralPrefix(norm);
         // A selector with no literal directory in front of it would enumerate the whole VFS — every loose file in every
@@ -49,7 +56,17 @@ public static class AssetGlob
                 "under has to be anchored under a directory, or it sweeps the whole load order — " +
                 $"name a folder, e.g. 'meshes/actors/character' or 'meshes/actors/character/**/*.nif': '{selector}'");
 
-        if (!HasWildcard(norm)) return Sorted(view.EnumerateUnder(norm));
+        if (!HasWildcard(norm))
+        {
+            var beneath = Sorted(view.EnumerateUnder(norm));
+            if (beneath.Count > 0) return beneath;
+            // Nothing beneath it, but the string may BE a file the load order provides — a path pasted into under=
+            // instead of asset_paths=. Answer it as that one file rather than claiming no mod provides the folder,
+            // which would contradict what asset_paths= says about the very same string. One resolve, only on the
+            // empty branch, so the ordinary folder sweep pays nothing for it.
+            if (view.Resolve(norm).Exists) { namedOneFile = true; return new[] { norm }; }
+            return beneath;
+        }
 
         var rx = ToRegex(norm);                                  // compiled ONCE, not per candidate path
         return Sorted(view.EnumerateUnder(prefix).Where(p => rx.IsMatch(p)));
