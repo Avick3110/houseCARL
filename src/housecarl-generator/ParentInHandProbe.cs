@@ -562,25 +562,29 @@ static class ParentInHandProbe
         return order.OrderedPaths;
     }
 
-    /// <summary>The instance housecarl_set_mo2_instance saved, if any — the same file the server reads.</summary>
+    /// <summary>The instance housecarl_set_mo2_instance saved, if any — read through <see cref="UserConfigStore"/>,
+    /// the declared single owner of houseCARL.user.json, so this never hand-parses the file the server owns. The dirs
+    /// searched are the server's own: HOUSECARL_DATA_DIR when set, else beside the server exe — which is the install
+    /// dir, so both shipped install layouts are tried. An unreadable or corrupt file is REPORTED, never reported as
+    /// "none saved".</summary>
     static string? UserConfiguredInstance()
     {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         foreach (var dir in new[]
         {
             Environment.GetEnvironmentVariable("HOUSECARL_DATA_DIR"),
+            // Beside the server exe. The Claude Code plugin installs the server here;
+            Path.Combine(home, ".claude", "skills", "housecarl", "server"),
+            // and the Codex install puts it here.
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "housecarl", "server"),
         })
         {
-            if (string.IsNullOrEmpty(dir)) continue;
+            if (string.IsNullOrWhiteSpace(dir)) continue;
             var f = Path.Combine(dir, "houseCARL.user.json");
             if (!File.Exists(f)) continue;
-            try
-            {
-                using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(f));
-                if (doc.RootElement.TryGetProperty("Mo2InstanceDir", out var v) && v.GetString() is { Length: > 0 } s)
-                    return s;
-            }
-            catch { }
+            var cfg = new UserConfigStore(f).Load(out var note);
+            if (note is not null) Console.WriteLine($"   ! {note}");
+            if (cfg.Mo2InstanceDir is { Length: > 0 } s) return s;
         }
         return null;
     }
