@@ -21,8 +21,9 @@ public static class WinnerBodies
     /// <summary>The winner body of each candidate, keyed by FormKey. A candidate whose winner cannot be resolved,
     /// or whose winner plugin does not yield it, is simply ABSENT — the caller decides what an unfetchable winner
     /// means, because "the index named a winner that did not re-resolve" is a fact it has to report, not one this
-    /// helper may swallow. A winner plugin that will not OPEN is named in <paramref name="unreadable"/> with the
-    /// underlying cause, so the caller reports the held-open file rather than guessing at index staleness.
+    /// helper may swallow. A winner plugin the gather cannot READ is named in <paramref name="unreadable"/> with the
+    /// underlying cause, so the caller reports the held-open file — or the plugin that changed under the index —
+    /// rather than guessing at index staleness.
     /// <paramref name="getterTypes"/> is the caller's own type scope when it has one, which narrows each plugin's
     /// walk to the GRUPs those types live in.</summary>
     public static Dictionary<FormKey, IMajorRecordGetter> For(
@@ -43,13 +44,13 @@ public static class WinnerBodies
         }
         foreach (var (plugin, wanted) in byPlugin)
         {
-            // A winner plugin that will not open leaves its candidates absent rather than ending the scan, which is
-            // what the per-record fetch this replaces did — but the CAUSE travels with it, so a file another program
-            // is holding open reads as that and not as a stale index. An ArgumentException is a named failure about
-            // the request itself (a plugin outside the order), so it is left to the caller's own handler.
+            // A winner plugin the gather cannot read leaves its candidates absent rather than ending the scan, which
+            // is what the per-record fetch this replaces did — but the CAUSE travels with it, and the two causes are
+            // told apart: CollectRecords names an OPEN failure itself, so a file another program is holding open
+            // reads as that, and a fault from the walk after a good open reads as the plugin having changed instead.
             try { view.CollectRecords(session, plugin, wanted, getterTypes, bodies); }
-            catch (ArgumentException) { throw; }
-            catch (Exception ex) { unreadable[plugin] = new PluginUnreadableException(plugin, ex); }
+            catch (PluginUnreadableException ex) { unreadable[plugin] = ex; }
+            catch (Exception ex) { unreadable[plugin] = new PluginUnscannableException(plugin, ex); }
         }
         return bodies;
     }

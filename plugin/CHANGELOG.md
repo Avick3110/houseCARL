@@ -181,7 +181,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **A `where_source=winner` scan now says WHY a winner plugin did not give up its record.** A plugin another
   program is holding open reports that, with the error underneath it and the plugin named once as a coverage gap,
   instead of every one of its records reading as a winner the index named that did not re-resolve — a different
-  problem, and not the one the user can act on.
+  problem, and not the one the user can act on. A plugin that opens but whose records cannot be read to the end —
+  it changed on disk since the load order was indexed — reports that instead, and is not described as held open by
+  a program that is holding nothing. Either way the gap is one plugin's: the rest of the scan still answers.
 
 - **Reading a cell's `Persistent`/`Temporary` — or a topic's `Responses`, or a worldspace's `SubCells` — now
   states the additive union the game assembles, not just the read body's own list.** These children are declared

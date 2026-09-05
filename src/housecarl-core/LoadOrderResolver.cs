@@ -64,14 +64,31 @@ public readonly record struct RecordStatus(
 /// <summary>A plugin in the load order could not be opened during a scan, although it opened when the index was
 /// built — it was moved, or another program (xEdit, MO2, the running game) is holding it. Thrown from the
 /// plugin-scoped record stream so a scan reports the plugin it could not read rather than skipping it silently.</summary>
-public sealed class PluginUnreadableException : Exception
+public class PluginUnreadableException : Exception
 {
     public string PluginName { get; }
     public PluginUnreadableException(string pluginName, Exception inner)
-        : base($"could not read '{pluginName}': it opened when the load order was indexed but not now — another " +
+        : this(pluginName, inner,
+               $"could not read '{pluginName}': it opened when the load order was indexed but not now — another " +
                "program is probably holding it open. Close that program and run this again. " +
-               $"({inner.GetType().Name}: {inner.Message})", inner)
-        => PluginName = pluginName;
+               $"({inner.GetType().Name}: {inner.Message})") { }
+
+    protected PluginUnreadableException(string pluginName, Exception inner, string message)
+        : base(message, inner) => PluginName = pluginName;
+}
+
+/// <summary>A plugin OPENED but its records could not be walked to the end — the file changed under the index, or
+/// Mutagen cannot step over something in it. A different fault from <see cref="PluginUnreadableException"/> and
+/// worded as one: telling the user to close a program that is holding nothing would send them after the wrong
+/// thing. Reported the same way, as a whole-plugin coverage gap, because a walk that died part-way says nothing
+/// about the records after it.</summary>
+public sealed class PluginUnscannableException : PluginUnreadableException
+{
+    public PluginUnscannableException(string pluginName, Exception inner)
+        : base(pluginName, inner,
+               $"could not finish reading '{pluginName}': it opened, but its records could not be walked to the end " +
+               "— the file has probably changed since the load order was indexed. Run this again, and check the " +
+               $"plugin in xEdit if it repeats. ({inner.GetType().Name}: {inner.Message})") { }
 }
 
 /// <summary>A BASELINE master (Skyrim.esm / Update.esm) is active but cannot be opened. Every written plugin
@@ -1054,7 +1071,9 @@ public sealed class LoadOrderResolver : IDisposable
     /// them cost N walks (#251), while this costs one walk however many are wanted, and stops as soon as it has them
     /// all. <paramref name="getterTypes"/> narrows the walk to the GRUPs those types live in when the caller knows
     /// them; anything the typed walk did not produce falls through to the flat one, per KEY, for the same reason
-    /// <see cref="SeekBody"/> does. A key this plugin does not hold is simply absent from the sink.</summary>
+    /// <see cref="SeekBody"/> does. A key this plugin does not hold is simply absent from the sink. Throws
+    /// <see cref="PluginUnreadableException"/> on a plugin that opened at index-build time but cannot be opened now;
+    /// a fault from the WALK is left as it came, so a caller does not report it as a held-open file.</summary>
     public void CollectRecords(OverlaySession session, string pluginName, IReadOnlyCollection<FormKey> wanted,
                                IReadOnlyList<Type>? getterTypes, IDictionary<FormKey, IMajorRecordGetter> sink)
         => CollectRecords(session, pluginName, wanted, getterTypes, sink, _snap);
@@ -1065,7 +1084,11 @@ public sealed class LoadOrderResolver : IDisposable
         if (wanted.Count == 0) return;
         if (!_nameToIdx.TryGetValue(pluginName, out int idx)) return;
         if (s.Excluded.Contains(idx)) return;                              // excluded plugin — never re-enumerate it (would re-throw)
-        var ov = session.Overlay(idx);
+        ISkyrimModGetter ov;
+        // Only the OPEN is named as unopenable, exactly as RecordsIn and WinnerRecordsOfType name it. A fault from
+        // the walk BELOW is a different problem, and calling it a held-open file would send the user after nothing.
+        try { ov = session.Overlay(idx); }
+        catch (Exception ex) { throw new PluginUnreadableException(_names[idx], ex); }
         var want = wanted as HashSet<FormKey> ?? new HashSet<FormKey>(wanted);
         int got = 0;
         foreach (var fk in want) if (sink.ContainsKey(fk)) got++;          // already in hand from an earlier call

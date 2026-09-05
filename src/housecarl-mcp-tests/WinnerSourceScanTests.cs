@@ -228,6 +228,59 @@ public sealed class WinnerSourceScanTests : IClassFixture<WinnerSourceFixture>
         Assert.DoesNotContain("did not yield the record on winner-source re-fetch", notes);
     }
 
+    /// <summary>A winner plugin that OPENS but cannot be walked to the end is a different fault from one another
+    /// program is holding open, and the gather says so: it isolates the plugin, names the file as changed, and never
+    /// tells the user to close a program that is holding nothing. Nor does the fault escape the gather: a walk that
+    /// throws is one plugin's coverage gap, not the end of the scan.</summary>
+    [Fact]
+    public void AWinnerPluginThatFaultsMidWalkNamesTheChangedFile_NotAHeldOpenOne()
+    {
+        var good = File.ReadAllBytes(_w.MidPath);
+        try
+        {
+            using var resolver = LoadOrderResolver.Build(new[] { _w.MasterPath, _w.LowPath, _w.MidPath });
+            var view = resolver.Capture();
+            OverstateFirstRecordLength(_w.MidPath);                                  // opens; the walk dies part-way
+            using var session = resolver.OpenSession();
+            var bodies = WinnerBodies.For(view, session, new[] { _w.Keys[7] }, null, out var faults);
+            Assert.Empty(bodies);
+            Assert.True(faults.ContainsKey(_w.MidName), string.Join("; ", faults.Values.Select(f => f.Message)));
+            Assert.Contains("could not finish reading", faults[_w.MidName].Message);
+            Assert.DoesNotContain("holding it open", faults[_w.MidName].Message);
+        }
+        finally { File.WriteAllBytes(_w.MidPath, good); }
+    }
+
+    /// <summary>Give the file's first WEAP record a length running off the end of its group: the mod header still
+    /// parses, so the plugin opens, and the record walk faults on the first record it steps over.</summary>
+    static void OverstateFirstRecordLength(string path)
+    {
+        var b = File.ReadAllBytes(path);
+        int at = -1;
+        for (int i = 8; i + 8 <= b.Length && at < 0; i++)
+            if (b[i] == 'W' && b[i + 1] == 'E' && b[i + 2] == 'A' && b[i + 3] == 'P'
+                && !(b[i - 8] == 'G' && b[i - 7] == 'R' && b[i - 6] == 'U' && b[i - 5] == 'P'))   // not the group's label
+                at = i;
+        Assert.True(at > 0, "no WEAP record header in the fixture plugin");
+        BitConverter.GetBytes(0x00FF_FFF0u).CopyTo(b, at + 4);
+        File.WriteAllBytes(path, b);
+    }
+
+    /// <summary>A plugin outside the load order is not a throw out of the gather: <c>CollectRecords</c> returns
+    /// silently for one, exactly as <c>GetRecord</c> does, so the only ArgumentException that could ever come out of
+    /// here is one Mutagen raised mid-walk for a single plugin — which belongs to that plugin, not to the whole
+    /// scan.</summary>
+    [Fact]
+    public void APluginOutsideTheOrderLeavesTheGatherEmptyRatherThanThrowing()
+    {
+        using var resolver = LoadOrderResolver.Build(new[] { _w.MasterPath, _w.LowPath });      // Mid is NOT in this order
+        var view = resolver.Capture();
+        using var session = resolver.OpenSession();
+        var sink = new Dictionary<FormKey, IMajorRecordGetter>();
+        view.CollectRecords(session, _w.MidName, new[] { _w.Keys[7] }, null, sink);
+        Assert.Empty(sink);
+    }
+
     /// <summary>The typed gather decides its flat fallback per KEY, not per plugin. Handed a type that covers only
     /// some of the wanted keys, it must still answer with the rest: Mutagen's typed enumeration routes nothing at
     /// all for a type it does not model, so "the typed walk found something, therefore what it missed is not here"
