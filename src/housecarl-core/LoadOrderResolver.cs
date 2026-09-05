@@ -523,7 +523,7 @@ public sealed class LoadOrderResolver : IDisposable
             var name = Path.GetFileName(p);
             names[i] = name;
             nameToIdx[name] = i;
-            stamps[i] = SafeStamp(p);
+            stamps[i] = FileStamp.Of(p);
         }
 
         return new LoadOrderResolver(paths, names, nameToIdx, stamps, explainAbsence);
@@ -630,7 +630,7 @@ public sealed class LoadOrderResolver : IDisposable
     /// Opaque to consumers — a <see cref="EpochFormat"/> tag then 16 hex chars of SHA-256, compared only for equality.
     ///
     /// <para>Known approximations: an unstattable-but-openable file collapses to
-    /// <see cref="SafeStamp"/>'s absent sentinel (distinct world-states, one stamp — vanishingly rare since
+    /// <see cref="FileStamp.Absent"/> (distinct world-states, one stamp — vanishingly rare since
     /// a file that can't be statted rarely opens); and <see cref="RefreshIfStale"/> stamps the files BEFORE
     /// re-reading them, so a plugin rewritten mid-rebuild can pair its new stamp with old content until its next
     /// change — the pre-existing freshness-baseline race, which this fingerprint shares by construction. An edit
@@ -1139,31 +1139,12 @@ public sealed class LoadOrderResolver : IDisposable
     {
         bool stale = false;
         for (int i = 0; i < _paths.Length; i++)
-            if (SafeStamp(_paths[i]) != _stamps[i]) { stale = true; break; }
+            if (FileStamp.Of(_paths[i]) != _stamps[i]) { stale = true; break; }
         if (!stale) return false;
 
-        for (int i = 0; i < _paths.Length; i++) _stamps[i] = SafeStamp(_paths[i]);
+        for (int i = 0; i < _paths.Length; i++) _stamps[i] = FileStamp.Of(_paths[i]);
         _snap = BuildIndex();                                              // ONE reference write — in-flight readers keep their captured build
         return true;
-    }
-
-    /// <summary>One plugin file's freshness key: last-write time AND length. Length is in it because last-write alone
-    /// is coarse — an edit inside the filesystem's timestamp granularity, or a tool that restores the timestamp it
-    /// found, leaves the mtime unchanged and served stale parsed state with nothing saying so. Two terms do not make
-    /// the key exact (an edit that changes neither is still invisible); they make the common same-mtime edit
-    /// visible.</summary>
-    readonly record struct FileStamp(DateTime Mtime, long Size);
-
-    /// <summary>Stat one path, or the absent sentinel when it cannot be statted — the same sentinel for missing,
-    /// locked and unreadable, so a file that comes back is a change and a file that stays gone is not.</summary>
-    static FileStamp SafeStamp(string path)
-    {
-        try
-        {
-            var fi = new FileInfo(path);                                   // ONE stat serves both terms
-            return fi.Exists ? new FileStamp(fi.LastWriteTimeUtc, fi.Length) : new FileStamp(DateTime.MinValue, -1);
-        }
-        catch { return new FileStamp(DateTime.MinValue, -1); }
     }
 
     /// <summary>The resolver holds NO plugin file handles at rest (only the pure-data index), so there is nothing to

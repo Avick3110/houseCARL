@@ -7,7 +7,7 @@ namespace HousecarlMcp;
 /// <summary>Read-only asset resolution: which mod or BSA provides a Data-relative path, and which copy wins in game —
 /// loose files beat BSA-packed, and among BSAs the latest-loaded plugin's wins. Active BSAs are discovered from the
 /// same static MO2 profile read the load order uses (per-plugin "X.bsa" / "X - Textures.bsa" plus the Skyrim.ini base
-/// archives). No archive handles are held at rest; freshness is an mtime check.</summary>
+/// archives). No archive handles are held at rest; freshness is a last-write-plus-size check.</summary>
 [McpServerToolType]
 public static class AssetTools
 {

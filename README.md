@@ -155,8 +155,8 @@ writing. Reads use Mutagen's lazy binary overlay — records parse on access, so
 fully in memory. Writes go through a small set of generic op verbs over the same reflection layer, always
 into a new plugin. The active load order is read **statically** from your MO2 profile's `loadorder.txt` /
 `modlist.txt` / `plugins.txt` (no USVFS, no live MO2 hooking) and refreshes automatically on the next tool
-call via cheap mtime checks. No plugin file handles are held at rest, so MO2 and xEdit can move or delete
-plugins freely while houseCARL is running.
+call via cheap last-write-plus-size checks. No plugin file handles are held at rest, so MO2 and xEdit can
+move or delete plugins freely while houseCARL is running.
 
 The only outbound network use is the read-only **Nexus Mods lookups** (catalogue search + mod detail).
 They're **keyless** — the public Nexus catalogue API needs no account or API key — and offline-tolerant: if

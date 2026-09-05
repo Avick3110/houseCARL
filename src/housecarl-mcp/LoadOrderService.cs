@@ -8,7 +8,7 @@ namespace HousecarlMcp;
 /// <summary>
 /// Owns the load-order resolver's lifecycle and is the single place the tools reach the core engines.
 /// The index build is lazy (deferred to first use, so startup and tools/list are instant), refreshed by a cheap
-/// mtime sweep on each query, and serialized on one gate because the server dispatches tool calls concurrently.
+/// FileStamp sweep on each query, and serialized on one gate because the server dispatches tool calls concurrently.
 /// The order is the true active order, read statically from the MO2 profile's loadorder.txt + modlist.txt +
 /// plugins.txt — masters first, highest-priority winner last, duplicate plugin names resolved by mod priority.
 /// No USVFS and no live MO2 state: the server reads real plugin paths and runs standalone.
@@ -45,12 +45,13 @@ public sealed class LoadOrderService : IDisposable
     IReadOnlyList<string> _assetWarnings = Array.Empty<string>();   // discovery warnings from the asset build (e.g. a Skyrim.ini we couldn't find → base BSAs unscanned)
     IReadOnlyList<ActiveArchive> _activeArchives = Array.Empty<ActiveArchive>();   // active BSAs behind the current asset build (archive → owning plugin); swapped with _assetResolver
     IReadOnlyList<string> _enabledModsAtBuild = Array.Empty<string>();             // enabled mods behind the current asset build; the loader scan walks these mods' Root folders, from the same capture as the view rather than a second profile read
-    // Freshness baselines are last-seen mtimes compared by VALUE (!=), never wall-clock stamps compared by order:
-    // MO2's "Restore Backup" restores a profile file with an OLDER mtime, which an ordered comparison never sees.
-    // Each baseline is statted BEFORE the read it baselines, so a write landing during the read shows up on the
-    // next check rather than being absorbed.
-    DateTime[] _profileMtimes = new DateTime[ProfileFileNames.Length];   // per ProfileFileNames, recorded at each order build
-    DateTime _iniMtime = DateTime.MinValue;                              // ModOrganizer.ini (instance-mode profile-switch baseline)
+    // Freshness baselines are last-seen FileStamps — the same (last-write, length) key the resolver and the asset
+    // tables use — compared by VALUE (!=), never wall-clock stamps compared by order: MO2's "Restore Backup" restores
+    // a profile file with an OLDER mtime, which an ordered comparison never sees, and a same-mtime rewrite of
+    // modlist.txt that changes its length would be invisible to the mtime term alone. Each baseline is statted BEFORE
+    // the read it baselines, so a write landing during the read shows up on the next check rather than being absorbed.
+    FileStamp[] _profileStamps = new FileStamp[ProfileFileNames.Length];   // per ProfileFileNames, recorded at each order build
+    FileStamp _iniStamp;                                                   // ModOrganizer.ini (instance-mode profile-switch baseline)
     IReadOnlyList<string> _resolvedPaths = Array.Empty<string>();   // ordered paths the current snapshot was built from (the cheap "did the order actually change?" check)
 
     static readonly string[] ProfileFileNames = { "loadorder.txt", "modlist.txt", "plugins.txt" };
@@ -117,7 +118,7 @@ public sealed class LoadOrderService : IDisposable
                 {
                     EnsurePathsDerived();                         // instance mode: derive ProfileDir/ModsDir/DataDir + active profile from ModOrganizer.ini
                     // The true active order, read statically from the MO2 profile files — no VFS, no live MO2 state.
-                    var profileMtimes = StatProfileFiles();      // stat BEFORE the read: a profile write during the build is caught next call, not missed
+                    var profileStamps = StatProfileFiles();      // stat BEFORE the read: a profile write during the build is caught next call, not missed
                     var order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir);
                     _orderWarnings = order.Warnings;
                     var paths = order.OrderedPaths;
@@ -129,7 +130,7 @@ public sealed class LoadOrderService : IDisposable
                             "HouseCarl config and that MO2 has written loadorder.txt/modlist.txt (a refresh/re-sort in MO2).");
                     _resolver = LoadOrderResolver.Build(paths, ExplainPluginAbsence);
                     _resolvedPaths = paths;
-                    _profileMtimes = profileMtimes;
+                    _profileStamps = profileStamps;
                 }
                 else if (Monitor.TryEnter(_writeGate))
                 {
@@ -943,7 +944,7 @@ public sealed class LoadOrderService : IDisposable
 
     // ---- SkyPatcher distributor: the per-record true post-SkyPatcher state. Read-only. ----
 
-    /// <summary>Cross-call INI parse cache (mtime+length keyed — see <see cref="SkyPatcherDiscovery.ParseCache"/>):
+    /// <summary>Cross-call INI parse cache (FileStamp keyed — see <see cref="SkyPatcherDiscovery.ParseCache"/>):
     /// repeat post-state calls over an untouched layer skip every per-file read+parse.</summary>
     readonly SkyPatcherDiscovery.ParseCache _skyPatcherParseCache = new();
 
@@ -1976,7 +1977,7 @@ public sealed class LoadOrderService : IDisposable
         catch { return Array.Empty<string>(); }                  // root vanished / access denied — empty, not a thrown status read
     }
 
-    /// <summary>True if any of the three MO2 profile files' mtimes differs from the last build's baseline — the user
+    /// <summary>True if any of the three MO2 profile files' stamps differs from the last build's baseline — the user
     /// toggled mods or plugins, re-sorted, or restored a backup, so the resolver's set is behind the live profile.
     /// Compared by value (!=), like the resolver's own plugin sweep: a restored backup carries an OLDER mtime, which
     /// an is-newer comparison would miss. Caller holds <see cref="_gate"/>.</summary>
@@ -1984,25 +1985,20 @@ public sealed class LoadOrderService : IDisposable
     {
         if (_profileDir.Length == 0) return false;                 // test seam / not yet derived — nothing to compare against
         for (int i = 0; i < ProfileFileNames.Length; i++)
-            if (SafeMtime(Path.Combine(_profileDir, ProfileFileNames[i])) != _profileMtimes[i]) return true;
+            if (FileStamp.Of(Path.Combine(_profileDir, ProfileFileNames[i])) != _profileStamps[i]) return true;
         return false;
     }
 
-    /// <summary>The three profile files' current mtimes, in <see cref="ProfileFileNames"/> order — the freshness
+    /// <summary>The three profile files' current stamps, in <see cref="ProfileFileNames"/> order — the freshness
     /// baseline a build records. Stat BEFORE the read it baselines. Caller holds <see cref="_gate"/>.</summary>
-    DateTime[] StatProfileFiles()
+    FileStamp[] StatProfileFiles()
     {
-        var m = new DateTime[ProfileFileNames.Length];
-        for (int i = 0; i < ProfileFileNames.Length; i++) m[i] = SafeMtime(Path.Combine(_profileDir, ProfileFileNames[i]));
-        return m;
+        var s = new FileStamp[ProfileFileNames.Length];
+        for (int i = 0; i < ProfileFileNames.Length; i++) s[i] = FileStamp.Of(Path.Combine(_profileDir, ProfileFileNames[i]));
+        return s;
     }
 
-    static DateTime SafeMtime(string path)
-    {
-        try { return File.GetLastWriteTimeUtc(path); } catch { return DateTime.MinValue; }
-    }
-
-    /// <summary>Lazy freshness, run on each tool call once the snapshot exists. Two mtime signals: in instance mode,
+    /// <summary>Lazy freshness, run on each tool call once the snapshot exists. Two FileStamp signals: in instance mode,
     /// whether the user switched profiles (ModOrganizer.ini changed), which re-derives the roots and re-resolves
     /// against the new profile; otherwise whether the active profile's files changed, which re-resolves cheaply and
     /// pays the deep re-index only when the resolved order actually changed, so a no-plugin toggle costs almost
@@ -2018,17 +2014,17 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>Instance mode only: if ModOrganizer.ini changed since we last read it AND the user switched profiles (or
     /// moved the game path), re-derive ProfileDir/ModsDir/DataDir + the active profile and re-resolve against the new
     /// profile. This is how a mid-session profile switch is followed — lazily, on the next tool call, by the same cheap
-    /// mtime model as the per-profile-file check. Returns true iff it handled a switch (caller then skips the per-file check).
+    /// FileStamp model as the per-profile-file check. Returns true iff it handled a switch (caller then skips the per-file check).
     /// Tolerates a transient/invalid read (MO2 mid-write): keeps the last good set and retries next call. Caller holds the gate.</summary>
     bool RederiveIfIniChanged()
     {
         if (_instanceDir is null) return false;                  // explicit/override mode — no ini to watch
         var ini = Mo2Instance.IniPath(_instanceDir);
         if (!File.Exists(ini)) return false;                     // missing/mid-replace → keep last good, retry next call
-        var iniMtime = SafeMtime(ini);                           // stat BEFORE the read: an ini write during/after TryResolve is caught next call
-        if (iniMtime == _iniMtime) return false;                 // compared by value — a restored-backup ini carries an older mtime and is a change too
+        var iniStamp = FileStamp.Of(ini);                         // stat BEFORE the read: an ini write during/after TryResolve is caught next call
+        if (iniStamp == _iniStamp) return false;                  // compared by value — a restored-backup ini carries an older mtime and is a change too
         if (!Mo2Instance.TryResolve(_instanceDir, out var p) || p is null) return false;   // mid-write/invalid → keep last good, retry next call
-        _iniMtime = iniMtime;                                    // advance only on a clean read
+        _iniStamp = iniStamp;                                     // advance only on a clean read
         bool switched = !PathEq(p.ProfileDir, _profileDir) || !PathEq(p.ModsDir, _modsDir) || !PathEq(p.DataDir, _dataDir)
                         || !PathEq(p.OverwriteDir, _overwriteDir);
         if (!switched) return false;                             // ini touched but nothing we resolve from changed
@@ -2044,7 +2040,7 @@ public sealed class LoadOrderService : IDisposable
     /// <see cref="_resolver"/> is non-null. Used by both freshness signals (active-profile change + profile switch).</summary>
     void ReResolve()
     {
-        var profileMtimes = StatProfileFiles();                  // stat BEFORE the read: a write during the re-read is caught next call, not missed
+        var profileStamps = StatProfileFiles();                  // stat BEFORE the read: a write during the re-read is caught next call, not missed
         var order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir);
         var paths = order.OrderedPaths;
         if (_maxPlugins > 0 && paths.Count > _maxPlugins) paths = paths.Take(_maxPlugins).ToList();
@@ -2066,7 +2062,7 @@ public sealed class LoadOrderService : IDisposable
             }
             _resolvedPaths = paths;
             _orderWarnings = order.Warnings;
-            _profileMtimes = profileMtimes;
+            _profileStamps = profileStamps;
         }
         else if (paths.Count > 0)
         {
@@ -2075,7 +2071,7 @@ public sealed class LoadOrderService : IDisposable
             // resolver is dropped to rebuild; the freshness baseline advances so the staleness flag clears.
             InvalidateAssetResolver();
             _orderWarnings = order.Warnings;
-            _profileMtimes = profileMtimes;
+            _profileStamps = profileStamps;
         }
         // paths.Count == 0 is almost certainly a transient mid-write read: keep the last good snapshot and do NOT
         // advance the baseline, so the next tool call re-checks and recovers once MO2 finishes writing.
@@ -2089,10 +2085,10 @@ public sealed class LoadOrderService : IDisposable
     {
         if (_instanceDir is null) return;                        // explicit mode — roots configured directly
         if (_profileDir.Length > 0) return;                      // already derived (a prior build / SetInstance); RederiveIfIniChanged owns later updates
-        var iniMtime = SafeMtime(Mo2Instance.IniPath(_instanceDir));   // stat BEFORE the read: an ini write during/after Resolve is caught next call
+        var iniStamp = FileStamp.Of(Mo2Instance.IniPath(_instanceDir)); // stat BEFORE the read: an ini write during/after Resolve is caught next call
         var p = Mo2Instance.Resolve(_instanceDir);               // throws, naming the missing piece, if this is not a usable instance
         _profileDir = p.ProfileDir; _modsDir = p.ModsDir; _dataDir = p.DataDir; _profileName = p.ProfileName; _overwriteDir = p.OverwriteDir;
-        _iniMtime = iniMtime;
+        _iniStamp = iniStamp;
         InvalidateClassParents();                                // _modsDir just gained a value — a cache built before derivation is baseline-only
     }
 
@@ -2224,7 +2220,7 @@ public sealed class LoadOrderService : IDisposable
         // The ini baseline is statted BEFORE Resolve reads the instance: an MO2 ini write landing between the read and
         // the stamp would otherwise be absorbed into the baseline and its profile switch would stay invisible for the
         // process lifetime. Same discipline as every other baseline here.
-        var iniMtime = SafeMtime(Mo2Instance.IniPath(instanceDir.Trim()));
+        var iniStamp = FileStamp.Of(Mo2Instance.IniPath(instanceDir.Trim()));
         var paths = Mo2Instance.Resolve(instanceDir);            // throws if not a usable MO2 instance — the tool renders the reason
         lock (_writeGate)                                        // an instance switch waits for any in-flight write, so one can never tear across instances
         lock (_gate)
@@ -2232,12 +2228,12 @@ public sealed class LoadOrderService : IDisposable
             _instanceDir = paths.InstanceDir;
             _dataDir = paths.DataDir; _modsDir = paths.ModsDir; _profileDir = paths.ProfileDir; _profileName = paths.ProfileName;
             _overwriteDir = paths.OverwriteDir;
-            _iniMtime = iniMtime;
+            _iniStamp = iniStamp;
             _configured = true;
             _resolver?.Dispose(); _resolver = null;              // force a rebuild against the new instance on the next query
             _assetResolver?.Dispose(); _assetResolver = null;    // the asset resolver rebuilds against the new instance too
             _resolvedPaths = Array.Empty<string>();
-            _profileMtimes = new DateTime[ProfileFileNames.Length];   // unset — the next build records fresh baselines against the new profile
+            _profileStamps = new FileStamp[ProfileFileNames.Length];   // unset — the next build records fresh baselines against the new profile
             _orderWarnings = Array.Empty<string>();
             InvalidateClassParents();                            // every sibling cache drops on a switch — the hierarchy too
             System.Threading.Interlocked.Increment(ref _gameRootsGen);   // a new instance may be a different game install — the runtime memo must re-probe rather than adjudicate against the old exe

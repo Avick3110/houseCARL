@@ -25,7 +25,7 @@ namespace HousecarlCore;
 // deletable while the resolver is alive and MO2/xEdit can move or delete archives freely.
 // Loose presence is a per-subtree cache (the filename set under each requested directory, in each
 // loose root, warmed on first touch), so a bulk scan is O(1) per path rather than a File.Exists
-// per (path × enabled mod). Both caches are mtime-invalidated via RefreshIfStale; no live MO2
+// per (path × enabled mod). Both caches are FileStamp-invalidated via RefreshIfStale; no live MO2
 // tracking, no daemon.
 //
 // BSA reading uses Mutagen's native archive surface in-process, with no BSArch dependency
@@ -96,25 +96,25 @@ public sealed class AssetResolver : IDisposable
     internal sealed class Snapshot
     {
         public readonly Dictionary<string, HashSet<string>> Tables;   // archive path → its file paths (normalized)
-        public readonly Dictionary<string, DateTime> Mtimes;          // archive path → mtime at this build (freshness baseline)
+        public readonly Dictionary<string, FileStamp> Stamps;         // archive path → freshness stamp at this build
         public readonly List<string> Failures;                        // archives that couldn't be read, with the reason
         // Loose subtree cache — LAZILY warmed (one entry per requested directory), invalidated wholesale with the
         // snapshot. A fresh build starts empty and re-warms on demand. ConcurrentDictionary: concurrent Resolve calls
         // may race to warm the same subtree (the result is deterministic, so the redundant warm is harmless).
         public readonly ConcurrentDictionary<string, LooseSubtree> LooseCache;
-        public Snapshot(Dictionary<string, HashSet<string>> tables, Dictionary<string, DateTime> mtimes, List<string> failures)
-        { Tables = tables; Mtimes = mtimes; Failures = failures; LooseCache = new(StringComparer.OrdinalIgnoreCase); }
+        public Snapshot(Dictionary<string, HashSet<string>> tables, Dictionary<string, FileStamp> stamps, List<string> failures)
+        { Tables = tables; Stamps = stamps; Failures = failures; LooseCache = new(StringComparer.OrdinalIgnoreCase); }
     }
 
     /// <summary>One subtree directory's loose resolution, warmed on first touch. <see cref="Present"/> = the filename
-    /// sets of the roots that HAVE that subtree (in <see cref="_looseRoots"/> precedence order); <see cref="DirMtimes"/>
-    /// = the mtime of EVERY root's copy of the subtree dir (MinValue if absent), so RefreshIfStale catches a content
-    /// change to an existing dir AND a root gaining or losing the subtree.</summary>
+    /// sets of the roots that HAVE that subtree (in <see cref="_looseRoots"/> precedence order); <see cref="DirStamps"/>
+    /// = the stamp of EVERY root's copy of the subtree dir (<see cref="FileStamp.Absent"/> if absent), so
+    /// RefreshIfStale catches a content change to an existing dir AND a root gaining or losing the subtree.</summary>
     internal sealed class LooseSubtree
     {
-        public readonly DateTime[] DirMtimes;                         // parallel to _looseRoots (length == root count)
+        public readonly FileStamp[] DirStamps;                        // parallel to _looseRoots (length == root count)
         public readonly (int RootIndex, HashSet<string> Files)[] Present;   // roots that have the dir + ≥1 file, precedence order
-        public LooseSubtree(DateTime[] dirMtimes, (int, HashSet<string>)[] present) { DirMtimes = dirMtimes; Present = present; }
+        public LooseSubtree(FileStamp[] dirStamps, (int, HashSet<string>)[] present) { DirStamps = dirStamps; Present = present; }
     }
 
     volatile Snapshot _snap;
@@ -151,7 +151,7 @@ public sealed class AssetResolver : IDisposable
     /// <summary>The loose roots in PRECEDENCE order (the same order Mo2LoadOrder.BuildFilenameMap walks): MO2's
     /// overwrite layer first (top of the VFS), then each enabled mod highest-priority-first, then the game Data folder.
     /// Fixed for the resolver's lifetime — the set only changes with the profile, which rebuilds the whole resolver.
-    /// The subtree cache stores per-subtree mtimes parallel to THIS list.</summary>
+    /// The subtree cache stores per-subtree stamps parallel to THIS list.</summary>
     IReadOnlyList<(string Name, string Dir)> BuildLooseRoots()
     {
         var roots = new List<(string, string)>(_enabledMods.Count + 2);
@@ -193,12 +193,12 @@ public sealed class AssetResolver : IDisposable
     Snapshot BuildTables()
     {
         var tables = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        var mtimes = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        var stamps = new Dictionary<string, FileStamp>(StringComparer.OrdinalIgnoreCase);
         var failures = new List<string>();
 
         foreach (var a in _archives)                              // _archives is already path-deduped (DedupeArchives) — read each once
         {
-            mtimes[a.Path] = SafeMtime(a.Path);
+            stamps[a.Path] = FileStamp.Of(a.Path);
             try { tables[a.Path] = ReadArchiveTable(a.Path); }
             catch (Exception ex)
             {
@@ -206,7 +206,7 @@ public sealed class AssetResolver : IDisposable
                 failures.Add($"{Path.GetFileName(a.Path)} (loaded by {a.OwningPlugin}): could not read the archive table — {Concise(ex)}");
             }
         }
-        return new Snapshot(tables, mtimes, failures);
+        return new Snapshot(tables, stamps, failures);
     }
 
     /// <summary>Read one BSA's file table with Mutagen's native reader and copy it into a string set. No handle
@@ -546,8 +546,9 @@ public sealed class AssetResolver : IDisposable
     }
 
     /// <summary>Re-stat the inputs; if any changed, rebuild the snapshot and return true. Inputs = the active archives
-    /// (a BSA's bytes changed) AND every WARMED loose subtree's directories across all roots (a facegen file added /
-    /// removed, or a root gaining/losing the subtree — both move the dir's mtime). The cheap no-change path is just the
+    /// (a BSA's bytes changed — <see cref="FileStamp"/>, so a repack that lands on the same last-write is caught by
+    /// its length) AND every WARMED loose subtree's directories across all roots (a facegen file added / removed, or a
+    /// root gaining/losing the subtree — both move the dir's last-write). The cheap no-change path is just the
     /// stat sweep. A changed archive/mod SET (active plugins added/removed) is an ORDER change and the service rebuilds
     /// the whole resolver instead. One reference swap; an in-flight Resolve keeps its captured
     /// snapshot, and the rebuilt snapshot's loose cache re-warms lazily on the next touch.</summary>
@@ -556,7 +557,7 @@ public sealed class AssetResolver : IDisposable
         var snap = _snap;
         bool stale = false;
         foreach (var a in _archives)
-            if (!snap.Mtimes.TryGetValue(a.Path, out var m) || SafeMtime(a.Path) != m) { stale = true; break; }
+            if (!snap.Stamps.TryGetValue(a.Path, out var s) || FileStamp.Of(a.Path) != s) { stale = true; break; }
         if (!stale)
             foreach (var kv in snap.LooseCache)                       // each warmed loose subtree — re-stat its dirs across all roots
                 if (LooseSubtreeStale(kv.Key, kv.Value)) { stale = true; break; }
@@ -566,7 +567,7 @@ public sealed class AssetResolver : IDisposable
     }
 
     /// <summary>True if a warmed subtree's loose layer changed since warm: any root's copy of the subtree dir has a
-    /// different mtime than recorded (a content edit, or the dir appeared/disappeared). Bounded by (warmed subtrees ×
+    /// different stamp than recorded (a content edit, or the dir appeared/disappeared). Bounded by (warmed subtrees ×
     /// roots) — RefreshIfStale is called per query-batch, not per path.</summary>
     bool LooseSubtreeStale(string subtreeDir, LooseSubtree st)
     {
@@ -574,28 +575,29 @@ public sealed class AssetResolver : IDisposable
         for (int i = 0; i < roots.Count; i++)
         {
             var dir = subtreeDir.Length == 0 ? roots[i].Dir : Path.Combine(roots[i].Dir, subtreeDir);
-            if (SafeMtime(dir) != st.DirMtimes[i]) return true;
+            if (FileStamp.OfDirectory(dir) != st.DirStamps[i]) return true;
         }
         return false;
     }
 
     /// <summary>Warm one subtree directory's loose layer: for each root (precedence order) record the subtree dir's
-    /// mtime (MinValue if absent, so an appear/disappear is detectable) and, when it exists with ≥1 file, its top-level
-    /// filename set. Walks every root ONCE — the cost the per-subtree cache pays a single time so each later query in
-    /// that subtree is an O(1) set lookup. Pure read of the filesystem; the result is cached in the snapshot.</summary>
+    /// stamp (<see cref="FileStamp.Absent"/> if absent, so an appear/disappear is detectable) and, when it exists with
+    /// ≥1 file, its top-level filename set. Walks every root ONCE — the cost the per-subtree cache pays a single time
+    /// so each later query in that subtree is an O(1) set lookup. Pure read of the filesystem; the result is cached in
+    /// the snapshot.</summary>
     LooseSubtree WarmSubtree(string subtreeDir)
     {
         var roots = _looseRoots;
-        var mtimes = new DateTime[roots.Count];
+        var stamps = new FileStamp[roots.Count];
         var present = new List<(int, HashSet<string>)>();
         for (int i = 0; i < roots.Count; i++)
         {
             var dir = subtreeDir.Length == 0 ? roots[i].Dir : Path.Combine(roots[i].Dir, subtreeDir);
-            mtimes[i] = SafeMtime(dir);                              // MinValue if absent — baseline for an appear/disappear
+            stamps[i] = FileStamp.OfDirectory(dir);                  // Absent if it isn't there — baseline for an appear/disappear
             var files = SafeListFilenames(dir);
             if (files is { Count: > 0 }) present.Add((i, files));
         }
-        return new LooseSubtree(mtimes, present.ToArray());
+        return new LooseSubtree(stamps, present.ToArray());
     }
 
     /// <summary>The top-level filenames in a directory (OrdinalIgnoreCase), or null if it doesn't exist / can't be read.
@@ -647,11 +649,6 @@ public sealed class AssetResolver : IDisposable
             if (seg.Length > 0 && seg != ".") kept.Add(seg);
         }
         return string.Join('\\', kept);
-    }
-
-    static DateTime SafeMtime(string path)
-    {
-        try { return File.GetLastWriteTimeUtc(path); } catch { return DateTime.MinValue; }
     }
 
     static string Concise(Exception ex)
