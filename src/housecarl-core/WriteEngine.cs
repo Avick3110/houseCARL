@@ -1253,7 +1253,7 @@ public static class WriteEngine
     //  selector. The parent must already be settable IN the patch (the caller overrides
     //  or creates it first). Coordinate-keyed parents (an exterior Cell under the
     //  FormKey-LESS WorldspaceBlock/SubBlock structs) are not reachable here —
-    //  TryFindNestedCollection fails loud for them; see the coordinate-keyed create below.
+    //  TryFindChildSlot fails loud for them; see the coordinate-keyed create below.
     // ======================================================================
 
     /// <summary>Resolve a catalog/record-type name to its concrete Mutagen record <see cref="Type"/>. The namespace
@@ -1287,16 +1287,6 @@ public static class WriteEngine
         slotName = prop!.Name;
         return true;
     }
-
-    /// <summary>Find the parent type's SETTABLE child-collection to allocate a <paramref name="childType"/> into — the
-    /// generic add-target resolver. Reflects the parent's list/ExtendedList properties whose element type the child
-    /// satisfies. Outcomes: exactly one match ⇒ derivable by type, returned; several ⇒ the caller must NAME one
-    /// (<paramref name="collectionName"/> picks it); zero ⇒ the child cannot nest under this parent (a real
-    /// containment boundary). <paramref name="error"/> names the unnamed-ambiguous / no-containment / bad-name cases;
-    /// null on success.</summary>
-    static bool TryFindNestedCollection(Type parentType, Type childType, string? collectionName,
-        out PropertyInfo? prop, out List<string> matches, out string? error)
-        => TryFindChildSlot(parentType, childType, collectionName, out prop, out _, out matches, out error);
 
     /// <summary>Find the parent's SETTABLE child slot to put a new <paramref name="childType"/> into — the generic
     /// add-target resolver, over BOTH shapes the model has. A COLLECTION slot is a list property whose element type
@@ -1450,7 +1440,7 @@ public static class WriteEngine
     /// root fed into the SAME <see cref="ApplyVerb"/> path as a flat create or an override. The new record gets a fresh
     /// local 0x800+ FormKey from the SAME floor/counter as flat <see cref="GenericAddNew"/>. The parent MUST already be
     /// settable in the patch (overridden or created by the caller). Throws loud via
-    /// <see cref="TryFindNestedCollection"/> on a containment/ambiguity the pre-flight
+    /// <see cref="TryFindChildSlot"/> on a containment/ambiguity the pre-flight
     /// (<see cref="CanCreateNested"/>) should have caught — a throw here means the surface changed under us.</summary>
     public static IMajorRecord NestedAddNew(SkyrimMod patchMod, IMajorRecord parentInPatch,
         string childCatalogName, string? collectionName, string? editorId)
