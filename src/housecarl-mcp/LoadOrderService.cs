@@ -7390,7 +7390,9 @@ public sealed class LoadOrderService : IDisposable
             var ackNote = PersistInPlaceConsent(owesConsent, targetPath, "create");
             var enriched = EnrichWithCellShell(EnrichWithScriptCheck(EnrichWithVoiceCheck(outcome, resolver)));
             var markerNote = MergeEditedInPlaceMarker(Path.GetDirectoryName(targetPath));
-            var note = JoinNotes(ackNote, markerNote);
+            // enriched.Note FIRST, exactly as the other three in-place lanes join: the core create lane now emits the
+            // master-grow re-sort note, and dropping it here would lose the one note the caller must act on.
+            var note = JoinNotes(enriched.Note, ackNote, markerNote);
             return note is not null ? enriched with { Note = note } : enriched;
         }
         return outcome;

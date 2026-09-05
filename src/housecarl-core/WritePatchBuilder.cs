@@ -2824,6 +2824,14 @@ public static class WritePatchBuilder
         }
         if (!string.Equals(patchMod.ModKey.FileName.String, fileName, StringComparison.OrdinalIgnoreCase))
             return CreateOutcome.Fail($"{(inPlace ? "in-place" : "patch")} ModKey '{patchMod.ModKey.FileName}' must match {(inPlace ? "the target filename" : "output filename")} '{fileName}'.");
+        // IN PLACE ONLY: the author's DECLARED masters, captured before any mutation, so Phase 5 can diff the re-opened
+        // header and emit the SAME re-sort note the in-place edit and forward lanes emit (MasterGrowNote). A new record
+        // whose FormLink points into a plugin the target did not already master grows the header, and the file will not
+        // load until the order is re-sorted. The patch lanes have no before-state to diff: a fresh patch's whole header
+        // is new by construction, and an extend already tells the caller the patch grew.
+        var mastersBefore = inPlace
+            ? patchMod.ModHeader.MasterReferences.Select(m => m.Master.FileName.String).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : null;
 
         // --- Phase 1: pre-flight EVERY spec before any mutation (all-or-nothing). editorid required + unique; the
         //     type must be createable — a FLAT top-level type (CanCreateType), OR a NESTED child given a valid parent
@@ -3272,7 +3280,11 @@ public static class WritePatchBuilder
         catch (Exception ex) { return CreateOutcome.Fail($"records created + written but the patch could not be re-opened to confirm: {ex.Message}"); }
         finally { (back as IDisposable)?.Dispose(); }
 
-        return new CreateOutcome(true, null, outPath, extend, created, masters, bytes) { ReadBack = readBack, InPlace = inPlace };
+        return new CreateOutcome(true, null, outPath, extend, created, masters, bytes)
+        {
+            ReadBack = readBack, InPlace = inPlace,
+            Note = mastersBefore is null ? null : MasterGrowNote(fileName, mastersBefore, masters),
+        };
     }
 
     /// <summary>Create BRAND-NEW records IN PLACE inside an EXISTING plugin the user owns — the create sibling of
