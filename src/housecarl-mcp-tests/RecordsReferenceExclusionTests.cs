@@ -39,6 +39,23 @@ public sealed class RecordsReferenceExclusionTests : RecordsTestBase
     }
 
     [Fact]
+    public void ANegatedReferenceTakesTheAtFileSpellingToo()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "hc-refs-neg-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var listFile = Path.Combine(dir, "targets.txt");
+            File.WriteAllText(listFile, Fid(W.MgefA) + Environment.NewLine);
+            var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, references: new[] { "!@" + listFile });
+            Served(r, "HcRecSpellB");
+            Assert.DoesNotContain("HcRecSpellA", r);
+            Assert.DoesNotContain("bad references FormID", r);
+        }
+        finally { try { Directory.Delete(dir, true); } catch { } }
+    }
+
+    [Fact]
     public void ANegatedReferenceStillNeedsABoundingScope() =>
         Refused(RecordsTools.Records(Svc, references: new[] { "!" + Fid(W.MgefA) }), "types=");
 
