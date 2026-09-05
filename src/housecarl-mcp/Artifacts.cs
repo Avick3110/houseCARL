@@ -199,14 +199,14 @@ internal static class Artifacts
     /// <summary>The manifest notes a scan artifact carries: the scoped-vs-winner field-source note the three inline
     /// transports state, then the owned-child clause. The artifact holds the same values the inline render would have
     /// shown and is read later with no conversation attached, so the sentence saying WHOSE body those values came
-    /// from has to travel with them. The scoped test is the one the inline renders use, so the two cannot disagree
-    /// about when the note is owed.</summary>
+    /// from has to travel with them. The scoped test is <see cref="JsonWire.AnyScopedFieldRow"/> — the very function
+    /// the inline renders call, not a copy of it — so the two cannot disagree about when the note is owed.</summary>
     static IReadOnlyList<string>? CrossQueryNotes(CrossQueryOutcome q, IReadOnlyList<string>? fields, bool winnerFields,
                                                   IReadOnlyCollection<string> annotatedFields, bool annotatedUnioned,
                                                   LeverNames? levers)
     {
         var notes = new List<string>();
-        if (fields is { Count: > 0 } && q.Sources is { } sources && sources.Take(q.Keys.Count).Any(s => s is not null))
+        if (JsonWire.AnyScopedFieldRow(q, fields))
             notes.Add(JsonWire.ScopedFieldsNote(winnerFields, q.WhereWinner, levers));
         if (OwnedChildNotes(annotatedFields, annotatedUnioned) is { } child) notes.AddRange(child);
         return notes.Count > 0 ? notes : null;
