@@ -15,6 +15,8 @@ namespace HousecarlMcpTests;
 ///   facetint <c>.dds</c> under textures\ so a glob has something to narrow away.</item>
 /// <item><c>ArchiveMod</c> — <c>HcArch.bsa</c>, authored by <see cref="BsaBuilder"/> and bound to the active
 ///   <c>HcArch.esp</c>, carrying <c>0005.nif</c> — reachable only through the archive lane.</item>
+/// <item><c>Face Extras (SE)</c> — a mod whose NAME carries a parenthetical, providing one file outside every sweep
+///   target above, so a rendered provider token can be read for where the name ends (#340).</item>
 /// </list>
 ///
 /// <para>No .esp is written to disk: asset resolution is decoupled from the record index, so the profile naming a
@@ -35,6 +37,12 @@ public sealed class AssetSelectWorld : IDisposable
     /// FaceHigher, one from the BSA (FaceHigher's 0002 is a contender, not a sixth file).</summary>
     public const int FaceGeomFiles = 5;
 
+    /// <summary>A mod folder whose own name carries a parenthetical, which is legal on Windows and common in the
+    /// wild ("SkyUI (SE)"). Its only file sits outside every sweep target above, so it changes no other count.</summary>
+    public const string ParenMod = "Face Extras (SE)";
+    /// <summary>The one path <see cref="ParenMod"/> provides.</summary>
+    public const string ParenPath = @"textures\hcextras\extra.dds";
+
     public string Rel(string leaf) => FaceGeomDir + "\\" + leaf;
 
     public AssetSelectWorld()
@@ -47,7 +55,8 @@ public sealed class AssetSelectWorld : IDisposable
         var faceBase = Path.Combine(mods, "FaceBase");
         var faceHigher = Path.Combine(mods, "FaceHigher");
         var archiveMod = Path.Combine(mods, "ArchiveMod");
-        foreach (var d in new[] { profile, data, faceBase, faceHigher, archiveMod }) Directory.CreateDirectory(d);
+        var parenMod = Path.Combine(mods, ParenMod);
+        foreach (var d in new[] { profile, data, faceBase, faceHigher, archiveMod, parenMod }) Directory.CreateDirectory(d);
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
@@ -59,6 +68,7 @@ public sealed class AssetSelectWorld : IDisposable
         Loose(faceBase, FaceTintDir + @"\0001.dds");
         Loose(faceHigher, Rel("0002.nif"));                    // contends with FaceBase and wins on priority
         Loose(faceHigher, Rel("0004.nif"));
+        Loose(parenMod, ParenPath);                            // a provider name that contains its own parenthetical
 
         File.WriteAllBytes(Path.Combine(archiveMod, "HcArch.bsa"),
             BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames,
@@ -67,7 +77,7 @@ public sealed class AssetSelectWorld : IDisposable
         File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\nHcArch.esp\r\n");
         File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*HcArch.esp\r\n");
         // Listed first = higher priority, the MO2 modlist.txt order.
-        File.WriteAllText(Path.Combine(profile, "modlist.txt"), "# header\r\n+ArchiveMod\r\n+FaceHigher\r\n+FaceBase\r\n");
+        File.WriteAllText(Path.Combine(profile, "modlist.txt"), "# header\r\n+ArchiveMod\r\n+FaceHigher\r\n+FaceBase\r\n+" + ParenMod + "\r\n");
         File.WriteAllText(Path.Combine(profile, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));

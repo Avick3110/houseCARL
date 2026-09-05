@@ -209,12 +209,15 @@ static class AssetWire
             return;
         }
 
-        sb.Append("  WINS: ").Append(hit.Winner!.Source).Append(" (").Append(Kind(hit.Winner.Kind)).Append(")\n");
+        // The provider token is spelled by the one formatter the asset surface uses, so the name printed here is the
+        // name place_asset's source_provider= accepts — the third surface of #340. A mod folder can legitimately hold
+        // a parenthetical ("SkyUI (SE)"), so the delimiter is what tells a caller where the name ends.
+        sb.Append("  WINS: ").Append(Provider(hit.Winner!)).Append('\n');
         sb.Append("  providers (").Append(hit.Providers.Count).Append("): ");
         for (int i = 0; i < hit.Providers.Count; i++)
         {
             if (i > 0) sb.Append(" > ");
-            sb.Append(hit.Providers[i].Source).Append(" (").Append(Kind(hit.Providers[i].Kind)).Append(')');
+            sb.Append(Provider(hit.Providers[i]));
         }
         sb.Append('\n');
         if (hit.Ambiguous)
@@ -223,4 +226,10 @@ static class AssetWire
     }
 
     static string Kind(HousecarlCore.AssetKind k) => k == HousecarlCore.AssetKind.Bsa ? "BSA" : "loose";
+
+    /// <summary>One provider, spelled by the shared formatter (#340): the name inside double quotes — a character a
+    /// Windows folder or file name cannot contain — with the kind outside them, so the printed token is the token a
+    /// source selector accepts.</summary>
+    static string Provider(HousecarlCore.AssetProvider p)
+        => HousecarlCore.AssetSourceSelection.Describe(p.Source, Kind(p.Kind));
 }
