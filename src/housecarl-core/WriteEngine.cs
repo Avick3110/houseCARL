@@ -1918,9 +1918,9 @@ public static class WriteEngine
     /// can actually re-send; it mirrors the same parameter on <c>CorpusRulebook.ValidateFromType</c>.</para>
     /// </summary>
     /// <returns>An apply-time note about what the write DID that the written file cannot express afterwards — today
-    /// only the list Add's membership answer (it appended an element the list already carried, or it could not
-    /// compare the element at all; the file shows a longer list either way). Null when the check ran and found
-    /// nothing, which is the common case. Callers that render an op line carry it there; the rest ignore it.</returns>
+    /// only the list Add's membership answer (it appended an element the list already carried; the file shows a
+    /// longer list either way). Null when the check found nothing, which is the common case. Callers that render an
+    /// op line carry it there; the rest ignore it.</returns>
     public static string? ApplyVerb(object record, WriteRequest req, string pathSlot = "field_path")
     {
         object current = record;
@@ -2631,7 +2631,7 @@ public static class WriteEngine
     }
 
     /// <returns>The apply-time note <see cref="ApplyVerb"/> hands back — non-null only for an Add whose membership
-    /// test found the element already there, or could not be asked.</returns>
+    /// test found the element already there, or whose composed batch repeats an element of its own.</returns>
     static string? ApplyListVerb(object parent, PropertyInfo prop, Type listIface, WriteRequest req)
     {
         // ARRAY-backed collection (a C# T[], e.g. Weather.CloudTextures / Weather.Clouds — fixed-size game
@@ -2684,21 +2684,27 @@ public static class WriteEngine
                 if (req.Structs is { } addSpecs)
                 {
                     var addM = AddMethod(lt, elem);
-                    int dup = 0;
-                    foreach (var s in addSpecs)
-                    {
-                        var built = BuildStruct(s);
-                        if (ListCarries(elem, list, built)) dup++;
-                        addM.Invoke(list, new[] { built });
-                    }
-                    return ComposedAddNote(prop.Name, addSpecs.Count, dup);
+                    // BUILD every element and ask the membership question BEFORE appending any of them. Asked mid-loop,
+                    // the check sees what this same op has already added, so a repeat WITHIN the batch is reported as
+                    // something the FILE already carried — false about the list's before-state, and its remedy points
+                    // at undoing the caller's own deliberate weighting. The two facts are counted apart and said apart.
+                    var builtAll = addSpecs.Select(BuildStruct).ToList();
+                    int dup = builtAll.Count(b => ListCarries(elem, list, b));
+                    // A repeat is compared with the element type's own Equals — the same structural override
+                    // ICollection<T>.Contains reaches for the before-state half.
+                    int repeat = 0;
+                    for (int i = 1; i < builtAll.Count; i++)
+                        for (int j = 0; j < i; j++)
+                            if (Equals(builtAll[i], builtAll[j])) { repeat++; break; }
+                    foreach (var b in builtAll) addM.Invoke(list, new[] { b });
+                    return ComposedAddNote(prop.Name, builtAll.Count, dup, repeat);
                 }
                 if (req.Struct is not null)
                 {
                     var built = BuildStruct(req.Struct);
                     var carriedStruct = ListCarries(elem, list, built);
                     AddMethod(lt, elem).Invoke(list, new[] { built });
-                    return ComposedAddNote(prop.Name, 1, carriedStruct ? 1 : 0);
+                    return ComposedAddNote(prop.Name, 1, carriedStruct ? 1 : 0, 0);
                 }
                 var addValue = Coerce(req.Value!, elem);
                 var already = ListCarries(elem, list, addValue);
@@ -2795,21 +2801,40 @@ public static class WriteEngine
     {
         try
         {
-            var contains = typeof(ICollection<>).MakeGenericType(elem).GetMethod("Contains", new[] { elem });
+            var contains = ContainsMethods.GetOrAdd(elem,
+                t => typeof(ICollection<>).MakeGenericType(t).GetMethod("Contains", new[] { t }));
             return contains is not null && contains.Invoke(list, new[] { value }) is true;
         }
         catch { return false; }
     }
 
+    /// <summary>The closed <c>ICollection&lt;T&gt;.Contains</c> per element type, resolved once. Add now asks it on
+    /// every element — including once per element inside a <c>composes=</c> batch and once per op across a bulk run —
+    /// and the lookup costs more than the answer.</summary>
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, MethodInfo?> ContainsMethods = new();
+
     /// <summary>The note a COMPOSED Add owes the caller. Counts, because <c>composes=</c> appends many built elements
     /// in one op; the remedy is by INDEX, since Remove-by-value takes a plain value and a composed element has none.
     /// Conditional voice for the same reason the plain-value note has it — this renders on a dry run too. A repeated
-    /// element is legitimate weighting in a leveled list, so this states what was found, not that it was a mistake.</summary>
-    static string? ComposedAddNote(string prop, int total, int dup) =>
-        dup == 0 ? null
-            : $"duplicate: {(total == 1 ? "the composed element is" : $"{dup} of the {total} composed elements are")} "
-            + $"already in '{prop}', and Add appends rather than replacing — once this write lands the list carries "
-            + "another copy, so Remove by index if it should hold one of each.";
+    /// element is legitimate weighting in a leveled list, so this states what was found, not that it was a mistake.
+    /// <para>The two ways a composed Add duplicates are DIFFERENT facts and get different clauses: the list already
+    /// carried the element before this write, or the batch repeats an element of its own. Folding the second into the
+    /// first would claim a before-state the file never had.</para></summary>
+    static string? ComposedAddNote(string prop, int total, int dup, int repeat)
+    {
+        if (dup == 0 && repeat == 0) return null;
+        var clauses = new List<string>(2);
+        if (dup > 0) clauses.Add($"{Subject(dup)} already in '{prop}'");
+        if (repeat > 0) clauses.Add($"{Subject(repeat)} a repeat of another element in this same op");
+        return "duplicate: " + string.Join(" and ", clauses)
+            + ", and Add appends rather than replacing — once this write lands the list carries another copy, "
+            + "so Remove by index if it should hold one of each.";
+
+        string Subject(int n) =>
+            total == 1 ? "the composed element is"
+            : n == 1 ? $"1 of the {total} composed elements is"
+            : $"{n} of the {total} composed elements are";
+    }
 
     /// <summary>Element count of a (possibly Mutagen <c>ExtendedList&lt;T&gt;</c>) collection WITHOUT assuming the
     /// non-generic <c>ICollection</c> — enumerate, mirroring <see cref="StepIntoElement"/>'s index walk. Used to
