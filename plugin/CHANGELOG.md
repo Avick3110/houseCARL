@@ -61,8 +61,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   none is, beside the existing `has` (every operand bit set). The operand names flag bits — a flag name, a
   comma-separated list of them, or a bit mask (`0xC000`) — never a biped slot number. A `!` before a `references=` entry inverts it —
   `references=["!XXXXXX:A.esm"]` keeps only the records that do NOT reference that target — and plain and negated
-  entries in one call compose by AND. The negated form takes the same bounding `types=`/`plugins=`/`formids=` scope
-  the plain form takes.
+  entries in one call compose by AND. The sigil takes the `@file` spelling the plain entry takes, so
+  `references=["!@C:/work/targets.jsonl"]` excludes every target a list file or result artifact names. The negated
+  form takes the same bounding `types=`/`plugins=`/`formids=` scope the plain form takes.
 - **`housecarl_load_order_status` now names the running server's build in its header** — a `server:` line carrying
   the informational version the binary embeds (the release version `build-plugin.ps1` stamps from `plugin.json`,
   then `+` and the full commit sha: `1.9.5-dev+e942910…`), so checking that the installed houseCARL is the build you expect no longer means

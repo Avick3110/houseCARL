@@ -113,7 +113,8 @@ public static class RecordsTools
          "scan) | references= (reverse, one step — requires a bounding types=/plugins= scope; the reverse-reference " +
          "index that would lift the bound is a known future capability. A '!' before an entry NEGATES it — " +
          "references=[\"!XXXXXX:A.esm\"] keeps only records that do NOT reference that target, and plain and " +
-         "negated entries in one call compose by AND). UNION-ARM tip: when a field is one of " +
+         "negated entries in one call compose by AND; the sigil takes the @file spelling too — " +
+         "references=[\"!@C:/work/targets.jsonl\"] excludes every target the file names). UNION-ARM tip: when a field is one of " +
          "several shapes (an NPC's Configuration.Level is a fixed level OR a PC-level multiplier), a scalar " +
          "predicate on one arm's sub-field doubles as an ARM-PRESENCE test: where=[\"Configuration.Level.LevelMult " +
          ">= 0\"] returns exactly the NPCs on a multiplier. formids= COMPOSES with the scan terms: the identity set " +
@@ -1036,7 +1037,7 @@ public static class RecordsTools
             var refs = references;
             if (refs is { Length: > 0 })
             {
-                var (toks, demand, echoSrc, xerr) = Artifacts.ExpandListInput(refs, "references");
+                var (toks, demand, echoSrc, xerr) = ExpandReferenceList(refs);
                 if (xerr is not null) return Wire.Refuse(json, xerr);
                 refs = toks!; refDemand = demand; refEcho = echoSrc;
             }
@@ -1343,7 +1344,7 @@ public static class RecordsTools
             var refs = references;
             if (refs is { Length: > 0 })
             {
-                var (toks, demand, echoSrc2, xerr) = Artifacts.ExpandListInput(refs, "references");
+                var (toks, demand, echoSrc2, xerr) = ExpandReferenceList(refs);
                 if (xerr is not null) return Wire.Refuse(json, xerr);
                 refs = toks!; refDemand = demand; refEcho = echoSrc2;
             }
@@ -2027,6 +2028,29 @@ public static class RecordsTools
             if (key.Length > 0 && key[0] == '*') return $"[{key}]";
         }
         return null;
+    }
+
+    /// <summary>references= @file expansion with the negation sigil carried across it: '!@&lt;path&gt;' excludes every
+    /// target the file names, so the negated entry spells a list file the same way the positive one does. The sigil
+    /// is stripped before the expander sees it — the expander decides "this is a file" on the first character — and
+    /// put back on each expanded token.</summary>
+    static (string[]? Tokens, HousecarlCore.ArtifactDemand? Demand, string? EchoSource, string? Error)
+        ExpandReferenceList(string[] refs)
+    {
+        var bare = new string[refs.Length];
+        bool anyNegatedFile = false;
+        for (int i = 0; i < refs.Length; i++)
+        {
+            var t = refs[i]?.TrimStart() ?? "";
+            if (t.Length > 1 && t[0] == '!' && t[1..].TrimStart().StartsWith("@", StringComparison.Ordinal))
+            { anyNegatedFile = true; bare[i] = t[1..].TrimStart(); }
+            else bare[i] = refs[i];
+        }
+        if (!anyNegatedFile) return Artifacts.ExpandListInput(refs, "references");
+        var (toks, demand, echo, err) = Artifacts.ExpandListInput(bare, "references");
+        if (err is not null) return (null, null, null, err);
+        // '@file' stands in place of the whole list, so a negated one negates every token it expanded to.
+        return (toks!.Select(t => "!" + t.Trim()).ToArray(), demand, echo is null ? null : "!" + echo, null);
     }
 
     /// <summary>Split references= into the targets a match must link to and the ones it must NOT: a leading '!'
