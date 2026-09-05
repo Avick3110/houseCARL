@@ -135,6 +135,26 @@ static class ParentInHandProbe
         Console.WriteLine("D. is the parent in hand during the FLAT walk? (per child-bearing property, per child type)\n");
         ReportParentInHand(describe);
 
+        // ---- question 3: do the two walks yield the SAME record set? --------------------------------------------
+        // The swap is not scoped to *parent — the winner index, the overrider lists and the whole resolution
+        // surface are built from the context walk now. So this is the load-bearing claim, and it is checked here
+        // over a REAL order rather than asserted in a comment. Untimed, and per plugin, so a difference names the
+        // file it is in. (The fixture-scale arm of the same check is a test: RecordsContainmentTests.)
+        Console.WriteLine("\nE2. does the context walk yield the same record set as the flat walk? (per plugin, as a multiset)\n");
+        var equiv = new EquivalencePass();
+        var q = Sweep(paths, dataDir, equiv, "equivalence");
+        if (q.Opened == 0) { Console.WriteLine("every plugin failed to open, so nothing was compared."); return 1; }
+        Console.WriteLine($"   plugins compared : {q.Opened - q.Skipped:N0}   (excluded: {q.Skipped})");
+        Console.WriteLine($"   records compared : {equiv.Records:N0}");
+        if (equiv.Differences.Count == 0)
+            Console.WriteLine("   identical on every plugin — no record dropped, duplicated or substituted.");
+        else
+        {
+            Console.WriteLine($"   DIFFERENT on {equiv.Differences.Count} plugin(s) — printed in full, never truncated:");
+            foreach (var d2 in equiv.Differences) Console.WriteLine($"     {d2}");
+            return 1;
+        }
+
         return 0;
     }
 
@@ -161,6 +181,31 @@ static class ParentInHandProbe
         {
             foreach (var rec in ov.EnumerateMajorRecords()) { _ = rec.FormKey; }
             foreach (var c in ov.EnumerateMajorRecordContexts()) { _ = c.Record.FormKey; }
+        }
+    }
+
+    /// <summary>Both enumerations over one plugin, compared as MULTISETS of FormKey — so a dropped record, a
+    /// duplicated one and a substituted one are all differences, not just a changed total. Untimed: it holds two
+    /// dictionaries per plugin and would distort the passes above.</summary>
+    sealed class EquivalencePass : IPass
+    {
+        public long Records;
+        public readonly List<string> Differences = new();
+
+        public void Plugin(ISkyrimModGetter ov)
+        {
+            var flat = new Dictionary<FormKey, int>();
+            foreach (var rec in ov.EnumerateMajorRecords()) flat[rec.FormKey] = flat.GetValueOrDefault(rec.FormKey) + 1;
+            var ctx = new Dictionary<FormKey, int>();
+            foreach (var c in ov.EnumerateMajorRecordContexts()) ctx[c.Record.FormKey] = ctx.GetValueOrDefault(c.Record.FormKey) + 1;
+            Records += flat.Values.Sum();
+
+            var onlyFlat = flat.Where(kv => ctx.GetValueOrDefault(kv.Key) != kv.Value).Take(5).ToList();
+            var onlyCtx = ctx.Where(kv => flat.GetValueOrDefault(kv.Key) != kv.Value).Take(5).ToList();
+            if (onlyFlat.Count == 0 && onlyCtx.Count == 0) return;
+            Differences.Add($"{ov.ModKey.FileName}: flat {flat.Values.Sum():N0} / contexts {ctx.Values.Sum():N0}; " +
+                            $"flat-only {string.Join(", ", onlyFlat.Select(kv => $"{kv.Key}x{kv.Value}"))}; " +
+                            $"context-only {string.Join(", ", onlyCtx.Select(kv => $"{kv.Key}x{kv.Value}"))}");
         }
     }
 
