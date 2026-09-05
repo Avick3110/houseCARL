@@ -28,6 +28,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `housecarl_load_order_status` lists them all. `housecarl_check` states the sentence once, at the top of the
   response, so a dialogue-only check — the one family that carries no epoch — says it too; each swept family
   carries the flag and the plugin count beside its own `epoch`, the same fact its text head states.
+- **`housecarl_records` walks the reverse direction to any depth.** `walk={"direction":"reverse","depth":N}`
+  under a reading form now answers "what points at the seeds, and what points at that" — every link at every
+  hop, off the reverse-reference index, with no bounding `types=`/`plugins=` scope; the depth>1 refusal is gone.
+  The response names the count reached at each hop, empty hops included, and says which hops it did not need to
+  walk, so a walk that ran out of referrers reads as exhausted rather than as a silent stop. The index's own
+  accounting — the one-time build cost, its per-plugin freshness key, and any plugin the walk could not read —
+  rides this lane exactly as it rides `references=`. `form='chain'` still selects the typed MGEF carrier lane
+  (per-carrier magnitude/area/duration); it follows the effect link at every hop, so it reaches nothing past
+  hop 1 and now says the empty hops instead of answering a deeper call with a depth-1 answer.
 
 - **`housecarl_asset_status` and `housecarl_place` take `format='json'`.** Both answered text only, so a caller
   reading them from a script parsed prose. The json document carries the same data as the text render: for
