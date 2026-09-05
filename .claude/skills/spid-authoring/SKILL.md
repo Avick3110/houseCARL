@@ -120,6 +120,27 @@ SPID documentation.
   one of them (text → String, form → Form, level/skill → Level, trait → Trait). Look it up in
   `filters.md` rather than assuming a filter exists.
 
+## Verifying a distribution actually happened
+
+A parsed `_DISTR.ini` and a clean SPID log are **not** proof that an NPC got the thing. The log shows
+what SPID looked up; only a live actor shows what SPID applied.
+
+- **SPID does not distribute to the player.** Every distribution path is gated on a check that
+  excludes the player, so asserting on `Game.GetPlayer()` reports failure for a rule that is working
+  perfectly — sample NPCs instead (`references/grammar-core.md` §3).
+- **A newly added rule reaches old saves, but not mid-session.** SPID redistributes from scratch each
+  launch, so actors in a pre-existing save do get a rule added afterwards. What bites is that the INIs
+  are read **once per game launch**: a rule added while the game is running needs a restart, and the
+  actor has to load in that new session for the lazy per-actor distribution to run.
+- **A dynamic keyword IS reachable.** A keyword SPID creates at runtime has no plugin FormID — nothing
+  in xEdit to point at — but it is in the game's keyword array, so `Keyword.GetKeyword("<name>")` finds
+  it by name, which is what makes a no-ESP keyword distribution verifiable from script at all. For the
+  signature, look it up in the `papyrus-reference` skill (`references/skse/Keyword.md`); the SPID side
+  is in `references/form-types.md`.
+- **Sample somewhere NPCs must be** — testing practice, not a SPID rule. An interior cell with known
+  occupants beats an exterior spawn marker: finding no NPC within scan range there is inconclusive
+  rather than a failing distribution.
+
 ## Notes
 
 - **Provenance.** The `references/` corpus is reconstructed from "SPID: The Complete Reference"
