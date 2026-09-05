@@ -4335,15 +4335,21 @@ public sealed class LoadOrderService : IDisposable
 
         foreach (var step in predicate.QuantifiedSteps)
         {
+            // A '->' right side is rooted at the link TARGET's type, not the scanned one, so the scanned type's
+            // schema has no say on it — the runtime accounting is that side's backstop.
+            if (!step.OnScannedType) continue;
             var whatItIs = new List<string>();
+            bool unanswered = false;
             foreach (var ts in schemas)
             {
                 var card = Rulebook.StepCardinality(ts, step.Path, step.Index);
-                if (card is null) return null;              // the schema cannot say — the runtime accounting answers
+                // The schema cannot say for this type, so this STEP goes to the runtime accounting — the other
+                // steps of the same call are still checkable and must not be silenced with it.
+                if (card is null) { unanswered = true; break; }
                 if (card == "list") { whatItIs.Clear(); break; }
                 whatItIs.Add($"a {card} on {ts.Name}");
             }
-            if (whatItIs.Count == 0) continue;
+            if (unanswered || whatItIs.Count == 0) continue;
             return $"predicate '{step.Text}': '{step.Path[step.Index]}{step.Token}' quantifies a step that is not a list — " +
                    $"it is {string.Join(", ", whatItIs.Take(3))}{(whatItIs.Count > 3 ? $", and {whatItIs.Count - 3} more" : "")}. " +
                    "Drop the quantifier, or point it at a list-valued field.";
