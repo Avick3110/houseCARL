@@ -40,7 +40,7 @@ the per-record files.
 | Distributable form types | **10 / 10** (`form-types.md`) |
 | Filter sections | **4 / 4** (`filters.md`) |
 | Flat enums | skill indices, trait letters, package-list types, form signatures, distribution order, defaults (`value-tables.md`) |
-| **Gaps** | **The article does not cover verification behaviour.** Four details a user hits when checking whether a rule landed — player exclusion, the once-per-launch config read, the dynamic keyword's missing plugin FormID, and its reachability by name — are absent from article 6617 and were resolved from source (marked **[source]**; see Confidence). Two other article-*silent* details (comment syntax, whitespace tolerance) came from source the same way. Expect further gaps outside the article's grammar scope. |
+| **Gaps** | **The article does not cover verification behaviour.** Five details a user hits when checking whether a rule landed — player exclusion, the once-per-launch config read, the runtime `SPID_Processed` marker, the dynamic keyword's missing plugin FormID, and its reachability by name — are absent from article 6617 and were resolved from source (marked **[source]**; see Confidence). Two other article-*silent* details (comment syntax, whitespace tolerance) came from source the same way. Expect further gaps outside the article's grammar scope. |
 
 ## Confidence
 
@@ -61,6 +61,10 @@ the per-record files.
     article.
   - **Configs are read once per game launch** (`main.cpp`, `kPostLoad`/`kDataLoaded`), so a rule added
     mid-session needs a restart. Not in the article.
+  - **The "already handled this NPC" marker is a runtime keyword, not a persisted one** — `Setup()` in
+    `DistributeManager.cpp` creates `SPID_Processed` via `IFormFactory` each launch (declared in
+    `DistributeManager.h`), and `distribute_on_load` skips an NPC that already carries it. The
+    article states the from-scratch-per-launch behaviour; the mechanism behind it is source-only.
   - **A dynamically created keyword has no plugin FormID but is pushed into the game's keyword array**
     (`FormData.h`, `kCreateIfMissing`). The other half — that SKSE's `Keyword.GetKeyword` resolves a
     name against that same array — is read from SKSE's own source (`ianpatt/skse64`,
@@ -79,11 +83,17 @@ the per-record files.
 only — no code vendored. Files consulted (all `SPID/src/`): `LookupConfigs.cpp` (`sanitize()`, parser
 chain), `LookupConfigs.h` (`TraitsFilterComponentParser`, `ChanceComponentParser`,
 `LevelFiltersComponentParser`), `Defs.h` (`Traits` struct), `DistributeManager.cpp`
-(`detail::should_process_NPC`, the load hooks), `FormData.h` (`kCreateIfMissing`), `main.cpp`
-(config read and lookup timing). The verification-behaviour files were read at commit
-`6e66908` (`master`, 2026-09-02); the earlier parsing files at `master` as of 2026-06-02. MIT (unlike
-SkyPatcher's unlicensed repo) would permit vendoring, but the corpus documents grammar, it doesn't
-embed source.
+(`detail::should_process_NPC`, `Setup()`, the load hooks), `DistributeManager.h` (the `processed`
+keyword declaration), `DistributePCLevelMult.cpp` and `DeathDistribution.cpp` (the remaining
+`Distribute()` call sites and their guards), `Distribute.cpp` (the call-site inventory),
+`FormData.h` (`kCreateIfMissing`), `main.cpp` (config read and lookup timing). The
+verification-behaviour files were read at commit `6e66908` (`master`, 2026-09-02); the earlier parsing
+files at `master` as of 2026-06-02. MIT (unlike SkyPatcher's unlicensed repo) would permit vendoring,
+but the corpus documents grammar, it doesn't embed source.
+
+One fact reaches outside SPID's repo: **SKSE** (`ianpatt/skse64`, `master` `4cd2e34`, read 2026-09-05)
+— `skse64/PapyrusKeyword.cpp`, for how `Keyword.GetKeyword` resolves a name. Cited in `form-types.md`
+so the by-name-reachability claim does not span an unread seam.
 
 ## Structure
 
