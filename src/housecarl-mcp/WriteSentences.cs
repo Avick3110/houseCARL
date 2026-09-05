@@ -557,48 +557,14 @@ internal static class WriteSentences
       + "on-disk path, which already names one exact copy — drop source_provider=, or pass source= the Data-relative path.";
 
     // ---- the into=-extend refusals -------------------------------------------------------------------
-    /// <summary>The other reading of an <c>into=</c> that lands on a mod folder houseCARL does not own: the caller
-    /// may have meant that mod's own plugin, which is the consent-gated in-place lane. Shared by the write tools that
-    /// spell that lane the same way (<c>housecarl_apply</c>, <c>housecarl_create</c>, <c>housecarl_forward</c>);
-    /// removal has its own wording. It does not spell out the first-touch confirmation, which the in-place lane
-    /// prompts for on its own. Completed by <see cref="InPlaceLane"/> with the filename to pass.</summary>
-    [MustState("pass in_place=")]
-    internal const string ExtendInPlaceLane =
-        "To write into an existing plugin IN PLACE instead, pass in_place=";
-
-    /// <summary>Removal's own half of that refusal: why no create remedy is offered here. It states the RULE and
-    /// stops rather than predicting what a patch created next would contain — an apply into that patch first would
-    /// make a later removal succeed, so any such prediction is falsifiable in two calls.</summary>
+    /// <summary>Removal's clause in those refusals: why no create remedy is offered on this lane. It states the RULE
+    /// and stops rather than predicting what a patch created next would contain — an apply into that patch first
+    /// would make a later removal succeed, so any such prediction is falsifiable in two calls. A clause, not a
+    /// sentence: the refusals it rides are one sentence each.</summary>
     [MustState("will not create a patch here", "only drops a record the patch ITSELF already carries")]
     internal const string RemoveNoFreshPatch =
-        "houseCARL will not create a patch here: a removal only drops a record the patch ITSELF already carries.";
+        "houseCARL will not create a patch here, since a removal only drops a record the patch ITSELF already carries";
 
-    /// <summary>The other lane a removal has, in the spelling <c>housecarl_remove</c> declares. It does not spell out
-    /// the first-touch confirmation and must not be read as promising one: that consent is persisted, survives the
-    /// session, and is shared across the edit / create / remove in-place lanes, so a caller who acknowledged this
-    /// plugin in any lane gets no prompt. The sentence lives on the TOOL because the service cannot tell which
-    /// caller's parameter spelling to name. Completed by <see cref="InPlaceLane"/> with the filename to pass.</summary>
-    [MustState("pass in_place=")]
-    internal const string RemoveInPlaceLane =
-        "To remove from an existing plugin IN PLACE instead, pass in_place=";
-
-    /// <summary>The completion when no plugin can be named — the refusal knows the lane but not the file.</summary>
-    [NoClaims("a completion fragment; the claim lives in the lane sentence it finishes")]
-    internal const string InPlaceAnyFilename = "\"<plugin filename>\".";
-
-    /// <summary>One lane sentence, finished. <paramref name="plugins"/> are the plugins the in-place lane could
-    /// actually take here — a plugin must be in the ACTIVE load order for in_place= to resolve it — so an empty set
-    /// means the lane is unavailable and the sentence is not offered at all. Capped like the owned-patch list beside
-    /// it: a compilation folder shipping dozens of active plugins would otherwise end the refusal with dozens of
-    /// quoted filenames, and the count says how many were cut.</summary>
-    internal static string InPlaceLane(string lane, IReadOnlyList<string> plugins)
-    {
-        const int cap = 4;
-        if (plugins.Count == 0) return "";
-        var shown = plugins.Take(cap).Select(p => $"\"{p}\"");
-        var rest = plugins.Count - cap;
-        return lane + string.Join(" or ", shown) + (rest > 0 ? $" or one of {rest} others in that folder" : "") + ".";
-    }
 
     /// <summary>Sentences the SAME outcome must carry on BOTH transports. Members are whole invariant strings on
     /// purpose: a sentence interpolating a cap or a filename cannot be compared verbatim across lanes, so
