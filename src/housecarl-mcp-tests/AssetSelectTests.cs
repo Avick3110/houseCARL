@@ -172,11 +172,27 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         var text = AssetWire.Render(page, 80_000);
         // skipped= is what offset stepped over, capped= what limit left behind: two different causes, counted apart.
         Assert.Contains("[accounting] total=5 rendered=2 skipped=1 capped=2 truncated=0 offset=1 remaining=2", text);
-        Assert.Contains("offset=3 for the next page", text);
+        Assert.Contains("limit=2 offset=3 for the next page", text);
 
         // The pages tile the selection: page 2 continues where page 1 stopped.
         var whole = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir });
         Assert.Equal(Paths(whole).Skip(1).Take(2), Paths(page));
+    }
+
+    /// <summary>The next-page advice names limit= as well as offset=. Without it a caller following the line calls
+    /// back with limit=0 and resolves the whole remainder on every page — the paging is only cheap if the advice
+    /// keeps it paged.</summary>
+    [Fact]
+    public void TheNextPageAdviceCarriesTheLimitSoFollowingItStaysPaged()
+    {
+        var paged = AssetWire.Render(
+            _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir }, limit: 2), 80_000);
+        Assert.Contains("re-call with limit=2 offset=2 for the next page", paged);
+
+        // No limit passed: the advice still names one, so the follow-up call is a page and not the whole remainder.
+        var unlimited = AssetWire.Render(
+            _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir }), 500);
+        Assert.Matches(@"re-call with limit=[1-9]\d* offset=\d+ for the next page", unlimited);
     }
 
     /// <summary>The secondary half of #246: a render cut by max_chars is counted in the structured accounting line,
@@ -246,7 +262,7 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
                 _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir }, limit: 3, offset: offset), 500);
             foreach (var p in all) if (text.Contains(p, StringComparison.Ordinal)) seen[p]++;
 
-            var next = System.Text.RegularExpressions.Regex.Match(text, @"re-call with offset=(\d+)");
+            var next = System.Text.RegularExpressions.Regex.Match(text, @"re-call with limit=\d+ offset=(\d+)");
             if (!next.Success) break;
             var advanced = int.Parse(next.Groups[1].Value);
             Assert.True(advanced > offset, $"the advice must move forward, got offset={advanced} from offset={offset}");

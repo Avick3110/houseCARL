@@ -109,7 +109,12 @@ static class AssetWire
     /// measures go through ONE composer — a second formatter would be a second spelling, and the reserve would stop
     /// bounding what is written.</summary>
     readonly record struct Counts(int Total, int Rendered, int Skipped, int Capped, int Truncated, int Offset,
-                                  int Remaining, int Notes);
+                                  int Remaining, int Notes, int NextLimit);
+
+    /// <summary>The window the next-page advice names when the caller passed none. Without a limit= in the advice a
+    /// caller following it calls back with limit=0, which resolves the WHOLE remainder on every page — the paging is
+    /// only cheap if the advice keeps it paged.</summary>
+    internal const int DefaultPageLimit = 200;
 
     /// <summary>What this response actually did. The four omissions have four distinct causes and each is counted
     /// once, so <c>skipped + rendered + truncated + capped == total</c>: <c>skipped</c> is what offset= stepped over
@@ -125,7 +130,8 @@ static class AssetWire
         Truncated: Math.Max(d.Results.Count - rendered, 0),
         Offset: d.Offset,
         Remaining: Math.Max(d.Selected - (d.Offset + rendered), 0),
-        Notes: d.SelectorNotes?.Count ?? 0);
+        Notes: d.SelectorNotes?.Count ?? 0,
+        NextLimit: d.Limit > 0 ? d.Limit : DefaultPageLimit);
 
     /// <summary>The chars held back from max_chars so the accounting block is always affordable — measured by
     /// composing the WIDEST line this response could write, so no rendering of it can outgrow its own room.</summary>
@@ -138,7 +144,7 @@ static class AssetWire
     {
         int most = Math.Max(d.Selected, d.Results.Count);
         return new Counts(most, d.Results.Count, most, most, d.Results.Count, d.Offset, most,
-                          d.SelectorNotes?.Count ?? 0);
+                          d.SelectorNotes?.Count ?? 0, Math.Max(d.Limit, DefaultPageLimit));
     }
 
     /// <summary>The one machine-readable accounting line, always last: how many paths the selection named, how many
@@ -156,10 +162,11 @@ static class AssetWire
             .Append(" remaining=").Append(c.Remaining)
             .Append(" notes=").Append(c.Notes);
         // Only what is still AHEAD of what was rendered earns a next page, and the next offset starts at the first
-        // path this response did not show — so a caller following the advice sees every path exactly once.
+        // path this response did not show — so a caller following the advice sees every path exactly once. The advice
+        // carries limit= as well: without it the next call resolves the whole remainder instead of one page.
         if (everySentence || c.Remaining > 0)
-            sb.Append("\nthe selection is longer than this window: re-call with offset=")
-              .Append(c.Offset + c.Rendered).Append(" for the next page.");
+            sb.Append("\nthe selection is longer than this window: re-call with limit=").Append(c.NextLimit)
+              .Append(" offset=").Append(c.Offset + c.Rendered).Append(" for the next page.");
         // An offset past the end would otherwise be told to re-call at the offset it already used.
         if (everySentence || (c.Remaining == 0 && c.Total > 0 && c.Offset >= c.Total))
             sb.Append("\noffset=").Append(c.Offset).Append(" is past the end of the selection (")
