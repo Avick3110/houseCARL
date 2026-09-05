@@ -1,6 +1,7 @@
 using System.Globalization;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
+using Fold = HousecarlCore.PathFold;   // the fold vocabulary is shared with project.fields — one word list, one meaning
 
 namespace HousecarlCore;
 
@@ -71,12 +72,6 @@ public sealed class FieldPredicateSet
     /// <c>@&lt;absolute path&gt;</c> naming a file of them. Restricted to <c>formid</c> at parse (a named refusal on any
     /// other path) so a future generalization to leaf-value membership is an extension, not a behavior change.</summary>
     enum Op { Eq, Ne, Gt, Ge, Lt, Le, Contains, StartsWith, Has, HasAny, HasNone, Exists, Missing, In, NotIn }
-
-    /// <summary>A path step's declared multiplicity and fold. <see cref="None"/> is an ordinary step;
-    /// <see cref="Set"/> is the bare <c>[*]</c> (the element set — a PROJECT reading, refused in a predicate);
-    /// <see cref="Any"/>/<see cref="All"/>/<see cref="NoneOf"/> fold the elements into a boolean and
-    /// <see cref="Count"/> into their number.</summary>
-    enum Fold { None, Set, Any, All, NoneOf, Count }
 
     /// <summary>One parsed predicate: the split path segments (fed straight to <see cref="ReadEngine.ReadLeaf"/>),
     /// the operator, the raw operand, and — for a numeric operator — the operand pre-parsed to a double (validated
@@ -489,19 +484,10 @@ public sealed class FieldPredicateSet
         for (int i = 0; i < segs.Length; i++)
         {
             var s = segs[i];
-            int open = s.IndexOf('[');
-            if (open < 0 || !s.EndsWith("]", StringComparison.Ordinal)) continue;
-            var key = s[(open + 1)..^1];
-            if (key.Length == 0 || key[0] != '*') continue;
-            if (open == 0)
+            var (bare, f, key) = PathFoldGrammar.Read(s);
+            if (key is null) continue;
+            if (bare.Length == 0)
                 return (segs, null, $"predicate '{raw}': '{s}' has no field name before '[' — a quantifier binds to a list field, e.g. 'Conditions{s}'.");
-            var word = key[1..];
-            var f = word.Length == 0 ? Fold.Set
-                  : word.Equals("any", StringComparison.OrdinalIgnoreCase) ? Fold.Any
-                  : word.Equals("all", StringComparison.OrdinalIgnoreCase) ? Fold.All
-                  : word.Equals("none", StringComparison.OrdinalIgnoreCase) ? Fold.NoneOf
-                  : word.Equals("count", StringComparison.OrdinalIgnoreCase) ? Fold.Count
-                  : Fold.None;
             if (f == Fold.None)
                 return (segs, null, $"predicate '{raw}': '[{key}]' is not a quantifier — the tokens are [*any], [*all], [*none] and [*count].");
             if (f == Fold.Set)
@@ -512,7 +498,7 @@ public sealed class FieldPredicateSet
                 return (segs, null, $"predicate '{raw}': nothing can follow '[*count]' — it yields how MANY elements there are, not an element to step into.");
             if (folds is null) { folds = new Fold[segs.Length]; outSegs = (string[])segs.Clone(); }
             folds[i] = f;
-            outSegs[i] = s[..open];
+            outSegs[i] = bare;
         }
         return (outSegs, folds, null);
     }
@@ -529,10 +515,7 @@ public sealed class FieldPredicateSet
     }
 
     /// <summary>The token a fold is spelled with, for a message.</summary>
-    static string FoldToken(Fold f) => f switch
-    {
-        Fold.Set => "[*]", Fold.Any => "[*any]", Fold.All => "[*all]", Fold.NoneOf => "[*none]", Fold.Count => "[*count]", _ => "",
-    };
+    static string FoldToken(Fold f) => PathFoldGrammar.Token(f);
 
     /// <summary>Parse a generalized (non-formid) membership list: same separators/wrapping as the formid grammar,
     /// but entries are arbitrary VALUE tokens (enum names, numbers, FormKeys) — validated only for non-emptiness.
