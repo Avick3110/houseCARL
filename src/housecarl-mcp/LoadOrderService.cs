@@ -1833,7 +1833,8 @@ public sealed class LoadOrderService : IDisposable
     /// included — never a bool.
     /// <para>An INACTIVE plugin gets an answer too: the resolver indexes only the active order, so its path comes from
     /// the same on-disk locate every other lane uses. Reading an inactive plugin is a surface houseCARL advertises, and
-    /// a plugin answer with the localized half silently missing is the worse outcome.</para></summary>
+    /// a plugin answer with the localized half silently missing is the worse outcome. A name several mod folders
+    /// provide is answered from the copy MO2 priority serves, not called unreadable.</para></summary>
     public LocalizedFlagRead? PluginLocalizedFlag(string pluginName)
     {
         LoadOrderResolver.IndexView view;
@@ -1853,9 +1854,15 @@ public sealed class LoadOrderService : IDisposable
                         || comp.ImplicitPluginNames.Any(n => n.Equals(pluginName, StringComparison.OrdinalIgnoreCase));
         if (!isPlugin) return null;
         var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, pluginName, null, offerModParam: false);
-        // Listed as a plugin but no single file behind the name (missing, or several folders provide it): the flag is
-        // not established, which is exactly what the third value says.
-        return loc.Path is null ? LocalizedFlagRead.Unreadable : WriteEngine.PluginIsLocalized(loc.Path);
+        if (loc.Path is { } path) return WriteEngine.PluginIsLocalized(path);
+        // Several folders provide the name: every copy is readable and MO2 priority already decides which one serves,
+        // so the served copy answers — the same rule the locate itself judges 'serves' by. UNKNOWN here would claim a
+        // header read failed when none was attempted.
+        if (loc.Ambiguous is { Count: > 0 } hits && hits.FirstOrDefault(h => h.Enabled) is { } served)
+            return WriteEngine.PluginIsLocalized(served.Path);
+        // Listed as a plugin, and no file behind the name serves it: the flag is not established, which is what the
+        // third value says.
+        return LocalizedFlagRead.Unreadable;
     }
 
     /// <summary>Read MO2's OWN local Nexus update cache — the modid / version / newestVersion / ignoredVersion /

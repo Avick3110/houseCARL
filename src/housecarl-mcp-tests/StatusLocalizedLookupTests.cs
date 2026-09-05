@@ -52,6 +52,17 @@ public sealed class StatusLocalizedLookupTests : IClassFixture<StatusLocalizedWo
         Assert.Contains("no (header flag clear)", text);
     }
 
+    /// <summary>Several mod folders provide the name: every copy is readable and MO2 priority decides which one
+    /// serves, so the served copy's flag is the answer — never UNKNOWN, which would claim a read that failed.</summary>
+    [Fact]
+    public void APluginSeveralModFoldersProvideAnswersFromTheServedCopy()
+    {
+        var text = Lookup(StatusLocalizedWorld.Duplicated);
+
+        Assert.Contains("YES (header flag set)", text);
+        Assert.DoesNotContain("could not read this plugin's header", text);
+    }
+
     /// <summary>A plugin whose header will not parse asserts neither answer — the third value, not a quiet "no".</summary>
     [Fact]
     public void AnUnreadableHeaderIsReportedAsUnknown()
@@ -63,9 +74,10 @@ public sealed class StatusLocalizedLookupTests : IClassFixture<StatusLocalizedWo
     }
 }
 
-/// <summary>A synthetic MO2 instance with one plugin flagged LOCALIZED in its header, one not, one unticked, and one
-/// unticked file that is not a plugin at all. The flag is stamped onto the written file's TES4 header rather than set
-/// through Mutagen, so the fixture needs no string tables.</summary>
+/// <summary>A synthetic MO2 instance with one plugin flagged LOCALIZED in its header, one not, one unticked, one
+/// unticked file that is not a plugin at all, and one unticked name two enabled mod folders provide. The flag is
+/// stamped onto the written file's TES4 header rather than set through Mutagen, so the fixture needs no string
+/// tables.</summary>
 public sealed class StatusLocalizedWorld : IDisposable
 {
     public string Root { get; }
@@ -76,6 +88,7 @@ public sealed class StatusLocalizedWorld : IDisposable
     public const string Plain = "HcLocPlain.esp";
     public const string Inactive = "HcLocOff.esp";        // in loadorder.txt, unticked in plugins.txt
     public const string Unreadable = "HcLocJunk.esp";     // unticked too, and not a plugin file at all
+    public const string Duplicated = "HcLocDup.esp";      // unticked, and provided by two enabled mod folders
 
     /// <summary>The LOCALIZED bit in the TES4 record's flags field, which starts at byte 8 of a plugin file.</summary>
     const byte LocalizedBit = 0x80;
@@ -101,16 +114,27 @@ public sealed class StatusLocalizedWorld : IDisposable
         Directory.CreateDirectory(Path.Combine(mods, "JunkMod"));
         File.WriteAllText(Path.Combine(mods, "JunkMod", Unreadable), "not a plugin");
 
-        var bytes = File.ReadAllBytes(locPath);
-        bytes[HeaderFlagsOffset] |= LocalizedBit;
-        File.WriteAllBytes(locPath, bytes);
+        // The same filename from two enabled mod folders. The higher-priority copy is the localized one, so an answer
+        // read from the loser would say the opposite of the served copy's.
+        var dupKey = new ModKey("HcLocDup", ModType.Plugin);
+        var dupWin = Write(mods, "DupWinMod", dupKey);
+        Write(mods, "DupLoseMod", dupKey);
+
+        foreach (var p in new[] { locPath, dupWin })
+        {
+            var b = File.ReadAllBytes(p);
+            b[HeaderFlagsOffset] |= LocalizedBit;
+            File.WriteAllBytes(p, b);
+        }
 
         var active = new[] { Localized, Plain };
+        var off = new[] { Inactive, Unreadable, Duplicated };
         File.WriteAllText(Path.Combine(profile, "loadorder.txt"),
-            "# header\r\n" + string.Join("\r\n", active.Concat(new[] { Inactive, Unreadable })) + "\r\n");
+            "# header\r\n" + string.Join("\r\n", active.Concat(off)) + "\r\n");
         File.WriteAllText(Path.Combine(profile, "plugins.txt"),
-            string.Join("\r\n", active.Select(p => "*" + p).Concat(new[] { Inactive, Unreadable })) + "\r\n");
-        File.WriteAllText(Path.Combine(profile, "modlist.txt"), "# header\r\n+JunkMod\r\n+OffMod\r\n+PlainMod\r\n+LocMod\r\n");
+            string.Join("\r\n", active.Select(p => "*" + p).Concat(off)) + "\r\n");
+        File.WriteAllText(Path.Combine(profile, "modlist.txt"),
+            "# header\r\n+DupWinMod\r\n+DupLoseMod\r\n+JunkMod\r\n+OffMod\r\n+PlainMod\r\n+LocMod\r\n");
 
         var store = new UserConfigStore(Path.Combine(Root, "houseCARL.user.json"));
         Svc = LoadOrderService.WithInstance(instance, 0, store);
