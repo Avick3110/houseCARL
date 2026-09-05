@@ -76,7 +76,7 @@ static class BatchRender
     }
 
     /// <summary>A capped bullet list inside an alarm block, cut with the same named marker.</summary>
-    static void AppendLines(StringBuilder sb, IReadOnlyList<string> lines, string itemNoun, int cap)
+    public static void AppendLines(StringBuilder sb, IReadOnlyList<string> lines, string itemNoun, int cap)
     {
         int shown = 0;
         foreach (var line in lines)
