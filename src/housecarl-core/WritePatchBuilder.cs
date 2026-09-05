@@ -1208,8 +1208,10 @@ public static class WritePatchBuilder
     /// override of it is dropped, so the load-order winner reverts by absence.
     ///
     /// <para>ONE call shape serves flat AND nested groups: Mutagen's <c>Remove(FormKey, Type, throwIfUnknown)</c>
-    /// reaches every group (incl. the nested Cell/Placed*/INFO/Navmesh/Landscape families) — no flat-vs-nested fork,
-    /// no parent-chain reconstruction. The bare <c>Remove(FormKey)</c> is [Obsolete]; use the typed overload.
+    /// reaches every group (incl. the nested Cell/Placed*/INFO families) — no flat-vs-nested fork, no parent-chain
+    /// reconstruction. It does NOT reach a SINGULAR owned child (a cell's Landscape, a worldspace's TopCell), which
+    /// is in no group at all and is detached from its parent slot instead — <see cref="DetachOwnedChildren"/>.
+    /// The bare <c>Remove(FormKey)</c> is [Obsolete]; use the typed overload.
     /// Clean-masters rides along for free: the serialize re-derives the header from the SURVIVING records' links, so a
     /// master orphaned by the removal drops automatically.</para>
     ///
@@ -1280,7 +1282,8 @@ public static class WritePatchBuilder
 
         // Literal drop-from-group (NOT flag-as-deleted). The typed overload Remove(FormKey, Type, throwIfUnknown) is
         // Mutagen's blessed path (the bare Remove(FormKey) is [Obsolete]) and reaches NESTED records
-        // (Cell/Placed*/INFO/Navmesh/Landscape) too, not just flat groups — so ONE call shape serves every record type.
+        // (Cell/Placed*/INFO) too, not just flat groups. A SINGULAR owned child is in no group and is not reached
+        // here (measured) — DetachOwnedChildren below is what drops one.
         // The runtime type captured in the present-check routes it straight to the right group; throwIfUnknown:true
         // keeps an unrecognized type loud, never a silent no-op. A throw here AFTER the present-check passed is a real
         // engine inconsistency — surfaced.
@@ -1328,12 +1331,6 @@ public static class WritePatchBuilder
         return new RemovalOutcome(true, null, outPath, toRemove, masters, remaining, bytes);
     }
 
-    /// <summary>IN-MEMORY absence verify run BEFORE any serialize, shared by both remove lanes: Mutagen's typed
-    /// <c>Remove</c> can no-op WITHOUT throwing, <c>throwIfUnknown:true</c> notwithstanding (a concrete subclass of an
-    /// abstract group's T does it), so trusting the void return and serializing anyway rewrites the whole file to no
-    /// effect and only the post-write verify catches it. Checking the mutable mod first keeps a no-op loud with the
-    /// file UNTOUCHED. Null ⇒ all targets gone; else the refusal text (the caller appends its lane's file-untouched
-    /// suffix).</summary>
     /// <summary>Drop the targets the typed <c>Remove</c> could not reach, by DETACHING them from the parent slot
     /// that holds them. Shared by both remove lanes, run between the typed remove and the survivor check.
     ///
@@ -1344,21 +1341,40 @@ public static class WritePatchBuilder
     ///
     /// <para>Run over the SURVIVORS rather than over every target, so the typed remove stays the one path for
     /// everything it does handle and this reaches only what it left behind. Null ⇒ nothing left to do, or it was
-    /// done; else the refusal, with the file still untouched.</para></summary>
+    /// done; else the refusal, with the file still untouched.</para>
+    ///
+    /// <para>A detached child takes everything under it, so a child that still carries records the caller did NOT
+    /// name is refused rather than dropped: the removal report accounts for the records the caller named, and
+    /// deleting more than that is the very hazard the field-lane refusal cites when it sends the caller here. Name
+    /// them in the same call and every one of them is reported.</para></summary>
     static string? DetachOwnedChildren(SkyrimMod mod, IReadOnlyList<RemovedRecord> toRemove)
     {
-        var stillHere = new HashSet<FormKey>(toRemove.Select(rr => rr.Target));
+        var named = new HashSet<FormKey>(toRemove.Select(rr => rr.Target));
+        var stillHere = new HashSet<FormKey>(named);
         stillHere.IntersectWith(mod.EnumerateMajorRecords().Select(r => r.FormKey));
         foreach (var fk in stillHere)
         {
             // Not found in a slot is NOT an error here: it means this survivor is something else, and the survivor
             // check below is the one that refuses for it. Reporting it here would name the wrong cause.
             if (!OwnedChildLifecycle.TryFindSlot(mod, fk, out var slot)) continue;
+            var unnamed = OwnedChildLifecycle.DescendantsOf(slot.Child).Where(d => !named.Contains(d.FormKey)).ToList();
+            if (unnamed.Count > 0)
+                return $"removing {fk} means detaching it from '{slot.Describe()}', which takes the "
+                     + $"{unnamed.Count} record(s) under it with it — and you named none of them: "
+                     + string.Join(", ", unnamed.Take(5).Select(d => $"{d.FormKey}{(d.EditorID is { } e ? $" ({e})" : "")}"))
+                     + (unnamed.Count > 5 ? $", and {unnamed.Count - 5} more" : "")
+                     + ". Name them in the same call so the removal reports every record it drops, or leave this one.";
             if (OwnedChildLifecycle.Detach(slot) is { } err) return err;
         }
         return null;
     }
 
+    /// <summary>IN-MEMORY absence verify run BEFORE any serialize, shared by both remove lanes: Mutagen's typed
+    /// <c>Remove</c> can no-op WITHOUT throwing, <c>throwIfUnknown:true</c> notwithstanding (a concrete subclass of an
+    /// abstract group's T does it), so trusting the void return and serializing anyway rewrites the whole file to no
+    /// effect and only the post-write verify catches it. Checking the mutable mod first keeps a no-op loud with the
+    /// file UNTOUCHED. Null ⇒ all targets gone; else the refusal text (the caller appends its lane's file-untouched
+    /// suffix).</summary>
     static string? RemoveSurvivors(SkyrimMod mod, IReadOnlyList<RemovedRecord> toRemove)
     {
         var mustBeGone = toRemove.Select(rr => rr.Target).ToHashSet();
@@ -1470,7 +1486,8 @@ public static class WritePatchBuilder
                 + string.Join("\n  - ", problems));
 
         // --- Phase 4: literal drop-from-group (NOT flag-as-deleted), the typed overload that reaches nested groups
-        //     (Cell/Placed*/INFO/Navmesh/Landscape) too. throwIfUnknown:true keeps an unrecognized type loud. A throw
+        //     (Cell/Placed*/INFO) too — but not a singular owned child, which DetachOwnedChildren below drops by
+        //     clearing its parent's slot. throwIfUnknown:true keeps an unrecognized type loud. A throw
         //     AFTER the present-check passed is a real engine inconsistency — surfaced, not swallowed. ---
         try
         {
