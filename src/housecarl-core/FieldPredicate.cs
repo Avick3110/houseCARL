@@ -136,6 +136,13 @@ public sealed class FieldPredicateSet
     // paths (Perks, Effects, Keywords) is hundreds-to-low-thousands of record getters, small beside the scan
     // itself. A pathological whole-order high-fan-out path is bounded by the scope the grammar already requires
     // (types= / plugins=).
+    //
+    // The '*parent' hop shares this cache and does NOT share that bound, which is stated here rather than left
+    // for a reader to infer: types= bounds the CHILD type, not the parent population, so
+    // types=["PlacedObject"] where=["*parent.EditorID startswith Whiterun"] retains one getter per distinct CELL —
+    // five figures on vanilla Skyrim before any mod — and a '*parent.*parent' chain adds every worldspace on top.
+    // Still one call's lifetime and still bodies the scan would have fetched anyway, so it is retention, not
+    // repeated work; the declared cost of the step, not a hidden one.
     readonly Dictionary<FormKey, IMajorRecordGetter?> _targetCache = new();
 
     /// <summary>Whether any predicate needs the scan's resolution context (<c>winner</c> term or a <c>-&gt;</c>
@@ -154,11 +161,18 @@ public sealed class FieldPredicateSet
 
     static int Hops(Predicate p) => p.ParentHops + p.LinkParentHops;
 
-    /// <summary>Whether any predicate reads record BODY content (a leaf walk or a link step) — false when every
-    /// term is header/resolution-only (`editorid`, `winner`, `formid` membership). The scan's deleted-record check
-    /// keys on this: a deleted record has no live body for the CONTENT filters, but its EditorID and its winner
-    /// resolution are real facts, so a header-only predicate set must still see it.</summary>
-    public bool NeedsLiveBody => _predicates.Any(p => p.LinkPath is not null || p.Pseudo == PseudoPath.None || Hops(p) > 0);
+    /// <summary>Whether any predicate reads the CANDIDATE record's own body content (a leaf walk or a link step on
+    /// it) — false when every term is header/resolution-only (`editorid`, `winner`, `formid` membership). The
+    /// scan's deleted-record check keys on this: a deleted record has no live body for the CONTENT filters, but its
+    /// EditorID and its winner resolution are real facts, so a header-only predicate set must still see it.
+    ///
+    /// <para>A <c>*parent</c> hop is header-only for the CHILD: it reads <c>body.FormKey</c> and nothing else, and
+    /// every term below the hop reads the PARENT's body, which is live. So a hop leading a side makes that side
+    /// header-only on the candidate — which is what keeps a patch-deleted placed reference in the results of
+    /// <c>where=["*parent.EditorID = SomeCell"]</c>, the crash-log lookup this step exists for.</para></summary>
+    public bool NeedsLiveBody => _predicates.Any(p => p.LinkPath is not null
+        ? p.LinkParentHops == 0                                        // the link's LEFT path is read on the candidate
+        : p.ParentHops == 0 && p.Pseudo == PseudoPath.None);           // the own path's leaf walk is read on the candidate
 
     /// <summary>Bind the scan's resolution context: <paramref name="winnerOf"/> answers "which plugin wins this
     /// FormKey" (the `winner` term), <paramref name="fetchWinnerBody"/> produces a linked target's winner body
@@ -387,12 +401,24 @@ public sealed class FieldPredicateSet
         // Pseudo-path classification: 'editorid' (the record's EditorID), 'winner' (the provenance term — which
         // plugin WINS the record, resolution not content), 'formid' (the membership ops' identity path).
         // Classified off the segment left AFTER the '*parent' hops, not the raw path, so '*parent.editorid' reads
-        // the containing record's identity rather than falling through to a case-sensitive field walk.
-        var term = segs.Length == 1 && !segs[0].Contains('[') ? segs[0] : "";
+        // the containing record's identity rather than falling through to a case-sensitive field walk. A step that
+        // carried a quantifier is NOT an identity term, and the fold must be read off pathFolds rather than off the
+        // segment: SplitFolds has already stripped the bracket, so 'editorid[*any]' reaches here spelled 'editorid'
+        // and would otherwise classify as the pseudo term with its quantifier silently dropped.
+        var term = segs.Length == 1 && !segs[0].Contains('[') && (pathFolds is null || pathFolds[0] == Fold.None)
+                   ? segs[0] : "";
         var pseudo = term.Equals("editorid", StringComparison.OrdinalIgnoreCase) ? PseudoPath.EditorId
                    : term.Equals("winner", StringComparison.OrdinalIgnoreCase) ? PseudoPath.Winner
                    : term.Equals("formid", StringComparison.OrdinalIgnoreCase) ? PseudoPath.FormId
                    : PseudoPath.None;
+
+        // An identity term is one value per record, so a quantifier on it has nothing to fold over. Named here
+        // rather than left to the walk, which would look for a lowercase field of that name and report a typo.
+        if (segs.Length == 1 && pathFolds is not null && pathFolds[0] != Fold.None
+            && (segs[0].Equals("editorid", StringComparison.OrdinalIgnoreCase)
+                || segs[0].Equals("winner", StringComparison.OrdinalIgnoreCase)
+                || segs[0].Equals("formid", StringComparison.OrdinalIgnoreCase)))
+            return (null, $"predicate '{raw}': '{segs[0]}' is the record's own {(segs[0].Equals("winner", StringComparison.OrdinalIgnoreCase) ? "winning plugin" : "identity")} — one value per record, not a list, so it takes no '{FoldToken(pathFolds[0])}'. Write '{segs[0]}' on its own.");
 
         // Op-compatibility, validated at parse so an unusable pairing refuses the CALL, never a silent all-miss.
         if (pseudo == PseudoPath.Winner)
@@ -491,36 +517,15 @@ public sealed class FieldPredicateSet
     }
 
 
-    /// <summary>Strip a side's leading <c>*parent</c> hops and hand back the rest of the path. A hop leads a path
-    /// by definition — the containing record is a property of the RECORD, not of a field value — so a <c>*parent</c>
-    /// anywhere else refuses by name, as does one carrying a quantifier, one with nothing after it, and any other
-    /// <c>*</c> token.</summary>
+    /// <summary>Strip a side's leading <c>*parent</c> hops and hand back the rest of the path. The grammar itself
+    /// is <see cref="ContainmentIndex.SplitHops"/>, shared with the read walk, so the two surfaces cannot drift on
+    /// the same mistake; only the <c>predicate '…':</c> voice is added here.</summary>
     static (string[] Tail, int Hops, string? Error) SplitParentHops(string raw, string[] segs, string display, bool isLinkLeft)
     {
-        int hops = 0;
-        while (hops < segs.Length && IsParentStep(segs[hops])) hops++;
-        for (int i = hops; i < segs.Length; i++)
-        {
-            if (IsParentStep(segs[i]))
-                return (segs, 0, $"predicate '{raw}': '{ContainmentIndex.ParentToken}' is the record that CONTAINS this one, so it can only lead a path — " +
-                                 $"in '{display}' it follows a field step. Write the hops first ('{ContainmentIndex.ParentToken}.EditorID').");
-            var s = segs[i];
-            int open = s.IndexOf('[');
-            if (open > 0 && s.EndsWith("]", StringComparison.Ordinal)
-                && string.Equals(s[..open], ContainmentIndex.ParentToken, StringComparison.OrdinalIgnoreCase))
-                return (segs, 0, $"predicate '{raw}': '{s}' — '{ContainmentIndex.ParentToken}' names ONE containing record, not a list, so it takes no quantifier. Write '{ContainmentIndex.ParentToken}'.");
-            if (s.Length > 0 && s[0] == '*' && open != 0)
-                return (segs, 0, $"predicate '{raw}': '{s}' is not a path token — the tokens are '{ContainmentIndex.ParentToken}' (the containing record) and the quantifiers [*any], [*all], [*none] and [*count] on a list step.");
-        }
-        if (hops == 0) return (segs, 0, null);
-        if (hops == segs.Length)
-            return (segs, 0, isLinkLeft
-                ? $"predicate '{raw}': '{display}' is the containing record, which is not a link-bearing field — name one on it ('{display}.Quest->editorid')."
-                : $"predicate '{raw}': '{display}' names the containing record, not a value — follow it with a field ('{display}.EditorID').");
-        return (segs[hops..], hops, null);
+        var (hops, err) = ContainmentIndex.SplitHops(segs, display, isLinkLeft);
+        if (err is not null) return (segs, 0, $"predicate '{raw}': {err}");
+        return (hops == 0 ? segs : segs[hops..], hops, null);
     }
-
-    static bool IsParentStep(string seg) => string.Equals(seg, ContainmentIndex.ParentToken, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The token a fold is spelled with, for a message.</summary>
     static string FoldToken(Fold f) => f switch
