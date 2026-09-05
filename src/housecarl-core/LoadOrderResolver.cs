@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
@@ -102,7 +102,7 @@ public sealed class LoadOrderResolver : IDisposable
     readonly string[] _paths;                          // every active plugin's path, priority order (masters → … → winner)
     readonly string[] _names;                          // index → plugin filename (e.g. "Skyrim.esm"); == Path.GetFileName(path)
     readonly Dictionary<string, int> _nameToIdx;       // plugin filename → index (last copy of a duplicate name wins = priority)
-    DateTime[] _mtimes;                                // last-write at the last index build, per path (freshness baseline)
+    FileStamp[] _stamps;                               // last-write AND length at the last index build, per path (freshness baseline)
     readonly string? _dataDir;                         // real game-Data folder (Skyrim.esm's dir) — localized-strings fallback source (OpenOverlay)
 
     /// <summary>The real game-Data folder this order resolved, for callers OUTSIDE the session that must open a plugin
@@ -406,10 +406,10 @@ public sealed class LoadOrderResolver : IDisposable
         }
     }
 
-    LoadOrderResolver(string[] paths, string[] names, Dictionary<string, int> nameToIdx, DateTime[] mtimes,
+    LoadOrderResolver(string[] paths, string[] names, Dictionary<string, int> nameToIdx, FileStamp[] stamps,
                       Func<string, string?>? explainAbsence)
     {
-        _paths = paths; _names = names; _nameToIdx = nameToIdx; _mtimes = mtimes;
+        _paths = paths; _names = names; _nameToIdx = nameToIdx; _stamps = stamps;
         _explainAbsence = explainAbsence;
         _dataDir = ComputeDataDir(nameToIdx, paths);
         _snap = BuildIndex();
@@ -499,7 +499,7 @@ public sealed class LoadOrderResolver : IDisposable
     internal static bool FolderHasOwnStrings(string path) => LocalizedStrings.OwnFolderCarriesStringsFor(path);
 
     /// <summary>Take the plugin paths already in priority order and build the index, without holding any plugin open.
-    /// Names and mtimes come from the path list plus a stat (no parse, no handle); the index build
+    /// Names and freshness stamps come from the path list plus a stat (no parse, no handle); the index build
     /// (<see cref="BuildIndex"/>) opens each plugin one at a time to enumerate it, then disposes it. <paramref
     /// name="orderedPluginPaths"/> = masters → … → highest priority; the order is INJECTED, never derived here.
     /// Per-plugin open failures are collected into <see cref="LoadFailures"/> at index time, never silently
@@ -511,7 +511,7 @@ public sealed class LoadOrderResolver : IDisposable
     {
         var paths = new string[orderedPluginPaths.Count];
         var names = new string[orderedPluginPaths.Count];
-        var mtimes = new DateTime[orderedPluginPaths.Count];
+        var stamps = new FileStamp[orderedPluginPaths.Count];
         var nameToIdx = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         for (int i = 0; i < orderedPluginPaths.Count; i++)
@@ -523,10 +523,10 @@ public sealed class LoadOrderResolver : IDisposable
             var name = Path.GetFileName(p);
             names[i] = name;
             nameToIdx[name] = i;
-            mtimes[i] = SafeMtime(p);
+            stamps[i] = SafeStamp(p);
         }
 
-        return new LoadOrderResolver(paths, names, nameToIdx, mtimes, explainAbsence);
+        return new LoadOrderResolver(paths, names, nameToIdx, stamps, explainAbsence);
     }
 
     /// <summary>Enumerate every plugin once (low→high), ONE AT A TIME (open → enumerate → dispose), building the
@@ -609,18 +609,19 @@ public sealed class LoadOrderResolver : IDisposable
         return new IndexSnapshot(
             index,
             overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
-            failures, excluded, unopenable, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _mtimes, excludedPlugins),
+            failures, excluded, unopenable, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _stamps, excludedPlugins),
             light, firstUnknownKind, firstUnknownKindName);
     }
 
     /// <summary>The epoch fingerprint: a compact, deterministic identity for ONE index build, derived from the
-    /// world-state the build was made from — every plugin's filename, RESOLVED PATH, and last-write time, in
+    /// world-state the build was made from — every plugin's filename, RESOLVED PATH, and freshness stamp (last-write
+    /// time AND length), in
     /// priority order, PLUS which plugins this build EXCLUDED. The path matters because under MO2 two enabled mods can
     /// ship the same-named plugin, and a left-pane reorder swaps WHICH file wins the slot without changing name or (if
-    /// the copies share a last-write tick) mtime — names and mtimes alone would give the new build the old epoch while
+    /// the copies share a last-write tick) stamp — names and stamps alone would give the new build the old epoch while
     /// resolving different winners. The exclusion set matters just as much: an OPEN failure is transient (xEdit or MO2
     /// holding an exclusive handle, an AV scan), so a build that skipped a locked plugin resolves materially different
-    /// winners than the healthy build over the same names/paths/mtimes — without this term the two fingerprint
+    /// winners than the healthy build over the same names/paths/stamps — without this term the two fingerprint
     /// identically, and an artifact saved under the degraded build would pass epoch-checked re-entry against the
     /// healthy one. Two builds over an unchanged order that INDEXED the same set fingerprint identically, so a server
     /// restart invalidates nothing; any content edit, reorder, set change, or exclusion change fingerprints
@@ -629,15 +630,17 @@ public sealed class LoadOrderResolver : IDisposable
     /// Opaque to consumers — 16 hex chars of SHA-256, compared only for equality.
     ///
     /// <para>Known approximations: an unstattable-but-openable file collapses to
-    /// <see cref="SafeMtime"/>'s MinValue sentinel (distinct world-states, one mtime term — vanishingly rare since
-    /// a file that can't be statted rarely opens); and <see cref="RefreshIfStale"/> stamps mtimes BEFORE re-reading
-    /// the files, so a plugin rewritten mid-rebuild can pair its new mtime with old content until its next change —
-    /// the pre-existing freshness-baseline race, which this fingerprint shares by construction.</para></summary>
-    static string ComputeEpoch(string[] names, string[] paths, DateTime[] mtimes, Dictionary<string, string> excludedPlugins)
+    /// <see cref="SafeStamp"/>'s absent sentinel (distinct world-states, one stamp — vanishingly rare since
+    /// a file that can't be statted rarely opens); and <see cref="RefreshIfStale"/> stamps the files BEFORE
+    /// re-reading them, so a plugin rewritten mid-rebuild can pair its new stamp with old content until its next
+    /// change — the pre-existing freshness-baseline race, which this fingerprint shares by construction. An edit
+    /// that changes neither the last-write time nor the LENGTH is still invisible to both.</para></summary>
+    static string ComputeEpoch(string[] names, string[] paths, FileStamp[] stamps, Dictionary<string, string> excludedPlugins)
     {
         var sb = new StringBuilder(names.Length * 96);
         for (int i = 0; i < names.Length; i++)
-            sb.Append(names[i]).Append('|').Append(paths[i]).Append('|').Append(mtimes[i].Ticks).Append('\n');
+            sb.Append(names[i]).Append('|').Append(paths[i]).Append('|').Append(stamps[i].Mtime.Ticks)
+              .Append('|').Append(stamps[i].Size).Append('\n');
         // Sorted, names only: the exclusion REASON often embeds exception text (message wording, paths) that can
         // vary between identical world-states — WHICH plugins were skipped is the deterministic fact that changes
         // what the index resolves.
@@ -1115,25 +1118,39 @@ public sealed class LoadOrderResolver : IDisposable
 
     // ---- Freshness -----------------------------------------------------
 
-    /// <summary>Re-stat the plugin files; if any last-write differs from the build-time baseline, rebuild the index
-    /// (re-enumerating one plugin at a time; there are no held overlays to dispose and reopen), then return true. The
-    /// cheap no-change path is just the stat sweep. Content edits to existing plugins are handled here; a changed
-    /// plugin SET (added or removed) is a new order, and the caller re-Builds.</summary>
+    /// <summary>Re-stat the plugin files; if any last-write OR length differs from the build-time baseline, rebuild
+    /// the index (re-enumerating one plugin at a time; there are no held overlays to dispose and reopen), then return
+    /// true. The cheap no-change path is just the stat sweep. Content edits to existing plugins are handled here; a
+    /// changed plugin SET (added or removed) is a new order, and the caller re-Builds.</summary>
     public bool RefreshIfStale()
     {
         bool stale = false;
         for (int i = 0; i < _paths.Length; i++)
-            if (SafeMtime(_paths[i]) != _mtimes[i]) { stale = true; break; }
+            if (SafeStamp(_paths[i]) != _stamps[i]) { stale = true; break; }
         if (!stale) return false;
 
-        for (int i = 0; i < _paths.Length; i++) _mtimes[i] = SafeMtime(_paths[i]);
+        for (int i = 0; i < _paths.Length; i++) _stamps[i] = SafeStamp(_paths[i]);
         _snap = BuildIndex();                                              // ONE reference write — in-flight readers keep their captured build
         return true;
     }
 
-    static DateTime SafeMtime(string path)
+    /// <summary>One plugin file's freshness key: last-write time AND length. Length is in it because last-write alone
+    /// is coarse — an edit inside the filesystem's timestamp granularity, or a tool that restores the timestamp it
+    /// found, leaves the mtime unchanged and served stale parsed state with nothing saying so. Two terms do not make
+    /// the key exact (an edit that changes neither is still invisible); they make the common same-mtime edit
+    /// visible.</summary>
+    readonly record struct FileStamp(DateTime Mtime, long Size);
+
+    /// <summary>Stat one path, or the absent sentinel when it cannot be statted — the same sentinel for missing,
+    /// locked and unreadable, so a file that comes back is a change and a file that stays gone is not.</summary>
+    static FileStamp SafeStamp(string path)
     {
-        try { return File.GetLastWriteTimeUtc(path); } catch { return DateTime.MinValue; }
+        try
+        {
+            var fi = new FileInfo(path);                                   // ONE stat serves both terms
+            return fi.Exists ? new FileStamp(fi.LastWriteTimeUtc, fi.Length) : new FileStamp(DateTime.MinValue, -1);
+        }
+        catch { return new FileStamp(DateTime.MinValue, -1); }
     }
 
     /// <summary>The resolver holds NO plugin file handles at rest (only the pure-data index), so there is nothing to
