@@ -228,28 +228,30 @@ static class JsonWire
     }
 
     /// <summary>The json twin of <see cref="BatchRender.AppendLines"/>: a caveat list bounded by the SAME budget the
-    /// row loop is bounded by, cut with the same named marker as a final element. An unbounded list here is a list
-    /// max_chars does not reach — one under= of thousands of selectors writes megabytes before the row loop takes
-    /// its first budget reading, and the rows the caller asked about are then all cut.
-    /// <para><paramref name="cap"/> is what the marker names — the number the caller passed and would raise —
-    /// while <paramref name="budget"/> is what it is measured against.</para></summary>
-    static void WriteCappedStringArray(Utf8JsonWriter w, MemoryStream ms, string name, IReadOnlyList<string> items,
-                                       string itemNoun, int cap, int budget)
+    /// row loop is bounded by. An unbounded list here is a list max_chars does not reach — one under= of thousands of
+    /// selectors writes megabytes before the row loop takes its first budget reading, and the rows the caller asked
+    /// about are then all cut.
+    /// <para>The cut is a sibling <c>&lt;name&gt;_omitted</c> count, not a prose element inside the array — the
+    /// capped-list-plus-count shape <see cref="Wire.ContestedHostsShown"/> already uses. A marker element would be
+    /// handed to a consumer iterating the array as if it were one of the entries, and the array length would stop
+    /// matching the count the accounting states.</para>
+    /// <para>Returns how many entries were omitted, so the caller can say so at the document root.</para></summary>
+    static int WriteCappedStringArray(Utf8JsonWriter w, MemoryStream ms, string name, IReadOnlyList<string> items,
+                                      int budget)
     {
         w.WriteStartArray(name);
         int shown = 0;
         foreach (var s in items)
         {
             // shown > 0: the first line always renders, exactly as it does on the text lane.
-            if (shown > 0 && Over(w, ms, budget))
-            {
-                w.WriteStringValue($"… [{items.Count - shown} more {itemNoun} omitted at max_chars={cap}; raise max_chars to see all]");
-                break;
-            }
+            if (shown > 0 && Over(w, ms, budget)) break;
             w.WriteStringValue(s);
             shown++;
         }
         w.WriteEndArray();
+        int omitted = items.Count - shown;
+        w.WriteNumber(name + "_omitted", omitted);
+        return omitted;
     }
 
     // ---- shared record + field writers --------------------------------------------------------------
@@ -2579,10 +2581,10 @@ static class JsonWire
             // against the same budget its text twin caps against — an under= of thousands of selectors would
             // otherwise write megabytes here before the row loop ever checked the budget.
             w.WriteBoolean("read_incomplete", d.ReadIncomplete);
-            WriteCappedStringArray(w, ms, "bsa_failures", d.BsaFailures, "archive(s)", cap, budget);
-            WriteCappedStringArray(w, ms, "warnings", d.Warnings, "warning(s)", cap, budget);
-            if (d.SelectorNotes is null) w.WriteNull("selector_notes");
-            else WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, "selector(s)", cap, budget);
+            int caveatsOmitted = WriteCappedStringArray(w, ms, "bsa_failures", d.BsaFailures, budget)
+                               + WriteCappedStringArray(w, ms, "warnings", d.Warnings, budget);
+            if (d.SelectorNotes is null) { w.WriteNull("selector_notes"); w.WriteNumber("selector_notes_omitted", 0); }
+            else caveatsOmitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, budget);
 
             w.WriteStartArray("results");
             int rendered = 0;
@@ -2598,8 +2600,10 @@ static class JsonWire
 
             var counts = AssetWire.Tally(d, rendered);
             TransportAccounting.WriteJson(w, counts);
-            w.WriteBoolean("truncated", counts.Truncated > 0);
-            WriteAssetAdvice(w, counts, cap);
+            // The document's own flag, so a consumer branching on it re-calls when ANYTHING was dropped: a caveat
+            // block the budget cut is a loss the row counters cannot see.
+            w.WriteBoolean("truncated", counts.Truncated > 0 || caveatsOmitted > 0);
+            WriteAssetAdvice(w, counts, cap, caveatsOmitted > 0);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -2609,8 +2613,10 @@ static class JsonWire
     /// page (measured off what was RENDERED, so a consumer paging by these lands on the first path it has not seen),
     /// an offset past the end, and the max_chars cut. Siblings of the <c>accounting</c> object rather than members of
     /// it, because that object is the eight counters and nothing else.</summary>
+    /// <param name="caveatsCut">a caveat block lost entries to the budget — the cut the row counters cannot see.</param>
     /// <param name="everySentence">write them all, whatever the counts say — the widest case the reserve measures.</param>
-    static void WriteAssetAdvice(Utf8JsonWriter w, TransportCounts c, int cap, bool everySentence = false)
+    static void WriteAssetAdvice(Utf8JsonWriter w, TransportCounts c, int cap, bool caveatsCut,
+                                 bool everySentence = false)
     {
         if (everySentence || c.Remaining > 0)
         {
@@ -2619,15 +2625,17 @@ static class JsonWire
         }
         if (everySentence || (c.Remaining == 0 && c.Total > 0 && c.Offset >= c.Total))
             w.WriteString("offset_note", $"offset={c.Offset} is past the end of the selection ({c.Total} path(s)) — the last page starts before it.");
-        if (everySentence || c.Truncated > 0)
+        if (everySentence || c.Truncated > 0 || caveatsCut)
             w.WriteString("truncated_note",
-                $"max_chars={cap} cut trailing resolved path(s) from this document — raise max_chars, or page with limit=/offset=.");
+                $"max_chars={cap} cut content from this document — accounting.truncated names the resolved path(s) " +
+                "dropped and each *_omitted counter the caveat entries; raise max_chars, or page with limit=/offset=.");
     }
 
-    /// <summary>The chars held back from max_chars for the tail this document closes on — the accounting object, the
-    /// truncation flag and every advice sentence. Measured by serializing the WIDEST tail under the response's own
-    /// writer options, so no rendering of it can outgrow its own room (measuring unindented what is written indented
-    /// under-reserves by the whole indentation).</summary>
+    /// <summary>The chars held back from max_chars for what this document writes outside the budgeted body — the
+    /// accounting object, the truncation flag, every advice sentence, and the three caveat <c>_omitted</c> counters,
+    /// which are written after their array has already spent the budget. Measured by serializing the WIDEST tail
+    /// under the response's own writer options, so no rendering of it can outgrow its own room (measuring unindented
+    /// what is written indented under-reserves by the whole indentation).</summary>
     static int AssetTailReserve(AssetStatusData d, int cap)
     {
         var widest = AssetWire.Widest(d);
@@ -2636,9 +2644,13 @@ static class JsonWire
         {
             w.WriteStartObject();
             w.WriteString("before", "");   // the tail is never a document's first member, so it pays the separator one owes
+            // Each block can omit at most its own entries, so its own count is the widest number it can write.
+            w.WriteNumber("bsa_failures_omitted", d.BsaFailures.Count);
+            w.WriteNumber("warnings_omitted", d.Warnings.Count);
+            w.WriteNumber("selector_notes_omitted", d.SelectorNotes?.Count ?? 0);
             TransportAccounting.WriteJson(w, widest);
             w.WriteBoolean("truncated", true);
-            WriteAssetAdvice(w, widest, cap, everySentence: true);
+            WriteAssetAdvice(w, widest, cap, caveatsCut: true, everySentence: true);
             w.WriteEndObject();
         }
         return (int)ms.Length;

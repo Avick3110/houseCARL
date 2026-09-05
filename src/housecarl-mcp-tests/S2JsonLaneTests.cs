@@ -101,13 +101,37 @@ public sealed class AssetStatusJsonLaneTests : IClassFixture<AssetSelectWorld>
         var capped = AssetTools.AssetStatus(_w.Svc, under: many, format: "json", max_chars: 2_000);
         var whole = AssetTools.AssetStatus(_w.Svc, under: many, format: "json");
 
-        var notes = Parse(capped).GetProperty("selector_notes");
+        var root = Parse(capped);
+        var notes = root.GetProperty("selector_notes");
         Assert.True(notes.GetArrayLength() < 400, "the note list was written past max_chars");
-        Assert.Contains("omitted at max_chars=2000", notes[notes.GetArrayLength() - 1].GetString());
+        // The cut is a sibling COUNT, and the array stays pure data — a consumer iterating it never has to
+        // substring-match a prose marker out of the entries, and the two numbers still add up to the whole.
+        int omitted = root.GetProperty("selector_notes_omitted").GetInt32();
+        Assert.Equal(400, notes.GetArrayLength() + omitted);
+        foreach (var n in notes.EnumerateArray()) Assert.DoesNotContain("omitted at max_chars", n.GetString());
         // The cut is real, not cosmetic: the same call unbounded is many times the document.
         Assert.True(capped.Length < whole.Length / 4, $"capped={capped.Length} whole={whole.Length}");
         // Every selector is still COUNTED, whatever the render could show of them.
-        Assert.Equal(400, Parse(capped).GetProperty("accounting").GetProperty("notes").GetInt32());
+        Assert.Equal(400, root.GetProperty("accounting").GetProperty("notes").GetInt32());
+        // A document nothing was dropped from says so too.
+        Assert.Equal(0, Parse(whole).GetProperty("selector_notes_omitted").GetInt32());
+    }
+
+    /// <summary>A document whose CAVEATS were cut reports itself truncated. The accounting counters count rows only,
+    /// so a call that resolved every row it selected but lost caveat entries to the budget would otherwise say
+    /// truncated=false, and a consumer branching on that flag to re-call would conclude nothing was lost.</summary>
+    [Fact]
+    public void ADocumentWhoseCaveatsWereCutSaysItWasTruncated()
+    {
+        var many = Enumerable.Range(0, 400).Select(i => $"meshes/hcnothing{i}/**/*.nif").ToArray();
+
+        var root = Parse(AssetTools.AssetStatus(_w.Svc, under: many, format: "json", max_chars: 2_000));
+
+        // No row was dropped — none was selected — and yet the document is not complete.
+        Assert.Equal(0, root.GetProperty("accounting").GetProperty("truncated").GetInt32());
+        Assert.True(root.GetProperty("selector_notes_omitted").GetInt32() > 0);
+        Assert.True(root.GetProperty("truncated").GetBoolean());
+        Assert.Contains("max_chars=2000", root.GetProperty("truncated_note").GetString());
     }
 
     /// <summary>A whole-call refusal answers a json caller as a document, not as a bare sentence — otherwise the
@@ -137,7 +161,7 @@ public sealed class AssetStatusJsonLaneTests : IClassFixture<AssetSelectWorld>
     public void TheDocumentFitsTheMaxCharsItWasGiven()
     {
         var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
-                                          format: "json", max_chars: 1_500);
+                                          format: "json", max_chars: 2_000);
 
         var root = Parse(text);
         Assert.True(root.GetProperty("accounting").GetProperty("rendered").GetInt32() > 1);
@@ -145,8 +169,8 @@ public sealed class AssetStatusJsonLaneTests : IClassFixture<AssetSelectWorld>
         // the cap, on the row that was in flight when the budget ran out (the same one-item overshoot the text lane
         // makes), but never past it by the whole accounting block, which is what an unreserved tail costs.
         int tailAt = text.IndexOf("\"accounting\"", StringComparison.Ordinal);
-        Assert.True(tailAt > 0 && tailAt <= 1_500, $"the accounting starts at {tailAt} on max_chars=1500");
-        Assert.True(text.Length - 1_500 < text.Length - tailAt,
+        Assert.True(tailAt > 0 && tailAt <= 2_000, $"the accounting starts at {tailAt} on max_chars=2000");
+        Assert.True(text.Length - 2_000 < text.Length - tailAt,
                     $"the document is {text.Length} chars — over by more than its own tail");
     }
 
