@@ -138,4 +138,26 @@ public sealed class EpochCheckSweepTests
         var allIndexedJson = JsonWire.RenderCheck(new CheckSweep(Sel("errors"), Errors: allIndexed), 20000);
         Assert.True(ErrorsFamily(allIndexedJson).GetProperty("epoch_covers_all_inputs").GetBoolean());
     }
+
+    // ---- fact E9 ---------------------------------------------------------------------------------------
+    // Families that did not answer off one build tear the whole call: the response is a refusal naming both
+    // epochs, with no family section and no order marker, rather than a marker from one build beside another
+    // build's findings.
+
+    [Fact]
+    public void FactE9_AnOrderSeamRefusesTheWholeCall_WithNoSectionAndNoMarker()
+    {
+        var errors = Svc.CheckErrors(null, 1000);
+        const string seam = "the load order changed while this check was running (epoch=e2-aaa when the call " +
+                            "started, epoch=e2-bbb when the errors family answered) — the response would " +
+                            "describe two builds. Retry the call.";
+        var torn = new CheckSweep(Sel("errors"), Errors: errors, OrderSeamError: seam);
+
+        Assert.Contains(seam, Wire.RenderCheck(torn, 20000));
+
+        var doc = JsonDocument.Parse(JsonWire.RenderCheck(torn, 20000)).RootElement;
+        Assert.Equal(seam, doc.GetProperty("error").GetString());
+        Assert.False(doc.TryGetProperty("families", out _));       // no section survives a torn seam
+        Assert.False(doc.TryGetProperty("order_degraded", out _)); // and no marker from a build in doubt
+    }
 }
