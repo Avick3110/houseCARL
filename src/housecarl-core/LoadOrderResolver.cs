@@ -160,6 +160,7 @@ public sealed class LoadOrderResolver : IDisposable
         public readonly Dictionary<string, string> ExcludedPlugins;           // excluded plugin name → reason
         public readonly int MaxDepth;
         public readonly string Epoch;                                         // this build's fingerprint — immutable with the snapshot
+        public readonly ContainmentIndex Containment;                         // child → parent, off the same one-pass walk
 
         /// <summary>Per plugin index: is it a LIGHT plugin? Read off the header while the build already had the
         /// overlay open (the .esl extension counts too — the engine force-treats it as light). This is what decides
@@ -184,10 +185,11 @@ public sealed class LoadOrderResolver : IDisposable
         public IndexSnapshot(Dictionary<FormKey, (int winner, int count)> index, Dictionary<FormKey, int[]> overriders,
                              List<string> loadFailures, HashSet<int> excluded, HashSet<int> unopenable,
                              Dictionary<string, string> excludedPlugins, int maxDepth, string epoch,
-                             bool[] light, int firstUnknownKind, string? firstUnknownKindName)
+                             bool[] light, int firstUnknownKind, string? firstUnknownKindName,
+                             ContainmentIndex containment)
         {
             Index = index; Overriders = overriders; LoadFailures = loadFailures; Excluded = excluded; Unopenable = unopenable;
-            ExcludedPlugins = excludedPlugins; MaxDepth = maxDepth; Epoch = epoch; Light = light;
+            ExcludedPlugins = excludedPlugins; MaxDepth = maxDepth; Epoch = epoch; Light = light; Containment = containment;
             FirstUnknownKind = firstUnknownKind; FirstUnknownKindName = firstUnknownKindName;
             Slots = new Lazy<RuntimeSlots>(() => RuntimeSlots.Build(light));
         }
@@ -574,6 +576,7 @@ public sealed class LoadOrderResolver : IDisposable
         var unopenable = new HashSet<int>();                          // the could-not-be-OPENED subset
         var excludedPlugins = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var light = new bool[_paths.Length];
+        var containment = new ContainmentIndex();                     // child → parent, off the same walk
         int firstUnknownKind = -1;
         string? firstUnknownKindName = null;
         int maxDepth = 0;
@@ -597,13 +600,25 @@ public sealed class LoadOrderResolver : IDisposable
             // whatever the header bit says, and an esp-fe carries the bit without the extension.
             light[i] = ov.IsSmallMaster || ov.ModKey.Type == ModType.Light;
 
-            // Buffer the WHOLE plugin's keys first (plugin-atomic). EnumerateMajorRecords() constructs each record
-            // body as it advances, so a record Mutagen rejects (e.g. a malformed PKCU data-count) throws HERE. The
+            // Buffer the WHOLE plugin's keys first (plugin-atomic). The walk constructs each record body as it
+            // advances, so a record Mutagen rejects (e.g. a malformed PKCU data-count) throws HERE. The
             // throw is non-resumable, so we can't skip just that record — but catching it lets us EXCLUDE this one
             // plugin and carry on with every other, instead of letting the throw kill the entire index. The buffer
             // means a partial enumeration is discarded, not merged.
+            //
+            // The CONTEXT walk, not the flat one: it yields the same record set and carries each record's containing
+            // context, which is the only place the parent is in hand — only a NavigationMesh names its cell on its
+            // own body. It costs about 0.4 s more over a 3,800-plugin order, inside that order's run-to-run spread.
             var keys = new List<FormKey>();
-            try { foreach (var rec in ov.EnumerateMajorRecords()) keys.Add(rec.FormKey); }
+            var edges = new List<(FormKey Child, FormKey Parent)>();
+            try
+            {
+                foreach (var ctx in ov.EnumerateMajorRecordContexts())
+                {
+                    keys.Add(ctx.Record.FormKey);
+                    if (ctx is IModContext c) ContainmentIndex.Stage(c, edges);
+                }
+            }
             catch (Exception ex)
             {
                 Exclude(i, $"contains a record Mutagen cannot parse, so the whole plugin is excluded from this " +
@@ -615,6 +630,7 @@ public sealed class LoadOrderResolver : IDisposable
             }
             finally { (ov as IDisposable)?.Dispose(); }                    // one plugin open at a time — never the whole floor
 
+            containment.Merge(edges);                                      // later plugin wins, like the winner index
             foreach (var fk in keys)                                       // merge the COMPLETE plugin into the index
             {
                 if (!index.TryGetValue(fk, out var e))
@@ -636,7 +652,7 @@ public sealed class LoadOrderResolver : IDisposable
             index,
             overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
             failures, excluded, unopenable, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _stamps, excludedPlugins),
-            light, firstUnknownKind, firstUnknownKindName);
+            light, firstUnknownKind, firstUnknownKindName, containment);
     }
 
     /// <summary>The epoch fingerprint: a compact, deterministic identity for ONE index build, derived from the
@@ -888,6 +904,15 @@ public sealed class LoadOrderResolver : IDisposable
         /// <summary>O(1): the winning plugin + override depth for a FormKey. null if the FormKey isn't in the order.</summary>
         public WinnerInfo? ResolveWinner(FormKey fk)
             => _s.Index.TryGetValue(fk, out var e) ? new WinnerInfo(fk, _r._names[e.winner], e.count) : null;
+
+        /// <summary>O(1): the record that CONTAINS this one in THIS build — a DIAL over its INFO, a CELL over its
+        /// placed references and navmeshes, a WRLD over its cells. The second edge kind, read by the <c>*parent</c>
+        /// path step. Null when the record is top-level or is not in the order; a caller that must tell those apart
+        /// asks <see cref="ResolveWinner"/> too.</summary>
+        public FormKey? ParentOf(FormKey fk) => _s.Containment.ParentOf(fk);
+
+        /// <summary>Distinct children this build recorded a containing record for.</summary>
+        public int ContainedRecordCount => _s.Containment.Count;
 
         /// <summary>Every FormKey overridden by more than one plugin (the whole-order conflict set).</summary>
         public IEnumerable<FormKey> ConflictKeys() => _s.Overriders.Keys;
