@@ -724,6 +724,10 @@ public static class RecordsTools
                 var hopLine = string.Join(", ", rev.Hops.Select(h => $"hop {h.Depth}: {h.Reached.Count}{(h.Cut ? " (cut by walk.max_nodes)" : "")}"));
                 if (!rev.Capped && rev.Hops.Count < walkDepth)
                     hopLine += $" (nothing left to expand, so hops {rev.Hops.Count + 1}–{walkDepth} were not walked)";
+                // The other way a walk ends: it reached walk.depth with the last hop still finding records, so what
+                // that hop reached was recorded and not expanded. Said out loud, or a prefix reads as a finding.
+                else if (!rev.Capped && rev.Hops.Count > 0 && rev.Hops[^1].Reached.Count > 0)
+                    hopLine += $" (walk.depth={walkDepth} was reached with hop {walkDepth} still finding records, so they were recorded and not expanded — raise walk.depth to walk further)";
                 int reachedRev = rev.Selection.Count - rev.Seeds;
                 envelope.Add(new("walk", $"reverse (every link) depth={walkDepth} — {hopLine}; selection = the {rev.Selection.Count} record(s) the walk reached (seeds included)"));
                 if (rev.IndexNote is not null) envelope.Add(new("reverse_index", rev.IndexNote));

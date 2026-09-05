@@ -279,6 +279,27 @@ public sealed class RecordsReverseIndexTests : RecordsTestBase
                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 1 }),
                "whose winner does not carry the link");
 
+    /// <summary>A walk that stopped at walk.depth with the last hop still finding records says so, so a prefix is
+    /// never read as a complete answer — and it is not called exhausted.</summary>
+    [Fact]
+    public void AWalkStoppedByWalkDepthSaysTheCapCutIt()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 1 });
+        Served(r, "walk.depth=1 was reached");
+        Assert.DoesNotContain("nothing left to expand", r);
+    }
+
+    /// <summary>A walk that genuinely ran out before the cap still says THAT, not the depth clause.</summary>
+    [Fact]
+    public void AWalkThatRanOutBeforeTheCapIsStillCalledExhausted()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 5 });
+        Served(r, "nothing left to expand");
+        Assert.DoesNotContain("was reached with hop", r);
+    }
+
     /// <summary>A spent budget stops the work, not just the reach: HcRecListHop fills a budget of 1, and the
     /// candidate behind it (HcRecListDropped) is never read, so it is not verified and not counted as a drop.
     /// </summary>
