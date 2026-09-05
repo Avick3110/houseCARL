@@ -20,6 +20,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   per launch, a `Chance` below 100 or a Level Filter can skip a sampled actor by design, and a keyword
   SPID creates at runtime has no plugin FormID but is still found by name from a script. The reference corpus carries the same facts with their source. Reported and drafted by
   juggernaunt46-star (#384).
+- **`housecarl_copy` names the MO2 mod folder each source resolved from, and `housecarl_copy_npc_appearance` is
+  gone.** The copy readback prints the folder beside each source's plugin filename — `Donor.esp (MO2 mod folder
+  'TheDonorMod')`, or `from the active load order` where the source resolved through the order — so the following
+  `housecarl_place` can be given the folder that actually holds the FaceGen. It is the folder name, not a path, and
+  it is the name `source_provider=` takes; a source read through an override lists both arms, and the file usually
+  sits beside the second. The 1.x standalone-appearance tool is deleted: the same job is `housecarl_copy` for the
+  records (`seed_paths=`, `exclude_types=["Race:refuse"]`, `from_source=` as an ordered list) and
+  `housecarl_place` for the FaceGen pair, which is the shape the `npc-appearance-copy` skill teaches. Calling the
+  old name answers with that two-call shape rather than an unknown-tool error.
 
 - **A response answered off an order that lost plugins to a load failure says so.** When a plugin cannot be
   opened or parsed it is excluded from the index build, and reads after that answer off the narrowed order —
