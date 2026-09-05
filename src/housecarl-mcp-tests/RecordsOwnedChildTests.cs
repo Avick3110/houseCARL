@@ -57,8 +57,12 @@ public sealed class OwnedChildWorld : IDisposable
     public FormKey Topic { get; }
     /// <summary>A 3-toucher record with no child-bearing field at all.</summary>
     public FormKey Weapon { get; }
-    /// <summary>REACH — the base holds one block with 3 real cells; the winner holds 2 empty blocks.</summary>
+    /// <summary>REACH — the base holds one block with 3 real cells; the winner holds 2 empty blocks. Its TopCell
+    /// slot is deliberately EMPTY: the create/remove lifecycle tests fill it themselves.</summary>
     public FormKey Worldspace { get; }
+    /// <summary>A second worldspace whose only child is a TopCell — the singular Worldspace child property, kept
+    /// off <see cref="Worldspace"/> so the lifecycle tests still find that slot free.</summary>
+    public FormKey TopCellWorldspace { get; }
 
     /// <summary>ACHR under <see cref="CellI"/>.Persistent — the child type the issue title names and the fixture
     /// otherwise had none of.</summary>
@@ -76,7 +80,7 @@ public sealed class OwnedChildWorld : IDisposable
     public FormKey PersistentRef { get; }
     /// <summary>Base's landscape under <see cref="CellA"/> — the Cell.Landscape row (a SINGULAR child).</summary>
     public FormKey LandscapeRec { get; }
-    /// <summary>The worldspace's TopCell — the second Worldspace child property, and a singular one.</summary>
+    /// <summary><see cref="TopCellWorldspace"/>'s TopCell — the second Worldspace child property, and a singular one.</summary>
     public FormKey TopCell { get; }
     /// <summary>The first of the worldspace's sub-block cells (<c>Worldspace.SubCells</c>).</summary>
     public FormKey WorldCell { get; }
@@ -118,6 +122,7 @@ public sealed class OwnedChildWorld : IDisposable
         CellG = new FormKey(baseKey, 0xC07); CellH = new FormKey(baseKey, 0xC08);
         CellI = new FormKey(baseKey, 0xC09); CellJ = new FormKey(midKey, 0xA09);
         Topic = new FormKey(baseKey, 0xD01); Weapon = new FormKey(baseKey, 0xE01); Worldspace = new FormKey(baseKey, 0xF01);
+        TopCellWorldspace = new FormKey(baseKey, 0xF02);
         PlacedNpc = new FormKey(baseKey, 0xC80); Navmesh = new FormKey(baseKey, 0xC82);
         DeletedRef = new FormKey(baseKey, 0xC83); ReparentedRef = new FormKey(baseKey, 0xC84);
         PersistentRef = new FormKey(baseKey, 0xC1A); LandscapeRec = new FormKey(baseKey, 0xC1B);
@@ -204,8 +209,15 @@ public sealed class OwnedChildWorld : IDisposable
                 sub.Items.Add(wc);
             }
             blk.Items.Add(sub); ws.SubCells.Add(blk);
-            ws.TopCell = new Cell(TopCell, SkyrimRelease.SkyrimSE) { EditorID = "HcOcWsTop" };
             m.Worldspaces.Add(ws);
+
+            // The singular Worldspace child property, on a worldspace of its own so the create/remove lifecycle
+            // tests still find the main worldspace's TopCell slot free.
+            m.Worldspaces.Add(new Worldspace(TopCellWorldspace, SkyrimRelease.SkyrimSE)
+            {
+                EditorID = "HcOcWrldTop",
+                TopCell = new Cell(TopCell, SkyrimRelease.SkyrimSE) { EditorID = "HcOcWsTop" },
+            });
 
             m.BeginWrite.ToPath(basePath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         }
