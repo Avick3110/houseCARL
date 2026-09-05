@@ -50,24 +50,6 @@ public static class StatusTools
     });
 }
 
-/// <summary>The running server's build version, read once from the informational version the tool assembly embeds
-/// (build-plugin.ps1 stamps it from plugin.json, so it carries the release version, '+', and the full commit sha:
-/// '1.9.5-dev+e942910...'). The tool assembly,
-/// not the entry assembly: they are the same binary for the shipped server, and under a test host the entry assembly
-/// is the host rather than houseCARL. An unstamped build says so rather than rendering a blank.</summary>
-public static class ServerBuild
-{
-    /// <summary>The informational version verbatim, metadata suffix and all; null on an unstamped build.</summary>
-    public static string? Version { get; } =
-        ToolSurface.Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), inherit: false)
-            is [System.Reflection.AssemblyInformationalVersionAttribute a, ..] && !string.IsNullOrWhiteSpace(a.InformationalVersion)
-            ? a.InformationalVersion : null;
-
-    /// <summary>What the status line prints: the version, or one short clause saying where to read it instead.</summary>
-    public static string Line { get; } =
-        Version ?? "(no build stamp; read the exe's file properties)";
-}
-
 /// <summary>Renders <see cref="LoadOrderStatusData"/>: a header line per category, then the name lists (disabled mods,
 /// inactive plugins, implicit masters), each bounded by max_chars with an explicit cut notice. lookup= switches to a
 /// single mod/plugin verdict.</summary>

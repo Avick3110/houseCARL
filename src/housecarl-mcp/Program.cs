@@ -170,14 +170,6 @@ static void AddMcp(IServiceCollection services, bool stdio)
     mcp.WithRequestFilters(f => f.AddCallToolFilter(ToolCallShim.LenientArguments));
 }
 
-// The exe's stamped version for ServerInfo: InformationalVersion with any "+metadata" suffix trimmed; an
-// unstamped build reports 0.0.0-dev.
-static string ServerVersion()
-{
-    var info = System.Reflection.Assembly.GetExecutingAssembly()
-        .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), inherit: false)
-        is [System.Reflection.AssemblyInformationalVersionAttribute a, ..] ? a.InformationalVersion : null;
-    if (string.IsNullOrWhiteSpace(info)) return "0.0.0-dev";
-    var plus = info.IndexOf('+');
-    return plus > 0 ? info[..plus] : info;
-}
+// The exe's stamped version for ServerInfo. ServerBuild is the one reader of the attribute, so the handshake and the
+// status line cannot disagree.
+static string ServerVersion() => ServerBuild.Handshake;
