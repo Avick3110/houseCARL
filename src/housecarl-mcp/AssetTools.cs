@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text;
+using System.Text.Json;
 using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
@@ -124,9 +125,14 @@ static class AssetWire
     /// <summary>What this response actually did, in the shared TRANSPORT vocabulary
     /// (<see cref="TransportAccounting"/>): the selection total, the window this response rendered, and the four
     /// distinct omissions.</summary>
-    static TransportCounts Tally(AssetStatusData d, int rendered) =>
+    internal static TransportCounts Tally(AssetStatusData d, int rendered) =>
         TransportAccounting.Tally(d.Selected, d.Results.Count, rendered, new RowWindow(d.Offset, d.Limit),
                                   d.SelectorNotes?.Count ?? 0);
+
+    /// <summary>The widest counts this response could state — what the json lane's tail reserve measures.</summary>
+    internal static TransportCounts Widest(AssetStatusData d) =>
+        TransportAccounting.Widest(d.Selected, d.Results.Count, new RowWindow(d.Offset, d.Limit),
+                                   d.SelectorNotes?.Count ?? 0);
 
     /// <summary>The chars held back from max_chars so the accounting block is always affordable.</summary>
     internal static int AccountingReserve(AssetStatusData d) =>

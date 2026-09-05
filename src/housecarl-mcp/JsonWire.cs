@@ -227,6 +227,31 @@ static class JsonWire
         w.WriteEndArray();
     }
 
+    /// <summary>The json twin of <see cref="BatchRender.AppendLines"/>: a caveat list bounded by the SAME budget the
+    /// row loop is bounded by, cut with the same named marker as a final element. An unbounded list here is a list
+    /// max_chars does not reach — one under= of thousands of selectors writes megabytes before the row loop takes
+    /// its first budget reading, and the rows the caller asked about are then all cut.
+    /// <para><paramref name="cap"/> is what the marker names — the number the caller passed and would raise —
+    /// while <paramref name="budget"/> is what it is measured against.</para></summary>
+    static void WriteCappedStringArray(Utf8JsonWriter w, MemoryStream ms, string name, IReadOnlyList<string> items,
+                                       string itemNoun, int cap, int budget)
+    {
+        w.WriteStartArray(name);
+        int shown = 0;
+        foreach (var s in items)
+        {
+            // shown > 0: the first line always renders, exactly as it does on the text lane.
+            if (shown > 0 && Over(w, ms, budget))
+            {
+                w.WriteStringValue($"… [{items.Count - shown} more {itemNoun} omitted at max_chars={cap}; raise max_chars to see all]");
+                break;
+            }
+            w.WriteStringValue(s);
+            shown++;
+        }
+        w.WriteEndArray();
+    }
+
     // ---- shared record + field writers --------------------------------------------------------------
     /// <summary>Serialize the fields array. Each leaf is <c>{path, value}</c> for a round-trippable leaf (value = the
     /// SAME wire token the text mode emits) or <c>{path, note}</c> for a no-value leaf; the display-only <c>display</c>
@@ -2531,62 +2556,92 @@ static class JsonWire
     /// <para>A provider is <c>{name, kind}</c>, not the printed <c>"Name" (kind)</c> token: the reusable value is
     /// the NAME ALONE, which is what <c>housecarl_place</c>'s <c>source_provider=</c> accepts, so a consumer reads
     /// the field rather than parsing the display token apart.</para>
-    /// <para><c>truncated</c> is the boolean every json document carries; <c>truncated_rows</c> is the text lane's
-    /// <c>truncated=</c> count — how many RESOLVED paths max_chars cut, which the other seven counters need to add
-    /// up against.</para></summary>
+    /// <para>The eight counters ride under one <c>accounting</c> object, written by the SAME composer family the
+    /// text line goes through (<see cref="TransportAccounting"/>), so
+    /// <c>skipped + rendered + truncated + capped == total</c> on both lanes and neither can drift. Room for that
+    /// object and the advice after it is reserved out of max_chars before anything is written, the way the text
+    /// twin reserves its accounting line — so max_chars means the same thing on both lanes. <c>truncated</c> at the
+    /// document root is the boolean every json document carries; <c>accounting.truncated</c> is the count.</para></summary>
     public static string RenderAssetStatus(AssetStatusData d, int maxChars)
     {
         int cap = Cap(maxChars);
+        // The accounting object and the advice after it are priced INSIDE max_chars, as the text twin prices its
+        // accounting line: room for their widest spelling is held back BEFORE the caveats and the rows write, rather
+        // than appended past the cap.
+        int budget = Math.Max(cap - AssetTailReserve(d, cap), 1);
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
             w.WriteString("profile", d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)");
             // The caveats lead, as they do in the text render: an ABSENT below is only authoritative when both are
-            // empty, and a document that truncates its rows must not be able to cut the reason away.
+            // empty, and a document that truncates its rows must not be able to cut the reason away. Each is capped
+            // against the same budget its text twin caps against — an under= of thousands of selectors would
+            // otherwise write megabytes here before the row loop ever checked the budget.
             w.WriteBoolean("read_incomplete", d.ReadIncomplete);
-            WriteStringArray(w, "bsa_failures", d.BsaFailures);
-            WriteStringArray(w, "warnings", d.Warnings);
-            WriteNullableStringArray(w, "selector_notes", d.SelectorNotes);
+            WriteCappedStringArray(w, ms, "bsa_failures", d.BsaFailures, "archive(s)", cap, budget);
+            WriteCappedStringArray(w, ms, "warnings", d.Warnings, "warning(s)", cap, budget);
+            if (d.SelectorNotes is null) w.WriteNull("selector_notes");
+            else WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, "selector(s)", cap, budget);
 
             w.WriteStartArray("results");
             int rendered = 0;
-            bool truncated = false;
             foreach (var r in d.Results)
             {
-                if (Over(w, ms, cap)) { truncated = true; break; }
+                // rendered > 0: the FIRST row always renders its core answer, even when the caveats alone exhausted
+                // the budget — the same rule BatchRender makes on the text lane, so a one-path call is answered.
+                if (rendered > 0 && Over(w, ms, budget)) break;
                 WriteAssetRow(w, r, d.ReadIncomplete, d.Warnings.Count > 0);
                 rendered++;
             }
             w.WriteEndArray();
 
-            // The same eight counters the text accounting line states, from the same four causes, so
-            // skipped + rendered + truncated_rows + capped == total on both lanes.
-            w.WriteNumber("total", d.Selected);
-            w.WriteNumber("rendered", rendered);
-            w.WriteNumber("skipped", Math.Min(d.Offset, d.Selected));
-            w.WriteNumber("capped", Math.Max(d.Selected - d.Offset - d.Results.Count, 0));
-            w.WriteNumber("truncated_rows", Math.Max(d.Results.Count - rendered, 0));
-            w.WriteNumber("offset", d.Offset);
-            int remaining = Math.Max(d.Selected - (d.Offset + rendered), 0);
-            w.WriteNumber("remaining", remaining);
-            w.WriteNumber("notes", d.SelectorNotes?.Count ?? 0);
-            w.WriteBoolean("truncated", truncated);
-            // Measured off what was RENDERED, like the text advice: a consumer paging by these lands on the first
-            // path it has not seen, and the limit rides along or the next call resolves the whole remainder.
-            if (remaining > 0)
-            {
-                w.WriteNumber("next_limit", d.Limit > 0 ? d.Limit : AssetWire.DefaultPageLimit);
-                w.WriteNumber("next_offset", d.Offset + rendered);
-            }
-            if (remaining == 0 && d.Selected > 0 && d.Offset >= d.Selected)
-                w.WriteString("offset_note", $"offset={d.Offset} is past the end of the selection ({d.Selected} path(s)) — the last page starts before it.");
-            if (truncated)
-                w.WriteString("truncated_note",
-                    $"max_chars={cap} cut trailing resolved path(s) from this document — raise max_chars, or page with limit=/offset=.");
+            var counts = AssetWire.Tally(d, rendered);
+            TransportAccounting.WriteJson(w, counts);
+            w.WriteBoolean("truncated", counts.Truncated > 0);
+            WriteAssetAdvice(w, counts, cap);
             w.WriteEndObject();
         }
         return Finish(ms);
+    }
+
+    /// <summary>The three conditional sentences the text accounting composes, on the same three conditions: the next
+    /// page (measured off what was RENDERED, so a consumer paging by these lands on the first path it has not seen),
+    /// an offset past the end, and the max_chars cut. Siblings of the <c>accounting</c> object rather than members of
+    /// it, because that object is the eight counters and nothing else.</summary>
+    /// <param name="everySentence">write them all, whatever the counts say — the widest case the reserve measures.</param>
+    static void WriteAssetAdvice(Utf8JsonWriter w, TransportCounts c, int cap, bool everySentence = false)
+    {
+        if (everySentence || c.Remaining > 0)
+        {
+            w.WriteNumber("next_limit", c.NextLimit);
+            w.WriteNumber("next_offset", c.Offset + c.Rendered);
+        }
+        if (everySentence || (c.Remaining == 0 && c.Total > 0 && c.Offset >= c.Total))
+            w.WriteString("offset_note", $"offset={c.Offset} is past the end of the selection ({c.Total} path(s)) — the last page starts before it.");
+        if (everySentence || c.Truncated > 0)
+            w.WriteString("truncated_note",
+                $"max_chars={cap} cut trailing resolved path(s) from this document — raise max_chars, or page with limit=/offset=.");
+    }
+
+    /// <summary>The chars held back from max_chars for the tail this document closes on — the accounting object, the
+    /// truncation flag and every advice sentence. Measured by serializing the WIDEST tail under the response's own
+    /// writer options, so no rendering of it can outgrow its own room (measuring unindented what is written indented
+    /// under-reserves by the whole indentation).</summary>
+    static int AssetTailReserve(AssetStatusData d, int cap)
+    {
+        var widest = AssetWire.Widest(d);
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteString("before", "");   // the tail is never a document's first member, so it pays the separator one owes
+            TransportAccounting.WriteJson(w, widest);
+            w.WriteBoolean("truncated", true);
+            WriteAssetAdvice(w, widest, cap, everySentence: true);
+            w.WriteEndObject();
+        }
+        return (int)ms.Length;
     }
 
     static void WriteAssetRow(Utf8JsonWriter w, AssetPathResult r, bool readIncomplete, bool discoveryIncomplete)
@@ -2612,8 +2667,12 @@ static class JsonWire
         {
             WriteNullableStringArray(w, "prefix_suggestions", r.PrefixSuggestions);
             // The two ways an ABSENT can be wrong, per row rather than only at the top: the text render hedges the
-            // answer where it is read, and a json consumer branching on exists=false needs the same hedge.
-            w.WriteBoolean("absent_may_be_incomplete", readIncomplete || discoveryIncomplete);
+            // answer where it is read, and a json consumer branching on exists=false needs the same hedge. TWO
+            // booleans because they are two distinct hedges with two distinct remedies — an archive that failed to
+            // read (the asset could be inside it) against base archives never discovered (they went unscanned) — and
+            // one OR of them would leave the consumer re-deriving which applies from the top-level pair.
+            w.WriteBoolean("absent_may_be_incomplete_read_failure", readIncomplete);
+            w.WriteBoolean("absent_may_be_incomplete_undiscovered_archives", discoveryIncomplete);
         }
         w.WriteEndObject();
     }
@@ -2660,7 +2719,9 @@ static class JsonWire
             bool truncated = false;
             foreach (var r in o.Results)
             {
-                if (Over(w, ms, cap)) { truncated = true; break; }
+                // rendered > 0: the FIRST row always renders, as it does on the text lane — and on this document it
+                // is the only place current_winner, the mod the caller has to sort above, is stated.
+                if (rendered > 0 && Over(w, ms, cap)) { truncated = true; break; }
                 WritePlaceRow(w, r, modFolder, poleWithheld?.Contains(r.AssetPath) == true);
                 rendered++;
             }
