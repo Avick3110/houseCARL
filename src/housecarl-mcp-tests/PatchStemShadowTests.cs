@@ -8,8 +8,10 @@ namespace HousecarlMcpTests;
 /// behind the stem allocator never saw such a plugin, so houseCARL used to write "&lt;name&gt;.esp" beside a foreign
 /// "&lt;name&gt;.esp" — two plugins that cannot both be active — and said nothing. The check is on the FILENAME the
 /// call will write, so a lane whose folder name and plugin name differ is judged by the plugin it really emits.
-/// Driven through <c>housecarl_create</c>'s engine entry, the shortest real <c>patch=</c> write, and through
-/// <c>housecarl_merge_plugins</c>, whose output filename is not its folder stem.
+/// Driven through <c>housecarl_create</c>'s engine entry, the shortest real <c>patch=</c> write; through
+/// <c>housecarl_merge_plugins</c>, whose output filename is not its folder stem; through
+/// <c>housecarl_create_plugin</c>, which is judged on its basename rather than one filename; and through
+/// <c>housecarl_copy</c>, whose stem falls back to a name the caller did not spell as <c>patch=</c>.
 ///
 /// <para>Each test builds its OWN world: they add mod folders and rewrite the profile's modlist.</para>
 /// </summary>
