@@ -99,7 +99,10 @@ public static class SkseTools
     /// <summary>One call's shared render context: what to narrow to, the char budget, the TRANSPORT paging window,
     /// and which format was asked for. A record so a new TRANSPORT axis lands here rather than as a fourth positional
     /// argument on all three renders.</summary>
-    internal readonly record struct FamilyCall(string? Filter, bool Peek, int Cap, RowWindow Window, bool Json);
+    /// <summary><paramref name="Trailer"/> is what the dispatcher writes after the render — the family footer — held
+    /// back out of the render's BUDGET while <paramref name="Cap"/> stays the caller's own max_chars, the number every
+    /// notice quotes.</summary>
+    internal readonly record struct FamilyCall(string? Filter, bool Peek, int Cap, RowWindow Window, bool Json, int Trailer = 0);
 
     /// <summary>The live renders: each family's data read from the service, handed to its own wire class.</summary>
     sealed class ServiceRenders(LoadOrderService svc) : IFamilyRenders
@@ -108,26 +111,27 @@ public static class SkseTools
         {
             var d = svc.SkseInventory(c.Peek ? c.Filter!.Trim() : null);
             return c.Json ? SkseInventoryWire.RenderJson(d, c.Filter, c.Cap, c.Window)
-                          : SkseInventoryWire.Render(d, c.Filter, c.Cap, c.Window);
+                          : SkseInventoryWire.Render(d, c.Filter, c.Cap, c.Window, c.Trailer);
         }
 
         public string Pairing(FamilyCall c)
         {
             var d = svc.NativePairingAudit();
             return c.Json ? NativePairingWire.RenderJson(d, c.Filter, c.Cap, c.Window)
-                          : NativePairingWire.Render(d, c.Filter, c.Cap, c.Window);
+                          : NativePairingWire.Render(d, c.Filter, c.Cap, c.Window, c.Trailer);
         }
 
         public string Config(FamilyCall c)
         {
             var d = svc.SkseConfigAudit();
             return c.Json ? SkseConfigAuditWire.RenderJson(d, c.Filter, c.Cap, c.Window)
-                          : SkseConfigAuditWire.Render(d, c.Filter, c.Cap, c.Window);
+                          : SkseConfigAuditWire.Render(d, c.Filter, c.Cap, c.Window, c.Trailer);
         }
     }
 
-    /// <summary>Runs the selected family and appends the footer. The footer's length is subtracted from max_chars so it
-    /// is paid for rather than added past the cap; the renders themselves charge their scope note, caveats and filter
+    /// <summary>Runs the selected family and appends the footer. The footer rides down as the render's TRAILER — room
+    /// held back out of its budget — rather than off the cap, so every notice inside the render quotes the max_chars the
+    /// caller actually passed; the renders themselves charge their scope note, caveats and filter
     /// hint before laying a row, measure the row they are about to write, and charge the cut notice each list may end
     /// on, so max_chars bounds the whole response. The one arm left over — a cap too small for what the response
     /// carries whatever the budget — is named by <see cref="RenderCap.Settle"/>.</summary>
@@ -137,8 +141,8 @@ public static class SkseTools
         // The json document states the family and the two that did not run in-band, so appending the text footer to
         // it would only break the document.
         var footer = json ? "" : FamilyFooter(family);
-        int cap = Math.Max(1, (max_chars > 0 ? max_chars : 80_000) - footer.Length);
-        var call = new FamilyCall(filter, peek, cap, window, json);
+        int cap = max_chars > 0 ? max_chars : 80_000;
+        var call = new FamilyCall(filter, peek, cap, window, json, footer.Length);
         var body = family switch
         {
             SkseFamily.Inventory => renders.Inventory(call),
@@ -324,9 +328,9 @@ static class SkseInventoryWire
             modern.Where(e => !e.Plugin!.Version!.VersionIndependent).ToList());
     }
 
-    public static string Render(SkseInventoryData d, string? filter, int cap, RowWindow window = default)
+    public static string Render(SkseInventoryData d, string? filter, int cap, RowWindow window = default, int trailer = 0)
     {
-        if (filter is { Length: > 0 }) return RenderFiltered(d, filter.Trim(), cap, window);
+        if (filter is { Length: > 0 }) return RenderFiltered(d, filter.Trim(), cap, window, trailer);
 
         // The census states the WHOLE layer; limit=/offset= window only the rows listed below it. Room for the
         // accounting block is held back out of the cap so it is paid for rather than appended past it.
@@ -353,7 +357,7 @@ static class SkseInventoryWire
         // starts. Those two then lay their rows in the room reserved for them, above the subsets' ceiling.
         int rosterCut = CutRoom(rows.Count, hint: FilterHint);
         int folderCut = CutRoom(folderGroups, "folders");
-        int budget = Math.Max(1, cap - reserve - tail.Length - rosterHead.Length - rosterCut
+        int budget = Math.Max(1, cap - trailer - reserve - tail.Length - rosterHead.Length - rosterCut
                                  - foldersHead.Length - folderCut - SectionsMissed(9, cap).Length);
         int rosterCeil = budget + rosterHead.Length + rosterCut;
         int folderCeil = rosterCeil + foldersHead.Length + folderCut;
@@ -493,7 +497,7 @@ static class SkseInventoryWire
     /// <summary>filter=: full detail for every matching DLL, then every matching config, matched by folder, filename or
     /// provider — so a folder name expands its group, a plugin name shows the manifest, and a mod name shows
     /// everything it provides.</summary>
-    static string RenderFiltered(SkseInventoryData d, string filter, int cap, RowWindow window = default)
+    static string RenderFiltered(SkseInventoryData d, string filter, int cap, RowWindow window = default, int trailer = 0)
     {
         bool In(string? s) => s is not null && s.Contains(filter, StringComparison.OrdinalIgnoreCase);
         bool MatchCfg(SkseFileEntry e) => In(e.FileName) || In(e.WinningProvider) || In(e.Group);
@@ -513,7 +517,7 @@ static class SkseInventoryWire
         // cap stays the caller's max_chars, the number the notices quote; budget is the room the blocks have once
         // everything written after them — the accounting, this view's own two cut notices, the peek note and the
         // matching-configs heading — is charged.
-        int budget = Math.Max(1, cap - reserve);
+        int budget = Math.Max(1, cap - trailer - reserve);
         var tally = new RowTally();
         string Accounting() => TransportAccounting.Compose(
             TransportAccounting.Tally(total, windowed, tally.Count, window, notes), MatchNoun, everySentence: false);
@@ -1071,9 +1075,9 @@ static class SkseConfigAuditWire
     /// <summary>What this family's accounting counts: the config FILES the audit covers.</summary>
     internal const string RowNoun = "config(s)";
 
-    public static string Render(SkseConfigAuditData d, string? filter, int cap, RowWindow window = default)
+    public static string Render(SkseConfigAuditData d, string? filter, int cap, RowWindow window = default, int trailer = 0)
     {
-        if (filter is { Length: > 0 }) return RenderFiltered(d, filter.Trim(), cap, window);
+        if (filter is { Length: > 0 }) return RenderFiltered(d, filter.Trim(), cap, window, trailer);
 
         // Every count below states the WHOLE audit; limit=/offset= window only the files the sections LIST. Room for
         // the accounting block is held back out of the cap so it is paid for rather than appended past it.
@@ -1102,7 +1106,7 @@ static class SkseConfigAuditWire
              noRefFiles0.Count + " file(s) declare no form-shaped references\n").Length +
             (noRefFiles0.Count == 0 ? 0 : ("  no-reference configs by folder (" + noRefGroups + "):\n").Length) + noRefCut;
         // cap stays the caller's max_chars — the number the notices quote; budget is the room the sections have.
-        int budget = Math.Max(1, cap - reserve - tail.Length - alwaysWritten - SkseInventoryWire.SectionsMissed(9, cap).Length);
+        int budget = Math.Max(1, cap - trailer - reserve - tail.Length - alwaysWritten - SkseInventoryWire.SectionsMissed(9, cap).Length);
         // The always-written accounted-for block lays its folder rows in the room reserved for it, above the
         // diagnostic sections' ceiling.
         int noRefCeil = budget + alwaysWritten;
@@ -1239,7 +1243,7 @@ static class SkseConfigAuditWire
 
     /// <summary>filter=: audit just the matching configs — by folder, provider, filename, or a referenced plugin — and
     /// list every reference with its verdict, OKs included, so the view also serves as positive confirmation.</summary>
-    static string RenderFiltered(SkseConfigAuditData d, string filter, int cap, RowWindow window = default)
+    static string RenderFiltered(SkseConfigAuditData d, string filter, int cap, RowWindow window = default, int trailer = 0)
     {
         bool In(string? s) => s is not null && s.Contains(filter, StringComparison.OrdinalIgnoreCase);
         bool Match(SkseConfigFileAudit f) =>
@@ -1254,7 +1258,7 @@ static class SkseConfigAuditWire
         // cap stays the caller's max_chars; budget is the room the file blocks have once the accounting and this
         // view's own cut notice are charged.
         string FilesCut(int shown) => "\n  ... [showing " + shown + " of " + hits.Count + " files; raise max_chars]\n";
-        int budget = Math.Max(1, cap - reserve - FilesCut(hits.Count).Length);
+        int budget = Math.Max(1, cap - trailer - reserve - FilesCut(hits.Count).Length);
         var tally = new RowTally();
         string Accounting() => TransportAccounting.Compose(
             TransportAccounting.Tally(allHits.Count, hits.Count, tally.Count, window, notes), RowNoun, everySentence: false);
@@ -1578,9 +1582,9 @@ static class NativePairingWire
             loads.Except(debugBuilds).ToList());
     }
 
-    public static string Render(NativePairingAuditData d, string? filter, int cap, RowWindow window = default)
+    public static string Render(NativePairingAuditData d, string? filter, int cap, RowWindow window = default, int trailer = 0)
     {
-        if (filter is { Length: > 0 }) return RenderFiltered(d, filter.Trim(), cap, window);
+        if (filter is { Length: > 0 }) return RenderFiltered(d, filter.Trim(), cap, window, trailer);
 
         // The summary states the WHOLE audit; limit=/offset= window only the classes the sections LIST. Room for the
         // accounting block is held back out of the cap so it is paid for rather than appended past it.
@@ -1607,7 +1611,7 @@ static class NativePairingWire
             HealthyCut.Length;
         // cap stays the caller's max_chars — the number the notices quote; budget is the room the sections have once
         // the tail, the always-written block and its own cut notice are charged.
-        int budget = Math.Max(1, cap - reserve - tail.Length - alwaysWritten - SkseInventoryWire.SectionsMissed(9, cap).Length);
+        int budget = Math.Max(1, cap - trailer - reserve - tail.Length - alwaysWritten - SkseInventoryWire.SectionsMissed(9, cap).Length);
         // The always-written healthy roster lays its rows in the room reserved for it, above the sections' ceiling.
         int healthyCeil = budget + alwaysWritten;
         // A section starts only where the cut notice its rows may end on fits too.
@@ -1739,7 +1743,7 @@ static class NativePairingWire
     /// <summary>filter=: full detail for every matching class — by class name, path, provider, paired mod, or a
     /// candidate DLL's filename — giving the declared native functions, the pairing evidence, each candidate DLL's
     /// manifest and load verdict, and the conflict chain.</summary>
-    static string RenderFiltered(NativePairingAuditData d, string filter, int cap, RowWindow window = default)
+    static string RenderFiltered(NativePairingAuditData d, string filter, int cap, RowWindow window = default, int trailer = 0)
     {
         bool In(string? s) => s is not null && s.Contains(filter, StringComparison.OrdinalIgnoreCase);
         bool Match(NativeClassEntry c) => In(c.ClassName) || In(c.RelPath) || In(c.WinningProvider) || In(c.PairedMod)
@@ -1754,7 +1758,7 @@ static class NativePairingWire
         // cap stays the caller's max_chars; budget is the room the class blocks have once the caveats, the accounting
         // and this view's own cut notice are charged.
         string ClassesCut(int shown) => "\n  ... [showing " + shown + " of " + hits.Count + " classes; raise max_chars]\n";
-        int budget = Math.Max(1, cap - reserve - tail.Length - ClassesCut(hits.Count).Length);
+        int budget = Math.Max(1, cap - trailer - reserve - tail.Length - ClassesCut(hits.Count).Length);
         var tally = new RowTally();
         string Accounting() => TransportAccounting.Compose(
             TransportAccounting.Tally(allHits.Count, hits.Count, tally.Count, window, notes), RowNoun, everySentence: false);
