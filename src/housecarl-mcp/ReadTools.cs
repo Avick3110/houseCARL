@@ -285,6 +285,7 @@ static class Wire
         if (anyScoped) sb.Append("note: ").Append(JsonWire.ScopedFieldsNote(winnerFields, q.WhereWinner, lv)).Append('\n');
 
         int rendered = 0;
+        var renderClock = System.Diagnostics.Stopwatch.StartNew();
         var notes = new ChildNotes();   // accumulated over the rows actually rendered
         for (int i = 0; i < q.Keys.Count && !(spill?.ManifestOnly ?? false); i++)   // to_file: only the manifest renders — the rows are the FILE
         {
@@ -329,7 +330,13 @@ static class Wire
             }
             rendered++;
         }
+        renderClock.Stop();
         AppendOwnedChildNotes(sb, notes);
+        // What the RENDER cost, stated in-band: the scan terms bound the scan, and the per-row body read is the
+        // other half of a call's cost, which nothing said before (#582).
+        if (detail && !(spill?.ManifestOnly ?? false))
+            sb.Append("rendered ").Append(rendered).Append(rendered == 1 ? " row in " : " rows in ")
+              .Append(renderClock.ElapsedMilliseconds).Append(" ms\n");
         if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
         return sb.ToString().TrimEnd('\n');
     }
