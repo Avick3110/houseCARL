@@ -18,6 +18,9 @@ public sealed class RenderCostWorld : IDisposable
     public const int Weapons = 60;
     public const int OffOrderWeapons = 12;
 
+    /// <summary>Keywords on every weapon, so a rows-form fold has this many lines to fold per body.</summary>
+    public const int KeywordsPerWeapon = 3;
+
     /// <summary>A second population, spread one small plugin at a time: the gather's unit is a PLUGIN, so a claim
     /// about which plugins a render walks needs rows whose winners live in more than one. Its own record type, so
     /// the weapon counts every other test pins stay what they were.</summary>
@@ -47,22 +50,40 @@ public sealed class RenderCostWorld : IDisposable
         var masterKey = new ModKey("HcCostMaster", ModType.Master);
         MasterName = masterKey.FileName.String;
         var master = new SkyrimMod(masterKey, SkyrimRelease.SkyrimSE);
+        // A list field with more than one element per record, so a rows-form fold has something to fold — the seam
+        // between "bodies read" and "lines rendered".
+        var kwds = new List<FormKey>();
+        for (int k = 0; k < KeywordsPerWeapon; k++)
+        {
+            var kw = master.Keywords.AddNew();
+            kw.EditorID = "HcCostKeyword" + k;
+            kwds.Add(kw.FormKey);
+        }
         for (int i = 0; i < Weapons; i++)
         {
             var w = master.Weapons.AddNew();
             w.EditorID = "HcCostSword" + i;
             w.Name = "Cost Sword " + i;
             w.BasicStats = new WeaponBasicStats { Damage = (ushort)(10 + i), Weight = 1 };
+            w.Keywords = Linked(kwds);
         }
 
         var offKey = new ModKey("HcCostOff", ModType.Plugin);
         OffOrderName = offKey.FileName.String;
         var off = new SkyrimMod(offKey, SkyrimRelease.SkyrimSE);
+        var offKwds = new List<FormKey>();
+        for (int k = 0; k < KeywordsPerWeapon; k++)
+        {
+            var kw = off.Keywords.AddNew();
+            kw.EditorID = "HcOffKeyword" + k;
+            offKwds.Add(kw.FormKey);
+        }
         for (int i = 0; i < OffOrderWeapons; i++)
         {
             var w = off.Weapons.AddNew();
             w.EditorID = "HcOffSword" + i;
             w.BasicStats = new WeaponBasicStats { Damage = (ushort)(5 + i), Weight = 1 };
+            w.Keywords = Linked(offKwds);
         }
 
         var instance = Path.Combine(Root, "inst");
@@ -112,6 +133,14 @@ public sealed class RenderCostWorld : IDisposable
             + "+CostMasterMod\r\n");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "user.json")));
+    }
+
+    /// <summary>The keyword links a weapon carries, in the list shape the record wants.</summary>
+    static Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>> Linked(IEnumerable<FormKey> keys)
+    {
+        var list = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>>();
+        foreach (var k in keys) list.Add(new FormLink<IKeywordGetter>(k));
+        return list;
     }
 
     public string Scratch(string name)
@@ -253,6 +282,34 @@ public sealed class RecordsRenderCostTests
         var doc = Doc(RecordsTools.Records(Svc, types: Weap, format: "json", limit: 10, project: Everything()));
         Assert.Equal(10, doc.GetProperty("rows_read").GetInt32());
         Assert.True(doc.GetProperty("render_ms").GetInt64() >= 0);
+    }
+
+    /// <summary>rows_read is what was READ. The rows form folds each weapon's keyword list to one line per
+    /// element, and those lines live inside the record's own row rather than becoming rows of their own, so the
+    /// count beside the cost stays the bodies the clock measured — the count the bound is checked against.</summary>
+    [Fact]
+    public void AFoldedScanReportsTheBodiesItReadAndNotTheRowsTheFoldMade()
+    {
+        var rows = new RecordsTools.RecordsProject { form = "rows", fields = new[] { "Keywords" } };
+        var doc = Doc(RecordsTools.Records(Svc, types: Weap, format: "json", limit: RenderCostWorld.Weapons,
+                                           project: rows, max_chars: 4_000_000));
+        Assert.Equal(RenderCostWorld.Weapons, doc.GetProperty("rendered").GetInt32());
+        Assert.Equal(RenderCostWorld.Weapons, doc.GetProperty("rows_read").GetInt32());
+        // The fold really did produce a line per keyword (plus the root's own count line) — otherwise this pins
+        // nothing: the point is that those lines live INSIDE one record's row and never become records of their own.
+        Assert.Equal(RenderCostWorld.KeywordsPerWeapon + 1,
+                     doc.GetProperty("records")[0].GetProperty("fields").GetArrayLength());
+    }
+
+    /// <summary>The off-order lane states the same count for the same reason.</summary>
+    [Fact]
+    public void AFoldedOffOrderScanReportsTheBodiesItReadToo()
+    {
+        var rows = new RecordsTools.RecordsProject { form = "rows", fields = new[] { "Keywords" } };
+        var doc = Doc(RecordsTools.Records(Svc, types: Weap, source: Pole(_w.OffOrderName), format: "json",
+                                           project: rows, max_chars: 4_000_000));
+        Assert.Equal(RenderCostWorld.OffOrderWeapons, doc.GetProperty("rendered").GetInt32());
+        Assert.Equal(RenderCostWorld.OffOrderWeapons, doc.GetProperty("rows_read").GetInt32());
     }
 
     /// <summary>The shape that renders the MOST rows reports what they cost: a to_file= call renders every selected
