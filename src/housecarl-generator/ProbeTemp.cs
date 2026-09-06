@@ -88,6 +88,7 @@ public static class ProbeTemp
     {
         int left = 0;
         string? first = null;
+        Exception? unlistable = null;
 
         try
         {
@@ -100,13 +101,22 @@ public static class ProbeTemp
                 first ??= f;
             }
         }
-        // A temp path that will not list has nothing to sweep and no residue to name: the enumeration is the
-        // only thing here that throws, and the start failure right after it is the run's one sentence.
-        catch { }
+        // Listing temp is the only thing here that throws, and it throws in states the run survives: a temp
+        // this process may traverse and write but not read denies the enumeration while CreateDirectory below
+        // succeeds. Say the sweep could not look rather than count entries it never saw — silence there skips
+        // the sweep every run and lets dead runs' roots pile up with nothing saying why.
+        catch (Exception ex) { unlistable = ex; }
 
         if (left > 0)
             Console.WriteLine($"  (temp sweep left {left} entr{(left == 1 ? "y" : "ies")} from an earlier run under {temp}: {first})");
+        if (unlistable != null) Console.WriteLine($"  ({SweepUnlistable(temp, unlistable)})");
     }
+
+    /// <summary>The one line a run prints when it cannot list temp to sweep the roots earlier runs left.</summary>
+    static string SweepUnlistable(string temp, Exception ex) =>
+        $"temp sweep could not look in {temp} for the roots killed runs leave behind ({ex.Message.TrimEnd()}) — " +
+        "grant this run list access there or point TMP/TEMP at a directory it can read, or those roots go " +
+        "unswept every run";
 
     /// <summary>Read the pid out of an <c>hc-&lt;pid&gt;</c> or <c>hc-&lt;pid&gt;-&lt;n&gt;</c> root name.</summary>
     static bool TryReadPid(string name, out int pid)
