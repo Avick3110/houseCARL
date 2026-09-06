@@ -346,8 +346,17 @@ static class SkseInventoryWire
         int folderGroups = d.Configs.Select(e => e.Group).Distinct(StringComparer.OrdinalIgnoreCase).Count();
         string foldersHead = d.Configs.Count == 0 ? ""
             : "\nconfig folders (" + folderGroups + ") — folder: files ← provider(s):\n";
-        cap = Math.Max(1, cap - reserve - tail.Length - rosterHead.Length - foldersHead.Length
-                          - SectionsMissed(9, cap).Length);
+        // cap stays the CALLER's max_chars — the number every notice quotes and the ceiling the response may not
+        // exceed. budget is the room content has once everything written after it is charged, and each list's own
+        // cut notice is charged too: the two sections written whatever the rows cost — the plugin roster and the
+        // config-folder table — hold theirs here beside their headings, and every subset holds its own before it
+        // starts. Those two then lay their rows in the room reserved for them, above the subsets' ceiling.
+        int rosterCut = CutRoom(rows.Count, hint: FilterHint);
+        int folderCut = CutRoom(folderGroups, "folders");
+        int budget = Math.Max(1, cap - reserve - tail.Length - rosterHead.Length - rosterCut
+                                 - foldersHead.Length - folderCut - SectionsMissed(9, cap).Length);
+        int rosterCeil = budget + rosterHead.Length + rosterCut;
+        int folderCeil = rosterCeil + foldersHead.Length + folderCut;
         int missed = 0;
         var tally = new RowTally();
 
@@ -381,11 +390,11 @@ static class SkseInventoryWire
         // mismatch to verify. Surfaced without peek=, because the import walk it needs rides the PE open that every
         // DLL's manifest read already pays for.
         var debugCrt = loaded.Where(x => x.Plugin is { Imports: not null } pl && pl.DebugCrtImports.Count > 0).ToList();
-        if (debugCrt.Count > 0 && !Head(sb, cap, "\n[!] DEBUG-BUILD plugins (" + debugCrt.Count +
+        if (debugCrt.Count > 0 && !Head(sb, budget - CutRoom(debugCrt.Count, hint: FilterHint), "\n[!] DEBUG-BUILD plugins (" + debugCrt.Count +
                 ") — they import the debug C runtime, which ships only with Visual Studio and is NOT redistributable:\n")) missed++;
         else if (debugCrt.Count > 0)
         {
-            AppendCapped(sb, debugCrt, cap, x =>
+            AppendCapped(sb, debugCrt, budget, x =>
             {
                 var crt = x.Plugin!.DebugCrtImports;
                 return $"  - {x.FileName} → needs {string.Join(", ", crt)}" +
@@ -398,10 +407,18 @@ static class SkseInventoryWire
         string lockedHead = locked.Count == 0 ? "" : "\n[!] version-LOCKED plugins (" + locked.Count +
             ") — load ONLY on their listed runtime(s)" +
             (d.InstalledRuntime is { } rt0 ? $"; installed game runtime is {rt0}:\n" : "; a mismatch with your game version = won't load:\n");
-        if (locked.Count > 0 && !Head(sb, cap, lockedHead)) missed++;
+        // The "different runtimes" line below the rows is written whatever they cost, so its room is charged with the
+        // heading rather than appended past the budget after the fact.
+        var distinctRuntimes = d.InstalledRuntime is not null ? new List<string>()
+            : locked.SelectMany(e => e.Plugin!.Version!.CompatibleVersions).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        string runtimesNote = distinctRuntimes.Count > 1
+            ? "      ↑ these target DIFFERENT runtimes (" + string.Join(", ", distinctRuntimes) +
+              ") — verify each matches your game version (the installed version could not be resolved).\n"
+            : "";
+        if (locked.Count > 0 && !Head(sb, budget - CutRoom(locked.Count, hint: FilterHint) - runtimesNote.Length, lockedHead)) missed++;
         else if (locked.Count > 0)
         {
-            AppendCapped(sb, locked, cap, e =>
+            AppendCapped(sb, locked, budget - runtimesNote.Length, e =>
             {
                 var v = e.Plugin!.Version!;
                 string rt = v.CompatibleVersions.Count > 0 ? string.Join(", ", v.CompatibleVersions) : "(none listed!)";
@@ -410,34 +427,27 @@ static class SkseInventoryWire
                     : "";
                 return $"  - {e.FileName} → {rt}{verdict}   [\"{v.Name}\"{Provider(e)}]";
             }, tally);
-            if (d.InstalledRuntime is null)
-            {
-                var distinctRuntimes = locked.SelectMany(e => e.Plugin!.Version!.CompatibleVersions)
-                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                if (distinctRuntimes.Count > 1)
-                    sb.Append("      ↑ these target DIFFERENT runtimes (").Append(string.Join(", ", distinctRuntimes))
-                      .Append(") — verify each matches your game version (the installed version could not be resolved).\n");
-            }
+            sb.Append(runtimesNote);
         }
 
-        if (!AppendSubset(sb, "legacy query-only (SE/VR-era — metadata set at runtime, not statically readable)", legacy, cap,
+        if (!AppendSubset(sb, "legacy query-only (SE/VR-era — metadata set at runtime, not statically readable)", legacy, budget,
             e => $"  - {e.FileName}{Provider(e)}", tally)) missed++;
-        if (!AppendSubset(sb, "non-plugin DLLs (no SKSE export — a bundled dependency, not a plugin)", notPlugin, cap,
+        if (!AppendSubset(sb, "non-plugin DLLs (no SKSE export — a bundled dependency, not a plugin)", notPlugin, budget,
             e => $"  - {e.FileName}{Provider(e)}", tally)) missed++;
-        if (!AppendSubset(sb, "subfolder DLLs (present but NOT on SKSE's loader path — bundled/parent-loaded, not plugins SKSE loads)", subfolder, cap,
+        if (!AppendSubset(sb, "subfolder DLLs (present but NOT on SKSE's loader path — bundled/parent-loaded, not plugins SKSE loads)", subfolder, budget,
             e => $"  - {e.Group}\\{e.FileName}{Provider(e)}", tally)) missed++;
-        if (!AppendSubset(sb, "BSA-only / unresolved DLLs (SKSE loads loose DLLs only — these will NOT load)", bsaOnly, cap,
+        if (!AppendSubset(sb, "BSA-only / unresolved DLLs (SKSE loads loose DLLs only — these will NOT load)", bsaOnly, budget,
             e => $"  - {e.FileName}{Provider(e)}  — {e.Note}", tally)) missed++;
-        if (!AppendSubset(sb, "unreadable DLLs (not a valid PE image)", unreadable, cap,
+        if (!AppendSubset(sb, "unreadable DLLs (not a valid PE image)", unreadable, budget,
             e => $"  - {e.FileName}{Provider(e)}  — {e.Plugin?.Note}", tally)) missed++;
 
         var contested = loaded.Where(e => e.ProviderCount > 1).ToList();
-        if (!AppendSubset(sb, "contested DLLs (shipped by >1 mod — winner-first conflict chain; verify the winner is the one you want)", contested, cap,
+        if (!AppendSubset(sb, "contested DLLs (shipped by >1 mod — winner-first conflict chain; verify the winner is the one you want)", contested, budget,
             e => $"  - {e.FileName}: {Chain(e)}", tally)) missed++;
 
         // ── Plugin roster: the loaded, metadata-bearing plugins, terse. ──
         sb.Append(rosterHead);
-        AppendCapped(sb, modern.OrderBy(e => e.FileName, StringComparer.OrdinalIgnoreCase).ToList(), cap, e =>
+        AppendCapped(sb, modern.OrderBy(e => e.FileName, StringComparer.OrdinalIgnoreCase).ToList(), rosterCeil, e =>
         {
             var v = e.Plugin!.Version!;
             return $"  - {e.FileName}  \"{v.Name}\" v{v.PluginVersion}  {CompatTag(v)}{Provider(e)}";
@@ -452,6 +462,8 @@ static class SkseInventoryWire
                               Contested: g.Count(e => e.ProviderCount > 1)))
                 .OrderByDescending(g => g.Count).ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase).ToList();
             sb.Append(foldersHead);
+            // The folder table's own cut notice was charged with its heading, so the rows lay below that room.
+            int folderRoom = folderCeil - folderCut;
             int shown = 0;
             foreach (var g in groups)
             {
@@ -466,7 +478,7 @@ static class SkseInventoryWire
                 if (g.Contested > 0) sb.Append("  [").Append(g.Contested).Append(" contested]");
                 sb.Append('\n');
                 // The row is taken back out whole when it crossed, so the response ends inside max_chars.
-                if (sb.Length > cap) { sb.Length = mark; sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(groups.Count).Append(" folders; raise max_chars]\n"); break; }
+                if (sb.Length > folderRoom) { sb.Length = mark; sb.Append(Showing(shown, groups.Count, "folders")); break; }
                 shown++;
             }
         }
@@ -498,7 +510,10 @@ static class SkseInventoryWire
         var cfgHits = window.After(allDllHits.Count, dllHits.Count).Apply(allCfgHits);
         int windowed = dllHits.Count + cfgHits.Count;
         int reserve = TransportAccounting.Reserve(total, windowed, window, notes, MatchNoun);
-        cap = Math.Max(1, cap - reserve);
+        // cap stays the caller's max_chars, the number the notices quote; budget is the room the blocks have once
+        // everything written after them — the accounting, this view's own two cut notices, the peek note and the
+        // matching-configs heading — is charged.
+        int budget = Math.Max(1, cap - reserve);
         var tally = new RowTally();
         string Accounting() => TransportAccounting.Compose(
             TransportAccounting.Tally(total, windowed, tally.Count, window, notes), MatchNoun, everySentence: false);
@@ -515,20 +530,37 @@ static class SkseInventoryWire
             return sb.ToString().TrimEnd('\n') + Accounting();
         }
 
+        // Everything this view writes below the DLL blocks is charged before the first one is laid.
+        string dllCut = "\n  ... [remaining DLL matches omitted at max_chars=" + cap + "]\n";
+        string peekNote = d.PeekRequested && allDllHits.Count == 0
+            ? "\n[!] peek=true matched no DLL at all — nothing was peeked. Pass filter= the name of a loose DLL to peek it.\n"
+            : "";
+        int cfgRoom = cfgHits.Count == 0 ? 0
+            : ("\nmatching configs (" + cfgHits.Count + "):\n").Length + CutRoom(cfgHits.Count);
+        int dllRoom = budget - dllCut.Length - peekNote.Length - cfgRoom;
+
         var shownCfg = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var e in dllHits)
         {
             int mark = sb.Length;
-            AppendDetail(sb, e, d, shownCfg);
-            if (sb.Length > cap) { sb.Length = mark; sb.Append("\n  ... [remaining DLL matches omitted at max_chars=").Append(cap).Append("]\n"); break; }
+            var added = new List<string>();
+            AppendDetail(sb, e, d, shownCfg, added);
+            // The block AND the configs it marked as shown come back out together: half a rollback would hide a
+            // config from the list below and still count it as rendered.
+            if (sb.Length > dllRoom)
+            {
+                sb.Length = mark;
+                foreach (var path in added) shownCfg.Remove(path);
+                sb.Append(dllCut);
+                break;
+            }
             tally.Mark(e.RelPath);
         }
 
         // peek= honoured with nothing to show is still an unanswered question. A bare peek=true fails in PeekArgError
         // and a matched-but-unpeekable DLL says so on its own entry, so this covers the last case: the filter matched
         // no DLL at all, leaving no entry to carry the notice.
-        if (d.PeekRequested && allDllHits.Count == 0)
-            sb.Append("\n[!] peek=true matched no DLL at all — nothing was peeked. Pass filter= the name of a loose DLL to peek it.\n");
+        sb.Append(peekNote);
 
         // Remaining matching configs (not already shown as a DLL's paired config), grouped by folder.
         var rest = cfgHits.Where(e => !shownCfg.Contains(e.RelPath))
@@ -536,6 +568,7 @@ static class SkseInventoryWire
         if (rest.Count > 0)
         {
             sb.Append("\nmatching configs (").Append(rest.Count).Append("):\n");
+            int cfgRows = budget - CutRoom(rest.Count);
             string? curGroup = null;
             int shown = 0;
             foreach (var e in rest)
@@ -547,7 +580,7 @@ static class SkseInventoryWire
                 if (e.ProviderCount > 1) sb.Append(": ").Append(Chain(e));   // contested config → the full winner→loser chain
                 else sb.Append(Provider(e));
                 sb.Append('\n');
-                if (sb.Length > cap) { sb.Length = mark; sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(rest.Count).Append("; raise max_chars]\n"); break; }
+                if (sb.Length > cfgRows) { sb.Length = mark; sb.Append(Showing(shown, rest.Count)); break; }
                 shown++; tally.Mark(e.RelPath);
             }
         }
@@ -556,7 +589,11 @@ static class SkseInventoryWire
         return sb.ToString().TrimEnd('\n') + Accounting();
     }
 
-    static void AppendDetail(StringBuilder sb, SkseFileEntry e, SkseInventoryData d, HashSet<string> shownCfg)
+    /// <summary>One DLL's full detail block. <paramref name="added"/> collects the paired configs this block newly
+    /// marked as shown, so a block the cap takes back out can un-mark them too: a config the reader never saw must
+    /// not be filtered out of the list below and must not count as a rendered row.</summary>
+    static void AppendDetail(StringBuilder sb, SkseFileEntry e, SkseInventoryData d, HashSet<string> shownCfg,
+                             List<string>? added = null)
     {
         sb.Append('\n').Append(e.Group.Length > 0 ? e.Group + "\\" : "").Append(e.FileName).Append("  ← ")
           .Append(e.WinningProvider ?? "(no active provider)").Append(" (").Append(e.ProviderKind).Append(")\n");
@@ -620,7 +657,7 @@ static class SkseInventoryWire
         {
             sb.Append("  configs: ").Append(string.Join(", ", cfgs.Select(c =>
                 (c.Group.Length > 0 ? c.Group + "\\" : "") + c.FileName + Provider(c)))).Append('\n');
-            foreach (var c in cfgs) shownCfg.Add(c.RelPath);
+            foreach (var c in cfgs) if (shownCfg.Add(c.RelPath)) added?.Add(c.RelPath);
         }
         AppendPeek(sb, e, d);
     }
@@ -772,9 +809,22 @@ static class SkseInventoryWire
     }
 
     /// <summary>The line that says how many sections the budget could not start. Spelled once so its room can be
-    /// charged before the sections render.</summary>
+    /// charged before the sections render. The max_chars it names is the one the CALLER passed — the number they
+    /// would raise — never the reduced budget the rows were measured against.</summary>
     internal static string SectionsMissed(int missed, int cap) =>
         "  ... [" + missed + " section(s) omitted at max_chars=" + cap + "; raise max_chars to see them]\n";
+
+    /// <summary>The advice a cut row list carries where narrowing the answer is the other way out.</summary>
+    internal const string FilterHint = " or use filter= to see all";
+
+    /// <summary>The one cut notice a capped row list ends on, spelled once so its widest form — every row omitted —
+    /// can be charged before the first row is laid. <paramref name="noun"/> names the rows where the section heading
+    /// above does not; <paramref name="hint"/> adds the filter= advice where narrowing helps.</summary>
+    internal static string Showing(int shown, int total, string noun = "", string hint = "") =>
+        "  ... [showing " + shown + " of " + total + (noun.Length > 0 ? " " + noun : "") + "; raise max_chars" + hint + "]\n";
+
+    /// <summary>The chars a capped row list must hold back for that notice.</summary>
+    internal static int CutRoom(int total, string noun = "", string hint = "") => Showing(total, total, noun, hint).Length;
 
     static string Provider(SkseFileEntry e) =>
         e.WinningProvider is null ? "  (no active provider)" : $"  ← {e.WinningProvider}";
@@ -788,8 +838,9 @@ static class SkseInventoryWire
                              RowTally? tally = null)
     {
         if (items.Count == 0) return true;
-        // The heading carries the subset's own count, so it goes in whole or the subset does not start.
-        if (!Head(sb, cap, "\n" + label + " (" + items.Count + "):\n")) return false;
+        // The heading carries the subset's own count, so it goes in whole or the subset does not start — and it
+        // starts only where the cut notice its rows may end on fits too, so that notice lands inside the ceiling.
+        if (!Head(sb, cap - CutRoom(items.Count, hint: FilterHint), "\n" + label + " (" + items.Count + "):\n")) return false;
         AppendCapped(sb, items, cap, line, tally);
         return true;
     }
@@ -797,13 +848,16 @@ static class SkseInventoryWire
     static void AppendCapped(StringBuilder sb, IReadOnlyList<SkseFileEntry> items, int cap, Func<SkseFileEntry, string> line,
                              RowTally? tally = null)
     {
+        // The cut notice is charged like every other notice this render writes: its widest spelling is held back
+        // before the first row, so a list that cuts says so inside max_chars rather than past it.
+        int room = cap - CutRoom(items.Count, hint: FilterHint);
         int shown = 0;
         foreach (var e in items)
         {
             var row = line(e) + "\n";
             // Measured against the row about to be written, not against what the buffer already holds: the old test
             // let the row that crossed the budget through whole, which is what put a filled render past max_chars.
-            if (sb.Length + row.Length > cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(items.Count).Append("; raise max_chars or use filter= to see all]\n"); break; }
+            if (sb.Length + row.Length > room) { sb.Append(Showing(shown, items.Count, hint: FilterHint)); break; }
             sb.Append(row); shown++; tally?.Mark(e.RelPath);
         }
     }
@@ -1038,12 +1092,20 @@ static class SkseConfigAuditWire
         int noRefGroups = noRefFiles0.Select(f => f.Group).Distinct(StringComparer.OrdinalIgnoreCase).Count();
         // The accounted-for line and its folder heading are written whatever the sections cost, so their room is
         // charged with the tail rather than taken out of the sections' budget after the fact.
+        // The folder list under that heading is written whatever the sections cost too, so its own cut notice is
+        // charged here beside them rather than appended past the budget.
+        string NoRefCut(int shown) => "    ... [" + shown + " of " + noRefGroups + " folders; raise max_chars]\n";
+        int noRefCut = noRefFiles0.Count == 0 ? 0 : NoRefCut(noRefGroups).Length;
         int alwaysWritten =
             ("\naccounted for: " + healthyFiles0.Count + " file(s) with " + d.Files.Sum(f => f.Refs.Count) +
              " reference(s) all OK · " + d.Files.Sum(f => f.Refs.Count) + " more OK ref(s) in files that also carry a non-OK reference · " +
              noRefFiles0.Count + " file(s) declare no form-shaped references\n").Length +
-            (noRefFiles0.Count == 0 ? 0 : ("  no-reference configs by folder (" + noRefGroups + "):\n").Length);
-        cap = Math.Max(1, cap - reserve - tail.Length - alwaysWritten - SkseInventoryWire.SectionsMissed(9, cap).Length);
+            (noRefFiles0.Count == 0 ? 0 : ("  no-reference configs by folder (" + noRefGroups + "):\n").Length) + noRefCut;
+        // cap stays the caller's max_chars — the number the notices quote; budget is the room the sections have.
+        int budget = Math.Max(1, cap - reserve - tail.Length - alwaysWritten - SkseInventoryWire.SectionsMissed(9, cap).Length);
+        // The always-written accounted-for block lays its folder rows in the room reserved for it, above the
+        // diagnostic sections' ceiling.
+        int noRefCeil = budget + alwaysWritten;
         int missed = 0;
         var tally = new RowTally();
 
@@ -1090,7 +1152,7 @@ static class SkseConfigAuditWire
         }
 
         // ── Diagnostics first, in full. ──
-        if (!AppendHits(sb, "PLUGIN MISSING — folder gates (the plugin isn't installed, so the WHOLE file is inert)", missingGates, cap,
+        if (!AppendHits(sb, "PLUGIN MISSING — folder gates (the plugin isn't installed, so the WHOLE file is inert)", missingGates, budget,
             h => $"  - {h.File.RelPath}: folder '{h.Ref.Plugin}' not in the load order{Prov(h.File)}", tally)) missed++;
         // Token-level plugin-missing is grouped by the target plugin: a whole-layer scan yields tens of thousands of
         // individual inert refs, so a per-ref list is an unreadable wall and the count-per-plugin table is the
@@ -1102,10 +1164,12 @@ static class SkseConfigAuditWire
                               Files: g.Select(h => h.File.RelPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
                               Example: g.First().File.RelPath))
                 .OrderByDescending(g => g.Refs).ThenBy(g => g.Plugin, StringComparer.OrdinalIgnoreCase).ToList();
-            if (!SkseInventoryWire.Head(sb, cap, "\nPLUGIN MISSING — target plugin not in the load order (inert; often a config shipping optional support for a mod you don't have) — by plugin (" +
+            int byPluginCut = SkseInventoryWire.CutRoom(byPlugin.Count, "plugins", " or use filter=");
+            if (!SkseInventoryWire.Head(sb, budget - byPluginCut, "\nPLUGIN MISSING — target plugin not in the load order (inert; often a config shipping optional support for a mod you don't have) — by plugin (" +
                     byPlugin.Count + " plugins, " + missingToks.Count + " refs):\n")) missed++;
             else
             {
+            int rows2 = budget - byPluginCut;
             int shown = 0;
             foreach (var g in byPlugin)
             {
@@ -1113,24 +1177,27 @@ static class SkseConfigAuditWire
                 sb.Append("  - ").Append(g.Plugin).Append(": ").Append(g.Refs).Append(" ref(s)");
                 if (g.Files.Count > 1) sb.Append(" across ").Append(g.Files.Count).Append(" file(s)");
                 sb.Append("  (e.g. ").Append(g.Example).Append(")\n");
-                if (sb.Length > cap) { sb.Length = mark; sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(byPlugin.Count).Append(" plugins; raise max_chars or use filter=]\n"); break; }
+                if (sb.Length > rows2) { sb.Length = mark; sb.Append(SkseInventoryWire.Showing(shown, byPlugin.Count, "plugins", " or use filter=")); break; }
                 shown++;
                 foreach (var f in g.Files) tally.Mark(f);
             }
             }
         }
-        if (!AppendHits(sb, "DANGLING — plugin present but no such record (a dead reference)", dangling, cap,
+        if (!AppendHits(sb, "DANGLING — plugin present but no such record (a dead reference)", dangling, budget,
             h => $"  - {Loc(h)}: '{h.Ref.Raw}' → {h.Audited.Detail}{Prov(h.File)}", tally)) missed++;
-        if (!AppendHits(sb, "UNPARSEABLE — shape-matched tokens that can't be normalized (flagged, never guessed)", unparseable, cap,
+        if (!AppendHits(sb, "UNPARSEABLE — shape-matched tokens that can't be normalized (flagged, never guessed)", unparseable, budget,
             h => $"  - {Loc(h)}: '{h.Ref.Raw}' → {h.Audited.Detail}{Prov(h.File)}", tally)) missed++;
-        if (readErrors.Count > 0 && !SkseInventoryWire.Head(sb, cap, "\nread errors — configs that could not be read/decoded (NOT counted as clean) (" + readErrors.Count + "):\n")) missed++;
+        string ReadErrCut(int shown) => "  ... [" + shown + " of " + readErrors.Count + "; raise max_chars]\n";
+        int readErrCut = readErrors.Count == 0 ? 0 : ReadErrCut(readErrors.Count).Length;
+        if (readErrors.Count > 0 && !SkseInventoryWire.Head(sb, budget - readErrCut, "\nread errors — configs that could not be read/decoded (NOT counted as clean) (" + readErrors.Count + "):\n")) missed++;
         else if (readErrors.Count > 0)
         {
+            int rows3 = budget - readErrCut;
             int shown = 0;
             foreach (var f in readErrors)
             {
                 var row = "  - " + f.RelPath + ": " + f.ReadError + Prov(f) + "\n";
-                if (sb.Length + row.Length > cap) { sb.Append("  ... [").Append(shown).Append(" of ").Append(readErrors.Count).Append("; raise max_chars]\n"); break; }
+                if (sb.Length + row.Length > rows3) { sb.Append(ReadErrCut(shown)); break; }
                 sb.Append(row); shown++; tally.Mark(f.RelPath);
             }
         }
@@ -1153,11 +1220,12 @@ static class SkseConfigAuditWire
                 .Select(g => (Name: g.Key.Length == 0 ? "(top level)" : g.Key, Count: g.Count()))
                 .OrderByDescending(g => g.Count).ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase).ToList();
             sb.Append("  no-reference configs by folder (").Append(groups.Count).Append("):\n");
+            int rows4 = noRefCeil - noRefCut;
             int shown = 0;
             foreach (var g in groups)
             {
                 var row = "    - " + g.Name + ": " + g.Count + "\n";
-                if (sb.Length + row.Length > cap) { sb.Append("    ... [").Append(shown).Append(" of ").Append(groups.Count).Append(" folders; raise max_chars]\n"); break; }
+                if (sb.Length + row.Length > rows4) { sb.Append(NoRefCut(shown)); break; }
                 sb.Append(row); shown++;
             }
         }
@@ -1249,12 +1317,15 @@ static class SkseConfigAuditWire
                            RowTally? tally = null)
     {
         if (items.Count == 0) return true;
-        if (!SkseInventoryWire.Head(sb, cap, "\n" + label + " (" + items.Count + "):\n")) return false;
+        // The heading and the rows both leave room for the cut notice this list may end on, so it lands inside the
+        // ceiling like every other notice.
+        int room = cap - SkseInventoryWire.CutRoom(items.Count, hint: " or use filter=");
+        if (!SkseInventoryWire.Head(sb, room, "\n" + label + " (" + items.Count + "):\n")) return false;
         int shown = 0;
         foreach (var h in items)
         {
             var row = line(h) + "\n";
-            if (sb.Length + row.Length > cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(items.Count).Append("; raise max_chars or use filter=]\n"); break; }
+            if (sb.Length + row.Length > room) { sb.Append(SkseInventoryWire.Showing(shown, items.Count, hint: " or use filter=")); break; }
             sb.Append(row); shown++; tally?.Mark(h.File.RelPath);
         }
         return true;
@@ -1532,8 +1603,15 @@ static class NativePairingWire
             ("\naccounted for: " + w.Engine.Count + " engine class(es) (carried by an official archive — implemented by the game executable) · " +
              w.SkseCore.Count + " SKSE-core class(es) (skse64's script additions — implemented by the game-root loader)").Length +
             ("\n  [!] SKSE-core classes are present but no skse64 loader is visible (game root or enabled mods' Root\\ folders) — if SKSE isn't actually installed, every one of these is dead").Length +
-            ("\npaired healthy (" + w.Healthy.Count + " class(es)) — implementing mod ← its classes:\n").Length;
-        cap = Math.Max(1, cap - reserve - tail.Length - alwaysWritten - SkseInventoryWire.SectionsMissed(9, cap).Length);
+            ("\npaired healthy (" + w.Healthy.Count + " class(es)) — implementing mod ← its classes:\n").Length +
+            HealthyCut.Length;
+        // cap stays the caller's max_chars — the number the notices quote; budget is the room the sections have once
+        // the tail, the always-written block and its own cut notice are charged.
+        int budget = Math.Max(1, cap - reserve - tail.Length - alwaysWritten - SkseInventoryWire.SectionsMissed(9, cap).Length);
+        // The always-written healthy roster lays its rows in the room reserved for it, above the sections' ceiling.
+        int healthyCeil = budget + alwaysWritten;
+        // A section starts only where the cut notice its rows may end on fits too.
+        int Room(int n) => budget - SkseInventoryWire.CutRoom(n, hint: SkseInventoryWire.FilterHint);
         int missed = 0;
         // Every section below the summary states the WINDOW, the accounted-for baseline included: it reconciles this
         // page's rows against its findings, so a layer-wide engine count beside a windowed healthy count would put two
@@ -1571,35 +1649,35 @@ static class NativePairingWire
         }
 
         // ── Diagnostics first, in full. ──
-        if (dead.Count > 0 && !SkseInventoryWire.Head(sb, cap, "\nPAIRED BUT DEAD — the high-confidence finding: every candidate DLL statically will not load, so every native these scripts declare is a silent no-op in game (" + dead.Count + "):\n")) missed++;
+        if (dead.Count > 0 && !SkseInventoryWire.Head(sb, Room(dead.Count), "\nPAIRED BUT DEAD — the high-confidence finding: every candidate DLL statically will not load, so every native these scripts declare is a silent no-op in game (" + dead.Count + "):\n")) missed++;
         else if (dead.Count > 0)
         {
-            AppendCapped(sb, dead, cap, c => DeadLine(c, d.InstalledRuntime), tally, c => c.ClassName);
+            AppendCapped(sb, dead, budget, c => DeadLine(c, d.InstalledRuntime), tally, c => c.ClassName);
         }
-        if (verify.Count > 0 && !SkseInventoryWire.Head(sb, cap, "\npaired, version-LOCKED, runtime unknown — verify the listed runtime matches your game (" + verify.Count + "):\n")) missed++;
+        if (verify.Count > 0 && !SkseInventoryWire.Head(sb, Room(verify.Count), "\npaired, version-LOCKED, runtime unknown — verify the listed runtime matches your game (" + verify.Count + "):\n")) missed++;
         else if (verify.Count > 0)
         {
-            AppendCapped(sb, verify, cap, c => DeadLine(c, d.InstalledRuntime), tally, c => c.ClassName);
+            AppendCapped(sb, verify, budget, c => DeadLine(c, d.InstalledRuntime), tally, c => c.ClassName);
         }
-        if (unpaired.Count > 0 && !SkseInventoryWire.Head(sb, cap, "\nUNPAIRED — no mod shipping these scripts (winner or chain) ships any SKSE plugin DLL (" + unpaired.Count +
+        if (unpaired.Count > 0 && !SkseInventoryWire.Head(sb, Room(unpaired.Count), "\nUNPAIRED — no mod shipping these scripts (winner or chain) ships any SKSE plugin DLL (" + unpaired.Count +
                 "). A VERIFY flag, not 'broken': most often a declaration copy of a framework that isn't installed — the calls will silently no-op if anything uses them:\n")) missed++;
         else if (unpaired.Count > 0)
         {
-            AppendCapped(sb, unpaired, cap, c =>
+            AppendCapped(sb, unpaired, budget, c =>
                 $"  - {c.ClassName} ({c.NativeCount} native fn) ← {c.WinningProvider ?? "(no provider)"} ({c.ProviderKind})", tally, c => c.ClassName);
         }
-        if (debugBuilds.Count > 0 && !SkseInventoryWire.Head(sb, cap, "\nDEBUG BUILD — these load on THIS machine and nowhere else (" + debugBuilds.Count +
+        if (debugBuilds.Count > 0 && !SkseInventoryWire.Head(sb, Room(debugBuilds.Count), "\nDEBUG BUILD — these load on THIS machine and nowhere else (" + debugBuilds.Count +
                 "). The debug C runtime ships with Visual Studio and is not redistributable, so the DLL fails with " +
                 "error 126 for anyone without it and every native these scripts declare is a silent no-op there. " +
                 "If you built it, ship a Release build; if you installed it, ask its author for one:\n")) missed++;
         else if (debugBuilds.Count > 0)
         {
-            AppendCapped(sb, debugBuilds, cap, c => DeadLine(c, d.InstalledRuntime), tally, c => c.ClassName);
+            AppendCapped(sb, debugBuilds, budget, c => DeadLine(c, d.InstalledRuntime), tally, c => c.ClassName);
         }
-        if (d.Unreadable.Count > 0 && !SkseInventoryWire.Head(sb, cap, "\nunreadable .pex — could not be parsed, NOT counted as native-free (" + d.Unreadable.Count + "):\n")) missed++;
+        if (d.Unreadable.Count > 0 && !SkseInventoryWire.Head(sb, Room(d.Unreadable.Count), "\nunreadable .pex — could not be parsed, NOT counted as native-free (" + d.Unreadable.Count + "):\n")) missed++;
         else if (d.Unreadable.Count > 0)
         {
-            AppendCapped(sb, d.Unreadable, cap, u => $"  - {u.RelPath}: {u.Reason}{(u.WinningProvider is { } p ? $"  [← {p}]" : "")}");
+            AppendCapped(sb, d.Unreadable, budget, u => $"  - {u.RelPath}: {u.Reason}{(u.WinningProvider is { } p ? $"  [← {p}]" : "")}");
         }
 
         // ── Accounted-for baseline: every row of THIS page that is not a finding, so nothing on it is dropped. ──
@@ -1618,7 +1696,7 @@ static class NativePairingWire
                      .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
         {
             var row = "  - " + g.Key + ": " + string.Join(", ", g.Select(c => c.ClassName).OrderBy(n => n, StringComparer.OrdinalIgnoreCase)) + "\n";
-            if (sb.Length + row.Length > cap) { sb.Append("  ... [remaining healthy groups omitted; raise max_chars]\n"); break; }
+            if (sb.Length + row.Length > healthyCeil - HealthyCut.Length) { sb.Append(HealthyCut); break; }
             sb.Append(row);
             foreach (var c in g) tally.Mark(c.ClassName);
         }
@@ -1629,6 +1707,9 @@ static class NativePairingWire
              + TransportAccounting.Compose(TransportAccounting.Tally(d.Classes.Count, rows.Count, tally.Count, window, notes),
                                            RowNoun, everySentence: false);
     }
+
+    /// <summary>The healthy roster's cut marker. Spelled once so its room is charged before the first group row.</summary>
+    const string HealthyCut = "  ... [remaining healthy groups omitted; raise max_chars]\n";
 
     /// <summary>The one-block render of a dead/verify pairing: the class line, then each candidate DLL's fate.</summary>
     static string DeadLine(NativeClassEntry c, string? runtime)
@@ -1670,7 +1751,10 @@ static class NativePairingWire
         int reserve = TransportAccounting.Reserve(allHits.Count, hits.Count, window, notes, RowNoun);
         // The caveats close this view too, so they are charged with the accounting rather than appended past the cap.
         var tail = "\n" + Caveats(d);
-        cap = Math.Max(1, cap - reserve - tail.Length);
+        // cap stays the caller's max_chars; budget is the room the class blocks have once the caveats, the accounting
+        // and this view's own cut notice are charged.
+        string ClassesCut(int shown) => "\n  ... [showing " + shown + " of " + hits.Count + " classes; raise max_chars]\n";
+        int budget = Math.Max(1, cap - reserve - tail.Length - ClassesCut(hits.Count).Length);
         var tally = new RowTally();
         string Accounting() => TransportAccounting.Compose(
             TransportAccounting.Tally(allHits.Count, hits.Count, tally.Count, window, notes), RowNoun, everySentence: false);
@@ -1716,11 +1800,11 @@ static class NativePairingWire
                 sb.Append("  ").Append(DllLine(dll, d.InstalledRuntime, withVersion: true)).Append('\n');
             sb.Append("  native functions (").Append(c.NativeCount).Append("): ");
             var fns = string.Join(", ", c.NativeFunctions);
-            if (sb.Length + fns.Length > cap && c.NativeCount > 8)
+            if (sb.Length + fns.Length > budget && c.NativeCount > 8)
                 sb.Append(string.Join(", ", c.NativeFunctions.Take(8))).Append(", ... [").Append(c.NativeCount - 8).Append(" more; raise max_chars]");
             else sb.Append(fns);
             sb.Append('\n');
-            if (sb.Length > cap) { sb.Length = mark; sb.Append("\n  ... [showing ").Append(shown).Append(" of ").Append(hits.Count).Append(" classes; raise max_chars]\n"); break; }
+            if (sb.Length > budget) { sb.Length = mark; sb.Append(ClassesCut(shown)); break; }
             shown++; tally.Mark(c.ClassName);
         }
         // The caveats ride the filtered view too: "no match", or a partial hit over a build whose BSA failed to read,
@@ -1732,10 +1816,12 @@ static class NativePairingWire
     static void AppendCapped<T>(StringBuilder sb, IReadOnlyList<T> items, int cap, Func<T, string> line,
                                 RowTally? tally = null, Func<T, string>? key = null)
     {
+        // The cut notice is charged before the first row, so a list that cuts says so inside max_chars.
+        int room = cap - SkseInventoryWire.CutRoom(items.Count, hint: SkseInventoryWire.FilterHint);
         int shown = 0;
         foreach (var e in items)
         {
-            if (sb.Length + line(e).Length + 1 > cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(items.Count).Append("; raise max_chars or use filter= to see all]\n"); break; }
+            if (sb.Length + line(e).Length + 1 > room) { sb.Append(SkseInventoryWire.Showing(shown, items.Count, hint: SkseInventoryWire.FilterHint)); break; }
             sb.Append(line(e)).Append('\n'); shown++;
             if (tally is not null && key is not null) tally.Mark(key(e));
         }
