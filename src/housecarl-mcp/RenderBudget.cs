@@ -98,6 +98,24 @@ internal static class RenderBudget
         "so limit= and offset= window the render and not the walk. project.form='chain' lists the same reached set " +
         "without reading a body per rendered row, which is what to run first.";
 
+    /// <summary>What moves the REVERSE CARRIER walk's row count. Its seeds are formids= and its budget is per seed,
+    /// so walk.depth is not a lever — the walk reaches nothing past hop 1.</summary>
+    internal const string ReverseCarrierRemedy =
+        "pass fewer formids= seeds, or lower walk.max_nodes (the per-seed carrier " +
+        "bound), until the set the walk reaches fits — the rows are the carriers it reached, seeds included, so " +
+        "limit= and offset= window the render and not the walk. types= narrows the carrier types, and " +
+        "project.form='chain' lists the same reached set without reading a body per rendered row, which is what to " +
+        "run first.";
+
+    /// <summary>What moves the TRANSITIVE REVERSE walk's row count. project.form='chain' is not a lever here: that
+    /// walk expands one shared frontier and has no per-seed path to draw, which is why chain refuses on it.</summary>
+    internal const string ReverseTransitiveRemedy =
+        "pass fewer formids= seeds, or lower walk.depth or walk.max_nodes " +
+        "(one budget shared across every seed and hop on this lane), until the set the walk reaches fits — the rows " +
+        "are what the walk reached, seeds included, so limit= and offset= window the render and not the walk. " +
+        "project.form='chain' is not a lever here: this walk expands one shared frontier and has no per-seed path " +
+        "for chain to draw.";
+
     /// <summary>The refusal for a render over its lane's bound, or null when it fits. One sentence for the cost, one
     /// for the shapes that fit, each carrying the caveat that decides between them. <paramref name="wholeRecord"/>
     /// is the <c>form='everything'</c> lane, whose row is a whole record and whose bound is therefore its own —

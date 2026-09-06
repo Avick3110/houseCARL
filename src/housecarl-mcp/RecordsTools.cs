@@ -64,7 +64,7 @@ public static class RecordsTools
         [Description("Maximum hops from a seed (default 16). Nodes AT the cap are recorded, not entered, and the response says the cap cut the walk — never a silent stop.")]
         public int? depth { get; set; }
 
-        [Description("The node budget (default 2000, the read-expansion budget). Per seed on a forward walk and on the reverse carrier walk (each seed's carrier rows); ONE budget shared across every seed and every hop on the transitive reverse walk, whose hops are one frontier and not a per-seed expansion. A breach keeps what was proved and says which reading it spent. A reading form (summary/fields/rows/everything/aggregate) then renders the whole reached set — seeds times this budget at the worst — and reads a body per row, so it is held to the same render bound a scan is and refuses up front naming project.form='chain', which lists the same set without reading a body per rendered row (the walk reads one per reached node whatever the form).")]
+        [Description("The node budget (default 2000, the read-expansion budget). Per seed on a forward walk and on the reverse carrier walk (each seed's carrier rows); ONE budget shared across every seed and every hop on the transitive reverse walk, whose hops are one frontier and not a per-seed expansion. A breach keeps what was proved and says which reading it spent. A reading form (summary/fields/rows/everything/aggregate) then renders the whole reached set — seeds times this budget at the worst — and reads a body per row, so it is held to the same render bound a scan is on EVERY walk lane, and refuses up front naming that lane's own levers: its seeds, this budget, and — on the forward and carrier walks, the two chain can draw — project.form='chain', which lists the same set without reading a body per rendered row (the walk reads one per reached node whatever the form).")]
         public int? max_nodes { get; set; }
 
         [Description("Node classes the walk must not enter, as data: [{\"match\": \"Race\", \"severity\": \"stop\"|\"refuse\"}] — match is the record type name a read reports; stop prunes there (recorded as a boundary), refuse fails the whole call loud.")]
@@ -730,6 +730,12 @@ public static class RecordsTools
                 }
                 if (rev.Capped)
                     headerLine += $"\n[!] the walk.max_nodes budget ({walkMaxNodes}, one budget shared across every seed and hop on this lane) was reached — what is listed IS reached and proved, and the hop it cut is marked; raise walk.max_nodes to walk further.";
+                // The reached set's render bound, the same one the forward walk pays: this lane hands the list lane
+                // its whole reached set and every reading form reads a body per row. Its own remedy, because chain
+                // refuses on this walk and the scan terms are refused on it too.
+                if (bodyForm && !counts_only
+                    && RenderBudget.Refuse(rev.Selection.Count, form == "everything", RenderBudget.ReverseTransitiveRemedy) is { } revTooBig)
+                    return Wire.Refuse(json, revTooBig, rev.Stamp);
                 expectEpoch = rev.Epoch;
                 formids = rev.Selection.ToArray();
                 walk = null;
@@ -813,6 +819,12 @@ public static class RecordsTools
                         headerLine += $"\n[!] {seedErrs2} seed(s) failed and contributed no carriers — run form='chain' to see each seed's outcome.";
                     if (cappedSeeds > 0)
                         headerLine += $"\n[!] {cappedSeeds} seed(s) hit the walk.max_nodes carrier bound ({walkMaxNodes}, per seed on this lane) — the selection is a prefix of the {carrierTotal} carrier(s) reached; raise walk.max_nodes.";
+                    // The reached set's render bound, the same one the forward walk pays: seeds times the per-seed
+                    // carrier budget at the worst, each row a body read by the list lane. walk.depth is not among
+                    // its levers, because this walk reaches nothing past hop 1.
+                    if (bodyForm && !counts_only
+                        && RenderBudget.Refuse(carrierSel.Count, form == "everything", RenderBudget.ReverseCarrierRemedy) is { } carrierTooBig)
+                        return Wire.Refuse(json, carrierTooBig, epochR);
                     expectEpoch = epochR?.Epoch;
                     formids = carrierSel.ToArray();
                     walk = null;
