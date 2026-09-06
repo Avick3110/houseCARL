@@ -213,8 +213,9 @@ public static class PlaceTools
 /// <summary>Renders a <see cref="PlaceOutcome"/> through the shared batch skeleton: the count and mod folder as the
 /// header, the discovery caveats as the alarms block, one capped row per destination (its source and the current VFS
 /// winner to sort above, or a per-destination error), then the §2.1 accounting and the explicit "this does not win
-/// until you enable + sort the mod in MO2" instruction. Those last two sit OUTSIDE the cap on purpose: a truncated
-/// list must still say how much it dropped and what the caller has to do next.</summary>
+/// until you enable + sort the mod in MO2" instruction. Those last two are always written and are charged INSIDE the
+/// cap (<see cref="PlaceWire.TrailerReserve"/>): a truncated list must still say how much it dropped and what the
+/// caller has to do next, and max_chars still bounds the whole response.</summary>
 static class PlaceWire
 {
     public static string Render(PlaceOutcome o, int cap, IReadOnlySet<string>? poleWithheld = null)

@@ -127,10 +127,10 @@ public static class SkseTools
     }
 
     /// <summary>Runs the selected family and appends the footer. The footer's length is subtracted from max_chars so it
-    /// is paid for rather than added past the cap; the renders themselves test the cap BEFORE each list item and then
-    /// append their scope note, caveats and filter hint unconditionally, so a response can still overrun a tight cap by
-    /// one item plus that tail. Under a cap too small to hold both, the footer wins: it is the line that says which
-    /// family answered.</summary>
+    /// is paid for rather than added past the cap; the renders themselves charge their scope note, caveats and filter
+    /// hint before laying a row, measure the row they are about to write, and charge the cut notice each list may end
+    /// on, so max_chars bounds the whole response. The one arm left over — a cap too small for what the response
+    /// carries whatever the budget — is named by <see cref="RenderCap.Settle"/>.</summary>
     internal static string Dispatch(IFamilyRenders renders, SkseFamily family, string? filter, bool peek, int max_chars,
                                     bool json = false, RowWindow window = default)
     {
