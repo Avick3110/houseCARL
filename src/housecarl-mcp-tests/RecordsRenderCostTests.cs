@@ -16,9 +16,15 @@ namespace HousecarlMcpTests;
 public sealed class RenderCostWorld : IDisposable
 {
     public const int Weapons = 60;
+    public const int OffOrderWeapons = 12;
 
     public string Root { get; }
     public string MasterName { get; }
+
+    /// <summary>A plugin in a switched-OFF mod folder: on disk, locatable, outside the load order. The off-order
+    /// scan lane has its own cancellation path and its own catch-all, so it needs a world to run in.</summary>
+    public string OffOrderName { get; }
+
     public LoadOrderService Svc { get; }
 
     readonly string _priorCorpusPath;
@@ -40,11 +46,24 @@ public sealed class RenderCostWorld : IDisposable
             w.BasicStats = new WeaponBasicStats { Damage = (ushort)(10 + i), Weight = 1 };
         }
 
+        var offKey = new ModKey("HcCostOff", ModType.Plugin);
+        OffOrderName = offKey.FileName.String;
+        var off = new SkyrimMod(offKey, SkyrimRelease.SkyrimSE);
+        for (int i = 0; i < OffOrderWeapons; i++)
+        {
+            var w = off.Weapons.AddNew();
+            w.EditorID = "HcOffSword" + i;
+            w.BasicStats = new WeaponBasicStats { Damage = (ushort)(5 + i), Weight = 1 };
+        }
+
         var instance = Path.Combine(Root, "inst");
         var mods = Path.Combine(instance, "mods");
         Directory.CreateDirectory(Path.Combine(mods, "CostMasterMod"));
         master.BeginWrite.ToPath(Path.Combine(mods, "CostMasterMod", MasterName))
               .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        Directory.CreateDirectory(Path.Combine(mods, "CostOffMod"));
+        off.BeginWrite.ToPath(Path.Combine(mods, "CostOffMod", OffOrderName))
+           .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         var genDir = Path.Combine(Root, "corpus-gen");
         CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
@@ -57,7 +76,7 @@ public sealed class RenderCostWorld : IDisposable
         Directory.CreateDirectory(prof);
         File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n");
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + MasterName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+CostMasterMod\r\n");
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n-CostOffMod\r\n+CostMasterMod\r\n");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "user.json")));
     }
@@ -109,6 +128,7 @@ public sealed class RecordsRenderCostTests
     static readonly string[] Paths = { "EditorID", "Name", "BasicStats.Damage" };
 
     static RecordsTools.RecordsProject Fields() => new() { form = "fields", fields = Paths };
+    static RecordsTools.RecordsProject Everything() => new() { form = "everything" };
 
     // ---- the cost itself ---------------------------------------------------------------------------
 
@@ -125,6 +145,21 @@ public sealed class RecordsRenderCostTests
 
         Assert.Equal(RenderCostWorld.Weapons, Doc(response).GetProperty("rendered").GetInt32());
         Assert.True(opens <= 1, $"one plugin in the order and {RenderCostWorld.Weapons} rendered rows cost {opens} overlay opens.");
+    }
+
+    /// <summary>The BODY lane pays the same. <c>project.form='everything'</c> takes the batch read rather than the
+    /// scan render, and that lane fetched each row's body with a whole-plugin seek of its own — the very cost this
+    /// issue is about, at the same scale, on the shape a whole-order catalogue is most likely to ask for.</summary>
+    [Fact]
+    public void AnEverythingRenderReadsEachPluginOnceNotOncePerRow()
+    {
+        var before = LoadOrderResolver.BodySeeks;
+        var response = RecordsTools.Records(Svc, types: Weap, format: "json", limit: RenderCostWorld.Weapons,
+                                            project: Everything(), max_chars: 4_000_000);
+        var seeks = LoadOrderResolver.BodySeeks - before;
+
+        Assert.Equal(RenderCostWorld.Weapons, Doc(response).GetProperty("rendered").GetInt32());
+        Assert.True(seeks <= 1, $"{RenderCostWorld.Weapons} rows of form='everything' cost {seeks} per-record plugin walks.");
     }
 
     // ---- what the response says the cost was -------------------------------------------------------
@@ -151,6 +186,36 @@ public sealed class RecordsRenderCostTests
         var text = RecordsTools.Records(Svc, types: Weap, limit: 10, project: Fields());
         Assert.Contains("rendered 10 rows in ", text);
         Assert.Contains(" ms", text);
+    }
+
+    /// <summary>The body lane reports its cost too: it reads a body per row exactly as the scan render does, and
+    /// the bound is one number over both lanes, so a caller checking the estimate has to be able to see both.</summary>
+    [Fact]
+    public void TheEverythingAccountingReportsWhatReadingItsBodiesCost()
+    {
+        var doc = Doc(RecordsTools.Records(Svc, types: Weap, format: "json", limit: 10, project: Everything()));
+        Assert.Equal(10, doc.GetProperty("rows_read").GetInt32());
+        Assert.True(doc.GetProperty("render_ms").GetInt64() >= 0);
+    }
+
+    /// <summary>The shape that renders the MOST rows reports what they cost: a to_file= call renders every selected
+    /// row into the artifact, so the number comes off that write rather than off an inline loop that never ran.</summary>
+    [Fact]
+    public void AToFileCallReportsWhatWritingItsRowsCost()
+    {
+        var doc = Doc(RecordsTools.Records(Svc, types: Weap, format: "json", project: Fields(),
+                                           to_file: _w.Scratch("cost-manifest.jsonl")));
+        Assert.Equal(RenderCostWorld.Weapons, doc.GetProperty("rendered_to_file").GetInt32());
+        Assert.True(doc.GetProperty("render_ms").GetInt64() >= 0);
+    }
+
+    /// <summary>The accounting line comes out of the row budget rather than being appended past it — the reserve
+    /// the render holds back has to cover the line at its widest, or holding it back proves nothing.</summary>
+    [Fact]
+    public void TheAccountingLineIsReservedFromTheRowBudget()
+    {
+        Assert.True(RenderBudget.AccountingLine(int.MaxValue, long.MaxValue).Length <= RenderBudget.AccountingReserve);
+        Assert.True(RenderBudget.BodiesLine(int.MaxValue, long.MaxValue).Length <= RenderBudget.AccountingReserve);
     }
 
     // ---- the bound ---------------------------------------------------------------------------------
@@ -192,6 +257,42 @@ public sealed class RecordsRenderCostTests
         var doc = Doc(WithBound(RenderCostWorld.Weapons, () =>
             RecordsTools.Records(Svc, types: Weap, format: "json", limit: RenderCostWorld.Weapons, project: Fields())));
         Assert.Equal(RenderCostWorld.Weapons, doc.GetProperty("rendered").GetInt32());
+    }
+
+    /// <summary>The body lane has a bound of its OWN, because its row is a whole record: measured at ~30 ms against
+    /// ~0.013 ms for a three-field projection on the same world, so one number over both lanes would either wave
+    /// this one through or refuse the cheap one for nothing. The refusal names the move between them.</summary>
+    [Fact]
+    public void AnEverythingRenderIsBoundedByItsOwnWholeRecordCost()
+    {
+        var response = WithWholeRecordBound(10, () =>
+            RecordsTools.Records(Svc, types: Weap, limit: RenderCostWorld.Weapons, project: Everything()));
+
+        Assert.StartsWith("error:", response);
+        Assert.Contains("WHOLE record body", response);
+        Assert.Contains("project.form='fields'", response);
+    }
+
+    /// <summary>And the two bounds are separate in the other direction: an 'everything' selection that fits its own
+    /// bound is served, however tight the named-fields bound is set.</summary>
+    [Fact]
+    public void TheFieldsBoundDoesNotRefuseAnEverythingRenderThatFitsItsOwn()
+    {
+        var doc = Doc(WithBound(1, () =>
+            RecordsTools.Records(Svc, types: Weap, format: "json", limit: 5, project: Everything())));
+        Assert.Equal(5, doc.GetProperty("rendered").GetInt32());
+    }
+
+    /// <summary>A walk is measured on what it RENDERS, not on the size of the scan that seeded it: the walk lane
+    /// windows its own rows under its own node budget, so refusing it for the seed count would refuse a call for a
+    /// cost it was never going to pay.</summary>
+    [Fact]
+    public void AWalkIsNotRefusedForTheSizeOfItsSeedScan()
+    {
+        var response = WithBound(10, () =>
+            RecordsTools.Records(Svc, types: Weap, walk: new RecordsTools.RecordsWalk(), project: Fields()));
+
+        Assert.DoesNotContain("reads a record body", response);
     }
 
     /// <summary>The census reads no bodies, so it is not bound by the render's cost.</summary>
@@ -236,6 +337,72 @@ public sealed class RecordsRenderCostTests
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, "*.tmp-*"));
     }
 
+    /// <summary>The body lane stops on a cancel as well. It resolves its rows through the batch read rather than the
+    /// scan render, and that read polled a token no caller supplied — so <c>form='everything'</c> carried on after
+    /// the client had given up.</summary>
+    [Fact]
+    public void ACancelStopsAnEverythingRenderToo()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        string? served = null;
+        var ex = Record.Exception(() =>
+            served = RecordsTools.Records(Svc, types: Weap, project: Everything(), limit: RenderCostWorld.Weapons, ct: cts.Token));
+        Assert.IsAssignableFrom<OperationCanceledException>(ex);
+        Assert.Null(served);
+    }
+
+    /// <summary>The batch read the body forms take stops inside one record on a cancel. It polled a token no caller
+    /// supplied, so <c>form='everything'</c> and <c>form='rows'</c> — which read their bodies here, not through the
+    /// scan render — carried on after the client had given up.</summary>
+    [Fact]
+    public void ABatchBodyReadStopsWhenTheClientCancels()
+    {
+        var ids = Svc.CrossQuery(Weap, null, null, false, null, null, RenderCostWorld.Weapons)
+                     .Keys.Select(k => k.ToString()).ToList();
+        Assert.Equal(RenderCostWorld.Weapons, ids.Count);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.Throws<OperationCanceledException>(() => Svc.ResolveBatch(ids, null, false, ct: cts.Token));
+    }
+
+    /// <summary>A cancelled OFF-ORDER scan finishes as a cancellation, not as a refusal saying the file could not be
+    /// read: the file is perfectly readable, and naming it as the fault sends the caller after nothing.</summary>
+    [Fact]
+    public void ACancelledOffOrderScanIsNotReportedAsAFileFault()
+    {
+        var pole = Svc.ProbeSourceArm(_w.OffOrderName, null, out var perr);
+        Assert.Null(perr);
+        Assert.False(pole!.InOrder);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var ex = Record.Exception(() =>
+            Svc.OffOrderQuery(pole, Weap, null, null, null, false, null, 100, null, 0, null, null, ct: cts.Token));
+        Assert.IsAssignableFrom<OperationCanceledException>(ex);
+    }
+
+    /// <summary>A cancelled call leaves nothing in the RESULTS directory either — the auto-spill path, whose name is
+    /// reserved on disk by <c>ResultsStore.NextPath</c> before the write. (The cancel this asserts lands in the
+    /// render; a cancel landing inside the spill write itself is a window no test can time, and is covered by the
+    /// release the spill now makes on the way out.)</summary>
+    [Fact]
+    public void ACancelledCallLeavesNothingInTheResultsDirectory()
+    {
+        var dir = ResultsStore.Dir;
+        var before = Directory.Exists(dir) ? Directory.GetFiles(dir).Length : 0;
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.Throws<OperationCanceledException>(() =>
+            RecordsTools.Records(Svc, types: Weap, limit: RenderCostWorld.Weapons, project: Fields(),
+                                 max_chars: 600, ct: cts.Token));
+
+        var after = Directory.Exists(dir) ? Directory.GetFiles(dir).Length : 0;
+        Assert.Equal(before, after);
+    }
+
     /// <summary>The tool body's own guard hands a real cancellation on rather than naming it an internal failure —
     /// otherwise a client that aborted would get a bug report instead of its own cancel.</summary>
     [Fact]
@@ -260,6 +427,15 @@ public sealed class RecordsRenderCostTests
         RenderBudget.MaxRenderRows = rows;
         try { return call(); }
         finally { RenderBudget.MaxRenderRows = prior; }
+    }
+
+    /// <summary>The same for the whole-record lane's own bound.</summary>
+    static string WithWholeRecordBound(int rows, Func<string> call)
+    {
+        var prior = RenderBudget.MaxWholeRecordRows;
+        RenderBudget.MaxWholeRecordRows = rows;
+        try { return call(); }
+        finally { RenderBudget.MaxWholeRecordRows = prior; }
     }
 
     static System.Text.Json.JsonElement Doc(string json) =>
