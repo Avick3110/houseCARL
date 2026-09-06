@@ -216,6 +216,41 @@ public sealed class RecordsUnreadableSubFieldTests : IClassFixture<TruncatedSubF
     }
 }
 
+/// <summary>The tree form's node line says the comparison was incomplete WHENEVER it was, not only where the
+/// node has no deltas — an unreadable leaf always produces a delta line, so gating the note on an empty delta
+/// list left the normal shape rendering one UNREADABLE line and nothing about what was skipped beside it.
+/// Driven against a hand-built row: the render is the subject, and no fixture makes this node shape.</summary>
+[Trait("tier", "unit")]
+public sealed class TreeIncompleteNoteTests
+{
+    static string Render(params string[] deltas)
+    {
+        var row = new LoadOrderService.TreeRow("000800:A.esm", "Weapon", "HcWeap",
+            new[] { "A.esm", "B.esp" }, "A.esm",
+            new[] { new LoadOrderService.TreeNodeDelta("A.esm", false, true, Array.Empty<string>(), 0, true, null),
+                    new LoadOrderService.TreeNodeDelta("B.esp", true, false, deltas, 0, false, null) },
+            null, Array.Empty<ChildDeclarers>());
+        return RecordsTools.RenderRecordsTree(new[] { row }, 1, 1, 0, false, "records  form=tree", null,
+                                              100_000, null, out _);
+    }
+
+    [Fact]
+    public void ANodeWithDeltasStillSaysTheComparisonWasIncomplete()
+    {
+        var r = Render("BasicStats.Damage: UNREADABLE here — not compared (unreadable: out of range)");
+
+        Assert.Contains("BasicStats.Damage: UNREADABLE here", r);
+        Assert.Contains("the comparison is INCOMPLETE", r);
+    }
+
+    /// <summary>The no-delta node keeps its own note — the only cause left there is the cap.</summary>
+    [Fact]
+    public void ANodeWithNoDeltasStillNamesTheCap()
+    {
+        Assert.Contains("TRUNCATED at the cap", Render());
+    }
+}
+
 /// <summary>A deep read carries the readable bit on a LINK leaf too. A condition target (FormLinkOrIndex) the
 /// emit cannot read is a fault, and a fault that renders with Present=false and Readable=true tells every
 /// consumer reading the bits that nothing is there.</summary>
