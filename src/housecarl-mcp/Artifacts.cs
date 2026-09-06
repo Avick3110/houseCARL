@@ -141,16 +141,16 @@ internal static class Artifacts
             identity = "formid";
             schema = new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "matches?", "fields" };
             sort = "load-order scan order (deterministic within one epoch)";
-            var linkMemo = resolveNames ? new LoadOrderService.LinkMemo() : null;
             var foldDepths = fold?.Read().Depths;   // the quantified paths' depth, and the caller's own for the rest
+            // The artifact reads through the SAME reader the inline renders do: one session, one chunked body
+            // prefetch per plugin.
+            using var reader = new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields,
+                                                    (levers ?? LeverNames.Legacy).ContainerHint, foldDepths);
             for (int i = 0; i < q.Keys.Count; i++)
             {
                 var fk = q.Keys[i];
                 string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
-                var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth,
-                                          resolveNames: resolveNames, linkMemo: linkMemo,
-                                          containerHint: (levers ?? LeverNames.Legacy).ContainerHint,
-                                          depths: foldDepths);   // an artifact row is read by the same caller
+                var o = reader.Row(i);   // an artifact row is read by the same caller
                 if (fold is not null) o = fold.Apply(o);   // an artifact row carries the same folded fields the render does
                 if (o.Error is null && o.OwnedChildFields is { } af)   // the rows' labels need their clause on line 1
                 {
