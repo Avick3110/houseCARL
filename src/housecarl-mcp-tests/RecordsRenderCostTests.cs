@@ -128,6 +128,10 @@ public sealed class RecordsRenderCostTests
     static readonly string[] Paths = { "EditorID", "Name", "BasicStats.Damage" };
 
     static RecordsTools.RecordsProject Fields() => new() { form = "fields", fields = Paths };
+
+    /// <summary>Every weapon in the world as formids, for the list lane's own reads.</summary>
+    string[] AllWeaponIds => Svc.CrossQuery(Weap, null, null, false, null, null, RenderCostWorld.Weapons)
+                                .Keys.Select(k => k.ToString()).ToArray();
     static RecordsTools.RecordsProject Everything() => new() { form = "everything" };
 
     // ---- the cost itself ---------------------------------------------------------------------------
@@ -281,6 +285,31 @@ public sealed class RecordsRenderCostTests
         var doc = Doc(WithBound(1, () =>
             RecordsTools.Records(Svc, types: Weap, format: "json", limit: 5, project: Everything())));
         Assert.Equal(5, doc.GetProperty("rendered").GetInt32());
+    }
+
+    /// <summary>The <c>formids=</c> lane is held to the bound as well, and it is the lane that most needs it: a
+    /// list is any length by construction, and re-entering an artifact as <c>formids=["@&lt;file&gt;"]</c> is what the
+    /// whole-record refusal and the <c>to_file=</c> description send the caller to do.</summary>
+    [Fact]
+    public void AFormidsReadOverTheBoundRefuses()
+    {
+        var response = WithWholeRecordBound(10, () =>
+            RecordsTools.Records(Svc, formids: AllWeaponIds, project: Everything()));
+
+        Assert.StartsWith("error:", response);
+        Assert.Contains("formids=", response);
+        Assert.DoesNotContain("narrow the scan terms", response);   // this lane has none to narrow
+    }
+
+    /// <summary>And <c>counts_only</c> does not exempt it: this lane reads a body per id whatever it renders, so
+    /// the census costs exactly what the render does — unlike the scan lane, whose census reads no bodies.</summary>
+    [Fact]
+    public void AFormidsCensusIsHeldToTheBoundBecauseItStillReadsEveryBody()
+    {
+        var response = WithBound(10, () =>
+            RecordsTools.Records(Svc, formids: AllWeaponIds, project: Fields(), counts_only: true));
+
+        Assert.StartsWith("error:", response);
     }
 
     /// <summary>The bound is on what a row costs, not on where the row came from: an OFF-ORDER selection over it

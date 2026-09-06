@@ -73,8 +73,11 @@ internal static class RenderBudget
     /// <summary>The refusal for a render over its lane's bound, or null when it fits. One sentence for the cost, one
     /// for the shapes that fit, each carrying the caveat that decides between them. <paramref name="wholeRecord"/>
     /// is the <c>form='everything'</c> lane, whose row is a whole record and whose bound is therefore its own —
-    /// and whose first remedy is naming the fields, since that is what moves it between the two.</summary>
-    internal static string? Refuse(int rows, bool wholeRecord)
+    /// and whose first remedy is naming the fields, since that is what moves it between the two.
+    /// <para><paramref name="listSelection"/> is the <c>formids=</c> lane, whose remedy differs in kind: it has no
+    /// scan terms to narrow, and it reads a body for every id it was handed BEFORE the render window applies, so
+    /// paging the same call does not lower its cost.</para></summary>
+    internal static string? Refuse(int rows, bool wholeRecord, bool listSelection = false)
     {
         int bound = wholeRecord ? MaxWholeRecordRows : MaxRenderRows;
         if (rows <= bound) return null;
@@ -85,11 +88,14 @@ internal static class RenderBudget
               $"row too but costs a fraction of a whole-record read, and is bounded at {MaxRenderRows:N0} rows. Or "
             : $"error: this call renders {rows:N0} rows and each one reads a record body — {Projected(rows, false)} of " +
               $"render, past the {bound:N0}-row bound one call is given (a client stops waiting at 30 minutes). ";
-        return lead +
-              (wholeRecord ? "narrow" : "Narrow") + " the scan terms (types=, plugins=, where=), or take the selection " +
+        return lead + (listSelection
+            ? (wholeRecord ? "pass" : "Pass") + " fewer formids= entries: this lane reads a body for EVERY id in the " +
+              "list before limit= and offset= window the render, so paging the same list does not lower what it costs. " +
+              "Re-enter a big artifact a slice at a time, or narrow the selection that wrote it."
+            : (wholeRecord ? "narrow" : "Narrow") + " the scan terms (types=, plugins=, where=), or take the selection " +
               "in windows with limit= and offset= — offset= re-scans the selection from the start, so a window costs " +
               "more the further in it is. to_file= captures the COMPLETE selection rather than a window, so it renders " +
               "every row and does not combine with offset=: narrow the scan until the whole set fits, then write it in " +
-              "one call.";
+              "one call.");
     }
 }

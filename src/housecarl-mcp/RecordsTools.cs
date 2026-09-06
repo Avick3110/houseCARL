@@ -480,6 +480,10 @@ public static class RecordsTools
             return w;
         }
 
+        // A walk hands its reached set to the list lane as formids=, and that set is bounded by walk.max_nodes
+        // already — so the list lane's render bound is over a list the CALLER passed, never one a walk derived.
+        bool walkDerived = false;
+
         return scanLane
             ? ScanLane()          // including formids plus scan: the identity set rides the scan as an intersection
             : ListLane();
@@ -563,6 +567,14 @@ public static class RecordsTools
                 }
                 return rendered;
             }
+
+            // ---- the render's own bound, on this lane. A body form reads a body per id here exactly as the scan
+            // lane does, and formids=["@<file>"] is a list of any length by construction — the very path the
+            // whole-record refusal and to_file= point at. Checked before any body is read, and counts_only pays it
+            // too: this lane reads the list whatever it renders, where the scan lane's census reads no bodies.
+            if ((bodyFields || form == "everything") && !walkDerived
+                && RenderBudget.Refuse(ids.Length, form == "everything", listSelection: true) is { } listTooBig)
+                return Wire.Refuse(json, listTooBig);
 
             // ---- summary / fields / everything / aggregate: batch bodies off the source pole. ----
             // summary reads one cheap leaf, since the header facts ride the outcome; fields reads the named
@@ -718,6 +730,7 @@ public static class RecordsTools
                 expectEpoch = rev.Epoch;
                 formids = rev.Selection.ToArray();
                 walk = null;
+                walkDerived = true;
                 return ListLane();
             }
 
@@ -800,6 +813,7 @@ public static class RecordsTools
                     expectEpoch = epochR?.Epoch;
                     formids = carrierSel.ToArray();
                     walk = null;
+                    walkDerived = true;
                     return ListLane();
                 }
                 var revCounts = new[] { KvI("seeds", results.Count), KvI("carrier_rows", carrierRows), KvI("carrier_total", carrierTotal), KvI("capped_seeds", cappedSeeds), KvI("errors", seedErrs2) };
@@ -893,6 +907,7 @@ public static class RecordsTools
             expectEpoch = wEpoch?.Epoch;
             formids = combined.ToArray();
             walk = null;
+            walkDerived = true;
             return ListLane();
         }
 
