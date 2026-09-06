@@ -221,12 +221,14 @@ static class Wire
     /// <summary><paramref name="levers"/> is the caller's own parameter vocabulary for the remedy sentences below;
     /// this renderer is shared by callers that spell the selector differently. Omitted means the legacy
     /// spelling.</summary>
-    /// <param name="renderMs">What reading these bodies cost, when the caller measured it — the scan's body lane
-    /// does, so the row cost the render bound is set against is reported there too (#582).</param>
+    /// <param name="bodyCost">What reading these bodies cost, when the caller measured it — the scan's body lane
+    /// does, so the row cost the render bound is set against is reported there too (#582). The row count travels
+    /// WITH the milliseconds rather than being taken off this list: the formids= lane reads the whole list and
+    /// hands this renderer a limit=/offset= window of it, so the count beside the cost is what was read (#607).</param>
     /// <param name="header">The caller's own header line, written INSIDE the budget for the same reason.</param>
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars,
                                      SpillState? spill, out bool truncated, LeverNames? levers = null,
-                                     long? renderMs = null, string? header = null)
+                                     (int RowsRead, long Millis)? bodyCost = null, string? header = null)
     {
         truncated = false;
         var lv = levers ?? LeverNames.Legacy;
@@ -242,7 +244,7 @@ static class Wire
         int rendered = 0;
         // The accounting line below is spoken for, like the clause: a response that fills to the ceiling must still
         // fit inside max_chars once it has stated what its bodies cost.
-        int costReserve = renderMs is null ? 0 : RenderBudget.AccountingReserve;
+        int costReserve = bodyCost is null ? 0 : RenderBudget.AccountingReserve;
         // The notice and the spill block close this response, so both are charged before the first record is laid.
         string Notice(int r) =>
             "... [truncated: rendered " + r + " of " + outcomes.Count + " records before hitting max_chars=" + cap +
@@ -273,7 +275,7 @@ static class Wire
         AppendOwnedChildNotes(sb, notes);
         // What reading these bodies cost, stated whatever the transport — the rows were resolved before this render,
         // so a to_file= batch reports the same number an inline one does (#582).
-        if (renderMs is { } rms) sb.Append(RenderBudget.BodiesLine(outcomes.Count, rms));
+        if (bodyCost is { } bc) sb.Append(RenderBudget.BodiesLine(bc.RowsRead, bc.Millis));
         sb.Append(spillText);
         // The one arm left: a max_chars smaller than what this response carries whatever the budget — its header,
         // its accounting, and the spill block naming the artifact that holds the complete result. It says so.

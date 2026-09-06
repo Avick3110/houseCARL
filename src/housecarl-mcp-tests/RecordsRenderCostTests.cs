@@ -393,6 +393,28 @@ public sealed class RecordsRenderCostTests
         Assert.DoesNotContain("narrow the scan terms", response);
     }
 
+    // ---- what the formids= lane says its bodies cost ------------------------------------------------
+
+    /// <summary>This lane reads a body for every id and then renders a limit=/offset= window of them, so the count
+    /// beside the cost is the LIST's, not the window's — the number the bound is measured against (#607).</summary>
+    [Fact]
+    public void AWindowedFormidsRenderReportsTheWholeListItRead()
+    {
+        var doc = Doc(RecordsTools.Records(Svc, formids: AllWeaponIds, format: "json", limit: 5, project: Fields()));
+        Assert.Equal(5, doc.GetProperty("rendered").GetInt32());
+        Assert.Equal(RenderCostWorld.Weapons, doc.GetProperty("rows_read").GetInt32());
+        Assert.True(doc.GetProperty("render_ms").GetInt64() >= 0);
+    }
+
+    /// <summary>The text transport states the same count.</summary>
+    [Fact]
+    public void AWindowedFormidsTextRenderReportsTheWholeListItRead()
+    {
+        var text = RecordsTools.Records(Svc, formids: AllWeaponIds, limit: 5, project: Fields());
+        Assert.Contains($"read {RenderCostWorld.Weapons} record bodies in ", text);
+        Assert.Contains(" ms", text);
+    }
+
     /// <summary>The bound is on what a row costs, not on where the row came from: an OFF-ORDER selection over it
     /// refuses before reading a body, the same as the in-order lane. Its rows read a body per row off a file
     /// outside the order, and the limit= description states the bound with no lane attached.</summary>

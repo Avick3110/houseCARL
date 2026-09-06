@@ -595,6 +595,9 @@ public static class RecordsTools
             var readFieldDepths = ReferenceEquals(readFields, readPaths) ? readDepths : null;
             IReadOnlyList<ReadOutcome> outcomes;
             LoadOrderService.PoleInfo? pole = null;
+            // This lane reads a body per id exactly as the scan's body lane does, so it is clocked the same way and
+            // reports the same accounting — over the LIST, which is what it read, not the limit=/offset= window.
+            var listClock = System.Diagnostics.Stopwatch.StartNew();
             if (srcOverlay && !string.Equals(srcSpec.OverlayState ?? "post", "pre", StringComparison.OrdinalIgnoreCase))
             {
                 // The overlay post source: every record's winner replayed through the SkyPatcher INI layer, the
@@ -633,6 +636,7 @@ public static class RecordsTools
                     headerLine += "\n(the off-order file's content is OUTSIDE the epoch fingerprint — an edit to it changes answers without changing the epoch)";
                 }
             }
+            listClock.Stop();
             outcomes = FoldRows(outcomes);
             var epoch2 = outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp;
             if (SeamTear(epoch2) is { } seamTear)
@@ -659,8 +663,8 @@ public static class RecordsTools
             }
             string Render2(SpillState? sp, out bool trunc) => form == "summary"
                 ? RenderRecordsSummary(winOutcomes, json, headerLine, envelope, max_chars, sp, out trunc)
-                : json ? JsonWire.RenderBatch(winOutcomes, max_chars, sp, out trunc, envelope, formLevers)
-                       : Wire.RenderBatch(winOutcomes, max_chars, sp, out trunc, formLevers, header: headerLine);
+                : json ? JsonWire.RenderBatch(winOutcomes, max_chars, sp, out trunc, envelope, formLevers, (ids.Length, listClock.ElapsedMilliseconds))
+                       : Wire.RenderBatch(winOutcomes, max_chars, sp, out trunc, formLevers, (ids.Length, listClock.ElapsedMilliseconds), headerLine);
             var rendered2 = Render2(spill2, out var truncated2);
             if (spill2 is null && truncated2)
             {
@@ -1466,8 +1470,8 @@ public static class RecordsTools
                 // clause must name limit= — the knob that actually windows this response.
                 var evLevers = formLevers.OnScanSelection();
                 string RenderEv(SpillState? sp, out bool trunc) => json
-                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, evLevers, bodyClock.ElapsedMilliseconds)
-                    : Wire.RenderBatch(bodies, max_chars, sp, out trunc, evLevers, bodyClock.ElapsedMilliseconds, headerLine);
+                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, evLevers, (bodies.Count, bodyClock.ElapsedMilliseconds))
+                    : Wire.RenderBatch(bodies, max_chars, sp, out trunc, evLevers, (bodies.Count, bodyClock.ElapsedMilliseconds), headerLine);
                 SpillState? evSpill = null;
                 if (wantFile)
                 {
@@ -1686,8 +1690,8 @@ public static class RecordsTools
                 // Selected by the off-order file scan, so the remedy vocabulary matches the body lane above.
                 var offLevers = formLevers.OnScanSelection();
                 string RenderOff(SpillState? sp, out bool trunc) => json
-                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, offLevers, offClock.ElapsedMilliseconds)
-                    : Wire.RenderBatch(bodies, max_chars, sp, out trunc, offLevers, offClock.ElapsedMilliseconds, headerLine);
+                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, offLevers, (bodies.Count, offClock.ElapsedMilliseconds))
+                    : Wire.RenderBatch(bodies, max_chars, sp, out trunc, offLevers, (bodies.Count, offClock.ElapsedMilliseconds), headerLine);
                 SpillState? offSpill = null;
                 var offEpoch = bodies.FirstOrDefault(o => o.Stamp is not null)?.Stamp ?? outcome.Stamp;
                 if (wantFile)
