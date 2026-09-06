@@ -298,6 +298,12 @@ public sealed class LoadOrderResolver : IDisposable
     /// everything but <see cref="OverlaySession.Overlay"/>.</summary>
     internal static long SessionOverlayOpens;
 
+    /// <summary>How many per-record body SEEKS this process has paid — one walk of a plugin to find one FormKey
+    /// (<see cref="SeekBody"/>). Counted for the same reason as the opens above: whether a lane read its rows one
+    /// walk each or gathered them a plugin at a time is invisible in the answer, only the clock differs, so this is
+    /// what a test can hold the gather to.</summary>
+    internal static long BodySeeks;
+
     public sealed class OverlaySession : IDisposable
     {
         readonly LoadOrderResolver _r;
@@ -1089,6 +1095,7 @@ public sealed class LoadOrderResolver : IDisposable
     /// into a silent "it does not" — the fallback costs a second pass on a miss and never a wrong answer.</para></summary>
     static IMajorRecordGetter? SeekBody(ISkyrimModGetter ov, FormKey fk, Type? getterType)
     {
+        System.Threading.Interlocked.Increment(ref BodySeeks);
         if (getterType is not null)
             foreach (var rec in ov.EnumerateMajorRecords(getterType, throwIfUnknown: false))
                 if (rec.FormKey == fk) return rec;

@@ -1337,10 +1337,14 @@ public static class RecordsTools
             {
                 var keys = outcome.Keys.Select(k => k.ToString()).ToList();
                 IReadOnlyList<ReadOutcome> bodies;
+                // This lane READS a body per row exactly as the scan render does, so it is clocked the same way and
+                // reports the same render_ms — the bound is one number over both lanes only if both are measured.
+                var bodyClock = System.Diagnostics.Stopwatch.StartNew();
                 if (srcName is not null)
                 {
                     bodies = svc.ResolveBatchFromPole(keys, srcName, srcMod, bodyFields ? readPaths : null, depth, resolveNames, null,
-                                                      out _, out var bref, out var brefEpoch, LeverNames.Records.ContainerHint, readDepths);
+                                                      out _, out var bref, out var brefEpoch, LeverNames.Records.ContainerHint, readDepths,
+                                                      ct, outcome.GetterTypes);
                     // A refusal is judged on the named cause, never on row count: a zero-match scan is an honest
                     // empty result, not a failure.
                     if (bref is not null)
@@ -1355,7 +1359,7 @@ public static class RecordsTools
                     // fields_source="winner" retargets display to the winner as it does on the fields form.
                     var srcs = outcome.Sources;
                     if (winnerFields || srcs is null || srcs.Take(keys.Count).All(s => s is null))
-                        bodies = svc.ResolveBatch(keys, bodyFields ? readPaths : null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint, depths: readDepths);
+                        bodies = svc.ResolveBatch(keys, bodyFields ? readPaths : null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint, depths: readDepths, ct: ct, getterTypes: outcome.GetterTypes);
                     else
                     {
                         var byIndex = new ReadOutcome[keys.Count];
@@ -1370,17 +1374,18 @@ public static class RecordsTools
                         }
                         if (winnerIdx.Count > 0)
                         {
-                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), bodyFields ? readPaths : null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint, depths: readDepths);
+                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), bodyFields ? readPaths : null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint, depths: readDepths, ct: ct, getterTypes: outcome.GetterTypes);
                             for (int i = 0; i < winnerIdx.Count; i++) byIndex[winnerIdx[i]] = res[i];
                         }
                         foreach (var kv in bySource)
                         {
-                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), bodyFields ? readPaths : null, false, depth, resolveNames, kv.Key, LeverNames.Records.ContainerHint, readDepths);
+                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), bodyFields ? readPaths : null, false, depth, resolveNames, kv.Key, LeverNames.Records.ContainerHint, readDepths, ct, outcome.GetterTypes);
                             for (int i = 0; i < kv.Value.Count; i++) byIndex[kv.Value[i]] = res[i];
                         }
                         bodies = byIndex;
                     }
                 }
+                bodyClock.Stop();
                 bodies = FoldRows(bodies);
                 // Rows the pole does not touch come back as per-item refusals naming the touchers, and the
                 // accounting carries the explicit count so a quiet omission is impossible.

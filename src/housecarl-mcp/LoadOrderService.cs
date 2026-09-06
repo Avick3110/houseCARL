@@ -2884,8 +2884,10 @@ public sealed class LoadOrderService : IDisposable
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
                                                    bool resolveNames = false, string? plugin = null,
                                                    string? containerHint = ReadEngine.DepthExpandHint,
-                                                   IReadOnlyList<int>? depths = null)
-        => ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, null, out _, out _, containerHint, depths);
+                                                   IReadOnlyList<int>? depths = null,
+                                                   CancellationToken ct = default,
+                                                   IReadOnlyList<Type>? getterTypes = null)
+        => ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, null, out _, out _, containerHint, depths, ct, getterTypes);
 
     /// <summary>The artifact-aware overload: <paramref name="artifactDemand"/> (a formids=@artifact input) is checked
     /// against THIS capture's epoch — the same build that would answer — and a mismatch hands back
@@ -2896,7 +2898,8 @@ public sealed class LoadOrderService : IDisposable
                                                    out string? artifactRefusal, out OrderStamp? refusalEpoch,
                                                    string? containerHint = ReadEngine.DepthExpandHint,
                                                    IReadOnlyList<int>? depths = null,
-                                                   CancellationToken ct = default)
+                                                   CancellationToken ct = default,
+                                                   IReadOnlyList<Type>? getterTypes = null)
     {
         artifactRefusal = null; refusalEpoch = null;
         var resolver = Resolver;                // build/refresh once for the batch
@@ -2915,13 +2918,32 @@ public sealed class LoadOrderService : IDisposable
         // per record re-mmaps every one of them per row. Disposed with the call, like any other read's.
         using var batchSession = resolver.OpenSession();
         var outcomes = new List<ReadOutcome>(formids.Count);
-        foreach (var raw in formids)
+        // Every FormID is parsed up front so the bodies can be gathered a CHUNK of rows at a time — one enumeration
+        // per source plugin, rather than the whole-plugin seek per record ResolveRead falls back to (#582). The
+        // scan's body forms come through here, so this lane and the scan render lane cost the same per row.
+        var keys = new FormKey[formids.Count];
+        var parseErrors = new string?[formids.Count];
+        for (int i = 0; i < formids.Count; i++)
+        {
+            try { keys[i] = view.ParseFormId(formids[i]); }
+            catch (Exception ex) { parseErrors[i] = $"bad FormID '{formids[i]}': {ex.Message}"; }
+        }
+        Dictionary<FormKey, IMajorRecordGetter>? chunk = null;
+        int chunkStart = -1;
+        for (int i = 0; i < formids.Count; i++)
         {
             ct.ThrowIfCancellationRequested();   // a client that aborted stops the batch inside one record
-            FormKey fk;
-            try { fk = view.ParseFormId(raw); }
-            catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
-            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths)
+            if (parseErrors[i] is { } perr) { outcomes.Add(ReadOutcome.Fail(default, perr)); continue; }
+            int start = BodyPrefetch.ChunkStart(i);
+            if (start != chunkStart)
+            {
+                chunkStart = start;
+                chunk = BodyPrefetch.Gather(view, batchSession, keys, start, Math.Min(start + BodyPrefetch.ChunkRows, keys.Length),
+                                            _ => plugin, getterTypes, ct);
+            }
+            var fk = keys[i];
+            var body = chunk is { } c && c.TryGetValue(fk, out var b) ? b : null;
+            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body)
                          with { Stamp = view.Stamp, Pin = pin });   // the batch's one build, stamped and pinned per item
         }
         return outcomes;
@@ -3025,7 +3047,9 @@ public sealed class LoadOrderService : IDisposable
         ArtifactDemand? artifactDemand,
         out PoleInfo? pole, out string? refusal, out OrderStamp? refusalEpoch,
         string? containerHint = ReadEngine.DepthExpandHint,
-        IReadOnlyList<int>? depths = null)
+        IReadOnlyList<int>? depths = null,
+        CancellationToken ct = default,
+        IReadOnlyList<Type>? getterTypes = null)
     {
         pole = null; refusal = null; refusalEpoch = null;
         var resolver = Resolver;
@@ -3056,12 +3080,31 @@ public sealed class LoadOrderService : IDisposable
             var unionMemo = new ChildUnionMemo();   // named records again: the union lane
             using var batchSession = resolver.OpenSession();   // and one overlay cache for the batch, as ResolveBatch has
             var outcomes = new List<ReadOutcome>(formids.Count);
-            foreach (var raw in formids)
+            // Parsed up front and gathered a chunk at a time, the same shape ResolveBatch reads by: one enumeration
+            // of the pole per chunk instead of a whole-plugin seek per record.
+            var keys = new FormKey[formids.Count];
+            var parseErrors = new string?[formids.Count];
+            for (int i = 0; i < formids.Count; i++)
             {
-                FormKey fk;
-                try { fk = view.ParseFormId(raw); }
-                catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
-                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths)
+                try { keys[i] = view.ParseFormId(formids[i]); }
+                catch (Exception ex) { parseErrors[i] = $"bad FormID '{formids[i]}': {ex.Message}"; }
+            }
+            Dictionary<FormKey, IMajorRecordGetter>? chunk = null;
+            int chunkStart = -1;
+            for (int i = 0; i < formids.Count; i++)
+            {
+                ct.ThrowIfCancellationRequested();   // a client that aborted stops the batch inside one record
+                if (parseErrors[i] is { } perr) { outcomes.Add(ReadOutcome.Fail(default, perr)); continue; }
+                int start = BodyPrefetch.ChunkStart(i);
+                if (start != chunkStart)
+                {
+                    chunkStart = start;
+                    chunk = BodyPrefetch.Gather(view, batchSession, keys, start, Math.Min(start + BodyPrefetch.ChunkRows, keys.Length),
+                                                _ => plugin, getterTypes, ct);
+                }
+                var fk = keys[i];
+                var body = chunk is { } c && c.TryGetValue(fk, out var b) ? b : null;
+                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body)
                              with { Stamp = view.Stamp, Pin = pin });
             }
             return outcomes;
@@ -4589,7 +4632,7 @@ public sealed class LoadOrderService : IDisposable
                                      predicate?.AccountingNote(), sources, scanNote,
                                      matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null, offset,
                                      whereWinner, whereSourceNote)
-               { Stamp = view.Stamp, Pin = new ViewPin(resolver, view),
+               { Stamp = view.Stamp, Pin = new ViewPin(resolver, view), GetterTypes = types,
                  ReverseIndexNote = reverseNote,
                  UnreadPlugins = unreadablePlugins.Select(u => u.PluginName).ToList() };
     }
@@ -9134,6 +9177,11 @@ public sealed record CrossQueryOutcome(
     /// <summary>Plugins the winner scan could not open, by filename. A zero-match answer with one of these is bounded
     /// by the lock, not by the filter, and the render must not tell the caller otherwise.</summary>
     public IReadOnlyList<string> UnreadPlugins { get; init; } = Array.Empty<string>();
+
+    /// <summary>The getter types the scan's own types= resolved to, or null when it named none. The render's bulk
+    /// body gather passes them to <see cref="LoadOrderResolver.IndexView.CollectRecords"/>, which then seeks the
+    /// GRUPs those types live in instead of walking the whole plugin. Never serialized.</summary>
+    internal IReadOnlyList<Type>? GetterTypes { get; init; }
 
     /// <summary>The scan's pinned resolver and view, carried so the render's per-match fills — detail bodies,
     /// summaries, conflict trees — read off the same build the scan matched and <see cref="Epoch"/> names. Without
