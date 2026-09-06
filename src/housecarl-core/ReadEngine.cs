@@ -558,13 +558,24 @@ public static class ReadEngine
 
     static FieldValue Fault(string path, Exception ex) => Fault(path, Reason(ex));
 
+    /// <summary>Recurse into ONE child under the same isolation its getter has: a throw anywhere beneath it — the
+    /// child's own token emit, its element count, a grandchild's getter — names THAT child's path and the sibling
+    /// walk carries on. Unwinding to the caller instead would drop every sibling after it (each reading as absent)
+    /// and pin a second line on the parent's own path, which both row folds then discard.</summary>
+    static void ExpandChild(object? val, Type declaredType, object parent, string childPath, int depth,
+                            List<FieldValue> sink, ref int budget)
+    {
+        try { Expand(val, declaredType, parent, childPath, depth, sink, ref budget); }
+        catch (Exception ex) { Emit(sink, ref budget, Fault(childPath, ex)); }
+    }
+
     /// <summary>Recursively emit <paramref name="val"/> at <paramref name="path"/>: a value leaf → its token;
     /// a link → its note (not opened); a container/substruct → an identity-enriched summary line, then (while
     /// depth allows) one child line per element (bracketed) or sub-field (dotted), each recursed at depth-1.
-    /// <para>A sub-field that cannot be read gets its own "(unreadable …)" line — the same sentence and the same
-    /// Readable=false the depth-1 read emits — and the walk carries on with its siblings. It is never skipped: a
-    /// dropped line is indistinguishable from an absent optional, which would make an unreadable field read as
-    /// evidence that nothing is there.</para></summary>
+    /// <para>A child that cannot be read — its getter, or anything under it (see <see cref="ExpandChild"/>) — gets
+    /// its own "(unreadable …)" line, the same sentence and the same Readable=false the depth-1 read emits, and the
+    /// walk carries on with its siblings. It is never skipped: a dropped line is indistinguishable from an absent
+    /// optional, which would make an unreadable field read as evidence that nothing is there.</para></summary>
     static void Expand(object? val, Type declaredType, object parent, string path, int depth, List<FieldValue> sink, ref int budget)
     {
         if (budget < 0) return;
@@ -619,7 +630,7 @@ public static class ReadEngine
                 var et = entry.GetType();
                 var key = et.GetProperty("Key", BindingFlags.Public | BindingFlags.Instance)?.GetValue(entry);
                 var ev = et.GetProperty("Value", BindingFlags.Public | BindingFlags.Instance)?.GetValue(entry);
-                Expand(ev, ev?.GetType() ?? typeof(object), val, $"{path}[{key}]", childDepth, sink, ref budget);
+                ExpandChild(ev, ev?.GetType() ?? typeof(object), val, $"{path}[{key}]", childDepth, sink, ref budget);
             }
         }
         else if (WriteEngine.GenderedInterface(val.GetType()) is not null)
@@ -642,7 +653,7 @@ public static class ReadEngine
                 object? arm;
                 try { arm = armProp.GetValue(val); }
                 catch (Exception ex) { Emit(sink, ref budget, Fault($"{path}[{g}]", ex)); continue; }
-                Expand(arm, armProp.PropertyType, val, $"{path}[{g}]", childDepth, sink, ref budget);
+                ExpandChild(arm, armProp.PropertyType, val, $"{path}[{g}]", childDepth, sink, ref budget);
             }
         }
         else if (val is System.Collections.IEnumerable seq and not string)
@@ -651,7 +662,7 @@ public static class ReadEngine
             foreach (var item in seq)
             {
                 if (budget < 0) return;
-                Expand(item, item?.GetType() ?? typeof(object), val, $"{path}[{i}]", childDepth, sink, ref budget);
+                ExpandChild(item, item?.GetType() ?? typeof(object), val, $"{path}[{i}]", childDepth, sink, ref budget);
                 i++;
             }
         }
@@ -685,7 +696,7 @@ public static class ReadEngine
                 object? fv;
                 try { fv = prop.GetValue(val); }
                 catch (Exception ex) { Emit(sink, ref budget, Fault($"{path}.{fname}", ex)); continue; }
-                Expand(fv, prop.PropertyType, val, $"{path}.{fname}", childDepth, sink, ref budget);
+                ExpandChild(fv, prop.PropertyType, val, $"{path}.{fname}", childDepth, sink, ref budget);
             }
         }
     }
