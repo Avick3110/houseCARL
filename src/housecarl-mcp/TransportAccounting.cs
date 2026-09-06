@@ -131,6 +131,13 @@ internal static class TransportAccounting
         if (everySentence || (c.Remaining > 0 && c.Rendered > 0))
             sb.Append("\nthe selection is longer than this window: re-call with limit=").Append(c.NextLimit)
               .Append(" offset=").Append(c.Offset + c.Rendered).Append(" for the next page.");
+        // The window that got no row onto the page has no next page to name, but it still needs a way forward: where
+        // one row is wider than the whole budget, offset= is the only knob that moves, so the offset that steps past
+        // that row is named — and named as a SKIP, since the row it steps over is one the caller has not seen.
+        if (everySentence || (c.Remaining > 0 && c.Rendered == 0 && c.Truncated > 0))
+            sb.Append("\nno ").Append(rowNoun).Append(" fitted this window: raise max_chars for the one at offset=")
+              .Append(c.Offset).Append(", or skip it with offset=").Append(c.Offset + 1)
+              .Append(" to reach the rest of the selection.");
         // An offset past the end would otherwise be told to re-call at the offset it already used.
         if (everySentence || (c.Remaining == 0 && c.Total > 0 && c.Offset >= c.Total))
             sb.Append("\noffset=").Append(c.Offset).Append(" is past the end of the selection (")

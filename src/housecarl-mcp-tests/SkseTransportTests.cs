@@ -604,6 +604,18 @@ public sealed class SkseTransportTests
         }
     }
 
+    /// <summary>A window whose rows are all wider than the whole budget still gets a knob that moves it: raising
+    /// max_chars for the row at this offset, or stepping past it. Suppressing the paging advice whenever nothing
+    /// rendered left those rows unreachable through the accounting block's own advice.</summary>
+    [Fact]
+    public void AWindowThatRenderedNothingNamesTheOffsetThatStepsPastTheRowThatDidNotFit()
+    {
+        var text = SkseConfigAuditWire.Render(ConfigAudit(3, refs: 400), "Mod", 2_000, new RowWindow(0, 5));
+
+        Assert.Contains("rendered=0", text);
+        Assert.Contains("skip it with offset=1", text);
+    }
+
     /// <summary>One response quotes ONE max_chars, and it is the number the caller passed: the footer is charged as
     /// the render's trailer rather than taken off its cap, so a cut notice inside a family cannot name a cap short by
     /// the footer's length — a number the caller never typed and cannot act on.</summary>
