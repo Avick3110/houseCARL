@@ -103,10 +103,15 @@ public static class ProbeTemp
         return int.TryParse(text, out pid);
     }
 
+    /// <summary>Whether a pid still belongs to a process. Only a definite "no such process" counts as dead.</summary>
     static bool IsLive(int pid)
     {
-        try { using var p = System.Diagnostics.Process.GetProcessById(pid); return !p.HasExited; }
-        catch { return false; }
+        // A process we cannot inspect — one at a higher integrity level, a transient permission error — counts
+        // as live: leaving its root behind is residue the next run picks up, deleting it is a live run's
+        // fixtures going mid-run. HasExited is not consulted; reaching it needs a handle we may not get.
+        try { System.Diagnostics.Process.GetProcessById(pid).Dispose(); return true; }
+        catch (ArgumentException) { return false; }
+        catch { return true; }
     }
 
     static void ReportLeft(string dir, int left, string? first) =>
