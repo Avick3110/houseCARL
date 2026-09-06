@@ -272,6 +272,24 @@ public sealed class RecordsWalkCostTests
         Assert.DoesNotContain("does not combine", response);
     }
 
+    /// <summary>A walk is seeded from the formids= lane as well as from a scan, and there the scan terms are not
+    /// part of the call at all — so the refusal names the seeds without them, rather than opening on three
+    /// parameters the caller did not pass and could not pass alongside formids=.</summary>
+    [Fact]
+    public void AFormidsSeededWalkIsRefusedWithoutNamingTheScanTerms()
+    {
+        var response = WithBound(10, () =>
+            RecordsTools.Records(Svc, formids: new[] { _w.RevisitSeed },
+                                 walk: new RecordsTools.RecordsWalk { depth = 2 }, project: Fields()));
+
+        Assert.StartsWith("error:", response);
+        Assert.Contains("the seeds you passed", response);
+        Assert.Contains("walk.max_nodes", response);
+        Assert.DoesNotContain("types=", response);
+        Assert.DoesNotContain("plugins=", response);
+        Assert.DoesNotContain("where=", response);
+    }
+
     /// <summary>The chain form stays exempt: it renders the walk's own rows and reads no record body, so the same
     /// call under the same bound serves.</summary>
     [Fact]
