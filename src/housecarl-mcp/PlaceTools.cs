@@ -231,11 +231,14 @@ static class PlaceWire
             .Append(failed > 0 ? $" ({failed} failed)" : "")
             .Append(modFolder is null ? "" : $"\nmod folder: {modFolder}").ToString();
 
-        int rendered = 0;
+        // Everything below the rows — the counts line, the leftover note, the enable-and-sort block — is charged
+        // before the first row is laid, so a filled render answers inside max_chars instead of past it.
         var body = BatchRender.Render(
             header, o.Results, "asset(s)", cap,
-            sb => { foreach (var w in o.Warnings) sb.Append("[!] discovery: ").Append(w).Append('\n'); },
-            (sb, r) => { rendered++; AppendResult(sb, r, modFolder, poleWithheld?.Contains(r.AssetPath) == true); });
+            (sb, room) => { foreach (var w in o.Warnings) room.TryAppend(sb, "[!] discovery: " + w + "\n"); },
+            (sb, r, _) => AppendResult(sb, r, modFolder, poleWithheld?.Contains(r.AssetPath) == true),
+            out int rendered,
+            reserve: TrailerReserve(o, modFolder, placed, failed));
 
         var sb2 = new StringBuilder(body).Append('\n');
         sb2.Append("\ntotal=").Append(o.Results.Count).Append(" rendered=").Append(rendered)
@@ -247,7 +250,22 @@ static class PlaceWire
 
         if (placed > 0) sb2.Append('\n').Append(EnableAndSort(o, modFolder, rendered)).Append('\n');
 
-        return sb2.ToString().TrimEnd('\n');
+        return RenderCap.Settle(sb2.ToString().TrimEnd('\n'), cap);
+    }
+
+    /// <summary>The chars this render owes below its rows, at their widest spelling: the counts line with every row
+    /// rendered, the leftover note where there is one, and whichever enable-and-sort sentence runs longer.</summary>
+    static int TrailerReserve(PlaceOutcome o, string? modFolder, int placed, int failed)
+    {
+        int n = o.Results.Count;
+        int counts = $"\n\ntotal={n} rendered={n} placed={placed} failed={failed} truncated=false\n".Length;
+        int leftover = o.LeftoverFolder is null ? 0 : ("note: " + LeftoverNote(o.LeftoverFolder) + "\n").Length;
+        // Which sentence it ends on turns on how many rows reached the page, so the reserve takes the longer of the
+        // two ends of that range rather than guessing which one this render will earn.
+        int enable = placed > 0
+            ? 2 + Math.Max(EnableAndSort(o, modFolder, 0).Length, EnableAndSort(o, modFolder, n).Length)
+            : 0;
+        return counts + leftover + enable;
     }
 
     /// <summary>A fresh folder kept because the write half-landed, said once for both transports.</summary>

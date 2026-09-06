@@ -126,7 +126,9 @@ internal static class TransportAccounting
         // Only what is still AHEAD of what was rendered earns a next page, and the next offset starts at the first
         // row this response did not show — so a caller following the advice sees every row exactly once. The advice
         // carries limit= as well: without it the next call resolves the whole remainder instead of one page.
-        if (everySentence || c.Remaining > 0)
+        // A window that got NO row onto the page has no next page to name: the advice would send the caller back to
+        // the offset they just used, and the max_chars sentence below is the remedy that actually moves them.
+        if (everySentence || (c.Remaining > 0 && c.Rendered > 0))
             sb.Append("\nthe selection is longer than this window: re-call with limit=").Append(c.NextLimit)
               .Append(" offset=").Append(c.Offset + c.Rendered).Append(" for the next page.");
         // An offset past the end would otherwise be told to re-call at the offset it already used.
