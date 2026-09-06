@@ -3146,12 +3146,18 @@ public sealed class LoadOrderService : IDisposable
             try
             {
                 foreach (var r in ov.EnumerateMajorRecords())
+                {
+                    ct.ThrowIfCancellationRequested();   // a client that aborted stops the file walk too
                     if (wanted.Contains(r.FormKey) && !found.ContainsKey(r.FormKey))
                     {
                         found[r.FormKey] = r;
                         if (found.Count == wanted.Count) break;
                     }
+                }
             }
+            // A cancel is the client's, not a parse fault: naming the file as the cause sends the caller after
+            // nothing.
+            catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
                 refusal = $"file '{plugin}' could not be fully read — a record Mutagen cannot parse: {ex.Message}";
@@ -3163,6 +3169,7 @@ public sealed class LoadOrderService : IDisposable
             using var session = resolveNames ? resolver.OpenSession() : null;   // resolve_names annotates against the ACTIVE order
             foreach (var (index, fk) in parsed)
             {
+                ct.ThrowIfCancellationRequested();   // a client that aborted stops the read inside one record
                 if (!found.TryGetValue(fk, out var rec))
                 {
                     // The untouched contract holds on this arm too: name the plugins that DO touch the record in the

@@ -383,6 +383,25 @@ public sealed class RecordsRenderCostTests
         Assert.IsAssignableFrom<OperationCanceledException>(ex);
     }
 
+    /// <summary>The off-order lane's BODY read stops on a cancel as well, and finishes as a cancellation rather
+    /// than as a refusal blaming the file. The scan honoured the token; the read after it — the half that
+    /// materialises each record — polled nothing and ran to the end of the selection.</summary>
+    [Fact]
+    public void ACancelStopsTheOffOrderBodyRead()
+    {
+        var pole = Svc.ProbeSourceArm(_w.OffOrderName, null, out var perr);
+        Assert.Null(perr);
+        var ids = Svc.OffOrderQuery(pole!, Weap, null, null, null, false, null, 100, null, 0, null, null)
+                     .Keys.Select(k => k.ToString()).ToList();
+        Assert.Equal(RenderCostWorld.OffOrderWeapons, ids.Count);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.Throws<OperationCanceledException>(() =>
+            Svc.ResolveBatchFromPole(ids, _w.OffOrderName, null, null, 1, false, null,
+                                     out _, out _, out _, ct: cts.Token));
+    }
+
     /// <summary>A cancelled call leaves nothing in the RESULTS directory either — the auto-spill path, whose name is
     /// reserved on disk by <c>ResultsStore.NextPath</c> before the write. (The cancel this asserts lands in the
     /// render; a cancel landing inside the spill write itself is a window no test can time, and is covered by the
