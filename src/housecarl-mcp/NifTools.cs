@@ -26,42 +26,39 @@ public static class NifTools
 
     [McpServerTool(Name = ToolNames.NifInspect, ReadOnly = true, Title = "Inspect the data values inside one or many Skyrim meshes (.nif)"),
      Description(
-         "Read the DATA VALUES inside one or many Skyrim meshes (.nif) at the data layer, beneath NifSkope. Resolve each " +
-         "Data-relative path in mesh_paths through Mod Organizer 2's virtual file system to the copy the game actually uses " +
-         "(loose beats BSA; among BSAs the later-loaded plugin wins) and report, per mesh: its header version + whether it is a Skyrim SE " +
-         "stream; the block census (every block type and count); any UNKNOWN blocks (named + preserved, never silently " +
-         "dropped); and per shape — the shape name, the NiAVObject flags (hex, decoded by deviation from the type's " +
-         "documented default plus the 0x80000 bit) and scale, the BSDismember body-part " +
-         "partitions (decoded to their SBP_* names), the alpha property (decoded blend / test / threshold), the SHADER " +
-         "property (block type, the shader TYPE enum — SkinTint / FaceTint / HairTint / EnvironmentMap / Parallax / … — " +
-         "the SLSF1+SLSF2 flags decoded to their names, and the lighting values on a Skyrim-layout shader — emissive " +
-         "colour and multiple, glossiness, specular strength and colour, alpha. Anything not reported is NAMED, with " +
-         "its reason: the library stubs that accessor for that block type, or the mesh reads as another game's " +
-         "layout, where houseCARL declines the group rather than interpret the ones that survive the layout change " +
-         "and guess at the rest), the embedded " +
-         "texture-set paths with their semantic slot names where the shader determines them, and the bone list; plus the node tree and the header string table. Use it to answer 'what " +
-         "shapes / bones / textures / partitions / alpha does this mesh have', 'does this mesh glow / use soft lighting / " +
-         "subsurface skin / env-mapping', to read a facegen mesh's baked shape names " +
-         "and tint path, to check a skeleton's bone names, or to see a dark-face mesh's flags/alpha/partitions — the " +
-         "asset-INTERNAL companion to " + ToolNames.AssetStatus + " (which mod wins) once you know the winning file. Pass " +
-         "mesh_paths = one or more paths (asset_status parity — a whole facegen sweep's flagged subset is ONE call, one " +
-         "load-order resolution for the batch); results return in input order, and a failing path is reported LOUD on THAT " +
-         "path without aborting the rest. Pass npc = one or more NPC FormIDs to inspect their FaceGen HEAD MESHES without " +
-         "working the path out yourself — houseCARL derives each facegeom .nif from the FormID (the folder is the plugin " +
-         "that DEFINES the NPC, never the winner) and reads it as one more member of the same batch. Output is a " +
-         "SUMMARY per mesh by default (header + census + shape names); pass sections to expand ('shapes','partitions','alpha'," +
-         "'paths','shader','strings','nodes','bones', or 'all'). Pass mod= to inspect a specific provider instead of the winner; " +
-         "sections, mod and max_chars apply to the whole batch. An " +
-         "unreadable archive, an absent path, or a mesh the underlying mesh library refuses is " +
-         "reported LOUD by name — never a silent 'absent' or a half-answer. Read-only: resolves nothing to disk, writes " +
-         "nothing, changes no load order. Scope: data values only; it does not read or edit geometry / visual content.")]
+         "Read the DATA VALUES inside one or many Skyrim meshes (.nif) at the data layer, beneath NifSkope — ONE " +
+         "surface: which meshes (SELECT) x whose copy (SOURCE) x how much of each mesh (PROJECT) compose in a single " +
+         "call.\n\n" +
+         "Every Data-relative path — typed in mesh_paths, or derived from an npc= FormID — resolves through Mod " +
+         "Organizer 2's virtual file system to the copy the game actually uses (loose beats BSA; among BSAs the " +
+         "later-loaded plugin wins), with ONE load-order resolution for the whole batch.\n\n" +
+         "WHAT A READ SEES, per mesh: the header version + whether it is a Skyrim SE stream; the block census (every " +
+         "block type and count); any UNKNOWN blocks (named + preserved, never silently dropped); and the shape names " +
+         "— that is the default summary. sections= expands it to each shape's flags, scale, partitions, alpha, shader " +
+         "and texture-set paths, its bone list, the node tree and the header string table. Scope: data values only; " +
+         "it does not read or edit geometry / visual content.\n\n" +
+         "Use it to answer 'what shapes / bones / textures / partitions / alpha does this mesh have', 'does this mesh " +
+         "glow / use soft lighting / subsurface skin / env-mapping', to read a facegen mesh's baked shape names and " +
+         "tint path, to check a skeleton's bone names, or to see a dark-face mesh's flags/alpha/partitions — the " +
+         "asset-INTERNAL companion to " + ToolNames.AssetStatus + " (which mod wins) once you know the winning " +
+         "file.\n\n" +
+         "Each axis's grammar is on its own parameters:\n" +
+         "SELECT — mesh_paths= | npc=; one of the two is required, and the two compose into one batch.\n" +
+         "SOURCE — mod= (empty = the VFS winner).\n" +
+         "PROJECT — sections= (empty = the summary).\n" +
+         "TRANSPORT — max_chars=.\n\n" +
+         "Every per-path failure — an unreadable archive, an absent path, a mod= name nothing provides, a mesh the " +
+         "underlying mesh library refuses — is reported LOUD by name on THAT path without aborting the rest; never a " +
+         "silent 'absent' or a half-answer. Read-only: resolves nothing to disk, writes nothing, changes no load " +
+         "order — " + ToolNames.NifSet + " is the write counterpart.")]
     public static string NifInspect(
         LoadOrderService svc,
         [Description("The Data-relative mesh path(s) to inspect, e.g. " +
                      "'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif' or " +
-                     "'meshes\\armor\\iron\\cuirass_1.nif'. One or many; inspected in order, results returned in the same " +
-                     "order. Relative to the game's Data folder (forward or back slashes both fine). Optional only if " +
-                     "npc= is passed instead.")]
+                     "'meshes\\armor\\iron\\cuirass_1.nif'. One or many at " + ToolNames.AssetStatus + " parity — a " +
+                     "whole facegen sweep's flagged subset is ONE call; inspected in order, results returned in the " +
+                     "same order. Relative to the game's Data folder (forward or back slashes both fine). Optional " +
+                     "only if npc= is passed instead.")]
             string[]? mesh_paths = null,
         [Description("Optional. NPC FormID(s) to inspect the FaceGen HEAD MESH of — houseCARL derives each one's " +
                      "'meshes\\actors\\character\\facegendata\\facegeom\\<defining master>\\00<6 hex>.nif' and reads it " +
@@ -69,13 +66,27 @@ public static class NifTools
                      "'XXXXXX:Plugin.esp', or the runtime form the game/console prints ('FE012800', '0501A51A'). " +
                      "The FOLDER is the plugin that DEFINES the NPC, never the conflict winner. Derived paths are " +
                      "inspected AFTER any mesh_paths, in the order given; mesh_paths and npc may be passed together, " +
-                     "and one of the two is required.")]
+                     "and one of the two is required. A FormID that will not PARSE refuses the whole call, naming it, " +
+                     "before any mesh is read; once a path is derived it fails like any other — on that path alone.")]
             string[]? npc = null,
         [Description("Optional. Which detail sections to show beyond the summary — any of 'shapes', 'partitions', 'alpha', " +
                      "'paths', 'shader', 'strings', 'nodes', 'bones', or 'all'. Comma-, space-, or JSON-array-separated (e.g. " +
-                     "[\"shapes\",\"shader\"]). There is NO 'textures' section — a mesh's embedded texture-set slot paths " +
-                     "appear under 'shapes' (per-shape detail) and 'paths'. 'shader' is the per-shape shader property: " +
-                     "block type, shader TYPE enum, decoded SLSF1/SLSF2 flag names, and the lighting values that are readable. " +
+                     "[\"shapes\",\"shader\"]). What each adds — per shape, except 'nodes' and 'strings', which are " +
+                     "per mesh: 'shapes' the shape " +
+                     "name, the NiAVObject flags (hex, decoded by deviation from the type's documented default plus " +
+                     "the 0x80000 bit) and scale, with that shape's partitions, alpha, texture-set paths and bones " +
+                     "inline; 'partitions' the BSDismember body-part partitions (decoded to their SBP_* names); " +
+                     "'alpha' the alpha property (decoded blend / test / threshold); 'paths' the embedded texture-set " +
+                     "paths with their semantic slot names where the shader determines them; 'shader' the SHADER " +
+                     "property (block type, the shader TYPE enum — SkinTint / FaceTint / HairTint / EnvironmentMap / " +
+                     "Parallax / … — the SLSF1+SLSF2 flags decoded to their names, and the lighting values on a " +
+                     "Skyrim-layout shader — emissive colour and multiple, glossiness, specular strength and colour, " +
+                     "alpha. Anything not reported is NAMED, with its reason: the library stubs that accessor for " +
+                     "that block type, or the mesh reads as another game's layout, where houseCARL declines the group " +
+                     "rather than interpret the ones that survive the layout change and guess at the rest); 'bones' " +
+                     "the bone list; 'nodes' the node tree, each node with the same flag decode; 'strings' the header " +
+                     "string table. There is NO 'textures' section — a mesh's embedded texture-set slot paths " +
+                     "appear under 'shapes' (per-shape detail) and 'paths'. " +
                      "Applies to every mesh in the batch; " +
                      "unrecognized tokens are reported loud, and an all-unrecognized sections= is an error (never a " +
                      "silent fallback to the summary). Empty = summary only (header + block census + shape names).")]
@@ -85,10 +96,13 @@ public static class NifTools
                      "shows it INSIDE the double quotes; the kind after them ('loose' / 'BSA') is not part of the name. " +
                      "Naming a MOD reaches that mod's loose files AND its own root archives, whether or not MO2 is " +
                      "loading it, so a donor mod can be read without enabling it; the response then SAYS the game is " +
-                     "not loading that copy. '*winner' is the winner pole spelled out. Applies to every mesh " +
+                     "not loading that copy. '*winner' is the winner pole spelled out. A name that provides no copy " +
+                     "of a given mesh is THAT path's own named miss, listing the providers that do; the rest of the " +
+                     "batch still reads. Applies to every mesh " +
                      "in the batch. Empty = the winner.")]
             string mod = "",
-        [Description("Optional. Max characters before the output is cut with an explicit notice. 0 = the server default (~80k).")]
+        [Description("Optional. Max characters before the output is cut with an explicit notice — one cap over the " +
+                     "WHOLE batch's render, not per mesh. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.NifInspect, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
