@@ -1420,8 +1420,8 @@ public static class RecordsTools
                 // clause must name limit= — the knob that actually windows this response.
                 var evLevers = formLevers.OnScanSelection();
                 string RenderEv(SpillState? sp, out bool trunc) => json
-                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, evLevers)
-                    : headerLine + "\n" + Wire.RenderBatch(bodies, max_chars, sp, out trunc, evLevers);
+                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, evLevers, bodyClock.ElapsedMilliseconds)
+                    : headerLine + "\n" + Wire.RenderBatch(bodies, max_chars, sp, out trunc, evLevers, bodyClock.ElapsedMilliseconds);
                 SpillState? evSpill = null;
                 if (wantFile)
                 {

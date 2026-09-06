@@ -12,6 +12,11 @@ namespace HousecarlMcp;
 internal sealed record SpillInfo(string Path, ResultArtifact.Manifest Manifest, string Reason)
 {
     public bool ToFile => Reason == "to_file";
+
+    /// <summary>What writing this artifact's DETAIL rows cost, in milliseconds — the same per-row body read the
+    /// inline renders clock, measured where a to_file= call actually pays it. Null when the artifact's rows read no
+    /// body (a summary or group_by artifact), so a render states a cost only where one was incurred (#582).</summary>
+    public long? RenderMs { get; init; }
 }
 
 /// <summary>How a render learns its call's artifact disposition as one value: a successful spill (with whether the
@@ -126,6 +131,7 @@ internal static class Artifacts
         string[] schema;
         string? identity;
         string sort;
+        System.Diagnostics.Stopwatch? renderClock = null;   // detail rows only: what reading their bodies cost
         var annotated = new SortedSet<string>(StringComparer.Ordinal);   // which fields the rows carry annotated
         bool annotatedUnioned = false;                                   // and which TIER they stated
 
@@ -139,6 +145,7 @@ internal static class Artifacts
         }
         else if (fields is { Count: > 0 })                                    // detail rows — full record objects
         {
+            renderClock = System.Diagnostics.Stopwatch.StartNew();
             identity = "formid";
             schema = new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "matches?", "fields" };
             sort = "load-order scan order (deterministic within one epoch)";
@@ -186,11 +193,14 @@ internal static class Artifacts
             }
         }
 
+        renderClock?.Stop();
         // The manifest stamps which tool wrote the artifact; see WriteResolve for why it names records.
         var (manifest, err) = writer.Save(path, ToolNames.Records, query, identity, schema, sort,
                                           q.Groups is not null ? q.Groups.Count : q.Total, q.Epoch ?? "",
                                           CrossQueryNotes(q, fields, winnerFields, annotated, annotatedUnioned, levers));
-        return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
+        return err is not null
+            ? (null, err)
+            : (new SpillInfo(path, manifest!, reason) { RenderMs = renderClock?.ElapsedMilliseconds }, null);
     }
 
     /// <summary>The response-level statement that an artifact's annotated rows depend on. An artifact is re-entered

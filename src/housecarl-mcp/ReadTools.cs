@@ -185,8 +185,11 @@ static class Wire
     /// <summary><paramref name="levers"/> is the caller's own parameter vocabulary for the remedy sentences below;
     /// this renderer is shared by callers that spell the selector differently. Omitted means the legacy
     /// spelling.</summary>
+    /// <param name="renderMs">What reading these bodies cost, when the caller measured it — the scan's body lane
+    /// does, so the row cost the render bound is set against is reported there too (#582).</param>
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars,
-                                     SpillState? spill, out bool truncated, LeverNames? levers = null)
+                                     SpillState? spill, out bool truncated, LeverNames? levers = null,
+                                     long? renderMs = null)
     {
         truncated = false;
         var lv = levers ?? LeverNames.Legacy;
@@ -199,10 +202,13 @@ static class Wire
         if (outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp is { } stamp) sb.Append(Wire.EpochInline(stamp));
         sb.Append('\n');
         int rendered = 0;
+        // The accounting line below is spoken for, like the clause: a response that fills to the ceiling must still
+        // fit inside max_chars once it has stated what its bodies cost.
+        int costReserve = renderMs is null ? 0 : RenderBudget.AccountingReserve;
         foreach (var o in outcomes)
         {
             if (spill?.ManifestOnly ?? false) break;   // to_file: only the manifest renders — the rows are the FILE
-            if (sb.Length >= cap - notes.Reserve)      // the clauses this response has already earned are SPOKEN FOR
+            if (sb.Length >= cap - notes.Reserve - costReserve)   // the clauses this response has already earned are SPOKEN FOR
             {
                 truncated = true;
                 sb.Append("... [truncated: rendered ").Append(rendered).Append(" of ").Append(outcomes.Count)
@@ -218,6 +224,9 @@ static class Wire
             rendered++;
         }
         AppendOwnedChildNotes(sb, notes);
+        // What reading these bodies cost, stated whatever the transport — the rows were resolved before this render,
+        // so a to_file= batch reports the same number an inline one does (#582).
+        if (renderMs is { } rms) sb.Append(RenderBudget.BodiesLine(outcomes.Count, rms));
         if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
         return sb.ToString().TrimEnd('\n');
     }
@@ -287,9 +296,12 @@ static class Wire
         int rendered = 0;
         var renderClock = System.Diagnostics.Stopwatch.StartNew();
         var notes = new ChildNotes();   // accumulated over the rows actually rendered
+        // The accounting line below is spoken for too: a detail render that fills to the ceiling must still fit
+        // inside max_chars once it has stated what it cost.
+        int costReserve = detail ? RenderBudget.AccountingReserve : 0;
         for (int i = 0; i < q.Keys.Count && !(spill?.ManifestOnly ?? false); i++)   // to_file: only the manifest renders — the rows are the FILE
         {
-            if (sb.Length >= cap - notes.Reserve)      // the clauses this response has already earned are SPOKEN FOR
+            if (sb.Length >= cap - notes.Reserve - costReserve)   // the clauses this response has already earned are SPOKEN FOR
             {
                 truncated = true;
                 sb.Append("... [truncated: rendered ").Append(rendered).Append(" of ").Append(q.Keys.Count)
@@ -333,10 +345,13 @@ static class Wire
         renderClock.Stop();
         AppendOwnedChildNotes(sb, notes);
         // What the RENDER cost, stated in-band: the scan terms bound the scan, and the per-row body read is the
-        // other half of a call's cost, which nothing said before (#582).
-        if (detail && !(spill?.ManifestOnly ?? false))
-            sb.Append("rendered ").Append(rendered).Append(rendered == 1 ? " row in " : " rows in ")
-              .Append(renderClock.ElapsedMilliseconds).Append(" ms\n");
+        // other half of a call's cost, which nothing said before (#582). A to_file= call renders its rows into the
+        // ARTIFACT, so its cost comes off the write rather than off the loop above — the shape that renders the
+        // most rows is the one that most needs to report what they cost.
+        if (detail && spill?.ManifestOnly == true && spill.Spill is { RenderMs: { } artifactMs } a)
+            sb.Append(RenderBudget.AccountingLine(a.Manifest.RowCount, artifactMs));
+        else if (detail && !(spill?.ManifestOnly ?? false))
+            sb.Append(RenderBudget.AccountingLine(rendered, renderClock.ElapsedMilliseconds));
         if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
         return sb.ToString().TrimEnd('\n');
     }
