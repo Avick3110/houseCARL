@@ -89,7 +89,12 @@ public sealed class TruncatedSubFieldWorld : IDisposable
         int grup = Find(bytes, "GRUP", 0);           // the WEAP group header; its own label is "WEAP" at +8,
         int rec = Find(bytes, "WEAP", grup + 24);    // so the record itself is searched for past the header
         int sub = Find(bytes, "DATA", rec + 24);
+        // Every offset below is unchecked arithmetic on these three: a miss (-1) or a DATA that is not the 10-byte
+        // WEAP one still writes a plugin, and the test then fails somewhere far from the cause. Assert the fixture's
+        // assumptions here so a Mutagen layout change fails as itself.
+        Assert.True(grup >= 0 && rec >= 0 && sub >= 0, $"WEAP GRUP/record/DATA not found (grup={grup} rec={rec} sub={sub})");
         int len = BitConverter.ToUInt16(bytes, sub + 4);
+        Assert.Equal(10, len);
         const int Keep = 8;
         int cut = len - Keep;
         BitConverter.GetBytes((ushort)Keep).CopyTo(bytes, sub + 4);
