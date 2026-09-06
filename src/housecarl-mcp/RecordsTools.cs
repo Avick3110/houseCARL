@@ -959,13 +959,17 @@ public static class RecordsTools
             envelope.Add(new("versus", rArm ?? versusSpec!.Label));
             headerLine += $"  versus={rArm ?? versusSpec!.Label}";
             CoverageNote(covers);
-            int differing = rows.Count(x => x.Error is null && x.Diff!.Deltas.Count > 0);
+            // A no-verdict (a field neither side could be compared at) is a THIRD state: it is not a value
+            // difference, so it stays out of `differing`, and it is not identity either — `identical` already
+            // excludes it via Complete. It gets its own count instead of being folded into one of the two.
+            int differing = rows.Count(x => x.Error is null && x.Diff!.Deltas.Count > x.Diff.NoVerdictCount);
             int identical = rows.Count(x => x.Error is null && x.Diff!.Deltas.Count == 0 && x.Diff.Complete);
+            int noVerdict = rows.Count(x => x.Error is null && x.Diff!.NoVerdictCount > 0);
             int errs = rows.Count(x => x.Error is not null);
             if (counts_only)
                 return json
-                    ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("errors", errs) }, epoch)
-                    : $"{headerLine}\ncount={rows.Count} differing={differing} identical={identical} errors={errs}" + Wire.EpochLine(epoch);
+                    ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs) }, epoch)
+                    : $"{headerLine}\ncount={rows.Count} differing={differing} identical={identical} no_verdict={noVerdict} errors={errs}" + Wire.EpochLine(epoch);
             var winRows = Windowed(rows);
             SpillState? spill = null;
             if (wantFile)
@@ -974,10 +978,10 @@ public static class RecordsTools
                 if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
-            var deltaCounts = new[] { KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("errors", errs) };
+            var deltaCounts = new[] { KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs) };
             string Render(SpillState? sp, out bool trunc) => json
                 ? JsonWire.RenderDelta(winRows, max_chars, epoch, envelope, deltaCounts, sp, out trunc)
-                : RenderRecordsDelta(winRows, rows.Count, differing, identical, errs, headerLine, epoch, max_chars, sp, out trunc);
+                : RenderRecordsDelta(winRows, rows.Count, differing, identical, noVerdict, errs, headerLine, epoch, max_chars, sp, out trunc);
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
             {
@@ -1771,7 +1775,8 @@ public static class RecordsTools
     /// <summary>The delta form's text render: header counts, then per record the two pole lines, the stack-above
     /// fact stated neutrally rather than as advice, and the delta-line grammar — where a truncated deep read is
     /// never rendered as 'identical'.</summary>
-    static string RenderRecordsDelta(IReadOnlyList<LoadOrderService.DeltaRow> rows, int total, int differing, int identical, int errors,
+    static string RenderRecordsDelta(IReadOnlyList<LoadOrderService.DeltaRow> rows, int total, int differing, int identical,
+                                     int noVerdict, int errors,
                                      string headerLine, OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated)
     {
         truncated = false;
@@ -1780,7 +1785,11 @@ public static class RecordsTools
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
         sb.Append(total).Append(" record(s): ").Append(differing).Append(" differing, ").Append(identical)
-          .Append(" identical, ").Append(errors).Append(" error(s)");
+          .Append(" identical, ");
+        // Named only when there are any: a record with a field neither side could be compared at is in neither of
+        // the two counts above, so leaving it unnamed would make them look like they had lost a record.
+        if (noVerdict > 0) sb.Append(noVerdict).Append(" with a field that could not be read, ");
+        sb.Append(errors).Append(" error(s)");
         if (epoch is not null) sb.Append(Wire.EpochInline(epoch));
         sb.Append('\n');
         int rendered = 0;
@@ -1821,8 +1830,15 @@ public static class RecordsTools
             }
             else
             {
-                sb.Append("  ").Append(d.Deltas.Count).Append(d.Deltas.Count == 1 ? " difference" : " differences")
-                  .Append(" — each line: ").Append(s.LabelVersus(r.Plugin)).Append("'s value (reference = ")
+                // The block heads with the VALUE differences and names the no-verdict lines apart from them: an
+                // UNREADABLE line is explicitly not a value, so counting it as one contradicts the line itself.
+                int values = d.Deltas.Count - d.NoVerdictCount;
+                sb.Append("  ");
+                if (values > 0) sb.Append(values).Append(values == 1 ? " difference" : " differences");
+                if (d.NoVerdictCount > 0)
+                    sb.Append(values > 0 ? " and " : "").Append(d.NoVerdictCount)
+                      .Append(d.NoVerdictCount == 1 ? " field that could not be read" : " fields that could not be read");
+                sb.Append(" — each value line: ").Append(s.LabelVersus(r.Plugin)).Append("'s value (reference = ")
                   .Append(r.LabelVersus(s.Plugin)).Append("):\n");
                 foreach (var delta in d.Deltas)
                 {

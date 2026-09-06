@@ -297,7 +297,7 @@ internal static class Artifacts
             writer.WriteRow((w, ms) => JsonWire.WriteDeltaRow(w, row, ms, int.MaxValue),
                             row.Error is null ? row.Subject?.RecordType : null);
         var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
-                                          new[] { "formid", "type", "editorid", "subject", "reference", "stack_above?", "note?", "complete", "deltas", "delta_count", "agreed_count" },
+                                          new[] { "formid", "type", "editorid", "subject", "reference", "stack_above?", "note?", "complete", "deltas", "delta_count", "no_verdict_count", "agreed_count" },
                                           "input order", rows.Count, epoch ?? "");
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
     }
