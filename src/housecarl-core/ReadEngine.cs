@@ -276,16 +276,16 @@ public static class ReadEngine
     //  THE READ PRIMITIVE — navigate a path read-only, emit the leaf token.
     // ======================================================================
 
-    /// <summary>Read one leaf path off a located record and return its round-trippable token (or a
-    /// sentinel). Navigation mirrors the write engine's path walk (same <c>ResolveProperty</c> /
-    /// <c>StepIntoElement</c>) but is READ-ONLY — an absent optional substruct is surfaced, never
-    /// materialised. Per-leaf fault isolation: any reflection/parse failure names itself and never
-    /// throws out, so one Mutagen-unparseable field can't crash a record read.</summary>
     /// <summary>The reason an unreadable note reports. A getter's own throw comes back from reflection wrapped in a
     /// <see cref="TargetInvocationException"/> whose message ("Exception has been thrown by the target of an
     /// invocation") names nothing a caller can act on, so the note carries the inner exception's message instead.</summary>
     static string Reason(Exception ex) => (ex as TargetInvocationException)?.InnerException?.Message ?? ex.Message;
 
+    /// <summary>Read one leaf path off a located record and return its round-trippable token (or a
+    /// sentinel). Navigation mirrors the write engine's path walk (same <c>ResolveProperty</c> /
+    /// <c>StepIntoElement</c>) but is READ-ONLY — an absent optional substruct is surfaced, never
+    /// materialised. Per-leaf fault isolation: any reflection/parse failure names itself and never
+    /// throws out, so one Mutagen-unparseable field can't crash a record read.</summary>
     internal static LeafRead ReadLeaf(object record, string[] path)
     {
         try
