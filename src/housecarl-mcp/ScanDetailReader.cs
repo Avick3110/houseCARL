@@ -9,25 +9,16 @@ namespace HousecarlMcp;
 /// match's body through.
 ///
 /// <para>It exists for two costs the per-row call carried (#582). One overlay SESSION covers the whole render, so a
-/// plugin is memory-mapped once for the call instead of once per row. And each row's body is gathered a CHUNK of
-/// rows at a time, one enumeration per source plugin however many of that chunk's rows want it, instead of the
-/// whole-overlay walk per record that <see cref="LoadOrderResolver.IndexView.GetRecord"/> costs — the same #251
-/// shape <see cref="WinnerBodies"/> already uses on the scan's matching half. Per-row that walk is O(records in the
-/// winner plugin), which is why a projection of four leaves cost 40 ms a row on an order whose winners live in
-/// large masters.</para>
-///
-/// <para>Chunked rather than whole-set: the map, and the getters it pins, are bounded by the chunk, and a render
-/// that stops at max_chars pays for the chunk it reached rather than for every selected row.</para>
+/// plugin is memory-mapped once for the call instead of once per row. And each row's body comes from
+/// <see cref="BodyPrefetch"/>, a chunk of rows at a time, one enumeration per source plugin however many of that
+/// chunk's rows want it, instead of the whole-overlay walk per record that
+/// <see cref="LoadOrderResolver.IndexView.GetRecord"/> costs.</para>
 ///
 /// <para>Every row also checks the caller's cancellation token, so a client that aborts stops the render inside one
 /// row.</para>
 /// </summary>
 internal sealed class ScanDetailReader : IDisposable
 {
-    /// <summary>Rows gathered per chunk. Big enough that a large master is walked tens of times over a whole-order
-    /// catalogue rather than tens of thousands, small enough that the pinned getters stay bounded.</summary>
-    internal const int ChunkRows = 2000;
-
     readonly LoadOrderService _svc;
     readonly CrossQueryOutcome _q;
     readonly IReadOnlyList<string>? _fields;
@@ -80,31 +71,14 @@ internal sealed class ScanDetailReader : IDisposable
     void FillChunk(int i)
     {
         if (_view is not { } view || _session is null) return;   // unpinned: the per-row path answers
-        int start = i / ChunkRows * ChunkRows;
+        int start = BodyPrefetch.ChunkStart(i);
         if (start == _chunkStart) return;
         _chunkStart = start;
-
-        var byPlugin = new Dictionary<string, HashSet<FormKey>>(StringComparer.OrdinalIgnoreCase);
-        int end = Math.Min(start + ChunkRows, _q.Keys.Count);
-        for (int r = start; r < end; r++)
-        {
-            var fk = _q.Keys[r];
-            var plugin = SourceAt(r) ?? view.ResolveWinner(fk)?.WinnerPlugin;
-            if (plugin is null) continue;                  // unresolvable: the row's own read names the cause
-            if (!byPlugin.TryGetValue(plugin, out var set)) byPlugin[plugin] = set = new HashSet<FormKey>();
-            set.Add(fk);
-        }
-
-        var sink = new Dictionary<FormKey, IMajorRecordGetter>(end - start);
-        foreach (var (plugin, wanted) in byPlugin)
-        {
-            _ct.ThrowIfCancellationRequested();
-            // A plugin that cannot be read leaves its rows unfetched here and the row's own read raises the same
-            // fault it always did — the prefetch is an optimisation and must never become a second error path.
-            try { view.CollectRecords(_session, plugin, wanted, null, sink); }
-            catch (Exception) { }
-        }
-        _chunk = sink;
+        // The scan's own resolved types narrow each plugin's walk to the GRUPs they live in, which is the whole
+        // point of the gather on a master whose placed references outnumber the records wanted.
+        _chunk = BodyPrefetch.Gather(view, _session, _q.Keys, start,
+                                     Math.Min(start + BodyPrefetch.ChunkRows, _q.Keys.Count),
+                                     SourceAt, _q.GetterTypes, _ct);
     }
 
     public void Dispose() => _session?.Dispose();
