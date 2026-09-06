@@ -119,7 +119,8 @@ internal static class Artifacts
         LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields,
         bool resolveNames, bool winnerFields, int depth,
         string path, string reason, IReadOnlyList<KeyValuePair<string, string>> query,
-        LeverNames? levers = null, int rowCap = int.MaxValue, FoldPlan? fold = null)
+        LeverNames? levers = null, int rowCap = int.MaxValue, FoldPlan? fold = null,
+        CancellationToken ct = default)
     {
         using var writer = new ResultArtifact.Writer();
         string[] schema;
@@ -143,9 +144,10 @@ internal static class Artifacts
             sort = "load-order scan order (deterministic within one epoch)";
             var foldDepths = fold?.Read().Depths;   // the quantified paths' depth, and the caller's own for the rest
             // The artifact reads through the SAME reader the inline renders do: one session, one chunked body
-            // prefetch per plugin.
+            // prefetch, and the per-row cancellation check. A cancel here throws before Save, so no half artifact
+            // reaches disk — the rows only exist in the writer's buffer until then.
             using var reader = new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields,
-                                                    (levers ?? LeverNames.Legacy).ContainerHint, foldDepths);
+                                                    (levers ?? LeverNames.Legacy).ContainerHint, foldDepths, ct);
             for (int i = 0; i < q.Keys.Count; i++)
             {
                 var fk = q.Keys[i];

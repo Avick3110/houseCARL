@@ -18,6 +18,9 @@ namespace HousecarlMcp;
 ///
 /// <para>Chunked rather than whole-set: the map, and the getters it pins, are bounded by the chunk, and a render
 /// that stops at max_chars pays for the chunk it reached rather than for every selected row.</para>
+///
+/// <para>Every row also checks the caller's cancellation token, so a client that aborts stops the render inside one
+/// row.</para>
 /// </summary>
 internal sealed class ScanDetailReader : IDisposable
 {
@@ -32,6 +35,7 @@ internal sealed class ScanDetailReader : IDisposable
     readonly bool _resolveNames, _winnerFields;
     readonly string? _containerHint;
     readonly IReadOnlyList<int>? _depths;
+    readonly CancellationToken _ct;
     readonly LoadOrderService.LinkMemo? _linkMemo;
     readonly LoadOrderResolver.IndexView? _view;
     readonly LoadOrderResolver.OverlaySession? _session;
@@ -41,11 +45,11 @@ internal sealed class ScanDetailReader : IDisposable
 
     internal ScanDetailReader(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int depth,
                               bool resolveNames, bool winnerFields, string? containerHint,
-                              IReadOnlyList<int>? depths)
+                              IReadOnlyList<int>? depths, CancellationToken ct)
     {
         _svc = svc; _q = q; _fields = fields; _depth = depth;
         _resolveNames = resolveNames; _winnerFields = winnerFields;
-        _containerHint = containerHint; _depths = depths;
+        _containerHint = containerHint; _depths = depths; _ct = ct;
         _linkMemo = resolveNames ? new LoadOrderService.LinkMemo() : null;
         // Only a pinned outcome can be read this way: the session and the prefetch have to come off the very build
         // the scan matched on, and an unpinned outcome falls through to the plain per-row path unchanged.
@@ -59,6 +63,7 @@ internal sealed class ScanDetailReader : IDisposable
     /// <summary>Read row <paramref name="i"/> of the scan's key list.</summary>
     internal ReadOutcome Row(int i)
     {
+        _ct.ThrowIfCancellationRequested();
         var fk = _q.Keys[i];
         var plugin = SourceAt(i);
         FillChunk(i);
@@ -93,6 +98,7 @@ internal sealed class ScanDetailReader : IDisposable
         var sink = new Dictionary<FormKey, IMajorRecordGetter>(end - start);
         foreach (var (plugin, wanted) in byPlugin)
         {
+            _ct.ThrowIfCancellationRequested();
             // A plugin that cannot be read leaves its rows unfetched here and the row's own read raises the same
             // fault it always did — the prefetch is an optimisation and must never become a second error path.
             try { view.CollectRecords(_session, plugin, wanted, null, sink); }
