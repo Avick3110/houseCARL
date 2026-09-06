@@ -32,7 +32,6 @@ public sealed class PublishedDescriptionBoundTests
     {
         ToolNames.CompactPlugin,
         ToolNames.Forward,
-        ToolNames.NifSet,
     };
 
     public static IEnumerable<object[]> EveryPublishedTool() =>

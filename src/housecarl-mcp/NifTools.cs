@@ -176,36 +176,57 @@ public static class NifTools
     [McpServerTool(Name = ToolNames.NifSet, Title = "Write a whitelisted data value into a Skyrim mesh (.nif)"),
      Description(
          "Write ONE whitelisted DATA VALUE into a Skyrim SE mesh (.nif) at the data layer, beneath NifSkope — then VERIFY " +
-         "the edit before anything lands. Resolve the Data-relative mesh_path through Mod Organizer 2's VFS to the winning " +
-         "copy (or mod=), apply the op, and pass it two offset-immune verification gates (only the block/value the op " +
-         "claims to touch changed; a reload re-reads the new value; census + SE-stream intact) — a failure writes NOTHING " +
-         "and says why. The ops (op=): rename_shape / rename_node (retitle a baked shape/node — the HDPT-EDID facegen " +
-         "case), set_flags (NiAVObject flags on a shape/node — the 0x80000 head/hair-class bit), set_scale, set_partition " +
-         "(a BSDismember body-part id — pass body_part_id [+ partition_index]), set_alpha (alpha_flags word and/or " +
-         "alpha_threshold — the hair 0x12ED / hairline 0x12EE class), set_path (swap an asset reference, TWO addressing " +
-         "forms: with texture_slot + path it swaps that BSShaderTextureSet slot on the named shape — e.g. the FaceTint " +
-         "slot 6 or skin slots 0/1; with NO texture_slot it swaps the HEADER STRING target names for path — the " +
-         "material (.bgsm), .tri / BODYTRI and physics-xml refs that sections=strings lists), set_shader_value (a shader LIGHTING value — " +
-         "pass shader_value + value: glossiness, specular_strength, specular_color, emissive_color, emissive_multiple, " +
-         "alpha; the plastic-looking armour or over-bright glow fix. NOT set_alpha — that is the separate NiAlphaProperty). " +
-         "target= is the shape or node NAME the op edits " +
-         "(from " + ToolNames.NifInspect + "). By DEFAULT the verified mesh is written into a NEW houseCARL MO2 mod folder at the " +
-         "same path (originals untouched) — enable it and sort it ABOVE the current winner so the edit wins; a BSA-packed " +
-         "source becomes a loose winning override this way. in_place=true instead OVERWRITES the winning LOOSE file where " +
-         "it sits (opt-in; rides the per-file consent handshake, needs acknowledge=true, NO backup). Only edits " +
-         "data VALUES — never geometry / vertices / the .dds pixels. Refuses loud (Q3): a non-SE mesh, a target it can't " +
-         "find or that's ambiguous, an op that doesn't apply, or any verification miss.")]
+         "the edit before anything lands. ONE surface: which mesh (SELECT) x whose copy (SOURCE) x what to change (the " +
+         "ACT) x WHERE it lands (the LANE) compose in a single call. The WRITE counterpart to " + ToolNames.NifInspect +
+         ", which reads the values this edits — the facegen head-mesh repairs are its canonical use; to make a DIFFERENT " +
+         "existing copy win instead of editing one, use " + ToolNames.Place + ".\n\n" +
+         "Resolve the Data-relative mesh_path through Mod Organizer 2's VFS to the winning copy (or mod=), apply the op, " +
+         "and pass it two offset-immune verification gates (only the block/value the op claims to touch changed; a reload " +
+         "re-reads the new value; census + SE-stream intact) — a failure writes NOTHING and says why. Every refusal is " +
+         "loud and named (Q3), never a silent half-write.\n\n" +
+         "By DEFAULT the verified mesh is written into a NEW houseCARL MO2 mod folder at the same path (originals " +
+         "untouched) — enable it and sort it ABOVE the current winner so the edit wins; a BSA-packed source becomes a " +
+         "loose winning override this way. in_place=true instead OVERWRITES the winning LOOSE file where it sits (opt-in; " +
+         "rides the per-file consent handshake, needs acknowledge=true, NO backup). Only edits data VALUES — never " +
+         "geometry / vertices / the .dds pixels.\n\n" +
+         "Each axis's grammar is on its own parameters:\n" +
+         "SELECT — mesh_path= (which mesh) x target= (what inside it the op edits).\n" +
+         "SOURCE — mod= (empty = the VFS winner).\n" +
+         "ACT — op= names the write; its operands are new_name=, flags=, scale=, body_part_id= [+ partition_index=], " +
+         "alpha_flags= / alpha_threshold=, texture_slot= + path=, and shader_value= + value=.\n" +
+         "LANE — patch_name= | into= on the default lane, or in_place= + acknowledge=.")]
     public static string NifSet(
         LoadOrderService svc,
-        [Description("The Data-relative mesh path to edit, e.g. 'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif'.")]
+        [Description("The Data-relative mesh path to edit, e.g. " +
+                     "'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif'. Relative to the " +
+                     "game's Data folder (forward or back slashes both fine); a drive-rooted path ('C:\\…') or one " +
+                     "carrying a '..' segment is REFUSED by name, never silently normalized. The mesh it resolves to " +
+                     "must be a Skyrim SE stream (user 12 / stream 100) — a non-SE mesh is refused by name, because a " +
+                     "normalized cross-game (LE / FO4 / Starfield) write is untested.")]
             string mesh_path,
         // Built from OpList, a const so it is legal in an attribute, rather than spelled out: this is the string a
         // caller reads to choose an op, so a stale list here would make a shipped op invisible in the tool schema.
-        [Description("The write op — one of: " + OpList + ".")]
+        [Description("The write op — one of: " + OpList + ". What each one does: rename_shape / rename_node (retitle a " +
+                     "baked shape/node — the HDPT-EDID facegen case), set_flags (NiAVObject flags on a shape/node — the " +
+                     "0x80000 head/hair-class bit), set_scale, set_partition (a BSDismember body-part id — pass " +
+                     "body_part_id [+ partition_index]), set_alpha (alpha_flags word and/or alpha_threshold — the hair " +
+                     "0x12ED / hairline 0x12EE class), set_path (swap an asset reference, TWO addressing forms: with " +
+                     "texture_slot + path it swaps that BSShaderTextureSet slot on the named shape — e.g. the FaceTint " +
+                     "slot 6 or skin slots 0/1; with NO texture_slot it swaps the HEADER STRING target= names for path " +
+                     "— the material (.bgsm), .tri / BODYTRI and physics-xml refs that sections=strings lists), " +
+                     "set_shader_value (a shader LIGHTING value — pass shader_value + value: glossiness, " +
+                     "specular_strength, specular_color, emissive_color, emissive_multiple, alpha; the plastic-looking " +
+                     "armour or over-bright glow fix. NOT set_alpha — that is the separate NiAlphaProperty). An op that " +
+                     "does not APPLY to what target= names — set_partition on a shape carrying no BSDismember skin " +
+                     "instance — is refused by name, with nothing written.")]
             string op,
         [Description("What the op edits, as it currently reads (from " + ToolNames.NifInspect + "). For most ops the NAME of a " +
                      "shape or node; for a rename the OLD name; for set_path WITHOUT texture_slot the header STRING to " +
-                     "replace, exactly as sections=strings prints it (case-sensitive).")]
+                     "replace, exactly as sections=strings prints it (case-sensitive). A target this mesh does not carry " +
+                     "is refused by name with nothing written — no shape or node of that name, or, on the header-string " +
+                     "form, no string reading exactly that. A shape/node name more than one block answers to is refused " +
+                     "as AMBIGUOUS rather than written to the first match; several blocks referencing the SAME header " +
+                     "string are not ambiguous — they all move together.")]
             string target,
         [Description("rename_shape / rename_node: the new name.")] string new_name = "",
         [Description("set_flags: the NiAVObject flags value — hex ('0x800000E') or decimal.")] string flags = "",
