@@ -141,9 +141,10 @@ public static class ApplyTools
         for (int i = 0; i < edits.Count; i++)
         {
             var e = edits[i];
-            // Zip-generated edits carry the caller's OWN spelling (assignments[i] x bundle[j]); inline ops fall back
-            // to their real index. The service's mapper uses it too, so no refusal names an index nobody wrote.
-            var where = e.Origin ?? $"op[{i}]";
+            // Zip-generated edits carry the caller's OWN spelling (assignments[i] x bundle[j]); an inline op is
+            // ops[i], the member this surface publishes. The service's mapper uses it too, so no refusal names an
+            // index nobody wrote.
+            var where = e.Origin ?? $"ops[{i}]";
             if (e.From is not null && !string.Equals(e.Op ?? "Set", "CopyFrom", StringComparison.OrdinalIgnoreCase))
             {
                 problems.Add($"{where}: from= names the SOURCE RECORD of a copy and is only valid with op='CopyFrom' (got op='{e.Op ?? "Set"}').");

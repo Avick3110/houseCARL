@@ -7422,10 +7422,10 @@ public sealed class LoadOrderService : IDisposable
                                          string? fromRecord = null, string? origin = null)
     {
         error = null;
-        // The caller's own spelling for this edit: inline ops are op[i], while zip-generated ops are named by the
-        // pair and path they came from. A refusal pointing at an op index the caller never wrote sends anyone
-        // fixing it to a line that does not exist.
-        var where = origin ?? $"op[{index}]";
+        // The caller's own spelling for this edit: inline ops are ops[i], the member housecarl_apply publishes, while
+        // zip-generated ops are named by the pair and path they came from. A refusal pointing at an op index the
+        // caller never wrote sends anyone fixing it to a line that does not exist.
+        var where = origin ?? $"ops[{index}]";
         if (string.IsNullOrWhiteSpace(op.Formid)) { error = $"{where}: formid is required."; return null; }
         FormKey fk;
         try { fk = door.Parse(op.Formid); }
