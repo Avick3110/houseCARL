@@ -70,8 +70,8 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
     public void AnUnreadableSubFieldIsNotAnAbsentOne()
     {
         // A read fault must survive the fold: dropping it would report "I could not look" as "nothing is there".
-        // Driven at the fold directly on purpose: ReadEngine.Expand skips a nested property-get fault rather than
-        // emitting an unreadable line, so no read on this lane can produce one — this pins the fold, not the lane.
+        // Driven at the fold directly so the assertion is about the fold alone; the read that produces such a line
+        // is pinned in RecordsUnreadableSubFieldTests.
         var folded = RowProjection.Fold(new[]
         {
             new HousecarlCore.FieldValue("Conditions[0]", false, null, "[ConditionFloat]", Present: true),
