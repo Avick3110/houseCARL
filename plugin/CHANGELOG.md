@@ -13,14 +13,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
-- **Tool descriptions now fit inside the 2,048 characters Claude Code shows, and the grammar that was being
-  cut off lives on the parameters it belongs to.** A description longer than that cap lost its tail on the way
-  to the model, so the predicate language, the source and comparison rules, the projection forms and the
-  transport rules were being described in a part of the text nobody read. None of it was deleted: each piece
-  moved into the description of the parameter it is about — `where=`, `references=`, `source=`, `versus=`,
-  `walk=`, `project=` and the transport parameters — which the client delivers whole however long they are.
-  The tool description now carries the one-call composition rule, the FormID forms, and a line per axis naming
-  its parameters. A test on the published tool list holds the bound, and names the tools still over it.
+- **`housecarl_records`'s description now fits inside the 2,048 characters Claude Code shows, and the grammar
+  that was being cut off lives on the parameters it belongs to.** A description longer than that cap lost its
+  tail on the way to the model, so the predicate language, the source and comparison rules, the projection
+  forms and the transport rules were being described in a part of the text nobody read. None of it was
+  deleted: each piece moved into the description of the parameter it is about — `where=`, `references=`,
+  `source=`, `versus=`, `project=`, `format=` and the other transport parameters — which the client delivers
+  whole however long they are. The tool description now carries the one-call composition rule, the FormID
+  forms, and a line per axis naming its parameters. Eleven other tools are still over the cap: a test on the
+  published tool list holds the bound and names each of them, and they come under it one tool at a time.
 
 - **`spid-authoring` now covers checking that a distribution reached a live actor.** A parsed
   `_DISTR.ini` and a clean SPID log show what SPID looked up, not what an NPC received. The skill's new
