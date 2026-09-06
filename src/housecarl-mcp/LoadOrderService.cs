@@ -3808,16 +3808,36 @@ public sealed class LoadOrderService : IDisposable
                                         string? TruncationNote, IReadOnlyList<NpcTemplateCategory>? TemplateReport,
                                         string? Error);
 
+    /// <summary>One seed's walk in progress: the rows it has proved and the frontier it has still to enter. The walk
+    /// advances every seed one hop at a time, so a hop's bodies can be gathered together; this holds what used to be
+    /// locals of a per-seed loop.</summary>
+    sealed class WalkSeedState
+    {
+        public FormKey Key;
+        public IMajorRecordGetter Body = null!;
+        public string Type = "";
+        public string Label = "";
+        public List<WalkNodeRow> Nodes = new();
+        public List<string> Cycles = new();
+        public string? Truncation;
+        public HashSet<FormKey> Visited = new();
+        public Queue<(FormKey Key, int Depth, string PulledBy)> Frontier = new();
+    }
+
     /// <summary>The forward walk over the winner link graph, per seed off ONE captured build. The edge unit is the
     /// form link; within-record navigation stays the projection's path grammar. seed_paths scope the FIRST hop
     /// (default: every link); follow scopes every later hop (default "*" is closure via the generic
     /// EnumerateFormLinks, so there is no per-type list; a named path is a restricted chain). Exclusions are data
     /// handed in by the caller: stop prunes and records a boundary, refuse fails the whole call loudly naming the
-    /// seed and pull chain. Caps produce an explicit truncation note, never a silent cut.</summary>
+    /// seed and pull chain. Caps produce an explicit truncation note, never a silent cut.
+    /// <para>Every seed advances one hop together, so each hop's bodies come from one enumeration per source plugin
+    /// (<see cref="BodyPrefetch"/>) rather than the whole-plugin seek per record a demand-driven fetch pays — the
+    /// same gather the scan and batch lanes took in #582. Walking seed by seed made a walk's cost the seed count
+    /// times the winning plugin's record count, which is what ran a 2,235-NPC selection out of memory (#556).</para></summary>
     public IReadOnlyList<WalkSeedResult> WalkForwardBatch(
         IReadOnlyList<string> seeds, IReadOnlyList<string>? seedPaths, string? follow,
         int depth, int maxNodes, IReadOnlyList<(string Match, bool Refuse)> exclusions,
-        ArtifactDemand? demand, out string? refusal, out OrderStamp? epoch)
+        ArtifactDemand? demand, out string? refusal, out OrderStamp? epoch, CancellationToken ct = default)
     {
         refusal = null;
         var resolver = Resolver;
@@ -3845,6 +3865,21 @@ public sealed class LoadOrderService : IDisposable
             IMajorRecordGetter? g = view.ResolveWinner(k) is { } w ? view.GetRecord(session, w.WinnerPlugin, k) : null;
             bodyCache[k] = g;
             return g;
+        }
+        // The hop's bodies, one enumeration per source plugin. A key the gather does not return stays UNCACHED, so
+        // Fetch still raises whatever the per-record read raises: the gather is an optimisation, not an error path.
+        void Prefetch(IReadOnlyList<FormKey> keys)
+        {
+            var wanted = new List<FormKey>();
+            var seen = new HashSet<FormKey>();
+            foreach (var k in keys)
+                if (!k.IsNull && !bodyCache.ContainsKey(k) && seen.Add(k)) wanted.Add(k);
+            for (int i = 0; i < wanted.Count; i += BodyPrefetch.ChunkRows)
+            {
+                int end = Math.Min(i + BodyPrefetch.ChunkRows, wanted.Count);
+                foreach (var (k, b) in BodyPrefetch.Gather(view, session, wanted, i, end, _ => null, null, ct))
+                    bodyCache[k] = b;
+            }
         }
         static string TypeOf(IMajorRecordGetter b) => RecordNaming.StripOverlay(b.GetType().Name);
         List<FormKey> LinksOf(IMajorRecordGetter body, string[]? segs, out string? note)
@@ -3884,32 +3919,44 @@ public sealed class LoadOrderService : IDisposable
             return links ?? new List<FormKey>();
         }
 
-        var results = new List<WalkSeedResult>(seeds.Count);
-        foreach (var raw in seeds)
+        // ---- the seeds: parsed, then gathered together, then started on their first hop ----
+        var rows = new WalkSeedResult?[seeds.Count];
+        var states = new WalkSeedState?[seeds.Count];
+        var seedKeys = new FormKey[seeds.Count];
+        var seedGather = new List<FormKey>(seeds.Count);
+        for (int i = 0; i < seeds.Count; i++)
         {
-            FormKey seedFk;
-            try { seedFk = view.ParseFormId(raw); }
-            catch (Exception ex) { results.Add(new WalkSeedResult(raw?.Trim() ?? "", null, null, Array.Empty<WalkNodeRow>(), Array.Empty<string>(), null, null, $"bad FormID '{raw}': {ex.Message}")); continue; }
+            try { seedKeys[i] = view.ParseFormId(seeds[i]); seedGather.Add(seedKeys[i]); }
+            catch (Exception ex) { rows[i] = new WalkSeedResult(seeds[i]?.Trim() ?? "", null, null, Array.Empty<WalkNodeRow>(), Array.Empty<string>(), null, null, $"bad FormID '{seeds[i]}': {ex.Message}"); }
+        }
+        Prefetch(seedGather);
+
+        for (int i = 0; i < seeds.Count; i++)
+        {
+            if (rows[i] is not null) continue;
+            ct.ThrowIfCancellationRequested();
+            var seedFk = seedKeys[i];
             var seedBody = Fetch(seedFk);
             if (seedBody is null)
             {
                 // Fetch returns null for two conditions and they need different sentences: no winner at all (the
                 // three-cause unresolved sentence), or a named winner whose body did not come back on fetch.
                 var seedWin = view.ResolveWinner(seedFk);
-                results.Add(new WalkSeedResult(seedFk.ToString(), null, null, Array.Empty<WalkNodeRow>(), Array.Empty<string>(), null, null,
+                rows[i] = new WalkSeedResult(seedFk.ToString(), null, null, Array.Empty<WalkNodeRow>(), Array.Empty<string>(), null, null,
                     seedWin is null
                         ? UnresolvedFormId(view, seedFk) + " Nothing to walk from."
-                        : $"the winner body of {seedFk} could not be read from '{seedWin.Value.WinnerPlugin}' — nothing to walk from."));
+                        : $"the winner body of {seedFk} could not be read from '{seedWin.Value.WinnerPlugin}' — nothing to walk from.");
                 continue;
             }
             var seedType = TypeOf(seedBody);
-            var seedLabel = $"{seedType} {seedFk} ({seedBody.EditorID ?? "<no editorid>"})";
-
-            var nodes = new List<WalkNodeRow>();
-            var cycles = new List<string>();
-            string? truncation = null;
-            var visited = new HashSet<FormKey> { seedFk };
-            var queue = new Queue<(FormKey Key, int Depth, string PulledBy)>();
+            var st = new WalkSeedState
+            {
+                Key = seedFk,
+                Body = seedBody,
+                Type = seedType,
+                Label = $"{seedType} {seedFk} ({seedBody.EditorID ?? "<no editorid>"})",
+                Visited = new HashSet<FormKey> { seedFk },
+            };
 
             // First hop: seed_paths (each path's links) or every link on the seed.
             if (seedPaths is { Count: > 0 })
@@ -3920,72 +3967,97 @@ public sealed class LoadOrderService : IDisposable
                     if (segs.Length == 0) continue;
                     var links = LinksOf(seedBody, segs, out var note);
                     if (links.Count == 0 && note is not null)
-                        nodes.Add(new WalkNodeRow($"(seed path '{p}')", null, null, 0, seedLabel, "no links", note));   // a wrong path fails loudly in the rows
-                    foreach (var l in links) queue.Enqueue((l, 1, $"{seedLabel}.{p}"));
+                        st.Nodes.Add(new WalkNodeRow($"(seed path '{p}')", null, null, 0, st.Label, "no links", note));   // a wrong path fails loudly in the rows
+                    foreach (var l in links) st.Frontier.Enqueue((l, 1, $"{st.Label}.{p}"));
                 }
             }
             else
             {
-                foreach (var l in LinksOf(seedBody, null, out _)) queue.Enqueue((l, 1, seedLabel));
+                foreach (var l in LinksOf(seedBody, null, out _)) st.Frontier.Enqueue((l, 1, st.Label));
             }
+            states[i] = st;
+        }
 
-            string? refuseError = null;
-            while (queue.Count > 0 && refuseError is null)
-            {
-                var (key, d, pulledBy) = queue.Dequeue();
-                if (key.IsNull) continue;
-                if (!visited.Add(key))
-                {
-                    // A named-follow walk is a linear chain per seed, so a revisit IS a cycle: recorded and named,
-                    // never looped and never silently stopped. Closure walks dedupe on the visited set instead.
-                    if (followSegs is not null) cycles.Add($"{pulledBy} -> {key} (already on this chain)");
-                    continue;
-                }
-                if (nodes.Count >= maxNodes)
-                {
-                    truncation = $"walk truncated: the {maxNodes}-node cap was reached — what is listed IS reached and proved; raise walk.max_nodes to walk further.";
-                    break;
-                }
-                var body = Fetch(key);
-                if (body is null)
-                {
-                    nodes.Add(new WalkNodeRow(key.ToString(), null, null, d, pulledBy, "kept",
-                                              "unresolved — no active plugin defines this target (a missing endpoint)"));
-                    continue;
-                }
-                var type = TypeOf(body);
-                var excl = exclusions.FirstOrDefault(x => x.Match.Equals(type, StringComparison.OrdinalIgnoreCase));
-                if (excl.Match is not null)
-                {
-                    if (excl.Refuse) { refuseError = $"the walk reached a {type} ({key}, via {pulledBy}) — a node class this call excludes with severity 'refuse'. Nothing is returned for this call."; break; }
-                    nodes.Add(new WalkNodeRow(key.ToString(), type, body.EditorID, d, pulledBy, "kept", $"excluded ({type}, severity stop) — recorded as a boundary, not entered"));
-                    continue;
-                }
-                bool atCap = d >= depth;
-                nodes.Add(new WalkNodeRow(key.ToString(), type, body.EditorID, d, pulledBy,
-                                          atCap ? "kept" : "expanded",
-                                          atCap ? $"at the walk.depth cap ({depth}) — not entered" : null));
-                if (atCap)
-                {
-                    truncation ??= $"walk reached its depth cap ({depth}) on at least one chain — nodes at the cap are recorded, not entered; raise walk.depth to walk deeper.";
-                    continue;
-                }
-                var label = $"{type} {key} ({body.EditorID ?? "<no editorid>"})";
-                foreach (var l in LinksOf(body, followSegs, out _))
-                    if (!l.IsNull) queue.Enqueue((l, d + 1, label));
-            }
-            if (refuseError is not null)
-            {
-                refusal = refuseError;
-                return Array.Empty<WalkSeedResult>();
-            }
+        // ---- the hops: every seed advances one hop together, so the hop's bodies are ONE gather ----
+        // A node at the depth cap is recorded and not entered, so nothing is ever queued past `depth`.
+        for (int d = 1; d <= depth; d++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var frontier = new List<FormKey>();
+            foreach (var s in states)
+                if (s is not null)
+                    foreach (var q in s.Frontier) frontier.Add(q.Key);
+            if (frontier.Count == 0) break;
+            Prefetch(frontier);
 
+            foreach (var st in states)
+            {
+                if (st is null) continue;
+                ct.ThrowIfCancellationRequested();
+                int atLevel = st.Frontier.Count;
+                for (int q = 0; q < atLevel; q++)
+                {
+                    var (key, hop, pulledBy) = st.Frontier.Dequeue();
+                    if (key.IsNull) continue;
+                    if (!st.Visited.Add(key))
+                    {
+                        // A named-follow walk is a linear chain per seed, so a revisit IS a cycle: recorded and named,
+                        // never looped and never silently stopped. Closure walks dedupe on the visited set instead.
+                        if (followSegs is not null) st.Cycles.Add($"{pulledBy} -> {key} (already on this chain)");
+                        continue;
+                    }
+                    if (st.Nodes.Count >= maxNodes)
+                    {
+                        st.Truncation = $"walk truncated: the {maxNodes}-node cap was reached — what is listed IS reached and proved; raise walk.max_nodes to walk further.";
+                        st.Frontier.Clear();
+                        break;
+                    }
+                    var body = Fetch(key);
+                    if (body is null)
+                    {
+                        st.Nodes.Add(new WalkNodeRow(key.ToString(), null, null, hop, pulledBy, "kept",
+                                                     "unresolved — no active plugin defines this target (a missing endpoint)"));
+                        continue;
+                    }
+                    var type = TypeOf(body);
+                    var excl = exclusions.FirstOrDefault(x => x.Match.Equals(type, StringComparison.OrdinalIgnoreCase));
+                    if (excl.Match is not null)
+                    {
+                        // A refuse ends the whole call. Hops run before seeds now, so the sentence names the first
+                        // seed IN SEED ORDER that reaches the class at the SHALLOWEST hop any seed reaches it.
+                        if (excl.Refuse)
+                        {
+                            refusal = $"the walk reached a {type} ({key}, via {pulledBy}) — a node class this call excludes with severity 'refuse'. Nothing is returned for this call.";
+                            return Array.Empty<WalkSeedResult>();
+                        }
+                        st.Nodes.Add(new WalkNodeRow(key.ToString(), type, body.EditorID, hop, pulledBy, "kept", $"excluded ({type}, severity stop) — recorded as a boundary, not entered"));
+                        continue;
+                    }
+                    bool atCap = hop >= depth;
+                    st.Nodes.Add(new WalkNodeRow(key.ToString(), type, body.EditorID, hop, pulledBy,
+                                                 atCap ? "kept" : "expanded",
+                                                 atCap ? $"at the walk.depth cap ({depth}) — not entered" : null));
+                    if (atCap)
+                    {
+                        st.Truncation ??= $"walk reached its depth cap ({depth}) on at least one chain — nodes at the cap are recorded, not entered; raise walk.depth to walk deeper.";
+                        continue;
+                    }
+                    var label = $"{type} {key} ({body.EditorID ?? "<no editorid>"})";
+                    foreach (var l in LinksOf(body, followSegs, out _))
+                        if (!l.IsNull) st.Frontier.Enqueue((l, hop + 1, label));
+                }
+            }
+        }
+
+        var results = new List<WalkSeedResult>(seeds.Count);
+        for (int i = 0; i < seeds.Count; i++)
+        {
+            if (states[i] is not { } st) { results.Add(rows[i]!); continue; }
             IReadOnlyList<NpcTemplateCategory>? templateReport = null;
             if (followSegs is { Length: 1 } && followSegs[0].Equals("Template", StringComparison.OrdinalIgnoreCase)
-                && seedBody is INpcGetter seedNpc)
-                templateReport = NpcTemplateReport(Fetch, seedNpc, seedFk);
-
-            results.Add(new WalkSeedResult(seedFk.ToString(), seedType, seedBody.EditorID, nodes, cycles, truncation, templateReport, null));
+                && st.Body is INpcGetter seedNpc)
+                templateReport = NpcTemplateReport(Fetch, seedNpc, st.Key);
+            results.Add(new WalkSeedResult(st.Key.ToString(), st.Type, st.Body.EditorID, st.Nodes, st.Cycles, st.Truncation, templateReport, null));
         }
         return results;
     }
