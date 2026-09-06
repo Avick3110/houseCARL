@@ -20,11 +20,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `housecarl_records`, `housecarl_apply`, `housecarl_check`, `housecarl_create`, `housecarl_copy`,
   `housecarl_forward`, `housecarl_merge_plugins`, `housecarl_nif_inspect`, `housecarl_nif_set`,
   `housecarl_compact_plugin`, `housecarl_place` and `housecarl_remove` — and each came under it in its own
-  change. None of the text was deleted: each piece moved into the description of the parameter it is about,
-  which the client delivers whole however long it is. What stays in a tool description is what belongs to no
-  single parameter: what the tool is for, the one-call composition rule, a line per axis naming its
-  parameters, and the pointers to the sibling tools. A test on the published tool list holds the bound from
-  here on, so a description cannot grow back past the cut without going red.
+  change. The grammar moved rather than going away: each piece landed in the description of the parameter it
+  is about, which the client delivers whole however long it is — and where a description stated a rule wider
+  than the code enforces, it was corrected to what the code does on the way. What stays in a tool description
+  is what belongs to no single parameter: what the tool is for, the one-call composition rule, a line per axis
+  naming its parameters, and the pointers to the sibling tools. `PublishedDescriptionBoundTests` holds the
+  bound on the published tool list from here on, with nothing exempt, so a description cannot grow back past
+  the cut without going red.
 
 - **`spid-authoring` now covers checking that a distribution reached a live actor.** A parsed
   `_DISTR.ini` and a clean SPID log show what SPID looked up, not what an NPC received. The skill's new
