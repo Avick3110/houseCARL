@@ -14,7 +14,8 @@ namespace HousecarlMcpTests;
 /// plugin are the whole fixture — the file is written by Mutagen, then DATA's declared length is cut from 10 to
 /// 8 (and the enclosing record and group sizes with it), which is what a truncated or badly merged plugin looks
 /// like on disk. It sits in a switched-OFF mod folder and is read by name, the same off-order lane a caller uses
-/// to look inside a plugin that is not in the order; a clean master holds the active order.</summary>
+/// to look inside a plugin that is not in the order; the clean master it OVERRIDES holds the active order and is
+/// the reference pole a delta compares it against.</summary>
 public sealed class TruncatedSubFieldWorld : IDisposable
 {
     public string Root { get; }
@@ -22,8 +23,13 @@ public sealed class TruncatedSubFieldWorld : IDisposable
     /// <summary>The plugin holding the weapon whose BasicStats.Damage cannot be read. Value and Weight, which sit
     /// before the cut, still read.</summary>
     public string TruncName { get; }
+    /// <summary>The master that DEFINES the weapon with a whole DATA — the clean pole a delta compares against.</summary>
+    public string CleanName { get; }
+    /// <summary>The weapon, addressed as the master defines it — the FormID both poles carry.</summary>
+    public string WeaponFid { get; }
     public const string WeaponEditorId = "HcTruncWeap";
     public const int Value = 34;
+    public const int Damage = 12;
 
     static int Find(byte[] b, string sig, int from)
     {
@@ -56,19 +62,25 @@ public sealed class TruncatedSubFieldWorld : IDisposable
             return p;
         }
 
+        // The master DEFINES the weapon, cleanly; the truncated plugin OVERRIDES it with the same content. The two
+        // are byte-identical until the cut below, so a delta between them differs in exactly the one field that
+        // cannot be read — and the master doubles as the clean reference pole.
         var cleanKey = new ModKey("HcTruncClean", ModType.Master);
         var clean = new SkyrimMod(cleanKey, SkyrimRelease.SkyrimSE);
-        clean.Weapons.AddNew().EditorID = "HcCleanWeap";
+        CleanName = cleanKey.FileName.String;
+        var cleanWeapon = clean.Weapons.AddNew();
+        cleanWeapon.EditorID = WeaponEditorId;
+        cleanWeapon.BasicStats = new WeaponBasicStats { Damage = Damage, Value = Value, Weight = 5.5f };
+        WeaponFid = $"{cleanWeapon.FormKey.ID:X6}:{cleanWeapon.FormKey.ModKey.FileName}";
         clean.BeginWrite.ToPath(P("CleanMod", cleanKey)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         var truncKey = new ModKey("HcTrunc", ModType.Plugin);
         TruncName = truncKey.FileName.String;
         var m = new SkyrimMod(truncKey, SkyrimRelease.SkyrimSE);
-        var weapon = m.Weapons.AddNew();
-        weapon.EditorID = WeaponEditorId;
-        weapon.BasicStats = new WeaponBasicStats { Damage = 12, Value = Value, Weight = 5.5f };
+        var weapon = m.Weapons.GetOrAddAsOverride(cleanWeapon);
+        weapon.BasicStats = new WeaponBasicStats { Damage = Damage, Value = Value, Weight = 5.5f };
         var path = P("TruncMod", truncKey);
-        m.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        m.BeginWrite.ToPath(path).WithLoadOrder(new ISkyrimModGetter[] { clean }).Write();
 
         // …and now cut two bytes off DATA, so the last field in the struct reads past the end of its own
         // subrecord. The record, the group and the file all stay internally consistent: nothing but that one
@@ -160,5 +172,58 @@ public sealed class RecordsUnreadableSubFieldTests : IClassFixture<TruncatedSubF
         Assert.Contains(TruncatedSubFieldWorld.WeaponEditorId, r);
         Assert.Contains("BasicStats.Value = " + TruncatedSubFieldWorld.Value, r);
         Assert.Contains("BasicStats.Damage = (unreadable: ", r);
+    }
+
+    /// <summary>The comparison forms carry the fault too: a field that could not be read is a NO-VERDICT, named as
+    /// its own line and leaving the comparison incomplete — never asserted as a value that differs from the
+    /// reference's, which claims a reading the engine does not have.</summary>
+    [Fact]
+    public void ADeltaNamesTheUnreadableFieldInsteadOfCallingItAValueDifference()
+    {
+        var r = RecordsTools.Records(_w.Svc, formids: new[] { _w.WeaponFid },
+            source: JsonDocument.Parse("\"" + _w.TruncName + "\"").RootElement.Clone(),
+            versus: JsonDocument.Parse("\"" + _w.CleanName + "\"").RootElement.Clone(),
+            project: new RecordsTools.RecordsProject { form = "delta" });
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.Contains("BasicStats.Damage: UNREADABLE here — not compared", r);
+        Assert.Contains("the comparison is INCOMPLETE", r);
+        // The reading it must NOT give: the reference's 12 asserted as a difference from a value never read.
+        Assert.DoesNotContain("BasicStats.Damage=(unreadable", r);
+    }
+}
+
+/// <summary>The pole-symmetric half of the same fact, driven at <see cref="FieldsDiff"/> directly: when BOTH poles
+/// are unreadable at one path there is nothing to compare there, so the record must not be reported identical.
+/// Driven here because one truncated plugin cannot be both poles of a lane call — the shape of the failure belongs
+/// to the comparison, not to the read.</summary>
+[Trait("tier", "unit")]
+public sealed class UnreadableLeafComparisonTests
+{
+    static RecordFields Rec(params FieldValue[] fields) => new("WEAP", "000800:A.esm", "HcWeap", fields);
+
+    static FieldValue Unreadable(string path) =>
+        new(path, false, null, "(unreadable: out of range)", Present: false, Readable: false);
+
+    [Fact]
+    public void TwoUnreadablePolesAtOnePathAreNotIdentical()
+    {
+        var d = FieldsDiff.Compare(Rec(new FieldValue("EditorID", true, "HcWeap", null), Unreadable("BasicStats.Damage")),
+                                   Rec(new FieldValue("EditorID", true, "HcWeap", null), Unreadable("BasicStats.Damage")));
+
+        Assert.False(d.Complete);
+        Assert.Contains("BasicStats.Damage: UNREADABLE on both sides — not compared", d.Deltas);
+    }
+
+    /// <summary>A no-such-field is the OTHER Readable=false answer and stays comparable: it says something true
+    /// about the record, so two sides that both lack the field still agree on that.</summary>
+    [Fact]
+    public void ANoSuchFieldStillCompares()
+    {
+        var missing = new FieldValue("Nope", false, null, "(no field Nope)", Present: false, Readable: false);
+        var d = FieldsDiff.Compare(Rec(missing), Rec(missing));
+
+        Assert.True(d.Complete);
+        Assert.Empty(d.Deltas);
     }
 }

@@ -1835,7 +1835,7 @@ public static class RecordsTools
                     sb.Append("    - ").Append(delta).Append('\n');
                 }
                 if (!d.Complete)
-                    sb.Append("  note: the deep read was TRUNCATED — list-content and one-sided-presence deltas are SUPPRESSED; narrow with ").Append(LeverNames.Records.Fields).Append(" to compare those in full.\n");
+                    sb.Append("  note: the comparison is INCOMPLETE — the deep read hit the cap, or a field above could not be read; list-content and one-sided-presence deltas are SUPPRESSED. Narrow with ").Append(LeverNames.Records.Fields).Append(" to compare those in full.\n");
             }
             rendered++;
         }

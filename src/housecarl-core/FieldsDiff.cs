@@ -19,7 +19,8 @@ namespace HousecarlCore;
 ///     emitted: for record types where list order IS the semantics (a DIAL's INFO children decide which
 ///     line plays), a pure reorder must not read as identical. Nested list reordering INSIDE an element is
 ///     not canonicalised — it can over-report as a content delta, never under-report;
-///   • if either side's deep read hit the expansion cap, <see cref="Result.Complete"/> is false: list
+///   • if either side's deep read hit the expansion cap, OR either side carries a leaf it could not read,
+///     <see cref="Result.Complete"/> is false: list
 ///     comparison and one-sided-presence deltas are SUPPRESSED (where the two caps fell would otherwise
 ///     fabricate differences), only value mismatches observed on both sides are reported, and the caller
 ///     must not claim identity beyond what was actually compared.
@@ -27,8 +28,10 @@ namespace HousecarlCore;
 public static class FieldsDiff
 {
     /// <summary>Field-level deltas, preformatted for the conflict-tree render. <see cref="Complete"/> false ⇒
-    /// at least one side's read was truncated at the expansion cap, so an empty <see cref="Deltas"/> must NOT
-    /// be rendered as "identical to winner" — never claim knowledge the comparison doesn't have.
+    /// at least one side's read was truncated at the expansion cap, or carried a leaf that could not be read, so an
+    /// empty <see cref="Deltas"/> must NOT be rendered as "identical to winner" — never claim knowledge the
+    /// comparison doesn't have. An unreadable leaf also gets its own named line in <see cref="Deltas"/>, so that
+    /// case never presents as an empty delta list.
     ///
     /// <para><see cref="AgreedCount"/> + <see cref="AgreedSample"/> are the present-==-winner signal:
     /// how many VALUE LEAVES the node carries that exactly equal the winner's — i.e. ITM-restated fields,
@@ -61,8 +64,10 @@ public static class FieldsDiff
     {
         var tValueLeaves = new HashSet<string>(StringComparer.Ordinal);
         var wValueLeaves = new HashSet<string>(StringComparer.Ordinal);
-        var (tLines, tComplete) = CleanLines(theirs, tValueLeaves);
-        var (wLines, wComplete) = CleanLines(winner, wValueLeaves);
+        var tUnreadable = new HashSet<string>(StringComparer.Ordinal);
+        var wUnreadable = new HashSet<string>(StringComparer.Ordinal);
+        var (tLines, tComplete) = CleanLines(theirs, tValueLeaves, tUnreadable);
+        var (wLines, wComplete) = CleanLines(winner, wValueLeaves, wUnreadable);
         bool complete = tComplete && wComplete;
 
         // Numeric-bracket roots seen on EITHER side (the union, so a 0-item-vs-N-item list is still compared
@@ -90,6 +95,17 @@ public static class FieldsDiff
         }
 
         var deltas = new List<string>();
+
+        // ---- unreadable leaves: a NO-VERDICT, named. The path is out of the comparison above (its note is a
+        //      reason, not a value) and Complete is already false, so the record can never be counted identical;
+        //      the line says WHICH field and on which side, because "the comparison is incomplete" alone does not
+        //      tell a caller where to look.
+        foreach (var path in tUnreadable.Union(wUnreadable).OrderBy(p => p, StringComparer.Ordinal))
+            deltas.Add(tUnreadable.Contains(path) && wUnreadable.Contains(path)
+                ? $"{path}: UNREADABLE on both sides — not compared"
+                : tUnreadable.Contains(path)
+                    ? $"{path}: UNREADABLE here — not compared"
+                    : $"{path}: UNREADABLE in {referenceLabel} — not compared");
 
         // ---- exact-path comparison: scalars, substructs, dict children (bracket = a semantic key) --------
         // On a TRUNCATED comparison the list roots' own summary lines join the exact-path set: a root count
@@ -193,18 +209,25 @@ public static class FieldsDiff
         return null;
     }
 
-    /// <summary>The read's lines minus the expansion-cap sentinel; each value is the round-trippable token or,
-    /// for a non-leaf/absent line, its note. <paramref name="valueLeaves"/> collects the paths that carry a real
-    /// VALUE (<c>HasValue</c>) — the only lines an agreement count may consider, so a container summary line
-    /// ("[3 item(s)]") or an absent/null-link note is never miscounted as a present field. Complete=false iff the
-    /// expansion-cap sentinel was present.</summary>
-    static (List<(string path, string val)> lines, bool complete) CleanLines(RecordFields rf, HashSet<string> valueLeaves)
+    /// <summary>The read's lines minus the expansion-cap sentinel and the UNREADABLE ones; each value is the
+    /// round-trippable token or, for a non-leaf/absent line, its note. <paramref name="valueLeaves"/> collects the
+    /// paths that carry a real VALUE (<c>HasValue</c>) — the only lines an agreement count may consider, so a
+    /// container summary line ("[3 item(s)]") or an absent/null-link note is never miscounted as a present field.
+    /// <paramref name="unreadable"/> collects the paths this side could not read: a fault note is a REASON, not a
+    /// value, so comparing it as one makes two unreadable poles agree and an unreadable-vs-read pair a value
+    /// difference. It leaves the comparison incomplete at that path, exactly as the cap does — Complete is false
+    /// when either was present. Keyed on <see cref="ReadEngine.IsUnreadableNote"/>, not on <c>Readable</c> alone:
+    /// the other Readable=false answer is a no-such-field, which IS knowledge about the record and stays a
+    /// comparable shape difference.</summary>
+    static (List<(string path, string val)> lines, bool complete) CleanLines(RecordFields rf,
+        HashSet<string> valueLeaves, HashSet<string> unreadable)
     {
         var lines = new List<(string, string)>(rf.Fields.Count);
         bool complete = true;
         foreach (var f in rf.Fields)
         {
             if (f.Path == "…") { complete = false; continue; }         // ReadEngine's expansion-cap sentinel
+            if (!f.Readable && ReadEngine.IsUnreadableNote(f.Note)) { unreadable.Add(f.Path); complete = false; continue; }
             if (f.HasValue) valueLeaves.Add(f.Path);
             lines.Add((f.Path, f.HasValue ? f.Token ?? "" : f.Note ?? ""));
         }
