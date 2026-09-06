@@ -196,7 +196,10 @@ public sealed class RecordsContainmentTests : IClassFixture<OwnedChildFixture>
         var r = RecordsTools.Records(Svc, formids: new[] { OwnedChildWorld.Fid(_w.ReparentedRef) },
                                      source: form == "delta" ? Pole(_w.MidName) : null, versus: Pole(copy),
                                      project: new RecordsTools.RecordsProject { form = form, fields = new[] { "*parent.EditorID" } });
-        Assert.Contains("HcOcCellJ", r);
+        // A hop the off-order arm cannot take is a fault, not a value, so the comparison gives no verdict at that
+        // path and says which side could not read it — the in-order arm being the side that could.
+        Assert.Contains("*parent.EditorID: UNREADABLE in ", r);
+        Assert.DoesNotContain("UNREADABLE on both sides", r);
         Assert.Contains("needs the load-order index", r);
     }
 

@@ -240,7 +240,49 @@ public sealed class UnreadableLeafComparisonTests
                                    Rec(new FieldValue("EditorID", true, "HcWeap", null), Unreadable("BasicStats.Damage")));
 
         Assert.False(d.Complete);
-        Assert.Contains("BasicStats.Damage: UNREADABLE on both sides — not compared", d.Deltas);
+        Assert.Contains(d.Deltas, x => x.StartsWith("BasicStats.Damage: UNREADABLE on both sides — not compared (unreadable: ", StringComparison.Ordinal));
+    }
+
+    static FieldValue List(string path, int n) =>
+        new(path, false, null, $"[list: {n} item(s)]", Present: true, Count: n);
+
+    /// <summary>What an unreadable leaf costs is its own path, not the record: the rest still compares, so a
+    /// differing list beside an unreadable scalar is still reported. Complete stays false, so nothing claims
+    /// identity.</summary>
+    [Fact]
+    public void ADifferingListBesideAnUnreadableLeafIsStillCompared()
+    {
+        var d = FieldsDiff.Compare(
+            Rec(Unreadable("BasicStats.Damage"), List("Keywords", 2),
+                new FieldValue("Keywords[0]", true, "000AAA:A.esm", null),
+                new FieldValue("Keywords[1]", true, "000BBB:A.esm", null)),
+            Rec(new FieldValue("BasicStats.Damage", true, "12", null), List("Keywords", 2),
+                new FieldValue("Keywords[0]", true, "000AAA:A.esm", null),
+                new FieldValue("Keywords[1]", true, "000CCC:A.esm", null)));
+
+        Assert.False(d.Complete);
+        Assert.Contains(d.Deltas, x => x.StartsWith("BasicStats.Damage: UNREADABLE here — not compared (unreadable: ", StringComparison.Ordinal));
+        Assert.Contains(d.Deltas, x => x.StartsWith("Keywords: ", StringComparison.Ordinal));
+        // …and the winner's readable value at the unreadable path is not reported as one-sided presence.
+        Assert.DoesNotContain(d.Deltas, x => x.Contains("BasicStats.Damage", StringComparison.Ordinal)
+                                          && !x.Contains("UNREADABLE", StringComparison.Ordinal));
+    }
+
+    /// <summary>An unreadable leaf INSIDE a list element takes that list's element comparison down with it — the
+    /// missing line changes the element's fingerprint — and nothing else: a second list still compares.</summary>
+    [Fact]
+    public void AnUnreadableLeafInsideAnElementSuppressesOnlyThatList()
+    {
+        var d = FieldsDiff.Compare(
+            Rec(List("Conditions", 1), new FieldValue("Conditions[0].ComparisonValue", true, "1", null),
+                Unreadable("Conditions[0].Data.Reference"),
+                List("Keywords", 1), new FieldValue("Keywords[0]", true, "000AAA:A.esm", null)),
+            Rec(List("Conditions", 1), new FieldValue("Conditions[0].ComparisonValue", true, "2", null),
+                new FieldValue("Conditions[0].Data.Reference", true, "000FFF:A.esm", null),
+                List("Keywords", 1), new FieldValue("Keywords[0]", true, "000BBB:A.esm", null)));
+
+        Assert.Contains(d.Deltas, x => x.StartsWith("Keywords: ", StringComparison.Ordinal));
+        Assert.DoesNotContain(d.Deltas, x => x.StartsWith("Conditions: ", StringComparison.Ordinal));
     }
 
     /// <summary>A fault the walk spells some other way — an FLOI whose mode or index it could not read — is a
@@ -255,7 +297,7 @@ public sealed class UnreadableLeafComparisonTests
                                    Rec(new FieldValue("EditorID", true, "HcWeap", null), floi));
 
         Assert.False(d.Complete);
-        Assert.Contains("Conditions[0].Data.Reference: UNREADABLE on both sides — not compared", d.Deltas);
+        Assert.Contains(d.Deltas, x => x.StartsWith("Conditions[0].Data.Reference: UNREADABLE on both sides — not compared (floi: ", StringComparison.Ordinal));
     }
 
     /// <summary>A no-such-field is the OTHER Readable=false answer and stays comparable: it says something true
