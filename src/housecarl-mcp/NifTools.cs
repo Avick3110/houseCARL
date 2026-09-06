@@ -193,7 +193,8 @@ public static class NifTools
          "SELECT — mesh_path= (which mesh) x target= (what inside it the op edits).\n" +
          "SOURCE — mod= (empty = the VFS winner).\n" +
          "ACT — op= names the write; its operands are new_name=, flags=, scale=, body_part_id= [+ partition_index=], " +
-         "alpha_flags= / alpha_threshold=, texture_slot= + path=, and shader_value= + value=.\n" +
+         "alpha_flags= / alpha_threshold=, path= [+ texture_slot=] (set_path with no slot is the header-string " +
+         "form), and shader_value= + value=.\n" +
          "LANE — patch_name= | into= on the default lane, or in_place= + acknowledge=.")]
     public static string NifSet(
         LoadOrderService svc,
@@ -226,7 +227,11 @@ public static class NifTools
                      "is refused by name with nothing written — no shape or node of that name, or, on the header-string " +
                      "form, no string reading exactly that. A shape/node name more than one block answers to is refused " +
                      "as AMBIGUOUS rather than written to the first match; several blocks referencing the SAME header " +
-                     "string are not ambiguous — they all move together.")]
+                     "string are not ambiguous — they all move together. Two header strings are refused by redirect " +
+                     "rather than swapped: a shape's or node's NAME is 'not an asset reference — use op=rename_shape " +
+                     "or op=rename_node, which refuse renaming onto a name already in use', and 'the KEY an extra-data " +
+                     "block is looked up by' is refused because swapping it would hide the block from the engine — " +
+                     "pass the block's VALUE instead.")]
             string target,
         [Description("rename_shape / rename_node: the new name.")] string new_name = "",
         [Description("set_flags: the NiAVObject flags value — hex ('0x800000E') or decimal.")] string flags = "",
