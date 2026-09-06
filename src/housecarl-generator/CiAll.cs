@@ -176,8 +176,7 @@ public static class CiAll
         foreach (var e in All())
             if (e.Name == name)
             {
-                ProbeTemp.Redirect();
-                try { rc = e.Run(args); }
+                try { ProbeTemp.Redirect(); rc = e.Run(args); }
                 finally { ProbeTemp.Cleanup(); }
                 return true;
             }
@@ -188,8 +187,7 @@ public static class CiAll
     /// <summary>Run the whole roster under this process's own temp root, and take the fixtures with it.</summary>
     public static int RunAll(string[] args)
     {
-        ProbeTemp.Redirect();
-        try { return RunRoster(args); }
+        try { ProbeTemp.Redirect(); return RunRoster(args); }
         finally { ProbeTemp.Cleanup(); }
     }
 

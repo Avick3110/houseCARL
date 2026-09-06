@@ -43,6 +43,9 @@ public static class ProbeTemp
             root = Path.Combine(temp, $"hc-{Environment.ProcessId}-{n}");
         }
         Directory.CreateDirectory(root);
+        // Set before the redirect below, not after it: a variable that will not take would otherwise leave the
+        // process pointed at a root Cleanup no longer knows to remove.
+        _root = root;
 
         _tmpWas = Environment.GetEnvironmentVariable("TMP");
         _tempWas = Environment.GetEnvironmentVariable("TEMP");
@@ -51,7 +54,6 @@ public static class ProbeTemp
         Environment.SetEnvironmentVariable("TEMP", root);
         Environment.SetEnvironmentVariable("TMPDIR", root);   // what GetTempPath reads off Windows
 
-        _root = root;
         return root;
     }
 
