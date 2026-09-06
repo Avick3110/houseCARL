@@ -99,7 +99,9 @@ public static class ProbeTemp
                 first ??= f;
             }
         }
-        catch (Exception ex) { left++; first ??= ex.Message; }
+        // A temp path that will not list has nothing to sweep and no residue to name: the enumeration is the
+        // only thing here that throws, and the start failure right after it is the run's one sentence.
+        catch { }
 
         if (left > 0)
             Console.WriteLine($"  (temp sweep left {left} entr{(left == 1 ? "y" : "ies")} from an earlier run under {temp}: {first})");
