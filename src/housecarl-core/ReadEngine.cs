@@ -276,6 +276,19 @@ public static class ReadEngine
     //  THE READ PRIMITIVE — navigate a path read-only, emit the leaf token.
     // ======================================================================
 
+    /// <summary>The opening of every note the read walk emits for a FAULT — "(unreadable: &lt;reason&gt;)". Public
+    /// because <c>Readable=false</c> covers TWO answers, and a consumer that must separate them (the conflict diff
+    /// treats a fault as incomparable but a no-such-field as a shape difference) has to test the class of note
+    /// rather than keep its own copy of the sentence.</summary>
+    public const string UnreadablePrefix = "(unreadable: ";
+
+    /// <summary>The ONE spelling of a read-fault note, so the sentence cannot drift between the walks that emit it.</summary>
+    static string UnreadableNote(string reason) => $"{UnreadablePrefix}{reason})";
+
+    /// <summary>Is this note a read FAULT (as opposed to a no-such-field, the other <c>Readable=false</c> answer)?</summary>
+    public static bool IsUnreadableNote(string? note) =>
+        note is not null && note.StartsWith(UnreadablePrefix, StringComparison.Ordinal);
+
     /// <summary>The reason an unreadable note reports. A getter's own throw comes back from reflection wrapped in a
     /// <see cref="TargetInvocationException"/> whose message ("Exception has been thrown by the target of an
     /// invocation") names nothing a caller can act on, so the note carries the inner exception's message instead.</summary>
@@ -313,7 +326,7 @@ public static class ReadEngine
             }
             return EmitToken(leaf.GetValue(current), leaf.PropertyType, current);
         }
-        catch (Exception ex) { return LeafRead.Unreadable($"(unreadable: {Reason(ex)})"); }
+        catch (Exception ex) { return LeafRead.Unreadable(UnreadableNote(Reason(ex))); }
     }
 
     /// <summary>The FormKeys on a record's <c>Keywords</c> list — the ONE keyword walk, shared by the SkyPatcher
@@ -362,7 +375,7 @@ public static class ReadEngine
             if (nav.val is null) return (null, AbsentNote);
             return LinksIn(nav.val, string.Join(".", path));
         }
-        catch (Exception ex) { return (null, $"(unreadable: {Reason(ex)})"); }
+        catch (Exception ex) { return (null, UnreadableNote(Reason(ex))); }
     }
 
     /// <summary>The link-shape half of <see cref="CollectLinksAt"/>, over a value already navigated to — so a
@@ -398,7 +411,7 @@ public static class ReadEngine
             }
             return (keys, null);
         }
-        catch (Exception ex) { return (null, $"(unreadable: {Reason(ex)})"); }
+        catch (Exception ex) { return (null, UnreadableNote(Reason(ex))); }
     }
 
     /// <summary>Navigate a path READ-ONLY to its live value — the quantified step's fan-out source. Same walk
@@ -554,7 +567,7 @@ public static class ReadEngine
     /// <summary>The ONE unreadable line the deep walk emits — same sentence and same structural flags the depth-1
     /// read's <see cref="LeafRead.Unreadable"/> carries, so a nested fault and a top-level one read alike.</summary>
     static FieldValue Fault(string path, string reason) =>
-        new(path, false, null, $"(unreadable: {reason})", Present: false, Readable: false);
+        new(path, false, null, UnreadableNote(reason), Present: false, Readable: false);
 
     static FieldValue Fault(string path, Exception ex) => Fault(path, Reason(ex));
 
@@ -750,7 +763,7 @@ public static class ReadEngine
             }
             return (true, leaf.GetValue(current), leaf.PropertyType, current, null, true);
         }
-        catch (Exception ex) { return (false, null, typeof(object), record, $"(unreadable: {Reason(ex)})", false); }
+        catch (Exception ex) { return (false, null, typeof(object), record, UnreadableNote(Reason(ex)), false); }
     }
 
     /// <summary>Best-effort COMPACT identity of the element a list/dict verb just acted on — the write-verify's
