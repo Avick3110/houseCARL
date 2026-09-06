@@ -4118,7 +4118,7 @@ public sealed class LoadOrderService : IDisposable
                                         IReadOnlyList<FormKey>? referencesNone = null,
                                         CancellationToken ct = default)
         => CrossQuery(type is null ? null : new[] { type }, references, editoridContains, conflictsOnly, plugins, where,
-                      limit, definedIn, groupBy, offset, whereSource, artifactDemands, referencesNone: referencesNone);
+                      limit, definedIn, groupBy, offset, whereSource, artifactDemands, referencesNone: referencesNone, ct: ct);
 
     /// <summary>The formids-by-scan composition: <paramref name="formidSet"/> intersects the selection with an
     /// explicit identity set, inline or artifact-fed. With a body-bearing scope it is a cheap pre-filter on the
@@ -4872,6 +4872,9 @@ public sealed class LoadOrderService : IDisposable
                 }
             }
         }
+        // The caller's own cancellation is not a fault in the file: it belongs to the client that asked for it and
+        // has to finish as one, not as a refusal saying a perfectly readable file could not be read.
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex) { return CrossQueryOutcome.Fail($"file '{pole.Plugin}' could not be fully read — {ex.GetType().Name}: {ex.Message}") with { Stamp = view.Stamp }; }
         finally { session?.Dispose(); (ov as IDisposable)?.Dispose(); }
         if (predicate?.FatalError is not null) return CrossQueryOutcome.Fail(predicate.FatalError) with { Stamp = view.Stamp };

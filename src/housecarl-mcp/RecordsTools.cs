@@ -595,7 +595,7 @@ public static class RecordsTools
             else if (srcName is null)
             {
                 if (srcOverlay) Arm("skypatcher overlay (pre) = winner — the body the INI layer starts from");
-                outcomes = svc.ResolveBatch(ids, readFields, false, depth, resolveNames, null, demand, out var refusal, out var refusalEpoch, LeverNames.Records.ContainerHint, readFieldDepths);
+                outcomes = svc.ResolveBatch(ids, readFields, false, depth, resolveNames, null, demand, out var refusal, out var refusalEpoch, LeverNames.Records.ContainerHint, readFieldDepths, ct);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, refusalEpoch)
                                 : "error: " + refusal + Wire.EpochLine(refusalEpoch);
@@ -605,7 +605,7 @@ public static class RecordsTools
             {
                 outcomes = svc.ResolveBatchFromPole(ids, srcName, srcMod, readFields, depth, resolveNames, demand,
                                                     out pole, out var refusal, out var refusalEpoch,
-                                                    LeverNames.Records.ContainerHint, readFieldDepths);
+                                                    LeverNames.Records.ContainerHint, readFieldDepths, ct);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, refusalEpoch)
                                 : "error: " + refusal + Wire.EpochLine(refusalEpoch);
@@ -1457,7 +1457,11 @@ public static class RecordsTools
             if (spill is null && truncated && outcome.Error is null)
             {
                 var path = ResultsStore.NextPath(ToolNames.Records, outcome.Epoch ?? "none");
-                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, path, "ceiling", Echo(), LeverNames.Records, fold: foldPlan, ct: ct);
+                SpillInfo? s; string? aerr;
+                // NextPath RESERVES the name by creating the file, so a cancel inside the write has to give it back
+                // — "a cancelled call writes nothing" holds on this path too, not only on the caller-named one.
+                try { (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, path, "ceiling", Echo(), LeverNames.Records, fold: foldPlan, ct: ct); }
+                catch (OperationCanceledException) { ResultsStore.Release(path); throw; }
                 if (aerr is not null) ResultsStore.Release(path);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
