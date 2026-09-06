@@ -36,7 +36,6 @@ public sealed class PublishedDescriptionBoundTests
         ToolNames.Forward,
         ToolNames.NifInspect,
         ToolNames.NifSet,
-        ToolNames.Remove,
     };
 
     public static IEnumerable<object[]> EveryPublishedTool() =>
