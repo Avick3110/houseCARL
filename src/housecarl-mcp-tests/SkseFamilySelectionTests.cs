@@ -152,18 +152,17 @@ public sealed class SkseFamilySelectionTests
         Assert.Contains($"this call ran findings='{token}'", text);
     }
 
-    /// <summary>The footer is paid for out of max_chars rather than appended past it, so the renders are handed a cap
-    /// already short by its length — the one part of the bound the tool itself controls.</summary>
+    /// <summary>The footer is paid for out of the render's BUDGET, not off its cap: the render is handed the
+    /// max_chars the caller passed — the number every notice inside it quotes — with the footer's length as the
+    /// trailer it holds back. A cap already short by the footer had the notices quoting a number nobody typed.</summary>
     [Fact]
-    public void TheFooterLengthIsSubtractedFromTheCapHandedToTheRender()
+    public void TheFooterIsChargedAsTheRendersTrailerNotTakenOffItsCap()
     {
         var renders = new RecordingRenders();
         SkseTools.Dispatch(renders, SkseTools.SkseFamily.Pairing, filter: null, peek: false, max_chars: 5_000);
-        Assert.Equal(5_000 - SkseTools.FamilyFooter(SkseTools.SkseFamily.Pairing).Length, renders.Cap);
 
-        // A cap smaller than the footer never becomes zero or negative: the render still gets a usable bound.
-        SkseTools.Dispatch(renders, SkseTools.SkseFamily.Pairing, filter: null, peek: false, max_chars: 1);
-        Assert.True(renders.Cap >= 1);
+        Assert.Equal(5_000, renders.Cap);
+        Assert.Equal(SkseTools.FamilyFooter(SkseTools.SkseFamily.Pairing).Length, renders.Call.Trailer);
     }
 
     /// <summary>Every TRANSPORT knob the dispatch takes reaches the render on the call it composes. Without this the

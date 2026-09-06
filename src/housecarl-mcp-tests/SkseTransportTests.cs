@@ -604,6 +604,25 @@ public sealed class SkseTransportTests
         }
     }
 
+    /// <summary>One response quotes ONE max_chars, and it is the number the caller passed: the footer is charged as
+    /// the render's trailer rather than taken off its cap, so a cut notice inside a family cannot name a cap short by
+    /// the footer's length — a number the caller never typed and cannot act on.</summary>
+    [Theory]
+    [InlineData(2_000)]
+    [InlineData(5_000)]
+    public void EveryNoticeQuotesTheMaxCharsTheCallerPassed(int cap)
+    {
+        var renders = new StubRenders(Inventory(300, configs: 300, folders: 60), Pairing(300), ConfigAudit(300, refs: 4));
+
+        foreach (var family in new[] { SkseTools.SkseFamily.Inventory, SkseTools.SkseFamily.Pairing, SkseTools.SkseFamily.Config })
+        {
+            var text = SkseTools.Dispatch(renders, family, filter: null, peek: false, max_chars: cap);
+            foreach (System.Text.RegularExpressions.Match m in
+                     System.Text.RegularExpressions.Regex.Matches(text, @"max_chars=(\d+)"))
+                Assert.Equal(cap.ToString(), m.Groups[1].Value);
+        }
+    }
+
     /// <summary>The one arm left: a cap too small for what a family carries whatever the budget says so, and names
     /// the cap that clears it, rather than quietly answering over the ceiling.</summary>
     [Fact]
@@ -622,12 +641,12 @@ public sealed class SkseTransportTests
     sealed class StubRenders(SkseInventoryData inv, NativePairingAuditData pair, SkseConfigAuditData cfg) : SkseTools.IFamilyRenders
     {
         public string Inventory(SkseTools.FamilyCall c) =>
-            c.Json ? SkseInventoryWire.RenderJson(inv, c.Filter, c.Cap, c.Window) : SkseInventoryWire.Render(inv, c.Filter, c.Cap, c.Window);
+            c.Json ? SkseInventoryWire.RenderJson(inv, c.Filter, c.Cap, c.Window) : SkseInventoryWire.Render(inv, c.Filter, c.Cap, c.Window, c.Trailer);
 
         public string Pairing(SkseTools.FamilyCall c) =>
-            c.Json ? NativePairingWire.RenderJson(pair, c.Filter, c.Cap, c.Window) : NativePairingWire.Render(pair, c.Filter, c.Cap, c.Window);
+            c.Json ? NativePairingWire.RenderJson(pair, c.Filter, c.Cap, c.Window) : NativePairingWire.Render(pair, c.Filter, c.Cap, c.Window, c.Trailer);
 
         public string Config(SkseTools.FamilyCall c) =>
-            c.Json ? SkseConfigAuditWire.RenderJson(cfg, c.Filter, c.Cap, c.Window) : SkseConfigAuditWire.Render(cfg, c.Filter, c.Cap, c.Window);
+            c.Json ? SkseConfigAuditWire.RenderJson(cfg, c.Filter, c.Cap, c.Window) : SkseConfigAuditWire.Render(cfg, c.Filter, c.Cap, c.Window, c.Trailer);
     }
 }
