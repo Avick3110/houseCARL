@@ -164,7 +164,7 @@ public static class ForwardFromPluginProbe
             string pPath = Path.Combine(tmpDir, "HcFwdNonWinner.esp");
             using var r = LoadOrderResolver.Build(orderPaths);
             var o = WritePatchBuilder.ForwardRecords(r,
-                new[] { new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = ModAName } }, pPath, extend: false);
+                new[] { new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = ModAName } }, pPath, extend: false, sourceParam: "source=");
             var dmg = o.Success ? ReadWeaponDamage(pPath, xFk) : null;
             bool mastersOk = o.Success && o.Masters.Count == 1 && o.Masters[0].Equals(MasterName, StringComparison.OrdinalIgnoreCase);
             bool winnerRep = o.Success && o.Forwarded.Count == 1 && o.Forwarded[0].PriorWinner == ModBName && !o.Forwarded[0].WasAlreadyWinner;
@@ -178,7 +178,7 @@ public static class ForwardFromPluginProbe
             string pPath = Path.Combine(tmpDir, "HcFwdMasterVer.esp");
             using var r = LoadOrderResolver.Build(orderPaths);
             var o = WritePatchBuilder.ForwardRecords(r,
-                new[] { new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = MasterName } }, pPath, extend: false);
+                new[] { new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = MasterName } }, pPath, extend: false, sourceParam: "source=");
             var dmg = o.Success ? ReadWeaponDamage(pPath, xFk) : null;
             Check("FORWARD-MASTER: forwarding the origin master's version reverts X to vanilla (Dmg 10)",
                 o.Success && dmg == 10, $"success={o.Success} dmg={dmg} (want 10) err=[{Trim(o.Error)}]");
@@ -191,7 +191,7 @@ public static class ForwardFromPluginProbe
             string pPath = Path.Combine(tmpDir, "HcFwdNested.esp");
             using var r = LoadOrderResolver.Build(orderPaths);
             var o = WritePatchBuilder.ForwardRecords(r,
-                new[] { new WritePatchBuilder.ForwardSpec { Target = pFk, FromPlugin = ModAName } }, pPath, extend: false);
+                new[] { new WritePatchBuilder.ForwardSpec { Target = pFk, FromPlugin = ModAName } }, pPath, extend: false, sourceParam: "source=");
             var scale = o.Success ? ReadPlacedScale(pPath, pFk) : null;
             Check("NESTED: forwarding a PlacedObject (nested link-cache path) copies ModA's version (Scale 2.0), NOT the winner's (3.0)",
                 o.Success && scale == 2.0f, $"success={o.Success} scale={scale} (want 2) err=[{Trim(o.Error)}]");
@@ -202,7 +202,7 @@ public static class ForwardFromPluginProbe
             string pPath = Path.Combine(tmpDir, "HcFwdAlreadyWin.esp");
             using var r = LoadOrderResolver.Build(orderPaths);
             var o = WritePatchBuilder.ForwardRecords(r,
-                new[] { new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = ModBName } }, pPath, extend: false);
+                new[] { new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = ModBName } }, pPath, extend: false, sourceParam: "source=");
             var dmg = o.Success ? ReadWeaponDamage(pPath, xFk) : null;
             bool flagged = o.Success && o.Forwarded.Count == 1 && o.Forwarded[0].WasAlreadyWinner;
             Check("ALREADY-WINNER: forwarding the current winner succeeds (Dmg 30) and is flagged redundant (Q3, not silent)",
@@ -217,7 +217,7 @@ public static class ForwardFromPluginProbe
             {
                 new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = ModAName },
                 new WritePatchBuilder.ForwardSpec { Target = yFk, FromPlugin = ModAName },
-            }, pPath, extend: false);
+            }, pPath, extend: false, sourceParam: "source=");
             var dx = o.Success ? ReadWeaponDamage(pPath, xFk) : null;
             var dy = o.Success ? ReadWeaponDamage(pPath, yFk) : null;
             Check("MULTI: two records forwarded from ModA in one call both land (X=20, Y=200)",
@@ -231,11 +231,11 @@ public static class ForwardFromPluginProbe
             bool firstOk, secondOk; ushort? dx = null, dy = null;
             using (var r = LoadOrderResolver.Build(orderPaths))
                 firstOk = WritePatchBuilder.ForwardRecords(r,
-                    new[] { new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = ModAName } }, pPath, extend: false).Success;
+                    new[] { new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = ModAName } }, pPath, extend: false, sourceParam: "source=").Success;
             using (var r = LoadOrderResolver.Build(orderPaths))
             {
                 var o2 = WritePatchBuilder.ForwardRecords(r,
-                    new[] { new WritePatchBuilder.ForwardSpec { Target = yFk, FromPlugin = ModAName } }, pPath, extend: true);
+                    new[] { new WritePatchBuilder.ForwardSpec { Target = yFk, FromPlugin = ModAName } }, pPath, extend: true, sourceParam: "source=");
                 secondOk = o2.Success && o2.Extended;
             }
             if (firstOk && secondOk) { dx = ReadWeaponDamage(pPath, xFk); dy = ReadWeaponDamage(pPath, yFk); }
@@ -253,10 +253,10 @@ public static class ForwardFromPluginProbe
             bool firstOk; WritePatchBuilder.ForwardOutcome o2;
             using (var r = LoadOrderResolver.Build(orderPaths))
                 firstOk = WritePatchBuilder.ForwardRecords(r,
-                    new[] { new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = ModAName } }, pPath, extend: false).Success;
+                    new[] { new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = ModAName } }, pPath, extend: false, sourceParam: "source=").Success;
             using (var r = LoadOrderResolver.Build(orderPaths))
                 o2 = WritePatchBuilder.ForwardRecords(r,
-                    new[] { new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = ModBName } }, pPath, extend: true);
+                    new[] { new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = ModBName } }, pPath, extend: true, sourceParam: "source=");
             var dmg = firstOk && o2.Success ? ReadWeaponDamage(pPath, xFk) : null;
             bool flagged = o2.Success && o2.Forwarded.Count == 1 && o2.Forwarded[0].ReplacedExisting;
             bool masterGrown = o2.Success && o2.Masters.Any(mn => mn.Equals(ModBName, StringComparison.OrdinalIgnoreCase));
@@ -275,7 +275,7 @@ public static class ForwardFromPluginProbe
             bool firstOk; WritePatchBuilder.PatchOutcome o2;
             using (var r = LoadOrderResolver.Build(orderPaths))
                 firstOk = WritePatchBuilder.ForwardRecords(r,
-                    new[] { new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = ModAName } }, pPath, extend: false).Success;
+                    new[] { new WritePatchBuilder.ForwardSpec { Target = xFk, FromPlugin = ModAName } }, pPath, extend: false, sourceParam: "source=").Success;
             using (var r = LoadOrderResolver.Build(orderPaths))
             {
                 var rulebook = CorpusRulebook.Load();
@@ -299,7 +299,7 @@ public static class ForwardFromPluginProbe
         {
             string pPath = Path.Combine(tmpDir, stem + ".esp");
             using var r = LoadOrderResolver.Build(orderPaths);
-            var o = WritePatchBuilder.ForwardRecords(r, specs, pPath, extend: false);
+            var o = WritePatchBuilder.ForwardRecords(r, specs, pPath, extend: false, sourceParam: "source=");
             bool refused = !o.Success, noFile = !File.Exists(pPath), named = o.Error is not null && msgOk(o.Error);
             Check(label, refused && noFile && named, $"refused={refused} noFile={noFile} named={named} err=[{Trim(o.Error)}]");
         }

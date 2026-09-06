@@ -6124,6 +6124,10 @@ public sealed class LoadOrderService : IDisposable
         return outcome;
     }
 
+    /// <summary>source= is the forward surface's own word for the source pole, handed to the shared engine refusals
+    /// so they name the parameter housecarl_forward publishes.</summary>
+    const string ForwardSourceParam = "source=";
+
     /// <summary>Forward a named plugin's version of one or more records into a patch as an override — xEdit's "copy
     /// as override into", the inverse of <see cref="ApplyEdits"/>'s winner-override. Parses every formid
     /// all-or-nothing, pre-locates <paramref name="fromPlugin"/> when the active order does not contain it, resolves
@@ -6133,16 +6137,13 @@ public sealed class LoadOrderService : IDisposable
     /// record to vanilla. Originals are never touched in the default lane;
     /// <paramref name="target"/> with <paramref name="inPlace"/> is the explicit opt-in third route, forwarding into
     /// an existing plugin's own file under the same consent gate as the sibling write tools.</summary>
-    /// <param name="sourceParam">The spelling the calling tool exposes for the source pole. Every refusal that names
-    /// the parameter renders the calling surface's word, because a caller cannot fix a parameter its tool does not
-    /// expose.</param>
     public WritePatchBuilder.ForwardOutcome ForwardRecords(IReadOnlyList<string> formids, string fromPlugin, string? patchName, string? into,
         bool fullReadback = false, string? target = null, bool inPlace = false, bool acknowledge = false,
-        bool dryRun = false, string sourceParam = "from_plugin")
+        bool dryRun = false)
     {
         if (string.IsNullOrWhiteSpace(fromPlugin))
             return WritePatchBuilder.ForwardOutcome.Fail(
-                $"{sourceParam} is required — name the plugin whose version of the record(s) to forward (the earlier override, or a master to revert to vanilla).");
+                $"{ForwardSourceParam} is required — name the plugin whose version of the record(s) to forward (the earlier override, or a master to revert to vanilla).");
         if (formids is null || formids.Count == 0)
             return WritePatchBuilder.ForwardOutcome.Fail("no formids supplied — pass the FormID(s) to forward from the source plugin.");
 
@@ -6194,7 +6195,7 @@ public sealed class LoadOrderService : IDisposable
             try
             {
                 if (inPlace)
-                    return ForwardRecordsInPlace(resolver, specs, target!.Trim(), acknowledge, dryRun, sourceParam, offOrder);
+                    return ForwardRecordsInPlace(resolver, specs, target!.Trim(), acknowledge, dryRun, offOrder);
 
                 // A dry run resolves the would-be output path without creating the mod folder.
                 string outPath; bool extend, created;
@@ -6202,7 +6203,7 @@ public sealed class LoadOrderService : IDisposable
                 // Stamped like every post-capture outcome: the source resolve above already consulted the build.
                 catch (Exception ex) { return WritePatchBuilder.ForwardOutcome.Fail(ex.Message) with { Stamp = offEpoch }; }
 
-                var outcome = WritePatchBuilder.ForwardRecords(resolver, specs, outPath, extend, fullReadback, dryRun, sourceParam, offOrder);
+                var outcome = WritePatchBuilder.ForwardRecords(resolver, specs, outPath, extend, ForwardSourceParam, fullReadback, dryRun, offOrder);
                 if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // a refused forward leaves no orphan folder
                 return outcome;
             }
@@ -6218,8 +6219,7 @@ public sealed class LoadOrderService : IDisposable
     /// <paramref name="acknowledge"/> waives the consent axis only.</summary>
     WritePatchBuilder.ForwardOutcome ForwardRecordsInPlace(
         LoadOrderResolver resolver, IReadOnlyList<WritePatchBuilder.ForwardSpec> specs, string target, bool acknowledge,
-        bool dryRun = false, string sourceParam = "from_plugin",
-        WritePatchBuilder.OffOrderForwardSource? offOrder = null)
+        bool dryRun = false, WritePatchBuilder.OffOrderForwardSource? offOrder = null)
     {
         // Resolve target to its real on-disk path via the load order, by plugin filename. Refuse loudly if it is not
         // a real active plugin. Same resolver as the other in-place lanes.
@@ -6267,7 +6267,7 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.ForwardOutcome.Fail(why) with { Stamp = view.Stamp };
 
         // The write, with the touched-record verify forced on.
-        var outcome = WritePatchBuilder.ForwardRecordsInPlace(resolver, specs, targetPath, targetName, fullReadback: true, dryRun, sourceParam, offOrder);
+        var outcome = WritePatchBuilder.ForwardRecordsInPlace(resolver, specs, targetPath, targetName, ForwardSourceParam, fullReadback: true, dryRun, offOrder);
 
         // A successful dry run stamps nothing — no editedInPlace marker and no .seq note.
         if (dryRun)

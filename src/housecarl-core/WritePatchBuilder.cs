@@ -1600,7 +1600,8 @@ public static class WritePatchBuilder
     /// problems — refuse the whole call if any (<paramref name="refusal"/> non-null ⇒ the caller fails with it).
     /// <paramref name="selfIsTarget"/> only shapes the self-forward message (output patch vs in-place target).
     /// <para><paramref name="sourceParam"/> is the SPELLING the calling tool exposes for the source pole
-    /// (<c>from_plugin=</c> or <c>source=</c>). Only the two self-forward refusals name a parameter at all (the rest
+    /// (<c>source=</c>), passed in because the core has no surface of its own to name. Only the two self-forward
+    /// refusals name a parameter at all (the rest
     /// say "source plugin '<c>x</c>'", which is prose either way); they must render the CALLING surface's word, never
     /// one the caller cannot see.</para>
     /// <para><paramref name="offOrder"/>, when non-null, carries the bodies of a source the ACTIVE order does NOT
@@ -1748,7 +1749,7 @@ public static class WritePatchBuilder
     /// </summary>
     public static ForwardOutcome ForwardRecordsInPlace(
         LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string targetPath, string targetName,
-        bool fullReadback = true, bool dryRun = false, string sourceParam = "from_plugin",
+        string sourceParam, bool fullReadback = true, bool dryRun = false,
         OffOrderForwardSource? offOrder = null)
     {
         OrderStamp? epoch = null;
@@ -2227,8 +2228,8 @@ public static class WritePatchBuilder
     /// verify loop — see <see cref="FullReadback"/>).</para>
     /// </summary>
     public static ForwardOutcome ForwardRecords(
-        LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string outPath, bool extend, bool fullReadback = false,
-        bool dryRun = false, string sourceParam = "from_plugin", OffOrderForwardSource? offOrder = null)
+        LoadOrderResolver resolver, IReadOnlyList<ForwardSpec> specs, string outPath, bool extend, string sourceParam,
+        bool fullReadback = false, bool dryRun = false, OffOrderForwardSource? offOrder = null)
     {
         OrderStamp? epoch = null;
         bool usedOffOrder = false;
