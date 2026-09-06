@@ -13,7 +13,7 @@ namespace HousecarlGenerator;
 ///
 /// <para>The run also stops leaving fixtures behind: the whole root goes at the end, entry by entry so one
 /// file another process still holds open strands only itself. A run that is killed — the bridge test's
-/// 20-minute cap, Ctrl-C, a cancelled CI job — never reaches that, so <see cref="Redirect"/> also drops the
+/// 20-minute cap, Ctrl-C, a cancelled CI job — never reaches that, so <see cref="TryRedirect"/> also drops the
 /// roots whose pid is no longer a live process; residue under our own pid that will not go is reported and
 /// the run takes a fresh sibling root rather than work in another run's fixtures. Nothing here throws: a file
 /// that will not delete is reported and the run's exit code is unaffected — cleanup never turns a run red.</para>
@@ -23,10 +23,12 @@ public static class ProbeTemp
     static string? _root;
     static string? _tmpWas, _tempWas, _tmpdirWas;
 
-    /// <summary>Point this process's temp directory at a root only this process uses, and return it.</summary>
-    public static string Redirect()
+    /// <summary>Point this process's temp directory at a root only this process uses. False with a one-sentence
+    /// reason if that root could not be made — the temp directory is then left exactly where it was.</summary>
+    public static bool TryRedirect(out string? error)
     {
-        if (_root != null) return _root;
+        error = null;
+        if (_root != null) return true;
 
         var temp = Path.GetTempPath();
         SweepDeadRoots(temp);
@@ -42,7 +44,11 @@ public static class ProbeTemp
             ReportLeft(root, left, first);
             root = Path.Combine(temp, $"hc-{Environment.ProcessId}-{n}");
         }
-        Directory.CreateDirectory(root);
+        // A full or read-only temp volume, or a plain FILE already named hc-<pid> (which Directory.Exists above
+        // does not see), stops the run before any probe: say which path and why, not a stack trace.
+        try { Directory.CreateDirectory(root); }
+        catch (Exception ex) { error = StartFailure(root, ex); return false; }
+
         // Set before the redirect below, not after it: a variable that will not take would otherwise leave the
         // process pointed at a root Cleanup no longer knows to remove.
         _root = root;
@@ -54,8 +60,13 @@ public static class ProbeTemp
         Environment.SetEnvironmentVariable("TEMP", root);
         Environment.SetEnvironmentVariable("TMPDIR", root);   // what GetTempPath reads off Windows
 
-        return root;
+        return true;
     }
+
+    /// <summary>The one sentence a run prints when its fixture root cannot be made.</summary>
+    static string StartFailure(string root, Exception ex) =>
+        $"could not create the fixture directory {root} this run works in ({ex.Message.TrimEnd()}) — " +
+        "free space on the temp volume, or remove whatever is already at that path, then run again.";
 
     /// <summary>Put the temp directory back and delete the root. A file still held open is reported, not thrown.</summary>
     public static void Cleanup()

@@ -176,7 +176,8 @@ public static class CiAll
         foreach (var e in All())
             if (e.Name == name)
             {
-                try { ProbeTemp.Redirect(); rc = e.Run(args); }
+                if (!ProbeTemp.TryRedirect(out var error)) { rc = TempStartFailed(error); return true; }
+                try { rc = e.Run(args); }
                 finally { ProbeTemp.Cleanup(); }
                 return true;
             }
@@ -187,8 +188,16 @@ public static class CiAll
     /// <summary>Run the whole roster under this process's own temp root, and take the fixtures with it.</summary>
     public static int RunAll(string[] args)
     {
-        try { ProbeTemp.Redirect(); return RunRoster(args); }
+        if (!ProbeTemp.TryRedirect(out var error)) return TempStartFailed(error);
+        try { return RunRoster(args); }
         finally { ProbeTemp.Cleanup(); }
+    }
+
+    /// <summary>Report a run that could not make its fixture root, and give the exit code it fails with.</summary>
+    static int TempStartFailed(string? error)
+    {
+        Console.Error.WriteLine("::error::" + error);
+        return 1;
     }
 
     static int RunRoster(string[] args)
