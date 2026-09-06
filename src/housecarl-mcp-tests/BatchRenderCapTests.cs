@@ -281,6 +281,27 @@ public class BatchRenderCapTests
         Assert.DoesNotContain("... [", nif);
     }
 
+    /// <summary>One mesh whose shaders read as another game's layout, so every slot line it prints carries the
+    /// not-derived caveat.</summary>
+    static NifInspectBatchData MeshWithForeignShader(int shapes = 12)
+    {
+        var prov = new NifProvider("A Mod Whose Folder Name Is Long Enough To Matter", "loose");
+        var shader = new HousecarlCore.NifShader("BSLightingShaderProperty", "FO4", "Default", null, null, null,
+                                                 null, null, null, null, null);
+        var mesh = new HousecarlCore.NifInspect(
+            "20.2.0.7", 12, 100, true, shapes,
+            new[] { new HousecarlCore.NifBlockTypeCount("BSTriShape", shapes) }, false, Array.Empty<string>(),
+            Enumerable.Range(0, shapes).Select(i => new HousecarlCore.NifShape(
+                $"ShapeNumber{i:D3}", 14u, 1f, "BSTriShape", 14u, "NiAVObject",
+                Array.Empty<HousecarlCore.NifPartition>(), null,
+                new[] { new HousecarlCore.NifTexture(2, $"textures/mod/shape{i:D3}_g.dds") },
+                Array.Empty<string>(), shader)).ToList(),
+            Array.Empty<HousecarlCore.NifNode>(), Array.Empty<string>());
+        return new NifInspectBatchData(
+            new[] { new NifInspectData("meshes/foreign/mesh.nif", prov, new[] { prov }, false, false, mesh, null) },
+            Array.Empty<string>(), Array.Empty<string>(), "TestProfile");
+    }
+
     /// <summary>A mesh whose sections cut still reaches the page: the marker a cut section writes is charged with the
     /// missed-sections line, so the mesh does not end one marker past the budget and get taken back out entire —
     /// which answered with the path line and nothing else, no version, no providers, no resolution.</summary>
@@ -295,5 +316,20 @@ public class BatchRenderCapTests
         Assert.True(text.Length <= cap, $"nif_inspect returned {text.Length} chars at max_chars={cap}");
         Assert.Contains("meshes/full/mesh.nif", text);
         Assert.Contains("version: 20.2.0.7", text);
+    }
+
+    /// <summary>The caveat that says how the slot lines below it must be read is never dropped to meet the ceiling: a
+    /// section renders its rows with it or does not start. Without it a bare tex[2] reads as "this Skyrim shader does
+    /// not determine slot 2" rather than "this layout is not modelled at all".</summary>
+    [Theory]
+    [InlineData(930)]
+    [InlineData(1_000)]
+    [InlineData(1_100)]
+    public void ASlotSectionRendersItsCaveatOrDoesNotStart(int cap)
+    {
+        var text = RenderNif(MeshWithForeignShader(), cap, "shapes", "paths");
+
+        if (text.Contains("--- shapes (") || text.Contains("--- paths ("))
+            Assert.Contains("slot names are NOT DERIVED", text);
     }
 }
