@@ -6294,7 +6294,8 @@ public sealed class LoadOrderService : IDisposable
     /// no conflict footprint. Unlike the patch-write paths the name is used verbatim and never auto-suffixed, because
     /// a trigger plugin's whole job is that its basename matches the config bound to it; a collision therefore
     /// refuses loudly rather than renaming or overwriting, whether a plugin of that basename is already active in the
-    /// order or a houseCARL mod folder of that name is already on disk. The core
+    /// order, a houseCARL mod folder of that name is already on disk, or a file of that exact name sits somewhere the
+    /// order is not loading (#561). The core
     /// <see cref="WritePatchBuilder.CreatePlugin"/> builds, serializes and re-reads to confirm, and a refused create
     /// that just made the output folder leaves no orphan.</summary>
     public WritePatchBuilder.CreatePluginOutcome CreatePlugin(string pluginName, bool esl = false, string? author = null, string? description = null)
@@ -6329,9 +6330,16 @@ public sealed class LoadOrderService : IDisposable
             if (Directory.Exists(folder))
                 return WritePatchBuilder.CreatePluginOutcome.Fail(
                     $"a houseCARL output folder '{ModFolderName(stem)}' already exists — houseCARL won't auto-rename a header-only plugin (its exact basename is what makes the trigger resolve). Remove that folder in MO2, or choose a different name.");
+            // (c) a plugin of this exact filename sits somewhere the order is NOT loading — the same shadow the fresh
+            //     patch lanes take (#561), and it bites harder here: the exact basename is what makes a trigger
+            //     resolve, so a second file of that name is the thing this tool exists to avoid.
+            var plugin = stem + ".esp";
+            var active = ActivePluginBasenames();
+            if (active.Count > 0 && ReadCompositionForShadow() is { } comp
+                && PatchStemShadow.Find(comp, _modsDir, _dataDir, _overwriteDir, plugin, active) is { } shadow)
+                return WritePatchBuilder.CreatePluginOutcome.Fail(PatchStemShadow.Refusal(plugin, shadow, "plugin_name"));
 
             Directory.CreateDirectory(folder);
-            var plugin = stem + ".esp";
             WriteOwnerMeta(folder, plugin);
             var outPath = Path.Combine(folder, plugin);
 
@@ -7019,8 +7027,11 @@ public sealed class LoadOrderService : IDisposable
 
             // ---- output folder: a fresh houseCARL mod folder, since a merge is always a new file ----
             RiderFolder rf;
+            // The plugin written here is outName, not the folder stem, so that is the name the shadow check tests and
+            // output= is the parameter its refusal names.
             try { rf = ResolvePatchModFolder(patchName, null,
-                Path.GetFileNameWithoutExtension(outName) + (donorInfos.Count == 1 ? " renamed" : " merged"), naming: null); }
+                Path.GetFileNameWithoutExtension(outName) + (donorInfos.Count == 1 ? " renamed" : " merged"),
+                naming: null, writesPlugin: (outName, "output")); }
             catch (InvalidOperationException ex) { return WritePatchBuilder.MergeOutcome.Fail(ex.Message); }
             WriteOwnerMeta(rf.ModFolder, outName);
             var outPath = Path.Combine(rf.OutputDir, outName);
@@ -7618,8 +7629,10 @@ public sealed class LoadOrderService : IDisposable
 
             extend = false;
             var baseStem = PatchStem(string.IsNullOrWhiteSpace(patchName) ? "Patch" : patchName!);
-            // Every record lane that reaches here declares patch=, so that is the spelling the shadow refusal names.
-            var freeStem = UniqueStem(baseStem, "patch");
+            // Every record lane that reaches here declares patch= and writes "<stem>.esp", so that is the file the
+            // shadow check tests and the spelling its refusal names.
+            var freeStem = UniqueStem(baseStem, !string.IsNullOrWhiteSpace(patchName),
+                                      new PatchStemShadow.Target(s => s + ".esp", FollowsStem: true, "patch"));
             var newFolder = Path.Combine(_modsDir, ModFolderName(freeStem));
             var plugin = freeStem + ".esp";
             // A dry run (create:false) resolves the would-be path only — no folder, no meta.ini — so the disk stays
@@ -7678,8 +7691,13 @@ public sealed class LoadOrderService : IDisposable
     /// so a prior one is never clobbered, or <paramref name="into"/> an existing houseCARL-owned one. It refuses a
     /// folder houseCARL did not create. Derives ModsDir cheaply by reading ModOrganizer.ini, with no index build, and
     /// throws the unconfigured prompt when there is no instance. The returned
-    /// <see cref="RiderFolder.CreatedFresh"/> flag drives the cleanup on a failure.</summary>
-    public RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming)
+    /// <see cref="RiderFolder.CreatedFresh"/> flag drives the cleanup on a failure.
+    /// <paramref name="writesPlugin"/> is the plugin FILE this lane will put in the folder and the parameter its
+    /// caller changes to move it — <c>merge_plugins</c> alone, whose output filename is its own parameter and not the
+    /// folder stem. A lane that writes scripts, an archive or loose files passes nothing and takes no plugin-shadow
+    /// refusal, because it puts no second plugin on disk.</summary>
+    public RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming,
+                                             (string File, string Param)? writesPlugin = null)
     {
         lock (_gate)
         {
@@ -7702,10 +7720,11 @@ public sealed class LoadOrderService : IDisposable
                 return new RiderFolder(folder, folder, CreatedFresh: false);   // reused — the user owns it; cleanup leaves it
             }
 
-            // The rider's OWN folder parameter, the way its extend refusal already names it — patch= is wrong on a
-            // lane where a bare patch= binds to something else.
+            var writes = writesPlugin is { } wp
+                ? new PatchStemShadow.Target(_ => wp.File, FollowsStem: false, wp.Param)
+                : (PatchStemShadow.Target?)null;
             var newStem = UniqueStem(PatchStem(string.IsNullOrWhiteSpace(patchName) ? defaultStem : patchName!),
-                                     naming?.Param ?? "patch");
+                                     !string.IsNullOrWhiteSpace(patchName), writes);
             var newFolder = Path.Combine(_modsDir, ModFolderName(newStem));
             Directory.CreateDirectory(newFolder);
             WriteOwnerMeta(newFolder, "(houseCARL output)");   // ownership marker; this folder may hold scripts / a .bsa / loose files, not an .esp
@@ -8183,30 +8202,42 @@ public sealed class LoadOrderService : IDisposable
     /// stem from emitting a plugin that duplicates a foreign active one: the engine forbids two active plugins
     /// sharing a basename, and mod-folder uniqueness alone never sees a same-named plugin in another mod. into=
     /// remains the way to grow an existing patch; this is only the fresh path.
-    /// <para>Neither test sees a plugin the active order is NOT loading, so the stem about to be claimed is also put
-    /// through <see cref="PatchStemShadow"/>, which REFUSES rather than suffixing (#561): a stem suffixed around a
-    /// foreign inactive plugin hides the file the caller may have meant. <paramref name="patchParam"/> is the calling
-    /// lane's own name for its fresh-patch parameter, so the refusal never sends a caller to a parameter their tool
-    /// does not declare.</para></summary>
-    string UniqueStem(string stem, string patchParam)
+    /// <para>Neither test sees a plugin the active order is NOT loading, so the FILE the claiming lane will write is
+    /// also put through <see cref="PatchStemShadow"/>, which REFUSES rather than suffixing (#561): a name suffixed
+    /// around a foreign inactive plugin hides the file the caller may have meant. <paramref name="writes"/> is the
+    /// calling lane's own statement of the file it emits and the parameter that names it, so the refusal never sends
+    /// a caller to a parameter their tool does not declare; a lane that writes no plugin passes none and takes no
+    /// shadow refusal. <paramref name="stemFromCaller"/> says the base stem is the caller's own name rather than the
+    /// lane's default, which is what makes a shadow on it refusable.</para></summary>
+    string UniqueStem(string stem, bool stemFromCaller, PatchStemShadow.Target? writes)
     {
         var active = ActivePluginBasenames();
-        var comp = ReadCompositionForShadow();
-        if (IsStemFree(stem, active)) return ClaimStem(stem);
+        // The sweep can only tell a shadow from the active plugin the suffix loop already dodges if it knows what the
+        // order loads. With no composition, or no active plugin known at all, it does not run and the pre-existing
+        // folder and active-order uniqueness stand — the same best-effort degradation both reads already document,
+        // so a call that worked before never fails because the extra check could not run.
+        var comp = active.Count == 0 ? null : ReadCompositionForShadow();
+        if (Takeable(stem)) return stem;
         for (int i = 1; i < 10000; i++)
         {
             var cand = $"{stem}_{i:D3}";
-            if (IsStemFree(cand, active)) return ClaimStem(cand);
+            if (Takeable(cand)) return cand;
         }
         throw new InvalidOperationException($"too many patches named '{stem}' under ModsDir — clean some out.");
 
-        string ClaimStem(string s)
+        // Free of a folder and of an active plugin, and shadowing nothing. A shadow on the name the CALLER passed is
+        // refused; a shadow on a suffix houseCARL invented is stepped past, since the caller cannot be told to avoid
+        // a name they never chose — unless the file does not follow the stem, where every suffix lands on that same
+        // file and stepping could never clear it.
+        bool Takeable(string s)
         {
-            if (comp is not null
-                && PatchStemShadow.Find(comp, _modsDir, _dataDir, _overwriteDir, s, ModFolderName(s), active, IsHouseCarlOwned)
-                    is { } shadow)
-                throw new InvalidOperationException(PatchStemShadow.Refusal(s, shadow, patchParam));
-            return s;
+            if (!IsStemFree(s, active)) return false;
+            if (comp is null || writes is not { } w) return true;
+            var file = w.PluginFor(s);
+            if (PatchStemShadow.Find(comp, _modsDir, _dataDir, _overwriteDir, file, active) is not { } hit) return true;
+            if (!w.FollowsStem || (stemFromCaller && s == stem))
+                throw new InvalidOperationException(PatchStemShadow.Refusal(file, hit, w.Param));
+            return false;
         }
     }
 
