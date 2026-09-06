@@ -24,6 +24,5 @@ internal static class ProbeCreate
                 }
             },
             patchName, into, fullReadback, target, inPlace, acknowledge,
-            origins: new[] { (string?)"records[0]" },
-            naming: new LoadOrderService.CreateOpNaming("ops", "op=\"CopyFrom\""));
+            origins: new[] { (string?)"records[0]" });
 }
