@@ -340,7 +340,15 @@ static class SkseInventoryWire
                    "grouped by folder above. Non-config content (animation/mesh/etc.) is counted in the 'other file(s)' total.)\n" +
                    Caveats(d) +
                    "\n→ filter='<plugin/mod/DLL name>' for a plugin's full detail, or filter='<folder>' (e.g. SkyPatcher, OStim) to list a config group.";
-        cap = Math.Max(1, cap - reserve - tail.Length);
+        // The two sections this view always writes below its rows — the plugin roster and the config-folder table —
+        // are headings the budget owes whatever the rows cost, so they are charged here with the tail.
+        string rosterHead = "\nplugins with metadata (" + Split(rows).Modern.Count + ") — name · version · compat · winning mod:\n";
+        int folderGroups = d.Configs.Select(e => e.Group).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        string foldersHead = d.Configs.Count == 0 ? ""
+            : "\nconfig folders (" + folderGroups + ") — folder: files ← provider(s):\n";
+        cap = Math.Max(1, cap - reserve - tail.Length - rosterHead.Length - foldersHead.Length
+                          - SectionsMissed(9, cap).Length);
+        int missed = 0;
         var tally = new RowTally();
 
         var sb = new StringBuilder();
@@ -373,10 +381,10 @@ static class SkseInventoryWire
         // mismatch to verify. Surfaced without peek=, because the import walk it needs rides the PE open that every
         // DLL's manifest read already pays for.
         var debugCrt = loaded.Where(x => x.Plugin is { Imports: not null } pl && pl.DebugCrtImports.Count > 0).ToList();
-        if (debugCrt.Count > 0)
+        if (debugCrt.Count > 0 && !Head(sb, cap, "\n[!] DEBUG-BUILD plugins (" + debugCrt.Count +
+                ") — they import the debug C runtime, which ships only with Visual Studio and is NOT redistributable:\n")) missed++;
+        else if (debugCrt.Count > 0)
         {
-            sb.Append("\n[!] DEBUG-BUILD plugins (").Append(debugCrt.Count)
-              .Append(") — they import the debug C runtime, which ships only with Visual Studio and is NOT redistributable:\n");
             AppendCapped(sb, debugCrt, cap, x =>
             {
                 var crt = x.Plugin!.DebugCrtImports;
@@ -385,15 +393,14 @@ static class SkseInventoryWire
             }, tally);
         }
 
-        if (locked.Count > 0)
+        // With the installed runtime resolved this is pass/fail per plugin; without it, the degrade is the
+        // "verify each" wording.
+        string lockedHead = locked.Count == 0 ? "" : "\n[!] version-LOCKED plugins (" + locked.Count +
+            ") — load ONLY on their listed runtime(s)" +
+            (d.InstalledRuntime is { } rt0 ? $"; installed game runtime is {rt0}:\n" : "; a mismatch with your game version = won't load:\n");
+        if (locked.Count > 0 && !Head(sb, cap, lockedHead)) missed++;
+        else if (locked.Count > 0)
         {
-            // With the installed runtime resolved this is pass/fail per plugin; without it, the degrade is the
-            // "verify each" wording.
-            sb.Append("\n[!] version-LOCKED plugins (").Append(locked.Count)
-              .Append(") — load ONLY on their listed runtime(s)");
-            sb.Append(d.InstalledRuntime is { } rt0
-                ? $"; installed game runtime is {rt0}:\n"
-                : "; a mismatch with your game version = won't load:\n");
             AppendCapped(sb, locked, cap, e =>
             {
                 var v = e.Plugin!.Version!;
@@ -413,23 +420,23 @@ static class SkseInventoryWire
             }
         }
 
-        AppendSubset(sb, "legacy query-only (SE/VR-era — metadata set at runtime, not statically readable)", legacy, cap,
-            e => $"  - {e.FileName}{Provider(e)}", tally);
-        AppendSubset(sb, "non-plugin DLLs (no SKSE export — a bundled dependency, not a plugin)", notPlugin, cap,
-            e => $"  - {e.FileName}{Provider(e)}", tally);
-        AppendSubset(sb, "subfolder DLLs (present but NOT on SKSE's loader path — bundled/parent-loaded, not plugins SKSE loads)", subfolder, cap,
-            e => $"  - {e.Group}\\{e.FileName}{Provider(e)}", tally);
-        AppendSubset(sb, "BSA-only / unresolved DLLs (SKSE loads loose DLLs only — these will NOT load)", bsaOnly, cap,
-            e => $"  - {e.FileName}{Provider(e)}  — {e.Note}", tally);
-        AppendSubset(sb, "unreadable DLLs (not a valid PE image)", unreadable, cap,
-            e => $"  - {e.FileName}{Provider(e)}  — {e.Plugin?.Note}", tally);
+        if (!AppendSubset(sb, "legacy query-only (SE/VR-era — metadata set at runtime, not statically readable)", legacy, cap,
+            e => $"  - {e.FileName}{Provider(e)}", tally)) missed++;
+        if (!AppendSubset(sb, "non-plugin DLLs (no SKSE export — a bundled dependency, not a plugin)", notPlugin, cap,
+            e => $"  - {e.FileName}{Provider(e)}", tally)) missed++;
+        if (!AppendSubset(sb, "subfolder DLLs (present but NOT on SKSE's loader path — bundled/parent-loaded, not plugins SKSE loads)", subfolder, cap,
+            e => $"  - {e.Group}\\{e.FileName}{Provider(e)}", tally)) missed++;
+        if (!AppendSubset(sb, "BSA-only / unresolved DLLs (SKSE loads loose DLLs only — these will NOT load)", bsaOnly, cap,
+            e => $"  - {e.FileName}{Provider(e)}  — {e.Note}", tally)) missed++;
+        if (!AppendSubset(sb, "unreadable DLLs (not a valid PE image)", unreadable, cap,
+            e => $"  - {e.FileName}{Provider(e)}  — {e.Plugin?.Note}", tally)) missed++;
 
         var contested = loaded.Where(e => e.ProviderCount > 1).ToList();
-        AppendSubset(sb, "contested DLLs (shipped by >1 mod — winner-first conflict chain; verify the winner is the one you want)", contested, cap,
-            e => $"  - {e.FileName}: {Chain(e)}", tally);
+        if (!AppendSubset(sb, "contested DLLs (shipped by >1 mod — winner-first conflict chain; verify the winner is the one you want)", contested, cap,
+            e => $"  - {e.FileName}: {Chain(e)}", tally)) missed++;
 
         // ── Plugin roster: the loaded, metadata-bearing plugins, terse. ──
-        sb.Append("\nplugins with metadata (").Append(modern.Count).Append(") — name · version · compat · winning mod:\n");
+        sb.Append(rosterHead);
         AppendCapped(sb, modern.OrderBy(e => e.FileName, StringComparer.OrdinalIgnoreCase).ToList(), cap, e =>
         {
             var v = e.Plugin!.Version!;
@@ -444,7 +451,7 @@ static class SkseInventoryWire
                               Providers: g.Select(e => e.WinningProvider).Where(p => p is not null).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
                               Contested: g.Count(e => e.ProviderCount > 1)))
                 .OrderByDescending(g => g.Count).ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase).ToList();
-            sb.Append("\nconfig folders (").Append(groups.Count).Append(") — folder: files ← provider(s):\n");
+            sb.Append(foldersHead);
             int shown = 0;
             foreach (var g in groups)
             {
@@ -464,6 +471,7 @@ static class SkseInventoryWire
             }
         }
 
+        if (missed > 0) sb.Append(SectionsMissed(missed, cap));
         sb.Append(tail);
         return sb.ToString().TrimEnd('\n')
              + TransportAccounting.Compose(TransportAccounting.Tally(d.Dlls.Count, rows.Count, tally.Count, window, notes),
@@ -754,6 +762,20 @@ static class SkseInventoryWire
         return "LOCKED→" + (v.CompatibleVersions.Count > 0 ? string.Join("/", v.CompatibleVersions) : "?");
     }
 
+    /// <summary>A section heading, laid whole. False means the budget had no room to start the section at all —
+    /// counted by the caller and said once at the end, rather than a requested section silently absent.</summary>
+    internal static bool Head(StringBuilder sb, int cap, string head)
+    {
+        if (sb.Length + head.Length > cap) return false;
+        sb.Append(head);
+        return true;
+    }
+
+    /// <summary>The line that says how many sections the budget could not start. Spelled once so its room can be
+    /// charged before the sections render.</summary>
+    internal static string SectionsMissed(int missed, int cap) =>
+        "  ... [" + missed + " section(s) omitted at max_chars=" + cap + "; raise max_chars to see them]\n";
+
     static string Provider(SkseFileEntry e) =>
         e.WinningProvider is null ? "  (no active provider)" : $"  ← {e.WinningProvider}";
 
@@ -762,15 +784,14 @@ static class SkseInventoryWire
     static string Chain(SkseFileEntry e) =>
         e.Providers.Count == 0 ? "(no active provider)" : string.Join(" › ", e.Providers.Select(p => $"{p.Name} ({p.Kind})"));
 
-    static void AppendSubset(StringBuilder sb, string label, IReadOnlyList<SkseFileEntry> items, int cap, Func<SkseFileEntry, string> line,
+    static bool AppendSubset(StringBuilder sb, string label, IReadOnlyList<SkseFileEntry> items, int cap, Func<SkseFileEntry, string> line,
                              RowTally? tally = null)
     {
-        if (items.Count == 0) return;
+        if (items.Count == 0) return true;
         // The heading carries the subset's own count, so it goes in whole or the subset does not start.
-        var head = "\n" + label + " (" + items.Count + "):\n";
-        if (sb.Length + head.Length > cap) return;
-        sb.Append(head);
+        if (!Head(sb, cap, "\n" + label + " (" + items.Count + "):\n")) return false;
         AppendCapped(sb, items, cap, line, tally);
+        return true;
     }
 
     static void AppendCapped(StringBuilder sb, IReadOnlyList<SkseFileEntry> items, int cap, Func<SkseFileEntry, string> line,
@@ -1012,7 +1033,18 @@ static class SkseConfigAuditWire
                    "or disabled block still counts — 'references this file declares', not 'the DLL will use'. A folder that SHOULD carry " +
                    "references but shows none may use a reference shape not yet recognized.)\n" + Caveats(d) +
                    "\n→ filter='<folder/mod/filename/plugin>' to audit one group and see every reference (OKs included).";
-        cap = Math.Max(1, cap - reserve - tail.Length);
+        var healthyFiles0 = d.Files.Where(f => f.ReadError is null && f.Refs.Count > 0 && f.Refs.All(r => r.Verdict == SkseRefVerdict.Ok)).ToList();
+        var noRefFiles0 = d.Files.Where(f => f.ReadError is null && f.Refs.Count == 0).ToList();
+        int noRefGroups = noRefFiles0.Select(f => f.Group).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        // The accounted-for line and its folder heading are written whatever the sections cost, so their room is
+        // charged with the tail rather than taken out of the sections' budget after the fact.
+        int alwaysWritten =
+            ("\naccounted for: " + healthyFiles0.Count + " file(s) with " + d.Files.Sum(f => f.Refs.Count) +
+             " reference(s) all OK · " + d.Files.Sum(f => f.Refs.Count) + " more OK ref(s) in files that also carry a non-OK reference · " +
+             noRefFiles0.Count + " file(s) declare no form-shaped references\n").Length +
+            (noRefFiles0.Count == 0 ? 0 : ("  no-reference configs by folder (" + noRefGroups + "):\n").Length);
+        cap = Math.Max(1, cap - reserve - tail.Length - alwaysWritten - SkseInventoryWire.SectionsMissed(9, cap).Length);
+        int missed = 0;
         var tally = new RowTally();
 
         var flatAll = d.Files.SelectMany(f => f.Refs.Select(r => new Hit(f, r))).ToList();
@@ -1058,8 +1090,8 @@ static class SkseConfigAuditWire
         }
 
         // ── Diagnostics first, in full. ──
-        AppendHits(sb, "PLUGIN MISSING — folder gates (the plugin isn't installed, so the WHOLE file is inert)", missingGates, cap,
-            h => $"  - {h.File.RelPath}: folder '{h.Ref.Plugin}' not in the load order{Prov(h.File)}", tally);
+        if (!AppendHits(sb, "PLUGIN MISSING — folder gates (the plugin isn't installed, so the WHOLE file is inert)", missingGates, cap,
+            h => $"  - {h.File.RelPath}: folder '{h.Ref.Plugin}' not in the load order{Prov(h.File)}", tally)) missed++;
         // Token-level plugin-missing is grouped by the target plugin: a whole-layer scan yields tens of thousands of
         // individual inert refs, so a per-ref list is an unreadable wall and the count-per-plugin table is the
         // actionable shape. filter= a plugin to see its individual refs.
@@ -1070,8 +1102,10 @@ static class SkseConfigAuditWire
                               Files: g.Select(h => h.File.RelPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
                               Example: g.First().File.RelPath))
                 .OrderByDescending(g => g.Refs).ThenBy(g => g.Plugin, StringComparer.OrdinalIgnoreCase).ToList();
-            sb.Append("\nPLUGIN MISSING — target plugin not in the load order (inert; often a config shipping optional support for a mod you don't have) — by plugin (")
-              .Append(byPlugin.Count).Append(" plugins, ").Append(missingToks.Count).Append(" refs):\n");
+            if (!SkseInventoryWire.Head(sb, cap, "\nPLUGIN MISSING — target plugin not in the load order (inert; often a config shipping optional support for a mod you don't have) — by plugin (" +
+                    byPlugin.Count + " plugins, " + missingToks.Count + " refs):\n")) missed++;
+            else
+            {
             int shown = 0;
             foreach (var g in byPlugin)
             {
@@ -1083,14 +1117,15 @@ static class SkseConfigAuditWire
                 shown++;
                 foreach (var f in g.Files) tally.Mark(f);
             }
+            }
         }
-        AppendHits(sb, "DANGLING — plugin present but no such record (a dead reference)", dangling, cap,
-            h => $"  - {Loc(h)}: '{h.Ref.Raw}' → {h.Audited.Detail}{Prov(h.File)}", tally);
-        AppendHits(sb, "UNPARSEABLE — shape-matched tokens that can't be normalized (flagged, never guessed)", unparseable, cap,
-            h => $"  - {Loc(h)}: '{h.Ref.Raw}' → {h.Audited.Detail}{Prov(h.File)}", tally);
-        if (readErrors.Count > 0)
+        if (!AppendHits(sb, "DANGLING — plugin present but no such record (a dead reference)", dangling, cap,
+            h => $"  - {Loc(h)}: '{h.Ref.Raw}' → {h.Audited.Detail}{Prov(h.File)}", tally)) missed++;
+        if (!AppendHits(sb, "UNPARSEABLE — shape-matched tokens that can't be normalized (flagged, never guessed)", unparseable, cap,
+            h => $"  - {Loc(h)}: '{h.Ref.Raw}' → {h.Audited.Detail}{Prov(h.File)}", tally)) missed++;
+        if (readErrors.Count > 0 && !SkseInventoryWire.Head(sb, cap, "\nread errors — configs that could not be read/decoded (NOT counted as clean) (" + readErrors.Count + "):\n")) missed++;
+        else if (readErrors.Count > 0)
         {
-            sb.Append("\nread errors — configs that could not be read/decoded (NOT counted as clean) (").Append(readErrors.Count).Append("):\n");
             int shown = 0;
             foreach (var f in readErrors)
             {
@@ -1127,6 +1162,7 @@ static class SkseConfigAuditWire
             }
         }
 
+        if (missed > 0) sb.Append(SkseInventoryWire.SectionsMissed(missed, cap));
         sb.Append(tail);
         return sb.ToString().TrimEnd('\n')
              + TransportAccounting.Compose(TransportAccounting.Tally(d.Files.Count, rows.Count, tally.Count, window, notes),
@@ -1202,13 +1238,11 @@ static class SkseConfigAuditWire
     static string Loc(Hit h) => h.Ref.Line > 0 ? $"{h.File.RelPath}:{h.Ref.Line}" : h.File.RelPath;
     static string Prov(SkseConfigFileAudit f) => f.WinningProvider is null ? "" : $"  [← {f.WinningProvider}]";
 
-    static void AppendHits(StringBuilder sb, string label, IReadOnlyList<Hit> items, int cap, Func<Hit, string> line,
+    static bool AppendHits(StringBuilder sb, string label, IReadOnlyList<Hit> items, int cap, Func<Hit, string> line,
                            RowTally? tally = null)
     {
-        if (items.Count == 0) return;
-        var head = "\n" + label + " (" + items.Count + "):\n";
-        if (sb.Length + head.Length > cap) return;
-        sb.Append(head);
+        if (items.Count == 0) return true;
+        if (!SkseInventoryWire.Head(sb, cap, "\n" + label + " (" + items.Count + "):\n")) return false;
         int shown = 0;
         foreach (var h in items)
         {
@@ -1216,6 +1250,7 @@ static class SkseConfigAuditWire
             if (sb.Length + row.Length > cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(items.Count).Append("; raise max_chars or use filter=]\n"); break; }
             sb.Append(row); shown++; tally?.Mark(h.File.RelPath);
         }
+        return true;
     }
 
     /// <summary>How many build-level caveat notes this answer carries — the accounting's <c>notes</c> count.</summary>
@@ -1480,11 +1515,19 @@ static class NativePairingWire
                    "(registration is runtime behavior, the honest ceiling). Which mods CALL an unpaired class is not scanned (a possible Wave 2).)\n" +
                    Caveats(d) +
                    "\n→ filter='<class/mod/DLL>' for full detail: native function names, pairing evidence, per-DLL manifests and load verdicts.";
-        cap = Math.Max(1, cap - reserve);
         var tally = new RowTally();
 
         var all = Classify(d.Classes, d.InstalledRuntime);
         var w = Classify(rows, d.InstalledRuntime);
+        // The accounted-for line, the loader alarm and the healthy-roster heading are written whatever the sections
+        // cost, so their room is charged with the tail before any section renders.
+        int alwaysWritten =
+            ("\naccounted for: " + w.Engine.Count + " engine class(es) (carried by an official archive — implemented by the game executable) · " +
+             w.SkseCore.Count + " SKSE-core class(es) (skse64's script additions — implemented by the game-root loader)").Length +
+            ("\n  [!] SKSE-core classes are present but no skse64 loader is visible (game root or enabled mods' Root\\ folders) — if SKSE isn't actually installed, every one of these is dead").Length +
+            ("\npaired healthy (" + w.Healthy.Count + " class(es)) — implementing mod ← its classes:\n").Length;
+        cap = Math.Max(1, cap - reserve - tail.Length - alwaysWritten - SkseInventoryWire.SectionsMissed(9, cap).Length);
+        int missed = 0;
         // Every section below the summary states the WINDOW, the accounted-for baseline included: it reconciles this
         // page's rows against its findings, so a layer-wide engine count beside a windowed healthy count would put two
         // different populations on adjacent lines. The whole-audit numbers are the summary's, above.
@@ -1521,34 +1564,34 @@ static class NativePairingWire
         }
 
         // ── Diagnostics first, in full. ──
-        if (dead.Count > 0)
+        if (dead.Count > 0 && !SkseInventoryWire.Head(sb, cap, "\nPAIRED BUT DEAD — the high-confidence finding: every candidate DLL statically will not load, so every native these scripts declare is a silent no-op in game (" + dead.Count + "):\n")) missed++;
+        else if (dead.Count > 0)
         {
-            sb.Append("\nPAIRED BUT DEAD — the high-confidence finding: every candidate DLL statically will not load, so every native these scripts declare is a silent no-op in game (").Append(dead.Count).Append("):\n");
             AppendCapped(sb, dead, cap, c => DeadLine(c, d.InstalledRuntime), tally, c => c.ClassName);
         }
-        if (verify.Count > 0)
+        if (verify.Count > 0 && !SkseInventoryWire.Head(sb, cap, "\npaired, version-LOCKED, runtime unknown — verify the listed runtime matches your game (" + verify.Count + "):\n")) missed++;
+        else if (verify.Count > 0)
         {
-            sb.Append("\npaired, version-LOCKED, runtime unknown — verify the listed runtime matches your game (").Append(verify.Count).Append("):\n");
             AppendCapped(sb, verify, cap, c => DeadLine(c, d.InstalledRuntime), tally, c => c.ClassName);
         }
-        if (unpaired.Count > 0)
+        if (unpaired.Count > 0 && !SkseInventoryWire.Head(sb, cap, "\nUNPAIRED — no mod shipping these scripts (winner or chain) ships any SKSE plugin DLL (" + unpaired.Count +
+                "). A VERIFY flag, not 'broken': most often a declaration copy of a framework that isn't installed — the calls will silently no-op if anything uses them:\n")) missed++;
+        else if (unpaired.Count > 0)
         {
-            sb.Append("\nUNPAIRED — no mod shipping these scripts (winner or chain) ships any SKSE plugin DLL (").Append(unpaired.Count)
-              .Append("). A VERIFY flag, not 'broken': most often a declaration copy of a framework that isn't installed — the calls will silently no-op if anything uses them:\n");
             AppendCapped(sb, unpaired, cap, c =>
                 $"  - {c.ClassName} ({c.NativeCount} native fn) ← {c.WinningProvider ?? "(no provider)"} ({c.ProviderKind})", tally, c => c.ClassName);
         }
-        if (debugBuilds.Count > 0)
+        if (debugBuilds.Count > 0 && !SkseInventoryWire.Head(sb, cap, "\nDEBUG BUILD — these load on THIS machine and nowhere else (" + debugBuilds.Count +
+                "). The debug C runtime ships with Visual Studio and is not redistributable, so the DLL fails with " +
+                "error 126 for anyone without it and every native these scripts declare is a silent no-op there. " +
+                "If you built it, ship a Release build; if you installed it, ask its author for one:\n")) missed++;
+        else if (debugBuilds.Count > 0)
         {
-            sb.Append("\nDEBUG BUILD — these load on THIS machine and nowhere else (").Append(debugBuilds.Count)
-              .Append("). The debug C runtime ships with Visual Studio and is not redistributable, so the DLL fails with " +
-                      "error 126 for anyone without it and every native these scripts declare is a silent no-op there. " +
-                      "If you built it, ship a Release build; if you installed it, ask its author for one:\n");
             AppendCapped(sb, debugBuilds, cap, c => DeadLine(c, d.InstalledRuntime), tally, c => c.ClassName);
         }
-        if (d.Unreadable.Count > 0)
+        if (d.Unreadable.Count > 0 && !SkseInventoryWire.Head(sb, cap, "\nunreadable .pex — could not be parsed, NOT counted as native-free (" + d.Unreadable.Count + "):\n")) missed++;
+        else if (d.Unreadable.Count > 0)
         {
-            sb.Append("\nunreadable .pex — could not be parsed, NOT counted as native-free (").Append(d.Unreadable.Count).Append("):\n");
             AppendCapped(sb, d.Unreadable, cap, u => $"  - {u.RelPath}: {u.Reason}{(u.WinningProvider is { } p ? $"  [← {p}]" : "")}");
         }
 
@@ -1573,6 +1616,7 @@ static class NativePairingWire
             foreach (var c in g) tally.Mark(c.ClassName);
         }
 
+        if (missed > 0) sb.Append(SkseInventoryWire.SectionsMissed(missed, cap));
         sb.Append(tail);
         return sb.ToString().TrimEnd('\n')
              + TransportAccounting.Compose(TransportAccounting.Tally(d.Classes.Count, rows.Count, tally.Count, window, notes),

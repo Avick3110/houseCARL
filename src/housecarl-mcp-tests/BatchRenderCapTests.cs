@@ -4,15 +4,23 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>The shared batch-render skeleton's cap contract, on both of its callers: a max_chars the header and
-/// alarms alone exhaust still renders the FIRST item's answer, and the omitted-count cut is named with one marker.
-/// asset_status used to cut before its first path; nif_inspect never did.</summary>
+/// <summary>The shared batch-render skeleton's cap contract, on all three of its callers: <c>max_chars=</c> is a
+/// CEILING on what comes back, not a test the render takes before writing the item that crosses it (#546). Everything
+/// written after the items — the caller's trailer, this skeleton's own cut notice — is charged before the first item
+/// is laid; an item that would cross what is left is taken back out whole and counted; an item wider than the whole
+/// budget is named with the max_chars that clears it. The one arm left over is a cap too small for what the response
+/// carries whatever the budget, and that says so too.</summary>
 [Trait("tier", "unit")]
 public class BatchRenderCapTests
 {
-    // Small enough that the header plus the read-failure alarm alone exceed it, so only the skeleton's first-item
-    // exemption keeps any item from being cut.
-    const int TightCap = 100;
+    // ---- fixtures -----------------------------------------------------------------------------------
+
+    static AssetStatusData Paths(int n, int providers = 3) => new(
+        Enumerable.Range(0, n).Select(i => Contested($"meshes/batch/render/cap/path{i:D4}.nif", providers)).ToList(),
+        new[] { "Broken - Textures.bsa (header refused)" },
+        true,
+        Array.Empty<string>(),
+        "TestProfile");
 
     static AssetStatusData ThreePaths() => new(
         new[]
@@ -25,10 +33,6 @@ public class BatchRenderCapTests
         true,
         Array.Empty<string>(),
         "TestProfile");
-
-    // Tighter than the header plus the read-failure heading, so only the alarm loop's first-line exemption keeps any
-    // failure from being cut.
-    const int AlarmCap = 60;
 
     static AssetStatusData ThreeReadFailures() => new(
         new[] { Absent("meshes/a/first.nif") },
@@ -45,53 +49,158 @@ public class BatchRenderCapTests
     static AssetPathResult Absent(string path) =>
         new(path, new AssetHit(path, false, null, Array.Empty<AssetProvider>(), false), null);
 
-    static NifInspectBatchData ThreeMeshes() => new(
-        new[]
-        {
-            NifInspectData.Fail("meshes/a/first.nif", "ABSENT — no active mod or BSA provides this mesh"),
-            NifInspectData.Fail("meshes/b/second.nif", "ABSENT — no active mod or BSA provides this mesh"),
-            NifInspectData.Fail("meshes/c/third.nif", "ABSENT — no active mod or BSA provides this mesh"),
-        },
+    /// <summary>A path several mods provide, so its block is many lines rather than one — the shape whose last block
+    /// used to land past the cap.</summary>
+    static AssetPathResult Contested(string path, int providers)
+    {
+        var chain = Enumerable.Range(0, providers)
+            .Select(i => new AssetProvider($"A Mod Whose Folder Name Is Long Enough To Matter {i}", AssetKind.Loose))
+            .ToList();
+        return new AssetPathResult(path, new AssetHit(path, true, chain[0], chain, providers > 1), null);
+    }
+
+    static NifInspectBatchData Meshes(int n) => new(
+        Enumerable.Range(0, n)
+            .Select(i => NifInspectData.Fail($"meshes/batch/render/cap/mesh{i:D4}.nif",
+                                             "ABSENT — no active mod or BSA provides this mesh"))
+            .ToList(),
         new[] { "Broken - Textures.bsa (header refused)" },
         Array.Empty<string>(),
         "TestProfile");
 
-    static string RenderNif(int cap) =>
-        NifWire.Render(ThreeMeshes(), new HashSet<string>(StringComparer.OrdinalIgnoreCase), Array.Empty<string>(), cap);
+    static string RenderNif(NifInspectBatchData d, int cap) =>
+        NifWire.Render(d, new HashSet<string>(StringComparer.OrdinalIgnoreCase), Array.Empty<string>(), cap);
 
-    [Fact]
-    public void AssetStatusUnderATightCapStillRendersItsFirstPath()
+    static PlaceOutcome Placed(int n) => new(
+        Enumerable.Range(0, n)
+            .Select(i => new PlaceResult($"meshes/batch/render/cap/place{i:D4}.nif", true, 42,
+                                         "A Source Mod (loose)", "The Current Winner (loose)", null))
+            .ToList(),
+        @"C:\mods\houseCARL - MyFixes", Array.Empty<string>(), null, null);
+
+    // ---- the ceiling, on each render ------------------------------------------------------------------
+
+    /// <summary>asset_status filled well past its cap comes back inside it, and says how many paths that cost.</summary>
+    [Theory]
+    [InlineData(1_600)]
+    [InlineData(2_500)]
+    [InlineData(6_000)]
+    public void AnAssetStatusRenderFilledPastItsCapAnswersInsideIt(int cap)
     {
-        var text = AssetWire.Render(ThreePaths(), TightCap);
+        var text = AssetWire.Render(Paths(400), cap);
 
-        Assert.Contains("meshes/a/first.nif", text);
-        Assert.DoesNotContain("meshes/b/second.nif", text);
-        Assert.Contains("2 more path(s) omitted at max_chars=100", text);
+        Assert.True(text.Length <= cap, $"asset_status returned {text.Length} chars at max_chars={cap}");
+        Assert.Contains($"omitted at max_chars={cap}", text);
+        Assert.Matches(@"\[\d+ more path\(s\) omitted", text);
     }
 
-    /// <summary>The alarm list keeps its first entry too: a cap the header and the alarm heading alone exhaust still
-    /// names one failed archive, then counts the rest as omitted.</summary>
-    [Fact]
-    public void AReadFailureListUnderATightCapStillRendersItsFirstEntry()
+    /// <summary>nif_inspect, the same.</summary>
+    [Theory]
+    [InlineData(1_600)]
+    [InlineData(2_500)]
+    [InlineData(6_000)]
+    public void ANifInspectRenderFilledPastItsCapAnswersInsideIt(int cap)
     {
-        var text = AssetWire.Render(ThreeReadFailures(), AlarmCap);
+        var text = RenderNif(Meshes(400), cap);
 
+        Assert.True(text.Length <= cap, $"nif_inspect returned {text.Length} chars at max_chars={cap}");
+        Assert.Contains($"omitted at max_chars={cap}", text);
+        Assert.Matches(@"\[\d+ more mesh\(es\) omitted", text);
+    }
+
+    /// <summary>place, whose whole trailer — the counts line and the enable-and-sort instruction — used to sit
+    /// outside the cap on purpose. It is charged now, and still written.</summary>
+    [Theory]
+    [InlineData(1_500)]
+    [InlineData(4_000)]
+    public void APlaceRenderFilledPastItsCapAnswersInsideItAndStillCarriesItsTrailer(int cap)
+    {
+        var text = PlaceWire.Render(Placed(400), cap);
+
+        Assert.True(text.Length <= cap, $"place returned {text.Length} chars at max_chars={cap}");
+        Assert.Contains($"omitted at max_chars={cap}", text);
+        Assert.Contains("\"wrote it\" is not \"it wins\"", text);
+    }
+
+    /// <summary>The count the notice states is the count the render actually held back: rendered plus omitted is the
+    /// whole selection, so a caller can act on the number instead of counting blocks.</summary>
+    [Fact]
+    public void TheNoticeCountsExactlyWhatTheRenderHeldBack()
+    {
+        var text = AssetWire.Render(Paths(400), 3_000);
+
+        var omitted = int.Parse(System.Text.RegularExpressions.Regex.Match(text, @"\[(\d+) more path\(s\) omitted").Groups[1].Value);
+        var rendered = int.Parse(System.Text.RegularExpressions.Regex.Match(text, @"rendered=(\d+)").Groups[1].Value);
+        Assert.Equal(400, rendered + omitted);
+    }
+
+    // ---- the two ways a batch ends with nothing on the page --------------------------------------------
+
+    /// <summary>One item wider than the whole budget cannot be cut into place, so it is NAMED — with the max_chars
+    /// that clears it in one step — rather than dropped as if the list had simply run long.</summary>
+    [Fact]
+    public void AnItemWiderThanTheWholeBudgetIsNamedNotSilentlyDropped()
+    {
+        var text = AssetWire.Render(Paths(3, providers: 60), 1_200);
+
+        Assert.True(text.Length <= 1_200, $"returned {text.Length} chars at max_chars=1200");
+        Assert.Contains("the first alone is wider than this response's whole budget", text);
+        Assert.Contains("raise max_chars to at least ", text);
+        var needed = int.Parse(System.Text.RegularExpressions.Regex.Match(text, @"raise max_chars to at least (\d+)").Groups[1].Value);
+        Assert.True(needed > 1_200, $"the remedy must name a wider cap than the one that failed, got {needed}");
+    }
+
+    /// <summary>The remedy is executable: rendering again at the max_chars the notice named gets the item onto the
+    /// page. A remedy that has to be followed twice is one the caller cannot act on.</summary>
+    [Fact]
+    public void FollowingThatRemedyOnceRendersTheItem()
+    {
+        var data = Paths(3, providers: 60);
+        var first = AssetWire.Render(data, 1_200);
+        var needed = int.Parse(System.Text.RegularExpressions.Regex.Match(first, @"raise max_chars to at least (\d+)").Groups[1].Value);
+
+        var second = AssetWire.Render(data, needed);
+
+        Assert.Contains("meshes/batch/render/cap/path0000.nif", second);
+        Assert.DoesNotContain("wider than this response's whole budget", second);
+    }
+
+    /// <summary>The one arm a bounded render may still exceed on: a cap too small for the header, the alarms and the
+    /// accounting it carries whatever the budget. It ships the answer and NAMES the overrun, the same shape the check
+    /// sweep has carried since #537 — never a silent overrun and never a mid-token trim.</summary>
+    [Fact]
+    public void ACapTooSmallForTheFixedPartSaysSoAndNamesTheCapThatClearsIt()
+    {
+        var text = AssetWire.Render(ThreePaths(), 60);
+
+        Assert.Contains("over the max_chars=60 it was given", text);
+        Assert.Contains("raise max_chars to at least ", text);
+        var needed = int.Parse(System.Text.RegularExpressions.Regex.Match(text, @"raise max_chars to at least (\d+)").Groups[1].Value);
+        Assert.Equal(text.Length, needed);
+    }
+
+    // ---- the alarm lists ------------------------------------------------------------------------------
+
+    /// <summary>The alarm block above the items is bounded the same way, whole lines only, and counts what it
+    /// dropped.</summary>
+    [Fact]
+    public void AReadFailureListIsBoundedToAndCutsWithTheNamedMarker()
+    {
+        var text = AssetWire.Render(ThreeReadFailures(), 1_500);
+
+        Assert.True(text.Length <= 1_500, $"returned {text.Length} chars at max_chars=1500");
         Assert.Contains("Broken - Textures.bsa (header refused)", text);
-        Assert.DoesNotContain("Broken - Meshes.bsa", text);
-        Assert.Contains("2 more archive(s) omitted at max_chars=60", text);
+        Assert.Contains("archive(s) could NOT be read this build", text);
     }
 
-    /// <summary>The two callers agree under the same cap: each keeps its first item, and each names the cut with the
-    /// same marker. nif_inspect's own first-mesh contract is the nif-inspect-batch-guard probe's arm 6; this pins the
-    /// parity between the two, which is what the shared skeleton buys.</summary>
+    /// <summary>The two batch renders agree under the same cap: each names its cut with the same marker, in the same
+    /// spelling, which is what the shared skeleton buys.</summary>
     [Fact]
-    public void BothBatchRendersKeepTheirFirstItemAndCutWithTheSameMarker()
+    public void BothBatchRendersCutWithTheSameMarker()
     {
-        var asset = AssetWire.Render(ThreePaths(), TightCap);
-        var nif = RenderNif(TightCap);
+        var asset = AssetWire.Render(Paths(200), 4_000);
+        var nif = RenderNif(Meshes(200), 4_000);
 
-        Assert.Contains("meshes/a/first.nif", nif);
-        Assert.Contains("2 more mesh(es) omitted at max_chars=100", nif);
         Assert.Contains("  … [", asset);
         Assert.Contains("  … [", nif);
         Assert.DoesNotContain("... [", asset);

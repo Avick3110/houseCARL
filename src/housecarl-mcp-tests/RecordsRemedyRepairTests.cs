@@ -72,7 +72,7 @@ public sealed class RecordsRemedyRepairTests : RecordsTestBase
     [Fact]
     public void TheEverythingFormsTruncationNoticeNamesNoFieldSelector_ThatFormRefusesOne()
     {
-        var r = RecordsTools.Records(Svc, formids: AllWeaponIds, max_chars: 220, project: Form("everything"));
+        var r = RecordsTools.Records(Svc, formids: AllWeaponIds, max_chars: 2_000, project: Form("everything"));
         Assert.Contains("max_chars", r);
         Assert.DoesNotContain("project.fields=", r);
         Assert.Contains("project.depth=", r);

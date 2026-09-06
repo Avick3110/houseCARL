@@ -548,4 +548,86 @@ public sealed class SkseTransportTests
         Assert.False(cfg.RootElement.GetProperty("files").EnumerateArray().Single()
                         .TryGetProperty("references_truncated", out _));
     }
+
+    // ---- max_chars is a CEILING, not a test taken before the row that crosses it (#546) ---------------
+
+    /// <summary>Each family's TEXT render, filled well past its cap, comes back inside it. The scope note, the
+    /// caveats and the filter hint each family always writes are charged before its rows are laid, and the row that
+    /// would cross what is left is not written at all.</summary>
+    [Theory]
+    [InlineData("inventory", 2_000)]
+    [InlineData("inventory", 5_000)]
+    [InlineData("inventory", 12_000)]
+    [InlineData("pairing", 2_500)]
+    [InlineData("pairing", 5_000)]
+    [InlineData("pairing", 12_000)]
+    [InlineData("config", 2_500)]
+    [InlineData("config", 5_000)]
+    [InlineData("config", 12_000)]
+    public void EachFamilysTextRenderFilledPastItsCapAnswersInsideIt(string family, int cap)
+    {
+        var text = family switch
+        {
+            "inventory" => SkseInventoryWire.Render(Inventory(300, configs: 300, folders: 60), null, cap),
+            "pairing" => NativePairingWire.Render(Pairing(900), null, cap),
+            _ => SkseConfigAuditWire.Render(ConfigAudit(300, refs: 4), null, cap),
+        };
+
+        Assert.True(text.Length <= cap, $"{family} returned {text.Length} chars at max_chars={cap}");
+        Assert.Contains("raise max_chars", text);
+    }
+
+    /// <summary>A caveat block that alone outgrows a tight cap is what the tail reserve is for: charged first, the
+    /// rows give way to it rather than the caveats landing past the ceiling.</summary>
+    [Fact]
+    public void ACaveatBlockThatOutgrowsTheCapIsChargedBeforeTheRowsNotAppendedPastThem()
+    {
+        var text = SkseInventoryWire.Render(Inventory(200, warnings: Warnings(8)), null, 6_000);
+
+        Assert.True(text.Length <= 6_000, $"returned {text.Length} chars at max_chars=6000");
+        Assert.Contains("warning 1: ", text);
+    }
+
+    /// <summary>Through the family footer, which is what a caller actually gets: the whole response, footer and all,
+    /// is inside max_chars.</summary>
+    [Theory]
+    [InlineData(3_000)]
+    [InlineData(9_000)]
+    public void TheWholeDispatchedResponseFooterAndAllIsInsideMaxChars(int cap)
+    {
+        var renders = new StubRenders(Inventory(300, configs: 300, folders: 60), Pairing(300), ConfigAudit(300, refs: 4));
+
+        foreach (var family in new[] { SkseTools.SkseFamily.Inventory, SkseTools.SkseFamily.Pairing, SkseTools.SkseFamily.Config })
+        {
+            var text = SkseTools.Dispatch(renders, family, filter: null, peek: false, max_chars: cap);
+            Assert.True(text.Length <= cap, $"{family} returned {text.Length} chars at max_chars={cap}");
+        }
+    }
+
+    /// <summary>The one arm left: a cap too small for what a family carries whatever the budget says so, and names
+    /// the cap that clears it, rather than quietly answering over the ceiling.</summary>
+    [Fact]
+    public void ACapTooSmallForTheFixedPartSaysSoInsteadOfOverrunningSilently()
+    {
+        var renders = new StubRenders(Inventory(300, configs: 300, folders: 60), Pairing(300), ConfigAudit(300, refs: 4));
+
+        var text = SkseTools.Dispatch(renders, SkseTools.SkseFamily.Inventory, filter: null, peek: false, max_chars: 200);
+
+        Assert.Contains("over the max_chars=200 it was given", text);
+        Assert.Contains("raise max_chars to at least ", text);
+    }
+
+    /// <summary>The three families over one set of synthetic data, so Dispatch can be driven without a live
+    /// instance.</summary>
+    sealed class StubRenders(SkseInventoryData inv, NativePairingAuditData pair, SkseConfigAuditData cfg) : SkseTools.IFamilyRenders
+    {
+        public string Inventory(SkseTools.FamilyCall c) =>
+            c.Json ? SkseInventoryWire.RenderJson(inv, c.Filter, c.Cap, c.Window) : SkseInventoryWire.Render(inv, c.Filter, c.Cap, c.Window);
+
+        public string Pairing(SkseTools.FamilyCall c) =>
+            c.Json ? NativePairingWire.RenderJson(pair, c.Filter, c.Cap, c.Window) : NativePairingWire.Render(pair, c.Filter, c.Cap, c.Window);
+
+        public string Config(SkseTools.FamilyCall c) =>
+            c.Json ? SkseConfigAuditWire.RenderJson(cfg, c.Filter, c.Cap, c.Window) : SkseConfigAuditWire.Render(cfg, c.Filter, c.Cap, c.Window);
+    }
 }

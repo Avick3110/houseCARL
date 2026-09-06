@@ -559,7 +559,7 @@ public static class RecordsTools
                 }
                 string Render(SpillState? sp, out bool trunc) => json
                     ? JsonWire.RenderResolve(winRows, max_chars, epoch, sp, out trunc, envelope)
-                    : headerLine + "\n" + Wire.RenderResolve(winRows, max_chars, epoch, sp, out trunc);
+                    : Wire.RenderResolve(winRows, max_chars, epoch, sp, out trunc, header: headerLine);
                 var rendered = Render(spill, out var truncated);
                 if (spill is null && truncated)
                 {
@@ -658,7 +658,7 @@ public static class RecordsTools
             string Render2(SpillState? sp, out bool trunc) => form == "summary"
                 ? RenderRecordsSummary(winOutcomes, json, headerLine, envelope, max_chars, sp, out trunc)
                 : json ? JsonWire.RenderBatch(winOutcomes, max_chars, sp, out trunc, envelope, formLevers)
-                       : headerLine + "\n" + Wire.RenderBatch(winOutcomes, max_chars, sp, out trunc, formLevers);
+                       : Wire.RenderBatch(winOutcomes, max_chars, sp, out trunc, formLevers, header: headerLine);
             var rendered2 = Render2(spill2, out var truncated2);
             if (spill2 is null && truncated2)
             {
@@ -1465,7 +1465,7 @@ public static class RecordsTools
                 var evLevers = formLevers.OnScanSelection();
                 string RenderEv(SpillState? sp, out bool trunc) => json
                     ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, evLevers, bodyClock.ElapsedMilliseconds)
-                    : headerLine + "\n" + Wire.RenderBatch(bodies, max_chars, sp, out trunc, evLevers, bodyClock.ElapsedMilliseconds);
+                    : Wire.RenderBatch(bodies, max_chars, sp, out trunc, evLevers, bodyClock.ElapsedMilliseconds, headerLine);
                 SpillState? evSpill = null;
                 if (wantFile)
                 {
@@ -1500,7 +1500,7 @@ public static class RecordsTools
             {
                 Wire.QueryFormat.Dense when groupBy is null => JsonWire.RenderCrossQueryDense(svc, outcome, readPaths, max_chars, resolveNames, winnerFields, sp, out trunc, envelope, qLevers, foldPlan, ct),
                 Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, envelope, qLevers, ct),
-                _ => headerLine + "\n" + Wire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, qLevers, ct),
+                _ => Wire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, qLevers, ct, headerLine),
             };
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated && outcome.Error is null)
@@ -1685,7 +1685,7 @@ public static class RecordsTools
                 var offLevers = formLevers.OnScanSelection();
                 string RenderOff(SpillState? sp, out bool trunc) => json
                     ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, offLevers, offClock.ElapsedMilliseconds)
-                    : headerLine + "\n" + Wire.RenderBatch(bodies, max_chars, sp, out trunc, offLevers, offClock.ElapsedMilliseconds);
+                    : Wire.RenderBatch(bodies, max_chars, sp, out trunc, offLevers, offClock.ElapsedMilliseconds, headerLine);
                 SpillState? offSpill = null;
                 var offEpoch = bodies.FirstOrDefault(o => o.Stamp is not null)?.Stamp ?? outcome.Stamp;
                 if (wantFile)
@@ -1721,7 +1721,7 @@ public static class RecordsTools
             string Render(SpillState? sp, out bool trunc) => fmt switch
             {
                 Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, null, max_chars, false, false, 1, sp, out trunc, envelope, offQLevers),
-                _ => headerLine + "\n" + Wire.RenderCrossQuery(svc, outcome, null, max_chars, false, false, 1, sp, out trunc, offQLevers),
+                _ => Wire.RenderCrossQuery(svc, outcome, null, max_chars, false, false, 1, sp, out trunc, offQLevers, header: headerLine),
             };
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated && outcome.Error is null)
