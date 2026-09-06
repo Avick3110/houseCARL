@@ -8227,8 +8227,9 @@ public sealed class LoadOrderService : IDisposable
         // The sweep can only tell a shadow from the active plugin the suffix loop already dodges if it knows what the
         // order loads. With no composition, or no active plugin known at all, it does not run and the pre-existing
         // folder and active-order uniqueness stand — the same best-effort degradation both reads already document,
-        // so a call that worked before never fails because the extra check could not run.
-        var comp = active.Count == 0 ? null : ReadCompositionForShadow();
+        // so a call that worked before never fails because the extra check could not run. A lane that writes no
+        // plugin takes no shadow refusal either, so it does not pay the profile parse the sweep would need.
+        var comp = active.Count == 0 || writes is null ? null : ReadCompositionForShadow();
         if (Takeable(stem)) return stem;
         for (int i = 1; i < 10000; i++)
         {
