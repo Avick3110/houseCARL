@@ -13,8 +13,9 @@ namespace HousecarlMcpTests;
 /// to the surface arrives here rather than quietly leaving the sweep short. (MemberData is evaluated at
 /// discovery, before the fixture exists, which is why the rows cannot read the running server directly.)</para>
 ///
-/// <para><see cref="StillOversized"/> is the shrinking list of tools whose descriptions have not been brought
-/// under the bound yet; the Fact below holds each of them STILL over, so an entry cannot go stale.</para>
+/// <para><see cref="StillOversized"/> is the list of tools whose descriptions have not been brought under the
+/// bound yet. It is EMPTY: every tool on the surface is inside the bound, so the theory holds all of them and
+/// the Fact below iterates nothing. A tool that goes over is fixed rather than listed here.</para>
 /// </summary>
 [Collection("server")]
 [Trait("tier", "stdio")]
@@ -27,11 +28,9 @@ public sealed class PublishedDescriptionBoundTests
     /// <summary>The client's cut.</summary>
     const int Bound = 2048;
 
-    // Tools whose descriptions are still over the bound, one line each. Each description PR deletes its own line.
-    static readonly HashSet<string> StillOversized = new(StringComparer.Ordinal)
-    {
-        ToolNames.Forward,
-    };
+    // Tools whose descriptions are still over the bound, one line each. Empty on purpose: the wave that brought
+    // the twelve oversized descriptions under the bound has landed, so nothing is exempt from the theory.
+    static readonly HashSet<string> StillOversized = new(StringComparer.Ordinal);
 
     public static IEnumerable<object[]> EveryPublishedTool() =>
         PublishedNameAnchorTests.Captured().Select(n => new object[] { n });
@@ -59,8 +58,8 @@ public sealed class PublishedDescriptionBoundTests
     }
 
     /// <summary>The stale-entry guard: when a tool's description comes under the bound, its line above must go,
-    /// or this fails. One Fact over the whole set rather than a row each, so that the last PR of the wave —
-    /// which empties the set — leaves a test that passes on nothing rather than an empty-MemberData failure.</summary>
+    /// or this fails. One Fact over the whole set rather than a row each, so that with the set now empty this
+    /// passes on nothing rather than failing on empty MemberData.</summary>
     [Fact]
     public void EveryToolNamedOversizedStillIs()
     {
