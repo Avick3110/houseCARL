@@ -281,6 +281,11 @@ public static class ReadEngine
     /// <c>StepIntoElement</c>) but is READ-ONLY — an absent optional substruct is surfaced, never
     /// materialised. Per-leaf fault isolation: any reflection/parse failure names itself and never
     /// throws out, so one Mutagen-unparseable field can't crash a record read.</summary>
+    /// <summary>The reason an unreadable note reports. A getter's own throw comes back from reflection wrapped in a
+    /// <see cref="TargetInvocationException"/> whose message ("Exception has been thrown by the target of an
+    /// invocation") names nothing a caller can act on, so the note carries the inner exception's message instead.</summary>
+    static string Reason(Exception ex) => (ex as TargetInvocationException)?.InnerException?.Message ?? ex.Message;
+
     internal static LeafRead ReadLeaf(object record, string[] path)
     {
         try
@@ -308,7 +313,7 @@ public static class ReadEngine
             }
             return EmitToken(leaf.GetValue(current), leaf.PropertyType, current);
         }
-        catch (Exception ex) { return LeafRead.Unreadable($"(unreadable: {ex.Message})"); }
+        catch (Exception ex) { return LeafRead.Unreadable($"(unreadable: {Reason(ex)})"); }
     }
 
     /// <summary>The FormKeys on a record's <c>Keywords</c> list — the ONE keyword walk, shared by the SkyPatcher
@@ -357,7 +362,7 @@ public static class ReadEngine
             if (nav.val is null) return (null, AbsentNote);
             return LinksIn(nav.val, string.Join(".", path));
         }
-        catch (Exception ex) { return (null, $"(unreadable: {ex.Message})"); }
+        catch (Exception ex) { return (null, $"(unreadable: {Reason(ex)})"); }
     }
 
     /// <summary>The link-shape half of <see cref="CollectLinksAt"/>, over a value already navigated to — so a
@@ -393,7 +398,7 @@ public static class ReadEngine
             }
             return (keys, null);
         }
-        catch (Exception ex) { return (null, $"(unreadable: {ex.Message})"); }
+        catch (Exception ex) { return (null, $"(unreadable: {Reason(ex)})"); }
     }
 
     /// <summary>Navigate a path READ-ONLY to its live value — the quantified step's fan-out source. Same walk
@@ -528,7 +533,9 @@ public static class ReadEngine
     /// per-field fault isolation depth-1 <see cref="ReadLeaf"/> gives: a throw while navigating OR expanding
     /// this one target (an unparseable nested getter, an enumerator that faults mid-list, an ambiguous identity
     /// reflection) names itself "(unreadable …)" and never escapes the record read — so one bad field can't crash
-    /// a whole-record depth dump. Lines already emitted before a mid-expansion fault are real reads and are kept.</summary>
+    /// a whole-record depth dump. Lines already emitted before a mid-expansion fault are real reads and are kept.
+    /// A fault on ONE sub-field is isolated to that sub-field's own line (see <see cref="Expand"/>): the rest of the
+    /// substruct still reads.</summary>
     /// <summary><paramref name="display"/> is how the emitted rows spell the path when it differs from what is
     /// navigated — a <c>*parent</c> hop reads on the parent but the caller asked for '*parent.Responses'.</summary>
     static void EmitWithDepth(object record, string path, int depth, List<FieldValue> sink, ref int budget, string? display = null)
@@ -538,15 +545,26 @@ public static class ReadEngine
         {
             var seg = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var nav = NavigateValue(record, seg);
-            if (!nav.ok) { Emit(sink, ref budget, new FieldValue(shown, false, null, nav.note, Present: false)); return; }
+            if (!nav.ok) { Emit(sink, ref budget, new FieldValue(shown, false, null, nav.note, Present: false, Readable: nav.readable)); return; }
             Expand(nav.val, nav.type, nav.parent, shown, depth, sink, ref budget);
         }
-        catch (Exception ex) { Emit(sink, ref budget, new FieldValue(shown, false, null, $"(unreadable: {ex.Message})", Present: false)); }
+        catch (Exception ex) { Emit(sink, ref budget, Fault(shown, ex)); }
     }
+
+    /// <summary>The ONE unreadable line the deep walk emits — same sentence and same structural flags the depth-1
+    /// read's <see cref="LeafRead.Unreadable"/> carries, so a nested fault and a top-level one read alike.</summary>
+    static FieldValue Fault(string path, string reason) =>
+        new(path, false, null, $"(unreadable: {reason})", Present: false, Readable: false);
+
+    static FieldValue Fault(string path, Exception ex) => Fault(path, Reason(ex));
 
     /// <summary>Recursively emit <paramref name="val"/> at <paramref name="path"/>: a value leaf → its token;
     /// a link → its note (not opened); a container/substruct → an identity-enriched summary line, then (while
-    /// depth allows) one child line per element (bracketed) or sub-field (dotted), each recursed at depth-1.</summary>
+    /// depth allows) one child line per element (bracketed) or sub-field (dotted), each recursed at depth-1.
+    /// <para>A sub-field that cannot be read gets its own "(unreadable …)" line — the same sentence and the same
+    /// Readable=false the depth-1 read emits — and the walk carries on with its siblings. It is never skipped: a
+    /// dropped line is indistinguishable from an absent optional, which would make an unreadable field read as
+    /// evidence that nothing is there.</para></summary>
     static void Expand(object? val, Type declaredType, object parent, string path, int depth, List<FieldValue> sink, ref int budget)
     {
         if (budget < 0) return;
@@ -614,9 +632,17 @@ public static class ReadEngine
             for (int g = 0; g < WriteEngine.GenderedArmNames.Length; g++)
             {
                 if (budget < 0) return;
-                var armProp = WriteEngine.ResolveProperty(val.GetType(), WriteEngine.GenderedArmNames[g]);
-                object? arm; try { arm = armProp?.GetValue(val); } catch { continue; }
-                Expand(arm, armProp?.PropertyType ?? typeof(object), val, $"{path}[{g}]", childDepth, sink, ref budget);
+                var armName = WriteEngine.GenderedArmNames[g];
+                var armProp = WriteEngine.ResolveProperty(val.GetType(), armName);
+                if (armProp is null)
+                {
+                    Emit(sink, ref budget, Fault($"{path}[{g}]", $"gendered type {RecordNaming.StripOverlay(val.GetType().Name)} has no '{armName}' arm"));
+                    continue;
+                }
+                object? arm;
+                try { arm = armProp.GetValue(val); }
+                catch (Exception ex) { Emit(sink, ref budget, Fault($"{path}[{g}]", ex)); continue; }
+                Expand(arm, armProp.PropertyType, val, $"{path}[{g}]", childDepth, sink, ref budget);
             }
         }
         else if (val is System.Collections.IEnumerable seq and not string)
@@ -647,8 +673,19 @@ public static class ReadEngine
             {
                 if (budget < 0) return;
                 var prop = WriteEngine.ResolveProperty(val.GetType(), fname);
-                object? fv; try { fv = prop?.GetValue(val); } catch { continue; }
-                Expand(fv, prop?.PropertyType ?? typeof(object), val, $"{path}.{fname}", childDepth, sink, ref budget);
+                // The name came off this type's own reflection, so it IS modeled: a resolve miss or a getter throw
+                // is a read FAULT, and the line says so. It never renders as absent — "I could not look" and
+                // "there is nothing there" are different answers.
+                if (prop is null)
+                {
+                    Emit(sink, ref budget, Fault($"{path}.{fname}",
+                        $"{RecordNaming.StripOverlay(val.GetType().Name)} declares '{fname}' but the read walk cannot resolve it"));
+                    continue;
+                }
+                object? fv;
+                try { fv = prop.GetValue(val); }
+                catch (Exception ex) { Emit(sink, ref budget, Fault($"{path}.{fname}", ex)); continue; }
+                Expand(fv, prop.PropertyType, val, $"{path}.{fname}", childDepth, sink, ref budget);
             }
         }
     }
@@ -670,8 +707,11 @@ public static class ReadEngine
 
     /// <summary>Navigate a path READ-ONLY to its target, returning the live value object (+ declared type +
     /// owning parent) for recursion, or a miss note. Same walk as <see cref="ReadLeaf"/> but yields the object
-    /// instead of a token, so the expander can descend into it. Fault-isolated.</summary>
-    static (bool ok, object? val, Type type, object parent, string? note) NavigateValue(object record, string[] path)
+    /// instead of a token, so the expander can descend into it. Fault-isolated.
+    /// <para><c>readable</c> classifies the miss exactly as <see cref="ReadLeaf"/> does — false for a no-such-field
+    /// or a throw, true for a genuinely absent optional — carried structurally so a caller never decides "could not
+    /// look" versus "nothing there" by matching the note's prose.</para></summary>
+    static (bool ok, object? val, Type type, object parent, string? note, bool readable) NavigateValue(object record, string[] path)
     {
         try
         {
@@ -681,23 +721,23 @@ public static class ReadEngine
                 var (segName, segKey) = WriteEngine.ParseSegment(path[i]);
                 var p = WriteEngine.ResolveProperty(current.GetType(), segName);
                 if (p is null) return (false, null, typeof(object), current,
-                    NoFieldNote(current, segName, i > 0 ? WriteEngine.ParseSegment(path[i - 1]).name : null, path[(i + 1)..]));
+                    NoFieldNote(current, segName, i > 0 ? WriteEngine.ParseSegment(path[i - 1]).name : null, path[(i + 1)..]), false);
                 var next = segKey is null ? p.GetValue(current) : WriteEngine.StepIntoElement(current, p, segName, segKey);
-                if (next is null) return (false, null, typeof(object), record, AbsentNote);
+                if (next is null) return (false, null, typeof(object), record, AbsentNote, true);
                 current = next;
             }
             var (leafName, leafKey) = WriteEngine.ParseSegment(path[^1]);
             var leaf = WriteEngine.ResolveProperty(current.GetType(), leafName);
             if (leaf is null) return (false, null, typeof(object), current,
-                NoFieldNote(current, leafName, path.Length >= 2 ? WriteEngine.ParseSegment(path[^2]).name : null));
+                NoFieldNote(current, leafName, path.Length >= 2 ? WriteEngine.ParseSegment(path[^2]).name : null), false);
             if (leafKey is not null)
             {
                 var elem = WriteEngine.StepIntoElement(current, leaf, leafName, leafKey);
-                return (true, elem, elem.GetType(), current, null);
+                return (true, elem, elem.GetType(), current, null, true);
             }
-            return (true, leaf.GetValue(current), leaf.PropertyType, current, null);
+            return (true, leaf.GetValue(current), leaf.PropertyType, current, null, true);
         }
-        catch (Exception ex) { return (false, null, typeof(object), record, $"(unreadable: {ex.Message})"); }
+        catch (Exception ex) { return (false, null, typeof(object), record, $"(unreadable: {Reason(ex)})", false); }
     }
 
     /// <summary>Best-effort COMPACT identity of the element a list/dict verb just acted on — the write-verify's
