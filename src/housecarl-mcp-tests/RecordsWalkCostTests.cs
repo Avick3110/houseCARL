@@ -290,8 +290,9 @@ public sealed class RecordsWalkCostTests
         Assert.DoesNotContain("where=", response);
     }
 
-    /// <summary>The chain form stays exempt: it renders the walk's own rows and reads no record body, so the same
-    /// call under the same bound serves.</summary>
+    /// <summary>The chain form stays exempt: it renders the walk's own rows and reads no body PER RENDERED ROW, so
+    /// the same call under the same bound serves. The walk still reads one per reached node, which is the cost the
+    /// bound is not measuring.</summary>
     [Fact]
     public void TheChainFormIsNotHeldToTheBodyRenderBound()
     {

@@ -48,8 +48,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `formids=["@<path>"]`) now both pay that, and neither is a workaround for the other. What a walk reaches is
   bounded by its own node budget, described on `walk.max_nodes`, and a seed that has spent that budget now reads
   nothing further. A reading form that renders the reached set refuses up front when the set is too big to
-  render, naming `project.form='chain'` and narrower seeds; `chain` itself reads no record body and is not held
-  to it. A cancel sent by the client stops a walk between hops.
+  render, naming `project.form='chain'` and narrower seeds; `chain` reads no body per rendered row and is not held
+  to it, though the walk itself still reads one per reached node whatever the form. A cancel sent by the client
+  stops a walk between hops.
 - **A `housecarl_records` scan now says what its render cost, refuses a render too big to finish, and stops
   when the client sends a cancel.** Reading a record body per rendered row used to walk the whole winning
   plugin for each one, so a projection of a few fields over a big selection could run for tens of minutes with
