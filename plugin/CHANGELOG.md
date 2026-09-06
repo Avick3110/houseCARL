@@ -39,6 +39,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   a fresh write, never on an `into=` extend, and not at all on a profile that names no mod at all (a missing
   `modlist.txt`), where an enabled mod folder and an unregistered one cannot be told apart.
 
+- **A `housecarl_records` walk over a big selection now runs, where it used to die with an internal
+  out-of-memory error.** Reading each seed's and each reached node's body walked the whole winning plugin
+  looking for that one record, so the call's cost was the number of seeds times the plugin's record count: a
+  template-chain walk over one large mod's NPCs ran the server out of memory. Every seed now advances one hop
+  at a time and the hop's bodies come from one pass per source plugin, so a walk costs what its seeds cost.
+  The one-call shape — a scan-scoped selection feeding `walk=` — and the two-step shape (`to_file=`, then
+  `formids=["@<path>"]`) now both pay that, and neither is a workaround for the other. A walk still renders
+  the set it reaches under its own node budget, described on `walk.max_nodes`, not under the render bound on
+  `limit=`. A cancel sent by the client stops a walk between hops.
 - **A `housecarl_records` scan now says what its render cost, refuses a render too big to finish, and stops
   when the client sends a cancel.** Reading a record body per rendered row used to walk the whole winning
   plugin for each one, so a projection of a few fields over a big selection could run for tens of minutes with
