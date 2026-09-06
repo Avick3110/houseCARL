@@ -22,36 +22,22 @@ public static class PlaceTools
      Description(
          "Place chosen copies of files — ANY Data-relative file (a mesh, texture, script, sound, interface, etc.) — into " +
          "ONE NEW houseCARL-owned MO2 mod folder, so the copy YOU pick wins the virtual file system. The WRITE " +
-         "counterpart to " + ToolNames.AssetStatus + " (which reports which copy currently wins). ONE surface: WHERE the " +
-         "bytes land (assets=) x WHOSE copy to read (the SOURCE pole) x WHICH folder it goes in (the LANE) x how it " +
-         "reads back (TRANSPORT). One file is a set of one — the same call shape places forty.\n\n" +
-         "assets= is the SET OF DESTINATIONS, each member { path? | formid?, kind?, source?, source_provider? }. Give a " +
-         "member EITHER path (a Data-relative destination) OR formid (an NPC's 'XXXXXX:Plugin.esp', whose FaceGen paths " +
-         "houseCARL computes): with a formid and NO kind BOTH the head mesh and the face tint are placed; kind='mesh' or " +
-         "'tint' narrows it to one. All members land in ONE reviewable mod folder.\n\n" +
-         "SOURCE — whose copy to read. source_provider= names it: " + AssetSourceChoice.WinnerToken + " (the sigil is part " +
-         "of the token) for the current VFS winner, or a provider's NAME ALONE — a mod folder, 'overwrite', 'Data', or a " +
-         "BSA filename — matched exactly. " + WriteSentences.PlaceSourceNameReachesUnticked + " Set it once for the whole " +
-         "set, or per member. source= is PER MEMBER (a source names ONE file, and a set of destinations is many): a " +
-         "DATA-RELATIVE path resolved through the VFS, a full loose file path, '<archive.bsa path>|<entry inside>', or " +
-         "just a '.bsa' path (the entry is taken to be the destination — a quick way to pull ONE file out of a BSA as a " +
-         "loose override). A source path DIFFERENT from the destination is a RENAME: the bytes of one file land under " +
-         "another file's name, which is how a baked FaceGen head is carried onto a different NPC's FormID path. With no " +
-         "source=, the DESTINATION path is resolved instead: the sole provider, or the one source_provider= names, " +
-         "REFUSING (and listing the providers) when several contend and none was named — it will not guess which is " +
-         "correct.\n\n" +
-         "LANE — patch= names the NEW mod folder (default 'houseCARL_Assets'; auto-suffixed if taken); into= adds to an " +
-         "EXISTING houseCARL patch folder instead, so calls accumulate in one mod.\n\n" +
-         "A malformed member (bad FormID, bad kind, neither or both of formid and path) refuses the WHOLE call with " +
-         "per-member reasons and places nothing; a source that is ambiguous, absent or unreadable is a PER-MEMBER error " +
-         "and the rest still place. The write is crash-atomic and originals are never touched. IMPORTANT (and reported " +
-         "back): the placed copies do NOT win on write — you must ENABLE the new mod in MO2 and SORT it above the " +
-         "current winner.")]
+         "counterpart to " + ToolNames.AssetStatus + " (which reports which copy currently wins). One file is a set of " +
+         "one — the same call shape places forty.\n\n" +
+         "Each axis's grammar is on its own parameters:\n" +
+         "DESTINATION — assets=, the set of destinations; kind= sets the FaceGen slot for every formid= member that " +
+         "does not name its own.\n" +
+         "SOURCE — source_provider= names whose copy to read, once for the whole set or per member; a member's own " +
+         "source= names one exact file.\n" +
+         "LANE — patch= names the NEW mod folder | into= adds to an EXISTING houseCARL patch folder.\n" +
+         "TRANSPORT — format= | max_chars=.\n\n" +
+         "The write is crash-atomic and originals are never touched. IMPORTANT (and reported back): the placed copies " +
+         "do NOT win on write — you must ENABLE the new mod in MO2 and SORT it above the current winner.")]
     public static string Place(
         LoadOrderService svc,
-        [Description("SELECT: the destinations, all placed into ONE mod folder. Each: { formid?: 'XXXXXX:Plugin.esp', kind?: 'mesh'|'tint' (omit with formid to place BOTH FaceGen files), path?: 'meshes/...', source?: '<loose path>' | '<archive.bsa>|<entry>' | '<archive.bsa>' | '<Data-relative path>', source_provider?: 'SomeMod' | 'X - Textures.bsa' | '" + AssetSourceChoice.WinnerToken + "' } — or \"@<absolute path>\" to read that SAME array from a JSON file. Set-valued at every size — one destination is a set of one. A member the shape does not declare is refused BY NAME at its element, never silently dropped. Each member's own description says what it takes.")]
+        [Description("SELECT: the destinations, all placed into ONE reviewable mod folder. Each: { formid?: 'XXXXXX:Plugin.esp', kind?: 'mesh'|'tint' (omit with formid to place BOTH FaceGen files), path?: 'meshes/...', source?: '<loose path>' | '<archive.bsa>|<entry>' | '<archive.bsa>' | '<Data-relative path>', source_provider?: 'SomeMod' | 'X - Textures.bsa' | '" + AssetSourceChoice.WinnerToken + "' } — or \"@<absolute path>\" to read that SAME array from a JSON file. Set-valued at every size — one destination is a set of one. A member the shape does not declare is refused BY NAME at its element, never silently dropped. A malformed member — a bad FormID, a bad kind, or neither or both of formid and path — refuses the WHOLE call with per-member reasons and places nothing; a source that is ambiguous, absent or unreadable is a PER-MEMBER error and the rest still place. Each member's own description says what it takes.")]
             JsonElement? assets = null,
-        [Description("SOURCE: whose copy to read, for EVERY member that does not name its own. " + AssetSourceChoice.WinnerToken + " for whichever copy currently wins the VFS, or the provider's NAME ALONE — a mod folder, 'overwrite', 'Data', or a BSA filename like 'X - Textures.bsa' — matched exactly, without " + ToolNames.AssetStatus + "'s ' (loose)' / ' (BSA)' annotation. A bare name ALWAYS means a provider of that name. Note that a file inside an active mod's archive is listed (and reached) under the ARCHIVE's name, not the mod's — and an archive MO2 loads no plugin for is listed under neither, so it is reachable only as an on-disk source= path. A name the active order already provides files under is answered by the active order, so a mod folder of that same name is not consulted. Omitted = the sole provider, refused if more than one contends.")]
+        [Description("SOURCE: whose copy to read, for EVERY member that does not name its own. " + AssetSourceChoice.WinnerToken + " (the sigil is part of the token) for whichever copy currently wins the VFS, or the provider's NAME ALONE — a mod folder, 'overwrite', 'Data', or a BSA filename like 'X - Textures.bsa' — matched exactly, without " + ToolNames.AssetStatus + "'s ' (loose)' / ' (BSA)' annotation. A bare name ALWAYS means a provider of that name. " + WriteSentences.PlaceSourceNameReachesUnticked + " Note that a file inside an active mod's archive is listed (and reached) under the ARCHIVE's name, not the mod's — and an archive MO2 loads no plugin for is listed under neither, so it is reachable only as an on-disk source= path. A name the active order already provides files under is answered by the active order, so a mod folder of that same name is not consulted. Omitted = the sole provider, refused if more than one contends.")]
             string? source_provider = null,
         [Description("Which FaceGen file every formid= member places, when the member does not say: 'mesh' (the head .nif) or 'tint' (the face .dds). Omit to place BOTH. Ignored by path= members. A member's own kind= only NARROWS this to the other slot — once set here, no member can widen back to both, so leave it omitted and set kind= per member when the set is mixed.")]
             string? kind = null,
@@ -333,7 +319,7 @@ public sealed record PlaceTarget
     [JsonPropertyName("path"), Description("A Data-relative destination path (e.g. 'meshes/actors/...'), instead of formid. Provide this OR formid. A drive-rooted or '..'-escaping path is rejected.")]
     public string? Path { get; init; }
 
-    [JsonPropertyName("source"), Description("The copy to place: a Data-relative path (resolved through the VFS; different from the destination = a rename), a full loose file path, '<archive.bsa>|<entry>', or a '.bsa' path. Omit to resolve the destination path through the VFS. With formid and no kind, an explicit source must be a FULLY-QUALIFIED '.bsa' path (a relative one is a Data-relative asset path, and one path cannot serve both slots).")]
+    [JsonPropertyName("source"), Description("The copy to place, for THIS destination — a source names ONE file and a set of destinations is many, so it is PER MEMBER: a DATA-RELATIVE path resolved through the VFS, a full loose file path, '<archive.bsa path>|<entry inside>', or just a '.bsa' path (the entry is taken to be the destination — a quick way to pull ONE file out of a BSA as a loose override). A source path DIFFERENT from the destination is a RENAME: the bytes of one file land under another file's name, which is how a baked FaceGen head is carried onto a different NPC's FormID path. With no source=, the DESTINATION path is resolved through the VFS instead: the sole provider, or the one source_provider= names, REFUSING (and listing the providers) when several contend and none was named — it will not guess which is correct. With formid and no kind, an explicit source must be a FULLY-QUALIFIED '.bsa' path (a relative one is a Data-relative asset path, and one path cannot serve both slots).")]
     public string? Source { get; init; }
 
     [JsonPropertyName("source_provider"), Description("Whose copy to read for a VFS-resolved source, for THIS destination — overriding the call's source_provider=: "

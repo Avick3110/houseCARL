@@ -632,8 +632,8 @@ internal static class PlaceProbe
                     }
                 }
 
-                // I8 — the pole with NO source= at all: the tool description offers this shape (read the destination
-                // path from a named provider), and nothing exercised it.
+                // I8 — the pole with NO source= at all: the member's source= description offers this shape (read the
+                // destination path from a named provider), and nothing exercised it.
                 {
                     var o = svc.PlaceAssets(new[] { new PlaceRequest(FacegenRel, null, loserName) }, null, null);
                     var r = o.Results[0];
@@ -1334,7 +1334,7 @@ internal static class PlaceProbe
                 File.Copy(fixA, Path.Combine(host, "Dummy.bsa"));
 
                 // …and a mod FOLDER named exactly like that archive, holding a path nothing else supplies. Windows
-                // allows a folder name ending '.bsa', so this collision is constructible, and the branch's own tool
+                // allows a folder name ending '.bsa', so this collision is constructible, and the source_provider=
                 // description teaches callers to pass an archive filename here.
                 const string FolderOnly = @"meshes\hcprobe\m26-folder-only.nif";
                 var collide = Path.Combine(mods, "Dummy.bsa");
