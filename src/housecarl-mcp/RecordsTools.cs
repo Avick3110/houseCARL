@@ -2173,8 +2173,10 @@ public static class RecordsTools
     }
 
     /// <summary>The list-lane summary render: one identity-and-winner line per outcome, or its per-item error —
-    /// the batch shape of the scan lane's summary rows. Budget-bounded with the standard explicit cut, and the
-    /// spill marker rides in-band in both formats.</summary>
+    /// the batch shape of the scan lane's summary rows. max_chars is a CEILING here, the same shape the scan and
+    /// batch renders carry: the cut notice and the spill block are charged before the first row is laid, and a row
+    /// that would cross what is left is taken back out whole and counted. The spill marker rides in-band in both
+    /// formats.</summary>
     static string RenderRecordsSummary(IReadOnlyList<ReadOutcome> outcomes, bool json, string headerLine,
                                        List<KeyValuePair<string, string>> envelope, int maxChars, SpillState? spill, out bool truncated)
     {
@@ -2190,16 +2192,16 @@ public static class RecordsTools
         if (epoch is not null) sb.Append(Wire.EpochInline(epoch));
         sb.Append('\n');
         int rendered = 0;
+        // The notice and the spill block are written after the rows, so both are charged before the first one is
+        // laid — that is what makes max_chars a ceiling on the whole response rather than on everything above it.
+        string Notice(int r) =>
+            "... [rendered " + r + " of " + outcomes.Count + " at max_chars=" + cap + "]\n";
+        var spillText = Wire.SpillText(spill);
+        int budget = cap - spillText.Length - Notice(outcomes.Count).Length;
         foreach (var o in outcomes)
         {
             if (manifestOnly) break;
-            if (sb.Length >= cap)
-            {
-                sb.Append("... [rendered ").Append(rendered).Append(" of ").Append(outcomes.Count)
-                  .Append(" at max_chars=").Append(cap).Append("]\n");
-                truncated = true;
-                break;
-            }
+            int mark = sb.Length;
             if (o.Error is not null) sb.Append(o.FormKey).Append("  error=").Append(o.Error).Append('\n');
             else
             {
@@ -2211,10 +2213,18 @@ public static class RecordsTools
                 if (o.WinnerPlugin is not null) sb.Append("  winner=").Append(o.WinnerPlugin).Append("  override_depth=").Append(o.OverrideDepth);
                 sb.Append('\n');
             }
+            // Whole rows only: the one that crossed is taken back out and counted in the notice.
+            if (sb.Length > budget)
+            {
+                sb.Length = mark;
+                sb.Append(Notice(rendered));
+                truncated = true;
+                break;
+            }
             rendered++;
         }
-        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
-        return sb.ToString();
+        sb.Append(spillText);
+        return RenderCap.Settle(sb.ToString(), cap);
     }
 
     /// <summary>The list-lane aggregate render: count the resolved rows by winner, type or defined_in — the batch
