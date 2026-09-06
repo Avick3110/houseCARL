@@ -53,8 +53,12 @@ public static class FieldsDiff
     /// presence bit, so a leaf that EQUALS the winner is counted as agreement (it IS the same modeled value) but
     /// the render never claims the contributor "carries" it as a distinct subrecord — there is no bit to prove
     /// that. The ABSENT render fires only on the explicit sentinels, which only nullable fields produce.</para></summary>
+    /// <param name="NoVerdictCount">How many of <paramref name="Deltas"/> are UNREADABLE no-verdict lines rather
+    /// than value differences. A no-verdict is a THIRD state — the record can be neither counted identical nor
+    /// reported as differing in value — so a caller counting differences subtracts it here rather than re-deriving
+    /// it from the line text, which only this comparison actually knows.</param>
     public sealed record Result(IReadOnlyList<string> Deltas, bool Complete,
-        int AgreedCount, IReadOnlyList<string> AgreedSample);
+        int AgreedCount, IReadOnlyList<string> AgreedSample, int NoVerdictCount);
 
     /// <summary>True when a CleanLines value is a read-engine "no value here" note sentinel — the field is
     /// modeled but the contributor carries nothing (absent optional, or a present-but-null link). Treated as a
@@ -222,7 +226,7 @@ public static class FieldsDiff
         // artifact — suppress it: a partial read must not claim "N fields match the winner". An unreadable leaf
         // does not touch it: every path it counts was read on both sides, and Complete still refuses identity.
         if (capped) { agreedCount = 0; agreedSample.Clear(); }
-        return new Result(deltas, complete, agreedCount, agreedSample);
+        return new Result(deltas, complete, agreedCount, agreedSample, noVerdict.Count);
     }
 
     /// <summary>How many agreed-field paths to keep for the render — a small sample, not the full set (a deep

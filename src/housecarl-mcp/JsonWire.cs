@@ -657,6 +657,9 @@ static class JsonWire
         }
         w.WriteEndArray();
         w.WriteNumber("delta_count", d.Deltas.Count);
+        // How many of those lines are NO-VERDICTS rather than value differences — the third state, so a consumer
+        // counting differences subtracts it instead of matching the line text.
+        w.WriteNumber("no_verdict_count", d.NoVerdictCount);
         if (cut) { w.WriteNumber("deltas_rendered", rendered); w.WriteBoolean("deltas_truncated", true); }
         w.WriteNumber("agreed_count", d.AgreedCount);
         w.WriteEndObject();

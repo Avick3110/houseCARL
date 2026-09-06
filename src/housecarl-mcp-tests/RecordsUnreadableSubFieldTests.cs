@@ -196,6 +196,24 @@ public sealed class RecordsUnreadableSubFieldTests : IClassFixture<TruncatedSubF
         // The reading it must NOT give: the reference's 12 asserted as a difference from a value never read.
         Assert.DoesNotContain("BasicStats.Damage=(unreadable", r);
     }
+
+    string Delta(bool countsOnly) => RecordsTools.Records(_w.Svc, formids: new[] { _w.WeaponFid },
+        source: JsonDocument.Parse("\"" + _w.TruncName + "\"").RootElement.Clone(),
+        versus: JsonDocument.Parse("\"" + _w.CleanName + "\"").RootElement.Clone(),
+        project: new RecordsTools.RecordsProject { form = "delta" }, counts_only: countsOnly);
+
+    /// <summary>A no-verdict is a THIRD state, not a difference: this record restates every field the reference
+    /// carries and differs in none, so counting the UNREADABLE line as a difference would report a difference
+    /// nobody read.</summary>
+    [Fact]
+    public void ANoVerdictIsCountedApartFromValueDifferences()
+    {
+        Assert.Contains("differing=0 identical=0 no_verdict=1", Delta(countsOnly: true));
+
+        var r = Delta(countsOnly: false);
+        Assert.Contains("1 field that could not be read", r);
+        Assert.DoesNotContain("1 difference —", r);
+    }
 }
 
 /// <summary>A deep read carries the readable bit on a LINK leaf too. A condition target (FormLinkOrIndex) the
