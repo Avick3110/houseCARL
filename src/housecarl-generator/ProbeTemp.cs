@@ -134,7 +134,9 @@ public static class ProbeTemp
                     if (Directory.Exists(entry)) Directory.Delete(entry, recursive: true);
                     else File.Delete(entry);
                 }
-                catch (Exception ex)
+                // An entry another sweep deleted between our walk and our delete is the outcome we wanted, not
+                // residue: counting it makes a run report a root that is in fact gone, and take a fresh sibling.
+                catch (Exception ex) when (ex is not (DirectoryNotFoundException or FileNotFoundException))
                 {
                     left++;
                     first ??= ex.Message;
