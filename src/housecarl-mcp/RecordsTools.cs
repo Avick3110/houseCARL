@@ -741,7 +741,8 @@ public static class RecordsTools
                 // The reached set's render bound, the same one the forward walk pays: this lane hands the list lane
                 // its whole reached set and every reading form reads a body per row. Its own remedy, because chain
                 // refuses on this walk and the scan terms are refused on it too.
-                if (bodyForm && !counts_only
+                // counts_only pays it too: the list lane this hands off to reads the bodies before it counts them.
+                if (bodyForm
                     && RenderBudget.Refuse(rev.Selection.Count, form == "everything", RenderBudget.ReverseTransitiveRemedy) is { } revTooBig)
                     return Wire.Refuse(json, revTooBig, rev.Stamp);
                 expectEpoch = rev.Epoch;
@@ -830,7 +831,8 @@ public static class RecordsTools
                     // The reached set's render bound, the same one the forward walk pays: seeds times the per-seed
                     // carrier budget at the worst, each row a body read by the list lane. walk.depth is not among
                     // its levers, because this walk reaches nothing past hop 1.
-                    if (bodyForm && !counts_only
+                    // counts_only pays it too, for the reason the list lane's own gate does: the census reads bodies.
+                    if (bodyForm
                         && RenderBudget.Refuse(carrierSel.Count, form == "everything", RenderBudget.ReverseCarrierRemedy) is { } carrierTooBig)
                         return Wire.Refuse(json, carrierTooBig, epochR);
                     expectEpoch = epochR?.Epoch;
@@ -931,7 +933,8 @@ public static class RecordsTools
             // walk.max_nodes rows, each one a body read by the list lane. Same two lanes as the scan's bound, its
             // own remedy, since the scan window is not what moves a walk. form='chain' stays exempt and returned
             // above: it renders the walk's own rows, so it pays no SECOND body read on top of the walk's own.
-            if (bodyForm && !counts_only
+            // counts_only pays it too: the list lane reads every reached body whether it renders them or counts them.
+            if (bodyForm
                 && RenderBudget.Refuse(combined.Count, form == "everything", RenderBudget.WalkRemedy) is { } walkTooBig)
                 return Wire.Refuse(json, walkTooBig, wEpoch);
 

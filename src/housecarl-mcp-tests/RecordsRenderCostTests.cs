@@ -543,6 +543,20 @@ public sealed class RecordsRenderCostTests
         Assert.DoesNotContain("re-scans", response);          // the scan's window is not what moves a walk
     }
 
+    /// <summary>A walk's census is held to the bound for the same reason the formids= lane's is: the walk hands its
+    /// reached set to the LIST lane, which reads a body per id before it counts anything. Exempting counts_only
+    /// there left the biggest shape on the tool — a wide walk counted rather than rendered — bounded by nothing.</summary>
+    [Fact]
+    public void AWalkCensusIsHeldToTheBoundBecauseTheListLaneStillReadsEveryBody()
+    {
+        var response = WithBound(10, () =>
+            RecordsTools.Records(Svc, types: Weap, walk: new RecordsTools.RecordsWalk(), project: Fields(),
+                                 counts_only: true));
+
+        Assert.StartsWith("error:", response);
+        Assert.Contains("project.form='chain'", response);   // the walk lane's own remedy, not the scan's
+    }
+
     /// <summary>The census reads no bodies, so it is not bound by the render's cost.</summary>
     [Fact]
     public void TheCensusIsNotHeldToTheRenderBound()
