@@ -106,29 +106,16 @@ public static class WriteTools
      Description(
          "MERGE one or more ACTIVE plugins into ONE NEW plugin — a RECORDS operation (the zMerge/'Merge Plugins' job): the " +
          "donors' records combine under a new filename; the donor FILES and their mods are NEVER touched (new-file lane only, " +
-         "no in-place). TO RENAME a plugin, pass ONE donor: with nothing to combine the merge IS a rename — the same records " +
-         "under a new plugin name, keeping every object id already inside the writable range (nothing can collide; an id " +
-         "BELOW the 0x800 floor still renumbers, and the per-donor line reports it), facegen/voice/seq carried to the new name. " +
-         "RENUMBER is collision-first (zMerge's default): the donor EARLIEST in the load order keeps its FormID " +
-         "object ids; later donors renumber ids already taken, and ANY donor's ids below the 0x800 floor renumber too " +
-         "(all records necessarily move to the new plugin's identity). " +
-         "Cross-donor conflicts on the SAME record resolve to the LOAD-ORDER WINNER and are each REPORTED; a losing donor's " +
-         "nested children the winner doesn't re-list (a base mod's dialogue lines under a patched topic; placed refs under a " +
-         "patched cell) are GRAFTED into the winner's copy — so merging a mod WITH its patches is the intended use. ASSETS " +
-         "follow the renumber: every donor NPC's facegen and every voiced line are carried into the new plugin-name folders " +
-         "(those paths embed the plugin NAME, so ALL donor facegen/voice moves, not just collisions), and a .seq is refreshed " +
-         "when any donor shipped one. THE SAFETY (Q3): plugins OUTSIDE the merge that reference or override donor records are " +
-         "WARNED and NAMED, never refused — the donors stay active until you swap in MO2, so nothing breaks at write time; the " +
-         "remedy is to include those patches in the merge set or re-point them before disabling the donors. Refuses loud + " +
-         "writes nothing on: a donor not active / unparseable / not on disk; an output name already in the load order; a " +
-         "dangling donor-internal reference (a donor referencing a FormID no donor defines); a declared master not active. " +
+         "no in-place).\n\n" +
+         "The grammar is on the parameters: plugins= holds the donor set — the single-donor rename lane, the renumber and " +
+         "cross-donor conflict rules, the outside-referencer warning, and the donor refusals; output= the new filename — the " +
+         "asset carry and what it costs existing saves; patch_name= the new mod folder.\n\n" +
          "AFTER: review the merged plugin in xEdit, enable its mod folder in MO2, then deactivate the donor PLUGINS (right " +
          "pane) but KEEP the donor MOD FOLDERS enabled (left pane) — merge carries only the FormID-keyed files the rename " +
          "breaks (facegen/voice/seq); every other donor asset (meshes, textures, scripts, BSA contents) is still referenced " +
          "BY PATH from the merged records and loads from the donor folders. Caveat: a donor .bsa stops auto-loading once its " +
          "same-named plugin is inactive — extract it into the mod folder (" + ToolNames.BsaExtract + ") or load it via a same-named " +
-         "dummy plugin (" + ToolNames.CreatePlugin + "). Existing SAVES that depend on the donors will NOT survive (the records now " +
-         "live under a different plugin name, and any id that had to be renumbered moved with it) — best for a new game. " +
+         "dummy plugin (" + ToolNames.CreatePlugin + ").\n\n" +
          "A donor's HEADER mostly does not come along: master (ESM) status and Author/Description are always dropped, and the " +
          "report names each one it actually dropped. Light (ESL) status IS carried when every donor was light and every merged " +
          "object id fits the light window 0x800–0xFFF; otherwise it is dropped and the report says which of the two reasons it " +
@@ -136,9 +123,9 @@ public static class WriteTools
          "window (so ids the merge kept move), unless the merged plugin defines more than 2048 records, which no light plugin holds.")]
     public static string MergePlugins(
         LoadOrderService svc,
-        [Description("The donor plugin filenames to merge (at least one, e.g. [\"CoolMod.esp\", \"CoolMod Patch.esp\"]) — each must be active in your load order. A SINGLE donor renames it into output=. This is a SET: a name repeated is still one donor. Argument order does not matter: houseCARL uses LOAD order for id priority and conflict resolution.")]
+        [Description("The donor plugin filenames to merge (at least one, e.g. [\"CoolMod.esp\", \"CoolMod Patch.esp\"]) — each must be active in your load order. This is a SET: a name repeated is still one donor. A SINGLE donor renames it into output=: with nothing to combine the merge IS a rename — the same records under a new plugin name, keeping every object id already inside the writable range (nothing can collide; an id BELOW the 0x800 floor still renumbers, and the per-donor line reports it), facegen/voice/seq carried to the new name. Argument order does not matter: houseCARL uses LOAD order for id priority and conflict resolution. RENUMBER is collision-first (zMerge's default): the donor EARLIEST in the load order keeps its FormID object ids; later donors renumber ids already taken, and ANY donor's ids below the 0x800 floor renumber too (all records necessarily move to the new plugin's identity). Cross-donor conflicts on the SAME record resolve to the LOAD-ORDER WINNER and are each REPORTED; a losing donor's nested children the winner doesn't re-list (a base mod's dialogue lines under a patched topic; placed refs under a patched cell) are GRAFTED into the winner's copy — so merging a mod WITH its patches is the intended use. THE SAFETY (Q3): plugins OUTSIDE the merge that reference or override donor records are WARNED and NAMED, never refused — the donors stay active until you swap in MO2, so nothing breaks at write time; the remedy is to include those patches in the merge set or re-point them before disabling the donors. Refuses loud + writes nothing on: a donor not active / unparseable / not on disk; a dangling donor-internal reference (a donor referencing a FormID no donor defines); a declared master not active.")]
             string[] plugins,
-        [Description("The NEW merged plugin's filename to create (e.g. 'MyMerge.esp') — must NOT already exist in the load order. The donors keep their names and files untouched.")]
+        [Description("The NEW merged plugin's filename to create (e.g. 'MyMerge.esp') — must NOT already exist in the load order: an output name already there is refused loud and nothing is written. The donors keep their names and files untouched. ASSETS follow the renumber into this name: every donor NPC's facegen and every voiced line are carried into the new plugin-name folders (those paths embed the plugin NAME, so ALL donor facegen/voice moves, not just collisions), and a .seq is refreshed when any donor shipped one. Existing SAVES that depend on the donors will NOT survive (the records now live under this plugin name, and any id that had to be renumbered moved with it) — best for a new game.")]
             string output,
         [Description("Optional. Base name for the NEW mod folder (auto-suffixed if taken). Defaults to '<output> merged' — or '<output> renamed' for a single donor, since that folder name is what you will see in MO2 from then on.")]
             string? patch_name = null) => Guard.Tool(ToolNames.MergePlugins, () =>
