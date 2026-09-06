@@ -116,6 +116,7 @@ public sealed class RecordsWalkCostTests
     LoadOrderService Svc => _w.Svc;
     static readonly string[] Npc = { "NPC_" };
     static RecordsTools.RecordsProject Chain() => new() { form = "chain" };
+    static RecordsTools.RecordsProject Fields() => new() { form = "fields", fields = new[] { "EditorID" } };
     RecordsTools.RecordsScope Scope() => new() { names = new[] { _w.MasterName } };
 
     /// <summary>The template chain, the shape the issue was reported on.</summary>
@@ -204,6 +205,49 @@ public sealed class RecordsWalkCostTests
         Assert.True(seeks <= 1, $"a capped walk cost {seeks} per-record plugin walks.");
     }
 
+    // ---- what the reached set costs to RENDER --------------------------------------------------------
+
+    /// <summary>The walk lane returns above the scan's render bound, because the seed count is not the rendered
+    /// count. The reached count is, so a reading form that consumes the reached set is measured against the same
+    /// bound — otherwise a walk that no longer runs out of memory hands the list lane seeds times walk.max_nodes
+    /// bodies with no ceiling at all. The remedy is the walk's own, not the scan's window.</summary>
+    [Fact]
+    public void AReachedSetTooBigToRenderRefusesNamingTheChainFormAndNarrowerSeeds()
+    {
+        var response = WithBound(10, () =>
+            RecordsTools.Records(Svc, types: Npc, plugins: Scope(), walk: TemplateWalk(), project: Fields()));
+
+        Assert.StartsWith("error:", response);
+        Assert.Contains("project.form='chain'", response);
+        Assert.Contains("walk.max_nodes", response);
+        Assert.Contains("walk.depth", response);
+        Assert.DoesNotContain("re-scans", response);          // the scan's window is not what moves a walk
+        Assert.DoesNotContain("does not combine", response);
+    }
+
+    /// <summary>The chain form stays exempt: it renders the walk's own rows and reads no record body, so the same
+    /// call under the same bound serves.</summary>
+    [Fact]
+    public void TheChainFormIsNotHeldToTheBodyRenderBound()
+    {
+        var response = WithBound(10, () =>
+            RecordsTools.Records(Svc, types: Npc, plugins: Scope(), walk: TemplateWalk(),
+                                 project: Chain(), counts_only: true));
+
+        Assert.DoesNotContain("error:", response);
+        Assert.Contains($"seeds={WalkCostWorld.Seeds + 2}", response);
+    }
+
+    /// <summary>Under the bound nothing changes: the same reading form serves the set the walk reached.</summary>
+    [Fact]
+    public void AReachedSetUnderTheBoundRendersAsBefore()
+    {
+        var response = WithBound(WalkCostWorld.Seeds * 4, () =>
+            RecordsTools.Records(Svc, types: Npc, plugins: Scope(), walk: TemplateWalk(), project: Fields()));
+
+        Assert.DoesNotContain("error:", response);
+    }
+
     // ---- and it stops when the client stops waiting -------------------------------------------------
 
     /// <summary>The engine entry takes the call's token and hands it to the body gather, so a walk cancelled before
@@ -237,6 +281,16 @@ public sealed class RecordsWalkCostTests
     }
 
     // ---- helpers -----------------------------------------------------------------------------------
+
+    /// <summary>Run one call with the named-fields render bound moved, restored whatever happens — building
+    /// 300,000 reachable records to meet the real one is not a test.</summary>
+    static string WithBound(int rows, Func<string> call)
+    {
+        var prior = RenderBudget.MaxRenderRows;
+        RenderBudget.MaxRenderRows = rows;
+        try { return call(); }
+        finally { RenderBudget.MaxRenderRows = prior; }
+    }
 
     /// <summary>Every NPC in the world, as walk seeds.</summary>
     string[] Seeds()

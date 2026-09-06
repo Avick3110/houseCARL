@@ -70,14 +70,39 @@ internal static class RenderBudget
         return ms >= 60_000 ? $"about {ms / 60_000:F0} minutes" : $"about {ms / 1000:F0} seconds";
     }
 
+    /// <summary>What moves a SCAN's row count: the scan terms, or a window over them. Each remedy opens with its own
+    /// verb in lower case; <see cref="Refuse"/> capitalises it when the sentence starts there.</summary>
+    internal const string ScanRemedy =
+        "narrow the scan terms (types=, plugins=, where=), or take the selection " +
+        "in windows with limit= and offset= — offset= re-scans the selection from the start, so a window costs " +
+        "more the further in it is. to_file= captures the COMPLETE selection rather than a window, so it renders " +
+        "every row and does not combine with offset=: narrow the scan until the whole set fits, then write it in " +
+        "one call.";
+
+    /// <summary>What moves the <c>formids=</c> lane's row count. It has no scan terms to narrow, and it reads a body
+    /// for every id it was handed BEFORE the render window applies, so paging the same call does not lower its
+    /// cost.</summary>
+    internal const string ListRemedy =
+        "pass fewer formids= entries: this lane reads a body for EVERY id in the " +
+        "list before limit= and offset= window the render, so paging the same list does not lower what it costs. " +
+        "Re-enter a big artifact a slice at a time, or narrow the selection that wrote it.";
+
+    /// <summary>What moves a WALK's row count. The rows are what the walk REACHED, not what the scan selected, so
+    /// the scan window is the wrong lever: the seeds, the walk's own caps, or the chain form, which lists the same
+    /// reached set without reading a body.</summary>
+    internal const string WalkRemedy =
+        "narrow the seeds (types=, plugins=, where=), or lower walk.depth or " +
+        "walk.max_nodes, until the set the walk reaches fits — the rows are what the walk reached, seeds included, " +
+        "so limit= and offset= window the render and not the walk. project.form='chain' lists the same reached set " +
+        "without reading a body, which is what to run first.";
+
     /// <summary>The refusal for a render over its lane's bound, or null when it fits. One sentence for the cost, one
     /// for the shapes that fit, each carrying the caveat that decides between them. <paramref name="wholeRecord"/>
     /// is the <c>form='everything'</c> lane, whose row is a whole record and whose bound is therefore its own —
     /// and whose first remedy is naming the fields, since that is what moves it between the two.
-    /// <para><paramref name="listSelection"/> is the <c>formids=</c> lane, whose remedy differs in kind: it has no
-    /// scan terms to narrow, and it reads a body for every id it was handed BEFORE the render window applies, so
-    /// paging the same call does not lower its cost.</para></summary>
-    internal static string? Refuse(int rows, bool wholeRecord, bool listSelection = false)
+    /// <paramref name="remedy"/> is the second sentence's lever, defaulting to the scan's — the lanes whose levers
+    /// differ in kind pass their own (<see cref="ListRemedy"/>, <see cref="WalkRemedy"/>).</summary>
+    internal static string? Refuse(int rows, bool wholeRecord, string? remedy = null)
     {
         int bound = wholeRecord ? MaxWholeRecordRows : MaxRenderRows;
         if (rows <= bound) return null;
@@ -88,14 +113,7 @@ internal static class RenderBudget
               $"row too but costs a fraction of a whole-record read, and is bounded at {MaxRenderRows:N0} rows. Or "
             : $"error: this call renders {rows:N0} rows and each one reads a record body — {Projected(rows, false)} of " +
               $"render, past the {bound:N0}-row bound one call is given (a client stops waiting at 30 minutes). ";
-        return lead + (listSelection
-            ? (wholeRecord ? "pass" : "Pass") + " fewer formids= entries: this lane reads a body for EVERY id in the " +
-              "list before limit= and offset= window the render, so paging the same list does not lower what it costs. " +
-              "Re-enter a big artifact a slice at a time, or narrow the selection that wrote it."
-            : (wholeRecord ? "narrow" : "Narrow") + " the scan terms (types=, plugins=, where=), or take the selection " +
-              "in windows with limit= and offset= — offset= re-scans the selection from the start, so a window costs " +
-              "more the further in it is. to_file= captures the COMPLETE selection rather than a window, so it renders " +
-              "every row and does not combine with offset=: narrow the scan until the whole set fits, then write it in " +
-              "one call.");
+        var lever = remedy ?? ScanRemedy;
+        return lead + (wholeRecord ? lever : char.ToUpperInvariant(lever[0]) + lever[1..]);
     }
 }

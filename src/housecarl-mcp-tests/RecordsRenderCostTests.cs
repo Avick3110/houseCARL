@@ -389,16 +389,18 @@ public sealed class RecordsRenderCostTests
         Assert.True(doc.GetProperty("render_ms").GetInt64() >= 0);
     }
 
-    /// <summary>A walk is measured on what it RENDERS, not on the size of the scan that seeded it: the walk lane
-    /// windows its own rows under its own node budget, so refusing it for the seed count would refuse a call for a
-    /// cost it was never going to pay.</summary>
+    /// <summary>A walk is measured on what it RENDERS — the set it reached — and not on the size of the scan that
+    /// seeded it, which is a different count and a different lane. So the refusal that comes back is the walk
+    /// lane's, naming the walk's own levers, and never the scan window's.</summary>
     [Fact]
-    public void AWalkIsNotRefusedForTheSizeOfItsSeedScan()
+    public void AWalkIsMeasuredOnWhatItReachedAndNotOnItsSeedScan()
     {
         var response = WithBound(10, () =>
             RecordsTools.Records(Svc, types: Weap, walk: new RecordsTools.RecordsWalk(), project: Fields()));
 
-        Assert.DoesNotContain("reads a record body", response);
+        Assert.StartsWith("error:", response);
+        Assert.Contains("project.form='chain'", response);
+        Assert.DoesNotContain("re-scans", response);          // the scan's window is not what moves a walk
     }
 
     /// <summary>The census reads no bodies, so it is not bound by the render's cost.</summary>
