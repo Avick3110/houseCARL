@@ -61,11 +61,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
   below the rows is now charged before the first one is laid, and an item that would cross what is left is
   not written at all: the notice says how many were held back, and one item wider than the whole budget is
   named with the `max_chars` that clears it in one step rather than dropped. A `housecarl_records` result the
-  ceiling cuts still spills COMPLETE to its artifact — the ceiling bounds the render, never the answer. The
-  one case that can still come back over the cap is a `max_chars` too small for what a response carries
-  whatever the budget — its header, the notices it owes, its accounting — and it now says so in a sentence
-  naming the number that clears it, which is how you can check. Each tool's own `max_chars=` parameter says
-  what its ceiling covers.
+  ceiling cuts still spills COMPLETE to its artifact — the ceiling bounds the render, never the answer. On
+  `housecarl_records` this covers the scan, batch, resolve, `group_by` and `summary` renders; the comparison
+  forms (`delta`, `tree`), the walk lane's chain and effect-chain renders and `info_order` still answer past
+  the cap by the block that crossed it, and the `max_chars=` parameter says so. The other case that can come
+  back over the cap is a `max_chars` too small for what a response carries whatever the budget — its header,
+  the alarms it owes, its accounting — and it now says so in a sentence naming the number that clears it,
+  which is how you can check. An alarm is never dropped to meet the ceiling: an archive that failed to read is
+  said whatever the budget. Each tool's own `max_chars=` parameter says what its ceiling covers.
 - **A `housecarl_records` scan now says what its render cost, refuses a render too big to finish, and stops
   when the client sends a cancel.** Reading a record body per rendered row used to walk the whole winning
   plugin for each one, so a projection of a few fields over a big selection could run for tens of minutes with
