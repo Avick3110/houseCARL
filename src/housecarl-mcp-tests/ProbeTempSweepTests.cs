@@ -16,6 +16,10 @@ public sealed class ProbeTempSweepTests
         .GetMethod("IsLive", BindingFlags.NonPublic | BindingFlags.Static)!
         .Invoke(null, new object[] { pid })!;
 
+    static string SweepUnlistable(string temp, Exception ex) => (string)typeof(ProbeTemp)
+        .GetMethod("SweepUnlistable", BindingFlags.NonPublic | BindingFlags.Static)!
+        .Invoke(null, new object[] { temp, ex })!;
+
     [Fact]
     public void OwnProcessIsLive() => Assert.True(IsLive(Environment.ProcessId));
 
@@ -29,6 +33,30 @@ public sealed class ProbeTempSweepTests
     {
         var pid = SystemPid();
         Assert.True(IsLive(pid), $"pid {pid} is running, so its root must not be swept");
+    }
+
+    /// <summary>A temp directory this process may traverse and write but not read denies the sweep's
+    /// enumeration while the fixture root is still created, so the run goes green with no start sentence: the
+    /// line about the sweep is then the only thing that says the roots of killed runs are piling up.
+    /// Reflected: the builder is private to the class that owns the sweep.</summary>
+    [Fact]
+    public void UnlistableTempNamesTheDirectoryAndTheReason()
+    {
+        var line = SweepUnlistable(@"C:\Temp", new UnauthorizedAccessException(@"Access to the path 'C:\Temp' is denied."));
+        Assert.Contains(@"C:\Temp", line);
+        Assert.Contains(@"Access to the path 'C:\Temp' is denied.", line);
+        Assert.Contains("could not look", line);
+        Assert.Contains("TMP/TEMP", line);
+    }
+
+    /// <summary>A sweep that could not look is not an entry left behind: the two states have different
+    /// remedies, and counting the first as the second names residue nobody saw.</summary>
+    [Fact]
+    public void UnlistableTempIsNotReportedAsResidue()
+    {
+        var line = SweepUnlistable(@"C:\Temp", new UnauthorizedAccessException("denied"));
+        Assert.DoesNotContain("left 1 entry", line);
+        Assert.DoesNotContain("entries", line);
     }
 
     /// <summary>A pid no process holds, confirmed rather than assumed.</summary>
