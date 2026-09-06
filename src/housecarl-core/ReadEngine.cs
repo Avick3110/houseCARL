@@ -709,8 +709,10 @@ public static class ReadEngine
     /// owning parent) for recursion, or a miss note. Same walk as <see cref="ReadLeaf"/> but yields the object
     /// instead of a token, so the expander can descend into it. Fault-isolated.
     /// <para><c>readable</c> classifies the miss exactly as <see cref="ReadLeaf"/> does — false for a no-such-field
-    /// or a throw, true for a genuinely absent optional — carried structurally so a caller never decides "could not
-    /// look" versus "nothing there" by matching the note's prose.</para></summary>
+    /// or a throw, true for a genuinely absent optional. <c>EmitWithDepth</c> carries it onto the emitted leaf's
+    /// <see cref="FieldValue.Readable"/>, which the rows fold and the conflict diff read structurally instead of
+    /// matching the note's prose. It goes no further: <see cref="NavigateTo"/> drops it, so that wrapper's callers
+    /// still classify from the note text.</para></summary>
     static (bool ok, object? val, Type type, object parent, string? note, bool readable) NavigateValue(object record, string[] path)
     {
         try
