@@ -436,6 +436,23 @@ public sealed class RecordsRenderCostTests
         Assert.IsAssignableFrom<OperationCanceledException>(ex);
     }
 
+    /// <summary>The SkyPatcher overlay read stops on a cancel as well. It replays each winner through the INI layer
+    /// and reads its whole body, and it was the one body lane in this tool still without the token — so whether a
+    /// call stopped depended on which <c>source=</c> arm it took.</summary>
+    [Fact]
+    public void ACancelStopsTheOverlayPostRead()
+    {
+        var ids = AllWeaponIds;
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        string? served = null;
+        var ex = Record.Exception(() =>
+            served = RecordsTools.Records(Svc, formids: ids, source: Overlay("post"), project: Everything(),
+                                          ct: cts.Token));
+        Assert.IsAssignableFrom<OperationCanceledException>(ex);
+        Assert.Null(served);
+    }
+
     /// <summary>The off-order lane's BODY read stops on a cancel as well, and finishes as a cancellation rather
     /// than as a refusal blaming the file. The scan honoured the token; the read after it — the half that
     /// materialises each record — polled nothing and ran to the end of the selection.</summary>
@@ -513,6 +530,11 @@ public sealed class RecordsRenderCostTests
     /// <summary>A bare plugin-name source pole.</summary>
     static System.Text.Json.JsonElement Pole(string name) =>
         System.Text.Json.JsonDocument.Parse("\"" + name + "\"").RootElement.Clone();
+
+    /// <summary>The SkyPatcher overlay pole at a named state.</summary>
+    static System.Text.Json.JsonElement Overlay(string state) =>
+        System.Text.Json.JsonDocument.Parse("{\"overlay\": \"skypatcher\", \"state\": \"" + state + "\"}")
+                        .RootElement.Clone();
 
     static System.Text.Json.JsonElement Doc(string json) =>
         System.Text.Json.JsonDocument.Parse(json).RootElement.Clone();
