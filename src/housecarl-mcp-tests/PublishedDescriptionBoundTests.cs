@@ -34,7 +34,6 @@ public sealed class PublishedDescriptionBoundTests
         ToolNames.CompactPlugin,
         ToolNames.Create,
         ToolNames.Forward,
-        ToolNames.NifInspect,
         ToolNames.NifSet,
         ToolNames.Remove,
     };
