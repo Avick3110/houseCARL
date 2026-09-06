@@ -45,7 +45,7 @@ public static class CreateTools
             bool acknowledge = false,
         [Description("TRANSPORT: expand the read-back to the FULL deep field-by-field dump of every record this call created (not just the fields you set) — confirm composed structures landed WITHOUT enabling the patch in MO2. In place, the verify ALWAYS runs and shows compactly by default; this widens it. The read-back is the WRITTEN FILE's content, NOT load-order truth: the patch wins nothing until enabled + sorted in MO2.")]
             bool readback = false,
-        [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band). Every response carries the epoch stamp — the identity of the index build parents and link values resolved from — spelled epoch=<hex> on 'text', and as an 'epoch' member on 'json'.")]
+        [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band). Every response answered from a build carries the epoch stamp — the identity of the index build parents and link values resolved from — spelled epoch=<hex> on 'text', and as an 'epoch' member on 'json'; a refusal that consulted no build carries none.")]
             string? format = null,
         [Description("TRANSPORT: character ceiling on the WHOLE render — the created-record rows (each with its allocated FormID), the voice / result-script / cell-shell reports, and the read-back, in that order. Past it, trailing rows are dropped with an explicit notice and a per-block rendered-vs-total census (never silent). The WRITE is unaffected either way. 0 = a safe default kept under the host's per-response limit.")]
             int max_chars = 0) => Guard.Tool(ToolNames.Create, () =>
