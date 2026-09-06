@@ -1841,7 +1841,7 @@ public static class WriteSurfaceGuardProbe
             && !nullOp.Contains("Retry once", StringComparison.OrdinalIgnoreCase), nullOp);
 
         // Refusals below the tool layer name THIS surface's words, index label included (PR #311 review 6 [low]).
-        // `records[0]` was already the caller's spelling via the origins thread; `op[0]` was nobody's — the member
+        // `records[0]` was already the caller's spelling; `op[0]` was nobody's — the member
         // is ops=, and in a generated batch of hundreds the index label IS the navigational handle.
         var badOpIndex = CreateTools.Create(fx.Svc, patch: "W2OpLbl", records: Json("""
             [{"record_type":"Keyword","editorid":"W2OpLbl","ops":[{"value":"x"}]}]
