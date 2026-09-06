@@ -55,41 +55,24 @@ public static class WriteTools
      Description(
          "COMPACT a plugin's FormIDs — the data-layer twin of xEdit's \"Compact FormIDs for ESL\". Renumbers EVERY record " +
          "the plugin DEFINES (its originating records — flat AND nested: cells, placed references, dialogue lines, navmesh, " +
-         "landscape) into the light/ESL range 0x800–0xFFF (the 2048-ID window), repoints every reference WITHIN the plugin, " +
-         "leaves its overrides of other mods at their master FormIDs, and flags the result a light master (ESPFE) so it " +
-         "frees a load-order slot. esl=false instead renumbers contiguously from 0x800 with NO light flag/ceiling (to close " +
-         "FormID gaps). OUTPUT (default): a NEW plugin keeping the SOURCE'S EXACT basename (so other mods that list it as a " +
-         "master still resolve) in a fresh houseCARL mod folder — your ORIGINAL is untouched; review the new one in xEdit, " +
-         "then in MO2 enable its folder and DISABLE the original mod (same basename — MO2 serves one). in_place=true instead " +
-         "OVERWRITES the original (xEdit's norm; rides the in-place consent, NO backup; needs acknowledge=true). " +
-         "THE SAFETY (Q3): renumbering breaks any reference from OUTSIDE this plugin (they'd point at FormIDs that vanish). " +
-         "houseCARL scans the WHOLE load order for such external referencers (a one-pass walk — can take ~25s on a big order): " +
-         "if NONE, it's a clean compaction; if SOME, the call is REFUSED and lists them, UNLESS repoint_externals=true, which " +
-         "ALSO rewrites each of them in place to follow the renumber (needs acknowledge=true; no backup of them either). " +
-         "LOCALIZED PLUGINS: houseCARL does not rewrite one in place — its text lives in separate .STRINGS files it cannot " +
-         "swap together with the plugin — so in_place=true on a localized target is refused, and so is repoint_externals=true " +
-         "when any referencer is localized (the refusal names it and where its text is, so you learn that BEFORE choosing the " +
-         "flag). The DEFAULT new-file lane still compacts a localized plugin: the output is DE-LOCALIZED — the text this read " +
-         "resolved is written into the plugin itself and the source's .STRINGS files no longer describe it — and the report " +
-         "says so. Read the output before swapping it in. " +
-         "The target need NOT be active: a plugin on disk but not (yet) in the load order — e.g. the patch houseCARL just " +
-         "wrote, before the MO2 refresh — is resolved by filename across ALL mod folders and compacted OFF-ORDER (its " +
-         "declared masters must still be active). An override-only plugin with esl=true takes the FLAG-ONLY lane: nothing " +
-         "to renumber, every record copies verbatim, the ESL flag is set (always valid — the light window only constrains " +
-         "originating records). Refuses loud + writes nothing on: the plugin found nowhere on disk / ambiguous across " +
-         "folders / unparseable; an override-only plugin with esl=false (nothing to do); MORE records than the light " +
-         "range holds (the hard 2048 ESL ceiling — named, never truncated); a declared master not active; a serialize fault. " +
+         "landscape), repoints every reference WITHIN the plugin, and leaves its overrides of other mods at their master " +
+         "FormIDs.\n\n" +
+         "The grammar is on the parameters: plugin= names the target — where it is resolved from, and its refusals; esl= " +
+         "the window and the light flag — the ESL ceiling and the override-only lanes; in_place= which file is written — " +
+         "the new-plugin default with its MO2 swap, the overwrite lane, and what each does to a LOCALIZED plugin; " +
+         "repoint_externals= the external-referencer safety; acknowledge= the consent any in-place rewrite needs; " +
+         "patch_name= the new mod folder.\n\n" +
          "Note: references compiled into Papyrus scripts (.pex hardcoded FormIDs / GetFormFromFile) are NOT remappable — " +
          "verify scripted records after compacting.")]
     public static string CompactPlugin(
         LoadOrderService svc,
-        [Description("The plugin's filename to compact (e.g. 'CoolMod.esp'). Usually active in your load order; a plugin on disk but not in the order (a fresh houseCARL patch, a disabled mod) is resolved by filename and compacted OFF-ORDER — its declared masters must still be active. The compacted output keeps this EXACT basename.")]
+        [Description("The plugin's filename to compact (e.g. 'CoolMod.esp'). The target need NOT be active: usually it is in your load order, but a plugin on disk and not (yet) in it — the patch houseCARL just wrote, before the MO2 refresh; a plugin inside a disabled mod — is resolved by filename across ALL mod folders and compacted OFF-ORDER. Its declared masters must still be active: a declared master not active is refused loud and nothing is written. The compacted output keeps this EXACT basename. Refuses loud + writes nothing on: this plugin found nowhere on disk / ambiguous across folders / unparseable; a serialize fault.")]
             string plugin,
-        [Description("When true (default), renumber into the light/ESL range (0x800–0xFFF, 2048 IDs) and flag the result a light master (ESPFE) — the canonical 'compact for ESL'. false = renumber contiguously from 0x800 with no light flag or 2048 ceiling (just closes FormID gaps).")]
+        [Description("When true (default), renumber into the light/ESL range (0x800–0xFFF, 2048 IDs) and flag the result a light master (ESPFE) — the canonical 'compact for ESL', which frees a load-order slot. false = renumber contiguously from 0x800 with no light flag or 2048 ceiling (just closes FormID gaps). An override-only plugin with esl=true takes the FLAG-ONLY lane: nothing to renumber, every record copies verbatim, the ESL flag is set (always valid — the light window only constrains originating records); with esl=false there is nothing to do, and that is refused loud with nothing written. Refused loud with nothing written too: with esl=true, MORE records than the light range holds (the hard 2048 ESL ceiling — named, never truncated).")]
             bool esl = true,
-        [Description("Optional, default false. IN-PLACE LANE (opt-in): OVERWRITE the original plugin with its compacted form (xEdit's norm) instead of writing a new file — NO houseCARL backup or undo (keep your own). Requires acknowledge=true. OMIT (the default) to write a NEW plugin (same basename, fresh mod folder) and leave the original untouched for review. A LOCALIZED plugin is REFUSED in this lane whatever arrangement its .STRINGS files are in; the new-plugin lane compacts it, DE-LOCALIZED, and says so.")]
+        [Description("Optional, default false. IN-PLACE LANE (opt-in): OVERWRITE the original plugin with its compacted form (xEdit's norm) instead of writing a new file — NO houseCARL backup or undo (keep your own). Rides the in-place consent: requires acknowledge=true. OMIT (the default) to write a NEW plugin instead, keeping the SOURCE'S EXACT basename (so other mods that list it as a master still resolve) in a fresh houseCARL mod folder, leaving the original untouched: review the new plugin in xEdit, then in MO2 enable its folder and DISABLE the original mod (same basename — MO2 serves one). LOCALIZED PLUGINS: houseCARL does not rewrite one in place — its text lives in separate .STRINGS files it cannot swap together with the plugin — so a LOCALIZED plugin is REFUSED in this lane whatever arrangement its .STRINGS files are in. The new-plugin lane still compacts it: the output is DE-LOCALIZED — the text this read resolved is written into the plugin itself and the source's .STRINGS files no longer describe it — and the report says so. The review step above is where you catch that: read the output's TEXT before swapping it in.")]
             bool in_place = false,
-        [Description("Optional, default false. If OTHER plugins reference records being renumbered, compaction would break them and the call REFUSES (listing them) by default. Set true to ALSO rewrite those external referencers IN PLACE to follow the renumber (requires acknowledge=true; no backup of them either). Refused when any referencer is LOCALIZED — houseCARL does not rewrite one in place — and the default refusal above says so up front rather than sending you here.")]
+        [Description("Optional, default false. THE SAFETY (Q3): renumbering breaks any reference from OUTSIDE this plugin (they'd point at FormIDs that vanish), so whenever there is anything to renumber houseCARL scans the WHOLE load order for such external referencers (a one-pass walk — can take ~25s on a big order): if NONE, it's a clean compaction; if SOME, the call REFUSES (listing them) by default. Set true to ALSO rewrite those external referencers IN PLACE to follow the renumber (requires acknowledge=true; no backup of them either). Refused when any referencer is LOCALIZED — houseCARL does not rewrite one in place — and the default refusal above names it and where its text is, so you learn that BEFORE choosing this flag rather than being sent here.")]
             bool repoint_externals = false,
         [Description("Optional, default false. Confirms the in-place trade-off when in_place=true OR repoint_externals=true (your original file(s) get rewritten, no backup). The FIRST such call without it returns a CONFIRM prompt listing exactly what will be overwritten — re-call with acknowledge=true to proceed.")]
             bool acknowledge = false,
