@@ -848,7 +848,7 @@ public static class RecordsTools
             // Forward: one engine batch, one captured build. The chain form renders it; every other form
             // consumes the reached set — seeds included, and the render says so — through the normal lanes.
             var rows = svc.WalkForwardBatch(ids, walk!.seed_paths, walk.follow, walkDepth, walkMaxNodes,
-                                            walkExclusions, demand, out var wRefusal, out var wEpoch);
+                                            walkExclusions, demand, out var wRefusal, out var wEpoch, ct);
             if (wRefusal is not null)
                 return json ? JsonWire.RenderError(wRefusal, wEpoch) : "error: " + wRefusal + Wire.EpochLine(wEpoch);
             if (SeamTear(wEpoch) is { } wTear)
