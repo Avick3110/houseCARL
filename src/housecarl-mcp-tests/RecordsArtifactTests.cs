@@ -237,6 +237,42 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         Assert.Equal(m.RowCount, m.Total);
     }
 
+    /// <summary>project.form='summary' answers under the same ceiling as the scan and batch renders — it is the
+    /// list lane's own render and had kept the pre-#546 shape, testing the cap before the row and appending the
+    /// notice and the spilled: block on top of whatever crossed it.</summary>
+    [Theory]
+    [InlineData(2_000)]
+    [InlineData(4_000)]
+    [InlineData(20_000)]
+    public void ASummaryRenderIsNeverWiderThanItsCap(int cap)
+    {
+        using var d = OwnResults("summary-ceiling-" + cap);
+        var r = RecordsTools.Records(Svc, formids: SummaryIds,
+                                     project: new RecordsTools.RecordsProject { form = "summary" }, max_chars: cap);
+
+        Assert.True(r.Length <= cap, $"the summary returned {r.Length} chars at max_chars={cap}");
+    }
+
+    /// <summary>And under a cap too small for the spill block it must carry, it says so and names the cap that
+    /// clears it — where before it answered a thousand characters over the ceiling in silence, this lane never
+    /// having settled its own overrun at all.</summary>
+    [Fact]
+    public void ASummaryTooSmallForWhatItMustCarrySaysSoInsteadOfOverrunningSilently()
+    {
+        using var d = OwnResults("summary-ceiling-tiny");
+        var r = RecordsTools.Records(Svc, formids: SummaryIds,
+                                     project: new RecordsTools.RecordsProject { form = "summary" }, max_chars: 900);
+
+        Assert.Matches(@"\[rendered \d+ of \d+ at max_chars=900\]", r);   // what it held back is counted
+        Assert.Contains("over the max_chars=900 it was given", r);
+        var needed = int.Parse(Regex.Match(r, @"raise max_chars to at least (\d+)").Groups[1].Value);
+        Assert.Equal(r.Length, needed);
+    }
+
+    /// <summary>The list-lane selection the summary tests render.</summary>
+    string[] SummaryIds => W.SpellBodies.Select(b => RecordsWorld.Fid(b.FormKey))
+        .Concat(W.WeaponBodies.Select(b => RecordsWorld.Fid(b.FormKey))).ToArray();
+
     /// <summary>The one arm left: a max_chars smaller than the spill block the response must carry — the block that
     /// names the artifact holding the complete result — says so and names the cap that clears it, rather than
     /// answering over the ceiling in silence.</summary>
