@@ -31,7 +31,6 @@ public sealed class PublishedDescriptionBoundTests
     static readonly HashSet<string> StillOversized = new(StringComparer.Ordinal)
     {
         ToolNames.Forward,
-        ToolNames.NifSet,
     };
 
     public static IEnumerable<object[]> EveryPublishedTool() =>
