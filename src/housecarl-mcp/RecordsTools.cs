@@ -143,7 +143,8 @@ public static class RecordsTools
         [Description("TRANSPORT: return the accounting block and counts only, no rows — the cheap census.")]
             bool counts_only = false,
         [Description("TRANSPORT: write the COMPLETE result to this ABSOLUTE .jsonl path as an artifact (line 1 = manifest) and render only the manifest inline. Re-enter it later via formids=[\"@<path>\"] or where=[\"formid in @<path>\"] — epoch-checked. The artifact is never a window: offset= is refused with to_file=, and because to_file= renders EVERY selected row it pays the same per-row body read an inline render does and is held to the same bound (see limit=).")]
-            string? to_file = null) => Guard.Tool(ToolNames.Records, () =>
+            string? to_file = null,
+        CancellationToken ct = default) => Guard.Tool(ToolNames.Records, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
 
@@ -1205,7 +1206,7 @@ public static class RecordsTools
             var outcome = svc.CrossQuery(types, refFks, null, conflicts_only, scanPlugins, where,
                                          effLimit, definedIn, groupBy, offset, where_source,
                                          demandsList.Count > 0 ? demandsList : null, formidSet, door.CapturedView,
-                                         refNoneFks);
+                                         refNoneFks, ct);
             // The probe-to-scan seam is epoch-compared: the source statement must describe the same build the
             // rows were scanned from.
             if (probeEpoch is not null && outcome.Error is null && outcome.Epoch is not null && outcome.Epoch != probeEpoch.Epoch)
@@ -1433,7 +1434,7 @@ public static class RecordsTools
             SpillState? spill = null;
             if (wantFile && outcome.Error is null)
             {
-                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, toFile!, "to_file", Echo(), LeverNames.Records, fold: foldPlan);
+                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, toFile!, "to_file", Echo(), LeverNames.Records, fold: foldPlan, ct: ct);
                 if (aerr is not null)
                     return fmt is Wire.QueryFormat.Text ? "error: " + aerr : JsonWire.RenderError(aerr, outcome.Stamp);
                 spill = SpillState.Spilled(s!, manifestOnly: true);
@@ -1443,15 +1444,15 @@ public static class RecordsTools
             var qLevers = projFields is { Length: > 0 } ? LeverNames.Records : LeverNames.Records.WithNothingToDrop();
             string Render(SpillState? sp, out bool trunc) => fmt switch
             {
-                Wire.QueryFormat.Dense when groupBy is null => JsonWire.RenderCrossQueryDense(svc, outcome, readPaths, max_chars, resolveNames, winnerFields, sp, out trunc, envelope, qLevers, foldPlan),
-                Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, envelope, qLevers),
-                _ => headerLine + "\n" + Wire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, qLevers),
+                Wire.QueryFormat.Dense when groupBy is null => JsonWire.RenderCrossQueryDense(svc, outcome, readPaths, max_chars, resolveNames, winnerFields, sp, out trunc, envelope, qLevers, foldPlan, ct),
+                Wire.QueryFormat.Dense or Wire.QueryFormat.Json => JsonWire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, envelope, qLevers, ct),
+                _ => headerLine + "\n" + Wire.RenderCrossQuery(svc, outcome, projFields, max_chars, resolveNames, winnerFields, depth, sp, out trunc, qLevers, ct),
             };
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated && outcome.Error is null)
             {
                 var path = ResultsStore.NextPath(ToolNames.Records, outcome.Epoch ?? "none");
-                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, path, "ceiling", Echo(), LeverNames.Records, fold: foldPlan);
+                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, path, "ceiling", Echo(), LeverNames.Records, fold: foldPlan, ct: ct);
                 if (aerr is not null) ResultsStore.Release(path);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
@@ -1535,7 +1536,7 @@ public static class RecordsTools
             var outcome = svc.OffOrderQuery(pole, types, refFks, null, plugins?.names,
                                             plugins?.defined_in ?? false, where, offLimit, offGroupBy, offset,
                                             formidSet, offDemands.Count > 0 ? offDemands : null, door.CapturedView,
-                                            refNoneFks);
+                                            refNoneFks, ct);
 
             List<KeyValuePair<string, string>> Echo()
             {
@@ -1667,7 +1668,7 @@ public static class RecordsTools
             }
             return rendered;
         }
-    });
+    }, ct);
 
     /// <summary>Recognize the one off-order-lane where-clause: <c>editorid contains &lt;text&gt;</c>.</summary>
     static bool TryEditorIdContains(string clause, out string? text)

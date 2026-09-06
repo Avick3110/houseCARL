@@ -236,7 +236,7 @@ static class Wire
     /// triggers the auto-spill.</summary>
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars,
                                           bool resolveNames, bool winnerFields, int depth, SpillState? spill, out bool truncated,
-                                          LeverNames? levers = null)
+                                          LeverNames? levers = null, CancellationToken ct = default)
     {
         truncated = false;
         var lv = levers ?? LeverNames.Legacy;
@@ -249,7 +249,7 @@ static class Wire
         // One session, one link cache and one chunked body prefetch for every rendered match — and the row loop's
         // cancellation check.
         using var reader = detail
-            ? new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields, lv.ContainerHint, null)
+            ? new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields, lv.ContainerHint, null, ct)
             : null;
         bool anyScoped = JsonWire.AnyScopedFieldRow(q, fields);   // the shared test: a plugins= scope shows a plugin's OWN body
         var sb = new StringBuilder();

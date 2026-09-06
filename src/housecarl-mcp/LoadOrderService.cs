@@ -2895,7 +2895,8 @@ public sealed class LoadOrderService : IDisposable
                                                    bool resolveNames, string? plugin, ArtifactDemand? artifactDemand,
                                                    out string? artifactRefusal, out OrderStamp? refusalEpoch,
                                                    string? containerHint = ReadEngine.DepthExpandHint,
-                                                   IReadOnlyList<int>? depths = null)
+                                                   IReadOnlyList<int>? depths = null,
+                                                   CancellationToken ct = default)
     {
         artifactRefusal = null; refusalEpoch = null;
         var resolver = Resolver;                // build/refresh once for the batch
@@ -2916,6 +2917,7 @@ public sealed class LoadOrderService : IDisposable
         var outcomes = new List<ReadOutcome>(formids.Count);
         foreach (var raw in formids)
         {
+            ct.ThrowIfCancellationRequested();   // a client that aborted stops the batch inside one record
             FormKey fk;
             try { fk = view.ParseFormId(raw); }
             catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
@@ -4070,7 +4072,8 @@ public sealed class LoadOrderService : IDisposable
                                         bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
                                         bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
                                         IReadOnlyList<ArtifactDemand>? artifactDemands = null,
-                                        IReadOnlyList<FormKey>? referencesNone = null)
+                                        IReadOnlyList<FormKey>? referencesNone = null,
+                                        CancellationToken ct = default)
         => CrossQuery(type is null ? null : new[] { type }, references, editoridContains, conflictsOnly, plugins, where,
                       limit, definedIn, groupBy, offset, whereSource, artifactDemands, referencesNone: referencesNone);
 
@@ -4088,7 +4091,8 @@ public sealed class LoadOrderService : IDisposable
                                         IReadOnlyList<ArtifactDemand>? artifactDemands = null,
                                         IReadOnlyList<FormKey>? formidSet = null,
                                         LoadOrderResolver.IndexView? pinnedView = null,
-                                        IReadOnlyList<FormKey>? referencesNone = null)
+                                        IReadOnlyList<FormKey>? referencesNone = null,
+                                        CancellationToken ct = default)
     {
         var resolver = Resolver;
         // The caller's own build when its FormID door already captured one, so the tokens it parsed and the
@@ -4272,6 +4276,7 @@ public sealed class LoadOrderService : IDisposable
                 var seenSet = new HashSet<FormKey>();
                 foreach (var fk in formidSet!)
                 {
+                    ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record
                     if (!seenSet.Add(fk)) continue;
                     var w = view.ResolveWinner(fk);
                     if (w is null) continue;                                  // not in the order — a clean non-match for a scan; per-item errors belong to the formids= list lane
@@ -4391,6 +4396,7 @@ public sealed class LoadOrderService : IDisposable
                 bool stopped = false;
                 foreach (var (fk, depth, body, source) in stream)
                 {
+                    ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record
                     if (setFilter is not null && !setFilter.Contains(fk)) continue;   // the identity intersection, cheapest first
                     if (conflictsOnly && depth <= 1) continue;
                     // defined_in= keeps only records whose origin FormKey is a scoped plugin — a definition, not an
@@ -4524,6 +4530,9 @@ public sealed class LoadOrderService : IDisposable
                 }
             }
             catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); } // plugin not in order / unknown type
+            // The caller's own cancellation is not a scan fault: it belongs to the client that asked for it and
+            // has to finish as one, not as a refusal saying the scan broke.
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             // Anything else escaping the stream still gets a named failure: the MCP layer's generic "An error
             // occurred invoking …" must never be the terminal diagnostic for a data failure.
             catch (Exception ex) { return CrossQueryOutcome.Fail($"scan aborted: {ex.GetType().Name}: {ex.Message}"); }
@@ -4537,6 +4546,7 @@ public sealed class LoadOrderService : IDisposable
             // group_by= here can only be winner or defined_in — type was refused up front, with no body to name it.
             foreach (var fk in view.ConflictKeys())
             {
+                ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record
                 if (setFilter is not null && !setFilter.Contains(fk)) continue;   // the identity intersection on the index-only branch
                 total++;
                 if (groups is not null)
@@ -4646,7 +4656,8 @@ public sealed class LoadOrderService : IDisposable
         bool definedIn, IReadOnlyList<string>? where, int limit, string? groupBy, int offset,
         IReadOnlyList<FormKey>? formidSet, IReadOnlyList<ArtifactDemand>? artifactDemands,
         LoadOrderResolver.IndexView? pinnedView = null,
-        IReadOnlyList<FormKey>? referencesNone = null)
+        IReadOnlyList<FormKey>? referencesNone = null,
+        CancellationToken ct = default)
     {
         var resolver = Resolver;
         var view = pinnedView ?? resolver.Capture();   // the caller's door build when it captured one — see CrossQuery
@@ -4758,6 +4769,7 @@ public sealed class LoadOrderService : IDisposable
             var seen = new HashSet<FormKey>();
             foreach (var rec in ov.EnumerateMajorRecords())
             {
+                ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record
                 var fk = rec.FormKey;
                 if (!seen.Add(fk)) continue;
                 try

@@ -1077,7 +1077,8 @@ static class JsonWire
     /// handed back to the tool layer.</summary>
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields, int depth,
                                           SpillState? spill, out bool truncated,
-                                          IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null)
+                                          IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null,
+                                          CancellationToken ct = default)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -1126,7 +1127,7 @@ static class JsonWire
                 // One session, one link cache and one chunked body prefetch for every rendered match — and the row
                 // loop's cancellation check.
                 using var reader = detail
-                    ? new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields, (levers ?? LeverNames.Legacy).ContainerHint, null)
+                    ? new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields, (levers ?? LeverNames.Legacy).ContainerHint, null, ct)
                     : null;
                 w.WriteStartArray("matches");
                 int rendered = 0; bool rowsTruncated = false;
@@ -1214,7 +1215,7 @@ static class JsonWire
     public static string RenderCrossQueryDense(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars, bool resolveNames, bool winnerFields,
                                                SpillState? spill, out bool truncated,
                                                IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null,
-                                               FoldPlan? fold = null)
+                                               FoldPlan? fold = null, CancellationToken ct = default)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -1259,7 +1260,7 @@ static class JsonWire
                 // loop's cancellation check.
                 using var reader = detail
                     ? new ScanDetailReader(svc, q, fields, fold?.Depth ?? 1, resolveNames, winnerFields,
-                                           (levers ?? LeverNames.Legacy).DenseContainerHint, foldDepths)
+                                           (levers ?? LeverNames.Legacy).DenseContainerHint, foldDepths, ct)
                     : null;
                 List<(string Formid, string Error)>? errors = null;
                 int rendered = 0; bool rowsTruncated = false;
