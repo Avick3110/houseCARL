@@ -94,8 +94,10 @@ static class Wire
 
     /// <param name="header">The caller's own header line, written INSIDE the budget: it is part of the response,
     /// so a caller prepending it would spend characters max_chars never counted.</param>
+    /// <param name="bodyCost">What resolving these FormIDs cost, when the caller measured it — each one reads its
+    /// winner's body, so the bound this lane is held to is checkable against a real order (#607).</param>
     public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch, SpillState? spill, out bool truncated,
-                                       string? header = null)
+                                       string? header = null, (int RowsRead, long Millis)? bodyCost = null)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -108,7 +110,8 @@ static class Wire
         string Notice(int r) => "... [truncated: rendered " + r + " of " + rows.Count +
                                 " at max_chars=" + cap + "; request fewer formids or raise max_chars]\n";
         var spillText = SpillText(spill);
-        int budget = cap - spillText.Length - Notice(rows.Count).Length;
+        // The accounting line this render closes with is charged before the first row, like the notice and the spill.
+        int budget = cap - spillText.Length - Notice(rows.Count).Length - (bodyCost is null ? 0 : RenderBudget.AccountingReserve);
         for (int i = 0; i < rows.Count && !(spill?.ManifestOnly ?? false); i++)
         {
             int mark = sb.Length;
@@ -131,6 +134,8 @@ static class Wire
                 break;
             }
         }
+        // What resolving these FormIDs cost — the count is the LIST's, not this window's.
+        if (bodyCost is { } bc) sb.Append(RenderBudget.BodiesLine(bc.RowsRead, bc.Millis));
         sb.Append(spillText);
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }

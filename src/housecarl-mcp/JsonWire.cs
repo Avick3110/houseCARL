@@ -115,8 +115,11 @@ static class JsonWire
         foreach (var kv in envelope) w.WriteString(kv.Key, kv.Value);
     }
 
+    /// <param name="bodyCost">What resolving these FormIDs cost, when the caller measured it — each one reads its
+    /// winner's body, so the bound this lane is held to is checkable against a real order (#607).</param>
     public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch, SpillState? spill, out bool truncated,
-                                       IReadOnlyList<KeyValuePair<string, string>>? envelope = null)
+                                       IReadOnlyList<KeyValuePair<string, string>>? envelope = null,
+                                       (int RowsRead, long Millis)? bodyCost = null)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -140,6 +143,8 @@ static class JsonWire
             }
             w.WriteEndArray();
             w.WriteNumber("rendered", rendered);
+            // The count is the LIST's, not this window's: every id was resolved before the render.
+            if (bodyCost is { } bc) { w.WriteNumber("rows_read", bc.RowsRead); w.WriteNumber("render_ms", bc.Millis); }
             w.WriteBoolean("truncated", rowsTruncated);
             truncated = rowsTruncated;
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);

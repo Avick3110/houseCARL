@@ -21,6 +21,18 @@ saying it sets an expectation their install may contradict. Say what is known, a
   milliseconds they took, on text and json alike: the count is the LIST's, not the `limit=`/`offset=` window's,
   because every id is read before the window applies — the same number the bound is measured against.
 
+- **`project.form='identity'` is bounded too, at 40,000 FormIDs, and says what it cost.** It reads a body like the
+  other five, and by the dearest route the tool has: the resolver has no record type to seek the winner by, so each
+  id costs an untyped whole-plugin scan — measured at 12.5–14 ms a FormID over 3,000 ids on a 3,801-plugin order,
+  against 0.05–0.07 ms for the same ids read as named fields. So it gets its own tier rather than the named-fields
+  one, and its refusal names `form='summary'`, which answers the same type/editorid/winner question off a read
+  gathered per plugin instead of a seek per record.
+
+- **A `housecarl_records` walk with `counts_only=true` is bounded like its render.** A walk hands its reached set
+  to the `formids=` lane, which reads a body per id before it counts anything, so exempting the census left a wide
+  walk — `walk={"max_nodes": 500000}` with a body form — measured by no bound at all. It now refuses on the same
+  numbers the rendered walk does.
+
 - **A write refusal labels the element in the member you wrote.** A refusal on an inline `housecarl_apply` op named
   `op[i]`, and a malformed FormID in `housecarl_forward` or `housecarl_remove` named `formid[i]` — members no
   houseCARL 2.0 tool declares, so the handle each gave you to fix pointed at nothing in the call. They now spell
