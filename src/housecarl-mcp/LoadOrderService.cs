@@ -4002,7 +4002,9 @@ public sealed class LoadOrderService : IDisposable
                 int took = 0;
                 foreach (var q in s.Frontier)
                 {
-                    if (q.Key.IsNull || !gatherSeen.Add(q.Key)) continue;
+                    // A key this seed already visited is dropped at dequeue, so gathering it would spend a slot on a
+                    // body no row ever shows and push a node the seed DOES record back onto the per-record seek.
+                    if (q.Key.IsNull || s.Visited.Contains(q.Key) || !gatherSeen.Add(q.Key)) continue;
                     frontier.Add(q.Key);
                     if (++took >= room) break;
                 }

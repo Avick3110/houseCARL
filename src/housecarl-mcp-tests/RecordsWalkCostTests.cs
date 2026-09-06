@@ -21,9 +21,16 @@ public sealed class WalkCostWorld : IDisposable
     /// <summary>Distinct items per seed, so a closure walk's first hop reaches records nothing else reaches.</summary>
     public const int ItemsPerSeed = 3;
 
+    /// <summary>Hubs in the revisit fan, and the fresh terminal each hub also carries.</summary>
+    public const int Hubs = 40;
+
     public string Root { get; }
     public string MasterName { get; }
     public LoadOrderService Svc { get; }
+
+    /// <summary>The seed of the revisit fan: a list of <see cref="Hubs"/> hubs that each point back at every hub and
+    /// at one terminal of their own, so hop 2's frontier is half revisits and half records still to reach.</summary>
+    public string RevisitSeed { get; }
 
     readonly string _priorCorpusPath;
 
@@ -58,6 +65,27 @@ public sealed class WalkCostWorld : IDisposable
                 n.Items.Add(new ContainerEntry { Item = new ContainerItem { Item = item.ToLink(), Count = 1 } });
             }
         }
+
+        // The revisit fan: every hub points at every hub (itself included) and at one terminal of its own, so a
+        // closure walk's hop 2 frontier is the hubs again — already visited — ahead of the terminals it can record.
+        var hubs = new List<FormList>(Hubs);
+        for (int i = 0; i < Hubs; i++)
+        {
+            var hub = master.FormLists.AddNew();
+            hub.EditorID = "HcWalkHub" + i;
+            hubs.Add(hub);
+        }
+        for (int i = 0; i < Hubs; i++)
+        {
+            foreach (var other in hubs) hubs[i].Items.Add(new FormLink<ISkyrimMajorRecordGetter>(other.FormKey));
+            var terminal = master.FormLists.AddNew();
+            terminal.EditorID = "HcWalkTerminal" + i;
+            hubs[i].Items.Add(new FormLink<ISkyrimMajorRecordGetter>(terminal.FormKey));
+        }
+        var fanSeed = master.FormLists.AddNew();
+        fanSeed.EditorID = "HcWalkFanSeed";
+        foreach (var hub in hubs) fanSeed.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(hub.FormKey));
+        RevisitSeed = fanSeed.FormKey.ToString();
 
         var instance = Path.Combine(Root, "inst");
         var mods = Path.Combine(instance, "mods");
@@ -203,6 +231,25 @@ public sealed class RecordsWalkCostTests
                     $"a walk capped at one node per seed asked the gather for {wanted} bodies over {WalkCostWorld.Seeds + 2} seeds — past the {ceiling} its caps allow.");
         // And trimming the gather did not push the walk back onto the per-record seek for what it does read.
         Assert.True(seeks <= 1, $"a capped walk cost {seeks} per-record plugin walks.");
+    }
+
+    /// <summary>A key the seed already visited is not gathered. The fill loop screened on the cross-seed set only,
+    /// so a hop whose frontier leads with revisits spent the seed's whole remaining budget on bodies the dequeue
+    /// throws away — and the nodes the seed did record, sitting past that prefix, fell back on the whole-plugin
+    /// seek this walk exists to remove.</summary>
+    [Fact]
+    public void AHopDoesNotSpendItsGatherOnNodesTheSeedAlreadyVisited()
+    {
+        var before = LoadOrderResolver.BodySeeks;
+        var response = RecordsTools.Records(Svc, formids: new[] { _w.RevisitSeed },
+                                            walk: new RecordsTools.RecordsWalk { depth = 2, max_nodes = 2 * WalkCostWorld.Hubs },
+                                            project: Chain(), counts_only: true);
+        var seeks = LoadOrderResolver.BodySeeks - before;
+
+        // The hubs at hop 1, their terminals at hop 2 — the same answer either way; only the cost differed.
+        Assert.Contains($"reached={2 * WalkCostWorld.Hubs}", response);
+        Assert.True(seeks <= 1,
+                    $"a hop whose frontier leads with {WalkCostWorld.Hubs} revisits cost {seeks} per-record plugin walks.");
     }
 
     // ---- what the reached set costs to RENDER --------------------------------------------------------
