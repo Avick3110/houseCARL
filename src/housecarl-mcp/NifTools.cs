@@ -251,7 +251,7 @@ public static class NifTools
                      "loading is stated on the default lane and refused by in_place. '*winner' is the winner pole spelled " +
                      "out. Empty = the winner.")]
             string mod = "",
-        [Description("Optional. Base name for the NEW mod folder the edited mesh is written into (default lane; auto-suffixed if taken, but refused rather than suffixed when another mod folder already holds that name as a plugin your order is not loading, naming that folder and file). Ignored with in_place=true.")]
+        [Description("Optional. Base name for the NEW mod folder the edited mesh is written into (default lane; auto-suffixed if taken). Ignored with in_place=true.")]
             string patch_name = "",
         [Description("Optional. Write into an EXISTING houseCARL-owned mod folder instead of a fresh one (default lane). Mutually exclusive with in_place.")]
             string into = "",
