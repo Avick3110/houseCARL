@@ -13,9 +13,9 @@ namespace HousecarlMcpTests;
 /// to the surface arrives here rather than quietly leaving the sweep short. (MemberData is evaluated at
 /// discovery, before the fixture exists, which is why the rows cannot read the running server directly.)</para>
 ///
-/// <para><see cref="StillOversized"/> is the list of tools whose descriptions have not been brought under the
-/// bound yet. It is EMPTY: every tool on the surface is inside the bound, so the theory holds all of them and
-/// the Fact below iterates nothing. A tool that goes over is fixed rather than listed here.</para>
+/// <para>Nothing is exempt: every tool the capture names is held to the bound. A description that goes over is
+/// brought back under it — the tail moves onto the parameters, which the client delivers whole — rather than
+/// listed here as an exception.</para>
 /// </summary>
 [Collection("server")]
 [Trait("tier", "stdio")]
@@ -28,18 +28,14 @@ public sealed class PublishedDescriptionBoundTests
     /// <summary>The client's cut.</summary>
     const int Bound = 2048;
 
-    // Tools whose descriptions are still over the bound, one line each. Empty on purpose: the wave that brought
-    // the twelve oversized descriptions under the bound has landed, so nothing is exempt from the theory.
-    static readonly HashSet<string> StillOversized = new(StringComparer.Ordinal);
-
     public static IEnumerable<object[]> EveryPublishedTool() =>
         PublishedNameAnchorTests.Captured().Select(n => new object[] { n });
 
     string Description(string tool)
     {
         Assert.True(_s.PublishedTools.TryGetValue(tool, out var t),
-            $"'{tool}' is named in this test file but the server does not publish it — it was renamed or " +
-            $"retired. Update its line in StillOversized and in '{PublishedNameAnchorTests.CapturePath}'.");
+            $"'{tool}' is in the published-name capture but the server does not publish it — it was renamed or " +
+            $"retired. Update its line in '{PublishedNameAnchorTests.CapturePath}'.");
         return t.GetProperty("description").GetString()!;
     }
 
@@ -50,27 +46,8 @@ public sealed class PublishedDescriptionBoundTests
         var length = Description(tool).Length;
         _out.WriteLine($"{tool}: {length} characters (bound {Bound})");
 
-        if (StillOversized.Contains(tool)) return;
-
         Assert.True(length <= Bound,
             $"{tool}'s published description is {length} characters; Claude Code shows the first {Bound} and " +
             "drops the rest. Move the tail into the parameter descriptions it belongs to — those arrive whole.");
-    }
-
-    /// <summary>The stale-entry guard: when a tool's description comes under the bound, its line above must go,
-    /// or this fails. One Fact over the whole set rather than a row each, so that with the set now empty this
-    /// passes on nothing rather than failing on empty MemberData.</summary>
-    [Fact]
-    public void EveryToolNamedOversizedStillIs()
-    {
-        foreach (var tool in StillOversized.OrderBy(n => n, StringComparer.Ordinal))
-        {
-            var length = Description(tool).Length;
-            _out.WriteLine($"{tool}: {length} characters (bound {Bound})");
-
-            Assert.True(length > Bound,
-                $"{tool}'s published description is {length} characters, which is inside the {Bound} bound — " +
-                "delete its line from StillOversized so the bound holds it from now on.");
-        }
     }
 }
