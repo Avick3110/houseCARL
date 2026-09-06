@@ -59,7 +59,7 @@ internal static class CompileProbe
             var vanilla = Path.Combine(gameRoot!, "Data", "Source", "Scripts");
             Check(Directory.Exists(vanilla), $"vanilla sources derived from compiler dir exist ({vanilla})");
 
-            var work = Path.Combine(Environment.CurrentDirectory, ".compile-probe-gen");
+            var work = Path.Combine(Path.GetTempPath(), ".compile-probe-gen");
             var outDir = Path.Combine(work, "out");
             Directory.CreateDirectory(outDir);
             File.WriteAllText(Path.Combine(work, "HCGood.psc"),
@@ -95,7 +95,7 @@ internal static class CompileProbe
                 Check(!reBad.Success && reBad.PexPath is null, "recompile (now broken): reports failure, no new .pex");
                 Check(File.Exists(pex), "recompile (now broken): the PRIOR .pex is LEFT INTACT (non-destructive)");
             }
-            finally { try { Directory.Delete(work, recursive: true); } catch { /* in-dir scratch; non-fatal */ } }
+            finally { try { Directory.Delete(work, recursive: true); } catch { /* temp scratch; non-fatal */ } }
         }
 
         Console.WriteLine();

@@ -34,7 +34,7 @@ internal static class BsaProbe
         if (!File.Exists(bsarch)) { Console.WriteLine($"  SKIP  no BSArch at '{bsarch}' (pass its path as arg 1, or set HOUSECARL_BSARCH)"); return 0; }
         if (!File.Exists(bsa)) { Console.WriteLine($"  SKIP  no test archive at '{bsa}' (pass one as arg 2, or set HOUSECARL_TEST_BSA)"); return 0; }
 
-        var work = Path.Combine(Environment.CurrentDirectory, ".bsa-probe");
+        var work = Path.Combine(Path.GetTempPath(), ".bsa-probe");
         var unpacked = Path.Combine(work, "unpacked");            // Mutagen unpack
         var bsarchDir = Path.Combine(work, "bsarch-unpacked");    // BSArch unpack (the parity oracle)
         var repacked = Path.Combine(work, "repacked.bsa");
