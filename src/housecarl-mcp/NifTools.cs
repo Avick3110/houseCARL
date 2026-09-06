@@ -479,8 +479,9 @@ static class NifWire
 
     static bool RenderShapesDetail(StringBuilder sb, NifInspect nif, RenderCap cap)
     {
-        if (!cap.TryAppend(sb, "\n--- shapes (" + nif.Shapes.Count + ") ---\n")) return false;
-        if (SlotNamingCaveat(nif) is { } shapesCaveat) cap.TryAppend(sb, shapesCaveat);
+        // The caveat says how the slot lines below must be read, so it is charged WITH the heading: a section that
+        // cannot hold both does not start, and is counted as missed rather than rendering rows without it.
+        if (!cap.TryAppend(sb, "\n--- shapes (" + nif.Shapes.Count + ") ---\n" + (SlotNamingCaveat(nif) ?? ""))) return false;
         int shown = 0;   // the cut notice counts the remainder, not the total
         foreach (var s in nif.Shapes)
         {
@@ -518,8 +519,9 @@ static class NifWire
 
     static bool RenderPaths(StringBuilder sb, NifInspect nif, RenderCap cap)
     {
-        if (!cap.TryAppend(sb, "\n--- paths (embedded texture-set slots; material/.tri/physics-xml refs appear under sections=strings) ---\n")) return false;
-        if (SlotNamingCaveat(nif) is { } pathsCaveat) cap.TryAppend(sb, pathsCaveat);
+        // Charged with the heading, for the same reason the shapes section charges it there.
+        if (!cap.TryAppend(sb, "\n--- paths (embedded texture-set slots; material/.tri/physics-xml refs appear under sections=strings) ---\n"
+                             + (SlotNamingCaveat(nif) ?? ""))) return false;
         var textured = nif.Shapes.Where(s => s.Textures.Count > 0).ToList();   // the omitted remainder counts the filtered subset, not total shapes
         int shown = 0;
         foreach (var s in textured)
