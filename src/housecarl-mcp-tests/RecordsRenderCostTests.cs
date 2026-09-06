@@ -505,6 +505,53 @@ public sealed class RecordsRenderCostTests
         Assert.Contains($"read {RenderCostWorld.Weapons} record bodies in ", text);
     }
 
+    /// <summary>identity reads a body too, and by the dearest route the tool has: the resolver has no record type
+    /// to seek the winner by, so each id is an untyped whole-plugin scan — 12.5–14 ms a row on the ARR order
+    /// against 0.05–0.07 ms for the same ids read as named fields. So it is bounded, on its own tier (#607).</summary>
+    [Fact]
+    public void AnIdentityReadOverItsOwnBoundRefuses()
+    {
+        var response = WithIdentityBound(10, () =>
+            RecordsTools.Records(Svc, formids: AllWeaponIds,
+                                 project: new RecordsTools.RecordsProject { form = "identity" }));
+
+        Assert.StartsWith("error:", response);
+        Assert.Contains("UNTYPED", response);                        // what actually costs here
+        Assert.Contains("project.form='summary'", response);         // the shape that answers the same question cheaply
+        Assert.Contains("fewer formids=", response);                 // this lane's own lever
+        Assert.DoesNotContain("narrow the scan terms", response);    // it has no scan terms
+    }
+
+    /// <summary>Its bound is its own: a named-fields bound tighter than the list does not refuse it, and an
+    /// identity bound tighter than the list does not refuse a fields read.</summary>
+    [Fact]
+    public void TheIdentityBoundAndTheFieldsBoundAreSeparate()
+    {
+        var identity = new RecordsTools.RecordsProject { form = "identity" };
+        var doc = Doc(WithBound(1, () =>
+            RecordsTools.Records(Svc, formids: AllWeaponIds, format: "json", project: identity)));
+        Assert.Equal(RenderCostWorld.Weapons, doc.GetProperty("count").GetInt32());
+
+        var fields = Doc(WithIdentityBound(1, () =>
+            RecordsTools.Records(Svc, formids: AllWeaponIds, format: "json", limit: 5, project: Fields())));
+        Assert.Equal(5, fields.GetProperty("rendered").GetInt32());
+    }
+
+    /// <summary>And it reports what it cost, because a bound calibrated on one machine is only checkable where the
+    /// truth comes back — the count being the LIST's, not the window's.</summary>
+    [Fact]
+    public void AnIdentityReadReportsWhatResolvingItsFormidsCost()
+    {
+        var identity = new RecordsTools.RecordsProject { form = "identity" };
+        var doc = Doc(RecordsTools.Records(Svc, formids: AllWeaponIds, format: "json", limit: 5, project: identity));
+        Assert.Equal(5, doc.GetProperty("rendered").GetInt32());
+        Assert.Equal(RenderCostWorld.Weapons, doc.GetProperty("rows_read").GetInt32());
+        Assert.True(doc.GetProperty("render_ms").GetInt64() >= 0);
+
+        var text = RecordsTools.Records(Svc, formids: AllWeaponIds, limit: 5, project: identity);
+        Assert.Contains($"read {RenderCostWorld.Weapons} record bodies in ", text);
+    }
+
     /// <summary>The bound is on what a row costs, not on where the row came from: an OFF-ORDER selection over it
     /// refuses before reading a body, the same as the in-order lane. Its rows read a body per row off a file
     /// outside the order, and the limit= description states the bound with no lane attached.</summary>
@@ -734,6 +781,15 @@ public sealed class RecordsRenderCostTests
         RenderBudget.MaxWholeRecordRows = rows;
         try { return call(); }
         finally { RenderBudget.MaxWholeRecordRows = prior; }
+    }
+
+    /// <summary>And for the identity lane's own bound.</summary>
+    static string WithIdentityBound(int rows, Func<string> call)
+    {
+        var prior = RenderBudget.MaxIdentityRows;
+        RenderBudget.MaxIdentityRows = rows;
+        try { return call(); }
+        finally { RenderBudget.MaxIdentityRows = prior; }
     }
 
     /// <summary>A bare plugin-name source pole.</summary>

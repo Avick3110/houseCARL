@@ -134,7 +134,7 @@ public static class RecordsTools
             RecordsWalk? walk = null,
         [Description("TRANSPORT: 'text' (default) | 'json' (machine-readable document; same accounting in-band) | 'dense' (scan lane: positional columnar cells 1:1 with the requested fields — the compact bulk-enumeration form; by that definition depth expansion and the 'everything' form are inexpressible in it). Every response carries the epoch stamp — the identity of the index build it was answered from — spelled epoch=<hex> on 'text' and 'dense', and as an 'epoch' member on 'json'.")]
             string? format = null,
-        [Description("TRANSPORT: max rows to render (default 500). The TRUE total is always reported; page a scan in exact windows with offset=. DECLARED COST: the derived-selection forms (delta/tree/chain/info_order, and any walk) consume EVERY scan match — their censuses and artifacts cover the full selection, and limit= windows only the rendered rows — so on a big order the SCAN TERMS (types=/plugins=/where=) are the cost bound: narrow them. RENDER COST: every rendered row of a BODY form (fields/rows/everything) READS that record's body, and a scan's accounting reports what that cost as render_ms; a render too big to finish REFUSES up front rather than going silent, naming the shapes that fit. The bound holds on every lane that reads bodies — a scan, an off-order source=, a formids= list — and is per form, because the row costs differ by two orders of magnitude: 300,000 rows for a named-fields row, 15,000 for form='everything', whose row materialises the WHOLE record — name the fields you need and the same selection fits. On a formids= read EVERY reading form reads a body — summary and aggregate one cheap leaf too — so the bound holds there for all five, and the cost is the LIST's length, not this window's: every id is read before limit= and offset= apply, so pass fewer ids rather than paging.")]
+        [Description("TRANSPORT: max rows to render (default 500). The TRUE total is always reported; page a scan in exact windows with offset=. DECLARED COST: the derived-selection forms (delta/tree/chain/info_order, and any walk) consume EVERY scan match — their censuses and artifacts cover the full selection, and limit= windows only the rendered rows — so on a big order the SCAN TERMS (types=/plugins=/where=) are the cost bound: narrow them. RENDER COST: a row that READS a record's body is what costs, and a scan's accounting reports what that cost as render_ms; a render too big to finish REFUSES up front rather than going silent, naming the shapes that fit. The bound holds on every lane that reads bodies — a scan, an off-order source=, a formids= list — and is per form, because the row costs differ by orders of magnitude: 300,000 rows for a named-fields row (fields/rows, and the one cheap leaf summary/aggregate take), 15,000 for form='everything', whose row materialises the WHOLE record — name the fields you need and the same selection fits — and 40,000 for form='identity', whose row is an UNTYPED whole-plugin seek for the winner's body and is the dearest row here rather than a free one: form='summary' answers the same identity question off a gathered read. On a formids= read every one of those six forms reads a body and is bounded, and the cost is the LIST's length, not this window's: every id is read before limit= and offset= apply, so pass fewer ids rather than paging.")]
             int limit = 500,
         [Description("TRANSPORT: skip the first N matches (exact windows: offset=0/500/1000…). Windows tile only WITHIN one epoch — if two pages' epochs differ the load order changed mid-pagination; re-run from offset=0, do not stitch the pages. offset= RE-SCANS the selection from the start rather than seeking into it, so every window pays the whole scan again and a deep window costs more than a shallow one — narrowing the scan terms beats paging far into one.")]
             int offset = 0,
@@ -538,7 +538,14 @@ public static class RecordsTools
                 if (srcName is not null || srcOverlay)
                     return Wire.Refuse(json, "error: the identity form is the load-order labeling frame (type/editorid/name/WINNER per FormID) — " +
                            "it does not take a source= pole. Use form='summary' or 'fields' for a named version's view.");
+                // This form reads a body too, and by the dearest route on the tool: the resolver has no record type
+                // to seek by, so each id costs an untyped whole-plugin scan. Its own tier, checked before the read.
+                if (RenderBudget.RefuseIdentity(ids.Length, RenderBudget.ListRemedy) is { } identityTooBig)
+                    return Wire.Refuse(json, identityTooBig);
+                var identityClock = System.Diagnostics.Stopwatch.StartNew();
                 var rows = svc.ResolveRefs(ids, demand, out var epoch, out var refusal);
+                identityClock.Stop();
+                var identityCost = (ids.Length, identityClock.ElapsedMilliseconds);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + Wire.EpochLine(epoch);
                 Arm("winner");
@@ -558,8 +565,8 @@ public static class RecordsTools
                     spill = SpillState.Spilled(s!, manifestOnly: true);
                 }
                 string Render(SpillState? sp, out bool trunc) => json
-                    ? JsonWire.RenderResolve(winRows, max_chars, epoch, sp, out trunc, envelope)
-                    : Wire.RenderResolve(winRows, max_chars, epoch, sp, out trunc, header: headerLine);
+                    ? JsonWire.RenderResolve(winRows, max_chars, epoch, sp, out trunc, envelope, identityCost)
+                    : Wire.RenderResolve(winRows, max_chars, epoch, sp, out trunc, headerLine, identityCost);
                 var rendered = Render(spill, out var truncated);
                 if (spill is null && truncated)
                 {

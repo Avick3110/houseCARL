@@ -35,11 +35,21 @@ internal static class RenderBudget
     /// measurement plus a margin for a record type fatter than a weapon.</summary>
     internal const double MillisPerWholeRecordRow = 40.0;
 
+    /// <summary>The declared cost of one <c>form='identity'</c> row. Resolving a FormID to its winner's type,
+    /// editorid and name reads that winner's BODY, and the index carries no record type to seek by, so the row is an
+    /// UNTYPED whole-plugin scan — the per-row seek the other lanes had removed. Measured at 12.5–14.0 ms a row over
+    /// 3,000 ids on the ARR order (3,801 plugins), against 0.05–0.07 ms for the same ids read as named fields, which
+    /// gather per plugin. 15 ms carries the measurement plus a margin.</summary>
+    internal const double MillisPerIdentityRow = 15.0;
+
     /// <summary>THE BOUND for a named-fields render: ten minutes at <see cref="MillisPerRow"/>.</summary>
     internal const int DefaultMaxRenderRows = 300_000;
 
     /// <summary>THE BOUND for <c>form='everything'</c>: ten minutes at <see cref="MillisPerWholeRecordRow"/>.</summary>
     internal const int DefaultMaxWholeRecordRows = 15_000;
+
+    /// <summary>THE BOUND for <c>form='identity'</c>: ten minutes at <see cref="MillisPerIdentityRow"/>.</summary>
+    internal const int DefaultMaxIdentityRows = 40_000;
 
     /// <summary>The bounds in force. Settable so a test can drive the seam over a world of a few records instead of
     /// building 300,000 — the same reason <see cref="Artifacts.WriteCrossQuery"/> takes a row cap. Production never
@@ -48,6 +58,9 @@ internal static class RenderBudget
 
     /// <inheritdoc cref="MaxRenderRows"/>
     internal static int MaxWholeRecordRows { get; set; } = DefaultMaxWholeRecordRows;
+
+    /// <inheritdoc cref="MaxRenderRows"/>
+    internal static int MaxIdentityRows { get; set; } = DefaultMaxIdentityRows;
 
     /// <summary>The chars a text render holds back from <c>max_chars</c> for the accounting line it appends after
     /// its rows. Held back for the same reason the owned-child clause is: a line the response is going to state is
@@ -65,8 +78,12 @@ internal static class RenderBudget
 
     /// <summary>The projected render for <paramref name="rows"/> at the lane's own per-row cost.</summary>
     internal static string Projected(int rows, bool wholeRecord)
+        => ProjectedAt(rows, wholeRecord ? MillisPerWholeRecordRow : MillisPerRow);
+
+    /// <summary>The projected render at a stated per-row cost.</summary>
+    internal static string ProjectedAt(int rows, double millisPerRow)
     {
-        var ms = rows * (wholeRecord ? MillisPerWholeRecordRow : MillisPerRow);
+        var ms = rows * millisPerRow;
         return ms >= 60_000 ? $"about {ms / 60_000:F0} minutes" : $"about {ms / 1000:F0} seconds";
     }
 
@@ -135,5 +152,19 @@ internal static class RenderBudget
               $"render, past the {bound:N0}-row bound one call is given (a client stops waiting at 30 minutes). ";
         var lever = remedy ?? ScanRemedy;
         return lead + (wholeRecord ? lever : char.ToUpperInvariant(lever[0]) + lever[1..]);
+    }
+
+    /// <summary>The refusal for an <c>form='identity'</c> render over its own bound, or null when it fits. Its own
+    /// tier and its own lead, because its row is neither a named-field read nor a whole record: it is one untyped
+    /// whole-plugin seek per FormID. The shape it names first is the form that answers the same question off a
+    /// gathered read, the way the whole-record lead names the fields form.</summary>
+    internal static string? RefuseIdentity(int rows, string remedy)
+    {
+        if (rows <= MaxIdentityRows) return null;
+        return $"error: this call resolves {rows:N0} FormIDs and each one reads its winner's body by an UNTYPED " +
+               $"whole-plugin seek — {ProjectedAt(rows, MillisPerIdentityRow)} of render, past the {MaxIdentityRows:N0}-row " +
+               $"bound form='identity' is given (a client stops waiting at 30 minutes). project.form='summary' reads the " +
+               $"same type, editorid and winner off a read gathered per plugin, at a fraction of the cost and bounded at " +
+               $"{MaxRenderRows:N0} rows — project.form='fields' with fields=[\"Name\"] if you need the display name too. Or " + remedy;
     }
 }
