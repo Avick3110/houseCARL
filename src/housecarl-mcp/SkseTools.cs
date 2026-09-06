@@ -260,7 +260,7 @@ public static class SkseTools
             int limit = 0,
         [Description("TRANSPORT: skip the first N rows of the family's row list, for paging a large layer. 0 = the beginning.")]
             int offset = 0,
-        [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~80k).")]
+        [Description("TRANSPORT: character CEILING on the whole response — the row that would cross it is not written, and every list says what it held back. The scope note, the caveats, the filter hint and the family footer are charged before the rows render, so all four are inside the ceiling. A cap too small for what the family carries whatever the budget says so and names the cap that clears it. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.Skse, () =>
     {
         // The argument checks run BEFORE the config prompt: findings= is wrong in the same way whether or not an

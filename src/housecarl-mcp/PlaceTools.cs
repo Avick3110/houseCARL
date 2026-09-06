@@ -48,7 +48,7 @@ public static class PlaceTools
             string? into = null,
         [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, the accounting and the enable+sort instruction in-band).")]
             string? format = null,
-        [Description("TRANSPORT: character ceiling on the per-destination list. Past it, trailing rows are dropped with an explicit notice (never silent); the WRITE is unaffected, and the accounting line and the enable+sort instruction always render. 0 = the server default (~80k).")]
+        [Description("TRANSPORT: character CEILING on the whole response. The row that would cross it is not written, and an explicit notice says how many were held back (never silent); the WRITE is unaffected. The accounting line and the enable+sort instruction always render and are charged BEFORE the rows, so they sit inside the ceiling rather than past it. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.Place, () =>
     {
         // format first, so the unconfigured-MO2 prompt answers a json caller as a document.

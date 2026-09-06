@@ -51,7 +51,7 @@ public static class AssetTools
             int offset = 0,
         [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
             string? format = null,
-        [Description("Optional. Max characters before the per-path list is cut with an explicit notice. 0 = the server default (~80k).")]
+        [Description("TRANSPORT: character CEILING on the whole response, not just on the per-path list — the path whose block would cross it is not written at all, and the notice says how many were held back. The alarms and the accounting line are charged before the paths render, so both are inside the ceiling. A cap too small for what the response carries whatever the budget says so and names the cap that clears it in one step. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.AssetStatus, () =>
     {
         // format first, so the unconfigured-MO2 prompt answers a json caller as a document.
