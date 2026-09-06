@@ -6036,9 +6036,9 @@ public sealed class LoadOrderService : IDisposable
         for (int i = 0; i < formids.Count; i++)
         {
             var raw = formids[i];
-            if (string.IsNullOrWhiteSpace(raw)) { problems.Add($"formid[{i}]: empty."); continue; }
+            if (string.IsNullOrWhiteSpace(raw)) { problems.Add($"formids[{i}]: empty."); continue; }
             try { keys.Add(door.Parse(raw)); }
-            catch (Exception ex) { problems.Add(FormIdDoor.Sentence(ex, $"formid[{i}]: ", $"formid[{i}] '{raw}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'.")); }
+            catch (Exception ex) { problems.Add(FormIdDoor.Sentence(ex, $"formids[{i}]: ", $"formids[{i}] '{raw}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'.")); }
         }
         if (problems.Count > 0)
             return WritePatchBuilder.RemovalOutcome.Fail(
@@ -6168,9 +6168,9 @@ public sealed class LoadOrderService : IDisposable
         for (int i = 0; i < formids.Count; i++)
         {
             var raw = formids[i];
-            if (string.IsNullOrWhiteSpace(raw)) { problems.Add($"formid[{i}]: empty."); continue; }
+            if (string.IsNullOrWhiteSpace(raw)) { problems.Add($"formids[{i}]: empty."); continue; }
             try { specs.Add(new WritePatchBuilder.ForwardSpec { Target = door.Parse(raw), FromPlugin = fp }); }
-            catch (Exception ex) { problems.Add(FormIdDoor.Sentence(ex, $"formid[{i}]: ", $"formid[{i}] '{raw}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'.")); }
+            catch (Exception ex) { problems.Add(FormIdDoor.Sentence(ex, $"formids[{i}]: ", $"formids[{i}] '{raw}': {ex.Message}. Expected 'XXXXXX:Plugin.esp'.")); }
         }
         if (problems.Count > 0)
             return WritePatchBuilder.ForwardOutcome.Fail(
