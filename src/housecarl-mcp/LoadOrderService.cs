@@ -6199,7 +6199,8 @@ public sealed class LoadOrderService : IDisposable
                 // A dry run resolves the would-be output path without creating the mod folder.
                 string outPath; bool extend, created;
                 try { outPath = ResolveOutputPath(patchName, into, out extend, out created, create: !dryRun, FreshPatchRemedy.NamedByPatchParam); }
-                catch (Exception ex) { return WritePatchBuilder.ForwardOutcome.Fail(ex.Message); }
+                // Stamped like every post-capture outcome: the source resolve above already consulted the build.
+                catch (Exception ex) { return WritePatchBuilder.ForwardOutcome.Fail(ex.Message) with { Stamp = offEpoch }; }
 
                 var outcome = WritePatchBuilder.ForwardRecords(resolver, specs, outPath, extend, fullReadback, dryRun, sourceParam, offOrder);
                 if (!outcome.Success && created) RemoveFolderCreatedThisCall(outPath);   // a refused forward leaves no orphan folder
