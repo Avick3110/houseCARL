@@ -22,8 +22,9 @@ public static class PlaceTools
      Description(
          "Place chosen copies of files — ANY Data-relative file (a mesh, texture, script, sound, interface, etc.) — into " +
          "ONE NEW houseCARL-owned MO2 mod folder, so the copy YOU pick wins the virtual file system. The WRITE " +
-         "counterpart to " + ToolNames.AssetStatus + " (which reports which copy currently wins). One file is a set of " +
-         "one — the same call shape places forty.\n\n" +
+         "counterpart to " + ToolNames.AssetStatus + " (which reports which copy currently wins). ONE surface: WHERE the " +
+         "bytes land (assets=) x WHOSE copy to read (the SOURCE pole) x WHICH folder it goes in (the LANE) x how it " +
+         "reads back (TRANSPORT). One file is a set of one — the same call shape places forty.\n\n" +
          "Each axis's grammar is on its own parameters:\n" +
          "DESTINATION — assets=, the set of destinations; kind= sets the FaceGen slot for every formid= member that " +
          "does not name its own.\n" +
