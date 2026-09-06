@@ -119,10 +119,7 @@ public static class CreateTools
             origins.Add($"records[{i}]");
         }
 
-        // naming: refusals raised below the tool layer must use THIS surface's words — ops[i], and op="CopyFrom"
-        // (there is no from_plugin member here to tell the caller to drop).
-        var outcome = svc.CreateRecordsBatch(wire, patchName, into, readback, in_place, hasInPlace, acknowledge, origins,
-            naming: new LoadOrderService.CreateOpNaming("ops", "op=\"CopyFrom\""));
+        var outcome = svc.CreateRecordsBatch(wire, patchName, into, readback, in_place, hasInPlace, acknowledge, origins);
         // The lane the CALL named — stated, not derived from the outcome's flags.
         return json
             ? JsonWire.RenderCreateOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")

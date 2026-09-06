@@ -7113,8 +7113,7 @@ public sealed class LoadOrderService : IDisposable
     /// malformed spec refuses the whole call with per-record reasons, and the core likewise refuses the whole batch on
     /// any creatability or parent problem. One serialize for the lot.</summary>
     public WritePatchBuilder.CreateOutcome CreateRecordsBatch(IReadOnlyList<CreateOp> records, string? patchName, string? into, bool fullReadback = false,
-        string? target = null, bool inPlace = false, bool acknowledge = false, IReadOnlyList<string?>? origins = null,
-        CreateOpNaming? naming = null)
+        string? target = null, bool inPlace = false, bool acknowledge = false, IReadOnlyList<string?>? origins = null)
     {
         if (records is null || records.Count == 0)
             return WritePatchBuilder.CreateOutcome.Fail("no records to create supplied — pass one or more {record_type, editorid, operations?, parent?, collection?, grid?} specs.");
@@ -7136,7 +7135,7 @@ public sealed class LoadOrderService : IDisposable
             // origins[r] is the caller's own spelling for this spec, carried parallel to the list for the same
             // reason ApplyEdits carries opOrigins: a refusal must never name an index shape the caller did not write.
             var where = origins is not null && r < origins.Count && origins[r] is { } o ? o : $"record[{r}]";
-            var spec = BuildCreateSpec(door, rec.RecordType, rec.Editorid, rec.Operations ?? Array.Empty<BulkOp>(), rec.Parent, rec.Collection, rec.Grid, where, problems, naming ?? CreateOpNaming.Legacy, siblings);
+            var spec = BuildCreateSpec(door, rec.RecordType, rec.Editorid, rec.Operations ?? Array.Empty<BulkOp>(), rec.Parent, rec.Collection, rec.Grid, where, problems, siblings);
             if (spec is not null) specs.Add(spec);
         }
         if (problems.Count > 0)
@@ -7152,7 +7151,7 @@ public sealed class LoadOrderService : IDisposable
     /// top-level record. Every problem, tagged with the optional <paramref name="where"/> label, is appended to
     /// <paramref name="problems"/>, and this returns null iff this record contributed any.</summary>
     WritePatchBuilder.CreateSpec? BuildCreateSpec(FormIdDoor door, string? recordType, string? editorid, IReadOnlyList<BulkOp> operations,
-        string? parent, string? collection, string? grid, string? where, List<string> problems, CreateOpNaming naming,
+        string? parent, string? collection, string? grid, string? where, List<string> problems,
         IReadOnlySet<string>? siblingEditorids = null)
     {
         var prefix = where is null ? "" : where + ": ";
@@ -7187,7 +7186,7 @@ public sealed class LoadOrderService : IDisposable
         if (catalogName is not null)
             for (int i = 0; i < operations.Count; i++)
             {
-                var req = MapCreateEdit(operations[i], i, catalogName, naming, out var err);
+                var req = MapCreateEdit(operations[i], i, catalogName, out var err);
                 if (err is not null) problems.Add($"{prefix}{err}"); else edits.Add(req!);
             }
 
@@ -7371,27 +7370,16 @@ public sealed class LoadOrderService : IDisposable
         return report.IsEmpty ? outcome : outcome with { CellShell = report };
     }
 
-    /// <summary>The calling tool's vocabulary for a create op, threaded down so a refusal never names a spelling the
-    /// caller cannot see — the same rule as <c>origins</c>, <c>sourceParam</c> and <c>offerModParam</c>.
-    /// <paramref name="Element"/> is the ops-list member word; <paramref name="CopySubject"/> is how the copy refusal
-    /// refers to what the caller asked for.</summary>
-    public readonly record struct CreateOpNaming(string Element, string CopySubject)
-    {
-        /// <summary>The wording for the tools that spell the member <c>op</c> and expose <c>from_plugin</c>.</summary>
-        public static readonly CreateOpNaming Legacy = new("op", "CopyFrom / from_plugin");
-    }
-
     /// <summary>Map a wire field-op to a core <see cref="WriteRequest"/> for a create: RecordType is the create type
     /// rather than derived, and a create op carries no formid because it sets a field on the new record, whose id is
     /// auto-allocated — a stray formid is refused rather than silently ignored. Builds the composition
     /// <see cref="StructSpec"/> the same way <see cref="MapEdit"/> does, so a created record's nested lists compose
     /// identically.</summary>
-    WriteRequest? MapCreateEdit(BulkOp op, int index, string recordType, CreateOpNaming naming, out string? error)
+    WriteRequest? MapCreateEdit(BulkOp op, int index, string recordType, out string? error)
     {
         error = null;
-        // The caller's own element word, threaded down for the same reason as `origins` one level up: a refusal must
-        // name the handle the caller can act on, not one nobody wrote.
-        var where = $"{naming.Element}[{index}]";
+        // ops[i] is the create surface's own member word, so a refusal names the handle the caller can act on.
+        var where = $"ops[{index}]";
         if (!string.IsNullOrWhiteSpace(op.Formid))
         {
             error = $"{where}: a create operation sets a field on the NEW record, so it takes no formid (the new record's id is auto-allocated). Remove formid='{op.Formid}'.";
@@ -7412,10 +7400,10 @@ public sealed class LoadOrderService : IDisposable
 
         if (string.Equals(op.Verb, "CopyFrom", StringComparison.Ordinal) || !string.IsNullOrWhiteSpace(op.FromPlugin))
         {
-            // Named in the calling surface's vocabulary. This is reachable even from a tool that declares no
+            // Named as the create surface spells it. This is reachable even though that surface declares no
             // from_plugin member, because the strict reader gates undeclared members and `op` is declared, so a
             // CopyFrom verb arrives here and must not be answered with a member the caller cannot remove.
-            error = $"{where}: {naming.CopySubject} copies from an EXISTING record's other version — it isn't valid when CREATING a record (there is no other version yet). Set the new field with value= / compose= instead.";
+            error = $"{where}: op=\"CopyFrom\" copies from an EXISTING record's other version — it isn't valid when CREATING a record (there is no other version yet). Set the new field with value= / compose= instead.";
             return null;
         }
 
