@@ -220,6 +220,21 @@ public sealed class UnreadableLeafComparisonTests
         Assert.Contains("BasicStats.Damage: UNREADABLE on both sides — not compared", d.Deltas);
     }
 
+    /// <summary>A fault the walk spells some other way — an FLOI whose mode or index it could not read — is a
+    /// no-verdict too: what makes a line incomparable is the Readable bit, not the note's prose.</summary>
+    [Fact]
+    public void AnFloiFaultIsNotComparedEither()
+    {
+        var floi = new FieldValue("Conditions[0].Data.Reference", false, null,
+                                  "(floi: form mode, null or unreadable FormKey on FormLinkOrIndex`1)",
+                                  Present: false, Readable: false);
+        var d = FieldsDiff.Compare(Rec(new FieldValue("EditorID", true, "HcWeap", null), floi),
+                                   Rec(new FieldValue("EditorID", true, "HcWeap", null), floi));
+
+        Assert.False(d.Complete);
+        Assert.Contains("Conditions[0].Data.Reference: UNREADABLE on both sides — not compared", d.Deltas);
+    }
+
     /// <summary>A no-such-field is the OTHER Readable=false answer and stays comparable: it says something true
     /// about the record, so two sides that both lack the field still agree on that.</summary>
     [Fact]

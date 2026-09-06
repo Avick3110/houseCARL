@@ -216,9 +216,11 @@ public static class FieldsDiff
     /// <paramref name="unreadable"/> collects the paths this side could not read: a fault note is a REASON, not a
     /// value, so comparing it as one makes two unreadable poles agree and an unreadable-vs-read pair a value
     /// difference. It leaves the comparison incomplete at that path, exactly as the cap does — Complete is false
-    /// when either was present. Keyed on <see cref="ReadEngine.IsUnreadableNote"/>, not on <c>Readable</c> alone:
-    /// the other Readable=false answer is a no-such-field, which IS knowledge about the record and stays a
-    /// comparable shape difference.</summary>
+    /// when either was present. Keyed on <c>Readable</c>, which carries the fault by construction, with ONE
+    /// carve-out: a no-such-field (<see cref="ReadEngine.IsNoSuchFieldNote"/>) IS knowledge about the record and
+    /// stays a comparable shape difference. Testing the fault note's prose instead would cover only the getter
+    /// throw and let the walk's other fault notes — an FLOI it cannot read, a <c>*parent</c> hop it cannot
+    /// take — back in as comparable values.</summary>
     static (List<(string path, string val)> lines, bool complete) CleanLines(RecordFields rf,
         HashSet<string> valueLeaves, HashSet<string> unreadable)
     {
@@ -227,7 +229,7 @@ public static class FieldsDiff
         foreach (var f in rf.Fields)
         {
             if (f.Path == "…") { complete = false; continue; }         // ReadEngine's expansion-cap sentinel
-            if (!f.Readable && ReadEngine.IsUnreadableNote(f.Note)) { unreadable.Add(f.Path); complete = false; continue; }
+            if (!f.Readable && !ReadEngine.IsNoSuchFieldNote(f.Note)) { unreadable.Add(f.Path); complete = false; continue; }
             if (f.HasValue) valueLeaves.Add(f.Path);
             lines.Add((f.Path, f.HasValue ? f.Token ?? "" : f.Note ?? ""));
         }

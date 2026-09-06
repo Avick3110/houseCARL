@@ -276,18 +276,25 @@ public static class ReadEngine
     //  THE READ PRIMITIVE — navigate a path read-only, emit the leaf token.
     // ======================================================================
 
-    /// <summary>The opening of every note the read walk emits for a FAULT — "(unreadable: &lt;reason&gt;)". Public
-    /// because <c>Readable=false</c> covers TWO answers, and a consumer that must separate them (the conflict diff
-    /// treats a fault as incomparable but a no-such-field as a shape difference) has to test the class of note
-    /// rather than keep its own copy of the sentence.</summary>
+    /// <summary>The opening of the note a getter throw emits — "(unreadable: &lt;reason&gt;)". One of several fault
+    /// notes the walk can emit; a consumer separating faults from the other <c>Readable=false</c> answer tests
+    /// <see cref="IsNoSuchFieldNote"/>, not this prefix.</summary>
     public const string UnreadablePrefix = "(unreadable: ";
 
     /// <summary>The ONE spelling of a read-fault note, so the sentence cannot drift between the walks that emit it.</summary>
     static string UnreadableNote(string reason) => $"{UnreadablePrefix}{reason})";
 
-    /// <summary>Is this note a read FAULT (as opposed to a no-such-field, the other <c>Readable=false</c> answer)?</summary>
-    public static bool IsUnreadableNote(string? note) =>
-        note is not null && note.StartsWith(UnreadablePrefix, StringComparison.Ordinal);
+    /// <summary>The opening of the NO-SUCH-FIELD note. Public because <c>Readable=false</c> covers two answers and
+    /// only one of them is comparable: every other <c>Readable=false</c> line is a fault of some class (a getter
+    /// throw, an FLOI the walk cannot read, a <c>*parent</c> hop that could not be taken), while this one is
+    /// knowledge about the record — it has no such field — and the conflict diff still compares it as a shape
+    /// difference.</summary>
+    public const string NoFieldPrefix = "(no field ";
+
+    /// <summary>Is this note the no-such-field answer (as opposed to a read fault, every other
+    /// <c>Readable=false</c> line)?</summary>
+    public static bool IsNoSuchFieldNote(string? note) =>
+        note is not null && note.StartsWith(NoFieldPrefix, StringComparison.Ordinal);
 
     /// <summary>The reason an unreadable note reports. A getter's own throw comes back from reflection wrapped in a
     /// <see cref="TargetInvocationException"/> whose message ("Exception has been thrown by the target of an
@@ -435,9 +442,9 @@ public static class ReadEngine
         if (ownerIsCollection)
         {
             var pf = precedingField ?? "<field>";
-            return $"(no field '{segName}': '{pf}' is a list/dict — {ListHopRemedy(owner, segName, pf, trailing)})";
+            return $"{NoFieldPrefix}'{segName}': '{pf}' is a list/dict — {ListHopRemedy(owner, segName, pf, trailing)})";
         }
-        return $"(no field {segName})";
+        return $"{NoFieldPrefix}{segName})";
     }
 
     /// <summary>What to actually DO about a path that dotted THROUGH a list/dict — checked against the element
