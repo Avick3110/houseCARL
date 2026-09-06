@@ -456,8 +456,11 @@ static class JsonWire
 
     /// <summary><paramref name="levers"/>: the CALLER's lever vocabulary for the remedy sentences the row bodies
     /// compose — this renderer is shared by both tool generations. Omitted means the 1.x spelling.</summary>
+    /// <param name="renderMs">What reading these bodies cost, when the caller measured it — the scan's body lane
+    /// does, so the row cost the render bound is set against is reported there too (#582).</param>
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars, SpillState? spill, out bool truncated,
-                                     IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null)
+                                     IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null,
+                                     long? renderMs = null)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -485,6 +488,9 @@ static class JsonWire
             }
             w.WriteEndArray();
             w.WriteNumber("rendered", rendered);
+            // What the bodies this batch renders cost to read, when the caller clocked them (#582): the rows are
+            // resolved before the render, so the number comes from there and is stated on the to_file= shape too.
+            if (renderMs is { } rms) { w.WriteNumber("rows_read", outcomes.Count); w.WriteNumber("render_ms", rms); }
             w.WriteBoolean("truncated", rowsTruncated);
             // Over the annotated fields this document actually carries — never the input list, and never a field
             // some row's own truncation dropped. A manifest-only (to_file) or truncated response carries none, and
@@ -1159,8 +1165,11 @@ static class JsonWire
                 renderClock.Stop();
                 w.WriteEndArray();
                 w.WriteNumber("rendered", rendered);
-                // The other half of a call's cost, stated in-band beside the rows it bought (#582).
-                if (detail && !manifestOnly) w.WriteNumber("render_ms", renderClock.ElapsedMilliseconds);
+                // The other half of a call's cost, stated in-band beside the rows it bought (#582). A to_file= call
+                // rendered its rows into the ARTIFACT, so the number comes off that write.
+                if (detail && manifestOnly && spill?.Spill is { RenderMs: { } artifactMs } a)
+                { w.WriteNumber("rendered_to_file", a.Manifest.RowCount); w.WriteNumber("render_ms", artifactMs); }
+                else if (detail && !manifestOnly) w.WriteNumber("render_ms", renderClock.ElapsedMilliseconds);
                 w.WriteBoolean("truncated", rowsTruncated);
                 WriteOwnedChildNote(w, childFields, childUnioned);
                 truncated = rowsTruncated;
@@ -1389,8 +1398,11 @@ static class JsonWire
                 w.WriteNumber("rendered", rendered);
                 // A fold makes a row an ELEMENT, so `rendered` (records) no longer counts the rows: say both.
                 if (fold is not null) w.WriteNumber("rows_rendered", foldRows);
-                // The other half of a call's cost, stated in-band beside the rows it bought (#582).
-                if (detail && !manifestOnly) w.WriteNumber("render_ms", renderClock.ElapsedMilliseconds);
+                // The other half of a call's cost, stated in-band beside the rows it bought (#582). A to_file= call
+                // rendered its rows into the ARTIFACT, so the number comes off that write.
+                if (detail && manifestOnly && spill?.Spill is { RenderMs: { } artifactMs } a)
+                { w.WriteNumber("rendered_to_file", a.Manifest.RowCount); w.WriteNumber("render_ms", artifactMs); }
+                else if (detail && !manifestOnly) w.WriteNumber("render_ms", renderClock.ElapsedMilliseconds);
                 w.WriteBoolean("truncated", rowsTruncated);
                 WriteOwnedChildNote(w, childFields, childUnioned);
                 // The read's own note — a truncated expansion above all — belongs to the document whose rows the
