@@ -30,7 +30,6 @@ public sealed class PublishedDescriptionBoundTests
     // Tools whose descriptions are still over the bound, one line each. Each description PR deletes its own line.
     static readonly HashSet<string> StillOversized = new(StringComparer.Ordinal)
     {
-        ToolNames.Check,
         ToolNames.CompactPlugin,
         ToolNames.Forward,
         ToolNames.NifSet,
