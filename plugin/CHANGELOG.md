@@ -43,13 +43,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
   when the client sends a cancel.** Reading a record body per rendered row used to walk the whole winning
   plugin for each one, so a projection of a few fields over a big selection could run for tens of minutes with
   nothing coming back; the bodies are now gathered a plugin at a time — on the scan render and on the
-  `rows`/`everything` body lane alike — and the same catalogue renders in a fraction of the time. Every
-  `fields`/`rows`/`everything` scan reports the rows it read and the milliseconds they took, on every
-  transport including `to_file=`. A render too big to finish refuses up front, saying whether to name fewer
-  fields, narrow the scan terms, take windows with `limit=`/`offset=`, or write the whole set with `to_file=`;
-  the bounds — one per form, because a whole-record row costs two orders of magnitude more than a
-  named-fields one — and the caveats that decide between the shapes are on the `limit=`, `offset=` and
-  `to_file=` parameters. A cancel sent by the client now stops the work inside one record instead of leaving
+  `rows`/`everything` body lane alike, each plugin walked only for the rows the render actually shows — and the
+  same catalogue renders in a fraction of the time. Every `fields`/`rows`/`everything` scan reports the rows it
+  read and the milliseconds they took, on every transport including `to_file=`. A render too big to finish
+  refuses up front — on a scan, on an off-order `source=` and on a `formids=` list alike — saying whether to
+  name fewer fields, narrow the scan terms, pass fewer ids, take windows with `limit=`/`offset=`, or write the
+  whole set with `to_file=`; the bounds — one per form, because a whole-record row costs two orders of
+  magnitude more than a named-fields one — and the caveats that decide between the shapes are on the `limit=`,
+  `offset=` and `to_file=` parameters. A cancel sent by the client now stops the work inside one record instead of leaving
   the server running, and a `to_file=` call stopped that way writes no artifact at all rather than a partial
   one. A client that stops waiting WITHOUT sending a cancel is not something the server can detect — nothing
   in the protocol reports it — which is what the render bound is there for.
