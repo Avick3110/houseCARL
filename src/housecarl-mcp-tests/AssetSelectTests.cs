@@ -358,10 +358,15 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
             var text = AssetWire.Render(d, cap);
             int at = text.IndexOf("\n\n[accounting]", StringComparison.Ordinal);
             Assert.True(at >= 0, $"max_chars={cap} dropped the accounting block");
+            // The overrun sentence a too-small cap earns is written after the block and is not part of it, so the
+            // measurement stops where it starts.
+            var block = text[at..];
+            int overrun = block.IndexOf("\n[!] this response is ", StringComparison.Ordinal);
+            if (overrun >= 0) block = block[..overrun];
             // What the block actually writes fits the room reserved for it, so subtracting that room from max_chars
             // before the body renders is enough to hold the whole response inside the cap.
-            Assert.True(text.Length - at <= reserve,
-                        $"max_chars={cap} wrote {text.Length - at} chars through a reserve of {reserve}");
+            Assert.True(block.Length <= reserve,
+                        $"max_chars={cap} wrote {block.Length} chars through a reserve of {reserve}");
         }
 
         // A cap that can hold the whole answer holds the accounting too, block and all.
