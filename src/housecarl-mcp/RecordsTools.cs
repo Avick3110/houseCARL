@@ -1614,7 +1614,7 @@ public static class RecordsTools
                 var keys = outcome.Keys.Select(k => k.ToString()).ToList();
                 var bodies = svc.ResolveBatchFromPole(keys, pole.Plugin, srcMod, bodyFields ? readPaths : null,
                                                       depth, resolveNames, null, out _, out var bref, out var brefEpoch,
-                                                      LeverNames.Records.ContainerHint, readDepths);
+                                                      LeverNames.Records.ContainerHint, readDepths, ct);
                 bodies = FoldRows(bodies);
                 if (bref is not null)
                     return json ? JsonWire.RenderError(bref, brefEpoch)
