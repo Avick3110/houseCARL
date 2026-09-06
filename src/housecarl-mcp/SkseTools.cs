@@ -1825,8 +1825,11 @@ static class NativePairingWire
         int shown = 0;
         foreach (var e in items)
         {
-            if (sb.Length + line(e).Length + 1 > room) { sb.Append(SkseInventoryWire.Showing(shown, items.Count, hint: SkseInventoryWire.FilterHint)); break; }
-            sb.Append(line(e)).Append('\n'); shown++;
+            // Composed once: this row's line walks the entry's paired DLLs, and measuring it apart from writing it
+            // did that walk twice for every row rendered.
+            var row = line(e) + "\n";
+            if (sb.Length + row.Length > room) { sb.Append(SkseInventoryWire.Showing(shown, items.Count, hint: SkseInventoryWire.FilterHint)); break; }
+            sb.Append(row); shown++;
             if (tally is not null && key is not null) tally.Mark(key(e));
         }
     }
