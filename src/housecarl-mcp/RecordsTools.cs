@@ -134,7 +134,7 @@ public static class RecordsTools
             RecordsWalk? walk = null,
         [Description("TRANSPORT: 'text' (default) | 'json' (machine-readable document; same accounting in-band) | 'dense' (scan lane: positional columnar cells 1:1 with the requested fields — the compact bulk-enumeration form; by that definition depth expansion and the 'everything' form are inexpressible in it). Every response carries the epoch stamp — the identity of the index build it was answered from — spelled epoch=<hex> on 'text' and 'dense', and as an 'epoch' member on 'json'.")]
             string? format = null,
-        [Description("TRANSPORT: max rows to render (default 500). The TRUE total is always reported; page a scan in exact windows with offset=. DECLARED COST: the derived-selection forms (delta/tree/chain/info_order, and any walk) consume EVERY scan match — their censuses and artifacts cover the full selection, and limit= windows only the rendered rows — so on a big order the SCAN TERMS (types=/plugins=/where=) are the cost bound: narrow them. RENDER COST: a row that READS a record's body is what costs, and a scan's accounting reports what that cost as render_ms; a render too big to finish REFUSES up front rather than going silent, naming the shapes that fit. The bound holds on every lane that reads bodies — a scan, an off-order source=, a formids= list — and is per form, because the row costs differ by orders of magnitude: 300,000 rows for a named-fields row (fields/rows, and the one cheap leaf summary/aggregate take), 15,000 for form='everything', whose row materialises the WHOLE record — name the fields you need and the same selection fits — and 40,000 for form='identity', whose row is an UNTYPED whole-plugin seek for the winner's body and is the dearest row here rather than a free one: form='summary' answers the same identity question off a gathered read. On a formids= read every one of those six forms reads a body and is bounded, and the cost is the LIST's length, not this window's: every id is read before limit= and offset= apply, so pass fewer ids rather than paging.")]
+        [Description("TRANSPORT: max rows to render (default 500). The TRUE total is always reported; page a scan in exact windows with offset=. DECLARED COST: the derived-selection forms (delta/tree/chain/info_order, and any walk) consume EVERY scan match — their censuses and artifacts cover the full selection, and limit= windows only the rendered rows — so on a big order the SCAN TERMS (types=/plugins=/where=) are the cost bound: narrow them. RENDER COST: a row that READS a record's body is what costs, and a scan's accounting reports what that cost as render_ms; a render too big to finish REFUSES up front rather than going silent, naming the shapes that fit. The bound holds on every lane that reads bodies — a scan, an off-order source=, a formids= list — and is per form, because the row costs differ by orders of magnitude: 300,000 rows for a named-fields row (fields/rows, and the one cheap leaf summary/aggregate take), 15,000 for form='everything', whose row materialises the WHOLE record — name the fields you need and the same selection fits — and 40,000 for form='identity', whose row is an UNTYPED whole-plugin seek for the winner's body and is the dearest row here rather than a free one: form='summary' answers the same identity question off a gathered read. On a formids= read every one of those six forms reads a body and is bounded on the LIST's length, not this window's: the ids are read before limit= and offset= apply, so pass fewer ids rather than paging. The accounting beside it counts the bodies READ, which a source= pole holding no version of an id, or a malformed id, leaves short of the list.")]
             int limit = 500,
         [Description("TRANSPORT: skip the first N matches (exact windows: offset=0/500/1000…). Windows tile only WITHIN one epoch — if two pages' epochs differ the load order changed mid-pagination; re-run from offset=0, do not stitch the pages. offset= RE-SCANS the selection from the start rather than seeking into it, so every window pays the whole scan again and a deep window costs more than a shallow one — narrowing the scan terms beats paging far into one.")]
             int offset = 0,
@@ -545,7 +545,10 @@ public static class RecordsTools
                 var identityClock = System.Diagnostics.Stopwatch.StartNew();
                 var rows = svc.ResolveRefs(ids, demand, out var epoch, out var refusal);
                 identityClock.Stop();
-                var identityCost = (ids.Length, identityClock.ElapsedMilliseconds);
+                // The count is the bodies this call actually READ, not the list's length: a malformed token never
+                // reaches a read and an absent FormKey has no winner to read, so counting the list would divide the
+                // clock by rows that cost nothing and make the tier uncheckable (#607).
+                var identityCost = (rows.Count(r => r.Resolved), identityClock.ElapsedMilliseconds);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + Wire.EpochLine(epoch);
                 Arm("winner");
@@ -603,7 +606,8 @@ public static class RecordsTools
             IReadOnlyList<ReadOutcome> outcomes;
             LoadOrderService.PoleInfo? pole = null;
             // This lane reads a body per id exactly as the scan's body lane does, so it is clocked the same way and
-            // reports the same accounting — over the LIST, which is what it read, not the limit=/offset= window.
+            // reports the same accounting — over the BODIES READ, which is not the limit=/offset= window and, under
+            // a pole or a bad token, is fewer than the list.
             var listClock = System.Diagnostics.Stopwatch.StartNew();
             if (srcOverlay && !string.Equals(srcSpec.OverlayState ?? "post", "pre", StringComparison.OrdinalIgnoreCase))
             {
@@ -645,7 +649,10 @@ public static class RecordsTools
             }
             listClock.Stop();
             // One cost for every form this lane renders, so the accounting cannot land on some of them and not others.
-            var listCost = (ids.Length, listClock.ElapsedMilliseconds);
+            // The count is the bodies actually READ, not the list's length: under a named source= pole an id the pole
+            // has no version of refuses per item without a read, and a malformed token never reaches one, so counting
+            // the list would divide the clock by rows that cost nothing (#607).
+            var listCost = (outcomes.Count(o => o.Record is not null), listClock.ElapsedMilliseconds);
             outcomes = FoldRows(outcomes);
             var epoch2 = outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp;
             if (SeamTear(epoch2) is { } seamTear)

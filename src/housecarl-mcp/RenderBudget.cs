@@ -71,8 +71,9 @@ internal static class RenderBudget
     internal static string AccountingLine(int rows, long ms) =>
         $"rendered {rows}{(rows == 1 ? " row in " : " rows in ")}{ms} ms\n";
 
-    /// <summary>The batch lane's twin: its bodies are READ before the render, so the count is what was read rather
-    /// than what a max_chars cut left showing.</summary>
+    /// <summary>The batch lane's twin: its bodies are READ before the render, so the count is the bodies actually
+    /// read — not what a max_chars cut left showing, and not the list's length, which under a source= pole or a
+    /// malformed token is more ids than the lane read a body for.</summary>
     internal static string BodiesLine(int rows, long ms) =>
         $"read {rows}{(rows == 1 ? " record body in " : " record bodies in ")}{ms} ms\n";
 

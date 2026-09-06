@@ -197,6 +197,11 @@ public sealed class RecordsRenderCostTests
                                 .Keys.Select(k => k.ToString()).ToArray();
     static RecordsTools.RecordsProject Everything() => new() { form = "everything" };
 
+    /// <summary>The ammo the FIRST spread plugin defines — a pole that holds a handful of a much longer list.</summary>
+    string[] SpreadZeroAmmoIds => Svc.CrossQuery(Ammo, null, null, false, new[] { _w.SpreadNames[0] }, null,
+                                                 RenderCostWorld.AmmoPerPlugin)
+                                    .Keys.Select(k => k.ToString()).ToArray();
+
     // ---- the cost itself ---------------------------------------------------------------------------
 
     /// <summary>A detail render maps each plugin ONCE for the whole call. Before the render shared one session and
@@ -452,10 +457,10 @@ public sealed class RecordsRenderCostTests
 
     // ---- what the formids= lane says its bodies cost ------------------------------------------------
 
-    /// <summary>This lane reads a body for every id and then renders a limit=/offset= window of them, so the count
-    /// beside the cost is the LIST's, not the window's — the number the bound is measured against (#607).</summary>
+    /// <summary>This lane reads its bodies before it renders a limit=/offset= window of them, so the count beside
+    /// the cost is what it READ, not what the window showed (#607).</summary>
     [Fact]
-    public void AWindowedFormidsRenderReportsTheWholeListItRead()
+    public void AWindowedFormidsRenderReportsTheBodiesItRead()
     {
         var doc = Doc(RecordsTools.Records(Svc, formids: AllWeaponIds, format: "json", limit: 5, project: Fields()));
         Assert.Equal(5, doc.GetProperty("rendered").GetInt32());
@@ -465,7 +470,7 @@ public sealed class RecordsRenderCostTests
 
     /// <summary>The text transport states the same count.</summary>
     [Fact]
-    public void AWindowedFormidsTextRenderReportsTheWholeListItRead()
+    public void AWindowedFormidsTextRenderReportsTheBodiesItRead()
     {
         var text = RecordsTools.Records(Svc, formids: AllWeaponIds, limit: 5, project: Fields());
         Assert.Contains($"read {RenderCostWorld.Weapons} record bodies in ", text);
@@ -538,7 +543,7 @@ public sealed class RecordsRenderCostTests
     }
 
     /// <summary>And it reports what it cost, because a bound calibrated on one machine is only checkable where the
-    /// truth comes back — the count being the LIST's, not the window's.</summary>
+    /// truth comes back — the count being the bodies it read, not the window's rows.</summary>
     [Fact]
     public void AnIdentityReadReportsWhatResolvingItsFormidsCost()
     {
@@ -550,6 +555,35 @@ public sealed class RecordsRenderCostTests
 
         var text = RecordsTools.Records(Svc, formids: AllWeaponIds, limit: 5, project: identity);
         Assert.Contains($"read {RenderCostWorld.Weapons} record bodies in ", text);
+    }
+
+    /// <summary>An id a named source= pole has no version of refuses per item WITHOUT reading a body, so the count
+    /// is the bodies read and not the list's length. Claiming the list would divide the clock by rows that cost
+    /// nothing — a 2,000-id list over a pole touching three would report the tier at a thousandth of its declared
+    /// cost, which is the opposite of what the accounting is for (#607).</summary>
+    [Fact]
+    public void AFormidsPoleReadCountsOnlyTheBodiesThePoleHeld()
+    {
+        var ids = SpreadZeroAmmoIds.Concat(AllWeaponIds).ToArray();
+        var doc = Doc(RecordsTools.Records(Svc, formids: ids, source: Pole(_w.SpreadNames[0]), format: "json",
+                                           project: Fields()));
+        Assert.Equal(ids.Length, doc.GetProperty("count").GetInt32());
+        Assert.Equal(RenderCostWorld.AmmoPerPlugin, doc.GetProperty("rows_read").GetInt32());
+
+        var text = RecordsTools.Records(Svc, formids: ids, source: Pole(_w.SpreadNames[0]), project: Fields());
+        Assert.Contains($"read {RenderCostWorld.AmmoPerPlugin} record bodies in ", text);
+    }
+
+    /// <summary>The same on the identity lane, whose skip is a malformed token: ResolveRefs never reaches a read
+    /// for one, so it is not a body the accounting may claim.</summary>
+    [Fact]
+    public void AnIdentityReadCountsOnlyTheIdsThatResolved()
+    {
+        var ids = new[] { "not-a-formid", "also bad", "123456:NoSuchPlugin.esp" }.Concat(AllWeaponIds).ToArray();
+        var doc = Doc(RecordsTools.Records(Svc, formids: ids, format: "json",
+                                           project: new RecordsTools.RecordsProject { form = "identity" }));
+        Assert.Equal(ids.Length, doc.GetProperty("count").GetInt32());
+        Assert.Equal(RenderCostWorld.Weapons, doc.GetProperty("rows_read").GetInt32());
     }
 
     /// <summary>The bound is on what a row costs, not on where the row came from: an OFF-ORDER selection over it

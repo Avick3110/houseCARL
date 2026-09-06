@@ -115,8 +115,9 @@ static class JsonWire
         foreach (var kv in envelope) w.WriteString(kv.Key, kv.Value);
     }
 
-    /// <param name="bodyCost">What resolving these FormIDs cost, when the caller measured it — each one reads its
-    /// winner's body, so the bound this lane is held to is checkable against a real order (#607).</param>
+    /// <param name="bodyCost">What resolving these FormIDs cost, when the caller measured it — a resolved one reads
+    /// its winner's body, so the bound this lane is held to is checkable against a real order. The count is the ids
+    /// that RESOLVED: a malformed or absent one never reaches a read (#607).</param>
     public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch, SpillState? spill, out bool truncated,
                                        IReadOnlyList<KeyValuePair<string, string>>? envelope = null,
                                        (int RowsRead, long Millis)? bodyCost = null)
@@ -143,7 +144,8 @@ static class JsonWire
             }
             w.WriteEndArray();
             w.WriteNumber("rendered", rendered);
-            // The count is the LIST's, not this window's: every id was resolved before the render.
+            // The count is the bodies READ, not this window's rows: an id that resolved was read before the render,
+            // and a malformed or absent one never reached a read.
             if (bodyCost is { } bc) { w.WriteNumber("rows_read", bc.RowsRead); w.WriteNumber("render_ms", bc.Millis); }
             w.WriteBoolean("truncated", rowsTruncated);
             truncated = rowsTruncated;
@@ -463,8 +465,9 @@ static class JsonWire
     /// compose — this renderer is shared by both tool generations. Omitted means the 1.x spelling.</summary>
     /// <param name="bodyCost">What reading these bodies cost, when the caller measured it — the scan's body lane
     /// does, so the row cost the render bound is set against is reported there too (#582). The row count travels
-    /// WITH the milliseconds rather than being taken off this list: the formids= lane reads the whole list and
-    /// hands this renderer a limit=/offset= window of it, so the count beside the cost is what was read (#607).</param>
+    /// WITH the milliseconds rather than being taken off this list: the formids= lane hands this renderer a
+    /// limit=/offset= window, and the count beside the cost is the BODIES READ, which a pole that has no version of
+    /// an id or a malformed token leaves short of the list (#607).</param>
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars, SpillState? spill, out bool truncated,
                                      IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null,
                                      (int RowsRead, long Millis)? bodyCost = null)
