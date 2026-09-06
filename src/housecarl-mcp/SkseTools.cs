@@ -145,7 +145,9 @@ public static class SkseTools
             SkseFamily.Pairing => renders.Pairing(call),
             _ => renders.Config(call),
         };
-        return body + footer;
+        // The one arm a bounded render may still exceed on — a cap too small for what the response carries whatever
+        // the budget — is named rather than left for the caller to discover by measuring.
+        return RenderCap.Settle(body + footer, max_chars > 0 ? max_chars : 80_000);
     }
 
     /// <summary>The two families this call did not run, in the spelling that would run them — the json twin of
@@ -332,7 +334,13 @@ static class SkseInventoryWire
         int notes = NoteCount(d);
         var rows = window.Apply(d.Dlls);
         int reserve = TransportAccounting.Reserve(d.Dlls.Count, rows.Count, window, notes, RowNoun);
-        cap = Math.Max(1, cap - reserve);
+        // The scope note, the caveats and the filter hint are written after the rows, so they are charged before the
+        // rows are laid — the cap then bounds the whole response rather than everything above its own tail.
+        var tail = "(scope: full depth of Data\\SKSE\\Plugins. DLLs are top-level = what SKSE loads; configs at any depth are " +
+                   "grouped by folder above. Non-config content (animation/mesh/etc.) is counted in the 'other file(s)' total.)\n" +
+                   Caveats(d) +
+                   "\n→ filter='<plugin/mod/DLL name>' for a plugin's full detail, or filter='<folder>' (e.g. SkyPatcher, OStim) to list a config group.";
+        cap = Math.Max(1, cap - reserve - tail.Length);
         var tally = new RowTally();
 
         var sb = new StringBuilder();
@@ -440,7 +448,7 @@ static class SkseInventoryWire
             int shown = 0;
             foreach (var g in groups)
             {
-                if (sb.Length >= cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(groups.Count).Append(" folders; raise max_chars]\n"); break; }
+                int mark = sb.Length;
                 string prov = g.Providers.Count switch
                 {
                     0 => "(no active provider)",
@@ -449,14 +457,14 @@ static class SkseInventoryWire
                 };
                 sb.Append("  - ").Append(g.Name).Append(": ").Append(g.Count).Append(" ← ").Append(prov);
                 if (g.Contested > 0) sb.Append("  [").Append(g.Contested).Append(" contested]");
-                sb.Append('\n'); shown++;
+                sb.Append('\n');
+                // The row is taken back out whole when it crossed, so the response ends inside max_chars.
+                if (sb.Length > cap) { sb.Length = mark; sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(groups.Count).Append(" folders; raise max_chars]\n"); break; }
+                shown++;
             }
         }
 
-        sb.Append("(scope: full depth of Data\\SKSE\\Plugins. DLLs are top-level = what SKSE loads; configs at any depth are " +
-                  "grouped by folder above. Non-config content (animation/mesh/etc.) is counted in the 'other file(s)' total.)\n");
-        AppendCaveats(sb, d);
-        sb.Append("\n→ filter='<plugin/mod/DLL name>' for a plugin's full detail, or filter='<folder>' (e.g. SkyPatcher, OStim) to list a config group.");
+        sb.Append(tail);
         return sb.ToString().TrimEnd('\n')
              + TransportAccounting.Compose(TransportAccounting.Tally(d.Dlls.Count, rows.Count, tally.Count, window, notes),
                                            RowNoun, everySentence: false);
@@ -502,8 +510,9 @@ static class SkseInventoryWire
         var shownCfg = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var e in dllHits)
         {
-            if (sb.Length >= cap) { sb.Append("\n  ... [remaining DLL matches omitted at max_chars=").Append(cap).Append("]\n"); break; }
+            int mark = sb.Length;
             AppendDetail(sb, e, d, shownCfg);
+            if (sb.Length > cap) { sb.Length = mark; sb.Append("\n  ... [remaining DLL matches omitted at max_chars=").Append(cap).Append("]\n"); break; }
             tally.Mark(e.RelPath);
         }
 
@@ -523,13 +532,15 @@ static class SkseInventoryWire
             int shown = 0;
             foreach (var e in rest)
             {
-                if (sb.Length >= cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(rest.Count).Append("; raise max_chars]\n"); break; }
+                int mark = sb.Length;
                 string g = e.Group.Length == 0 ? "(top level)" : e.Group;
                 if (g != curGroup) { sb.Append("  ").Append(g).Append(":\n"); curGroup = g; }
                 sb.Append("    - ").Append(e.FileName);
                 if (e.ProviderCount > 1) sb.Append(": ").Append(Chain(e));   // contested config → the full winner→loser chain
                 else sb.Append(Provider(e));
-                sb.Append('\n'); shown++; tally.Mark(e.RelPath);
+                sb.Append('\n');
+                if (sb.Length > cap) { sb.Length = mark; sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(rest.Count).Append("; raise max_chars]\n"); break; }
+                shown++; tally.Mark(e.RelPath);
             }
         }
         // A config already shown as a DLL's paired config is a rendered row too, so it counts.
@@ -755,7 +766,10 @@ static class SkseInventoryWire
                              RowTally? tally = null)
     {
         if (items.Count == 0) return;
-        sb.Append('\n').Append(label).Append(" (").Append(items.Count).Append("):\n");
+        // The heading carries the subset's own count, so it goes in whole or the subset does not start.
+        var head = "\n" + label + " (" + items.Count + "):\n";
+        if (sb.Length + head.Length > cap) return;
+        sb.Append(head);
         AppendCapped(sb, items, cap, line, tally);
     }
 
@@ -765,8 +779,11 @@ static class SkseInventoryWire
         int shown = 0;
         foreach (var e in items)
         {
-            if (sb.Length >= cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(items.Count).Append("; raise max_chars or use filter= to see all]\n"); break; }
-            sb.Append(line(e)).Append('\n'); shown++; tally?.Mark(e.RelPath);
+            var row = line(e) + "\n";
+            // Measured against the row about to be written, not against what the buffer already holds: the old test
+            // let the row that crossed the budget through whole, which is what put a filled render past max_chars.
+            if (sb.Length + row.Length > cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(items.Count).Append("; raise max_chars or use filter= to see all]\n"); break; }
+            sb.Append(row); shown++; tally?.Mark(e.RelPath);
         }
     }
 
@@ -948,12 +965,18 @@ static class SkseInventoryWire
         w.WriteEndObject();
     }
 
-    static void AppendCaveats(StringBuilder sb, SkseInventoryData d)
+    static void AppendCaveats(StringBuilder sb, SkseInventoryData d) => sb.Append(Caveats(d));
+
+    /// <summary>The build-level caveats as one string, so a render can charge them against max_chars before its rows
+    /// are laid rather than append them past the ceiling.</summary>
+    static string Caveats(SkseInventoryData d)
     {
+        var sb = new StringBuilder();
         if (d.ReadIncomplete)
             sb.Append("[!] a BSA failed to read this build, so a file present only in it may be missing from this inventory (Q3).\n");
         foreach (var w in d.Warnings) sb.Append("[!] ").Append(w).Append('\n');
         foreach (var f in d.BsaFailures) sb.Append("[!] archive read failure: ").Append(f).Append('\n');
+        return sb.ToString();
     }
 }
 
@@ -982,7 +1005,14 @@ static class SkseConfigAuditWire
         int notes = NoteCount(d);
         var rows = window.Apply(d.Files);
         int reserve = TransportAccounting.Reserve(d.Files.Count, rows.Count, window, notes, RowNoun);
-        cap = Math.Max(1, cap - reserve);
+        // The scope note, the caveats and the filter hint come after the sections, so they are charged before the
+        // sections render rather than appended past the cap.
+        var tail = "\n(scope: form-shaped references only — a hex FormID + plugin filename, or a plugin-named folder gate. Bare " +
+                   "EditorID/name strings are not validated (Wave 2). Extraction is heuristic over token shapes: a token in a comment " +
+                   "or disabled block still counts — 'references this file declares', not 'the DLL will use'. A folder that SHOULD carry " +
+                   "references but shows none may use a reference shape not yet recognized.)\n" + Caveats(d) +
+                   "\n→ filter='<folder/mod/filename/plugin>' to audit one group and see every reference (OKs included).";
+        cap = Math.Max(1, cap - reserve - tail.Length);
         var tally = new RowTally();
 
         var flatAll = d.Files.SelectMany(f => f.Refs.Select(r => new Hit(f, r))).ToList();
@@ -1045,10 +1075,12 @@ static class SkseConfigAuditWire
             int shown = 0;
             foreach (var g in byPlugin)
             {
-                if (sb.Length >= cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(byPlugin.Count).Append(" plugins; raise max_chars or use filter=]\n"); break; }
+                int mark = sb.Length;
                 sb.Append("  - ").Append(g.Plugin).Append(": ").Append(g.Refs).Append(" ref(s)");
                 if (g.Files.Count > 1) sb.Append(" across ").Append(g.Files.Count).Append(" file(s)");
-                sb.Append("  (e.g. ").Append(g.Example).Append(")\n"); shown++;
+                sb.Append("  (e.g. ").Append(g.Example).Append(")\n");
+                if (sb.Length > cap) { sb.Length = mark; sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(byPlugin.Count).Append(" plugins; raise max_chars or use filter=]\n"); break; }
+                shown++;
                 foreach (var f in g.Files) tally.Mark(f);
             }
         }
@@ -1062,8 +1094,9 @@ static class SkseConfigAuditWire
             int shown = 0;
             foreach (var f in readErrors)
             {
-                if (sb.Length >= cap) { sb.Append("  ... [").Append(shown).Append(" of ").Append(readErrors.Count).Append("; raise max_chars]\n"); break; }
-                sb.Append("  - ").Append(f.RelPath).Append(": ").Append(f.ReadError).Append(Prov(f)).Append('\n'); shown++; tally.Mark(f.RelPath);
+                var row = "  - " + f.RelPath + ": " + f.ReadError + Prov(f) + "\n";
+                if (sb.Length + row.Length > cap) { sb.Append("  ... [").Append(shown).Append(" of ").Append(readErrors.Count).Append("; raise max_chars]\n"); break; }
+                sb.Append(row); shown++; tally.Mark(f.RelPath);
             }
         }
 
@@ -1088,17 +1121,13 @@ static class SkseConfigAuditWire
             int shown = 0;
             foreach (var g in groups)
             {
-                if (sb.Length >= cap) { sb.Append("    ... [").Append(shown).Append(" of ").Append(groups.Count).Append(" folders; raise max_chars]\n"); break; }
-                sb.Append("    - ").Append(g.Name).Append(": ").Append(g.Count).Append('\n'); shown++;
+                var row = "    - " + g.Name + ": " + g.Count + "\n";
+                if (sb.Length + row.Length > cap) { sb.Append("    ... [").Append(shown).Append(" of ").Append(groups.Count).Append(" folders; raise max_chars]\n"); break; }
+                sb.Append(row); shown++;
             }
         }
 
-        sb.Append("\n(scope: form-shaped references only — a hex FormID + plugin filename, or a plugin-named folder gate. Bare " +
-                  "EditorID/name strings are not validated (Wave 2). Extraction is heuristic over token shapes: a token in a comment " +
-                  "or disabled block still counts — 'references this file declares', not 'the DLL will use'. A folder that SHOULD carry " +
-                  "references but shows none may use a reference shape not yet recognized.)\n");
-        AppendCaveats(sb, d);
-        sb.Append("\n→ filter='<folder/mod/filename/plugin>' to audit one group and see every reference (OKs included).");
+        sb.Append(tail);
         return sb.ToString().TrimEnd('\n')
              + TransportAccounting.Compose(TransportAccounting.Tally(d.Files.Count, rows.Count, tally.Count, window, notes),
                                            RowNoun, everySentence: false);
@@ -1143,7 +1172,8 @@ static class SkseConfigAuditWire
         int shownFiles = 0;
         foreach (var f in hits)
         {
-            if (sb.Length >= cap) { sb.Append("\n  ... [showing ").Append(shownFiles).Append(" of ").Append(hits.Count).Append(" files; raise max_chars]\n"); break; }
+            int mark = sb.Length;
+            if (mark > cap) { sb.Append("\n  ... [showing ").Append(shownFiles).Append(" of ").Append(hits.Count).Append(" files; raise max_chars]\n"); break; }
             sb.Append('\n').Append(f.RelPath).Append("  ← ").Append(f.WinningProvider ?? "(no active provider)").Append('\n');
             if (f.ProviderCount > 1)
                 sb.Append("  [!] contested by ").Append(f.ProviderCount).Append(" mods (winner audited): ")
@@ -1176,12 +1206,15 @@ static class SkseConfigAuditWire
                            RowTally? tally = null)
     {
         if (items.Count == 0) return;
-        sb.Append('\n').Append(label).Append(" (").Append(items.Count).Append("):\n");
+        var head = "\n" + label + " (" + items.Count + "):\n";
+        if (sb.Length + head.Length > cap) return;
+        sb.Append(head);
         int shown = 0;
         foreach (var h in items)
         {
-            if (sb.Length >= cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(items.Count).Append("; raise max_chars or use filter=]\n"); break; }
-            sb.Append(line(h)).Append('\n'); shown++; tally?.Mark(h.File.RelPath);
+            var row = line(h) + "\n";
+            if (sb.Length + row.Length > cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(items.Count).Append("; raise max_chars or use filter=]\n"); break; }
+            sb.Append(row); shown++; tally?.Mark(h.File.RelPath);
         }
     }
 
@@ -1282,7 +1315,17 @@ static class SkseConfigAuditWire
         _ => "unknown",
     };
 
-    static void AppendCaveats(StringBuilder sb, SkseConfigAuditData d)
+    static void AppendCaveats(StringBuilder sb, SkseConfigAuditData d) => sb.Append(Caveats(d));
+
+    /// <summary>The build-level caveats as one string, so a render can charge them against max_chars up front.</summary>
+    static string Caveats(SkseConfigAuditData d)
+    {
+        var sb = new StringBuilder();
+        AppendCaveatsTo(sb, d);
+        return sb.ToString();
+    }
+
+    static void AppendCaveatsTo(StringBuilder sb, SkseConfigAuditData d)
     {
         if (d.ReadIncomplete)
             sb.Append("[!] a BSA failed to read this build, so a config present only in it may be missing from this audit (Q3).\n");
@@ -1431,6 +1474,12 @@ static class NativePairingWire
         int notes = NoteCount(d);
         var rows = window.Apply(d.Classes);
         int reserve = TransportAccounting.Reserve(d.Classes.Count, rows.Count, window, notes, RowNoun);
+        // Charged before the sections render, for the same reason the other two families charge theirs.
+        var tail = "\n(scope: what the winning compiled scripts DECLARE, statically paired to what their mods ship. 'Paired' means the " +
+                   "co-shipment evidence is plausible and a candidate DLL loads — NEVER that the DLL registers exactly these functions " +
+                   "(registration is runtime behavior, the honest ceiling). Which mods CALL an unpaired class is not scanned (a possible Wave 2).)\n" +
+                   Caveats(d) +
+                   "\n→ filter='<class/mod/DLL>' for full detail: native function names, pairing evidence, per-DLL manifests and load verdicts.";
         cap = Math.Max(1, cap - reserve);
         var tally = new RowTally();
 
@@ -1518,16 +1567,13 @@ static class NativePairingWire
         foreach (var g in healthy.GroupBy(c => c.PairedMod ?? "(?)", StringComparer.OrdinalIgnoreCase)
                      .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
         {
-            if (sb.Length >= cap) { sb.Append("  ... [remaining healthy groups omitted; raise max_chars]\n"); break; }
-            sb.Append("  - ").Append(g.Key).Append(": ").Append(string.Join(", ", g.Select(c => c.ClassName).OrderBy(n => n, StringComparer.OrdinalIgnoreCase))).Append('\n');
+            var row = "  - " + g.Key + ": " + string.Join(", ", g.Select(c => c.ClassName).OrderBy(n => n, StringComparer.OrdinalIgnoreCase)) + "\n";
+            if (sb.Length + row.Length > cap) { sb.Append("  ... [remaining healthy groups omitted; raise max_chars]\n"); break; }
+            sb.Append(row);
             foreach (var c in g) tally.Mark(c.ClassName);
         }
 
-        sb.Append("\n(scope: what the winning compiled scripts DECLARE, statically paired to what their mods ship. 'Paired' means the " +
-                  "co-shipment evidence is plausible and a candidate DLL loads — NEVER that the DLL registers exactly these functions " +
-                  "(registration is runtime behavior, the honest ceiling). Which mods CALL an unpaired class is not scanned (a possible Wave 2).)\n");
-        AppendCaveats(sb, d);
-        sb.Append("\n→ filter='<class/mod/DLL>' for full detail: native function names, pairing evidence, per-DLL manifests and load verdicts.");
+        sb.Append(tail);
         return sb.ToString().TrimEnd('\n')
              + TransportAccounting.Compose(TransportAccounting.Tally(d.Classes.Count, rows.Count, tally.Count, window, notes),
                                            RowNoun, everySentence: false);
@@ -1571,7 +1617,9 @@ static class NativePairingWire
         int notes = NoteCount(d);
         var hits = window.Apply(allHits);
         int reserve = TransportAccounting.Reserve(allHits.Count, hits.Count, window, notes, RowNoun);
-        cap = Math.Max(1, cap - reserve);
+        // The caveats close this view too, so they are charged with the accounting rather than appended past the cap.
+        var tail = "\n" + Caveats(d);
+        cap = Math.Max(1, cap - reserve - tail.Length);
         var tally = new RowTally();
         string Accounting() => TransportAccounting.Compose(
             TransportAccounting.Tally(allHits.Count, hits.Count, tally.Count, window, notes), RowNoun, everySentence: false);
@@ -1588,15 +1636,14 @@ static class NativePairingWire
                 .Concat(d.Classes.Select(c => c.PairedMod).Where(p => !string.IsNullOrEmpty(p)).Select(p => p!))
                 .Concat(d.Classes.SelectMany(c => c.PairedDlls.Select(x => x.FileName)));
             sb.Append("\nno native-declaring class matched. ").Append(HousecarlCore.PluginNameSuggest.DidYouMean(filter, pool));
-            sb.Append('\n');
-            AppendCaveats(sb, d);   // a "no match" over an incompletely-read build must carry the caveat (Q3)
+            sb.Append(tail);   // a "no match" over an incompletely-read build must carry the caveat (Q3)
             return sb.ToString().TrimEnd('\n') + Accounting();
         }
 
         int shown = 0;
         foreach (var c in hits)
         {
-            if (sb.Length >= cap) { sb.Append("\n  ... [showing ").Append(shown).Append(" of ").Append(hits.Count).Append(" classes; raise max_chars]\n"); break; }
+            int mark = sb.Length;
             sb.Append('\n').Append(c.ClassName).Append("  (").Append(c.RelPath).Append(")\n");
             sb.Append("  provenance: ").Append(c.Provenance switch
             {
@@ -1622,12 +1669,12 @@ static class NativePairingWire
                 sb.Append(string.Join(", ", c.NativeFunctions.Take(8))).Append(", ... [").Append(c.NativeCount - 8).Append(" more; raise max_chars]");
             else sb.Append(fns);
             sb.Append('\n');
+            if (sb.Length > cap) { sb.Length = mark; sb.Append("\n  ... [showing ").Append(shown).Append(" of ").Append(hits.Count).Append(" classes; raise max_chars]\n"); break; }
             shown++; tally.Mark(c.ClassName);
         }
         // The caveats ride the filtered view too: "no match", or a partial hit over a build whose BSA failed to read,
         // must not read as a clean answer.
-        sb.Append('\n');
-        AppendCaveats(sb, d);
+        sb.Append(tail);
         return sb.ToString().TrimEnd('\n') + Accounting();
     }
 
@@ -1637,7 +1684,7 @@ static class NativePairingWire
         int shown = 0;
         foreach (var e in items)
         {
-            if (sb.Length >= cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(items.Count).Append("; raise max_chars or use filter= to see all]\n"); break; }
+            if (sb.Length + line(e).Length + 1 > cap) { sb.Append("  ... [showing ").Append(shown).Append(" of ").Append(items.Count).Append("; raise max_chars or use filter= to see all]\n"); break; }
             sb.Append(line(e)).Append('\n'); shown++;
             if (tally is not null && key is not null) tally.Mark(key(e));
         }
@@ -1775,7 +1822,17 @@ static class NativePairingWire
         };
     }
 
-    static void AppendCaveats(StringBuilder sb, NativePairingAuditData d)
+    static void AppendCaveats(StringBuilder sb, NativePairingAuditData d) => sb.Append(Caveats(d));
+
+    /// <summary>The build-level caveats as one string, so a render can charge them against max_chars up front.</summary>
+    static string Caveats(NativePairingAuditData d)
+    {
+        var sb = new StringBuilder();
+        AppendCaveatsTo(sb, d);
+        return sb.ToString();
+    }
+
+    static void AppendCaveatsTo(StringBuilder sb, NativePairingAuditData d)
     {
         if (d.ReadIncomplete)
             sb.Append("[!] a BSA failed to read this build, so a script present only in it may be missing from this audit (Q3).\n");
