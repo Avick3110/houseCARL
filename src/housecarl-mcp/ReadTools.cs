@@ -92,22 +92,26 @@ static class Wire
     public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch)
         => RenderResolve(rows, maxChars, epoch, null, out _);
 
-    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch, SpillState? spill, out bool truncated)
+    /// <param name="header">The caller's own header line, written INSIDE the budget: it is part of the response,
+    /// so a caller prepending it would spend characters max_chars never counted.</param>
+    public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch, SpillState? spill, out bool truncated,
+                                       string? header = null)
     {
         truncated = false;
         int cap = Cap(maxChars);
         var sb = new StringBuilder();
+        if (header is not null) sb.Append(header).Append('\n');
         sb.Append("resolve: ").Append(rows.Count).Append(rows.Count == 1 ? " formid" : " formids")
           .Append(Wire.EpochInline(epoch)).Append('\n');
+        // The notice and the spill block are written after the rows, so both are charged before the first one is:
+        // max_chars bounds the whole response, not the part above its own tail.
+        string Notice(int r) => "... [truncated: rendered " + r + " of " + rows.Count +
+                                " at max_chars=" + cap + "; request fewer formids or raise max_chars]\n";
+        var spillText = SpillText(spill);
+        int budget = cap - spillText.Length - Notice(rows.Count).Length;
         for (int i = 0; i < rows.Count && !(spill?.ManifestOnly ?? false); i++)
         {
-            if (sb.Length >= cap)
-            {
-                truncated = true;
-                sb.Append("... [truncated: rendered ").Append(i).Append(" of ").Append(rows.Count)
-                  .Append(" at max_chars=").Append(cap).Append("; request fewer formids or raise max_chars]\n");
-                break;
-            }
+            int mark = sb.Length;
             var r = rows[i];
             sb.Append("  ").Append(r.Token);
             if (r.Resolved)
@@ -118,9 +122,27 @@ static class Wire
             }
             else sb.Append("  error=").Append(r.Error ?? "not present in the active order");
             sb.Append('\n');
+            // Whole rows only: the one that crossed is taken back out rather than left hanging past the ceiling.
+            if (sb.Length > budget)
+            {
+                sb.Length = mark;
+                truncated = true;
+                sb.Append(Notice(i));
+                break;
+            }
         }
-        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
-        return sb.ToString().TrimEnd('\n');
+        sb.Append(spillText);
+        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+    }
+
+    /// <summary>The spill block as a string, so the room it takes is charged against max_chars before the rows are
+    /// laid rather than appended past the ceiling. Empty when this call spills nothing.</summary>
+    internal static string SpillText(SpillState? spill)
+    {
+        if (spill is null) return "";
+        var sb = new StringBuilder();
+        Artifacts.AppendSpillStateText(sb, spill);
+        return sb.ToString();
     }
 
     /// <summary>Whether this response has earned the owned-child clause, and over which fields. Registered at
@@ -150,6 +172,20 @@ static class Wire
         /// <summary>The chars to hold back from <c>max_chars</c> for the clause this response may still state.</summary>
         public int Reserve => ReadSentences.ClauseReserve(_mayNotRead);
 
+        /// <summary>What this response had earned before a row was written, so a row taken back out for crossing the
+        /// budget takes its clause with it — a clause naming a field the caller cannot see is the same defect the
+        /// class exists to prevent.</summary>
+        public (bool May, bool Unioned, string[] Fields) Mark() => (_mayNotRead, _unioned, _notRead.ToArray());
+
+        /// <inheritdoc cref="Mark"/>
+        public void Restore((bool May, bool Unioned, string[] Fields) mark)
+        {
+            _mayNotRead = mark.May;
+            _unioned = mark.Unioned;
+            _notRead.Clear();
+            foreach (var f in mark.Fields) _notRead.Add(f);
+        }
+
         internal IReadOnlyCollection<string> Fields() => _notRead;
 
         internal bool Unioned => _unioned;
@@ -167,7 +203,7 @@ static class Wire
 
     /// <summary>Render one record, keeping the cheap index-only annotation the service already put on the outcome.
     /// This lane renders no conflict tree at all; the precise tier lives on the tree form.</summary>
-    static void AppendRecordBlock(StringBuilder sb, ReadOutcome o, int cap, ChildNotes notes, LeverNames? levers = null)
+    static void AppendRecordBlock(StringBuilder sb, ReadOutcome o, RenderCap cap, ChildNotes notes, LeverNames? levers = null)
     {
         var lv = levers ?? LeverNames.Legacy;
         // Hold back the clause this record could earn before its fields render, so an annotated response answers
@@ -187,15 +223,17 @@ static class Wire
     /// spelling.</summary>
     /// <param name="renderMs">What reading these bodies cost, when the caller measured it — the scan's body lane
     /// does, so the row cost the render bound is set against is reported there too (#582).</param>
+    /// <param name="header">The caller's own header line, written INSIDE the budget for the same reason.</param>
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars,
                                      SpillState? spill, out bool truncated, LeverNames? levers = null,
-                                     long? renderMs = null)
+                                     long? renderMs = null, string? header = null)
     {
         truncated = false;
         var lv = levers ?? LeverNames.Legacy;
         int cap = Cap(maxChars);
         var notes = new ChildNotes();   // accumulated over the rows actually rendered, not over the input list
         var sb = new StringBuilder();
+        if (header is not null) sb.Append(header).Append('\n');
         sb.Append("batch: ").Append(outcomes.Count).Append(outcomes.Count == 1 ? " record" : " records");
         // The whole batch reads one captured build, so the epoch is response-level: take the first non-null, since
         // a malformed-FormID row never consulted a view and carries none.
@@ -205,30 +243,41 @@ static class Wire
         // The accounting line below is spoken for, like the clause: a response that fills to the ceiling must still
         // fit inside max_chars once it has stated what its bodies cost.
         int costReserve = renderMs is null ? 0 : RenderBudget.AccountingReserve;
+        // The notice and the spill block close this response, so both are charged before the first record is laid.
+        string Notice(int r) =>
+            "... [truncated: rendered " + r + " of " + outcomes.Count + " records before hitting max_chars=" + cap +
+            "; " + lv.BatchSelection + (lv.HasFieldSelector ? $", pass {lv.Fields} to slim each," : ",") +
+            " or raise max_chars]\n";
+        var spillText = SpillText(spill);
+        int budget = cap - costReserve - spillText.Length - Notice(outcomes.Count).Length;
         foreach (var o in outcomes)
         {
             if (spill?.ManifestOnly ?? false) break;   // to_file: only the manifest renders — the rows are the FILE
-            if (sb.Length >= cap - notes.Reserve - costReserve)   // the clauses this response has already earned are SPOKEN FOR
-            {
-                truncated = true;
-                sb.Append("... [truncated: rendered ").Append(rendered).Append(" of ").Append(outcomes.Count)
-                  .Append(" records before hitting max_chars=").Append(cap)
-                  .Append("; ").Append(lv.BatchSelection)
-                  .Append(lv.HasFieldSelector ? $", pass {lv.Fields} to slim each," : ",")   // a form with no field selector must not be told to narrow with one
-                  .Append(" or raise max_chars]\n");
-                break;
-            }
+            int mark = sb.Length;
+            var noteMark = notes.Mark();
             sb.Append('\n');
             if (o.Error is not null) sb.Append("error: ").Append(o.Error).Append('\n');
-            else AppendRecordBlock(sb, o, cap, notes, lv);
+            else AppendRecordBlock(sb, o, new RenderCap(cap, budget), notes, lv);
+            // Whole records only, and the clause this record earned goes back with it: the clauses already earned are
+            // SPOKEN FOR, so the test runs against what the response now owes.
+            if (sb.Length > budget - notes.Reserve)
+            {
+                sb.Length = mark;
+                notes.Restore(noteMark);
+                truncated = true;
+                sb.Append(Notice(rendered));
+                break;
+            }
             rendered++;
         }
         AppendOwnedChildNotes(sb, notes);
         // What reading these bodies cost, stated whatever the transport — the rows were resolved before this render,
         // so a to_file= batch reports the same number an inline one does (#582).
         if (renderMs is { } rms) sb.Append(RenderBudget.BodiesLine(outcomes.Count, rms));
-        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
-        return sb.ToString().TrimEnd('\n');
+        sb.Append(spillText);
+        // The one arm left: a max_chars smaller than what this response carries whatever the budget — its header,
+        // its accounting, and the spill block naming the artifact that holds the complete result. It says so.
+        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 
     // ---- the scan lane ----
@@ -245,15 +294,18 @@ static class Wire
     /// triggers the auto-spill.</summary>
     public static string RenderCrossQuery(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int maxChars,
                                           bool resolveNames, bool winnerFields, int depth, SpillState? spill, out bool truncated,
-                                          LeverNames? levers = null, CancellationToken ct = default)
+                                          LeverNames? levers = null, CancellationToken ct = default, string? header = null)
     {
         truncated = false;
         var lv = levers ?? LeverNames.Legacy;
+        // The caller's header line is written INSIDE the budget: it is part of the response, so a caller prepending
+        // it would spend characters max_chars never counted.
+        string head = header is null ? "" : header + "\n";
         // A refusal made after the build was captured is stamped with the epoch; a pre-capture validation refusal
         // carries null and renders bare.
-        if (q.Error is not null) return "error: " + q.Error + Wire.EpochLine(q.Stamp);
+        if (q.Error is not null) return head + "error: " + q.Error + Wire.EpochLine(q.Stamp);
         int cap = Cap(maxChars);
-        if (q.Groups is not null) return RenderCrossQueryGroups(q, cap, spill, out truncated);   // group_by= → a count table, not per-match lines
+        if (q.Groups is not null) return RenderCrossQueryGroups(q, cap, spill, out truncated, head);   // group_by= → a count table, not per-match lines
         bool detail = fields is { Count: > 0 };          // expand matches, vs. one-line summaries
         // One session, one link cache and one chunked body prefetch for every rendered match — and the row loop's
         // cancellation check.
@@ -262,6 +314,7 @@ static class Wire
             : null;
         bool anyScoped = JsonWire.AnyScopedFieldRow(q, fields);   // the shared test: a plugins= scope shows a plugin's OWN body
         var sb = new StringBuilder();
+        sb.Append(head);
         sb.Append("scan: ").Append(q.Total).Append(q.Total == 1 ? " match" : " matches");
         if (q.ScopeLabel is not null) sb.Append(" DEFINED IN ").Append(q.ScopeLabel);   // explicit scope — NOT the 'touches' default
         if (q.Offset > 0)                                                              // name the window, and the next offset while paging
@@ -299,20 +352,21 @@ static class Wire
         // The accounting line below is spoken for too: a detail render that fills to the ceiling must still fit
         // inside max_chars once it has stated what it cost.
         int costReserve = detail ? RenderBudget.AccountingReserve : 0;
+        // The truncation notice and the spill block are written after the rows; charging both before the rows are
+        // laid is what makes max_chars a ceiling on the whole response rather than on everything above its tail.
+        // The slim-down clause is only true for a call that passed something to slim WITH — see LeverNames.SlimScan.
+        // A call that passed nothing gets the two levers that are real on it.
+        string Notice(int r) =>
+            "... [truncated: rendered " + r + " of " + q.Keys.Count + " returned matches before hitting max_chars=" +
+            cap + (lv.SlimScan is null
+                       ? "; lower limit= or raise max_chars]\n"
+                       : $"; lower limit=, drop {lv.SlimScan}, or raise max_chars]\n");
+        var spillText = SpillText(spill);
+        int budget = cap - costReserve - spillText.Length - Notice(q.Keys.Count).Length;
         for (int i = 0; i < q.Keys.Count && !(spill?.ManifestOnly ?? false); i++)   // to_file: only the manifest renders — the rows are the FILE
         {
-            if (sb.Length >= cap - notes.Reserve - costReserve)   // the clauses this response has already earned are SPOKEN FOR
-            {
-                truncated = true;
-                sb.Append("... [truncated: rendered ").Append(rendered).Append(" of ").Append(q.Keys.Count)
-                  .Append(" returned matches before hitting max_chars=").Append(cap)
-                  // The slim-down clause is only true for a call that passed something to slim WITH — see
-                  // LeverNames.SlimScan. A call that passed nothing gets the two levers that are real on it.
-                  .Append(lv.SlimScan is null
-                              ? "; lower limit= or raise max_chars]\n"
-                              : $"; lower limit=, drop {lv.SlimScan}, or raise max_chars]\n");
-                break;
-            }
+            int mark = sb.Length;
+            var noteMark = notes.Mark();
             var fk = q.Keys[i];
             string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;   // multi-target references= un-merge
             if (detail)
@@ -324,7 +378,7 @@ static class Wire
                 sb.Append('\n');
                 if (matches is not null) sb.Append("  ").Append(fk).Append("  matches=").Append(matches).Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');
-                else AppendRecordBlock(sb, o, cap, notes, lv);   // o carries the scan's pin
+                else AppendRecordBlock(sb, o, new RenderCap(cap, budget), notes, lv);   // o carries the scan's pin
             }
             else
             {
@@ -340,6 +394,15 @@ static class Wire
                     sb.Append('\n');
                 }
             }
+            // Whole rows only, and the clause the row earned goes back with it when the row does.
+            if (sb.Length > budget - notes.Reserve)
+            {
+                sb.Length = mark;
+                notes.Restore(noteMark);
+                truncated = true;
+                sb.Append(Notice(rendered));
+                break;
+            }
             rendered++;
         }
         renderClock.Stop();
@@ -352,19 +415,20 @@ static class Wire
             sb.Append(RenderBudget.AccountingLine(a.Manifest.RowCount, artifactMs));
         else if (detail && !(spill?.ManifestOnly ?? false))
             sb.Append(RenderBudget.AccountingLine(rendered, renderClock.ElapsedMilliseconds));
-        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
-        return sb.ToString().TrimEnd('\n');
+        sb.Append(spillText);
+        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 
     /// <summary>Render a <c>group_by=</c> aggregation: a header naming the key, true total and group count, then
     /// one row per group (already sorted descending by the core). The where= and unscannable notes survive the
     /// aggregation. Over max_chars it stops with an explicit truncation notice; the total stays exact because only
     /// the rendering is capped, not the aggregation.</summary>
-    static string RenderCrossQueryGroups(CrossQueryOutcome q, int cap, SpillState? spill, out bool truncated)
+    static string RenderCrossQueryGroups(CrossQueryOutcome q, int cap, SpillState? spill, out bool truncated, string head = "")
     {
         truncated = false;
         var groups = q.Groups!;
         var sb = new StringBuilder();
+        sb.Append(head);
         sb.Append("scan: grouped by ").Append(q.GroupBy).Append(" — ")
           .Append(q.Total).Append(q.Total == 1 ? " match" : " matches")
           .Append(" across ").Append(groups.Count).Append(groups.Count == 1 ? " group" : " groups");
@@ -374,19 +438,24 @@ static class Wire
         if (q.PredicateNote is not null) sb.Append(q.PredicateNote).Append('\n');
         if (q.ScanNote is not null) sb.Append(q.ScanNote).Append('\n');
         if (q.ReverseIndexNote is not null) sb.Append(q.ReverseIndexNote).Append('\n');
+        // The notice and the spill block close this response, so both are charged before the first group row.
+        string Notice(int r) => "... [truncated: rendered " + r + " of " + groups.Count +
+                                " groups before hitting max_chars=" + cap + "; raise max_chars — the total above is exact]\n";
+        var spillText = SpillText(spill);
+        int budget = cap - spillText.Length - Notice(groups.Count).Length;
         for (int i = 0; i < groups.Count && !(spill?.ManifestOnly ?? false); i++)   // to_file: rows live in the file
         {
-            if (sb.Length >= cap)
+            var row = "  " + groups[i].Key + " = " + groups[i].Count + "\n";
+            if (sb.Length + row.Length > budget)
             {
                 truncated = true;
-                sb.Append("... [truncated: rendered ").Append(i).Append(" of ").Append(groups.Count)
-                  .Append(" groups before hitting max_chars=").Append(cap).Append("; raise max_chars — the total above is exact]\n");
+                sb.Append(Notice(i));
                 break;
             }
-            sb.Append("  ").Append(groups[i].Key).Append(" = ").Append(groups[i].Count).Append('\n');
+            sb.Append(row);
         }
-        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
-        return sb.ToString().TrimEnd('\n');
+        sb.Append(spillText);
+        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 
     // ---- the chain form ----
@@ -983,7 +1052,7 @@ static class Wire
     /// annotated response, such as readback and verify.</summary>
     /// <param name="reserve">Chars held back for the response-level clause this render may still state: the field
     /// loop stops that much earlier, while the notice still quotes the caller's own <paramref name="cap"/>.</param>
-    static void AppendRecord(StringBuilder sb, ReadOutcome o, int cap, int reserve = 0, ChildNotes? notes = null,
+    static void AppendRecord(StringBuilder sb, ReadOutcome o, RenderCap cap, int reserve = 0, ChildNotes? notes = null,
                              LeverNames? levers = null)
     {
         var lv = levers ?? LeverNames.Legacy;
@@ -995,21 +1064,23 @@ static class Wire
           .Append("  winner=").Append(o.WinnerPlugin)
           .Append("  override_depth=").Append(o.OverrideDepth).Append('\n');
         sb.Append("fields (from ").Append(o.SourcePlugin).Append("):\n");
+        // The field loop's own cut notice is charged before the first line, so the notice lands inside the budget
+        // rather than on top of it. It quotes the caller's max_chars, never the reduced budget it cuts against.
+        string Cut(int i) => "  ... [truncated: showing " + i + " of " + r.Fields.Count +
+                             " field lines at max_chars=" + cap.Cap +
+                             (lv.HasFieldSelector ? $"; narrow with {lv.Fields}, lower " : "; lower ") +
+                             lv.Depth + ", or raise max_chars]\n";
+        int room = cap.Budget - reserve - Cut(r.Fields.Count).Length;
         for (int i = 0; i < r.Fields.Count; i++)
         {
-            if (sb.Length >= cap - reserve)                                 // depth= can produce many lines — cap them
-            {
-                sb.Append("  ... [truncated: showing ").Append(i).Append(" of ").Append(r.Fields.Count)
-                  .Append(" field lines at max_chars=").Append(cap)
-                  .Append(lv.HasFieldSelector ? $"; narrow with {lv.Fields}, lower " : "; lower ")
-                  .Append(lv.Depth).Append(", or raise max_chars]\n");
-                break;
-            }
+            int mark = sb.Length;                                          // depth= can produce many lines — cap them
             var f = r.Fields[i];
             sb.Append("  ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note);
             if (f.Display is not null) sb.Append("   (").Append(f.Display).Append(')');   // display-only annotation (e.g. decoded biped slots) — never the round-trip token
             if (f.Link is not null) sb.Append("   (").Append(LinkText(f.Link)).Append(')');   // resolve_names target identity, DISPLAY-ONLY — never the round-trip token
             sb.Append('\n');
+            // Whole field lines only: the one that crossed is taken back out rather than left past the ceiling.
+            if (sb.Length > room) { sb.Length = mark; sb.Append(Cut(i)); break; }
             // The clause is earned HERE, by a line that reached the caller, not where the annotation was decided.
             if (notes is not null && o.OwnedChildFields is { } ann && ann.TryGetValue(f.Path, out var u))
                 notes.Emitted(f.Path, u is not null);

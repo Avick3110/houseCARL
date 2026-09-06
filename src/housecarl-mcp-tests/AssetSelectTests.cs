@@ -191,7 +191,7 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
 
         // No limit passed: the advice still names one, so the follow-up call is a page and not the whole remainder.
         var unlimited = AssetWire.Render(
-            _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir }), 500);
+            _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir }), 1_500);
         Assert.Matches(@"re-call with limit=[1-9]\d* offset=\d+ for the next page", unlimited);
     }
 
@@ -265,12 +265,13 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         var seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var p in all) seen[p] = 0;
 
-        // limit=3 resolves three paths a page; max_chars=500 renders fewer than three of them.
+        // limit=3 resolves three paths a page; max_chars=4000 renders fewer than three of them — wide enough to
+        // get one path onto the page, which is what a next-page offset is measured off.
         int offset = 0;
         for (int page = 0; page < 20; page++)
         {
             var text = AssetWire.Render(
-                _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir }, limit: 3, offset: offset), 500);
+                _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir }, limit: 3, offset: offset), 4_000);
             foreach (var p in all) if (text.Contains(p, StringComparison.Ordinal)) seen[p]++;
 
             var next = System.Text.RegularExpressions.Regex.Match(text, @"re-call with limit=\d+ offset=(\d+)");
@@ -377,7 +378,7 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
 
         var text = AssetWire.Render(_w.Svc.AssetStatus(Array.Empty<string>(), many), 2_000);
 
-        Assert.True(text.Length < 10_000, $"max_chars=2000 wrote {text.Length} chars of selector notes");
+        Assert.True(text.Length <= 2_000, $"max_chars=2000 wrote {text.Length} chars of selector notes");
         Assert.Contains("more selector(s) omitted at max_chars=2000", text);
         Assert.Contains("notes=2000", text);                  // the count is still stated in full
     }

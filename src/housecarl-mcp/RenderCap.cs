@@ -53,6 +53,6 @@ internal readonly record struct RenderCap(int Cap, int Budget)
 
     static string Say(int length, int cap) =>
         "\n[!] this response is " + length + " chars, over the max_chars=" + cap + " it was given: what it must carry " +
-        "whatever the budget — its header, its alarms, its accounting — does not fit in that many, so raise max_chars " +
-        "to at least " + length + ".";
+        "whatever the budget — its header, the notices it owes, its accounting — does not fit in that many, so raise " +
+        "max_chars to at least " + length + ".";
 }

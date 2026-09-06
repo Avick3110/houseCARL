@@ -596,10 +596,19 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
 
     // ---- emission: the clause is earned by a field LINE, not by the decision to annotate ----------
 
+    /// <summary>The annotated field goes LAST, behind enough filler that a mid cap stops the field loop before it —
+    /// the field is the one thing the cut must take away for this to be asking anything.</summary>
+    static string[] AnnotatedLastCellFields =>
+        Enumerable.Repeat(new[] { "Name", "Flags", "Grid", "Lighting", "OcclusionData", "MaxHeightData",
+                                  "LightingTemplate", "WaterHeight", "Regions", "Location", "Water",
+                                  "Owner", "FactionRank", "LockList" }, 4).SelectMany(x => x)
+                  .Concat(new[] { "Temporary" }).ToArray();
+
     [Fact]
     public void ACapThatTruncatesTheAnnotatedFieldAwayStatesNoClauseOverIt()
     {
-        var r = Read(_w.CellA, maxChars: 300);
+        var r = Read(_w.CellA, new RecordsTools.RecordsProject { form = "fields", fields = AnnotatedLastCellFields },
+                     maxChars: 2_000);
         Assert.Contains("truncated: showing", r);
         Assert.DoesNotContain(ReadSentences.ChildContent, r);
         Assert.Null(ClauseLineOrNull(r, ReadSentences.UnionFraming));
