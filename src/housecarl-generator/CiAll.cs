@@ -22,8 +22,10 @@ namespace HousecarlGenerator;
 /// runner's canonical corpus, so the check-first probes never validate against a prior probe's deleted temp
 /// corpus; the <c>CODEX_HOME</c> env var is restored, because setup-update-lock-guard nulls it and does not;
 /// and each probe runs in its own try/catch, so a probe that throws fails only itself. Everything else is
-/// per-probe already — Guid-unique temp dirs and explicit-path UserConfigStores — and the class-parents and
-/// decompile caches are per-LoadOrderService-instance, not process statics.</para>
+/// per-probe already — its own fixture directory and an explicit-path UserConfigStore — and the class-parents
+/// and decompile caches are per-LoadOrderService-instance, not process statics. Those fixture directories
+/// carry fixed names, so the run puts them under a per-process temp root (<see cref="ProbeTemp"/>): that is
+/// what keeps two runs at once out of each other's files.</para>
 /// </summary>
 public static class CiAll
 {
@@ -172,12 +174,26 @@ public static class CiAll
     public static bool TryDispatch(string name, string[] args, out int rc)
     {
         foreach (var e in All())
-            if (e.Name == name) { rc = e.Run(args); return true; }
+            if (e.Name == name)
+            {
+                ProbeTemp.Redirect();
+                try { rc = e.Run(args); }
+                finally { ProbeTemp.Cleanup(); }
+                return true;
+            }
         rc = 0;
         return false;
     }
 
+    /// <summary>Run the whole roster under this process's own temp root, and take the fixtures with it.</summary>
     public static int RunAll(string[] args)
+    {
+        ProbeTemp.Redirect();
+        try { return RunRoster(args); }
+        finally { ProbeTemp.Cleanup(); }
+    }
+
+    static int RunRoster(string[] args)
     {
         var probes = Roster;
 
