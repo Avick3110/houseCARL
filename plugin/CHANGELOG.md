@@ -55,10 +55,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   one. A client that stops waiting WITHOUT sending a cancel is not something the server can detect — nothing
   in the protocol reports it — which is what the render bound is there for.
 - **A field inside a record that cannot be read now says so, instead of rendering as absent.** Reading a
-  record deeply (`project.depth` of 2 or more) dropped the line for any sub-field whose read threw — a
-  truncated or badly merged plugin, most often — so a field that could not be read looked exactly like a
-  field the record does not carry. It now renders as `(unreadable: <reason>)` on its own line, naming the
-  sub-field and Mutagen's own reason, in every form and format; the sub-fields beside it still read.
+  record deeply (`project.depth` of 2 or more) dropped the line for any sub-field whose read threw — what a
+  truncated or badly merged plugin does to one field — so a field that could not be read looked exactly like
+  a field the record does not carry. It now renders as `(unreadable: <reason>)` on its own line, naming the
+  sub-field and Mutagen's own reason, and the fields beside it still read. `delta` and `tree` name it too:
+  an unreadable field is reported as not compared and leaves the comparison incomplete, so a record carrying
+  one is never called `identical`.
 
 - **Every tool description now fits inside the 2,048 characters Claude Code shows, and the grammar that was
   being cut off lives on the parameters it belongs to.** A description longer than that cap lost its tail on
