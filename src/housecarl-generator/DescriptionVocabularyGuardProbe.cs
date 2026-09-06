@@ -1653,7 +1653,7 @@ public static class DescriptionVocabularyGuardProbe
     /// <para><b>The hazard this pins.</b> <c>BulkOp.verb</c>'s description is <c>AllRecital</c> with a
     /// parenthetical appended directly onto it, and that parenthetical glosses ONE verb — the one the recital
     /// happens to end with. Appending a ninth verb to the const, which is exactly the edit the const exists to
-    /// make sufficient at one site instead of three, moves the gloss onto the new verb and strips it off the old
+    /// make sufficient at one site instead of two, moves the gloss onto the new verb and strips it off the old
     /// one, and no other arm sees it, because the recital is still complete and every token in it is still a real
     /// verb. Reordering does the same. The other conversion site, <c>ApplyOp.op</c>, is position-independent — it
     /// appends after a full stop.</para>
