@@ -721,14 +721,14 @@ public static class ApplyGuardProbe
         Check("an assignment missing from= is refused at its own index",
             noFrom.StartsWith("error:") && noFrom.Contains("assignments[0]"), noFrom);
 
-        // REVIEW FOLD [medium]: a zip-generated op must never be refused at an op[i] the caller never wrote.
-        // Two real ops here, so a naive index would say "op[2]" — a line that does not exist in the call.
+        // REVIEW FOLD [medium]: a zip-generated op must never be refused at an ops[i] the caller never wrote.
+        // Two real ops here, so a naive index would say "ops[2]" — a line that does not exist in the call.
         var badPair = ApplyTools.Apply(fx.Svc,
             ops: Json($$"""[{"formid":"{{fx.SubjectFid}}","field_path":"Name","value":"a"},{"formid":"{{fx.SubjectFid}}","field_path":"Value","value":"1"}]"""),
             bundle: new[] { "Name" },
             assignments: Json($$"""[{"target":"NOTAFORMID","from":"{{fx.DonorWeaponFid}}"}]"""));
         Check("a bad FormID in an assignment is refused NAMING THE ASSIGNMENT, not a phantom op index",
-            badPair.StartsWith("error:") && badPair.Contains("assignments[0]") && !badPair.Contains("op[2]"), badPair);
+            badPair.StartsWith("error:") && badPair.Contains("assignments[0]") && !badPair.Contains("ops[2]"), badPair);
 
         // REVIEW FOLD [low]: a mixed inline/@file bundle is named like the other two list inputs, not silently
         // treated as a literal field path.
