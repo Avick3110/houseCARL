@@ -30,6 +30,12 @@ internal static class BodyPrefetch
     /// <summary>The first row of the chunk row <paramref name="i"/> falls in.</summary>
     internal static int ChunkStart(int i) => i / ChunkRows * ChunkRows;
 
+    /// <summary>How many record bodies the gather has been asked for in this process — the keys it registers for a
+    /// plugin walk. Counted for the reason <see cref="LoadOrderResolver.BodySeeks"/> is: whether a caller gathered
+    /// only what it can use, or a whole frontier it then threw away, is invisible in the answer and only the cost
+    /// differs, so this is what a test can hold that claim to.</summary>
+    internal static long KeysWanted;
+
     /// <summary>The chunk covering rows <paramref name="start"/> (inclusive) to <paramref name="end"/> (exclusive):
     /// which plugin each row's body comes from, and each plugin's whole share of the chunk, ready to be walked when
     /// a row asks for it. <paramref name="sourceAt"/> names the plugin whose body a row displays, or null for the
@@ -52,6 +58,7 @@ internal static class BodyPrefetch
             set.Add(fk);
             plugins[fk] = plugin;
         }
+        Interlocked.Add(ref KeysWanted, plugins.Count);     // what this caller asked for, whether or not a row reads it
         return new Chunk(view, session, byPlugin, plugins, getterTypes, ct);
     }
 

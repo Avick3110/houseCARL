@@ -1,4 +1,4 @@
-using Mutagen.Bethesda;
+﻿using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
@@ -175,6 +175,33 @@ public sealed class RecordsWalkCostTests
         var ceiling = perSeedCeiling * (WalkCostWorld.Seeds + 2);
         Assert.True(allocated < ceiling,
                     $"the walk allocated {allocated / 1048576} MB over {WalkCostWorld.Seeds + 2} seeds — past the {ceiling / 1048576} MB this world's seed count allows.");
+    }
+
+    /// <summary>A seed at its node budget reads no further. The gather used to take every seed's whole hop frontier
+    /// before the budget was consulted on dequeue, so a walk capped at one node still read — and pinned — every
+    /// link off every seed to keep one of them. The budget now rides into the gather, and the cap itself is
+    /// unchanged: what is listed is reached and proved, and the truncation note still says so.</summary>
+    [Fact]
+    public void ACappedSeedGathersNoBodiesPastItsCap()
+    {
+        var beforeKeys = BodyPrefetch.KeysWanted;
+        var beforeSeeks = LoadOrderResolver.BodySeeks;
+        var response = RecordsTools.Records(Svc, types: Npc, plugins: Scope(),
+                                            walk: new RecordsTools.RecordsWalk { depth = 2, max_nodes = 1 },
+                                            project: Chain(), counts_only: true);
+        var wanted = BodyPrefetch.KeysWanted - beforeKeys;
+        var seeks = LoadOrderResolver.BodySeeks - beforeSeeks;
+
+        // Every seed but the top of the chain proves exactly one node, which is what the cap allows.
+        Assert.Contains($"reached={WalkCostWorld.Seeds + 1}", response);
+        // The seeds themselves, plus at most one body per seed for the one node each may still record. Before the
+        // budget rode into the gather this was the seeds plus their whole first frontier — a template link and
+        // ItemsPerSeed items each.
+        var ceiling = 2 * (WalkCostWorld.Seeds + 2);
+        Assert.True(wanted <= ceiling,
+                    $"a walk capped at one node per seed asked the gather for {wanted} bodies over {WalkCostWorld.Seeds + 2} seeds — past the {ceiling} its caps allow.");
+        // And trimming the gather did not push the walk back onto the per-record seek for what it does read.
+        Assert.True(seeks <= 1, $"a capped walk cost {seeks} per-record plugin walks.");
     }
 
     // ---- and it stops when the client stops waiting -------------------------------------------------
