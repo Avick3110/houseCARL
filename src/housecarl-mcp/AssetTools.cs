@@ -89,23 +89,23 @@ static class AssetWire
             .Append("'  (").Append(d.Selected).Append(" path").Append(d.Selected == 1 ? "" : "s")
             .Append(" selected)").ToString();
 
-        int rendered = 0;
         var body = BatchRender.Render(
             header, d.Results, "path(s)", cap,
             // Alarms come before the per-path list so a long batch cannot truncate them away.
-            sb =>
+            (sb, room) =>
             {
-                BatchRender.AppendReadFailures(sb, d.BsaFailures, "an asset", cap);
-                BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, cap);
-                AppendSelectorNotes(sb, d.SelectorNotes, cap);
+                BatchRender.AppendReadFailures(sb, d.BsaFailures, "an asset", room);
+                BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, room);
+                AppendSelectorNotes(sb, d.SelectorNotes, room);
             },
-            (sb, r) => { rendered++; AppendPath(sb, r, d.ReadIncomplete, d.Warnings.Count > 0); },
+            (sb, r, _) => AppendPath(sb, r, d.ReadIncomplete, d.Warnings.Count > 0),
+            out int rendered,
             // The accounting block is priced INSIDE max_chars, the way the check sweep's footer is: it is written
             // after the body, so room for its longest spelling is held back before the paths render rather than
             // appended past the cap. max_chars then means the same on this tool as on every other.
             reserve: AccountingReserve(d));
 
-        return body + TransportAccounting.Compose(Tally(d, rendered), RowNoun, everySentence: false);
+        return RenderCap.Settle(body + TransportAccounting.Compose(Tally(d, rendered), RowNoun, everySentence: false), cap);
     }
 
     /// <summary>What this family's accounting counts.</summary>
@@ -115,10 +115,10 @@ static class AssetWire
     /// Above the per-path list, with the other alarms, so a truncated sweep cannot cut it away. Capped like its two
     /// sibling alarm blocks: one note per selector is bounded by the call's own input, but that input can be thousands
     /// of selectors, which would write megabytes before the per-path loop ever checks the budget.</summary>
-    static void AppendSelectorNotes(StringBuilder sb, IReadOnlyList<string>? notes, int cap)
+    static void AppendSelectorNotes(StringBuilder sb, IReadOnlyList<string>? notes, RenderCap cap)
     {
         if (notes is not { Count: > 0 }) return;
-        sb.Append("\n[!] under (").Append(notes.Count).Append("):\n");
+        if (!cap.TryAppend(sb, "\n[!] under (" + notes.Count + "):\n")) return;
         BatchRender.AppendLines(sb, notes, "selector(s)", cap);
     }
 

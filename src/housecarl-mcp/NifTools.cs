@@ -367,25 +367,28 @@ static class NifWire
             .Append(')').ToString();
 
         bool readIncomplete = d.BsaFailures.Count > 0, discoveryIncomplete = d.Warnings.Count > 0;
-        return BatchRender.Render(
+        return RenderCap.Settle(BatchRender.Render(
             header, d.Results, "mesh(es)", cap,
             // The alarms come first and once, at batch level, so a long batch cannot truncate them away.
-            sb =>
+            (sb, room) =>
             {
-                BatchRender.AppendReadFailures(sb, d.BsaFailures, "a mesh", cap);
-                BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, cap);
+                BatchRender.AppendReadFailures(sb, d.BsaFailures, "a mesh", room);
+                BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, room);
                 if (unknownSections.Count > 0)
-                    sb.Append("\n[!] unrecognized section(s) ignored: ").Append(string.Join(", ", unknownSections))
-                      .Append("  (").Append(NifTools.KnownSectionsHint).Append(")\n");
+                    room.TryAppend(sb, "\n[!] unrecognized section(s) ignored: " + string.Join(", ", unknownSections)
+                                     + "  (" + NifTools.KnownSectionsHint + ")\n");
             },
-            (sb, r) => AppendMesh(sb, r, want, cap, readIncomplete, discoveryIncomplete));
+            // The mesh's own sections cut against the ROOM LEFT, not against max_chars: a section that clamped itself
+            // to the whole cap would land the mesh past the ceiling and be taken back out entire.
+            (sb, r, room) => AppendMesh(sb, r, want, room, readIncomplete, discoveryIncomplete),
+            out _), cap);
     }
 
     /// <summary>One mesh's block: the path line, then either its named error with the provider chain where there is
     /// one, or the resolution, summary and requested detail sections. An ABSENT is hedged at the point of use on both
     /// batch-level scan caveats — an archive that failed to read, and archives never discovered — because the
     /// top-of-output alarm scrolls away in a long batch.</summary>
-    static void AppendMesh(StringBuilder sb, NifInspectData d, HashSet<string> want, int cap, bool readIncomplete, bool discoveryIncomplete)
+    static void AppendMesh(StringBuilder sb, NifInspectData d, HashSet<string> want, RenderCap cap, bool readIncomplete, bool discoveryIncomplete)
     {
         sb.Append('\n').Append(d.RelPath.Length > 0 ? d.RelPath : "(empty path)").Append('\n');
 
@@ -435,18 +438,27 @@ static class NifWire
         sb.Append("  nodes: ").Append(nif.Nodes.Count).Append("  (pass sections=nodes for the tree)\n");
 
         // ---- detail sections on demand ----
-        if (want.Contains("shapes")) RenderShapesDetail(sb, nif, cap);
-        if (want.Contains("partitions")) RenderPerShape(sb, nif, cap, "partitions", s => s.Partitions.Count > 0,
-            s => string.Join(", ", s.Partitions.Select(p => $"{p.BodyPartId} ({p.BodyPartName}, flags {p.PartFlags})")));
-        if (want.Contains("alpha")) RenderPerShape(sb, nif, cap, "alpha", s => s.Alpha is not null,
-            s => AlphaLine(s.Alpha!));
-        if (want.Contains("paths")) RenderPaths(sb, nif, cap);
-        if (want.Contains("shader")) RenderShader(sb, nif, cap);
-        if (want.Contains("bones")) RenderPerShape(sb, nif, cap, "bones", s => s.Bones.Count > 0,
-            s => string.Join(", ", s.Bones));
-        if (want.Contains("nodes")) RenderNodes(sb, nif, cap);
-        if (want.Contains("strings")) RenderStrings(sb, nif, cap);
+        // A section the budget cannot even start is COUNTED, never silently absent: the room for that one line is
+        // charged before the first section renders.
+        var room = cap.Less(SectionsMissed(want.Count, cap.Cap).Length);
+        int missed = 0;
+        if (want.Contains("shapes") && !RenderShapesDetail(sb, nif, room)) missed++;
+        if (want.Contains("partitions") && !RenderPerShape(sb, nif, room, "partitions", s => s.Partitions.Count > 0,
+            s => string.Join(", ", s.Partitions.Select(p => $"{p.BodyPartId} ({p.BodyPartName}, flags {p.PartFlags})")))) missed++;
+        if (want.Contains("alpha") && !RenderPerShape(sb, nif, room, "alpha", s => s.Alpha is not null,
+            s => AlphaLine(s.Alpha!))) missed++;
+        if (want.Contains("paths") && !RenderPaths(sb, nif, room)) missed++;
+        if (want.Contains("shader") && !RenderShader(sb, nif, room)) missed++;
+        if (want.Contains("bones") && !RenderPerShape(sb, nif, room, "bones", s => s.Bones.Count > 0,
+            s => string.Join(", ", s.Bones))) missed++;
+        if (want.Contains("nodes") && !RenderNodes(sb, nif, room)) missed++;
+        if (want.Contains("strings") && !RenderStrings(sb, nif, room)) missed++;
+        if (missed > 0) sb.Append(SectionsMissed(missed, cap.Cap));
     }
+
+    /// <summary>The line that says how many requested detail sections had no room to start at all.</summary>
+    static string SectionsMissed(int missed, int cap) =>
+        "  … [" + missed + " requested section(s) omitted at max_chars=" + cap + "; raise max_chars to see them]\n";
 
     static void AppendProviders(StringBuilder sb, IReadOnlyList<NifProvider> providers)
     {
@@ -462,14 +474,14 @@ static class NifWire
         sb.Append('\n');
     }
 
-    static void RenderShapesDetail(StringBuilder sb, NifInspect nif, int cap)
+    static bool RenderShapesDetail(StringBuilder sb, NifInspect nif, RenderCap cap)
     {
-        sb.Append("\n--- shapes (").Append(nif.Shapes.Count).Append(") ---\n");
-        if (SlotNamingCaveat(nif) is { } shapesCaveat) sb.Append(shapesCaveat);
+        if (!cap.TryAppend(sb, "\n--- shapes (" + nif.Shapes.Count + ") ---\n")) return false;
+        if (SlotNamingCaveat(nif) is { } shapesCaveat) cap.TryAppend(sb, shapesCaveat);
         int shown = 0;   // the cut notice counts the remainder, not the total
         foreach (var s in nif.Shapes)
         {
-            if (Cut(sb, cap, nif.Shapes.Count - shown)) return;
+            int mark = sb.Length;
             sb.Append("  '").Append(s.Name).Append("'  flags ").Append(DescribeFlags(s.Flags, s.FlagsDefault, s.FlagsDefaultType, s.BlockType))
               .Append("  scale ").Append(Fmt(s.Scale)).Append('\n');
             if (s.Partitions.Count > 0)
@@ -479,38 +491,44 @@ static class NifWire
             foreach (var t in s.Textures) AppendTexture(sb, t);
             if (s.Bones.Count > 0)
                 sb.Append("    bones: ").Append(string.Join(", ", s.Bones)).Append('\n');
+            if (Cut(sb, cap, mark, nif.Shapes.Count - shown)) return true;
             shown++;
         }
+        return true;
     }
 
-    static void RenderPerShape(StringBuilder sb, NifInspect nif, int cap, string title, Func<NifShape, bool> has, Func<NifShape, string> line)
+    static bool RenderPerShape(StringBuilder sb, NifInspect nif, RenderCap cap, string title, Func<NifShape, bool> has, Func<NifShape, string> line)
     {
-        sb.Append("\n--- ").Append(title).Append(" ---\n");
+        if (!cap.TryAppend(sb, "\n--- " + title + " ---\n")) return false;
         var matched = nif.Shapes.Where(has).ToList();   // the omitted remainder counts the filtered subset, not total shapes
         int shown = 0;
         foreach (var s in matched)
         {
-            if (Cut(sb, cap, matched.Count - shown)) return;
+            int mark = sb.Length;
             sb.Append("  '").Append(s.Name).Append("': ").Append(line(s)).Append('\n');
+            if (Cut(sb, cap, mark, matched.Count - shown)) return true;
             shown++;
         }
         if (shown == 0) sb.Append("  (none)\n");
+        return true;
     }
 
-    static void RenderPaths(StringBuilder sb, NifInspect nif, int cap)
+    static bool RenderPaths(StringBuilder sb, NifInspect nif, RenderCap cap)
     {
-        sb.Append("\n--- paths (embedded texture-set slots; material/.tri/physics-xml refs appear under sections=strings) ---\n");
-        if (SlotNamingCaveat(nif) is { } pathsCaveat) sb.Append(pathsCaveat);
+        if (!cap.TryAppend(sb, "\n--- paths (embedded texture-set slots; material/.tri/physics-xml refs appear under sections=strings) ---\n")) return false;
+        if (SlotNamingCaveat(nif) is { } pathsCaveat) cap.TryAppend(sb, pathsCaveat);
         var textured = nif.Shapes.Where(s => s.Textures.Count > 0).ToList();   // the omitted remainder counts the filtered subset, not total shapes
         int shown = 0;
         foreach (var s in textured)
         {
-            if (Cut(sb, cap, textured.Count - shown)) return;
+            int mark = sb.Length;
             sb.Append("  '").Append(s.Name).Append("':\n");
             foreach (var t in s.Textures) AppendTexture(sb, t);
+            if (Cut(sb, cap, mark, textured.Count - shown)) return true;
             shown++;
         }
         if (shown == 0) sb.Append("  (no embedded texture paths)\n");
+        return true;
     }
 
     /// <summary>One texture slot line, shared by the shapes and paths sections. The index is always printed and the
@@ -527,14 +545,14 @@ static class NifWire
     /// <summary>The shader section: per shape, the block type and shader type enum, the decoded flag words, and the
     /// lighting values. Multi-line per shape rather than one long line, because a visual diagnosis reads it top to
     /// bottom.</summary>
-    static void RenderShader(StringBuilder sb, NifInspect nif, int cap)
+    static bool RenderShader(StringBuilder sb, NifInspect nif, RenderCap cap)
     {
-        sb.Append("\n--- shader (per shape; slot names above come from these type+flags) ---\n");
+        if (!cap.TryAppend(sb, "\n--- shader (per shape; slot names above come from these type+flags) ---\n")) return false;
         var shaded = nif.Shapes.Where(s => s.Shader is not null).ToList();   // the omitted remainder counts the filtered subset
         int shown = 0;
         foreach (var s in shaded)
         {
-            if (Cut(sb, cap, shaded.Count - shown)) return;
+            int mark = sb.Length;
             var sh = s.Shader!;
             sb.Append("  '").Append(s.Name).Append("': ").Append(sh.BlockType);
             // A block that does not serialize a shader type says so, rather than reporting a default-valued one.
@@ -553,9 +571,11 @@ static class NifWire
                 sb.Append("    flags: none decoded — this library models no named flag word for the ")
                   .Append(sh.GameType).Append(" layout (the raw block is intact; nothing is being hidden)\n");
             AppendShaderValues(sb, sh);
+            if (Cut(sb, cap, mark, shaded.Count - shown)) return true;
             shown++;
         }
         if (shown == 0) sb.Append("  (no shape carries a shader property)\n");
+        return true;
     }
 
     /// <summary>One decoded flag word. Unnamed bits are stated as an explicit hex mask: a bit the library's enum does
@@ -643,30 +663,34 @@ static class NifWire
              + "means UNMODELLED, not undetermined; pass sections=shader for each shape's layout.\n";
     }
 
-    static void RenderNodes(StringBuilder sb, NifInspect nif, int cap)
+    static bool RenderNodes(StringBuilder sb, NifInspect nif, RenderCap cap)
     {
-        sb.Append("\n--- node tree (").Append(nif.Nodes.Count).Append(") ---\n");
+        if (!cap.TryAppend(sb, "\n--- node tree (" + nif.Nodes.Count + ") ---\n")) return false;
         int shown = 0;
         foreach (var n in nif.Nodes)
         {
-            if (Cut(sb, cap, nif.Nodes.Count - shown)) return;
+            int mark = sb.Length;
             sb.Append("  ").Append(new string(' ', n.Depth * 2)).Append(n.Name.Length > 0 ? n.Name : "(unnamed)")
               .Append("  ").Append(DescribeFlags(n.Flags, n.FlagsDefault, n.FlagsDefaultType, n.BlockType)).Append('\n');
+            if (Cut(sb, cap, mark, nif.Nodes.Count - shown)) return true;
             shown++;
         }
+        return true;
     }
 
-    static void RenderStrings(StringBuilder sb, NifInspect nif, int cap)
+    static bool RenderStrings(StringBuilder sb, NifInspect nif, RenderCap cap)
     {
-        sb.Append("\n--- header string table (").Append(nif.HeaderStrings.Count).Append(") ---\n");
+        if (!cap.TryAppend(sb, "\n--- header string table (" + nif.HeaderStrings.Count + ") ---\n")) return false;
         int shown = 0;
         foreach (var s in nif.HeaderStrings)
         {
-            if (Cut(sb, cap, nif.HeaderStrings.Count - shown)) return;
+            int mark = sb.Length;
             sb.Append("  [").Append(shown).Append("] ").Append(s).Append('\n');
+            if (Cut(sb, cap, mark, nif.HeaderStrings.Count - shown)) return true;
             shown++;
         }
         if (shown == 0) sb.Append("  (none)\n");
+        return true;
     }
 
     static string AlphaLine(NifAlpha a)
@@ -698,6 +722,10 @@ static class NifWire
         return sb.Append(']').ToString();
     }
 
+    /// <summary>The one-line list's cut notice, spelled once so its length can be charged before the list renders.</summary>
+    static string Clamped(int remaining, int cap) =>
+        " … [" + remaining + " more omitted at max_chars=" + cap + "; raise max_chars to see all]";
+
     /// <summary>The set bit positions of a 32-bit flags word, comma-joined (e.g. "1,2,3,26"), or "none".</summary>
     static string BitList(uint f)
     {
@@ -708,27 +736,31 @@ static class NifWire
 
     /// <summary>Append "&lt;label&gt;&lt;a, b, c&gt;" as one line, cut with an explicit notice if it would exceed the
     /// cap.</summary>
-    static void AppendClampedList(StringBuilder sb, string label, IEnumerable<string> items, int cap)
+    static void AppendClampedList(StringBuilder sb, string label, IEnumerable<string> items, RenderCap cap)
     {
-        sb.Append(label);
         var list = items.ToList();
+        // The line's own cut notice is charged before its first item, so the list stops one item earlier rather than
+        // the notice landing past the ceiling.
+        var room = cap.Less(Clamped(list.Count, cap.Cap).Length + 1);
+        sb.Append(label);
         int shown = 0;
         for (; shown < list.Count; shown++)
         {
-            if (sb.Length >= cap) break;
-            if (shown > 0) sb.Append(", ");
-            sb.Append(list[shown]);
+            if (!room.TryAppend(sb, (shown > 0 ? ", " : "") + list[shown])) break;
         }
-        if (shown < list.Count)
-            sb.Append(" … [").Append(list.Count - shown).Append(" more omitted at max_chars=").Append(cap).Append("; raise max_chars to see all]");
+        if (shown < list.Count) sb.Append(Clamped(list.Count - shown, cap.Cap));
         sb.Append('\n');
     }
 
-    /// <summary>True (and appends the cut notice) when the buffer has hit the cap mid-section — the per-item loop breaks.</summary>
-    static bool Cut(StringBuilder sb, int cap, int remaining)
+    /// <summary>True (and appends the cut notice) when the unit written since <paramref name="mark"/> crossed the
+    /// budget — the unit is taken back out whole and the per-item loop breaks. The test runs AFTER the unit is
+    /// written because that is the only point its size is known; a test before it knows only what the buffer
+    /// already holds.</summary>
+    static bool Cut(StringBuilder sb, RenderCap cap, int mark, int remaining)
     {
-        if (sb.Length < cap) return false;
-        BatchRender.AppendCut(sb, remaining, "", cap);
+        if (sb.Length <= cap.Budget) return false;
+        sb.Length = mark;
+        BatchRender.AppendCut(sb, remaining, "", cap.Cap);
         return true;
     }
 
