@@ -273,7 +273,7 @@ internal static class ImportOrderProbe
         }
         else
         {
-            var work = Path.Combine(Environment.CurrentDirectory, ".import-order-probe-gen");
+            var work = Path.Combine(Path.GetTempPath(), ".import-order-probe-gen");
             var extDir = Path.Combine(work, "ext");
             var outDir = Path.Combine(work, "out");
             Directory.CreateDirectory(extDir); Directory.CreateDirectory(outDir);
@@ -309,7 +309,7 @@ internal static class ImportOrderProbe
                       "an AUTO-DISCOVERED mod's extended copy also beats vanilla" +
                       (auto.Success ? "" : $" (first error: {(auto.Diagnostics.Count > 0 ? auto.Diagnostics[0].ToString() : auto.Stderr.Trim())})"));
             }
-            finally { try { Directory.Delete(work, recursive: true); } catch { /* in-dir scratch; non-fatal */ } }
+            finally { try { Directory.Delete(work, recursive: true); } catch { /* temp scratch; non-fatal */ } }
         }
 
         Console.WriteLine();
