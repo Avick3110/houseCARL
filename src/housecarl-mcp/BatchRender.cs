@@ -34,6 +34,7 @@ static class BatchRender
         var budget = RenderCap.For(cap, reserve + NoticeReserve(items.Count, itemNoun, cap));
         var sb = new StringBuilder();
         sb.Append(header).Append('\n');
+        int headerEnd = sb.Length;
         appendAlarms(sb, budget);
 
         shown = 0;
@@ -45,14 +46,33 @@ static class BatchRender
             if (roomBefore && sb.Length <= budget.Budget) { shown++; continue; }
 
             // Whole items only: the one that crossed is taken back out, and what it would have needed is named.
-            int needed = cap + (sb.Length - budget.Budget);
+            int itemLength = sb.Length - mark;
             sb.Length = mark;
             sb.Append('\n');
-            if (shown == 0 && roomBefore) sb.Append(Oversize(items.Count, itemNoun, cap, needed));
+            // "Wider than the whole budget" is a claim about the item, so it is made only when the item would not
+            // have fitted an empty page either. When the alarms above it are what filled the budget, the item is
+            // ordinary and the cut marker is the honest line.
+            if (shown == 0 && roomBefore && headerEnd + itemLength > budget.Budget)
+                sb.Append(Oversize(items.Count, itemNoun, cap, Needed(mark + itemLength + reserve, items.Count, itemNoun, cap)));
             else AppendCut(sb, items.Count - shown, itemNoun, cap);
             break;
         }
         return sb.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>The max_chars that clears this item in ONE step. The notice quoting it prints the cap as well as the
+    /// remedy, so a wider answer widens the reserve the item then has to clear: the number is settled against its own
+    /// rendered width rather than named short by the digits it grew.</summary>
+    static int Needed(int floor, int count, string itemNoun, int cap)
+    {
+        int needed = floor + NoticeReserve(count, itemNoun, cap);
+        for (int i = 0; i < 4; i++)
+        {
+            int next = floor + NoticeReserve(count, itemNoun, needed);
+            if (next == needed) break;
+            needed = next;
+        }
+        return needed;
     }
 
     /// <summary>The chars held back for whichever notice this render may end on, at its widest spelling: every item

@@ -46,6 +46,14 @@ public class BatchRenderCapTests
         Array.Empty<string>(),
         "TestProfile");
 
+    /// <summary>An alarm block wide enough to fill a modest budget on its own, over ordinary short path blocks.</summary>
+    static AssetStatusData ManyReadFailures(int failures, int paths) => new(
+        Enumerable.Range(0, paths).Select(i => Absent($"meshes/alarm/path{i:D4}.nif")).ToList(),
+        Enumerable.Range(0, failures).Select(i => $"A Mod With A Long Folder Name {i:D3} - Textures.bsa (header refused)").ToList(),
+        true,
+        Array.Empty<string>(),
+        "TestProfile");
+
     static AssetPathResult Absent(string path) =>
         new(path, new AssetHit(path, false, null, Array.Empty<AssetProvider>(), false), null);
 
@@ -151,18 +159,35 @@ public class BatchRenderCapTests
     }
 
     /// <summary>The remedy is executable: rendering again at the max_chars the notice named gets the item onto the
-    /// page. A remedy that has to be followed twice is one the caller cannot act on.</summary>
-    [Fact]
-    public void FollowingThatRemedyOnceRendersTheItem()
+    /// page. A remedy that has to be followed twice is one the caller cannot act on — including from a cap with
+    /// fewer digits than its own answer, where the notice the raise pays for grows as the number does.</summary>
+    [Theory]
+    [InlineData(900)]
+    [InlineData(950)]
+    [InlineData(990)]
+    [InlineData(1_200)]
+    public void FollowingThatRemedyOnceRendersTheItem(int cap)
     {
         var data = Paths(3, providers: 60);
-        var first = AssetWire.Render(data, 1_200);
+        var first = AssetWire.Render(data, cap);
         var needed = int.Parse(System.Text.RegularExpressions.Regex.Match(first, @"raise max_chars to at least (\d+)").Groups[1].Value);
 
         var second = AssetWire.Render(data, needed);
 
         Assert.Contains("meshes/batch/render/cap/path0000.nif", second);
         Assert.DoesNotContain("wider than this response's whole budget", second);
+    }
+
+    /// <summary>The empty page has two causes and the notice names the right one: when the ALARMS above the items
+    /// filled the budget, the first item is ordinary and the cut marker is what the caller reads — not a sentence
+    /// blaming an item that would have fitted an empty page.</summary>
+    [Fact]
+    public void AlarmsThatFillTheBudgetAreNotBlamedOnTheFirstItem()
+    {
+        var text = AssetWire.Render(ManyReadFailures(40, 20), 2_000);
+
+        Assert.DoesNotContain("the first alone is wider than this response's whole budget", text);
+        Assert.Matches(@"\[\d+ more path\(s\) omitted", text);
     }
 
     /// <summary>The one arm a bounded render may still exceed on: a cap too small for the header, the alarms and the
