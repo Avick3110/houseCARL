@@ -53,6 +53,19 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `project.form='chain'` on the two lanes chain can draw. `chain` reads no body per rendered row and is not held to
   the bound, though the walk itself still reads one per reached node whatever the form. A cancel sent by the client
   stops a walk between hops.
+- **`max_chars=` is now a hard ceiling on `housecarl_records`, `housecarl_asset_status`,
+  `housecarl_nif_inspect`, `housecarl_place` and `housecarl_skse`, not a test taken before the item that
+  crossed it.** These renders used to check the budget and then write the next record, path, mesh or row
+  whole, and to append the truncation notice, the accounting line and the `spilled:` block on top, so a
+  response could come back several hundred characters past the number the caller passed. Everything written
+  below the rows is now charged before the first one is laid, and an item that would cross what is left is
+  not written at all: the notice says how many were held back, and one item wider than the whole budget is
+  named with the `max_chars` that clears it in one step rather than dropped. A `housecarl_records` result the
+  ceiling cuts still spills COMPLETE to its artifact — the ceiling bounds the render, never the answer. The
+  one case that can still come back over the cap is a `max_chars` too small for what a response carries
+  whatever the budget — its header, the notices it owes, its accounting — and it now says so in a sentence
+  naming the number that clears it, which is how you can check. Each tool's own `max_chars=` parameter says
+  what its ceiling covers.
 - **A `housecarl_records` scan now says what its render cost, refuses a render too big to finish, and stops
   when the client sends a cancel.** Reading a record body per rendered row used to walk the whole winning
   plugin for each one, so a projection of a few fields over a big selection could run for tens of minutes with

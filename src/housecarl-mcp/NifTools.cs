@@ -102,8 +102,7 @@ public static class NifTools
                      "rest of the batch still reads. Applies to every mesh " +
                      "in the batch. Empty = the winner.")]
             string mod = "",
-        [Description("Optional. Max characters before the output is cut with an explicit notice — one cap over the " +
-                     "WHOLE batch's render, not per mesh. 0 = the server default (~80k).")]
+        [Description("TRANSPORT: character CEILING on the whole response — one cap over the WHOLE batch's render, not per mesh: the mesh whose block would cross it is not written at all, and the notice says how many were held back; one mesh wider than the whole budget is named with the max_chars that clears it rather than dropped. Detail sections cut against what the batch has left, and a requested section with no room to start is counted. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.NifInspect, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
