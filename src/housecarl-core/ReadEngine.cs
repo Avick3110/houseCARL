@@ -602,9 +602,10 @@ public static class ReadEngine
         var leaf = EmitToken(val, declaredType, parent);
         if (leaf.HasValue) { Emit(sink, ref budget, new FieldValue(path, true, leaf.Token, null, FlagDisplay(leaf))); return; }
         if (val is null) { Emit(sink, ref budget, new FieldValue(path, false, null, leaf.Note, Present: false)); return; }
-        // a link (incl. a null FormKey, or an FLOI) is a note, not an openable container/substruct.
+        // a link (incl. a null FormKey, or an FLOI) is a note, not an openable container/substruct. Both flags
+        // travel with it: an FLOI whose mode or index could not be read is a fault, not an absence.
         if (val is IFormLinkGetter || WriteEngine.IsFormLinkOrIndex(Nullable.GetUnderlyingType(declaredType) ?? declaredType))
-        { Emit(sink, ref budget, new FieldValue(path, false, null, leaf.Note, Present: leaf.Present)); return; }
+        { Emit(sink, ref budget, new FieldValue(path, false, null, leaf.Note, Present: leaf.Present, Readable: leaf.Readable)); return; }
 
         // Classify dict-vs-list the SAME way the navigation does (StepIntoElement) — by the GENERIC dictionary
         // interfaces via ClosedInterface, not a separate non-generic System.Collections.IDictionary cast — so the
