@@ -44,7 +44,7 @@ public static class CopyTools
             string? target = null,
         [Description("DESTINATION: mint a CLONE of the source record with this EditorID. Every link on the clone still pointing into the source is STRIPPED and reported by name — including when clearing one takes a WHOLE property with it (a script adapter, say), which the report says out loud. A link the record model REQUIRES cannot be stripped, so that refuses loud rather than writing an invented null or silently mastering the source. Pass this OR target.")]
             string? new_editorid = null,
-        [Description("Optional. Base name for the NEW patch plugin + mod folder; auto-suffixed if taken.")]
+        [Description("Optional. Base name for the NEW patch plugin + mod folder; auto-suffixed if taken. A name another mod folder already holds as a plugin your order is not loading is refused rather than suffixed, naming that folder and file.")]
             string? patch = null,
         [Description("Optional. Extend an existing houseCARL patch instead of creating one — its plugin filename.")]
             string? into = null) => Guard.Tool(ToolNames.Copy, () =>

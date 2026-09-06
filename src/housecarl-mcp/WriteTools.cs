@@ -76,7 +76,7 @@ public static class WriteTools
             bool repoint_externals = false,
         [Description("Optional, default false. Confirms the in-place trade-off when in_place=true OR repoint_externals=true (your original file(s) get rewritten, no backup). The FIRST such call without it returns a CONFIRM prompt listing exactly what will be overwritten — re-call with acknowledge=true to proceed.")]
             bool acknowledge = false,
-        [Description("Optional. Base name for the NEW mod folder (new-file lane only; auto-suffixed if taken). Ignored with in_place=true. The PLUGIN inside ALWAYS keeps the source's exact basename so external masters still resolve.")]
+        [Description("Optional. Base name for the NEW mod folder (new-file lane only; auto-suffixed if taken, but refused rather than suffixed when another mod folder already holds that name as a plugin your order is not loading, naming that folder and file). Ignored with in_place=true. The PLUGIN inside ALWAYS keeps the source's exact basename so external masters still resolve.")]
             string? patch_name = null) => Guard.Tool(ToolNames.CompactPlugin, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
@@ -110,7 +110,7 @@ public static class WriteTools
             string[] plugins,
         [Description("The NEW merged plugin's filename to create (e.g. 'MyMerge.esp') — must NOT already exist in the load order: an output name already there is refused loud and nothing is written. The donors keep their names and files untouched. ASSETS follow the renumber into this name: every donor NPC's facegen and every voiced line are carried into the new plugin-name folders (those paths embed the plugin NAME, so ALL donor facegen/voice moves, not just collisions), and a .seq is refreshed when any donor shipped one. Existing SAVES that depend on the donors will NOT survive (the records now live under this plugin name, and any id that had to be renumbered moved with it) — best for a new game.")]
             string output,
-        [Description("Optional. Base name for the NEW mod folder (auto-suffixed if taken). Defaults to '<output> merged' — or '<output> renamed' for a single donor, since that folder name is what you will see in MO2 from then on.")]
+        [Description("Optional. Base name for the NEW mod folder (auto-suffixed if taken; a name another mod folder already holds as a plugin your order is not loading is refused rather than suffixed, naming that folder and file). Defaults to '<output> merged' — or '<output> renamed' for a single donor, since that folder name is what you will see in MO2 from then on.")]
             string? patch_name = null) => Guard.Tool(ToolNames.MergePlugins, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
