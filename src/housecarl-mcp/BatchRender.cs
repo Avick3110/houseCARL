@@ -55,11 +55,29 @@ static class BatchRender
             // item nothing can make room for is named wherever it falls, or the cut marker sends the caller round a
             // raise that cannot work.
             if (roomBefore && headerEnd + itemLength > budget.Budget)
-                sb.Append(Oversize(items.Count - shown, itemNoun, cap, Needed(mark + itemLength + reserve, items.Count, itemNoun, cap)));
+                sb.Append(Oversize(items.Count - shown, itemNoun, cap,
+                                   Needed(Widest(header, items, i, appendAlarms, appendItem) + reserve, items.Count, itemNoun, cap)));
             else AppendCut(sb, items.Count - shown, itemNoun, cap);
             break;
         }
         return sb.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>What this response costs with nothing cut down to <paramref name="upTo"/>: the header, the alarms and
+    /// every item through the one that crossed, each rendered against a budget none of them can exhaust. A render whose
+    /// content grows to fill the room it is given — a mesh's detail sections, a cut alarm list — is WIDER at a wider
+    /// cap, so a remedy measured against the cut form comes back short and has to be followed twice. Measured only on
+    /// the path that names one, which is the path that already gave up on this response.</summary>
+    static int Widest<T>(string header, IReadOnlyList<T> items, int upTo,
+                         Action<StringBuilder, RenderCap> appendAlarms, Action<StringBuilder, T, RenderCap> appendItem)
+    {
+        // Half of int.MaxValue: a budget no render can reach, with room left for the reserves each one subtracts.
+        var room = new RenderCap(int.MaxValue / 2, int.MaxValue / 2);
+        var sb = new StringBuilder();
+        sb.Append(header).Append('\n');
+        appendAlarms(sb, room);
+        for (int i = 0; i <= upTo; i++) appendItem(sb, items[i], room);
+        return sb.Length;
     }
 
     /// <summary>The max_chars that clears this item in ONE step. The notice quoting it prints the cap as well as the
