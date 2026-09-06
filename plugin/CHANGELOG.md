@@ -18,8 +18,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `rows` and `everything` do — one cheap leaf off each — but only the last three were measured against the bound,
   so a list that refused as `fields` ran unbounded as `summary`. All five now refuse on the same numbers, which the
   `limit=` parameter states along with the levers this lane has. And the response reports the rows it read and the
-  milliseconds they took, on text and json alike: the count is the LIST's, not the `limit=`/`offset=` window's,
-  because every id is read before the window applies — the same number the bound is measured against.
+  milliseconds they took, on text and json alike. That count is the bodies actually READ, not the `limit=`/`offset=`
+  window's rows and not the list's length: the ids are read before the window applies, but an id a named `source=`
+  pole holds no version of, and a malformed id, refuse without a read — so a long list over a small pole reports the
+  handful it read rather than dividing the clock by rows that cost nothing.
 
 - **`project.form='identity'` is bounded too, at 40,000 FormIDs, and says what it cost.** It reads a body like the
   other five, and by the dearest route the tool has: the resolver has no record type to seek the winner by, so each

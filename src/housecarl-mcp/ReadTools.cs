@@ -94,8 +94,9 @@ static class Wire
 
     /// <param name="header">The caller's own header line, written INSIDE the budget: it is part of the response,
     /// so a caller prepending it would spend characters max_chars never counted.</param>
-    /// <param name="bodyCost">What resolving these FormIDs cost, when the caller measured it — each one reads its
-    /// winner's body, so the bound this lane is held to is checkable against a real order (#607).</param>
+    /// <param name="bodyCost">What resolving these FormIDs cost, when the caller measured it — a resolved one reads
+    /// its winner's body, so the bound this lane is held to is checkable against a real order. The count is the ids
+    /// that RESOLVED: a malformed or absent one never reaches a read (#607).</param>
     public static string RenderResolve(IReadOnlyList<ResolvedRef> rows, int maxChars, OrderStamp epoch, SpillState? spill, out bool truncated,
                                        string? header = null, (int RowsRead, long Millis)? bodyCost = null)
     {
@@ -228,8 +229,9 @@ static class Wire
     /// spelling.</summary>
     /// <param name="bodyCost">What reading these bodies cost, when the caller measured it — the scan's body lane
     /// does, so the row cost the render bound is set against is reported there too (#582). The row count travels
-    /// WITH the milliseconds rather than being taken off this list: the formids= lane reads the whole list and
-    /// hands this renderer a limit=/offset= window of it, so the count beside the cost is what was read (#607).</param>
+    /// WITH the milliseconds rather than being taken off this list: the formids= lane hands this renderer a
+    /// limit=/offset= window, and the count beside the cost is the BODIES READ, which a pole that has no version of
+    /// an id or a malformed token leaves short of the list (#607).</param>
     /// <param name="header">The caller's own header line, written INSIDE the budget for the same reason.</param>
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars,
                                      SpillState? spill, out bool truncated, LeverNames? levers = null,
