@@ -17,10 +17,12 @@ public sealed class PublishedNameAnchorTests
     readonly ITestOutputHelper _out;
     public PublishedNameAnchorTests(ServerFixture s, ITestOutputHelper output) { _s = s; _out = output; }
 
-    static string CapturePath =>
+    internal static string CapturePath =>
         Path.Combine(HarnessPaths.RepoRoot, "src", "housecarl-mcp-tests", "data", "tools-list-2.0.json");
 
-    static string[] Captured()
+    /// <summary>The captured names, sorted, with the empty-capture guard. Other test classes that drive their rows
+    /// off the capture read it through here, so the oracle is parsed in one place.</summary>
+    internal static string[] Captured()
     {
         using var doc = JsonDocument.Parse(File.ReadAllText(CapturePath));
         var names = doc.RootElement.GetProperty("tools").EnumerateArray()

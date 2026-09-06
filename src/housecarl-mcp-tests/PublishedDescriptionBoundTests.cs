@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -9,13 +8,13 @@ namespace HousecarlMcpTests;
 /// description longer than that loses its tail on the way to the caller. This holds the bound on the SERVED
 /// surface: the description string <c>tools/list</c> actually publishes, not the source literal.
 ///
-/// <para>The subject set is not hand-listed: the theory rows come off the checked-in name capture, and a
-/// <see cref="Fact"/> below pins the set driven to <see cref="ServerFixture.PublishedNames"/>, so a tool added
+/// <para>The subject set is not hand-listed: the theory rows come off the checked-in name capture, which
+/// <see cref="PublishedNameAnchorTests"/> holds equal to the published set in both directions — so a tool added
 /// to the surface arrives here rather than quietly leaving the sweep short. (MemberData is evaluated at
 /// discovery, before the fixture exists, which is why the rows cannot read the running server directly.)</para>
 ///
 /// <para><see cref="StillOversized"/> is the shrinking list of tools whose descriptions have not been brought
-/// under the bound yet; the second theory holds each of them STILL over, so an entry cannot go stale.</para>
+/// under the bound yet; the Fact below holds each of them STILL over, so an entry cannot go stale.</para>
 /// </summary>
 [Collection("server")]
 [Trait("tier", "stdio")]
@@ -44,32 +43,15 @@ public sealed class PublishedDescriptionBoundTests
         ToolNames.Remove,
     };
 
-    static string[] CapturedNames()
-    {
-        var path = Path.Combine(HarnessPaths.RepoRoot, "src", "housecarl-mcp-tests", "data", "tools-list-2.0.json");
-        using var doc = JsonDocument.Parse(File.ReadAllText(path));
-        return doc.RootElement.GetProperty("tools").EnumerateArray()
-                  .Select(t => t.GetString()!)
-                  .OrderBy(n => n, StringComparer.Ordinal)
-                  .ToArray();
-    }
-
     public static IEnumerable<object[]> EveryPublishedTool() =>
-        CapturedNames().Select(n => new object[] { n });
+        PublishedNameAnchorTests.Captured().Select(n => new object[] { n });
 
-    public static IEnumerable<object[]> OversizedTools() =>
-        StillOversized.OrderBy(n => n, StringComparer.Ordinal).Select(n => new object[] { n });
-
-    string Description(string tool) => _s.PublishedTools[tool].GetProperty("description").GetString()!;
-
-    [Fact]
-    public void TheToolsDrivenAreExactlyTheOnesPublished_SoTheSweepIsNotShort()
+    string Description(string tool)
     {
-        var driven = CapturedNames();
-        var published = _s.PublishedNames.OrderBy(n => n, StringComparer.Ordinal).ToArray();
-
-        Assert.NotEmpty(driven);
-        Assert.Equal(published, driven);
+        Assert.True(_s.PublishedTools.TryGetValue(tool, out var t),
+            $"'{tool}' is named in this test file but the server does not publish it — it was renamed or " +
+            $"retired. Update its line in StillOversized and in '{PublishedNameAnchorTests.CapturePath}'.");
+        return t.GetProperty("description").GetString()!;
     }
 
     [Theory]
@@ -87,16 +69,19 @@ public sealed class PublishedDescriptionBoundTests
     }
 
     /// <summary>The stale-entry guard: when a tool's description comes under the bound, its line above must go,
-    /// or this fails.</summary>
-    [Theory]
-    [MemberData(nameof(OversizedTools))]
-    public void EveryToolNamedOversizedStillIs(string tool)
+    /// or this fails. One Fact over the whole set rather than a row each, so that the last PR of the wave —
+    /// which empties the set — leaves a test that passes on nothing rather than an empty-MemberData failure.</summary>
+    [Fact]
+    public void EveryToolNamedOversizedStillIs()
     {
-        var length = Description(tool).Length;
-        _out.WriteLine($"{tool}: {length} characters (bound {Bound})");
+        foreach (var tool in StillOversized.OrderBy(n => n, StringComparer.Ordinal))
+        {
+            var length = Description(tool).Length;
+            _out.WriteLine($"{tool}: {length} characters (bound {Bound})");
 
-        Assert.True(length > Bound,
-            $"{tool}'s published description is {length} characters, which is inside the {Bound} bound — " +
-            "delete its line from StillOversized so the bound holds it from now on.");
+            Assert.True(length > Bound,
+                $"{tool}'s published description is {length} characters, which is inside the {Bound} bound — " +
+                "delete its line from StillOversized so the bound holds it from now on.");
+        }
     }
 }
