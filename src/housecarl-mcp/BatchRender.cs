@@ -115,11 +115,11 @@ static class BatchRender
     public static void AppendReadFailures(StringBuilder sb, IReadOnlyList<string> failures, string subjectPhrase, RenderCap cap)
     {
         if (failures.Count == 0) return;
-        // The heading carries the count, so it goes in whole or not at all: a heading with no lines under it still
-        // says how many archives failed, which is the alarm.
-        var head = new StringBuilder("\n[!] ").Append(failures.Count).Append(" archive(s) could NOT be read this build — ")
-            .Append(subjectPhrase).Append(" present only in these may read as ABSENT below:\n").ToString();
-        if (!cap.TryAppend(sb, head)) return;
+        // The heading carries the count, and the count IS the alarm, so it is written whatever the budget: an answer
+        // that quietly loses it reads as a clean sweep. A cap too small to hold it is named by RenderCap.Settle, which
+        // is the arm for what a response must carry whatever the budget.
+        sb.Append("\n[!] ").Append(failures.Count).Append(" archive(s) could NOT be read this build — ")
+          .Append(subjectPhrase).Append(" present only in these may read as ABSENT below:\n");
         AppendLines(sb, failures, "archive(s)", cap);
     }
 
@@ -128,14 +128,14 @@ static class BatchRender
     public static void AppendDiscoveryWarnings(StringBuilder sb, IReadOnlyList<string> warnings, RenderCap cap)
     {
         if (warnings.Count == 0) return;
-        var head = new StringBuilder("\n[!] discovery (").Append(warnings.Count).Append("):\n").ToString();
-        if (!cap.TryAppend(sb, head)) return;
+        // Written whatever the budget, for the same reason as the read-failure heading above.
+        sb.Append("\n[!] discovery (").Append(warnings.Count).Append("):\n");
         AppendLines(sb, warnings, "warning(s)", cap);
     }
 
     /// <summary>A capped bullet list inside an alarm block, cut with the same named marker. Whole lines only, and the
-    /// marker's own room is charged before the first line, so an alarm block cannot push the response past the
-    /// ceiling either.</summary>
+    /// marker's own room is charged before the first line, so cutting the list cannot push it past the ceiling. The
+    /// heading above it is the alarm and is unconditional; only these detail lines are cut.</summary>
     public static void AppendLines(StringBuilder sb, IReadOnlyList<string> lines, string itemNoun, RenderCap cap)
     {
         var room = cap.Less(Cut(lines.Count, itemNoun, cap.Cap).Length);

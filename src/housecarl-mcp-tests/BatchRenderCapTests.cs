@@ -218,6 +218,33 @@ public class BatchRenderCapTests
         Assert.Contains("archive(s) could NOT be read this build", text);
     }
 
+    /// <summary>A cap that actually cuts the alarm list: the heading — the count, which IS the alarm — is written
+    /// whatever the budget, the lines under it are cut with the named marker in its one spelling, and what the cut
+    /// cost is said rather than left as a short list that reads complete.</summary>
+    [Fact]
+    public void ACutReadFailureListNamesTheArchivesItHeldBack()
+    {
+        var text = AssetWire.Render(ThreeReadFailures(), 620);
+
+        Assert.Contains("3 archive(s) could NOT be read this build", text);
+        Assert.Contains("archive(s) omitted at max_chars=620", text);
+        Assert.Contains("  … [", text);
+        var held = int.Parse(System.Text.RegularExpressions.Regex.Match(text, @"\[(\d+) more archive\(s\) omitted").Groups[1].Value);
+        var listed = System.Text.RegularExpressions.Regex.Matches(text, @"  - Broken - \w+\.bsa").Count;
+        Assert.Equal(3, held + listed);
+    }
+
+    /// <summary>An alarm the budget cannot hold is NEVER dropped in silence: the heading and its count ship, and the
+    /// overrun that costs is named. A response that quietly loses the archive-read alarm reads as a clean sweep.</summary>
+    [Fact]
+    public void AnAlarmTooWideForTheBudgetIsStillSaidAndTheOverrunIsNamed()
+    {
+        var text = AssetWire.Render(ThreeReadFailures(), 300);
+
+        Assert.Contains("3 archive(s) could NOT be read this build", text);
+        Assert.Contains("over the max_chars=300 it was given", text);
+    }
+
     /// <summary>The two batch renders agree under the same cap: each names its cut with the same marker, in the same
     /// spelling, which is what the shared skeleton buys.</summary>
     [Fact]

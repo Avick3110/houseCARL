@@ -118,7 +118,9 @@ static class AssetWire
     static void AppendSelectorNotes(StringBuilder sb, IReadOnlyList<string>? notes, RenderCap cap)
     {
         if (notes is not { Count: > 0 }) return;
-        if (!cap.TryAppend(sb, "\n[!] under (" + notes.Count + "):\n")) return;
+        // The heading carries the count and is written whatever the budget — a selector that matched nothing must not
+        // vanish into a render that then reads as complete. Only the per-selector lines below it are cut.
+        sb.Append("\n[!] under (").Append(notes.Count).Append("):\n");
         BatchRender.AppendLines(sb, notes, "selector(s)", cap);
     }
 
