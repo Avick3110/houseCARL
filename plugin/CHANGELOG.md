@@ -13,6 +13,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **A `housecarl_records` `formids=` read is now held to the render bound on every form that reads a body, and
+  says what those bodies cost.** `summary` and `aggregate` read a body per id on this lane exactly as `fields`,
+  `rows` and `everything` do — one cheap leaf off each — but only the last three were measured against the bound,
+  so a list that refused as `fields` ran unbounded as `summary`. All five now refuse on the same numbers, which the
+  `limit=` parameter states along with the levers this lane has. And the response reports the rows it read and the
+  milliseconds they took, on text and json alike: the count is the LIST's, not the `limit=`/`offset=` window's,
+  because every id is read before the window applies — the same number the bound is measured against.
+
 - **A write refusal labels the element in the member you wrote.** A refusal on an inline `housecarl_apply` op named
   `op[i]`, and a malformed FormID in `housecarl_forward` or `housecarl_remove` named `formid[i]` — members no
   houseCARL 2.0 tool declares, so the handle each gave you to fix pointed at nothing in the call. They now spell
