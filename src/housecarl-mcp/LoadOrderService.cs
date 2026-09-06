@@ -7113,7 +7113,7 @@ public sealed class LoadOrderService : IDisposable
     /// malformed spec refuses the whole call with per-record reasons, and the core likewise refuses the whole batch on
     /// any creatability or parent problem. One serialize for the lot.</summary>
     public WritePatchBuilder.CreateOutcome CreateRecordsBatch(IReadOnlyList<CreateOp> records, string? patchName, string? into, bool fullReadback = false,
-        string? target = null, bool inPlace = false, bool acknowledge = false, IReadOnlyList<string?>? origins = null)
+        string? target = null, bool inPlace = false, bool acknowledge = false)
     {
         if (records is null || records.Count == 0)
             return WritePatchBuilder.CreateOutcome.Fail("no records to create supplied — pass one or more {record_type, editorid, operations?, parent?, collection?, grid?} specs.");
@@ -7132,9 +7132,8 @@ public sealed class LoadOrderService : IDisposable
         for (int r = 0; r < records.Count; r++)
         {
             var rec = records[r];
-            // origins[r] is the caller's own spelling for this spec, carried parallel to the list for the same
-            // reason ApplyEdits carries opOrigins: a refusal must never name an index shape the caller did not write.
-            var where = origins is not null && r < origins.Count && origins[r] is { } o ? o : $"record[{r}]";
+            // records[r] is the create surface's own member word, so a refusal names the spec the caller can act on.
+            var where = $"records[{r}]";
             var spec = BuildCreateSpec(door, rec.RecordType, rec.Editorid, rec.Operations ?? Array.Empty<BulkOp>(), rec.Parent, rec.Collection, rec.Grid, where, problems, siblings);
             if (spec is not null) specs.Add(spec);
         }
@@ -7148,13 +7147,13 @@ public sealed class LoadOrderService : IDisposable
     /// create and the batch: resolve <paramref name="recordType"/> to one concrete catalog name, require an editorid,
     /// map each field op to a core <see cref="WriteRequest"/> rooted at that type, and carry
     /// <paramref name="parent"/> and <paramref name="collection"/> through for a nested child — null means a flat
-    /// top-level record. Every problem, tagged with the optional <paramref name="where"/> label, is appended to
+    /// top-level record. Every problem, tagged with the <paramref name="where"/> label, is appended to
     /// <paramref name="problems"/>, and this returns null iff this record contributed any.</summary>
     WritePatchBuilder.CreateSpec? BuildCreateSpec(FormIdDoor door, string? recordType, string? editorid, IReadOnlyList<BulkOp> operations,
-        string? parent, string? collection, string? grid, string? where, List<string> problems,
+        string? parent, string? collection, string? grid, string where, List<string> problems,
         IReadOnlySet<string>? siblingEditorids = null)
     {
-        var prefix = where is null ? "" : where + ": ";
+        var prefix = where + ": ";
         int before = problems.Count;
 
         // parent= takes an EditorID as well as a FormID, so only a runtime FormID is judged here; everything else

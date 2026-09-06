@@ -87,7 +87,6 @@ public static class CreateTools
         // ---- Map the wire shapes onto the engine's inputs -----------------------------------------------
         // A rename over the same engine inputs: ops -> operations, op -> verb.
         var wire = new List<CreateOp>(specs!.Length);
-        var origins = new List<string?>(specs.Length);
         for (int i = 0; i < specs.Length; i++)
         {
             var s = specs[i];
@@ -114,12 +113,9 @@ public static class CreateTools
                 Collection = s.Collection, Grid = s.Grid,
                 Operations = ops,
             });
-            // The caller's OWN spelling for this spec, carried down: a refusal must never point at a parameter
-            // label the caller never wrote.
-            origins.Add($"records[{i}]");
         }
 
-        var outcome = svc.CreateRecordsBatch(wire, patchName, into, readback, in_place, hasInPlace, acknowledge, origins);
+        var outcome = svc.CreateRecordsBatch(wire, patchName, into, readback, in_place, hasInPlace, acknowledge);
         // The lane the CALL named — stated, not derived from the outcome's flags.
         return json
             ? JsonWire.RenderCreateOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")
