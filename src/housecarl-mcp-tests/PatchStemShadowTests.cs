@@ -82,6 +82,25 @@ public sealed class PatchStemShadowTests
         Assert.Equal("houseCARL - Patch_001", Path.GetFileName(Path.GetDirectoryName(o.OutputPath)));
     }
 
+    /// <summary>A profile that names no mod at all cannot tell a shadow from a loaded plugin — with modlist.txt gone
+    /// every folder under ModsDir reads as UNLISTED — so the sweep is skipped and the write proceeds, rather than
+    /// refusing a name on a folder it has misread. The order still loads a plugin (the game Data folder provides it),
+    /// so the "no active plugin" guard is not the one doing the work here.</summary>
+    [Fact]
+    public void AProfileNamingNoModAtAllSkipsTheShadowSweep()
+    {
+        using var w = new RecordsWorld();
+        AddDisabledForeignMod(w, "Foreign Unreadable Mod", "My Cool Patch.esp");
+        File.Copy(Path.Combine(w.ModsDir, "MasterMod", w.MasterName),
+                  Path.Combine(w.Root, "game", "Data", w.MasterName));
+        File.Delete(Path.Combine(w.Instance, "profiles", "Default", "modlist.txt"));
+
+        var o = FreshPatch(w, "My Cool Patch", "HcShadowKwD");
+
+        Assert.True(o.Success, "refused: " + o.Error);
+        Assert.Equal("My Cool Patch.esp", Path.GetFileName(o.OutputPath));
+    }
+
     /// <summary>A merge's folder stem and its plugin filename are different names: the folder defaults to
     /// "&lt;output&gt; renamed" while the file written is output= itself. The shadow is on the FILE, so a foreign
     /// disabled mod holding that filename refuses the merge, and the remedy names output=, the parameter that
