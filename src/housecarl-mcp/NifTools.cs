@@ -373,9 +373,11 @@ static class NifWire
             {
                 BatchRender.AppendReadFailures(sb, d.BsaFailures, "a mesh", room);
                 BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, room);
+                // Written whatever the budget: a caller whose sections= was not honoured must be told, and a line
+                // dropped here would leave them believing it was.
                 if (unknownSections.Count > 0)
-                    room.TryAppend(sb, "\n[!] unrecognized section(s) ignored: " + string.Join(", ", unknownSections)
-                                     + "  (" + NifTools.KnownSectionsHint + ")\n");
+                    sb.Append("\n[!] unrecognized section(s) ignored: ").Append(string.Join(", ", unknownSections))
+                      .Append("  (").Append(NifTools.KnownSectionsHint).Append(")\n");
             },
             // The mesh's own sections cut against the ROOM LEFT, not against max_chars: a section that clamped itself
             // to the whole cap would land the mesh past the ceiling and be taken back out entire.
