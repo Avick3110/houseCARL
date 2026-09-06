@@ -1123,7 +1123,11 @@ static class JsonWire
                 if (q.Offset > 0) w.WriteNumber("offset", q.Offset);        // the window's start, in-band
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
                 WriteNotes(w, q, p5);
-                var linkMemo = resolveNames && detail ? new LoadOrderService.LinkMemo() : null;
+                // One session, one link cache and one chunked body prefetch for every rendered match — and the row
+                // loop's cancellation check.
+                using var reader = detail
+                    ? new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields, (levers ?? LeverNames.Legacy).ContainerHint, null)
+                    : null;
                 w.WriteStartArray("matches");
                 int rendered = 0; bool rowsTruncated = false;
                 var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the clause once, over the fields the rows carried
@@ -1139,8 +1143,7 @@ static class JsonWire
                         // winner_fields=: read the WINNER's body (source=null) regardless of scan scope; the record's
                         // "source" field still names the body read, so the json carries the same source/winner truth.
                         // Pinned to the scan's build — the document's epoch names ONE build.
-                        var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth, resolveNames: resolveNames, linkMemo: linkMemo,
-                                                  containerHint: (levers ?? LeverNames.Legacy).ContainerHint);   // a collapsed cell names the caller's own expansion knob
+                        var o = reader!.Row(i);   // a collapsed cell names the caller's own expansion knob
                         if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", fk.ToString()); w.WriteString("error", o.Error); if (matches is not null) w.WriteString("matches", matches); w.WriteEndObject(); }
                         else { WriteReadRecord(w, o, ms, cap, matches, childFields: childFields, levers: levers); childUnioned |= o.OwnedChildUnioned; }
                     }
@@ -1247,8 +1250,13 @@ static class JsonWire
                 if (hasMatches) w.WriteStringValue("matches");
                 w.WriteEndArray();
 
-                var linkMemo = resolveNames && detail ? new LoadOrderService.LinkMemo() : null;
                 var foldDepths = fold?.Read().Depths;   // the quantified paths' depth, and the caller's own for the rest
+                // One session, one link cache and one chunked body prefetch for every rendered match — and the row
+                // loop's cancellation check.
+                using var reader = detail
+                    ? new ScanDetailReader(svc, q, fields, fold?.Depth ?? 1, resolveNames, winnerFields,
+                                           (levers ?? LeverNames.Legacy).DenseContainerHint, foldDepths)
+                    : null;
                 List<(string Formid, string Error)>? errors = null;
                 int rendered = 0; bool rowsTruncated = false;
                 var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the clause once, over the cells the rows carried
@@ -1264,9 +1272,7 @@ static class JsonWire
                     string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
                     if (detail)
                     {
-                        var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, fold?.Depth ?? 1,
-                                                  resolveNames: resolveNames, linkMemo: linkMemo, containerHint: (levers ?? LeverNames.Legacy).DenseContainerHint,
-                                                  depths: foldDepths);   // dense refuses depth>1 unless a quantifier asks for it; pinned to the scan's build
+                        var o = reader!.Row(i);   // dense refuses depth>1 unless a quantifier asks for it; pinned to the scan's build
                         if (o.Error is not null) { (errors ??= new()).Add((fk.ToString(), o.Error)); rendered++; continue; }
                         var r = o.Record!;
                         if (fold is not null)

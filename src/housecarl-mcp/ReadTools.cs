@@ -246,7 +246,11 @@ static class Wire
         int cap = Cap(maxChars);
         if (q.Groups is not null) return RenderCrossQueryGroups(q, cap, spill, out truncated);   // group_by= → a count table, not per-match lines
         bool detail = fields is { Count: > 0 };          // expand matches, vs. one-line summaries
-        var linkMemo = resolveNames && detail ? new LoadOrderService.LinkMemo() : null;   // one link cache across all rendered matches
+        // One session, one link cache and one chunked body prefetch for every rendered match — and the row loop's
+        // cancellation check.
+        using var reader = detail
+            ? new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields, lv.ContainerHint, null)
+            : null;
         bool anyScoped = JsonWire.AnyScopedFieldRow(q, fields);   // the shared test: a plugins= scope shows a plugin's OWN body
         var sb = new StringBuilder();
         sb.Append("scan: ").Append(q.Total).Append(q.Total == 1 ? " match" : " matches");
@@ -303,8 +307,7 @@ static class Wire
                 // winner_fields= reads the load-order winner's body regardless of scan scope; otherwise read the
                 // body the scan filtered, so display never contradicts filter. Pinned to the scan's build, since
                 // the header's epoch names one build and every fill must read that one.
-                var o = svc.ResolveReadOn(q, fk, winnerFields ? null : (q.Sources is { } src ? src[i] : null), fields, false, depth, resolveNames: resolveNames, linkMemo: linkMemo,
-                                          containerHint: lv.ContainerHint);   // a collapsed cell names the caller's own expansion knob
+                var o = reader!.Row(i);   // a collapsed cell names the caller's own expansion knob
                 sb.Append('\n');
                 if (matches is not null) sb.Append("  ").Append(fk).Append("  matches=").Append(matches).Append('\n');
                 if (o.Error is not null) sb.Append(fk).Append(": error: ").Append(o.Error).Append('\n');

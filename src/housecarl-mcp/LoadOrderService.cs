@@ -2352,7 +2352,8 @@ public sealed class LoadOrderService : IDisposable
                             string? containerHint = ReadEngine.DepthExpandHint,
                             ChildUnionMemo? unionMemo = null,
                             LoadOrderResolver.OverlaySession? batchSession = null,
-                            IReadOnlyList<int>? depths = null)
+                            IReadOnlyList<int>? depths = null,
+                            IMajorRecordGetter? prefetched = null)
     {
         // An explicitly-requested plugin excluded this session (unparseable or unopenable) is said so, rather than
         // falling through to a misleading "does not define this record".
@@ -2397,7 +2398,9 @@ public sealed class LoadOrderService : IDisposable
         // opened is disposed here: the batch's own session outlives the item and is closed by the batch.
         using var ownSession = batchSession is null ? resolver.OpenSession() : null;
         var session = batchSession ?? ownSession!;
-        var rec = view.GetRecord(session, source, fk);                    // excluded-check pinned to the same view the winner came from
+        // A body the caller already gathered for THIS row and THIS source (the scan detail lane's chunked prefetch)
+        // is used as it stands; without one this is the per-record whole-overlay seek.
+        var rec = prefetched ?? view.GetRecord(session, source, fk);       // excluded-check pinned to the same view the winner came from
         if (rec is null)
         {
             if (plugin is null)
@@ -2667,13 +2670,19 @@ public sealed class LoadOrderService : IDisposable
     /// <para>No <see cref="ChildUnionMemo"/> is handed in: this is the SCAN detail lane, whose row count is
     /// discovered rather than named, so a child-bearing field here states the index-only note and names the
     /// formids lane instead of opening a body per touching plugin per row.</para></summary>
+    /// <param name="session">The render's one overlay session, so a plugin is mapped once for the call rather than
+    /// once per row. <paramref name="prefetched"/> is this row's body when the caller gathered it in bulk (see
+    /// <see cref="ScanDetailReader"/>); both are null on the plain per-row path.</param>
     internal ReadOutcome ResolveReadOn(CrossQueryOutcome q, FormKey fk, string? plugin, IReadOnlyList<string>? fields,
                                        bool conflictTree, int depth = 1, bool resolveNames = false,
                                        LinkMemo? linkMemo = null,
                                        string? containerHint = ReadEngine.DepthExpandHint,
-                                       IReadOnlyList<int>? depths = null)
+                                       IReadOnlyList<int>? depths = null,
+                                       LoadOrderResolver.OverlaySession? session = null,
+                                       IMajorRecordGetter? prefetched = null)
         => q.Pin is { } p
-            ? ResolveRead(p.Resolver, p.View, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths: depths)
+            ? ResolveRead(p.Resolver, p.View, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint,
+                          batchSession: session, depths: depths, prefetched: prefetched)
               with { Stamp = p.View.Stamp, Pin = p }
             : ResolveRead(fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths);
 
