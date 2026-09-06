@@ -198,6 +198,29 @@ public sealed class RecordsUnreadableSubFieldTests : IClassFixture<TruncatedSubF
     }
 }
 
+/// <summary>A deep read carries the readable bit on a LINK leaf too. A condition target (FormLinkOrIndex) the
+/// emit cannot read is a fault, and a fault that renders with Present=false and Readable=true tells every
+/// consumer reading the bits that nothing is there.</summary>
+[Trait("tier", "unit")]
+public sealed class UnreadableLinkLeafReadTests
+{
+    [Fact]
+    public void AnUnreadableConditionTargetIsNotReadAsAbsent()
+    {
+        var mod = new SkyrimMod(new ModKey("HcFloiRead", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var mgef = mod.MagicEffects.AddNew();
+        mgef.EditorID = "HcFloiMgef";
+        // Index mode (UseAliases), whose index accessor the emit cannot resolve — the fault EmitFloi reports.
+        mgef.Conditions.Add(new ConditionFloat { Data = new GetInFactionConditionData { UseAliases = true } });
+
+        var f = ReadEngine.ReadFields(mgef, new[] { "Conditions" }, depth: 3).Fields
+                          .Single(x => x.Path == "Conditions[0].Data.Faction");
+
+        Assert.StartsWith("(floi: ", f.Note);
+        Assert.False(f.Readable);
+    }
+}
+
 /// <summary>The pole-symmetric half of the same fact, driven at <see cref="FieldsDiff"/> directly: when BOTH poles
 /// are unreadable at one path there is nothing to compare there, so the record must not be reported identical.
 /// Driven here because one truncated plugin cannot be both poles of a lane call — the shape of the failure belongs
