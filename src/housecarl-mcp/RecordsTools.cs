@@ -540,7 +540,8 @@ public static class RecordsTools
                            "it does not take a source= pole. Use form='summary' or 'fields' for a named version's view.");
                 // This form reads a body too, and by the dearest route on the tool: the resolver has no record type
                 // to seek by, so each id costs an untyped whole-plugin scan. Its own tier, checked before the read.
-                if (RenderBudget.RefuseIdentity(ids.Length, RenderBudget.ListRemedy) is { } identityTooBig)
+                if (RenderBudget.RefuseIdentity(ids.Length, counts_only ? RenderBudget.ListCensusRemedy : RenderBudget.ListRemedy,
+                                                counts_only) is { } identityTooBig)
                     return Wire.Refuse(json, identityTooBig);
                 var identityClock = System.Diagnostics.Stopwatch.StartNew();
                 var rows = svc.ResolveRefs(ids, demand, out var epoch, out var refusal);
@@ -588,7 +589,9 @@ public static class RecordsTools
             // Measured over ALL five reading forms: summary and aggregate read one cheap leaf off a body here, so
             // they pay the body seek the named-fields tier is set against (#607).
             if (bodyForm && !walkDerived
-                && RenderBudget.Refuse(ids.Length, form == "everything", RenderBudget.ListRemedy) is { } listTooBig)
+                && RenderBudget.Refuse(ids.Length, form == "everything",
+                                       counts_only ? RenderBudget.ListCensusRemedy : RenderBudget.ListRemedy,
+                                       counts_only) is { } listTooBig)
                 return Wire.Refuse(json, listTooBig);
 
             // ---- summary / fields / everything / aggregate: batch bodies off the source pole. ----
@@ -757,7 +760,9 @@ public static class RecordsTools
                 // refuses on this walk and the scan terms are refused on it too.
                 // counts_only pays it too: the list lane this hands off to reads the bodies before it counts them.
                 if (bodyForm
-                    && RenderBudget.Refuse(rev.Selection.Count, form == "everything", RenderBudget.ReverseTransitiveRemedy) is { } revTooBig)
+                    && RenderBudget.Refuse(rev.Selection.Count, form == "everything",
+                                           counts_only ? RenderBudget.ReverseTransitiveCensusRemedy : RenderBudget.ReverseTransitiveRemedy,
+                                           counts_only) is { } revTooBig)
                     return Wire.Refuse(json, revTooBig, rev.Stamp);
                 expectEpoch = rev.Epoch;
                 formids = rev.Selection.ToArray();
@@ -847,7 +852,9 @@ public static class RecordsTools
                     // its levers, because this walk reaches nothing past hop 1.
                     // counts_only pays it too, for the reason the list lane's own gate does: the census reads bodies.
                     if (bodyForm
-                        && RenderBudget.Refuse(carrierSel.Count, form == "everything", RenderBudget.ReverseCarrierRemedy) is { } carrierTooBig)
+                        && RenderBudget.Refuse(carrierSel.Count, form == "everything",
+                                               counts_only ? RenderBudget.ReverseCarrierCensusRemedy : RenderBudget.ReverseCarrierRemedy,
+                                               counts_only) is { } carrierTooBig)
                         return Wire.Refuse(json, carrierTooBig, epochR);
                     expectEpoch = epochR?.Epoch;
                     formids = carrierSel.ToArray();
@@ -949,7 +956,9 @@ public static class RecordsTools
             // above: it renders the walk's own rows, so it pays no SECOND body read on top of the walk's own.
             // counts_only pays it too: the list lane reads every reached body whether it renders them or counts them.
             if (bodyForm
-                && RenderBudget.Refuse(combined.Count, form == "everything", RenderBudget.WalkRemedy) is { } walkTooBig)
+                && RenderBudget.Refuse(combined.Count, form == "everything",
+                                       counts_only ? RenderBudget.WalkCensusRemedy : RenderBudget.WalkRemedy,
+                                       counts_only) is { } walkTooBig)
                 return Wire.Refuse(json, walkTooBig, wEpoch);
 
             envelope.Add(new("walk", $"forward{(walk.follow is { } f3 ? $" follow={f3}" : " (closure)")} depth={walkDepth} — selection = the {combined.Count} record(s) the walk reached (seeds included{(seedErrs > 0 ? $"; {seedErrs} seed error(s), listed via form='chain'" : "")})"));

@@ -30,10 +30,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   one, and its refusal names `form='summary'`, which answers the same type/editorid/winner question off a read
   gathered per plugin instead of a seek per record.
 
-- **A `housecarl_records` walk with `counts_only=true` is bounded like its render.** A walk hands its reached set
-  to the `formids=` lane, which reads a body per id before it counts anything, so exempting the census left a wide
-  walk — `walk={"max_nodes": 500000}` with a body form — measured by no bound at all. It now refuses on the same
-  numbers the rendered walk does.
+- **A `housecarl_records` walk with `counts_only=true` is bounded like its render, and the refusal says why in the
+  words of the call that got it.** A walk hands its reached set to the `formids=` lane, which reads a body per id
+  before it counts anything, so exempting the census left a wide walk — `walk={"max_nodes": 500000}` with a body
+  form — measured by no bound at all. It now refuses on the same numbers the rendered walk does. A census renders
+  nothing, so it is told what it counts and that the bodies are read before they are counted, and its lever is the
+  walk (`walk.depth`, `walk.max_nodes`, fewer seeds, or `project.form='chain'`) rather than a `limit=`/`offset=`
+  window over a render it never asked for. Same on a `formids=` census.
 
 - **A write refusal labels the element in the member you wrote.** A refusal on an inline `housecarl_apply` op named
   `op[i]`, and a malformed FormID in `housecarl_forward` or `housecarl_remove` named `formid[i]` — members no

@@ -638,6 +638,49 @@ public sealed class RecordsRenderCostTests
         Assert.Contains("project.form='chain'", response);   // the walk lane's own remedy, not the scan's
     }
 
+    /// <summary>And it says so in the words of the call that got it. A counts_only call renders NOTHING, so a lead
+    /// written for a render states the one fact that does not explain the refusal and leaves out the one that does:
+    /// the list lane reads every reached body BEFORE it counts them. Its remedy has to fit a census too — telling a
+    /// caller to window a render they never asked for is not a lever (#607).</summary>
+    [Fact]
+    public void AWalkCensusRefusalSaysItCountsBodiesRatherThanRendersRows()
+    {
+        var response = WithBound(10, () =>
+            RecordsTools.Records(Svc, types: Weap, walk: new RecordsTools.RecordsWalk(), project: Fields(),
+                                 counts_only: true));
+
+        Assert.Contains("reads a record body before it is counted", response);
+        Assert.Contains("counts_only= does not lower it", response);
+        Assert.DoesNotContain("renders", response);
+        Assert.DoesNotContain("window the render", response);
+    }
+
+    /// <summary>The formids= lane's own gate hands out the same lead, so its census says the same true thing.</summary>
+    [Fact]
+    public void AFormidsCensusRefusalSaysItCountsBodiesRatherThanRendersRows()
+    {
+        var response = WithBound(10, () =>
+            RecordsTools.Records(Svc, formids: AllWeaponIds, project: Fields(), counts_only: true));
+
+        Assert.Contains("reads a record body before it is counted", response);
+        Assert.Contains("counts_only= does not lower what it costs", response);
+        Assert.DoesNotContain("renders", response);
+        Assert.DoesNotContain("window the render", response);
+    }
+
+    /// <summary>A rendered walk keeps the render's words and the render's lever — the census arm is an arm, not a
+    /// rewrite.</summary>
+    [Fact]
+    public void ARenderedWalkRefusalStillSpeaksOfItsRender()
+    {
+        var response = WithBound(10, () =>
+            RecordsTools.Records(Svc, types: Weap, walk: new RecordsTools.RecordsWalk(), project: Fields()));
+
+        Assert.Contains("renders", response);
+        Assert.Contains("window the render and not the walk", response);
+        Assert.DoesNotContain("before it is counted", response);
+    }
+
     /// <summary>The census reads no bodies, so it is not bound by the render's cost.</summary>
     [Fact]
     public void TheCensusIsNotHeldToTheRenderBound()
