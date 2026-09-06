@@ -64,7 +64,7 @@ public static class RecordsTools
         [Description("Maximum hops from a seed (default 16). Nodes AT the cap are recorded, not entered, and the response says the cap cut the walk — never a silent stop.")]
         public int? depth { get; set; }
 
-        [Description("The node budget (default 2000, the read-expansion budget). Per seed on a forward walk and on the reverse carrier walk (each seed's carrier rows); ONE budget shared across every seed and every hop on the transitive reverse walk, whose hops are one frontier and not a per-seed expansion. A breach keeps what was proved and says which reading it spent. A reading form (summary/fields/rows/everything/aggregate) then renders the whole reached set — seeds times this budget at the worst — and reads a body per row, so it is held to the same render bound a scan is and refuses up front naming project.form='chain', which lists the same set without reading a body.")]
+        [Description("The node budget (default 2000, the read-expansion budget). Per seed on a forward walk and on the reverse carrier walk (each seed's carrier rows); ONE budget shared across every seed and every hop on the transitive reverse walk, whose hops are one frontier and not a per-seed expansion. A breach keeps what was proved and says which reading it spent. A reading form (summary/fields/rows/everything/aggregate) then renders the whole reached set — seeds times this budget at the worst — and reads a body per row, so it is held to the same render bound a scan is and refuses up front naming project.form='chain', which lists the same set without reading a body per rendered row (the walk reads one per reached node whatever the form).")]
         public int? max_nodes { get; set; }
 
         [Description("Node classes the walk must not enter, as data: [{\"match\": \"Race\", \"severity\": \"stop\"|\"refuse\"}] — match is the record type name a read reports; stop prunes there (recorded as a boundary), refuse fails the whole call loud.")]
@@ -907,7 +907,7 @@ public static class RecordsTools
             // scan's bound below the walk lane exempts a walk; the REACHED count is it — up to seeds x
             // walk.max_nodes rows, each one a body read by the list lane. Same two lanes as the scan's bound, its
             // own remedy, since the scan window is not what moves a walk. form='chain' stays exempt and returned
-            // above: it renders the walk's own rows, not the records' bodies.
+            // above: it renders the walk's own rows, so it pays no SECOND body read on top of the walk's own.
             if ((bodyFields || form == "everything") && !counts_only
                 && RenderBudget.Refuse(combined.Count, form == "everything", RenderBudget.WalkRemedy) is { } walkTooBig)
                 return Wire.Refuse(json, walkTooBig, wEpoch);
