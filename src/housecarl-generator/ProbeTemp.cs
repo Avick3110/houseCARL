@@ -44,8 +44,8 @@ public static class ProbeTemp
             ReportLeft(root, left, first);
             root = Path.Combine(temp, $"hc-{Environment.ProcessId}-{n}");
         }
-        // A full or read-only temp volume, or a plain FILE already named hc-<pid> (which Directory.Exists above
-        // does not see), stops the run before any probe: say which path and why, not a stack trace.
+        // A full, read-only or missing temp volume, or a plain FILE already named hc-<pid> (which
+        // Directory.Exists above does not see), stops the run before any probe: say which path and why.
         try { Directory.CreateDirectory(root); }
         catch (Exception ex) { error = StartFailure(root, ex); return false; }
 
@@ -66,7 +66,8 @@ public static class ProbeTemp
     /// <summary>The one sentence a run prints when its fixture root cannot be made.</summary>
     static string StartFailure(string root, Exception ex) =>
         $"could not create the fixture directory {root} this run works in ({ex.Message.TrimEnd()}) — " +
-        "free space on the temp volume, or remove whatever is already at that path, then run again.";
+        "free space on the temp volume, remove whatever is already at that path, or point TMP/TEMP at a " +
+        "writable directory, then run again.";
 
     /// <summary>Put the temp directory back and delete the root. A file still held open is reported, not thrown.</summary>
     public static void Cleanup()
