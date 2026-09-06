@@ -54,6 +54,15 @@ public class BatchRenderCapTests
         Array.Empty<string>(),
         "TestProfile");
 
+    /// <summary>Narrow items first, then one item wider than any budget this render can give it.</summary>
+    static AssetStatusData NarrowThenWide(int narrow, int providers) => new(
+        Enumerable.Range(0, narrow).Select(i => Absent($"meshes/narrow/path{i:D4}.nif"))
+            .Append(Contested("meshes/wide/path.nif", providers)).ToList(),
+        Array.Empty<string>(),
+        true,
+        Array.Empty<string>(),
+        "TestProfile");
+
     static AssetPathResult Absent(string path) =>
         new(path, new AssetHit(path, false, null, Array.Empty<AssetProvider>(), false), null);
 
@@ -174,7 +183,7 @@ public class BatchRenderCapTests
         var text = AssetWire.Render(Paths(3, providers: 60), 1_200);
 
         Assert.True(text.Length <= 1_200, $"returned {text.Length} chars at max_chars=1200");
-        Assert.Contains("the first alone is wider than this response's whole budget", text);
+        Assert.Contains("the next one alone is wider than this response's whole budget", text);
         Assert.Contains("raise max_chars to at least ", text);
         var needed = int.Parse(System.Text.RegularExpressions.Regex.Match(text, @"raise max_chars to at least (\d+)").Groups[1].Value);
         Assert.True(needed > 1_200, $"the remedy must name a wider cap than the one that failed, got {needed}");
@@ -208,7 +217,7 @@ public class BatchRenderCapTests
     {
         var text = AssetWire.Render(ManyReadFailures(40, 20), 2_000);
 
-        Assert.DoesNotContain("the first alone is wider than this response's whole budget", text);
+        Assert.DoesNotContain("the next one alone is wider than this response's whole budget", text);
         Assert.Matches(@"\[\d+ more path\(s\) omitted", text);
     }
 
@@ -331,5 +340,23 @@ public class BatchRenderCapTests
 
         if (text.Contains("--- shapes (") || text.Contains("--- paths ("))
             Assert.Contains("slot names are NOT DERIVED", text);
+    }
+    /// <summary>An item nothing can make room for is named wherever it falls in the list, not only when it is first:
+    /// the cut marker's "raise max_chars to see all" sends the caller round a raise that cannot work, because the
+    /// items before it grow into whatever they are given and the same item crosses again.</summary>
+    [Theory]
+    [InlineData(1_400)]
+    [InlineData(1_800)]
+    public void AnOversizeItemAfterTheFirstIsNamedToo(int cap)
+    {
+        var data = NarrowThenWide(3, providers: 60);
+        var first = AssetWire.Render(data, cap);
+
+        Assert.Contains("meshes/narrow/path0000.nif", first);
+        Assert.Contains("the next one alone is wider than this response's whole budget", first);
+
+        var needed = int.Parse(System.Text.RegularExpressions.Regex.Match(first, @"raise max_chars to at least (\d+)").Groups[1].Value);
+        var second = AssetWire.Render(data, needed);
+        Assert.Contains("meshes/wide/path.nif", second);
     }
 }

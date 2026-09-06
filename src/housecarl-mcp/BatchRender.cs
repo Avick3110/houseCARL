@@ -51,9 +51,11 @@ static class BatchRender
             sb.Append('\n');
             // "Wider than the whole budget" is a claim about the item, so it is made only when the item would not
             // have fitted an empty page either. When the alarms above it are what filled the budget, the item is
-            // ordinary and the cut marker is the honest line.
-            if (shown == 0 && roomBefore && headerEnd + itemLength > budget.Budget)
-                sb.Append(Oversize(items.Count, itemNoun, cap, Needed(mark + itemLength + reserve, items.Count, itemNoun, cap)));
+            // ordinary and the cut marker is the honest line. The item's place in the list does not change that: an
+            // item nothing can make room for is named wherever it falls, or the cut marker sends the caller round a
+            // raise that cannot work.
+            if (roomBefore && headerEnd + itemLength > budget.Budget)
+                sb.Append(Oversize(items.Count - shown, itemNoun, cap, Needed(mark + itemLength + reserve, items.Count, itemNoun, cap)));
             else AppendCut(sb, items.Count - shown, itemNoun, cap);
             break;
         }
@@ -98,16 +100,16 @@ static class BatchRender
         return sb.ToString();
     }
 
-    /// <summary>The other way a batch ends with nothing on the page: ONE item is wider than the whole budget, so no
-    /// cut of the list can help. It is said rather than dropped, and the remedy is the number that clears it in one
-    /// step — max_chars is the parameter that narrows nothing else here.</summary>
+    /// <summary>The other way a batch stops: ONE item is wider than the whole budget, so no cut of the list can help.
+    /// It is said rather than dropped, and the remedy is the number that clears it in one step — max_chars is the
+    /// parameter that narrows nothing else here.</summary>
     static string Oversize(int count, string itemNoun, int cap, int needed)
     {
         var sb = new StringBuilder();
         sb.Append("  … [").Append(Math.Max(count, 0)).Append(' ');
         if (itemNoun.Length > 0) sb.Append(itemNoun).Append(' ');
         sb.Append("omitted at max_chars=").Append(cap)
-          .Append(": the first alone is wider than this response's whole budget; raise max_chars to at least ")
+          .Append(": the next one alone is wider than this response's whole budget; raise max_chars to at least ")
           .Append(needed).Append("]\n");
         return sb.ToString();
     }
