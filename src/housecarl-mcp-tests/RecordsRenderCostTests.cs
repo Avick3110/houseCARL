@@ -415,6 +415,39 @@ public sealed class RecordsRenderCostTests
         Assert.Contains(" ms", text);
     }
 
+    /// <summary>summary is this lane's DEFAULT form and reads a body per id like the rest, so it reports what those
+    /// bodies cost — a caller who was refused and sliced the list has the number to check the slice against.</summary>
+    [Fact]
+    public void AFormidsSummaryRenderReportsWhatItsBodiesCost()
+    {
+        var doc = Doc(RecordsTools.Records(Svc, formids: AllWeaponIds, format: "json", limit: 5));
+        Assert.Equal(5, doc.GetProperty("rendered").GetInt32());
+        Assert.Equal(RenderCostWorld.Weapons, doc.GetProperty("rows_read").GetInt32());
+        Assert.True(doc.GetProperty("render_ms").GetInt64() >= 0);
+    }
+
+    /// <summary>And on text.</summary>
+    [Fact]
+    public void AFormidsSummaryTextRenderReportsWhatItsBodiesCost()
+    {
+        var text = RecordsTools.Records(Svc, formids: AllWeaponIds, limit: 5);
+        Assert.Contains($"read {RenderCostWorld.Weapons} record bodies in ", text);
+    }
+
+    /// <summary>The aggregate form reads the same leaf per id before it counts anything, so it states the same
+    /// cost — on json and on text alike.</summary>
+    [Fact]
+    public void AFormidsAggregateRenderReportsWhatItsBodiesCost()
+    {
+        var agg = new RecordsTools.RecordsProject { form = "aggregate", group_by = "winner" };
+        var doc = Doc(RecordsTools.Records(Svc, formids: AllWeaponIds, format: "json", project: agg));
+        Assert.Equal(RenderCostWorld.Weapons, doc.GetProperty("rows_read").GetInt32());
+        Assert.True(doc.GetProperty("render_ms").GetInt64() >= 0);
+
+        var text = RecordsTools.Records(Svc, formids: AllWeaponIds, project: agg);
+        Assert.Contains($"read {RenderCostWorld.Weapons} record bodies in ", text);
+    }
+
     /// <summary>The bound is on what a row costs, not on where the row came from: an OFF-ORDER selection over it
     /// refuses before reading a body, the same as the in-order lane. Its rows read a body per row off a file
     /// outside the order, and the limit= description states the bound with no lane attached.</summary>

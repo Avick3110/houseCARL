@@ -637,13 +637,15 @@ public static class RecordsTools
                 }
             }
             listClock.Stop();
+            // One cost for every form this lane renders, so the accounting cannot land on some of them and not others.
+            var listCost = (ids.Length, listClock.ElapsedMilliseconds);
             outcomes = FoldRows(outcomes);
             var epoch2 = outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp;
             if (SeamTear(epoch2) is { } seamTear)
                 return json ? JsonWire.RenderError(seamTear, epoch2) : "error: " + seamTear;
 
             if (form == "aggregate")
-                return RenderListAggregate(outcomes, project!.group_by!, json, dense, epoch2, headerLine, envelope);
+                return RenderListAggregate(outcomes, project!.group_by!, json, dense, epoch2, headerLine, envelope, listCost);
 
             if (counts_only)
             {
@@ -662,9 +664,9 @@ public static class RecordsTools
                 spill2 = SpillState.Spilled(s!, manifestOnly: true);
             }
             string Render2(SpillState? sp, out bool trunc) => form == "summary"
-                ? RenderRecordsSummary(winOutcomes, json, headerLine, envelope, max_chars, sp, out trunc)
-                : json ? JsonWire.RenderBatch(winOutcomes, max_chars, sp, out trunc, envelope, formLevers, (ids.Length, listClock.ElapsedMilliseconds))
-                       : Wire.RenderBatch(winOutcomes, max_chars, sp, out trunc, formLevers, (ids.Length, listClock.ElapsedMilliseconds), headerLine);
+                ? RenderRecordsSummary(winOutcomes, json, headerLine, envelope, max_chars, sp, listCost, out trunc)
+                : json ? JsonWire.RenderBatch(winOutcomes, max_chars, sp, out trunc, envelope, formLevers, listCost)
+                       : Wire.RenderBatch(winOutcomes, max_chars, sp, out trunc, formLevers, listCost, headerLine);
             var rendered2 = Render2(spill2, out var truncated2);
             if (spill2 is null && truncated2)
             {
@@ -2184,13 +2186,14 @@ public static class RecordsTools
     /// that would cross what is left is taken back out whole and counted. The spill marker rides in-band in both
     /// formats.</summary>
     static string RenderRecordsSummary(IReadOnlyList<ReadOutcome> outcomes, bool json, string headerLine,
-                                       List<KeyValuePair<string, string>> envelope, int maxChars, SpillState? spill, out bool truncated)
+                                       List<KeyValuePair<string, string>> envelope, int maxChars, SpillState? spill,
+                                       (int RowsRead, long Millis) bodyCost, out bool truncated)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
         bool manifestOnly = spill?.ManifestOnly ?? false;
         var epoch = outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp;
-        if (json) return JsonWire.RenderRecordsSummary(outcomes, cap, envelope, spill, out truncated);
+        if (json) return JsonWire.RenderRecordsSummary(outcomes, cap, envelope, spill, bodyCost, out truncated);
 
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
@@ -2203,7 +2206,8 @@ public static class RecordsTools
         string Notice(int r) =>
             "... [rendered " + r + " of " + outcomes.Count + " at max_chars=" + cap + "]\n";
         var spillText = Wire.SpillText(spill);
-        int budget = cap - spillText.Length - Notice(outcomes.Count).Length;
+        // The accounting line this render closes with is spoken for, like the notice and the spill block.
+        int budget = cap - spillText.Length - Notice(outcomes.Count).Length - RenderBudget.AccountingReserve;
         foreach (var o in outcomes)
         {
             if (manifestOnly) break;
@@ -2229,6 +2233,8 @@ public static class RecordsTools
             }
             rendered++;
         }
+        // What reading this list's bodies cost — the count is the LIST's, not this window's.
+        sb.Append(RenderBudget.BodiesLine(bodyCost.RowsRead, bodyCost.Millis));
         sb.Append(spillText);
         return RenderCap.Settle(sb.ToString(), cap);
     }
@@ -2238,7 +2244,8 @@ public static class RecordsTools
     /// of the census, and it carries the same response envelope as every other form, including the resolved
     /// source statement source= promises and the epoch-coverage qualifier format= promises unconditionally.</summary>
     static string RenderListAggregate(IReadOnlyList<ReadOutcome> outcomes, string groupBy, bool json, bool dense, OrderStamp? epoch,
-                                      string headerLine, List<KeyValuePair<string, string>> envelope)
+                                      string headerLine, List<KeyValuePair<string, string>> envelope,
+                                      (int RowsRead, long Millis) bodyCost)
     {
         var gb = groupBy.Trim().ToLowerInvariant();
         if (gb is not ("winner" or "type" or "defined_in"))
@@ -2258,7 +2265,7 @@ public static class RecordsTools
         }
         var rows = groups.OrderByDescending(g => g.Value).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
         if (json || dense)
-            return JsonWire.RenderListAggregate(gb, rows, outcomes.Count, errors, epoch, envelope);
+            return JsonWire.RenderListAggregate(gb, rows, outcomes.Count, errors, epoch, bodyCost, envelope);
         var sb = new StringBuilder();
         sb.Append(headerLine).Append("  group_by=").Append(gb).Append('\n');
         sb.Append(outcomes.Count).Append(" record(s)");
@@ -2267,6 +2274,8 @@ public static class RecordsTools
         sb.Append('\n');
         foreach (var (key, count) in rows.Select(r => (r.Key, r.Value)))
             sb.Append("  ").Append(count.ToString().PadLeft(6)).Append("  ").Append(key).Append('\n');
+        // What reading the bodies this table counted cost, stated on text as it is on json.
+        sb.Append(RenderBudget.BodiesLine(bodyCost.RowsRead, bodyCost.Millis));
         return sb.ToString();
     }
 

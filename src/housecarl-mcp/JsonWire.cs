@@ -548,9 +548,11 @@ static class JsonWire
 
     /// <summary>records form=summary on the list lane: one identity+winner row per outcome (or its per-item
     /// error) — the json twin of the text summary lines, spill marker in-band.</summary>
+    /// <param name="bodyCost">What reading this list's bodies cost — summary reads one leaf off a body per id, so
+    /// it reports the same accounting the other body forms do (#607).</param>
     public static string RenderRecordsSummary(IReadOnlyList<ReadOutcome> outcomes, int maxChars,
                                               IReadOnlyList<KeyValuePair<string, string>> envelope,
-                                              SpillState? spill, out bool truncated)
+                                              SpillState? spill, (int RowsRead, long Millis) bodyCost, out bool truncated)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -586,6 +588,9 @@ static class JsonWire
             }
             w.WriteEndArray();
             w.WriteNumber("rendered", rendered);
+            // The count is the LIST's, not this window's: every id was read before the render.
+            w.WriteNumber("rows_read", bodyCost.RowsRead);
+            w.WriteNumber("render_ms", bodyCost.Millis);
             w.WriteBoolean("truncated", rowsTruncated);
             truncated = rowsTruncated;
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
@@ -596,8 +601,11 @@ static class JsonWire
 
     /// <summary>records form=aggregate on the list lane: the count table over resolved rows, per-item errors
     /// counted apart so they are never silently dropped from a census.</summary>
+    /// <param name="bodyCost">What reading this list's bodies cost — aggregate reads one leaf off a body per id
+    /// before it counts anything, so it reports the same accounting the other body forms do (#607).</param>
     public static string RenderListAggregate(string groupBy, IReadOnlyList<KeyValuePair<string, int>> rows,
                                              int count, int errors, OrderStamp? epoch,
+                                             (int RowsRead, long Millis) bodyCost,
                                              IReadOnlyList<KeyValuePair<string, string>>? envelope = null)
     {
         using var ms = new MemoryStream();
@@ -607,6 +615,9 @@ static class JsonWire
             WriteEnvelope(w, envelope);   // form + the resolved source arm + coverage qualifiers
             w.WriteString("group_by", groupBy);
             w.WriteNumber("count", count);
+            // What reading the bodies this table counted cost, the same accounting every body form reports.
+            w.WriteNumber("rows_read", bodyCost.RowsRead);
+            w.WriteNumber("render_ms", bodyCost.Millis);
             if (errors > 0) w.WriteNumber("errors", errors);
             WriteEpoch(w, epoch);
             w.WriteStartArray("groups");
