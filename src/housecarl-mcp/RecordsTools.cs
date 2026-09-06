@@ -595,7 +595,7 @@ public static class RecordsTools
                 // The overlay post source: every record's winner replayed through the SkyPatcher INI layer, the
                 // replayed body read at the caller's own depth.
                 outcomes = svc.OverlayPostBatch(ids, readFields, depth, resolveNames, demand, out var ovRefusal, out var ovEpoch, out _,
-                                                LeverNames.Records.ContainerHint, readFieldDepths);
+                                                LeverNames.Records.ContainerHint, readFieldDepths, ct);
                 if (ovRefusal is not null)
                     return json ? JsonWire.RenderError(ovRefusal, ovEpoch)
                                 : "error: " + ovRefusal + Wire.EpochLine(ovEpoch);

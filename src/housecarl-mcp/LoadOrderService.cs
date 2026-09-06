@@ -3581,7 +3581,8 @@ public sealed class LoadOrderService : IDisposable
         IReadOnlyList<string> formids, IReadOnlyList<string>? fields, int depth, bool resolveNames,
         ArtifactDemand? demand, out string? refusal, out OrderStamp? refusalEpoch, out OrderStamp? epoch,
         string? containerHint = ReadEngine.DepthExpandHint,
-        IReadOnlyList<int>? depths = null)
+        IReadOnlyList<int>? depths = null,
+        CancellationToken ct = default)
     {
         refusal = null; refusalEpoch = null;
         var resolver = Resolver;
@@ -3624,6 +3625,7 @@ public sealed class LoadOrderService : IDisposable
         var outcomes = new List<ReadOutcome>(formids.Count);
         foreach (var raw in formids)
         {
+            ct.ThrowIfCancellationRequested();   // a client that aborted stops the replay inside one record
             FormKey fk;
             try { fk = view.ParseFormId(raw); }
             catch (Exception ex) { outcomes.Add(ReadOutcome.Fail(default, $"bad FormID '{raw}': {ex.Message}")); continue; }
