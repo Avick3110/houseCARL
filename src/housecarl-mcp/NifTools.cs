@@ -47,18 +47,19 @@ public static class NifTools
          "SOURCE — mod= (empty = the VFS winner).\n" +
          "PROJECT — sections= (empty = the summary).\n" +
          "TRANSPORT — max_chars=.\n\n" +
-         "Every per-path failure — an unreadable archive, an absent path, a mod= name nothing provides, a mesh the " +
-         "underlying mesh library refuses — is reported LOUD by name on THAT path without aborting the rest; never a " +
-         "silent 'absent' or a half-answer. Read-only: resolves nothing to disk, writes nothing, changes no load " +
-         "order — " + ToolNames.NifSet + " is the write counterpart.")]
+         "A per-path failure — an absent path, a mod= name nothing provides, a mesh the underlying mesh library " +
+         "refuses — is reported LOUD by name on THAT path without aborting the rest; an unreadable archive is named " +
+         "once for the batch; never a silent 'absent' or a half-answer. Read-only: resolves nothing to disk, writes " +
+         "nothing, changes no load order — " + ToolNames.NifSet + " is the write counterpart.")]
     public static string NifInspect(
         LoadOrderService svc,
         [Description("The Data-relative mesh path(s) to inspect, e.g. " +
                      "'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif' or " +
                      "'meshes\\armor\\iron\\cuirass_1.nif'. One or many at " + ToolNames.AssetStatus + " parity — a " +
                      "whole facegen sweep's flagged subset is ONE call; inspected in order, results returned in the " +
-                     "same order. Relative to the game's Data folder (forward or back slashes both fine). Optional " +
-                     "only if npc= is passed instead.")]
+                     "same order. Relative to the game's Data folder (forward or back slashes both fine); a " +
+                     "drive-rooted path ('C:\\…') or one carrying a '..' segment is REFUSED on that path by name, " +
+                     "never silently normalized. Optional only if npc= is passed instead.")]
             string[]? mesh_paths = null,
         [Description("Optional. NPC FormID(s) to inspect the FaceGen HEAD MESH of — houseCARL derives each one's " +
                      "'meshes\\actors\\character\\facegendata\\facegeom\\<defining master>\\00<6 hex>.nif' and reads it " +
@@ -97,8 +98,8 @@ public static class NifTools
                      "Naming a MOD reaches that mod's loose files AND its own root archives, whether or not MO2 is " +
                      "loading it, so a donor mod can be read without enabling it; the response then SAYS the game is " +
                      "not loading that copy. '*winner' is the winner pole spelled out. A name that provides no copy " +
-                     "of a given mesh is THAT path's own named miss, listing the providers that do; the rest of the " +
-                     "batch still reads. Applies to every mesh " +
+                     "of a given mesh is THAT path's own named miss, listing the providers that do where any do; the " +
+                     "rest of the batch still reads. Applies to every mesh " +
                      "in the batch. Empty = the winner.")]
             string mod = "",
         [Description("Optional. Max characters before the output is cut with an explicit notice — one cap over the " +
