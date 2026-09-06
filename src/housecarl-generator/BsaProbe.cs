@@ -85,7 +85,7 @@ internal static class BsaProbe
             Check(File.Exists(repacked) && new FileInfo(repacked).Length == beforeLen,
                   "non-destructive: the PRIOR archive is left intact after a failed pack");
         }
-        finally { try { Directory.Delete(work, recursive: true); } catch { /* in-dir scratch; non-fatal */ } }
+        finally { try { Directory.Delete(work, recursive: true); } catch { /* temp scratch; non-fatal */ } }
 
         Console.WriteLine();
         Console.WriteLine(fail == 0 ? "================ ALL PASS ================" : $"================ {fail} CHECK(S) FAILED ================");
