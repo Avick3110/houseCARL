@@ -8241,12 +8241,22 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
-    /// <summary>The profile composition the shadow sweep walks, read once per fresh write. Best-effort in the same way
-    /// <see cref="ActivePluginBasenames"/> is: an unreadable profile yields null and the pre-existing folder and
-    /// active-order uniqueness, so a call that worked before never fails because the extra check could not run.</summary>
+    /// <summary>The profile composition the shadow sweep walks, read once per fresh write, or null when the profile
+    /// cannot tell a shadow from a loaded plugin. The test is whether the composition is USABLE, not whether the read
+    /// threw: <see cref="Mo2LoadOrder.ReadComposition"/> does not throw on a missing modlist.txt, it returns empty mod
+    /// lists — and then every folder under ModsDir reads as UNLISTED, so an enabled mod's genuinely loaded plugin
+    /// would be refused as one "the load order is not loading". A profile naming no mod at all is that state, so it
+    /// yields null. Best-effort in the same way <see cref="ActivePluginBasenames"/> is: null leaves the pre-existing
+    /// folder and active-order uniqueness, so a call that worked before never fails because the check could not run.
+    /// A modlist.txt truncated to a PARTIAL list is not detectable here and is not claimed to be.</summary>
     Mo2Composition? ReadCompositionForShadow()
     {
-        try { return Mo2LoadOrder.ReadComposition(_profileDir); }
+        try
+        {
+            var comp = Mo2LoadOrder.ReadComposition(_profileDir);
+            // No mod named in either list — modlist.txt missing, or truncated to nothing — is an unusable profile.
+            return comp.EnabledMods.Count == 0 && comp.DisabledMods.Count == 0 ? null : comp;
+        }
         catch { return null; }
     }
 
