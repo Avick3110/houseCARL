@@ -5640,8 +5640,11 @@ public sealed class LoadOrderService : IDisposable
                 if (!walk.Success) return ClosureCopyOutcome.Fail(walk: walk.Refusal, sources: consulted);
 
                 string outPath; bool extend, created;
+                // The stem falls back to the new EditorID, but only patch= is the caller's own name: a shadow on an
+                // EditorID-derived stem steps to the next suffix rather than naming a parameter they never passed.
                 try { outPath = ResolveOutputPath(patchName ?? (into is null ? newEditorid?.Trim() : null), into, out extend, out created,
-                                                  freshPatch: FreshPatchRemedy.CreatedByOmittingInto); }
+                                                  freshPatch: FreshPatchRemedy.CreatedByOmittingInto,
+                                                  stemFromCaller: !string.IsNullOrWhiteSpace(patchName)); }
                 catch (Exception ex) { return ClosureCopyOutcome.Fail(engine: ex.Message, sources: consulted); }
                 var patchModKey = ModKey.FromFileName(Path.GetFileName(outPath));
 
@@ -7604,9 +7607,15 @@ public sealed class LoadOrderService : IDisposable
     /// remove it again and "no patch written" leaves no orphan accreting suffixes on retry.
     /// <paramref name="freshPatch"/> and <paramref name="noFreshRule"/> pass through to the extend refusals' remedy,
     /// so the calling operation states how, or whether, its own fresh-write path works. Both default to claiming
-    /// nothing, so a caller added later cannot inherit a sentence that is false for it.</summary>
+    /// nothing, so a caller added later cannot inherit a sentence that is false for it.
+    /// <paramref name="stemFromCaller"/> says whether the caller really spelled this name as <c>patch=</c>, which is
+    /// what makes a shadow on it a refusal rather than a step to the next suffix. It defaults to reading that off
+    /// <paramref name="patchName"/>, and a lane that COALESCES something else into that argument — the copy lane
+    /// falls back to the new EditorID — passes its own <c>patch=</c> instead, so a refusal never names a parameter
+    /// the caller left out.</summary>
     string ResolveOutputPath(string? patchName, string? into, out bool extend, out bool createdFolder, bool create = true,
-                             FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? noFreshRule = null)
+                             FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? noFreshRule = null,
+                             bool? stemFromCaller = null)
     {
         lock (_gate)
         {
@@ -7634,7 +7643,7 @@ public sealed class LoadOrderService : IDisposable
             var baseStem = PatchStem(string.IsNullOrWhiteSpace(patchName) ? "Patch" : patchName!);
             // Every record lane that reaches here declares patch= and writes "<stem>.esp", so that is the file the
             // shadow check tests and the spelling its refusal names.
-            var freeStem = UniqueStem(baseStem, !string.IsNullOrWhiteSpace(patchName),
+            var freeStem = UniqueStem(baseStem, stemFromCaller ?? !string.IsNullOrWhiteSpace(patchName),
                                       new PatchStemShadow.Target(s => s + ".esp", FollowsStem: true, "patch"));
             var newFolder = Path.Combine(_modsDir, ModFolderName(freeStem));
             var plugin = freeStem + ".esp";

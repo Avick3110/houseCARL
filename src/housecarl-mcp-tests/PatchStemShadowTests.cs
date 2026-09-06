@@ -82,6 +82,23 @@ public sealed class PatchStemShadowTests
         Assert.Equal("houseCARL - Patch_001", Path.GetFileName(Path.GetDirectoryName(o.OutputPath)));
     }
 
+    /// <summary>The copy lane falls back to the new EditorID when patch= is omitted, and that stem is NOT the
+    /// caller's own name: standalone-izing a follower out of a mod switched OFF in MO2 with new_editorid="Donor"
+    /// shadows that mod's own "Donor.esp", and an unspecified patch= steps to the next suffix like everywhere else
+    /// rather than refusing on a parameter the call never passed.</summary>
+    [Fact]
+    public void AShadowOnAnEditoridDerivedStemStepsToTheNextSuffix()
+    {
+        using var w = new TwoDisabledDonorsWorld();
+
+        var r = CopyTools.Copy(w.Svc, w.Fid(w.DonorNpc), new[] { "Donor.esp" },
+                               new[] { "HeadParts", "HairColor", "HeadTexture", "WornArmor" },
+                               new[] { "Race:refuse" }, null, "Donor", null, null);
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
+        Assert.Single(Directory.EnumerateDirectories(w.ModsDir, "houseCARL - Donor_001"));
+    }
+
     /// <summary>A header-only trigger is bound by its BASENAME, so the extension the shadowing file carries does not
     /// matter: a disabled mod holding "MyTrigger.esm" refuses create_plugin("MyTrigger"), which would otherwise write
     /// a second file of that basename — the state the tool's own active-order check exists to prevent. The refusal
