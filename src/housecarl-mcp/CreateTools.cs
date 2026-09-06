@@ -19,85 +19,33 @@ public static class CreateTools
          "default) — the net-new authoring tool, the companion to " + ToolNames.Apply + " (which edits EXISTING records). " +
          "ONE surface: what to author (records=) x WHERE it lands (the LANE: a new patch | into= an existing one | " +
          "in_place=\"X.esp\") x how it reads back (TRANSPORT).\n\n" +
-         "RECORDS. records= is the spec list — {record_type, editorid, ops?, parent?, collection?, grid?} each; ONE " +
-         "record is a set of one. record_type is a catalog name ('Keyword', 'Spell', " +
-         "'LeveledItem', 'DialogTopic') or a 4-char signature ('KYWD'). editorid is REQUIRED — the EditorID the " +
-         "record is referenced by (in SkyPatcher/SPID, in xEdit); choose a clear, prefixed name. Any flat " +
-         "top-level record is fair game — a keyword, spell, perk, magic effect, faction, armor, weapon, leveled " +
-         "list, global, quest — as is a nested one (see NESTING). For an ABSTRACT " +
-         "record group name the CONCRETE subtype directly ('GlobalFloat'/'GlobalInt'/'GlobalShort', " +
-         "'GameSettingFloat'/'GameSettingInt'/'GameSettingString') — that is how a global variable or game setting " +
-         "is created. Each new FormID is auto-allocated in the patch's own 0x800+ range and REPORTED BACK: it is how " +
-         "you reference the record afterwards — to make ANOTHER record point at it, call this tool or " +
-         ToolNames.Apply + " again with into='<this patch>' and that FormID as the value.\n\n" +
-         "OPS set the new record's fields — the same shape " + ToolNames.Apply + " takes MINUS formid (the record has no id " +
-         "yet): {field_path, op?, value?, key?, values?, entries?, compose?, composes?}. e.g. " +
-         "ops=[{field_path:'Name', value:'My Spell'}, {field_path:'EffectList', op:'Add', compose:{...}}]. compose " +
-         "builds a modeled struct (a leveled-list entry, an effect, a condition row, or a polymorphic element by its " +
-         "CONCRETE arm type); composes is its batch sibling. Copying a field from another record is " + ToolNames.Apply + "'s " +
-         "CopyFrom — there is no other version of a record that does not exist yet.\n\n" +
-         "NESTING. parent= makes the record a CHILD (a dialogue line under a topic, a placed ref in a cell): the " +
-         "parent is an EXISTING record's FormID 'XXXXXX:Plugin.esp' OR the editorid of a record declared EARLIER in " +
-         "this same records= array (a same-call sibling) — which is how a topic AND its lines are authored in ONE " +
-         "call: records=[{record_type:'DialogTopic', editorid:'MyTopic'}, {record_type:'DialogResponses', " +
-         "editorid:'MyTopic_L1', parent:'MyTopic', ops:[{field_path:'Prompt', value:'Hello'}]}] (declare the parent " +
-         "BEFORE its children). A FormLink field VALUE can reference a same-call sibling too, written '@editorid' — " +
-         "so a line's order-chain and its topic back-link are authored in the same call (ops:[{field_path:'Topic', " +
-         "value:'@MyTopic'}, {field_path:'PreviousDialog', value:'@MyTopic_L1'}]). '@editorid' must name a record " +
-         "declared EARLIER in the array or the record being created ITSELF (self-reference — e.g. a quest's VMAD " +
-         "alias fragment whose Property.Object is the quest). Only on FormLink fields, including inside a compose " +
-         "spec. collection= names WHICH of the parent's child slots to add into — a child LIST (e.g. a cell's " +
-         "'Persistent'/'Temporary') or a SINGLE-child slot (a cell's 'Landscape', a worldspace's 'TopCell', which " +
-         "hold exactly one and refuse rather than overwrite when occupied) — needed only when more than one fits. " +
-         "grid= is the EXTERIOR cell's \"X,Y\" " +
-         "(record_type 'Cell' with parent= a Worldspace; houseCARL files it into the worldspace's block tree). A " +
-         "'Cell' with NO parent and NO grid is an INTERIOR cell.\n\n" +
-         "LANE — where the write lands. Default: a NEW patch named patch= (auto-suffixed if taken, so a prior patch " +
-         "is never overwritten). into='<an existing patch's filename>' ADDS these records to that patch instead — " +
-         "the way to accumulate across calls and sessions, and a parent created in a PRIOR into= call can be the " +
-         "parent here too (it resolves from the patch being extended, not only from the load order). " +
-         "in_place='<plugin filename>' is the opt-in THIRD lane: the records are created straight INTO your ORIGINAL " +
-         "file (incl. a mod houseCARL didn't author) — no new patch, and NO houseCARL backup or undo (keep your " +
-         "own). Full create parity in place, nesting included: a parent the target already owns hosts the child, a " +
-         "parent from another plugin is overridden in. Each new record gets a fresh FormID in THAT plugin's own " +
-         "range. The FIRST in-place write to a given plugin returns a confirmation prompt (re-call with " +
-         "acknowledge=true); that consent covers touching your original ONLY — it NEVER skips the record verify.\n\n" +
-         "ALL-OR-NOTHING (Q3): if ANY spec is malformed or fails pre-flight — an unknown or ambiguous record_type, a " +
-         "missing editorid, an illegal field op, a nested child with no resolvable parent, an ambiguous collection, " +
-         "a type that cannot be created (the bare abstract base 'Global'/'GameSetting' needs a concrete subtype; the " +
-         "refusal names them) — the whole call is refused with per-record reasons and NOTHING is written. No partial " +
-         "patches, ever.\n\n" +
-         "WHAT ELSE IS REPORTED (never silent, Q3): creating dialogue lines reports VOICE coverage (a response with " +
-         "no .fuz plays SILENT in game — the audio is yours to provide) and RESULT-SCRIPT binding (a bound script " +
-         "that is unwired or uncompiled runs nothing); creating cells reports the world content houseCARL does NOT " +
-         "author (lighting, terrain, water, navmesh — Creation Kit work).\n\n" +
-         "TRANSPORT: readback=true expands the read-back to the FULL deep field-by-field dump of every created " +
-         "record (in place the verify ALWAYS runs and shows compactly by default; readback widens it) — confirm " +
-         "composed structures landed WITHOUT enabling the patch in MO2. The read-back is the WRITTEN FILE's content, " +
-         "NOT load-order truth: the patch wins nothing until enabled + sorted in MO2. format='json' returns the same " +
-         "data machine-readable; max_chars caps the render with an explicit notice, never a silent cut. Every " +
-         "response carries epoch=<hex> — the identity of the index build parents and link values resolved from.\n\n" +
-         "records= (like every list-valued input) also accepts \"@<absolute path>\" in place of the inline array: " +
-         "the SAME array as a JSON manifest on disk. The path must be ABSOLUTE (the server resolves relative paths " +
-         "against its OWN working directory, not yours), and the file is read at CALL time.\n\n" +
+         "ALL-OR-NOTHING (Q3): if ANY spec is malformed or fails pre-flight, the whole call is refused with " +
+         "per-record reasons and NOTHING is written. No partial patches, ever.\n\n" +
+         "Each axis's grammar is on its own parameters:\n" +
+         "WHAT — records= (the inline spec array, or \"@<absolute path>\" naming a JSON manifest of the SAME " +
+         "array), and its members record_type / editorid / ops / parent / collection / grid.\n" +
+         "LANE — patch= | into= | in_place= with acknowledge=.\n" +
+         "TRANSPORT — readback= | format= | max_chars=.\n\n" +
+         "COMPOSITION: a parent record and its children are authored in ONE call — declare the parent BEFORE them " +
+         "(see parent=).\n\n" +
          "This tool authors NEW records. Editing an existing record's fields is " + ToolNames.Apply + "; dropping a whole " +
          "record is " + ToolNames.Remove + "; an EMPTY header-only trigger plugin (no records at all) is " +
          ToolNames.CreatePlugin + ". Read first with " + ToolNames.Records + ".")]
     public static string Create(
         LoadOrderService svc,
-        [Description("The records to author, all into one artifact: [{record_type, editorid, ops?, parent?, collection?, grid?}, …] — or \"@<absolute path>\" to read that SAME array from a JSON manifest file. One record is a set of one. For a nested one-shot, declare the parent BEFORE the children whose parent= names its editorid. A member the shape does not declare is refused BY NAME at its element, never silently dropped.")]
+        [Description("The records to author, all into one artifact: [{record_type, editorid, ops?, parent?, collection?, grid?}, …] — or \"@<absolute path>\" to read that SAME array from a JSON manifest file; the path must be ABSOLUTE (the server resolves relative paths against its OWN working directory, not yours), and the file is read at CALL time. One record is a set of one. For a nested one-shot, declare the parent BEFORE the children whose parent= names its editorid. A member the shape does not declare is refused BY NAME at its element, never silently dropped. Each new record's FormID is auto-allocated in the receiving plugin's own 0x800+ range and REPORTED BACK: that is how you reference the record afterwards — to make ANOTHER record point at it, call this tool or " + ToolNames.Apply + " again with into='<this patch>' and that FormID as the value. The pre-flight refusals include an unknown or ambiguous record_type, a missing editorid, an illegal field op, a nested child with no resolvable parent, an ambiguous collection, and a type that cannot be created (the bare abstract base 'Global'/'GameSetting' needs a concrete subtype; the refusal names them). What else is reported, never silently: creating dialogue lines reports VOICE coverage (a response with no .fuz plays SILENT in game — the audio is yours to provide) and RESULT-SCRIPT binding (a bound script that is unwired or uncompiled runs nothing); creating cells reports the world content houseCARL does NOT author (lighting, terrain, water, navmesh — Creation Kit work).")]
             JsonElement? records = null,
         [Description("LANE: base filename for the NEW patch this call writes (default 'Patch'); auto-suffixed if taken, so a prior patch is never overwritten. Mutually exclusive with into= and in_place= — naming both lanes is refused, never silently ignored.")]
             string? patch = null,
-        [Description("LANE: filename of an EXISTING houseCARL patch to ADD these records to instead of writing a fresh one — the way to accumulate across calls and sessions (a parent created in a prior into= call resolves from it too). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead.")]
+        [Description("LANE: filename of an EXISTING houseCARL patch to ADD these records to instead of writing a fresh one — the way to accumulate across calls and sessions, and a parent created in a PRIOR into= call can be the parent here too (it resolves from the patch being extended, not only from the load order). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead.")]
             string? into = null,
-        [Description("LANE (opt-in): the FILENAME OF THE FILE BEING WRITTEN INTO, e.g. \"CoolWeapons.esp\" — create these records straight into that existing active plugin (incl. one houseCARL didn't author) instead of a patch. Your ORIGINAL file is rewritten; no houseCARL backup or undo. Naming the file is the point: it is what you are about to overwrite. OMIT for the default patch lane, which leaves every original untouched.")]
+        [Description("LANE (opt-in): the FILENAME OF THE FILE BEING WRITTEN INTO, e.g. \"CoolWeapons.esp\" — create these records straight into that existing active plugin (incl. one houseCARL didn't author) instead of a patch. Your ORIGINAL file is rewritten; no houseCARL backup or undo (keep your own). Full create parity here, nesting included: a parent the target already owns hosts the child, a parent from another plugin is overridden in. Each new record takes its fresh FormID from THAT plugin's own range, not a patch's. Naming the file is the point: it is what you are about to overwrite. OMIT for the default patch lane, which leaves every original untouched.")]
             string? in_place = null,
-        [Description("Confirms the one-time in-place trade-off for the plugin named by in_place= — needed only on the FIRST in-place write to a given plugin (edit, create, remove, OR forward), and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Waives the consent to touch your original ONLY; it NEVER skips the record verify. Meaningless without in_place=, and refused there rather than ignored.")]
+        [Description("Confirms the one-time in-place trade-off for the plugin named by in_place= — needed only on the FIRST in-place write to a given plugin (edit, create, remove, OR forward), and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Without it that first call returns a confirmation prompt instead of writing; re-call with acknowledge=true. Waives the consent to touch your original ONLY; it NEVER skips the record verify. Meaningless without in_place=, and refused there rather than ignored.")]
             bool acknowledge = false,
-        [Description("TRANSPORT: expand the read-back to the FULL deep field-by-field dump of every record this call created (not just the fields you set). The written file's content, not load-order truth.")]
+        [Description("TRANSPORT: expand the read-back to the FULL deep field-by-field dump of every record this call created (not just the fields you set) — confirm composed structures landed WITHOUT enabling the patch in MO2. In place, the verify ALWAYS runs and shows compactly by default; this widens it. The read-back is the WRITTEN FILE's content, NOT load-order truth: the patch wins nothing until enabled + sorted in MO2.")]
             bool readback = false,
-        [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
+        [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band). Every response carries the epoch stamp — the identity of the index build parents and link values resolved from — spelled epoch=<hex> on 'text', and as an 'epoch' member on 'json'.")]
             string? format = null,
         [Description("TRANSPORT: character ceiling on the WHOLE render — the created-record rows (each with its allocated FormID), the voice / result-script / cell-shell reports, and the read-back, in that order. Past it, trailing rows are dropped with an explicit notice and a per-block rendered-vs-total census (never silent). The WRITE is unaffected either way. 0 = a safe default kept under the host's per-response limit.")]
             int max_chars = 0) => Guard.Tool(ToolNames.Create, () =>
@@ -189,22 +137,22 @@ public static class CreateTools
 /// <c>op</c>.</summary>
 public sealed record CreateRecordSpec
 {
-    [JsonPropertyName("record_type"), Description("The kind of record to create: a catalog name ('Keyword', 'Spell', 'Weapon', 'DialogTopic', 'PlacedObject') or a 4-char signature ('KYWD'). For an abstract group name the concrete subtype ('GlobalFloat', 'GameSettingInt').")]
+    [JsonPropertyName("record_type"), Description("The kind of record to create: a catalog name ('Keyword', 'Spell', 'Weapon', 'LeveledItem', 'DialogTopic', 'PlacedObject') or a 4-char signature ('KYWD'). Any flat top-level record is fair game — a keyword, spell, perk, magic effect, faction, armor, weapon, leveled list, global, quest — as is a nested one (see parent=). For an ABSTRACT record group name the CONCRETE subtype directly ('GlobalFloat'/'GlobalInt'/'GlobalShort', 'GameSettingFloat'/'GameSettingInt'/'GameSettingString') — that is how a global variable or game setting is created.")]
     public string? RecordType { get; init; }
 
-    [JsonPropertyName("editorid"), Description("REQUIRED. The EditorID the new record is referenced by. A nested child's parent= can name this editorid (a same-call sibling parent), and a FormLink value can reference it as '@<editorid>'.")]
+    [JsonPropertyName("editorid"), Description("REQUIRED. The EditorID the new record is referenced by (in SkyPatcher/SPID, in xEdit); choose a clear, prefixed name. A nested child's parent= can name this editorid (a same-call sibling parent), and a FormLink value can reference it as '@<editorid>'.")]
     public string? Editorid { get; init; }
 
-    [JsonPropertyName("ops"), Description("The new record's fields: [{field_path, op?, value?, key?, values?, entries?, compose?, composes?}, …] — the same op shape " + ToolNames.Apply + " takes, minus formid. Omit to create a bare record (type + editorid only).")]
+    [JsonPropertyName("ops"), Description("The new record's fields: [{field_path, op?, value?, key?, values?, entries?, compose?, composes?}, …] — the same op shape " + ToolNames.Apply + " takes, MINUS formid (the record has no id yet). e.g. ops=[{field_path:'Name', value:'My Spell'}, {field_path:'EffectList', op:'Add', compose:{...}}]. Omit to create a bare record (type + editorid only).")]
     public CreateFieldOp[]? Ops { get; init; }
 
-    [JsonPropertyName("parent"), Description("For a NESTED record: the parent it nests under — an EXISTING parent's FormID 'XXXXXX:Plugin.esp', OR the editorid of a record declared EARLIER in this same records= array (a same-call sibling). Omit for a flat top-level record.")]
+    [JsonPropertyName("parent"), Description("For a NESTED record: the parent it nests under, which makes this record a CHILD (a dialogue line under a topic, a placed ref in a cell) — an EXISTING parent's FormID 'XXXXXX:Plugin.esp', OR the editorid of a record declared EARLIER in this same records= array (a same-call sibling), which is how a topic AND its lines are authored in ONE call: records=[{record_type:'DialogTopic', editorid:'MyTopic'}, {record_type:'DialogResponses', editorid:'MyTopic_L1', parent:'MyTopic', ops:[{field_path:'Prompt', value:'Hello'}]}] (declare the parent BEFORE its children). Omit for a flat top-level record.")]
     public string? Parent { get; init; }
 
-    [JsonPropertyName("collection"), Description("Which of the parent's child-collections to add into, BY NAME (e.g. a cell's 'Persistent') — needed only when more than one fits. Omit when unique or when parent is omitted.")]
+    [JsonPropertyName("collection"), Description("Which of the parent's child slots to add into, BY NAME — a child LIST (e.g. a cell's 'Persistent'/'Temporary') or a SINGLE-child slot (a cell's 'Landscape', a worldspace's 'TopCell', which hold exactly one and refuse rather than overwrite when occupied) — needed only when more than one fits. Omit when unique or when parent is omitted.")]
     public string? Collection { get; init; }
 
-    [JsonPropertyName("grid"), Description("For an EXTERIOR cell only (record_type 'Cell' with parent= a Worldspace): the cell's grid as \"X,Y\" (e.g. \"5,-12\"). A 'Cell' with NO parent and NO grid is an INTERIOR cell. Ignored for non-Cell types.")]
+    [JsonPropertyName("grid"), Description("For an EXTERIOR cell only (record_type 'Cell' with parent= a Worldspace; houseCARL files it into the worldspace's block tree): the cell's grid as \"X,Y\" (e.g. \"5,-12\"). A 'Cell' with NO parent and NO grid is an INTERIOR cell. Ignored for non-Cell types.")]
     public string? Grid { get; init; }
 }
 
@@ -216,10 +164,10 @@ public sealed record CreateFieldOp
     [JsonPropertyName("field_path"), Description("Dotted field path on the new record, e.g. 'Name' or 'BasicStats.Damage'. Step into a list/dict element mid-path with brackets ('Effects[0].Data.Magnitude'); at the LEAF use op + key, not brackets.")]
     public string? FieldPath { get; init; }
 
-    [JsonPropertyName("op"), Description("Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge. SetAtIndex OVERWRITES the element at key=; InsertAtIndex inserts a new one AT key= and shifts the rest right (key = the list's length appends). On a [Flags] enum, Add sets one bit and Remove clears one, leaving the others untouched.")]
+    [JsonPropertyName("op"), Description("Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge. SetAtIndex OVERWRITES the element at key=; InsertAtIndex inserts a new one AT key= and shifts the rest right (key = the list's length appends). On a [Flags] enum, Add sets one bit and Remove clears one, leaving the others untouched. There is no CopyFrom on this surface — a record that does not exist yet has no other version to copy a field from; copying a field from ANOTHER record is " + ToolNames.Apply + "'s CopyFrom.")]
     public string? Op { get; init; }
 
-    [JsonPropertyName("value"), Description("The value, coerced to the field's type — a number, an enum name, a FormID 'XXXXXX:Plugin.esp', or '@<editorid>' for a same-call sibling on a FormLink field.")]
+    [JsonPropertyName("value"), Description("The value, coerced to the field's type — a number, an enum name, a FormID 'XXXXXX:Plugin.esp', or '@<editorid>' for a same-call sibling on a FormLink field. '@<editorid>' must name a record declared EARLIER in the records= array or the record being created ITSELF (self-reference — e.g. a quest's VMAD alias fragment whose Property.Object is the quest); it works on FormLink fields only, including inside a compose spec. So a dialogue line's order-chain and its topic back-link are authored in the same call: ops:[{field_path:'Topic', value:'@MyTopic'}, {field_path:'PreviousDialog', value:'@MyTopic_L1'}].")]
     public string? Value { get; init; }
 
     [JsonPropertyName("key"), Description("Dict key or list index at the leaf.")]
@@ -231,7 +179,7 @@ public sealed record CreateFieldOp
     [JsonPropertyName("entries"), Description("Key->value pairs for a dict Merge or dict ReplaceAll.")]
     public Dictionary<string, string>? Entries { get; init; }
 
-    [JsonPropertyName("compose"), Description("Build a modeled struct: the arm for a polymorphic Set, or the element for a struct-element Add / InsertAtIndex / SetAtIndex (e.g. 'LeveledItemEntry'; for a polymorphic list, the element's CONCRETE arm type such as 'ScriptObjectProperty').")]
+    [JsonPropertyName("compose"), Description("Build a modeled struct — a leveled-list entry, an effect, a condition row: the arm for a polymorphic Set, or the element for a struct-element Add / InsertAtIndex / SetAtIndex (e.g. 'LeveledItemEntry' for a leveled-list entry; for a polymorphic list, the element's CONCRETE arm type such as 'ScriptObjectProperty').")]
     public StructInput? Compose { get; init; }
 
     [JsonPropertyName("composes"), Description("Build MANY modeled list elements in ONE op — the batch sibling of compose. With Add, appends each in order; with ReplaceAll, clears the list then appends each. Mutually exclusive with compose/value/values.")]
