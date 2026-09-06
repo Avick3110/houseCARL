@@ -169,6 +169,9 @@ public static class RecordsTools
         }
         bool comparisonForm = form is "delta" or "tree";
         bool bodyFields = form is "fields" or "rows";   // the two forms that read the caller's own field paths
+        // Every reading form reads a body per row: summary and aggregate one cheap leaf, fields/rows the caller's
+        // paths, everything the whole record. This is the set a derived selection's render bound is measured over.
+        bool bodyForm = bodyFields || form is "summary" or "everything" or "aggregate";
         // Sub-parameters exist only inside their forms; a stray one is refused by name, so the caller learns the
         // form-scoping rule instead of getting a silently ignored knob.
         if (project?.fields is { Length: > 0 } && !bodyFields && !comparisonForm)
@@ -908,7 +911,7 @@ public static class RecordsTools
             // walk.max_nodes rows, each one a body read by the list lane. Same two lanes as the scan's bound, its
             // own remedy, since the scan window is not what moves a walk. form='chain' stays exempt and returned
             // above: it renders the walk's own rows, so it pays no SECOND body read on top of the walk's own.
-            if ((bodyFields || form == "everything") && !counts_only
+            if (bodyForm && !counts_only
                 && RenderBudget.Refuse(combined.Count, form == "everything", RenderBudget.WalkRemedy) is { } walkTooBig)
                 return Wire.Refuse(json, walkTooBig, wEpoch);
 

@@ -272,6 +272,23 @@ public sealed class RecordsWalkCostTests
         Assert.DoesNotContain("does not combine", response);
     }
 
+    /// <summary>Every reading form the walk description names is held to the bound, not just the three that read
+    /// the caller's own field paths: summary and aggregate read a cheap leaf, but they read it off a BODY per row,
+    /// so a walk feeding them the reached set costs the same unbounded render the others do.</summary>
+    [Theory]
+    [InlineData("summary")]
+    [InlineData("aggregate")]
+    public void EveryReadingFormOverTheReachedSetIsHeldToTheBound(string form)
+    {
+        var response = WithBound(10, () =>
+            RecordsTools.Records(Svc, types: Npc, plugins: Scope(), walk: TemplateWalk(),
+                                 project: new RecordsTools.RecordsProject
+                                 { form = form, group_by = form == "aggregate" ? "type" : null }));
+
+        Assert.StartsWith("error:", response);
+        Assert.Contains("project.form='chain'", response);
+    }
+
     /// <summary>A walk is seeded from the formids= lane as well as from a scan, and there the scan terms are not
     /// part of the call at all — so the refusal names the seeds without them, rather than opening on three
     /// parameters the caller did not pass and could not pass alongside formids=.</summary>
