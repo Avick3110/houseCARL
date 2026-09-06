@@ -83,17 +83,26 @@ internal static class CompileProbe
                 // RECOMPILE behaviour (Aaron 2026-06-06): a prior .pex is LEFT in place — a successful recompile updates
                 // it (success = THIS run wrote it, detected by the write-time advancing, NOT by a pre-delete); a FAILED
                 // recompile must NOT destroy the last good build (non-destructive — the user deletes outputs at will).
-                var pex = good.PexPath!;
-                var firstWriteUtc = File.GetLastWriteTimeUtc(pex);
-                var reGood = PapyrusCompile.CompileObject(compiler, "HCGood", imports, outDir);
-                Check(reGood.Success && File.Exists(pex), "recompile (still valid): Success + .pex present");
-                Check(File.GetLastWriteTimeUtc(pex) > firstWriteUtc, "recompile (still valid): .pex rewritten this run (write-time advanced; no pre-delete)");
+                // Without a .pex from the good compile there is nothing to recompile over; say that rather than
+                // dereference the null and report the whole probe as a throw.
+                if (good.PexPath is null)
+                {
+                    Console.WriteLine("  SKIP  recompile checks: the good compile produced no .pex (see the failed check above)");
+                }
+                else
+                {
+                    var pex = good.PexPath;
+                    var firstWriteUtc = File.GetLastWriteTimeUtc(pex);
+                    var reGood = PapyrusCompile.CompileObject(compiler, "HCGood", imports, outDir);
+                    Check(reGood.Success && File.Exists(pex), "recompile (still valid): Success + .pex present");
+                    Check(File.GetLastWriteTimeUtc(pex) > firstWriteUtc, "recompile (still valid): .pex rewritten this run (write-time advanced; no pre-delete)");
 
-                File.WriteAllText(Path.Combine(work, "HCGood.psc"),
-                    "Scriptname HCGood extends Quest\n\nFunction Foo()\n    @@@ broken edit\nEndFunction\n");
-                var reBad = PapyrusCompile.CompileObject(compiler, "HCGood", imports, outDir);
-                Check(!reBad.Success && reBad.PexPath is null, "recompile (now broken): reports failure, no new .pex");
-                Check(File.Exists(pex), "recompile (now broken): the PRIOR .pex is LEFT INTACT (non-destructive)");
+                    File.WriteAllText(Path.Combine(work, "HCGood.psc"),
+                        "Scriptname HCGood extends Quest\n\nFunction Foo()\n    @@@ broken edit\nEndFunction\n");
+                    var reBad = PapyrusCompile.CompileObject(compiler, "HCGood", imports, outDir);
+                    Check(!reBad.Success && reBad.PexPath is null, "recompile (now broken): reports failure, no new .pex");
+                    Check(File.Exists(pex), "recompile (now broken): the PRIOR .pex is LEFT INTACT (non-destructive)");
+                }
             }
             finally { try { Directory.Delete(work, recursive: true); } catch { /* temp scratch; non-fatal */ } }
         }
