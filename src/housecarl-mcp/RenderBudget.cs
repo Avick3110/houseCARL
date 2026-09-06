@@ -100,57 +100,105 @@ internal static class RenderBudget
     /// <summary>What moves the <c>formids=</c> lane's row count. It has no scan terms to narrow, and it reads a body
     /// for every id it was handed BEFORE the render window applies, so paging the same call does not lower its
     /// cost.</summary>
-    internal const string ListRemedy =
-        "pass fewer formids= entries: this lane reads a body for EVERY id in the " +
-        "list before limit= and offset= window the render, so paging the same list does not lower what it costs. " +
-        "Re-enter a big artifact a slice at a time, or narrow the selection that wrote it.";
+    internal const string ListLever =
+        "pass fewer formids= entries: this lane reads a body for EVERY id in the list";
+
+    /// <summary>The formids= lane's closing move, the same whether the call renders or counts.</summary>
+    internal const string ListClose =
+        " Re-enter a big artifact a slice at a time, or narrow the selection that wrote it.";
+
+    internal const string ListRemedy = ListLever +
+        " before limit= and offset= window the render, so paging the same list does not lower what it costs." + ListClose;
+
+    /// <summary>Its counts_only twin: a census windows nothing, so what does not lower its cost is the census
+    /// itself.</summary>
+    internal const string ListCensusRemedy = ListLever +
+        " before it counts them, so counts_only= does not lower what it costs." + ListClose;
 
     /// <summary>What moves a WALK's row count. The rows are what the walk REACHED, not what the scan selected, so
     /// the scan window is the wrong lever: the seeds, the walk's own caps, or the chain form, which lists the same
     /// reached set without reading a body PER RENDERED ROW — the walk reads one per reached node whatever the form,
     /// so chain saves the render's read and not the walk's. The seeds are named without the scan terms, because a
     /// walk is reached from the formids= lane too and there they are not part of the call.</summary>
-    internal const string WalkRemedy =
+    internal const string WalkLever =
         "narrow the seeds you passed, or lower walk.depth or " +
-        "walk.max_nodes, until the set the walk reaches fits — the rows are what the walk reached, seeds included, " +
+        "walk.max_nodes, until the set the walk reaches fits";
+
+    internal const string WalkRemedy = WalkLever +
+        " — the rows are what the walk reached, seeds included, " +
         "so limit= and offset= window the render and not the walk. project.form='chain' lists the same reached set " +
         "without reading a body per rendered row, which is what to run first.";
 
+    /// <summary>Its counts_only twin: the walk's levers are the same, and what does not lower the cost is the
+    /// census — chain still answers the same reached set without the list lane's read.</summary>
+    internal const string WalkCensusRemedy = WalkLever +
+        " — the count is what the walk reached, seeds included, " +
+        "and counts_only= does not lower it: the bodies are read before they are counted. project.form='chain' " +
+        "counts the same reached set without reading a body per record, which is what to run first.";
+
     /// <summary>What moves the REVERSE CARRIER walk's row count. Its seeds are formids= and its budget is per seed,
     /// so walk.depth is not a lever — the walk reaches nothing past hop 1.</summary>
-    internal const string ReverseCarrierRemedy =
+    internal const string ReverseCarrierLever =
         "pass fewer formids= seeds, or lower walk.max_nodes (the per-seed carrier " +
-        "bound), until the set the walk reaches fits — the rows are the carriers it reached, seeds included, so " +
+        "bound), until the set the walk reaches fits";
+
+    internal const string ReverseCarrierRemedy = ReverseCarrierLever +
+        " — the rows are the carriers it reached, seeds included, so " +
         "limit= and offset= window the render and not the walk. types= narrows the carrier types, and " +
         "project.form='chain' lists the same reached set without reading a body per rendered row, which is what to " +
         "run first.";
 
+    /// <summary>Its counts_only twin.</summary>
+    internal const string ReverseCarrierCensusRemedy = ReverseCarrierLever +
+        " — the count is the carriers it reached, seeds included, and " +
+        "counts_only= does not lower it: the bodies are read before they are counted. types= narrows the carrier " +
+        "types, and project.form='chain' counts the same reached set without reading a body per record, which is " +
+        "what to run first.";
+
     /// <summary>What moves the TRANSITIVE REVERSE walk's row count. project.form='chain' is not a lever here: that
     /// walk expands one shared frontier and has no per-seed path to draw, which is why chain refuses on it.</summary>
-    internal const string ReverseTransitiveRemedy =
+    internal const string ReverseTransitiveLever =
         "pass fewer formids= seeds, or lower walk.depth or walk.max_nodes " +
-        "(one budget shared across every seed and hop on this lane), until the set the walk reaches fits — the rows " +
+        "(one budget shared across every seed and hop on this lane), until the set the walk reaches fits";
+
+    internal const string ReverseTransitiveRemedy = ReverseTransitiveLever +
+        " — the rows " +
         "are what the walk reached, seeds included, so limit= and offset= window the render and not the walk. " +
         "project.form='chain' is not a lever here: this walk expands one shared frontier and has no per-seed path " +
         "for chain to draw.";
+
+    /// <summary>Its counts_only twin.</summary>
+    internal const string ReverseTransitiveCensusRemedy = ReverseTransitiveLever +
+        " — the count " +
+        "is what the walk reached, seeds included, and counts_only= does not lower it: the bodies are read before " +
+        "they are counted. project.form='chain' is not a lever here: this walk expands one shared frontier and has " +
+        "no per-seed path for chain to draw.";
 
     /// <summary>The refusal for a render over its lane's bound, or null when it fits. One sentence for the cost, one
     /// for the shapes that fit, each carrying the caveat that decides between them. <paramref name="wholeRecord"/>
     /// is the <c>form='everything'</c> lane, whose row is a whole record and whose bound is therefore its own —
     /// and whose first remedy is naming the fields, since that is what moves it between the two.
     /// <paramref name="remedy"/> is the second sentence's lever, defaulting to the scan's — the lanes whose levers
-    /// differ in kind pass their own (<see cref="ListRemedy"/>, <see cref="WalkRemedy"/>).</summary>
-    internal static string? Refuse(int rows, bool wholeRecord, string? remedy = null)
+    /// differ in kind pass their own (<see cref="ListRemedy"/>, <see cref="WalkRemedy"/>).
+    /// <para><paramref name="census"/> is a <c>counts_only</c> call, which renders NOTHING: the render's words would
+    /// be false of it, and the fact that explains its refusal — the list lane reads every body BEFORE it counts them
+    /// — is the one the render's lead never states. Its lever is the census twin of the lane's remedy, because
+    /// windowing a render the caller did not ask for is not a remedy.</para></summary>
+    internal static string? Refuse(int rows, bool wholeRecord, string? remedy = null, bool census = false)
     {
         int bound = wholeRecord ? MaxWholeRecordRows : MaxRenderRows;
         if (rows <= bound) return null;
+        var opens = census ? $"this call counts {rows:N0} records and each one reads a "
+                           : $"this call renders {rows:N0} rows and each one reads a ";
+        var when = census ? " before it is counted" : "";
+        var spend = census ? " of reading" : " of render";
         var lead = wholeRecord
-            ? $"error: this call renders {rows:N0} rows and each one reads a WHOLE record body — {Projected(rows, true)} " +
-              $"of render, past the {bound:N0}-row bound form='everything' is given (a client stops waiting at 30 " +
+            ? $"error: {opens}WHOLE record body{when} — {Projected(rows, true)}" +
+              $"{spend}, past the {bound:N0}-row bound form='everything' is given (a client stops waiting at 30 " +
               $"minutes). Name the fields you need instead — project.form='fields' with fields=[…] reads a body per " +
               $"row too but costs a fraction of a whole-record read, and is bounded at {MaxRenderRows:N0} rows. Or "
-            : $"error: this call renders {rows:N0} rows and each one reads a record body — {Projected(rows, false)} of " +
-              $"render, past the {bound:N0}-row bound one call is given (a client stops waiting at 30 minutes). ";
+            : $"error: {opens}record body{when} — {Projected(rows, false)}{spend}, " +
+              $"past the {bound:N0}-row bound one call is given (a client stops waiting at 30 minutes). ";
         var lever = remedy ?? ScanRemedy;
         return lead + (wholeRecord ? lever : char.ToUpperInvariant(lever[0]) + lever[1..]);
     }
@@ -159,11 +207,11 @@ internal static class RenderBudget
     /// tier and its own lead, because its row is neither a named-field read nor a whole record: it is one untyped
     /// whole-plugin seek per FormID. The shape it names first is the form that answers the same question off a
     /// gathered read, the way the whole-record lead names the fields form.</summary>
-    internal static string? RefuseIdentity(int rows, string remedy)
+    internal static string? RefuseIdentity(int rows, string remedy, bool census = false)
     {
         if (rows <= MaxIdentityRows) return null;
         return $"error: this call resolves {rows:N0} FormIDs and each one reads its winner's body by an UNTYPED " +
-               $"whole-plugin seek — {ProjectedAt(rows, MillisPerIdentityRow)} of render, past the {MaxIdentityRows:N0}-row " +
+               $"whole-plugin seek — {ProjectedAt(rows, MillisPerIdentityRow)}{(census ? " of reading" : " of render")}, past the {MaxIdentityRows:N0}-row " +
                $"bound form='identity' is given (a client stops waiting at 30 minutes). project.form='summary' reads the " +
                $"same type, editorid and winner off a read gathered per plugin, at a fraction of the cost and bounded at " +
                $"{MaxRenderRows:N0} rows — project.form='fields' with fields=[\"Name\"] if you need the display name too. Or " + remedy;
