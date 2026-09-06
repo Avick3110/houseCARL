@@ -80,6 +80,10 @@ static class BatchRender
     static int NoticeReserve(int count, string itemNoun, int cap) =>
         1 + Math.Max(Cut(count, itemNoun, cap).Length, Oversize(count, itemNoun, cap, int.MaxValue).Length);
 
+    /// <summary>The widest this cut marker can be spelled at <paramref name="cap"/>, so a caller whose list may end on
+    /// one charges its room before the list starts rather than appending it past the budget.</summary>
+    public static int CutReserve(string itemNoun, int cap) => Cut(int.MaxValue, itemNoun, cap).Length;
+
     /// <summary>The one cut marker: how many items were left out, and the max_chars that left them out. An empty
     /// <paramref name="itemNoun"/> counts unnamed items ("3 more omitted").</summary>
     public static void AppendCut(StringBuilder sb, int remaining, string itemNoun, int cap) =>

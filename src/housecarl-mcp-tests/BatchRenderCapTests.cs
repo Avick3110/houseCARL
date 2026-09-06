@@ -79,6 +79,28 @@ public class BatchRenderCapTests
     static string RenderNif(NifInspectBatchData d, int cap) =>
         NifWire.Render(d, new HashSet<string>(StringComparer.OrdinalIgnoreCase), Array.Empty<string>(), cap);
 
+    static string RenderNif(NifInspectBatchData d, int cap, params string[] sections) =>
+        NifWire.Render(d, new HashSet<string>(sections, StringComparer.OrdinalIgnoreCase), Array.Empty<string>(), cap);
+
+    /// <summary>One readable mesh with enough in every section to outgrow a modest budget: the section the budget
+    /// starts cuts, and the sections after it cannot start at all.</summary>
+    static NifInspectBatchData OneFullMesh(int shapes = 40, int nodes = 40, int strings = 40)
+    {
+        var prov = new NifProvider("A Mod Whose Folder Name Is Long Enough To Matter", "loose");
+        var mesh = new HousecarlCore.NifInspect(
+            "20.2.0.7", 12, 100, true, shapes + nodes,
+            new[] { new HousecarlCore.NifBlockTypeCount("BSTriShape", shapes) }, false, Array.Empty<string>(),
+            Enumerable.Range(0, shapes).Select(i => new HousecarlCore.NifShape(
+                $"ShapeNumber{i:D3}", 14u, 1f, "BSTriShape", 14u, "NiAVObject",
+                Array.Empty<HousecarlCore.NifPartition>(), null, Array.Empty<HousecarlCore.NifTexture>(),
+                Array.Empty<string>())).ToList(),
+            Enumerable.Range(0, nodes).Select(i => new HousecarlCore.NifNode(1, $"NodeNumber{i:D3}", 14u, "NiNode", 14u, "NiAVObject")).ToList(),
+            Enumerable.Range(0, strings).Select(i => $"string table entry number {i:D3}").ToList());
+        return new NifInspectBatchData(
+            new[] { new NifInspectData("meshes/full/mesh.nif", prov, new[] { prov }, false, false, mesh, null) },
+            Array.Empty<string>(), Array.Empty<string>(), "TestProfile");
+    }
+
     static PlaceOutcome Placed(int n) => new(
         Enumerable.Range(0, n)
             .Select(i => new PlaceResult($"meshes/batch/render/cap/place{i:D4}.nif", true, 42,
@@ -257,5 +279,21 @@ public class BatchRenderCapTests
         Assert.Contains("  … [", nif);
         Assert.DoesNotContain("... [", asset);
         Assert.DoesNotContain("... [", nif);
+    }
+
+    /// <summary>A mesh whose sections cut still reaches the page: the marker a cut section writes is charged with the
+    /// missed-sections line, so the mesh does not end one marker past the budget and get taken back out entire —
+    /// which answered with the path line and nothing else, no version, no providers, no resolution.</summary>
+    [Theory]
+    [InlineData(2_000)]
+    [InlineData(3_000)]
+    [InlineData(4_500)]
+    public void AMeshWhoseSectionsCutIsStillRendered(int cap)
+    {
+        var text = RenderNif(OneFullMesh(), cap, "shapes", "nodes", "strings");
+
+        Assert.True(text.Length <= cap, $"nif_inspect returned {text.Length} chars at max_chars={cap}");
+        Assert.Contains("meshes/full/mesh.nif", text);
+        Assert.Contains("version: 20.2.0.7", text);
     }
 }
