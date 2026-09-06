@@ -19,17 +19,19 @@ namespace HousecarlGenerator;
 ///      renders exactly once, BEFORE the first per-mesh block, so a long batch can't truncate it away and a
 ///      3-mesh batch doesn't repeat it 3 times.
 ///   4. EXPLICIT CUT — a max_chars smaller than the batch cuts with the omitted-MESH count named ("N more mesh(es)
-///      omitted at max_chars=..."), never a silent truncation; the alarms from arm 3 survive the cut.
+///      omitted at max_chars=..."), never a silent truncation; the alarms from arm 3 survive the cut; and the
+///      response comes back INSIDE the cap, because the mesh that would cross it is not written (#546).
 ///   5. ABSENT HEDGED AT POINT OF USE — an ABSENT result in a batch whose scan was incomplete (BSA read failures /
 ///      discovery warnings) carries BOTH per-path hedge lines right under its ABSENT line (asset_status parity —
 ///      the top-of-output alarm alone scrolls away in a long batch), and a non-ABSENT error is NOT hedged.
-///   6. FIRST MESH ALWAYS ANSWERS — max_chars never starves a single-path call of its core answer: even when the
-///      alarms alone exhaust the cap, the first mesh's block still renders (and no bogus omitted notice appears).
+///   6. NO BOGUS NOTICE — a batch that rendered every mesh claims no cut. The first-mesh exemption this arm used to
+///      pin is gone: max_chars is a ceiling, and a mesh wider than the whole budget is named rather than written
+///      past it (#546, BatchRenderCapTests).
 ///
 /// Teeth (mutation-RED, verified at authoring): early-return from the render loop on the first Error result →
 /// arm 2 FAILS; move AppendReadFailures inside the per-mesh loop → arm 3 FAILS; drop the omitted-count notice on
-/// the cap break → arm 4 FAILS; drop the per-path hedge in AppendMesh → arm 5 FAILS; drop the shown &gt; 0 guard on
-/// the cap check → arm 6 FAILS.
+/// the cap break → arm 4 FAILS; write the crossing mesh instead of taking it back out → arm 4c FAILS; drop the
+/// per-path hedge in AppendMesh → arm 5 FAILS.
 /// </summary>
 internal static class NifInspectBatchGuardProbe
 {
@@ -37,7 +39,7 @@ internal static class NifInspectBatchGuardProbe
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");
-        Console.WriteLine(" nif-inspect batch-wire guard — order, isolation, one-shot alarms, explicit cut, ABSENT hedge, first-mesh answer");
+        Console.WriteLine(" nif-inspect batch-wire guard — order, isolation, one-shot alarms, explicit cut, ABSENT hedge, no bogus notice");
         Console.WriteLine("================================================================");
         Console.WriteLine();
         int fail = 0;
@@ -78,11 +80,13 @@ internal static class NifInspectBatchGuardProbe
 
         // Arm 4 — explicit cut: a cap the header + alarm + first mesh exhausts must name the omitted-mesh count
         // (and the arm-3 alarm, rendered first, must survive the cut).
-        var o4 = NifWire.Render(alarmed, none, noUnknown, 400);
-        Check(o4.Contains("more mesh(es) omitted at max_chars=400"),
+        var o4 = NifWire.Render(alarmed, none, noUnknown, 700);
+        Check(o4.Contains("more mesh(es) omitted at max_chars=700"),
             "4. explicit cut: a small max_chars names the omitted-mesh count, never a silent truncation");
         Check(o4.Contains("could NOT be read"),
             "4b. explicit cut: the batch-level alarm still renders under the cut (alarms-first)");
+        Check(o4.Length <= 700,
+            "4c. explicit cut: max_chars is a ceiling — the mesh that would cross it is not written at all (#546)");
 
         // Arm 5 — ABSENT hedged at point of use: with BOTH batch caveats present, the ABSENT result carries both
         // per-path hedge lines; the neighboring non-ABSENT parse error is NOT hedged (the hedge is ABSENT-specific).
@@ -97,16 +101,13 @@ internal static class NifInspectBatchGuardProbe
         Check(Regex.Matches(o5, Regex.Escape("may be incomplete")).Count == 2,
             "5c. ABSENT hedge: the non-ABSENT error is NOT hedged (exactly one hedged path, two hedge lines)");
 
-        // Arm 6 — first mesh always answers: a cap smaller than the header+alarms still renders the sole mesh's
-        // core block (resolution line), and no omitted notice fires for a fully-rendered batch.
+        // Arm 6 — no bogus notice: a batch that rendered every mesh claims no cut.
         var soloAlarmed = new NifInspectBatchData(
             new[] { Ok(PathA, "ShapeA") },
             new[] { "Broken - Textures.bsa (header refused)" }, Array.Empty<string>(), "TestProfile");
-        var o6 = NifWire.Render(soloAlarmed, none, noUnknown, 50);
-        Check(o6.Contains("read from:") && o6.Contains(PathA),
-            "6. first-mesh answer: a tiny max_chars cannot starve a single-path call of its resolution");
-        Check(!o6.Contains("more mesh(es) omitted"),
-            "6b. first-mesh answer: no bogus omitted notice when every mesh rendered");
+        var o6 = NifWire.Render(soloAlarmed, none, noUnknown, BigCap);
+        Check(o6.Contains("read from:") && o6.Contains(PathA) && !o6.Contains("mesh(es) omitted"),
+            "6. no bogus omitted notice when every mesh rendered");
 
         Console.WriteLine();
         Console.WriteLine(fail == 0 ? "ALL PASS" : $"{fail} FAILED");

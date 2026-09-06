@@ -192,14 +192,14 @@ internal static class NifServiceGuardProbe
         // 4 shapes, 2 with (30) partitions each; a small cap cuts after the first partition line → "1 more omitted",
         // never "3"/"4 more omitted" (the pre-fix total-based count).
         var wantParts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "partitions" };
-        var cut = NifWire.Render(FakeData(FakeInspect(4, 2, false, Array.Empty<string>(), partsPerShape: 30), null), wantParts, Array.Empty<string>(), 400);
+        var cut = NifWire.Render(FakeData(FakeInspect(4, 2, false, Array.Empty<string>(), partsPerShape: 30), null), wantParts, Array.Empty<string>(), 1_500);
         Check(cut.Contains("more omitted") && !cut.Contains("3 more omitted") && !cut.Contains("4 more omitted"),
               $"a filtered-section cut counts the FILTERED remainder, not the total shape count — {(cut.Contains("more omitted") ? "cut fired, remainder bounded" : "NO CUT (retune)")}");
 
         // PR #243 review: RenderShapesDetail obeys the same rule — a mid-list cut counts the REMAINING shapes, never
         // the total. 6 shapes at cap 600: the cut fires after ≥1 shape rendered, so "6 more omitted" is the bug.
         var wantShapesCut = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "shapes" };
-        var cutShapes = NifWire.Render(FakeData(FakeInspect(6, 0, false, Array.Empty<string>()), null), wantShapesCut, Array.Empty<string>(), 600);
+        var cutShapes = NifWire.Render(FakeData(FakeInspect(6, 0, false, Array.Empty<string>()), null), wantShapesCut, Array.Empty<string>(), 1_100);
         Check(cutShapes.Contains("more omitted") && !cutShapes.Contains("6 more omitted"),
               $"a shapes-detail cut counts the REMAINDER, not the total shape count — {(cutShapes.Contains("more omitted") ? "cut fired, remainder bounded" : "NO CUT (retune)")}");
 

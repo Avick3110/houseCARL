@@ -195,6 +195,63 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         Assert.Contains(Path.GetFileName(path), r);
     }
 
+    // ---- max_chars is a CEILING on what comes back, spill block and all (#546) ---------------------
+
+    /// <summary>A scan filled well past its cap comes back inside it. The truncation notice and the spilled: block
+    /// are charged before the rows are laid, and the row that would cross what is left is not written.</summary>
+    [Theory]
+    [InlineData(2_500)]
+    [InlineData(4_000)]
+    [InlineData(6_000)]
+    [InlineData(20_000)]
+    public void AScanRenderIsNeverWiderThanItsCap(int cap)
+    {
+        using var d = OwnResults("scan-ceiling-" + cap);
+        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Everything, max_chars: cap);
+
+        Assert.True(r.Length <= cap, $"the scan returned {r.Length} chars at max_chars={cap}");
+    }
+
+    /// <summary>And what the cap held back is a count, not a silence.</summary>
+    [Fact]
+    public void AScanCutByItsCapSaysHowManyRecordsItHeldBack()
+    {
+        using var d = OwnResults("scan-ceiling-notice");
+        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Everything, max_chars: 2_500);
+
+        Assert.Matches(@"\[truncated: rendered \d+ of " + WeaponTotal + " records", r);
+    }
+
+    /// <summary>And the artifact it spilled to still holds the COMPLETE result: what the cap held back inline is in
+    /// the file, not lost. The ceiling bounds the render, never the answer.</summary>
+    [Fact]
+    public void TheSpillStillCarriesTheCompleteResultWhenTheRenderIsHeldToItsCap()
+    {
+        using var d = OwnResults("ceiling-spill-complete");
+        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Everything, max_chars: 2_500);
+
+        Assert.True(r.Length <= 2_500, $"the scan returned {r.Length} chars at max_chars=2500");
+        Assert.Contains($"spilled: complete result ({WeaponTotal} rows)", r);
+        var m = ManifestOf(TheSpill(d));
+        Assert.Equal(WeaponTotal, m.RowCount);
+        Assert.Equal(m.RowCount, m.Total);
+    }
+
+    /// <summary>The one arm left: a max_chars smaller than the spill block the response must carry — the block that
+    /// names the artifact holding the complete result — says so and names the cap that clears it, rather than
+    /// answering over the ceiling in silence.</summary>
+    [Fact]
+    public void ACapTooSmallForTheSpillBlockSaysSoAndNamesTheCapThatClearsIt()
+    {
+        using var d = OwnResults("ceiling-too-small");
+        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Everything, max_chars: TinyBody);
+
+        Assert.Contains($"over the max_chars={TinyBody} it was given", r);
+        Assert.Contains("raise max_chars to at least ", r);
+        var needed = int.Parse(Regex.Match(r, @"raise max_chars to at least (\d+)").Groups[1].Value);
+        Assert.Equal(r.Length, needed);
+    }
+
     [Fact]
     public void AnAutoSpilledArtifactHoldsEveryRowStampedWithTheScannedBuild()
     {
