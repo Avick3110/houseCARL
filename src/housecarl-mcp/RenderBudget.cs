@@ -89,9 +89,10 @@ internal static class RenderBudget
 
     /// <summary>What moves a WALK's row count. The rows are what the walk REACHED, not what the scan selected, so
     /// the scan window is the wrong lever: the seeds, the walk's own caps, or the chain form, which lists the same
-    /// reached set without reading a body.</summary>
+    /// reached set without reading a body. The seeds are named without the scan terms, because a walk is reached
+    /// from the formids= lane too and there they are not part of the call.</summary>
     internal const string WalkRemedy =
-        "narrow the seeds (types=, plugins=, where=), or lower walk.depth or " +
+        "narrow the seeds you passed, or lower walk.depth or " +
         "walk.max_nodes, until the set the walk reaches fits — the rows are what the walk reached, seeds included, " +
         "so limit= and offset= window the render and not the walk. project.form='chain' lists the same reached set " +
         "without reading a body, which is what to run first.";
