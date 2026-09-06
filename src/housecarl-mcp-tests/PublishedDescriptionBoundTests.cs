@@ -39,7 +39,6 @@ public sealed class PublishedDescriptionBoundTests
         ToolNames.MergePlugins,
         ToolNames.NifInspect,
         ToolNames.NifSet,
-        ToolNames.Place,
         ToolNames.Remove,
     };
 
