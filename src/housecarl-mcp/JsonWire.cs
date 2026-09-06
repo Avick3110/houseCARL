@@ -1130,6 +1130,7 @@ static class JsonWire
                     : null;
                 w.WriteStartArray("matches");
                 int rendered = 0; bool rowsTruncated = false;
+                var renderClock = System.Diagnostics.Stopwatch.StartNew();
                 var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the clause once, over the fields the rows carried
                 bool childUnioned = false;   // which TIER those rows stated — the scan lanes annotate index-only
                 for (int i = 0; i < q.Keys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
@@ -1154,8 +1155,11 @@ static class JsonWire
                     }
                     rendered++;
                 }
+                renderClock.Stop();
                 w.WriteEndArray();
                 w.WriteNumber("rendered", rendered);
+                // The other half of a call's cost, stated in-band beside the rows it bought (#582).
+                if (detail && !manifestOnly) w.WriteNumber("render_ms", renderClock.ElapsedMilliseconds);
                 w.WriteBoolean("truncated", rowsTruncated);
                 WriteOwnedChildNote(w, childFields, childUnioned);
                 truncated = rowsTruncated;
@@ -1259,6 +1263,7 @@ static class JsonWire
                     : null;
                 List<(string Formid, string Error)>? errors = null;
                 int rendered = 0; bool rowsTruncated = false;
+                var renderClock = System.Diagnostics.Stopwatch.StartNew();
                 var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the clause once, over the cells the rows carried
                 bool childUnioned = false;   // which TIER those rows stated — the scan lanes annotate index-only
                 var foldNotes = new SortedSet<string>(StringComparer.Ordinal);   // what the read said that no column carries — the truncation note above all
@@ -1379,9 +1384,12 @@ static class JsonWire
                     { w.WriteStartObject(); w.WriteString("formid", efk); w.WriteString("error", err); w.WriteEndObject(); }
                     w.WriteEndArray();
                 }
+                renderClock.Stop();
                 w.WriteNumber("rendered", rendered);
                 // A fold makes a row an ELEMENT, so `rendered` (records) no longer counts the rows: say both.
                 if (fold is not null) w.WriteNumber("rows_rendered", foldRows);
+                // The other half of a call's cost, stated in-band beside the rows it bought (#582).
+                if (detail && !manifestOnly) w.WriteNumber("render_ms", renderClock.ElapsedMilliseconds);
                 w.WriteBoolean("truncated", rowsTruncated);
                 WriteOwnedChildNote(w, childFields, childUnioned);
                 // The read's own note — a truncated expansion above all — belongs to the document whose rows the
