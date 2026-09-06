@@ -4066,6 +4066,9 @@ public sealed class LoadOrderService : IDisposable
                     foreach (var l in LinksOf(body, followSegs, out _))
                         if (!l.IsNull) st.Frontier.Enqueue((l, hop + 1, label));
                 }
+                // An empty frontier means this seed is finished — nothing but its own turn ever enqueues into it —
+                // and the results loop reads neither of these, so the bookkeeping goes back now rather than at return.
+                if (st.Frontier.Count == 0) { st.Visited = new(); st.Frontier = new(); }
             }
         }
 
