@@ -134,7 +134,7 @@ public static class RecordsTools
             RecordsWalk? walk = null,
         [Description("TRANSPORT: 'text' (default) | 'json' (machine-readable document; same accounting in-band) | 'dense' (scan lane: positional columnar cells 1:1 with the requested fields — the compact bulk-enumeration form; by that definition depth expansion and the 'everything' form are inexpressible in it). Every response carries the epoch stamp — the identity of the index build it was answered from — spelled epoch=<hex> on 'text' and 'dense', and as an 'epoch' member on 'json'.")]
             string? format = null,
-        [Description("TRANSPORT: max rows to render (default 500). The TRUE total is always reported; page a scan in exact windows with offset=. DECLARED COST: the derived-selection forms (delta/tree/chain/info_order, and any walk) consume EVERY scan match — their censuses and artifacts cover the full selection, and limit= windows only the rendered rows — so on a big order the SCAN TERMS (types=/plugins=/where=) are the cost bound: narrow them. RENDER COST: every rendered row of a BODY form (fields/rows/everything) READS that record's body, and the response's accounting reports what that cost as render_ms; a call whose render would exceed 300,000 rows REFUSES up front rather than going silent, naming the shapes that fit.")]
+        [Description("TRANSPORT: max rows to render (default 500). The TRUE total is always reported; page a scan in exact windows with offset=. DECLARED COST: the derived-selection forms (delta/tree/chain/info_order, and any walk) consume EVERY scan match — their censuses and artifacts cover the full selection, and limit= windows only the rendered rows — so on a big order the SCAN TERMS (types=/plugins=/where=) are the cost bound: narrow them. RENDER COST: every rendered row of a BODY form (fields/rows/everything) READS that record's body, and the response's accounting reports what that cost as render_ms; a render too big to finish REFUSES up front rather than going silent, naming the shapes that fit. The bound is per form, because the row costs differ by two orders of magnitude: 300,000 rows for a named-fields row, 15,000 for form='everything', whose row materialises the WHOLE record — name the fields you need and the same selection fits.")]
             int limit = 500,
         [Description("TRANSPORT: skip the first N matches (exact windows: offset=0/500/1000…). Windows tile only WITHIN one epoch — if two pages' epochs differ the load order changed mid-pagination; re-run from offset=0, do not stitch the pages. offset= RE-SCANS the selection from the start rather than seeking into it, so every window pays the whole scan again and a deep window costs more than a shallow one — narrowing the scan terms beats paging far into one.")]
             int offset = 0,
@@ -1253,14 +1253,6 @@ public static class RecordsTools
                 headerLine += "\n" + outcome.ReverseIndexNote;
             }
 
-            // ---- the render's own bound. The scan terms bound the SCAN; every rendered row of a body form then
-            // reads a record body, and that cost was undeclared until a call went silent past the client's idle
-            // timeout (#582). Checked before any body is read, so the caller learns the shape instead of waiting.
-            if ((bodyFields || form == "everything") && !counts_only
-                && outcome.Error is null && outcome.Groups is null
-                && RenderBudget.Refuse(outcome.Keys.Count) is { } tooBig)
-                return Wire.Refuse(json, tooBig, outcome.Stamp);
-
             // ---- walk= on a scan: the scan's matches are the seeds and the walk lane takes it from there,
             //      rendering the chain or reading the reached set, seam-checked throughout. ----
             if (walk is not null && outcome.Error is null && outcome.Groups is null)
@@ -1271,6 +1263,19 @@ public static class RecordsTools
                 expectEpoch = outcome.Epoch;
                 return WalkLane(seedKeys, null, null);
             }
+
+            // ---- the render's own bound. The scan terms bound the SCAN; every rendered row of a body form then
+            // reads a record body, and that cost was undeclared until a call went silent past the client's idle
+            // timeout (#582). Checked before any body is read, so the caller learns the shape instead of waiting,
+            // and BELOW the walk lane, which returned above: a walk renders the set it reaches under its own node
+            // budget, not the seed scan this count is of, so measuring it here would refuse a call for a cost it
+            // was never going to pay.
+            // The two lanes are measured separately: a named-fields row reads the paths it was given, an
+            // 'everything' row materialises the whole record, and the two are two orders of magnitude apart.
+            if ((bodyFields || form == "everything") && !counts_only
+                && outcome.Error is null && outcome.Groups is null
+                && RenderBudget.Refuse(outcome.Keys.Count, form == "everything") is { } tooBig)
+                return Wire.Refuse(json, tooBig, outcome.Stamp);
 
             // ---- delta / tree on a scan: the scan selects the records and the engine batches compare them.
             //      Two captures meet here, so the seam is epoch-compared and the halves can never mix builds.
