@@ -60,7 +60,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   response could come back several hundred characters past the number the caller passed. Everything written
   below the rows is now charged before the first one is laid, and an item that would cross what is left is
   not written at all: the notice says how many were held back, and one item wider than the whole budget is
-  named with the `max_chars` that clears it in one step rather than dropped. A `housecarl_records` result the
+  named with the `max_chars` that clears it in one step rather than dropped, wherever in the list it falls. That
+  number is measured against the widest form of what did not fit, so a render whose width grows with the budget —
+  a mesh's `sections=`, an alarm list that was itself cut — still clears in one raise. Every notice a
+  `housecarl_skse` answer writes quotes the `max_chars` you passed, not a number short by its footer. Where a
+  window put no row on the page at all, the accounting names both the cap to raise and the `offset=` that steps
+  past the row that did not fit, which is the only knob that moves that case. A `housecarl_records` result the
   ceiling cuts still spills COMPLETE to its artifact — the ceiling bounds the render, never the answer. On
   `housecarl_records` this covers the scan, batch, resolve, `group_by` and `summary` renders; the comparison
   forms (`delta`, `tree`), the walk lane's chain and effect-chain renders and `info_order` still answer past
