@@ -441,7 +441,9 @@ static class NifWire
         // ---- detail sections on demand ----
         // A section the budget cannot even start is COUNTED, never silently absent: the room for that one line is
         // charged before the first section renders.
-        var room = cap.Less(SectionsMissed(want.Count, cap.Cap).Length);
+        // A section that cuts rolls back to the budget and then writes its marker, so that marker's room is charged
+        // here too — a mesh left one marker past the budget is taken back out entire by the batch above.
+        var room = cap.Less(SectionsMissed(want.Count, cap.Cap).Length + BatchRender.CutReserve("", cap.Cap));
         int missed = 0;
         if (want.Contains("shapes") && !RenderShapesDetail(sb, nif, room)) missed++;
         if (want.Contains("partitions") && !RenderPerShape(sb, nif, room, "partitions", s => s.Partitions.Count > 0,
