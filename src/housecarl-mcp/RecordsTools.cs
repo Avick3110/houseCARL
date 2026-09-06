@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using ModelContextProtocol.Server;
@@ -64,7 +64,7 @@ public static class RecordsTools
         [Description("Maximum hops from a seed (default 16). Nodes AT the cap are recorded, not entered, and the response says the cap cut the walk — never a silent stop.")]
         public int? depth { get; set; }
 
-        [Description("The node budget (default 2000, the read-expansion budget). Per seed on a forward walk and on the reverse carrier walk (each seed's carrier rows); ONE budget shared across every seed and every hop on the transitive reverse walk, whose hops are one frontier and not a per-seed expansion. A breach keeps what was proved and says which reading it spent.")]
+        [Description("The node budget (default 2000, the read-expansion budget). Per seed on a forward walk and on the reverse carrier walk (each seed's carrier rows); ONE budget shared across every seed and every hop on the transitive reverse walk, whose hops are one frontier and not a per-seed expansion. A breach keeps what was proved and says which reading it spent. A reading form (summary/fields/rows/everything/aggregate) then renders the whole reached set — seeds times this budget at the worst — and reads a body per row, so it is held to the same render bound a scan is and refuses up front naming project.form='chain', which lists the same set without reading a body.")]
         public int? max_nodes { get; set; }
 
         [Description("Node classes the walk must not enter, as data: [{\"match\": \"Race\", \"severity\": \"stop\"|\"refuse\"}] — match is the record type name a read reports; stop prunes there (recorded as a boundary), refuse fails the whole call loud.")]
@@ -573,7 +573,7 @@ public static class RecordsTools
             // whole-record refusal and to_file= point at. Checked before any body is read, and counts_only pays it
             // too: this lane reads the list whatever it renders, where the scan lane's census reads no bodies.
             if ((bodyFields || form == "everything") && !walkDerived
-                && RenderBudget.Refuse(ids.Length, form == "everything", listSelection: true) is { } listTooBig)
+                && RenderBudget.Refuse(ids.Length, form == "everything", RenderBudget.ListRemedy) is { } listTooBig)
                 return Wire.Refuse(json, listTooBig);
 
             // ---- summary / fields / everything / aggregate: batch bodies off the source pole. ----
@@ -902,6 +902,16 @@ public static class RecordsTools
             if (combined.Count == 0)
                 return json ? JsonWire.RenderError($"the walk reached nothing readable ({seedErrs} seed error(s) — run form='chain' to see each seed's outcome).", wEpoch)
                             : $"error: the walk reached nothing readable ({seedErrs} seed error(s) — run form='chain' to see each seed's outcome)." + Wire.EpochLine(wEpoch);
+
+            // ---- the reached set's own render bound. The seed scan's count was never this count, which is why the
+            // scan's bound below the walk lane exempts a walk; the REACHED count is it — up to seeds x
+            // walk.max_nodes rows, each one a body read by the list lane. Same two lanes as the scan's bound, its
+            // own remedy, since the scan window is not what moves a walk. form='chain' stays exempt and returned
+            // above: it renders the walk's own rows, not the records' bodies.
+            if ((bodyFields || form == "everything") && !counts_only
+                && RenderBudget.Refuse(combined.Count, form == "everything", RenderBudget.WalkRemedy) is { } walkTooBig)
+                return Wire.Refuse(json, walkTooBig, wEpoch);
+
             envelope.Add(new("walk", $"forward{(walk.follow is { } f3 ? $" follow={f3}" : " (closure)")} depth={walkDepth} — selection = the {combined.Count} record(s) the walk reached (seeds included{(seedErrs > 0 ? $"; {seedErrs} seed error(s), listed via form='chain'" : "")})"));
             headerLine += $"\nwalk: selection = {combined.Count} reached record(s) (seeds included)";
             expectEpoch = wEpoch?.Epoch;
@@ -1288,7 +1298,7 @@ public static class RecordsTools
             // timeout (#582). Checked before any body is read, so the caller learns the shape instead of waiting,
             // and BELOW the walk lane, which returned above: a walk renders the set it reaches under its own node
             // budget, not the seed scan this count is of, so measuring it here would refuse a call for a cost it
-            // was never going to pay.
+            // was never going to pay. The walk lane measures its own reached count against the same bound.
             // The two lanes are measured separately: a named-fields row reads the paths it was given, an
             // 'everything' row materialises the whole record, and the two are two orders of magnitude apart.
             if ((bodyFields || form == "everything") && !counts_only
