@@ -81,7 +81,7 @@ public sealed class RecordsOffOrderPathTests : RecordsTestBase
         // The whole composed count line, not the "1 difference" fragment — that fragment is a substring of
         // "11 differences" and would read a wider delta as this one.
         var named = Delta("BasicStats.Damage");
-        Served(named, $"1 difference — each line: {W.MasterName}'s value (reference = {W.OverrideName}):",
+        Served(named, $"1 difference — each value line: {W.MasterName}'s value (reference = {W.OverrideName}):",
                       "BasicStats.Damage=10");
         Assert.Equal(1, CountOf(named, "BasicStats."));
 
