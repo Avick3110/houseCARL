@@ -456,11 +456,13 @@ static class JsonWire
 
     /// <summary><paramref name="levers"/>: the CALLER's lever vocabulary for the remedy sentences the row bodies
     /// compose — this renderer is shared by both tool generations. Omitted means the 1.x spelling.</summary>
-    /// <param name="renderMs">What reading these bodies cost, when the caller measured it — the scan's body lane
-    /// does, so the row cost the render bound is set against is reported there too (#582).</param>
+    /// <param name="bodyCost">What reading these bodies cost, when the caller measured it — the scan's body lane
+    /// does, so the row cost the render bound is set against is reported there too (#582). The row count travels
+    /// WITH the milliseconds rather than being taken off this list: the formids= lane reads the whole list and
+    /// hands this renderer a limit=/offset= window of it, so the count beside the cost is what was read (#607).</param>
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars, SpillState? spill, out bool truncated,
                                      IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null,
-                                     long? renderMs = null)
+                                     (int RowsRead, long Millis)? bodyCost = null)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -490,7 +492,7 @@ static class JsonWire
             w.WriteNumber("rendered", rendered);
             // What the bodies this batch renders cost to read, when the caller clocked them (#582): the rows are
             // resolved before the render, so the number comes from there and is stated on the to_file= shape too.
-            if (renderMs is { } rms) { w.WriteNumber("rows_read", outcomes.Count); w.WriteNumber("render_ms", rms); }
+            if (bodyCost is { } bc) { w.WriteNumber("rows_read", bc.RowsRead); w.WriteNumber("render_ms", bc.Millis); }
             w.WriteBoolean("truncated", rowsTruncated);
             // Over the annotated fields this document actually carries — never the input list, and never a field
             // some row's own truncation dropped. A manifest-only (to_file) or truncated response carries none, and
