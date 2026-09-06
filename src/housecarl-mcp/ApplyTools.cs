@@ -25,100 +25,45 @@ public static class ApplyTools
          "this tool takes (ops[].formid, from=, a field VALUE) is that form. The RUNTIME form the game, the console " +
          "and the logs print — eight hex digits and no plugin name, 'FExxxYYY' / 'XX######' — is READ-ONLY, because " +
          "it names a slot in the load order as it stands rather than a record: pass one here and it is refused with " +
-         "the 'XXXXXX:Plugin.esp' form to use in its place. " + ToolNames.Records + " reads by either form. " +
+         "the 'XXXXXX:Plugin.esp' form to use in its place. " + ToolNames.Records + " reads by either form. Every " +
+         "list-valued input (ops=, bundle=, assignments=) also accepts \"@<absolute path>\" in place of the inline " +
+         "array — the SAME array as a JSON manifest on disk. The path must be ABSOLUTE (the server resolves " +
+         "relative paths against its OWN working directory, not yours), and the file is read at CALL time, so " +
+         "re-dry-run it after editing.\n\n" +
          "Every edit " +
          "resolves the record's load-order WINNER and overrides it into the patch; all edits land in ONE reviewable " +
-         ".esp, whose master header spans every plugin the edits reference (cross-master merge, derived not declared).\n\n" +
-         "OPS. ops= is the edit list — {formid, field_path, op?, value?, values?, key?, entries?, compose?, " +
-         "composes?, from?, from_source?} each; one op is a set of one. field_path is " +
-         "dotted ('BasicStats.Damage', 'Name', 'Keywords'); step INTO a list/dict element MID-path with brackets " +
-         "('Effects[0].Data.Magnitude'), but at the LEAF use op + key instead of brackets. value is coerced to the " +
-         "field's real type — a number, an enum name ('OneHanded'), or a FormID for a reference.\n" +
-         "op is " + WriteVerbs.AllRecital + ". " +
-         "InsertAtIndex inserts a NEW element AT key= and shifts the rest right (key = the list's length appends); use it to grow a POSITION-CONTIGUOUS run in place, e.g. adding an arm to an existing CTDA OR-group, where Add would land the row at the end as a separate AND-group. On a [Flags] enum (SPEL " +
-         "Flags, NPC Configuration.Flags, WEAP Data.Flags...) Add SETS a bit and Remove CLEARS one, leaving the " +
-         "OTHER bits untouched — the way to flip one flag WITHOUT a Set silently dropping every bit you didn't " +
-         "mention; to turn all bits off, Set the field to '0'. Omit value only for a Remove that whole-clears a " +
-         "NULLABLE field. values= is the whole new list for a list ReplaceAll; entries= (key->value) drives a dict " +
-         "Merge or dict ReplaceAll; key= is the dict key or list index at the leaf.\n" +
-         "compose= builds a MODELED struct for an Add / InsertAtIndex / SetAtIndex, or a polymorphic Set — a leveled-list entry, an effect, a " +
-         "condition row, or a polymorphic list element by its CONCRETE arm type (e.g. a VMAD script property: " +
-         "op=Add, field_path='VirtualMachineAdapter.Scripts[0].Properties', compose={type:'ScriptObjectProperty', " +
-         "fields:{Name:'MyProp', Flags:'Edited', Object:'XXXXXX:Plugin.esp', Alias:'-1'}}). Merging a weapon into a " +
-         "leveled list: op=Add, field_path='Entries', compose={type:'LeveledItemEntry', sets:[{path:'Data.Level'," +
-         "value:'1'},{path:'Data.Count',value:'1'},{path:'Data.Reference',value:'<weapon FormID>'}]}. composes= is " +
-         "the BATCH sibling — a LIST built in ONE op: with Add it APPENDS each in order (a whole block of condition " +
-         "rows at once), with ReplaceAll it CLEARS the list then appends each (the way to replace a whole modeled " +
-         "list); composes=[] with ReplaceAll clears the list to empty. compose and composes are mutually exclusive.\n" +
-         "COPYING A FIELD: op=CopyFrom takes no value — the source IS another record's version. from_source= names " +
-         "the plugin to copy from (an ACTIVE plugin, or a plugin FILE on disk that isn't in the load order — a " +
-         "disabled old patch you want to re-assert a field from). from= names a DIFFERENT source RECORD (defaulting " +
-         "to from_source's version of the record being edited); with from= and no from_source= the source is that " +
-         "record's load-order winner. Cross-record pairs must be the SAME record type — refused by name otherwise. " +
-         "CopyFrom copies a WHOLE field (scalar, formlink, modeled list, sub-struct); it cannot copy owned child " +
-         "records (forward the whole record with " + ToolNames.Forward + " instead).\n\n" +
-         "THE COPY ZIP (bundle= x assignments=). To copy the SAME set of fields from one record to another — many " +
-         "pairs in one call — name the paths once and pair them explicitly: bundle=[\"BasicStats.Damage\"," +
-         "\"Keywords\"], assignments=[{target:'AAA:Mod.esp', from:'BBB:Other.esp'}, {target:..., from:..., " +
-         "from_source:'OldPatch.esp'}]. It is a ZIP, never a product: each target takes its OWN source. Identity and " +
-         "everything outside the bundle are untouched BY CONSTRUCTION — a bundle only names what it copies. Which " +
-         "paths form an appearance set or a balance frame is knowledge a skill carries, not a verb this tool owns. " +
-         "The zip composes with ops= in one call.\n\n" +
-         "LANE — where the write lands. Default: a NEW patch named patch= (auto-suffixed if taken, so a prior patch " +
-         "is never overwritten). into='<an existing patch's filename>' EXTENDS that patch instead — the way to " +
-         "accumulate across calls and sessions. PRECEDENCE with into= (pinned): a FormKey the patch ALREADY CARRIES " +
-         "is edited AS-IS in the patch; only a FormKey it does NOT yet carry copies the load-order winner in first. " +
-         "So " + ToolNames.Forward + " from a source + apply into= the same patch is THE recipe to build on a " +
-         "specific plugin's version while a stale winner sits above it. in_place='<plugin filename>' is the opt-in " +
-         "THIRD lane: houseCARL rewrites your ORIGINAL file (incl. a mod it didn't author) — no new patch, and NO " +
-         "houseCARL backup or undo (keep your own). It re-lays-out the whole plugin the way xEdit/CK do on save, " +
-         "VERIFIES the records you edit, trusts Mutagen for the untouched rest, and refuses a file it can't parse or " +
-         "that holds engine-reserved (sub-0x800) records. The FIRST in-place edit of a given plugin returns a " +
-         "confirmation prompt (re-call with acknowledge=true); that consent covers touching your original " +
-         "ONLY — it NEVER skips the record verify.\n" +
-         "dry_run=true runs the FULL pipeline — winner resolve, schema pre-flight, every op applied in memory, the " +
-         "reference-resolution check — and STOPS before anything touches disk. It returns what WOULD change and the " +
-         "expected masters, or EXACTLY the refusal the real call would give: catch a bad field path before the first " +
-         "write of a big batch, not after the last. Works on every lane (an in-place dry run needs no acknowledge " +
-         "and never records consent). Not a disk guarantee — a serialize/commit fault still surfaces only for real.\n\n" +
-         "ALL-OR-NOTHING (Q3): if ANY op is malformed or fails pre-flight, the whole call is refused with per-op " +
-         "reasons and NOTHING is written. No partial patches, ever.\n\n" +
-         "TRANSPORT: readback=true expands the read-back to the FULL deep field-by-field dump of every touched " +
-         "record (in place, the verify ALWAYS runs and shows compactly by default; readback widens it) — confirm " +
-         "composed structures landed and nothing else was disturbed WITHOUT enabling the patch in MO2. The read-back " +
-         "is the WRITTEN FILE's content, NOT load-order truth: the patch wins nothing until enabled + sorted in MO2. " +
-         "format='json' returns the same data machine-readable; max_chars caps the render with an explicit notice, " +
-         "never a silent cut. Every response carries epoch=<hex> — the identity of the index build the winners were " +
-         "resolved from.\n\n" +
-         "ops= (like every list-valued input) also accepts \"@<absolute path>\" in place of the inline array: the " +
-         "SAME array as a JSON manifest on disk. Write a big job's ops once, dry-run the file, then apply it — and " +
-         "re-run the same manifest to recover an interrupted write (overrides are idempotent). The path must be " +
-         "ABSOLUTE (the server resolves relative paths against its OWN working directory, not yours), and the file " +
-         "is read at CALL time, so re-dry-run it after editing.\n\n" +
+         ".esp, whose master header spans every plugin the edits reference (cross-master merge, derived not " +
+         "declared). ALL-OR-NOTHING (Q3): if ANY op is malformed or fails pre-flight, the whole call is refused " +
+         "with per-op reasons and NOTHING is written. No partial patches, ever.\n\n" +
+         "Each axis's grammar is on its own parameters:\n" +
+         "WHAT — ops= (the edit list), or the copy zip bundle= x assignments=.\n" +
+         "LANE — patch= | into= | in_place= with acknowledge= | dry_run=.\n" +
+         "TRANSPORT — readback= | format= | max_chars=.\n\n" +
+         "COMPOSITION: the zip composes with ops= in one call.\n\n" +
          "This tool edits EXISTING records' fields. New records are " + ToolNames.Create + "; dropping whole records is " +
          ToolNames.Remove + "; copying a whole record verbatim is " + ToolNames.Forward + ". Read first with " +
          ToolNames.Records + ".")]
     public static string Apply(
         LoadOrderService svc,
-        [Description("The edits, all into one artifact: [{formid, field_path, op?, value?, values?, key?, entries?, compose?, composes?, from?, from_source?}, …] — or \"@<absolute path>\" to read that SAME array from a JSON manifest file. One op is a set of one. An op member the shape does not declare is refused BY NAME at its element, never silently dropped.")]
+        [Description("The edits, all into one artifact: [{formid, field_path, op?, value?, values?, key?, entries?, compose?, composes?, from?, from_source?}, …] — or \"@<absolute path>\" to read that SAME array from a JSON manifest file. One op is a set of one. An op member the shape does not declare is refused BY NAME at its element, never silently dropped. The manifest is how a big job is run: write the ops once, dry-run the file, then apply it — and re-run the same manifest to recover an interrupted write (overrides are idempotent).")]
             JsonElement? ops = null,
-        [Description("THE COPY ZIP (with assignments=): the field paths copied for EVERY pair, e.g. [\"BasicStats.Damage\", \"Keywords\"]. Accepts [\"@<absolute path>\"] to read the path list from a file. Only what this names is copied — identity and every other field are untouched by construction.")]
+        [Description("THE COPY ZIP (with assignments=): the field paths copied for EVERY pair, e.g. [\"BasicStats.Damage\", \"Keywords\"] — to copy the SAME set of fields from one record to another, many pairs in one call, name the paths once here and pair them explicitly in assignments=. Accepts [\"@<absolute path>\"] to read the path list from a file. Only what this names is copied — identity and every other field are untouched BY CONSTRUCTION: a bundle only names what it copies. Which paths form an appearance set or a balance frame is knowledge a skill carries, not a verb this tool owns.")]
             string[]? bundle = null,
         [Description("THE COPY ZIP (with bundle=): the per-target source mapping — [{target: 'XXXXXX:Plugin.esp', from: 'YYYYYY:Other.esp', from_source?: 'SomePlugin.esp'}, …], or \"@<absolute path>\". A ZIP, never a product: each target takes its OWN source record. from_source defaults to the source record's load-order winner; target and from must be the SAME record type.")]
             JsonElement? assignments = null,
         [Description("LANE: base filename for the NEW patch this call writes (default 'Patch'); auto-suffixed if taken, so a prior patch is never overwritten. Mutually exclusive with into= and in_place= — naming both lanes is refused, never silently ignored.")]
             string? patch = null,
-        [Description("LANE: filename of an EXISTING houseCARL patch to EXTEND with these edits instead of writing a fresh one — the way to accumulate across calls and sessions. Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead.")]
+        [Description("LANE: filename of an EXISTING houseCARL patch to EXTEND with these edits instead of writing a fresh one — the way to accumulate across calls and sessions. PRECEDENCE (pinned): a FormKey the patch ALREADY CARRIES is edited AS-IS in the patch; only a FormKey it does NOT yet carry copies the load-order winner in first. So " + ToolNames.Forward + " from a source + apply into= the same patch is THE recipe to build on a specific plugin's version while a stale winner sits above it. Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead.")]
             string? into = null,
-        [Description("LANE (opt-in): the FILENAME OF THE FILE BEING OVERWRITTEN, e.g. \"CoolWeapons.esp\" — edit that existing active plugin IN PLACE (incl. one houseCARL didn't author) instead of writing a patch. Your ORIGINAL file is rewritten; no houseCARL backup or undo. Naming the file is the point: it is what you are about to overwrite. OMIT for the default patch lane, which leaves every original untouched.")]
+        [Description("LANE (opt-in): the FILENAME OF THE FILE BEING OVERWRITTEN, e.g. \"CoolWeapons.esp\" — edit that existing active plugin IN PLACE (incl. one houseCARL didn't author) instead of writing a patch. Your ORIGINAL file is rewritten; no houseCARL backup or undo (keep your own). It re-lays-out the whole plugin the way xEdit/CK do on save, VERIFIES the records you edit, trusts Mutagen for the untouched rest, and refuses a file it can't parse or that holds engine-reserved (sub-0x800) records. Naming the file is the point: it is what you are about to overwrite. OMIT for the default patch lane, which leaves every original untouched.")]
             string? in_place = null,
-        [Description("Confirms the one-time in-place trade-off for the plugin named by in_place= — needed only on the FIRST in-place write to a given plugin (edit, create, remove, OR forward), and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Waives the consent to touch your original ONLY; it NEVER skips the record verify. Meaningless without in_place=, and refused there rather than ignored.")]
+        [Description("Confirms the one-time in-place trade-off for the plugin named by in_place= — needed only on the FIRST in-place write to a given plugin (edit, create, remove, OR forward), and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Without it that first call returns a confirmation prompt instead of writing; re-call with acknowledge=true. Waives the consent to touch your original ONLY; it NEVER skips the record verify. Meaningless without in_place=, and refused there rather than ignored.")]
             bool acknowledge = false,
-        [Description("DRY RUN: run the whole real pipeline and STOP before anything touches disk. Returns what WOULD change (the would-be values, the expected masters), or EXACTLY the refusal the real call would give. Works on every lane.")]
+        [Description("DRY RUN: run the FULL real pipeline — winner resolve, schema pre-flight, every op applied in memory, the reference-resolution check — and STOP before anything touches disk. Returns what WOULD change (the would-be values, the expected masters), or EXACTLY the refusal the real call would give: catch a bad field path before the first write of a big batch, not after the last. Works on every lane (an in-place dry run needs no acknowledge and never records consent). Not a disk guarantee — a serialize/commit fault still surfaces only for real.")]
             bool dry_run = false,
-        [Description("TRANSPORT: expand the read-back to the FULL deep field-by-field dump of every record this call touched (not just the edited leaves). The written file's content, not load-order truth.")]
+        [Description("TRANSPORT: expand the read-back to the FULL deep field-by-field dump of every record this call touched (not just the edited leaves) — confirm composed structures landed and nothing else was disturbed WITHOUT enabling the patch in MO2. In place, the verify ALWAYS runs and shows compactly by default; this widens it. The read-back is the WRITTEN FILE's content, NOT load-order truth: the patch wins nothing until enabled + sorted in MO2.")]
             bool readback = false,
-        [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
+        [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band). Every response carries the epoch stamp — the identity of the index build the winners were resolved from — spelled epoch=<hex> on 'text', and as an 'epoch' member on 'json'.")]
             string? format = null,
         [Description("TRANSPORT: character ceiling on the WHOLE render — in format=\"json\" the applied-op rows as well as the read-back; in text, the read-back. Past it, trailing rows are dropped with an explicit notice (never silent); the WRITE is unaffected. 0 = a safe default kept under the host's per-response limit; raise it to widen a readback=true dump.")]
             int max_chars = 0) => Guard.Tool(ToolNames.Apply, () =>
@@ -319,13 +264,13 @@ public sealed record ApplyOp
     [JsonPropertyName("formid"), Description("The record to edit, as 'XXXXXX:Plugin.esp'.")]
     public string? Formid { get; init; }
 
-    [JsonPropertyName("field_path"), Description("Dotted field path, e.g. 'BasicStats.Damage' or 'Entries'. Step into a list/dict element mid-path with brackets ('Effects[0].Data.Magnitude'); at the LEAF use op + key, not brackets.")]
+    [JsonPropertyName("field_path"), Description("Dotted field path, e.g. 'BasicStats.Damage', 'Name', 'Keywords' or 'Entries'. Step into a list/dict element mid-path with brackets ('Effects[0].Data.Magnitude'); at the LEAF use op + key, not brackets.")]
     public string? FieldPath { get; init; }
 
-    [JsonPropertyName("op"), Description(WriteVerbs.AllRecital + ". SetAtIndex OVERWRITES the element at key=; InsertAtIndex inserts a new one AT key= and shifts the rest right (key = the list's length appends). On a [Flags] enum, Add sets one bit and Remove clears one, leaving the others untouched.")]
+    [JsonPropertyName("op"), Description(WriteVerbs.AllRecital + ". SetAtIndex OVERWRITES the element at key=; InsertAtIndex inserts a NEW one AT key= and shifts the rest right (key = the list's length appends) — use it to grow a POSITION-CONTIGUOUS run in place, e.g. adding an arm to an existing CTDA OR-group, where Add would land the row at the end as a separate AND-group. On a [Flags] enum (SPEL Flags, NPC Configuration.Flags, WEAP Data.Flags...) Add SETS a bit and Remove CLEARS one, leaving the OTHER bits untouched — the way to flip one flag WITHOUT a Set silently dropping every bit you didn't mention; to turn all bits off, Set the field to '0'.")]
     public string? Op { get; init; }
 
-    [JsonPropertyName("value"), Description("The value, coerced to the field's type. Omit for Remove / ReplaceAll / Merge / compose / CopyFrom.")]
+    [JsonPropertyName("value"), Description("The value, coerced to the field's real type — a number, an enum name ('OneHanded'), or a FormID for a reference. Omit for Remove / ReplaceAll / Merge / compose / CopyFrom; on a Remove, omitting it whole-clears a NULLABLE field.")]
     public string? Value { get; init; }
 
     [JsonPropertyName("key"), Description("Dict key or list index at the leaf.")]
@@ -337,16 +282,16 @@ public sealed record ApplyOp
     [JsonPropertyName("entries"), Description("Key->value pairs for a dict Merge or dict ReplaceAll.")]
     public Dictionary<string, string>? Entries { get; init; }
 
-    [JsonPropertyName("compose"), Description("Build a modeled struct: the arm for a polymorphic Set, or the element for a struct-element Add / InsertAtIndex / SetAtIndex (e.g. 'LeveledItemEntry'; for a polymorphic list, the element's CONCRETE arm type such as 'ScriptObjectProperty').")]
+    [JsonPropertyName("compose"), Description("Build a MODELED struct for an Add / InsertAtIndex / SetAtIndex, or a polymorphic Set — a leveled-list entry, an effect, a condition row (e.g. 'LeveledItemEntry'), or a polymorphic list element by its CONCRETE arm type (e.g. 'ScriptObjectProperty'). A VMAD script property: op=Add, field_path='VirtualMachineAdapter.Scripts[0].Properties', compose={type:'ScriptObjectProperty', fields:{Name:'MyProp', Flags:'Edited', Object:'XXXXXX:Plugin.esp', Alias:'-1'}}. Merging a weapon into a leveled list: op=Add, field_path='Entries', compose={type:'LeveledItemEntry', sets:[{path:'Data.Level',value:'1'},{path:'Data.Count',value:'1'},{path:'Data.Reference',value:'<weapon FormID>'}]}.")]
     public StructInput? Compose { get; init; }
 
-    [JsonPropertyName("composes"), Description("Build MANY modeled list elements in ONE op — the batch sibling of compose. With Add, appends each in order; with ReplaceAll, clears the list then appends each (composes=[] with ReplaceAll clears it to empty). Mutually exclusive with compose/value/values.")]
+    [JsonPropertyName("composes"), Description("Build MANY modeled list elements in ONE op — the batch sibling of compose, a LIST built in one op. With Add, appends each in order (a whole block of condition rows at once); with ReplaceAll, clears the list then appends each — the way to replace a whole modeled list (composes=[] with ReplaceAll clears it to empty). Mutually exclusive with compose/value/values.")]
     public StructInput[]? Composes { get; init; }
 
-    [JsonPropertyName("from"), Description("op='CopyFrom' only: the SOURCE RECORD to copy the field from, as 'XXXXXX:Plugin.esp' — a DIFFERENT record from formid (SPEC §4.5's cross-record copy). Omit to copy this same record's version from another plugin (name it in from_source). Source and target must be the same record type.")]
+    [JsonPropertyName("from"), Description("op='CopyFrom' only: the SOURCE RECORD to copy the field from, as 'XXXXXX:Plugin.esp' — a DIFFERENT record from formid (SPEC §4.5's cross-record copy). CopyFrom takes no value: the source IS another record's version. Omit to copy this same record's version from another plugin (name it in from_source). Source and target must be the SAME record type — refused by name otherwise. CopyFrom copies a WHOLE field (scalar, formlink, modeled list, sub-struct); it cannot copy owned child records (forward the whole record with " + ToolNames.Forward + " instead).")]
     public string? From { get; init; }
 
-    [JsonPropertyName("from_source"), Description("op='CopyFrom' only: WHOSE version of the source record to copy — an ACTIVE plugin, or a plugin FILE on disk that isn't in the load order (a disabled old patch). With from= it defaults to the source record's load-order winner; without from= it is required (there is no other source to name).")]
+    [JsonPropertyName("from_source"), Description("op='CopyFrom' only: WHOSE version of the source record to copy — an ACTIVE plugin, or a plugin FILE on disk that isn't in the load order (a disabled old patch you want to re-assert a field from). With from= it defaults to the source record's load-order winner; without from= it is required (there is no other source to name).")]
     public string? FromSource { get; init; }
 
     /// <summary>NOT a wire member — <see cref="JsonIgnoreAttribute"/> keeps it out of the published schema and out of

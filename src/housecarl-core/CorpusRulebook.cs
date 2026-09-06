@@ -431,7 +431,7 @@ public sealed class CorpusRulebook
     string PlacingRemedy(FieldSchema leaf) =>
         WriteVerbs.OfField(leaf, _corpus) is { } shape
             ? WriteVerbs.HowToPlace(shape)
-            : "the verbs this field takes are in the tool description";
+            : "the verbs this field takes are in the op member's description";
 
     /// <summary>Validate a composes= batch (a LIST of build-from-parts element specs) whole: Add appends each,
     /// ReplaceAll clears then appends each. LIST-of-modeled-elements ONLY (a dict needs keyed entries; a substruct/

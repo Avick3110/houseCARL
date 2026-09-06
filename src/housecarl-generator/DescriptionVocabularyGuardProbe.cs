@@ -205,7 +205,7 @@ public static class DescriptionVocabularyGuardProbe
         { "Set", "Add", "Remove", "SetAtIndex", "InsertAtIndex", "ReplaceAll", "Merge", "CopyFrom" };
 
     /// <summary>The verb a write slot uses when the caller names none — written independently for the same reason
-    /// as the vocabulary above. <see cref="WriteVerbs.AllRecital"/> feeds two shipped descriptions (and one
+    /// as the vocabulary above. <see cref="WriteVerbs.AllRecital"/> feeds one shipped description (and one
     /// vestigial <c>BulkOp.verb</c> attribute no caller reads since #468), so ONE edit to its <c>(default)</c>
     /// marker mis-states the default in both at once; the const-concat concentrated the fact, and a concentrated
     /// fact needs a pin.</summary>
@@ -1440,8 +1440,8 @@ public static class DescriptionVocabularyGuardProbe
 
         Check($"INV4-MARK     WriteVerbs.AllRecital marks exactly one verb (default), and it is '{PublishedDefault}'",
             MarkedDefaults(WriteVerbs.AllRecital) is [var only] && only == PublishedDefault,
-            new() { $"AllRecital marks [{string.Join(",", MarkedDefaults(WriteVerbs.AllRecital))}] — the const feeds two shipped "
-                  + "descriptions, so one edit here mis-states the default in both at once" }, tier: Tier.Construction);
+            new() { $"AllRecital marks [{string.Join(",", MarkedDefaults(WriteVerbs.AllRecital))}] — the const feeds one shipped "
+                  + "description and one vestigial attribute, so one edit here mis-states the default in both at once" }, tier: Tier.Construction);
 
         // Printed BEFORE the arms that read markers, so the coverage a verdict rests on is on screen above it.
         Console.WriteLine($"        default parentheticals on the surface: {defaultParens} — {marks.Count} read as a \"token (default)\" marker, "
@@ -1655,8 +1655,8 @@ public static class DescriptionVocabularyGuardProbe
     /// happens to end with. Appending a ninth verb to the const, which is exactly the edit the const exists to
     /// make sufficient at one site instead of three, moves the gloss onto the new verb and strips it off the old
     /// one, and no other arm sees it, because the recital is still complete and every token in it is still a real
-    /// verb. Reordering does the same. The other two conversion sites are position-independent — one appends after
-    /// a full stop, one reads <c>"op is " + AllRecital + ". "</c>.</para>
+    /// verb. Reordering does the same. The other conversion site, <c>ApplyOp.op</c>, is position-independent — it
+    /// appends after a full stop.</para>
     /// <para>Since #468 the one glued site is NOT a shipped schema: <c>housecarl_bulk_apply</c> was the only tool
     /// binding <c>BulkOp</c> off the wire, and its deletion left the type in
     /// <c>WireNamesProbe.NonInputWireTypes</c>, so this arm currently pins a description no caller is served. It is
