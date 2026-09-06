@@ -81,7 +81,7 @@ public static class CheckTools
              "exclusion that removes the whole scope is refused too rather than sweeping nothing in silence. " +
              "A group member that is not in this order " +
              "is the ordinary case and is simply dropped. This does not change what " +
-             "counts as the vanilla BASELINE the errors family splits out — that is always Mutagen's own base-master set.")]
+             "counts as the vanilla BASELINE the errors family splits out (see limit=) — that is always Mutagen's own base-master set.")]
             string[]? exclude = null,
         [Description("Optional. Which finding FAMILIES and CLASSES to look for, in one vocabulary. Families: " +
              "'errors', 'scripts', 'dialogue'. Classes inside them: 'dangling', 'missing_masters' (errors); " +
@@ -92,7 +92,7 @@ public static class CheckTools
              "STATES which families ran, which registered families did not, and the exact findings= spelling that " +
              "adds them — the default narrows only because the response says so. It cannot be every family: an " +
              "unscoped scripts sweep is ~8 minutes on a 3800-plugin order (measured), and an unscoped dialogue " +
-             "sweep is refused outright (seeds= is required). Excluding 'dangling' SKIPS the per-record link walk " +
+             "sweep is refused outright (see seeds=). Excluding 'dangling' SKIPS the per-record link walk " +
              "entirely — that is how you ask 'is any master missing anywhere in my order' without paying for a full " +
              "sweep. An excluded class renders as 'not checked', never as 0. Unscannable records, scan errors and " +
              "unverifiable script attachments are ALWAYS reported and cannot be filtered out (a suppressed 'could " +
@@ -126,8 +126,8 @@ public static class CheckTools
              "checked BEFORE it is enabled. " +
              // ---- family: dialogue (harvested from housecarl_validate_dialogue) ------------------------
              "DIALOGUE FAMILY — a topic's whole graph as the GAME sees it, and it is SEEDED, not swept (see " +
-             "seeds=, which it requires). It checks what houseCARL CAN verify at the data layer: the topic is " +
-             "wired to a quest, the branch resolves, the INFO.LinkTo conversation chain has no dangling targets, " +
+             "seeds=). It checks what houseCARL CAN verify at the data layer: the topic is wired to a quest, the " +
+             "branch resolves, the INFO.LinkTo conversation chain has no dangling targets, " +
              "and no previous-link (PNAM) is dangling — an EMPTY PNAM is NORMAL (vanilla selects among a topic's " +
              "lines by their conditions, not a previous-link chain), so absence is never flagged; each voiced " +
              "line's .fuz is on disk and each result script is bound + compiled; non-ASCII characters in the " +
@@ -147,16 +147,17 @@ public static class CheckTools
         [Description("Optional. Max findings to list per family (default 1000). The TRUE totals are always " +
              "reported; over the cap the response says so, and for the errors family says how many plugins lost " +
              "entries, names the ones that lost the most (a count each), and states how many it did not name. " +
-             "BASELINE: the base-game masters carry permanent vanilla dangling refs no load order can fix, so the " +
-             "response splits them out of the total and spends limit= on every other plugin FIRST — vanilla cannot " +
-             "crowd mod findings out of the listing. Master-table findings and unverifiable notes are outside this " +
-             "cap, never trimmed by it; on the SCRIPTS family a note repeating one already reported for the same " +
-             "script class is collapsed to a count instead, so a disabled mod's unreadable scripts cannot fill the " +
-             "listing (a note that names no script class is never collapsed — the record is its only identity). A " +
-             "script-heavy plugin (~180 scripted records) does not fit a tool result unnarrowed, and limit= alone " +
-             "will not help there because it caps FINDINGS, not the record roster — counts_only=true or a record " +
-             "scope is what does. Under counts_only=true this caps the histogram ROWS instead. For the DIALOGUE " +
-             "family it caps how many SEEDS one call expands, and the response names how many it did not reach.")]
+             "BASELINE (errors family): the base-game masters carry permanent vanilla dangling refs no load order " +
+             "can fix, so the response splits them out of the total and spends limit= on every other plugin FIRST " +
+             "— vanilla cannot crowd mod findings out of the listing. Master-table findings and unverifiable " +
+             "notes are outside this cap, never trimmed by it; on the SCRIPTS family a note repeating one already " +
+             "reported for the same script class is collapsed to a count instead, so a disabled mod's unreadable " +
+             "scripts cannot fill the listing (a note that names no script class is never collapsed — the record " +
+             "is its only identity). A script-heavy plugin (~180 scripted records) does not fit a tool result " +
+             "unnarrowed, and limit= alone will not help there because it caps FINDINGS, not the record roster — " +
+             "counts_only=true or a record scope is what does. Under counts_only=true this caps the histogram " +
+             "ROWS instead. For the DIALOGUE family it caps how many SEEDS one call expands, and the response " +
+             "names how many it did not reach.")]
             int limit = 1000,
         [Description("Optional. The DIALOGUE family only, and required by it: the topics and quests to validate, " +
              "as FormIDs ('0F1AC1:Skyrim.esm' — 6 hex digits, a colon, then the defining master's filename). A " +
