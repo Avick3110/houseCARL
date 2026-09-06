@@ -235,7 +235,18 @@ static class PlaceWire
         // before the first row is laid, so a filled render answers inside max_chars instead of past it.
         var body = BatchRender.Render(
             header, o.Results, "asset(s)", cap,
-            (sb, room) => { foreach (var w in o.Warnings) room.TryAppend(sb, "[!] discovery: " + w + "\n"); },
+            // Whole warnings, in order, and the list STOPS at the first one that does not fit: skipping a long
+            // warning and writing a short one after it hands the caller a list that looks complete and is not. What
+            // the stop cost is counted, and the count line's own room is charged before the first warning.
+            (sb, room) =>
+            {
+                if (o.Warnings.Count == 0) return;
+                var lines = room.Less(WarningsOmitted(o.Warnings.Count, cap).Length);
+                int w = 0;
+                for (; w < o.Warnings.Count; w++)
+                    if (!lines.TryAppend(sb, "[!] discovery: " + o.Warnings[w] + "\n")) break;
+                if (w < o.Warnings.Count) sb.Append(WarningsOmitted(o.Warnings.Count - w, cap));
+            },
             (sb, r, _) => AppendResult(sb, r, modFolder, poleWithheld?.Contains(r.AssetPath) == true),
             out int rendered,
             reserve: TrailerReserve(o, modFolder, placed, failed));
@@ -252,6 +263,10 @@ static class PlaceWire
 
         return RenderCap.Settle(sb2.ToString().TrimEnd('\n'), cap);
     }
+
+    /// <summary>What a cut discovery-warning list cost, named rather than left as a gap in a list that reads whole.</summary>
+    static string WarningsOmitted(int omitted, int cap) =>
+        "[!] " + omitted + " more discovery warning(s) omitted at max_chars=" + cap + "; raise max_chars to see them\n";
 
     /// <summary>The chars this render owes below its rows, at their widest spelling: the counts line with every row
     /// rendered, the leftover note where there is one, and whichever enable-and-sort sentence runs longer.</summary>
