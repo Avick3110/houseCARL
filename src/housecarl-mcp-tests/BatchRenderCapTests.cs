@@ -63,6 +63,15 @@ public class BatchRenderCapTests
         Array.Empty<string>(),
         "TestProfile");
 
+    /// <summary>An alarm block that must itself be cut, above one item wider than the whole budget: both the alarms
+    /// and the item render wider at a wider cap.</summary>
+    static AssetStatusData WideItemUnderManyAlarms(int failures, int providers) => new(
+        new[] { Contested("meshes/wide/path.nif", providers) },
+        Enumerable.Range(0, failures).Select(i => $"A Mod With A Long Folder Name {i:D3} - Textures.bsa (header refused)").ToList(),
+        true,
+        Array.Empty<string>(),
+        "TestProfile");
+
     static AssetPathResult Absent(string path) =>
         new(path, new AssetHit(path, false, null, Array.Empty<AssetProvider>(), false), null);
 
@@ -358,5 +367,43 @@ public class BatchRenderCapTests
         var needed = int.Parse(System.Text.RegularExpressions.Regex.Match(first, @"raise max_chars to at least (\d+)").Groups[1].Value);
         var second = AssetWire.Render(data, needed);
         Assert.Contains("meshes/wide/path.nif", second);
+    }
+    /// <summary>The remedy holds where the rendered width itself GROWS with the budget: a mesh whose detail sections
+    /// fill whatever room they are given, and an alarm list that renders more lines at a wider cap. The number is
+    /// measured against the widest form rather than the cut one, so following it once puts the item on the page
+    /// instead of returning the same sentence with a slightly larger number.</summary>
+    [Theory]
+    [InlineData(400)]
+    [InlineData(800)]
+    [InlineData(1_200)]
+    public void TheRemedyHoldsWhereTheRenderedWidthGrowsWithTheBudget(int cap)
+    {
+        var data = OneFullMesh();
+        var first = RenderNif(data, cap, "shapes", "nodes", "strings");
+        var m = System.Text.RegularExpressions.Regex.Match(first, @"whole budget; raise max_chars to at least (\d+)");
+        Assert.True(m.Success, $"expected the oversize remedy at max_chars={cap}");
+
+        var second = RenderNif(data, int.Parse(m.Groups[1].Value), "shapes", "nodes", "strings");
+
+        Assert.Contains("meshes/full/mesh.nif", second);
+        Assert.DoesNotContain("wider than this response's whole budget", second);
+    }
+
+    /// <summary>The same, where the ALARM block above the item is what grows: it renders more lines at the wider cap,
+    /// and the remedy already counted them.</summary>
+    [Theory]
+    [InlineData(800)]
+    [InlineData(1_200)]
+    public void TheRemedyCountsTheAlarmLinesAWiderCapWouldRender(int cap)
+    {
+        var data = WideItemUnderManyAlarms(40, 60);
+        var first = AssetWire.Render(data, cap);
+        var m = System.Text.RegularExpressions.Regex.Match(first, @"whole budget; raise max_chars to at least (\d+)");
+        Assert.True(m.Success, $"expected the oversize remedy at max_chars={cap}");
+
+        var second = AssetWire.Render(data, int.Parse(m.Groups[1].Value));
+
+        Assert.Contains("meshes/wide/path.nif", second);
+        Assert.DoesNotContain("wider than this response's whole budget", second);
     }
 }
