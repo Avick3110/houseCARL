@@ -25,8 +25,9 @@ public static class ForwardTools
          "WHAT — formids=, the set of records to copy and the rule for which ones may be named.\n" +
          "WHOSE — source=, the ONE plugin every record in the call is copied from, active or only on disk.\n" +
          "LANE — the default, a NEW patch= | into= an existing houseCARL patch | in_place= an existing plugin " +
-         "(opt-in), with acknowledge=. Exactly one lane per call; naming two is refused, never silently ignored.\n" +
-         "TRANSPORT — dry_run= | readback= | format= | max_chars=.\n\n" +
+         "(opt-in) with acknowledge= | dry_run=. Exactly one lane per call; naming two is refused, never silently " +
+         "ignored.\n" +
+         "TRANSPORT — readback= | format= | max_chars=.\n\n" +
          "ALL-OR-NOTHING (Q3): one rejected target refuses the WHOLE call, with a reason per record, and NOTHING is " +
          "written; each parameter above carries its own refusals.\n\n" +
          "THE STALE-WINNER BYPASS RECIPE (pinned): forward from the source you want, then " + ToolNames.Apply + " into= the " +
