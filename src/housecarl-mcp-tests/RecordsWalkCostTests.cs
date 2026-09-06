@@ -206,19 +206,61 @@ public sealed class RecordsWalkCostTests
 
     // ---- and it stops when the client stops waiting -------------------------------------------------
 
-    /// <summary>The walk's hop loop honours the call's cancellation token, like every other loop that reads a body
-    /// (#582). Its engine entry took no token at all before.</summary>
+    /// <summary>The engine entry takes the call's token and hands it to the body gather, so a walk cancelled before
+    /// it starts stops in the first gather rather than reading every seed. Its entry took no token at all before.
+    /// The hop loop's own polls are what <see cref="AWalkStopsBetweenHopsWhenTheClientCancels"/> proves.</summary>
     [Fact]
-    public void AWalkStopsWhenTheClientCancels()
+    public void AWalkCancelledBeforeItStartsStopsInTheSeedGather()
     {
         using var cts = new CancellationTokenSource();
         cts.Cancel();
-        var q = Svc.CrossQuery(Npc, null, null, false, new[] { _w.MasterName }, null, int.MaxValue);
-        Assert.Null(q.Error);
-        var seeds = q.Keys.Select(k => k.ToString()).ToArray();
 
         Assert.Throws<OperationCanceledException>(() =>
-            Svc.WalkForwardBatch(seeds, new[] { "Template" }, "Template", 16, 2000,
+            Svc.WalkForwardBatch(Seeds(), new[] { "Template" }, "Template", 16, 2000,
                                  Array.Empty<(string, bool)>(), null, out _, out _, cts.Token));
+    }
+
+    /// <summary>The cancel that arrives once the walk is already running: the hop loop polls between seeds and
+    /// between hops, like every other loop that reads a body (#582). The token is tripped from inside the walk —
+    /// the exclusion list is read once per reached node, so enumerating it cancels after hop 1 has begun — and the
+    /// poll at the top of the next seed's turn is what throws.</summary>
+    [Fact]
+    public void AWalkStopsBetweenHopsWhenTheClientCancels()
+    {
+        using var cts = new CancellationTokenSource();
+        var exclusions = new CancelOnFirstRead(cts);
+
+        Assert.Throws<OperationCanceledException>(() =>
+            Svc.WalkForwardBatch(Seeds(), new[] { "Template" }, "Template", 16, 2000,
+                                 exclusions, null, out _, out _, cts.Token));
+        Assert.True(exclusions.WasRead, "the walk never reached a node, so the hop loop is not what stopped it.");
+    }
+
+    // ---- helpers -----------------------------------------------------------------------------------
+
+    /// <summary>Every NPC in the world, as walk seeds.</summary>
+    string[] Seeds()
+    {
+        var q = Svc.CrossQuery(Npc, null, null, false, new[] { _w.MasterName }, null, int.MaxValue);
+        Assert.Null(q.Error);
+        return q.Keys.Select(k => k.ToString()).ToArray();
+    }
+
+    /// <summary>An empty exclusion list that cancels the moment the walk reads it — which the walk does once per
+    /// node it reaches, inside the hop loop. No production seam: the parameter is a list and this is a list.</summary>
+    sealed class CancelOnFirstRead : IReadOnlyList<(string Match, bool Refuse)>
+    {
+        readonly CancellationTokenSource _cts;
+        public CancelOnFirstRead(CancellationTokenSource cts) => _cts = cts;
+        public bool WasRead { get; private set; }
+        public int Count => 0;
+        public (string Match, bool Refuse) this[int index] => throw new ArgumentOutOfRangeException(nameof(index));
+        public IEnumerator<(string Match, bool Refuse)> GetEnumerator()
+        {
+            WasRead = true;
+            _cts.Cancel();
+            yield break;
+        }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 }
