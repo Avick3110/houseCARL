@@ -19,70 +19,29 @@ public static class CopyTools
          "and into a houseCARL patch, under NEW FormIDs, so the result no longer masters the plugin you copied " +
          "from. The mechanism is a whole-record duplicate, so every field carries by construction; EditorIDs are " +
          "preserved on the copies.\n\n" +
-         "WHAT GETS COPIED is decided by a rule, not a list: a linked record is INTERNALIZED (duplicated under a " +
-         "new FormID) when it is defined in the plugin(s) you are copying away from, or when it does not resolve " +
-         "in your active load order; every other link is KEPT and mastered normally. So vanilla and active " +
-         "shared-resource records stay links, and only what would VANISH with the source is copied. A record " +
-         "marked for internalizing that NO source in from_source= can produce — a dangling link, typically — " +
-         "refuses the whole copy naming every source consulted, rather than writing a patch with a hole in it.\n\n" +
-         "WHERE THE WALK STARTS is yours: seed_paths= names the fields to walk from (e.g. " +
-         "['HeadParts','HairColor','HeadTexture','WornArmor'] for an NPC's appearance). Each must be a RECORD " +
-         "LINK or a LIST OF RECORD LINKS, judged on the field's DECLARED type — so a field the source happens to " +
-         "carry none of is still that shape. A path that is not a field, or whose entries are structures rather " +
-         "than links (Factions, Perks, Items), is REFUSED BY NAME rather than quietly seeding nothing: for those " +
-         "use " + ToolNames.Apply + "'s bundle=/assignments= zip, where op=Merge and op=ReplaceAll are your choice of " +
-         "merging into the target's entries or replacing them. A seed the source leaves UNSET or EMPTY clears the " +
-         "target's, and says so — the result is the source's look, not a mixture of both. " +
-         "exclude_types= names record types the walk must not enter, each as 'Type:stop' (prune it, keep the link) " +
-         "or 'Type:refuse' (fail the whole copy) — a RACE is the standing 'refuse' case, since a race pulls " +
-         "skeletons and sibling races rather than an appearance subtree. 'stop' KEEPS the link, so wherever the " +
-         "link SURVIVES it needs a plugin the patch can master: with target=, pruning a record that is NOT in " +
-         "your active load order is refused up front, because an artifact cannot master a plugin the game does " +
-         "not load. With new_editorid= the clone's strip removes links into the source anyway, so a pruned " +
-         "off-order record is not refused there — unless one survives the strip. Any off-order link the finished " +
-         "patch still carries refuses, and the refusal names WHICH cause: your 'stop', a field seed_paths never " +
-         "named so the copy carried the link across, or a record an earlier call already put in the patch you are " +
-         "extending. Every element of exclude_types must name a type; a blank entry is refused rather than " +
-         "dropped, because dropping one silently applies fewer exclusions than you passed.\n\n" +
-         "FROM WHERE — from_source= is an ORDERED LIST of sources, tried in order, FIRST HIT WINS. Each element is " +
-         "either 'winner' (the active load order's winning version of each record) or a plugin FILENAME, which " +
-         "resolves whether that plugin is active OR sitting on disk in a DISABLED mod. Naming several is how you " +
-         "read a look from an override patch while its records come from the defining plugin: " +
-         "from_source=['Override.esp','Donor.esp']. This is FALLBACK, never a merge — a record present in several " +
-         "sources comes from the FIRST, and the result names which source produced each record — and, for a source " +
-         "that resolved into an MO2 MOD FOLDER (active or disabled), that folder, which is the name to pass as the " +
-         "provider when you place that record's files (its FaceGen, say) with " + ToolNames.Place + ". A source " +
-         "with no such folder — the 'winner' pole, MO2's overwrite, the game's Data folder, a file outside all of " +
-         "them — says so instead, so you never have to invent a folder name. A record no source " +
-         "has is refused, naming every source consulted. ('winner' is the bare word: plugin names always carry an " +
-         "extension, so the two can never collide. 'previous_provider' is refused here — it is relative to a " +
-         "subject plugin, and a walk reaching records through links has no subject for it to be relative to.)\n\n" +
-         "TWO DESTINATIONS (pass exactly one): target= copies onto an EXISTING record — an active one, or a record " +
-         "in the patch itself when you pass into=; the seed fields are set on it pointing at the internalized " +
-         "copies. new_editorid= mints a CLONE of the source record instead, and every link on it still pointing " +
-         "into the source is STRIPPED and reported by name — including when clearing one takes a WHOLE property " +
-         "with it (a script adapter, say), which the report says out loud. A link the record model REQUIRES " +
-         "cannot be stripped, so that refuses loud rather than writing an invented null or silently mastering " +
-         "the source.\n\n" +
-         "When NOTHING is being copied away from — the source is a base-game master and every source you named " +
-         "is one too — the result is reported as an appearance transplant rather than a standalone-ization, " +
-         "because an always-loaded master is not being removed from anything. Name a MOD in from_source= and that " +
-         "mod IS being copied away from, so the ordinary standalone report applies even for a base-game FormID.\n\n" +
-         "Writes a NEW plugin (folder-per-patch) or extends one with into=. Originals are never touched, and a " +
-         "refusal writes nothing.")]
+         "Each axis's grammar is on its own parameters:\n" +
+         "WHAT — from= is the record to copy; from_source= is the ordered universe it and its links are read " +
+         "from, and names what is being copied AWAY FROM, which decides what the walk internalizes.\n" +
+         "THE WALK — seed_paths= is where it starts; exclude_types= bounds it.\n" +
+         "DESTINATION — exactly one of target= (copy onto an existing record) or new_editorid= (mint a clone of " +
+         "the source record).\n" +
+         "OUTPUT — patch= names a NEW plugin (folder-per-patch); into= extends an existing houseCARL patch " +
+         "instead.\n\n" +
+         "This tool copies RECORDS. The FILES that go with them — an NPC's FaceGen mesh and tint, say — are " +
+         "placed with " + ToolNames.Place + ". Originals are never touched, and a refusal writes nothing.")]
     public static string Copy(
         LoadOrderService svc,
         [Description("The record to copy, 'XXXXXX:Plugin.esp' (e.g. '000D62:Vivace.esp').")]
             string from,
-        [Description("The source universe: an ORDERED list tried first-hit-wins. Each element is 'winner' (the active load order's winning version) or a plugin filename (active, or on disk in a disabled mod). Default: ['winner'].")]
+        [Description("The source universe: an ORDERED list of sources tried in order, FIRST HIT WINS. Each element is either 'winner' (the active load order's winning version of each record) or a plugin FILENAME, which resolves whether that plugin is active OR sitting on disk in a DISABLED mod. Default: ['winner']. Naming several is how you read a look from an override patch while its records come from the defining plugin: from_source=['Override.esp','Donor.esp']. This is FALLBACK, never a merge — a record present in several sources comes from the FIRST, and the result names which source produced each record — and, for a source that resolved into an MO2 MOD FOLDER (active or disabled), that folder, which is the name to pass as the provider when you place that record's files (its FaceGen, say) with " + ToolNames.Place + ". A source with no such folder — the 'winner' pole, MO2's overwrite, the game's Data folder, a file outside all of them — says so instead, so you never have to invent a folder name. ('winner' is the bare word: plugin names always carry an extension, so the two can never collide. 'previous_provider' is refused here — it is relative to a subject plugin, and a walk reaching records through links has no subject for it to be relative to.) WHAT GETS COPIED is decided by a rule, not a list: a linked record is INTERNALIZED (duplicated under a new FormID) when it is defined in the plugin(s) you are copying away from — the ones named here — or when it does not resolve in your active load order; every other link is KEPT and mastered normally. So vanilla and active shared-resource records stay links, and only what would VANISH with the source is copied. A record no source can produce — a dangling link marked for internalizing, typically — refuses the whole copy naming every source consulted, rather than writing a patch with a hole in it. When NOTHING is being copied away from — the source is a base-game master and every source you named is one too — the result is reported as an appearance transplant rather than a standalone-ization, because an always-loaded master is not being removed from anything. Name a MOD here and that mod IS being copied away from, so the ordinary standalone report applies even for a base-game FormID.")]
             string[]? from_source = null,
-        [Description("The field paths to start the walk from, e.g. ['HeadParts','WornArmor']. Each must be a record link or a list of record links, judged on the field's declared type; anything else is refused by name. A path the source leaves unset or empty CLEARS the target's, and says so.")]
+        [Description("WHERE THE WALK STARTS is yours: the fields to walk from, e.g. ['HeadParts','HairColor','HeadTexture','WornArmor'] for an NPC's appearance. Each must be a RECORD LINK or a LIST OF RECORD LINKS, judged on the field's DECLARED type — so a field the source happens to carry none of is still that shape. A path that is not a field, or whose entries are structures rather than links (Factions, Perks, Items), is REFUSED BY NAME rather than quietly seeding nothing: for those use " + ToolNames.Apply + "'s bundle=/assignments= zip, where op=Merge and op=ReplaceAll are your choice of merging into the target's entries or replacing them. A seed the source leaves UNSET or EMPTY clears the target's, and says so — the result is the source's look, not a mixture of both.")]
             string[]? seed_paths = null,
-        [Description("Optional. Record types the walk must not enter: 'Type:stop' prunes it (the link is kept), 'Type:refuse' fails the whole copy. E.g. ['Race:refuse']. A blank entry is refused, not dropped.")]
+        [Description("Optional. Record types the walk must not enter, each as 'Type:stop' (prune it, keep the link) or 'Type:refuse' (fail the whole copy), e.g. ['Race:refuse'] — a RACE is the standing 'refuse' case, since a race pulls skeletons and sibling races rather than an appearance subtree. 'stop' KEEPS the link, so wherever the link SURVIVES it needs a plugin the patch can master: with target=, pruning a record that is NOT in your active load order is refused up front, because an artifact cannot master a plugin the game does not load. With new_editorid= the clone's strip removes links into the source anyway, so a pruned off-order record is not refused there — unless one survives the strip. Any off-order link the finished patch still carries refuses, and the refusal names WHICH cause: your 'stop', a field seed_paths never named so the copy carried the link across, or a record an earlier call already put in the patch you are extending. Every element must name a type; a blank entry is refused rather than dropped, because dropping one silently applies fewer exclusions than you passed.")]
             string[]? exclude_types = null,
-        [Description("DESTINATION: copy onto this EXISTING record, 'XXXXXX:Plugin.esp'. An active record, or one in the patch itself (with into=). Pass this OR new_editorid.")]
+        [Description("DESTINATION: copy onto this EXISTING record, 'XXXXXX:Plugin.esp' — an active record, or one in the patch itself when you pass into=; the seed fields are set on it pointing at the internalized copies. Pass this OR new_editorid.")]
             string? target = null,
-        [Description("DESTINATION: mint a CLONE of the source record with this EditorID. Pass this OR target.")]
+        [Description("DESTINATION: mint a CLONE of the source record with this EditorID. Every link on the clone still pointing into the source is STRIPPED and reported by name — including when clearing one takes a WHOLE property with it (a script adapter, say), which the report says out loud. A link the record model REQUIRES cannot be stripped, so that refuses loud rather than writing an invented null or silently mastering the source. Pass this OR target.")]
             string? new_editorid = null,
         [Description("Optional. Base name for the NEW patch plugin + mod folder; auto-suffixed if taken.")]
             string? patch = null,

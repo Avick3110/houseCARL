@@ -12,15 +12,15 @@ namespace HousecarlGenerator;
 /// instance, so the WIRE spelling of every parameter is under test rather than the typed values the service already
 /// has its own guards for.
 ///
-/// <para><b>Why this guard exists as a separate lane.</b> Every claim in the tool's Description below the record
+/// <para><b>Why this guard exists as a separate lane.</b> Every claim the parameter descriptions make below the record
 /// layer is a claim about a mapping — caller string → typed argument — and a mapping is exactly what a
 /// service-level fixture cannot see: <c>copy-service-guard</c> hands <see cref="HousecarlCore.WalkExclusion"/>
 /// values straight to <c>CopyClosure</c>, so deleting the <c>'Type:stop'</c> / <c>'Type:refuse'</c> parse would
 /// leave it green while the documented spelling stopped working. That is #339's lesson stated one layer up: an arm
 /// that drives the service does not test the wire.</para>
 ///
-/// <para>Pins, each of them a sentence the Description promises:
-///   EXCLUSIONS  — <c>'Type:refuse'</c> fails the whole copy, <c>'Type:stop'</c> prunes and keeps the link, and the
+/// <para>Pins, each of them a sentence a parameter's description promises:
+///   EXCLUSIONS  — <c>exclude_types=</c>: <c>'Type:refuse'</c> fails the whole copy, <c>'Type:stop'</c> prunes and keeps the link, and the
 ///                 two are told apart by RESULT, not by inspecting an argument. The severity token is
 ///                 case-insensitive; an unknown one refuses by name; an entry naming no type refuses by name.
 ///   DESTINATION — exactly one of <c>target=</c> / <c>new_editorid=</c>; both and neither refuse identically, and a
