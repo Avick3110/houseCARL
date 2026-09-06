@@ -365,6 +365,34 @@ public sealed class RecordsRenderCostTests
         Assert.StartsWith("error:", response);
     }
 
+    /// <summary>Every READING form on this lane is held to it, not only the ones that name fields: summary routes
+    /// through the same batch read and takes one cheap leaf off each body, so a list over the bound refuses on it
+    /// exactly as it does on fields (#607).</summary>
+    [Fact]
+    public void AFormidsSummaryReadOverTheBoundRefuses()
+    {
+        var response = WithBound(10, () =>
+            RecordsTools.Records(Svc, formids: AllWeaponIds,
+                                 project: new RecordsTools.RecordsProject { form = "summary" }));
+
+        Assert.StartsWith("error:", response);
+        Assert.Contains("fewer formids=", response);                // this lane's own lever
+        Assert.DoesNotContain("narrow the scan terms", response);   // it has no scan terms
+    }
+
+    /// <summary>And the aggregate form, which reads the same leaf per id before it counts anything.</summary>
+    [Fact]
+    public void AFormidsAggregateReadOverTheBoundRefuses()
+    {
+        var response = WithBound(10, () =>
+            RecordsTools.Records(Svc, formids: AllWeaponIds,
+                                 project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "winner" }));
+
+        Assert.StartsWith("error:", response);
+        Assert.Contains("fewer formids=", response);
+        Assert.DoesNotContain("narrow the scan terms", response);
+    }
+
     /// <summary>The bound is on what a row costs, not on where the row came from: an OFF-ORDER selection over it
     /// refuses before reading a body, the same as the in-order lane. Its rows read a body per row off a file
     /// outside the order, and the limit= description states the bound with no lane attached.</summary>
