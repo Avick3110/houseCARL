@@ -11,8 +11,10 @@ namespace HousecarlMcp;
 /// existing one, <c>in_place=</c> with consent, or <c>dry_run</c>) × transport, over
 /// <see cref="LoadOrderService.ApplyEdits"/>. <c>bundle=</c> × <c>assignments=</c> is the cross-record field-bundle
 /// copy; which paths form a bundle is caller data, so the tool stays generic (the second cornerstone). Every list
-/// input takes the inline array or <c>"@&lt;absolute path&gt;"</c> through the same strict reader, which refuses an
-/// unknown member BY NAME where the SDK binder would silently drop it.</summary>
+/// input takes the inline array or an @file naming the same array — <c>"@&lt;absolute path&gt;"</c> on the
+/// <c>JsonElement</c> inputs, <c>["@&lt;absolute path&gt;"]</c> on <c>bundle=</c>, which is typed
+/// <c>string[]</c> — through the same strict reader, which refuses an unknown member BY NAME where the SDK binder
+/// would silently drop it.</summary>
 [McpServerToolType]
 public static class ApplyTools
 {
@@ -25,9 +27,9 @@ public static class ApplyTools
          "this tool takes (ops[].formid, from=, a field VALUE) is that form. The RUNTIME form the game, the console " +
          "and the logs print — eight hex digits and no plugin name, 'FExxxYYY' / 'XX######' — is READ-ONLY, because " +
          "it names a slot in the load order as it stands rather than a record: pass one here and it is refused with " +
-         "the 'XXXXXX:Plugin.esp' form to use in its place. " + ToolNames.Records + " reads by either form. Every " +
-         "list-valued input (ops=, bundle=, assignments=) also accepts \"@<absolute path>\" in place of the inline " +
-         "array — the SAME array as a JSON manifest on disk. The path must be ABSOLUTE (the server resolves " +
+         "the 'XXXXXX:Plugin.esp' form to use in its place. " + ToolNames.Records + " reads by either form. The " +
+         "list inputs also take a JSON manifest on disk holding the SAME array: ops= and assignments= as " +
+         "\"@<absolute path>\", bundle= as [\"@<absolute path>\"]. The path must be ABSOLUTE (the server resolves " +
          "relative paths against its OWN working directory, not yours), and the file is read at CALL time, so " +
          "re-dry-run it after editing.\n\n" +
          "Every edit " +
