@@ -1,4 +1,4 @@
-using Mutagen.Bethesda.Plugins;
+﻿using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Aspects;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
@@ -3877,8 +3877,11 @@ public sealed class LoadOrderService : IDisposable
             for (int i = 0; i < wanted.Count; i += BodyPrefetch.ChunkRows)
             {
                 int end = Math.Min(i + BodyPrefetch.ChunkRows, wanted.Count);
-                foreach (var (k, b) in BodyPrefetch.Gather(view, session, wanted, i, end, _ => null, null, ct))
-                    bodyCache[k] = b;
+                var chunk = BodyPrefetch.Gather(view, session, wanted, i, end, _ => null, null, ct);
+                // The walk asks for every key it gathered — it already trimmed the frontier to what it can record —
+                // so the chunk's deferred per-plugin walk is forced here rather than left to a render that never comes.
+                for (int k = i; k < end; k++)
+                    if (chunk.Body(wanted[k]) is { } body) bodyCache[wanted[k]] = body;
             }
         }
         static string TypeOf(IMajorRecordGetter b) => RecordNaming.StripOverlay(b.GetType().Name);
@@ -3983,12 +3986,29 @@ public sealed class LoadOrderService : IDisposable
         for (int d = 1; d <= depth; d++)
         {
             ct.ThrowIfCancellationRequested();
+            // The gather is bounded by what each seed can still RECORD, not by the size of its frontier: a seed
+            // whose node budget is spent reads nothing more, and a seed near its cap reads only what it can still
+            // admit. A key left out stays uncached, which is the contract Prefetch already runs on, so the cap
+            // itself is still enforced below — recorded and not entered, with the same sentence.
             var frontier = new List<FormKey>();
+            var gatherSeen = new HashSet<FormKey>();
+            bool pending = false;
             foreach (var s in states)
-                if (s is not null)
-                    foreach (var q in s.Frontier) frontier.Add(q.Key);
-            if (frontier.Count == 0) break;
-            Prefetch(frontier);
+            {
+                if (s is null || s.Frontier.Count == 0) continue;
+                pending = true;
+                int room = maxNodes - s.Nodes.Count;
+                if (room <= 0) continue;                                  // at its cap: its turn below records the cut
+                int took = 0;
+                foreach (var q in s.Frontier)
+                {
+                    if (q.Key.IsNull || !gatherSeen.Add(q.Key)) continue;
+                    frontier.Add(q.Key);
+                    if (++took >= room) break;
+                }
+            }
+            if (!pending) break;
+            if (frontier.Count > 0) Prefetch(frontier);
 
             foreach (var st in states)
             {
