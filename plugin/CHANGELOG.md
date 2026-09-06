@@ -39,6 +39,16 @@ saying it sets an expectation their install may contradict. Say what is known, a
   a fresh write, never on an `into=` extend, and not at all on a profile that names no mod at all (a missing
   `modlist.txt`), where an enabled mod folder and an unregistered one cannot be told apart.
 
+- **A `housecarl_records` scan now says what its render cost, refuses a render too big to finish, and stops
+  when you abort the call.** Reading a record body per rendered row used to walk the whole winning plugin for
+  each one, so a projection of a few fields over a big selection could run for tens of minutes with nothing
+  coming back; the bodies are now gathered a plugin at a time and the same catalogue renders in a fraction of
+  the time. Every `fields`/`rows`/`everything` scan reports the rows it rendered and the milliseconds the
+  render took, and a call whose render would exceed the bound `limit=` names refuses up front, saying whether
+  to narrow the scan terms, take windows with `limit=`/`offset=`, or write the whole set with `to_file=` —
+  with the caveats that decide between them on the `offset=` and `to_file=` parameters. Aborting the call in
+  the client now stops the scan and the render inside one record instead of leaving the server working, and a
+  `to_file=` call stopped that way writes no artifact at all rather than a partial one.
 - **Every tool description now fits inside the 2,048 characters Claude Code shows, and the grammar that was
   being cut off lives on the parameters it belongs to.** A description longer than that cap lost its tail on
   the way to the model, so predicate languages, source and comparison rules, refusal lists, projection forms
