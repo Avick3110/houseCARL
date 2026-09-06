@@ -1612,9 +1612,16 @@ public static class RecordsTools
             if (form is ("fields" or "rows" or "everything") && !counts_only && outcome.Error is null && outcome.Groups is null)
             {
                 var keys = outcome.Keys.Select(k => k.ToString()).ToList();
+                // The render bound is on the row cost, not on where the row came from: a row here reads a body
+                // exactly as the in-order lane's does, so it refuses on the same numbers before reading one.
+                if (RenderBudget.Refuse(keys.Count, form == "everything") is { } offTooBig)
+                    return Wire.Refuse(json, offTooBig, outcome.Stamp);
+                // And it is clocked the same way, so the bound's estimate is checkable on this lane too.
+                var offClock = System.Diagnostics.Stopwatch.StartNew();
                 var bodies = svc.ResolveBatchFromPole(keys, pole.Plugin, srcMod, bodyFields ? readPaths : null,
                                                       depth, resolveNames, null, out _, out var bref, out var brefEpoch,
                                                       LeverNames.Records.ContainerHint, readDepths, ct);
+                offClock.Stop();
                 bodies = FoldRows(bodies);
                 if (bref is not null)
                     return json ? JsonWire.RenderError(bref, brefEpoch)
@@ -1633,8 +1640,8 @@ public static class RecordsTools
                 // Selected by the off-order file scan, so the remedy vocabulary matches the body lane above.
                 var offLevers = formLevers.OnScanSelection();
                 string RenderOff(SpillState? sp, out bool trunc) => json
-                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, offLevers)
-                    : headerLine + "\n" + Wire.RenderBatch(bodies, max_chars, sp, out trunc, offLevers);
+                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, offLevers, offClock.ElapsedMilliseconds)
+                    : headerLine + "\n" + Wire.RenderBatch(bodies, max_chars, sp, out trunc, offLevers, offClock.ElapsedMilliseconds);
                 SpillState? offSpill = null;
                 var offEpoch = bodies.FirstOrDefault(o => o.Stamp is not null)?.Stamp ?? outcome.Stamp;
                 if (wantFile)

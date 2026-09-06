@@ -283,6 +283,30 @@ public sealed class RecordsRenderCostTests
         Assert.Equal(5, doc.GetProperty("rendered").GetInt32());
     }
 
+    /// <summary>The bound is on what a row costs, not on where the row came from: an OFF-ORDER selection over it
+    /// refuses before reading a body, the same as the in-order lane. Its rows read a body per row off a file
+    /// outside the order, and the limit= description states the bound with no lane attached.</summary>
+    [Fact]
+    public void AnOffOrderRenderOverTheBoundRefusesToo()
+    {
+        var response = WithWholeRecordBound(2, () =>
+            RecordsTools.Records(Svc, types: Weap, source: Pole(_w.OffOrderName), project: Everything()));
+
+        Assert.StartsWith("error:", response);
+        Assert.Contains("WHOLE record body", response);
+    }
+
+    /// <summary>And it reports what those bodies cost, like every other body lane — a bound calibrated on one
+    /// machine is only checkable where the truth comes back.</summary>
+    [Fact]
+    public void AnOffOrderBodyRenderReportsWhatItsBodiesCost()
+    {
+        var doc = Doc(RecordsTools.Records(Svc, types: Weap, source: Pole(_w.OffOrderName), format: "json",
+                                           project: Everything()));
+        Assert.Equal(RenderCostWorld.OffOrderWeapons, doc.GetProperty("rows_read").GetInt32());
+        Assert.True(doc.GetProperty("render_ms").GetInt64() >= 0);
+    }
+
     /// <summary>A walk is measured on what it RENDERS, not on the size of the scan that seeded it: the walk lane
     /// windows its own rows under its own node budget, so refusing it for the seed count would refuse a call for a
     /// cost it was never going to pay.</summary>
@@ -456,6 +480,10 @@ public sealed class RecordsRenderCostTests
         try { return call(); }
         finally { RenderBudget.MaxWholeRecordRows = prior; }
     }
+
+    /// <summary>A bare plugin-name source pole.</summary>
+    static System.Text.Json.JsonElement Pole(string name) =>
+        System.Text.Json.JsonDocument.Parse("\"" + name + "\"").RootElement.Clone();
 
     static System.Text.Json.JsonElement Doc(string json) =>
         System.Text.Json.JsonDocument.Parse(json).RootElement.Clone();
