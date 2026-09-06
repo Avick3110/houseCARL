@@ -624,7 +624,8 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
 
     /// <summary>The annotated fields go FIRST so they survive the cut, with filler behind them so the body
     /// outgrows the cap either way. The response may then exceed max_chars by its own longest line and by nothing
-    /// else — which it cannot manage if the clause is appended on top of the budget instead of held back from it.</summary>
+    /// else — which it cannot manage if the clause is appended on top of the budget instead of held back from it.
+    /// The cap leaves room for the accounting line this lane also reserves (#607).</summary>
     static string[] PaddedCellFields =>
         new[] { "Temporary", "Persistent", "Landscape", "NavigationMeshes" }
             .Concat(Enumerable.Repeat(new[] { "Name", "Flags", "Grid", "Lighting", "OcclusionData", "MaxHeightData",
@@ -634,19 +635,19 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void AnAnnotatedResponseAnswersInsideItsMaxChars_TheClauseIsReservedNotAppended()
     {
-        var r = Read(_w.CellA, new RecordsTools.RecordsProject { form = "fields", fields = PaddedCellFields }, maxChars: 1400);
+        var r = Read(_w.CellA, new RecordsTools.RecordsProject { form = "fields", fields = PaddedCellFields }, maxChars: 1500);
         int longest = r.Split('\n').Max(l => l.Length + 1);
         Assert.Contains("truncated: showing", r);
         Assert.NotNull(ClauseLineOrNull(r, ReadSentences.UnionFraming));
-        Assert.True(r.Length <= 1400 + longest, $"len={r.Length} cap=1400 longest-line={longest}");
+        Assert.True(r.Length <= 1500 + longest, $"len={r.Length} cap=1500 longest-line={longest}");
     }
 
     [Fact]
     public void TheCutQuotesTheCallersOwnMaxCharsNotTheReducedBudget()
     {
-        var r = Read(_w.CellA, new RecordsTools.RecordsProject { form = "fields", fields = PaddedCellFields }, maxChars: 1400);
-        Assert.Contains("max_chars=1400", r);
-        Assert.DoesNotContain("max_chars=" + (1400 - ReadSentences.ClauseReserve(true)), r);
+        var r = Read(_w.CellA, new RecordsTools.RecordsProject { form = "fields", fields = PaddedCellFields }, maxChars: 1500);
+        Assert.Contains("max_chars=1500", r);
+        Assert.DoesNotContain("max_chars=" + (1500 - ReadSentences.ClauseReserve(true)), r);
     }
 
     // ---- json ------------------------------------------------------------------------------------
