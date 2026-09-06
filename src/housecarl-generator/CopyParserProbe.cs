@@ -19,7 +19,11 @@ namespace HousecarlGenerator;
 /// leave it green while the documented spelling stopped working. That is #339's lesson stated one layer up: an arm
 /// that drives the service does not test the wire.</para>
 ///
-/// <para>Pins, each of them a sentence a parameter's description promises:
+/// <para>Pins — the sentences the parameter descriptions promise, plus the parse tolerances stated only by a
+/// refusal or a default: a case-insensitive severity token, a whitespace-only <c>target=</c>, an empty
+/// <c>from_source=</c> taking the documented default.</para>
+///
+/// <para>
 ///   EXCLUSIONS  — <c>exclude_types=</c>: <c>'Type:refuse'</c> fails the whole copy, <c>'Type:stop'</c> prunes and keeps the link, and the
 ///                 two are told apart by RESULT, not by inspecting an argument. The severity token is
 ///                 case-insensitive; an unknown one refuses by name; an entry naming no type refuses by name.
