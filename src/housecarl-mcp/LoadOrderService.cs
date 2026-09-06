@@ -7618,7 +7618,8 @@ public sealed class LoadOrderService : IDisposable
 
             extend = false;
             var baseStem = PatchStem(string.IsNullOrWhiteSpace(patchName) ? "Patch" : patchName!);
-            var freeStem = UniqueStem(baseStem);
+            // Every record lane that reaches here declares patch=, so that is the spelling the shadow refusal names.
+            var freeStem = UniqueStem(baseStem, "patch");
             var newFolder = Path.Combine(_modsDir, ModFolderName(freeStem));
             var plugin = freeStem + ".esp";
             // A dry run (create:false) resolves the would-be path only — no folder, no meta.ini — so the disk stays
@@ -7701,7 +7702,10 @@ public sealed class LoadOrderService : IDisposable
                 return new RiderFolder(folder, folder, CreatedFresh: false);   // reused — the user owns it; cleanup leaves it
             }
 
-            var newStem = UniqueStem(PatchStem(string.IsNullOrWhiteSpace(patchName) ? defaultStem : patchName!));
+            // The rider's OWN folder parameter, the way its extend refusal already names it — patch= is wrong on a
+            // lane where a bare patch= binds to something else.
+            var newStem = UniqueStem(PatchStem(string.IsNullOrWhiteSpace(patchName) ? defaultStem : patchName!),
+                                     naming?.Param ?? "patch");
             var newFolder = Path.Combine(_modsDir, ModFolderName(newStem));
             Directory.CreateDirectory(newFolder);
             WriteOwnerMeta(newFolder, "(houseCARL output)");   // ownership marker; this folder may hold scripts / a .bsa / loose files, not an .esp
@@ -8178,17 +8182,41 @@ public sealed class LoadOrderService : IDisposable
     /// "<c>&lt;stem&gt;.esp</c>" is already in the active load order. The load-order half stops a generic default
     /// stem from emitting a plugin that duplicates a foreign active one: the engine forbids two active plugins
     /// sharing a basename, and mod-folder uniqueness alone never sees a same-named plugin in another mod. into=
-    /// remains the way to grow an existing patch; this is only the fresh path.</summary>
-    string UniqueStem(string stem)
+    /// remains the way to grow an existing patch; this is only the fresh path.
+    /// <para>Neither test sees a plugin the active order is NOT loading, so the stem about to be claimed is also put
+    /// through <see cref="PatchStemShadow"/>, which REFUSES rather than suffixing (#561): a stem suffixed around a
+    /// foreign inactive plugin hides the file the caller may have meant. <paramref name="patchParam"/> is the calling
+    /// lane's own name for its fresh-patch parameter, so the refusal never sends a caller to a parameter their tool
+    /// does not declare.</para></summary>
+    string UniqueStem(string stem, string patchParam)
     {
         var active = ActivePluginBasenames();
-        if (IsStemFree(stem, active)) return stem;
+        var comp = ReadCompositionForShadow();
+        if (IsStemFree(stem, active)) return ClaimStem(stem);
         for (int i = 1; i < 10000; i++)
         {
             var cand = $"{stem}_{i:D3}";
-            if (IsStemFree(cand, active)) return cand;
+            if (IsStemFree(cand, active)) return ClaimStem(cand);
         }
         throw new InvalidOperationException($"too many patches named '{stem}' under ModsDir — clean some out.");
+
+        string ClaimStem(string s)
+        {
+            if (comp is not null
+                && PatchStemShadow.Find(comp, _modsDir, _dataDir, _overwriteDir, s, ModFolderName(s), active, IsHouseCarlOwned)
+                    is { } shadow)
+                throw new InvalidOperationException(PatchStemShadow.Refusal(s, shadow, patchParam));
+            return s;
+        }
+    }
+
+    /// <summary>The profile composition the shadow sweep walks, read once per fresh write. Best-effort in the same way
+    /// <see cref="ActivePluginBasenames"/> is: an unreadable profile yields null and the pre-existing folder and
+    /// active-order uniqueness, so a call that worked before never fails because the extra check could not run.</summary>
+    Mo2Composition? ReadCompositionForShadow()
+    {
+        try { return Mo2LoadOrder.ReadComposition(_profileDir); }
+        catch { return null; }
     }
 
     /// <summary>A stem is free to claim when no houseCARL mod folder for it exists AND its plugin "<c>&lt;stem&gt;.esp</c>"
