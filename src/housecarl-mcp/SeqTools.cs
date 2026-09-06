@@ -39,7 +39,7 @@ public static class SeqTools
         LoadOrderService svc,
         [Description("SOURCE: the plugin whose start-game-enabled quests need a .seq — a FILENAME ('MyQuestMod.esp', located across enabled, disabled and not-yet-listed mod folders, overwrite, and game Data) or an ABSOLUTE path to the .esp/.esm/.esl. A filename provided by several locations is refused, naming them.")]
             string source,
-        [Description("LANE: base name for a NEW patch-mod folder the .seq lands in (default: the plugin's own houseCARL folder if it's in one, else 'houseCARL_SEQ'); auto-suffixed if taken.")]
+        [Description("LANE: base name for a NEW patch-mod folder the .seq lands in (default: the plugin's own houseCARL folder if it's in one, else 'houseCARL_SEQ'); auto-suffixed if taken. A name another mod folder already holds as a plugin your order is not loading is refused rather than suffixed, naming that folder and file.")]
             string? patch = null,
         [Description("LANE: filename of an existing houseCARL patch mod to write the .seq into (e.g. the patch that holds the .esp, so one mod deploys both).")]
             string? into = null,
