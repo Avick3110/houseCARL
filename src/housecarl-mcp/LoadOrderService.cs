@@ -6294,7 +6294,7 @@ public sealed class LoadOrderService : IDisposable
     /// no conflict footprint. Unlike the patch-write paths the name is used verbatim and never auto-suffixed, because
     /// a trigger plugin's whole job is that its basename matches the config bound to it; a collision therefore
     /// refuses loudly rather than renaming or overwriting, whether a plugin of that basename is already active in the
-    /// order, a houseCARL mod folder of that name is already on disk, or a file of that exact name sits somewhere the
+    /// order, a houseCARL mod folder of that name is already on disk, or a file of that basename sits somewhere the
     /// order is not loading (#561). The core
     /// <see cref="WritePatchBuilder.CreatePlugin"/> builds, serializes and re-reads to confirm, and a refused create
     /// that just made the output folder leaves no orphan.</summary>
@@ -6330,14 +6330,17 @@ public sealed class LoadOrderService : IDisposable
             if (Directory.Exists(folder))
                 return WritePatchBuilder.CreatePluginOutcome.Fail(
                     $"a houseCARL output folder '{ModFolderName(stem)}' already exists — houseCARL won't auto-rename a header-only plugin (its exact basename is what makes the trigger resolve). Remove that folder in MO2, or choose a different name.");
-            // (c) a plugin of this exact filename sits somewhere the order is NOT loading — the same shadow the fresh
-            //     patch lanes take (#561), and it bites harder here: the exact basename is what makes a trigger
-            //     resolve, so a second file of that name is the thing this tool exists to avoid.
+            // (c) a plugin of this BASENAME sits somewhere the order is NOT loading — the same shadow the fresh patch
+            //     lanes take (#561), swept over all three extensions like (a) above and for (a)'s reason: the exact
+            //     basename is what makes a trigger resolve, so a second file carrying it is what this tool avoids.
             var plugin = stem + ".esp";
             var active = ActivePluginBasenames();
-            if (active.Count > 0 && ReadCompositionForShadow() is { } comp
-                && PatchStemShadow.Find(comp, _modsDir, _dataDir, _overwriteDir, plugin, active) is { } shadow)
-                return WritePatchBuilder.CreatePluginOutcome.Fail(PatchStemShadow.Refusal(plugin, shadow, "plugin_name"));
+            if (active.Count > 0 && ReadCompositionForShadow() is { } comp)
+                foreach (var ext in PluginExts)                       // .esp / .esm / .esl — the basename is what binds
+                    if (PatchStemShadow.Find(comp, _modsDir, _dataDir, _overwriteDir, stem + ext, active) is { } shadow)
+                        return WritePatchBuilder.CreatePluginOutcome.Fail(
+                            PatchStemShadow.Refusal(plugin, shadow, "plugin_name", stem + ext,
+                                                    "a header-only trigger needs a UNIQUE basename"));
 
             Directory.CreateDirectory(folder);
             WriteOwnerMeta(folder, plugin);

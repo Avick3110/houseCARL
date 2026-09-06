@@ -82,6 +82,25 @@ public sealed class PatchStemShadowTests
         Assert.Equal("houseCARL - Patch_001", Path.GetFileName(Path.GetDirectoryName(o.OutputPath)));
     }
 
+    /// <summary>A header-only trigger is bound by its BASENAME, so the extension the shadowing file carries does not
+    /// matter: a disabled mod holding "MyTrigger.esm" refuses create_plugin("MyTrigger"), which would otherwise write
+    /// a second file of that basename — the state the tool's own active-order check exists to prevent. The refusal
+    /// names the file it found, not the one that was going to be written.</summary>
+    [Fact]
+    public void AHeaderOnlyCreateIsRefusedByAnyExtensionSharingItsBasename()
+    {
+        using var w = new RecordsWorld();
+        AddDisabledForeignMod(w, "Foreign Trigger Mod", "HcShadowTrigger.esm");
+
+        var o = w.Svc.CreatePlugin("HcShadowTrigger");
+
+        Assert.False(o.Success);
+        Assert.Contains("Foreign Trigger Mod", o.Error);
+        Assert.Contains("HcShadowTrigger.esm", o.Error);
+        Assert.Contains("plugin_name=", o.Error);
+        Assert.Empty(Directory.EnumerateDirectories(w.ModsDir, "houseCARL - HcShadowTrigger*"));
+    }
+
     /// <summary>A profile that names no mod at all cannot tell a shadow from a loaded plugin — with modlist.txt gone
     /// every folder under ModsDir reads as UNLISTED — so the sweep is skipped and the write proceeds, rather than
     /// refusing a name on a folder it has misread. The order still loads a plugin (the game Data folder provides it),

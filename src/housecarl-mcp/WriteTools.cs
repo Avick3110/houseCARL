@@ -36,7 +36,7 @@ public static class WriteTools
          ToolNames.Create + " instead.")]
     public static string CreatePlugin(
         LoadOrderService svc,
-        [Description("The EXACT plugin name (with or without a trailing .esp/.esm/.esl; e.g. 'Authoria - CraftingCategories'). Used VERBATIM as the basename — houseCARL will not auto-suffix it, because a trigger plugin's whole job is that its basename matches the config bound to it. The written file is '<name>.esp', and a name that already exists as a plugin anywhere on your install — active, or somewhere your order is not loading it — is refused, naming that place and the file.")]
+        [Description("The EXACT plugin name (with or without a trailing .esp/.esm/.esl; e.g. 'Authoria - CraftingCategories'). Used VERBATIM as the basename — houseCARL will not auto-suffix it, because a trigger plugin's whole job is that its basename matches the config bound to it. The written file is '<name>.esp', and a name that already exists as a plugin — .esp, .esm or .esl — anywhere on your install, active or somewhere your order is not loading it, is refused, naming that place and the file.")]
             string plugin_name,
         [Description("When true, flag the plugin as a light master (ESL) — the lightest possible trigger: a header-only ESL consumes no consequential load-order slot. Default false (a normal full plugin).")]
             bool esl = false,
