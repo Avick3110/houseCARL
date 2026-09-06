@@ -304,6 +304,11 @@ public sealed class LoadOrderResolver : IDisposable
     /// what a test can hold the gather to.</summary>
     internal static long BodySeeks;
 
+    /// <summary>How many plugin ENUMERATIONS the chunked gather has paid — one walk of one plugin for a chunk's
+    /// share of its rows (<see cref="CollectRecords"/>). Counted for the same reason as the two above: whether a
+    /// render walked a plugin for rows it never reached is invisible in the answer, only the clock differs.</summary>
+    internal static long CollectPasses;
+
     public sealed class OverlaySession : IDisposable
     {
         readonly LoadOrderResolver _r;
@@ -1156,6 +1161,7 @@ public sealed class LoadOrderResolver : IDisposable
         int got = 0;
         foreach (var fk in want) if (sink.ContainsKey(fk)) got++;          // already in hand from an earlier call
         if (got == want.Count) return;
+        System.Threading.Interlocked.Increment(ref CollectPasses);         // past here the plugin is actually walked
         if (getterTypes is { Count: > 0 })
         {
             foreach (var t in getterTypes)

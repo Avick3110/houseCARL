@@ -12,7 +12,9 @@ namespace HousecarlMcp;
 /// plugin is memory-mapped once for the call instead of once per row. And each row's body comes from
 /// <see cref="BodyPrefetch"/>, a chunk of rows at a time, one enumeration per source plugin however many of that
 /// chunk's rows want it, instead of the whole-overlay walk per record that
-/// <see cref="LoadOrderResolver.IndexView.GetRecord"/> costs.</para>
+/// <see cref="LoadOrderResolver.IndexView.GetRecord"/> costs. A plugin is walked on the first row that wants it, so
+/// a render max_chars cuts short pays for the plugins its rendered rows came from and not for the rest of the
+/// chunk.</para>
 ///
 /// <para>Every row also checks the caller's cancellation token, so a client that aborts stops the render inside one
 /// row.</para>
@@ -31,7 +33,7 @@ internal sealed class ScanDetailReader : IDisposable
     readonly LoadOrderResolver.IndexView? _view;
     readonly LoadOrderResolver.OverlaySession? _session;
 
-    Dictionary<FormKey, IMajorRecordGetter>? _chunk;
+    BodyPrefetch.Chunk? _chunk;
     int _chunkStart = -1;
 
     internal ScanDetailReader(LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields, int depth,
@@ -58,7 +60,7 @@ internal sealed class ScanDetailReader : IDisposable
         var fk = _q.Keys[i];
         var plugin = SourceAt(i);
         FillChunk(i);
-        var body = _chunk is { } c && c.TryGetValue(fk, out var b) ? b : null;
+        var body = _chunk?.Body(fk);   // the plugin is walked here, on the first row of the chunk that wants it
         return _svc.ResolveReadOn(_q, fk, plugin, _fields, false, _depth, _resolveNames, _linkMemo,
                                   _containerHint, _depths, _session, body);
     }

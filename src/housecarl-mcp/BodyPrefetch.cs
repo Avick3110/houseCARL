@@ -14,8 +14,12 @@ namespace HousecarlMcp;
 /// (<see cref="ScanDetailReader"/>) and the batch lane (<see cref="LoadOrderService.ResolveBatch"/>) cannot drift on
 /// what a rendered row costs — the bound in <see cref="RenderBudget"/> is one number over both.</para>
 ///
-/// <para>Chunked rather than whole-set: the map, and the getters it pins, are bounded by the chunk, so a render that
-/// stops at max_chars pays for the chunk it reached rather than for every selected row.</para>
+/// <para>A plugin is walked when a row that wants it is actually READ, not when the chunk is opened, and that walk
+/// then covers every row of the chunk from that plugin. The render stops at max_chars mid-chunk, so gathering the
+/// whole chunk up front would enumerate plugins for rows nobody sees — at <see cref="ChunkRows"/> against a default
+/// 500-row window the chunk IS the whole selection, and a render cut at forty rows would pay for all five hundred.
+/// Deferred, the cost is the plugins the rendered rows came from, which is never more than the per-row seek this
+/// replaced.</para>
 /// </summary>
 internal static class BodyPrefetch
 {
@@ -26,19 +30,18 @@ internal static class BodyPrefetch
     /// <summary>The first row of the chunk row <paramref name="i"/> falls in.</summary>
     internal static int ChunkStart(int i) => i / ChunkRows * ChunkRows;
 
-    /// <summary>The bodies for rows <paramref name="start"/> (inclusive) to <paramref name="end"/> (exclusive),
-    /// keyed by FormKey. <paramref name="sourceAt"/> names the plugin whose body a row displays, or null for the
+    /// <summary>The chunk covering rows <paramref name="start"/> (inclusive) to <paramref name="end"/> (exclusive):
+    /// which plugin each row's body comes from, and each plugin's whole share of the chunk, ready to be walked when
+    /// a row asks for it. <paramref name="sourceAt"/> names the plugin whose body a row displays, or null for the
     /// load-order winner; <paramref name="getterTypes"/> is the caller's own type scope when it has one, which
-    /// narrows each plugin's walk to the GRUPs those types live in.
-    /// <para>A row whose body is not gathered here — an unresolvable key, a plugin that cannot be read — is simply
-    /// absent, and the row's own read raises the fault it always did: the prefetch is an optimisation and must
-    /// never become a second error path.</para></summary>
-    internal static Dictionary<FormKey, IMajorRecordGetter> Gather(
+    /// narrows each plugin's walk to the GRUPs those types live in.</summary>
+    internal static Chunk Gather(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
         IReadOnlyList<FormKey> keys, int start, int end, Func<int, string?> sourceAt,
         IReadOnlyList<Type>? getterTypes, CancellationToken ct)
     {
         var byPlugin = new Dictionary<string, HashSet<FormKey>>(StringComparer.OrdinalIgnoreCase);
+        var plugins = new Dictionary<FormKey, string>();
         for (int r = start; r < end; r++)
         {
             var fk = keys[r];
@@ -47,15 +50,45 @@ internal static class BodyPrefetch
             if (plugin is null) continue;                  // unresolvable: the row's own read names the cause
             if (!byPlugin.TryGetValue(plugin, out var set)) byPlugin[plugin] = set = new HashSet<FormKey>();
             set.Add(fk);
+            plugins[fk] = plugin;
+        }
+        return new Chunk(view, session, byPlugin, plugins, getterTypes, ct);
+    }
+
+    /// <summary>One chunk's bodies, each source plugin enumerated once and only when a row of the chunk asks for
+    /// it.</summary>
+    internal sealed class Chunk
+    {
+        readonly LoadOrderResolver.IndexView _view;
+        readonly LoadOrderResolver.OverlaySession _session;
+        readonly Dictionary<string, HashSet<FormKey>> _wanted;
+        readonly Dictionary<FormKey, string> _plugins;
+        readonly IReadOnlyList<Type>? _getterTypes;
+        readonly CancellationToken _ct;
+        readonly Dictionary<FormKey, IMajorRecordGetter> _bodies = new();
+        readonly HashSet<string> _walked = new(StringComparer.OrdinalIgnoreCase);
+
+        internal Chunk(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
+                       Dictionary<string, HashSet<FormKey>> wanted, Dictionary<FormKey, string> plugins,
+                       IReadOnlyList<Type>? getterTypes, CancellationToken ct)
+        {
+            _view = view; _session = session; _wanted = wanted; _plugins = plugins;
+            _getterTypes = getterTypes; _ct = ct;
         }
 
-        var sink = new Dictionary<FormKey, IMajorRecordGetter>(end - start);
-        foreach (var (plugin, wanted) in byPlugin)
+        /// <summary>This row's body, walking its source plugin once for the whole chunk on the first row that wants
+        /// it.
+        /// <para>A body that is not gathered — an unresolvable key, a plugin that cannot be read — comes back null
+        /// and the row's own read raises the fault it always did: the prefetch is an optimisation and must never
+        /// become a second error path.</para></summary>
+        internal IMajorRecordGetter? Body(FormKey fk)
         {
-            ct.ThrowIfCancellationRequested();
-            try { view.CollectRecords(session, plugin, wanted, getterTypes, sink); }
+            if (_bodies.TryGetValue(fk, out var have)) return have;
+            if (!_plugins.TryGetValue(fk, out var plugin) || !_walked.Add(plugin)) return null;
+            _ct.ThrowIfCancellationRequested();
+            try { _view.CollectRecords(_session, plugin, _wanted[plugin], _getterTypes, _bodies); }
             catch (Exception) { }
+            return _bodies.TryGetValue(fk, out var got) ? got : null;
         }
-        return sink;
     }
 }
