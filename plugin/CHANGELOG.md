@@ -28,12 +28,16 @@ saying it sets an expectation their install may contradict. Say what is known, a
   folder or the game `Data` folder — and the file inside, and it gives both readings: pass a name nothing on your
   install already uses, or enable that plugin and target it if it is the one you meant. A name you chose is never
   auto-suffixed around the collision, so a suffixed patch can no longer hide the file you may have meant.
-  `housecarl_merge_plugins` is checked on its `output=` filename and `housecarl_create_plugin` on `plugin_name=`,
-  the names those tools actually write. Three things are unchanged: a plugin the order IS loading still gets the
-  name auto-suffixed; a suffix houseCARL picked for you still steps to the next one rather than failing the call;
-  and the tools that write scripts, an archive, a mesh, loose files or a `.seq` are not affected, because they put
-  no plugin on disk. `housecarl_compact_plugin` is not affected either — its output deliberately keeps the source's
-  exact filename so the masters still resolve. The check runs on a fresh write, never on an `into=` extend.
+  `housecarl_merge_plugins` is checked on its `output=` filename. `housecarl_create_plugin` is checked on
+  `plugin_name=` as a BASENAME — a foreign `.esm` or `.esl` of that name refuses too, on the same ground its
+  active-order check already refuses all three: a header-only trigger resolves by basename. Three things are
+  unchanged: a plugin the order IS loading still gets the name auto-suffixed; a name houseCARL picked or derived for
+  you still steps to the next suffix rather than failing the call, which includes the `new_editorid=` a
+  `housecarl_copy` with no `patch=` falls back to; and the tools that write scripts, an archive, a mesh, loose files
+  or a `.seq` are not affected, because they put no plugin on disk. `housecarl_compact_plugin` is not affected
+  either — its output deliberately keeps the source's exact filename so the masters still resolve. The check runs on
+  a fresh write, never on an `into=` extend, and not at all on a profile that names no mod at all (a missing
+  `modlist.txt`), where an enabled mod folder and an unregistered one cannot be told apart.
 
 - **Every tool description now fits inside the 2,048 characters Claude Code shows, and the grammar that was
   being cut off lives on the parameters it belongs to.** A description longer than that cap lost its tail on
