@@ -1183,7 +1183,10 @@ static class SkseConfigAuditWire
         int notes = NoteCount(d);
         var hits = window.Apply(allHits);
         int reserve = TransportAccounting.Reserve(allHits.Count, hits.Count, window, notes, RowNoun);
-        cap = Math.Max(1, cap - reserve);
+        // cap stays the caller's max_chars; budget is the room the file blocks have once the accounting and this
+        // view's own cut notice are charged.
+        string FilesCut(int shown) => "\n  ... [showing " + shown + " of " + hits.Count + " files; raise max_chars]\n";
+        int budget = Math.Max(1, cap - reserve - FilesCut(hits.Count).Length);
         var tally = new RowTally();
         string Accounting() => TransportAccounting.Compose(
             TransportAccounting.Tally(allHits.Count, hits.Count, tally.Count, window, notes), RowNoun, everySentence: false);
@@ -1208,19 +1211,23 @@ static class SkseConfigAuditWire
         int shownFiles = 0;
         foreach (var f in hits)
         {
+            // The whole file block — its path line, the contested chain, every reference — is written, MEASURED, and
+            // taken back out entire when it crossed, the same shape the other renders use. Testing the budget before
+            // the block let one block plus its reference lines through past the ceiling.
             int mark = sb.Length;
-            if (mark > cap) { sb.Append("\n  ... [showing ").Append(shownFiles).Append(" of ").Append(hits.Count).Append(" files; raise max_chars]\n"); break; }
             sb.Append('\n').Append(f.RelPath).Append("  ← ").Append(f.WinningProvider ?? "(no active provider)").Append('\n');
             if (f.ProviderCount > 1)
                 sb.Append("  [!] contested by ").Append(f.ProviderCount).Append(" mods (winner audited): ")
                   .Append(string.Join(" › ", f.Providers.Select(p => $"{p.Name} ({p.Kind})"))).Append('\n');
-            if (f.ReadError is not null) { sb.Append("  [!] ").Append(f.ReadError).Append('\n'); tally.Mark(f.RelPath); continue; }
-            if (f.Refs.Count == 0) { sb.Append("  (no form-shaped references)\n"); tally.Mark(f.RelPath); continue; }
-            foreach (var r in f.Refs)
-                sb.Append("  ").Append(Tag(r.Verdict)).Append(' ')
-                  .Append(r.Ref.Shape == HousecarlCore.SkseRefShape.PathSegmentGate ? $"folder gate '{r.Ref.Plugin}'" : $"'{r.Ref.Raw}'")
-                  .Append(r.Ref.Line > 0 ? $" (line {r.Ref.Line})" : "")
-                  .Append(r.Detail is null ? "" : " → " + r.Detail).Append('\n');
+            if (f.ReadError is not null) sb.Append("  [!] ").Append(f.ReadError).Append('\n');
+            else if (f.Refs.Count == 0) sb.Append("  (no form-shaped references)\n");
+            else
+                foreach (var r in f.Refs)
+                    sb.Append("  ").Append(Tag(r.Verdict)).Append(' ')
+                      .Append(r.Ref.Shape == HousecarlCore.SkseRefShape.PathSegmentGate ? $"folder gate '{r.Ref.Plugin}'" : $"'{r.Ref.Raw}'")
+                      .Append(r.Ref.Line > 0 ? $" (line {r.Ref.Line})" : "")
+                      .Append(r.Detail is null ? "" : " → " + r.Detail).Append('\n');
+            if (sb.Length > budget) { sb.Length = mark; sb.Append(FilesCut(shownFiles)); break; }
             shownFiles++; tally.Mark(f.RelPath);
         }
         return sb.ToString().TrimEnd('\n') + Accounting();
