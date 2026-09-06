@@ -18,8 +18,17 @@ public sealed class RenderCostWorld : IDisposable
     public const int Weapons = 60;
     public const int OffOrderWeapons = 12;
 
+    /// <summary>A second population, spread one small plugin at a time: the gather's unit is a PLUGIN, so a claim
+    /// about which plugins a render walks needs rows whose winners live in more than one. Its own record type, so
+    /// the weapon counts every other test pins stay what they were.</summary>
+    public const int Spread = 12;
+    public const int AmmoPerPlugin = 5;
+
     public string Root { get; }
     public string MasterName { get; }
+
+    /// <summary>The spread plugins' names, in load order.</summary>
+    public IReadOnlyList<string> SpreadNames { get; }
 
     /// <summary>A plugin in a switched-OFF mod folder: on disk, locatable, outside the load order. The off-order
     /// scan lane has its own cancellation path and its own catch-all, so it needs a world to run in.</summary>
@@ -61,6 +70,25 @@ public sealed class RenderCostWorld : IDisposable
         Directory.CreateDirectory(Path.Combine(mods, "CostMasterMod"));
         master.BeginWrite.ToPath(Path.Combine(mods, "CostMasterMod", MasterName))
               .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+
+        var spread = new List<string>();
+        for (int p = 0; p < Spread; p++)
+        {
+            var key = new ModKey("HcCostSpread" + p, ModType.Plugin);
+            var mod = new SkyrimMod(key, SkyrimRelease.SkyrimSE);
+            for (int a = 0; a < AmmoPerPlugin; a++)
+            {
+                var ammo = mod.Ammunitions.AddNew();
+                ammo.EditorID = $"HcCostArrow{p}_{a}";
+                ammo.Name = $"Cost Arrow {p}-{a}";
+            }
+            var folder = "CostSpreadMod" + p;
+            Directory.CreateDirectory(Path.Combine(mods, folder));
+            mod.BeginWrite.ToPath(Path.Combine(mods, folder, key.FileName.String))
+               .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+            spread.Add(key.FileName.String);
+        }
+        SpreadNames = spread;
         Directory.CreateDirectory(Path.Combine(mods, "CostOffMod"));
         off.BeginWrite.ToPath(Path.Combine(mods, "CostOffMod", OffOrderName))
            .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
@@ -74,9 +102,14 @@ public sealed class RenderCostWorld : IDisposable
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
         var prof = Path.Combine(instance, "profiles", "Default");
         Directory.CreateDirectory(prof);
-        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + MasterName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n-CostOffMod\r\n+CostMasterMod\r\n");
+        var active = new[] { MasterName }.Concat(SpreadNames).ToList();
+        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", active) + "\r\n");
+        File.WriteAllText(Path.Combine(prof, "plugins.txt"), string.Join("\r\n", active.Select(n => "*" + n)) + "\r\n");
+        // modlist.txt is read bottom-up: the master's mod last, so it stays lowest in the order.
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"),
+            "# header\r\n-CostOffMod\r\n"
+            + string.Join("", Enumerable.Range(0, Spread).Reverse().Select(p => $"+CostSpreadMod{p}\r\n"))
+            + "+CostMasterMod\r\n");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "user.json")));
     }
@@ -125,6 +158,7 @@ public sealed class RecordsRenderCostTests
 
     LoadOrderService Svc => _w.Svc;
     static readonly string[] Weap = { "WEAP" };
+    static readonly string[] Ammo = { "AMMO" };
     static readonly string[] Paths = { "EditorID", "Name", "BasicStats.Damage" };
 
     static RecordsTools.RecordsProject Fields() => new() { form = "fields", fields = Paths };
@@ -149,6 +183,25 @@ public sealed class RecordsRenderCostTests
 
         Assert.Equal(RenderCostWorld.Weapons, Doc(response).GetProperty("rendered").GetInt32());
         Assert.True(opens <= 1, $"one plugin in the order and {RenderCostWorld.Weapons} rendered rows cost {opens} overlay opens.");
+    }
+
+    /// <summary>A plugin is walked for the rows the render REACHES, not for the whole chunk. The gather's unit is a
+    /// plugin and its chunk is 2,000 rows — bigger than the default 500-row window — so gathering the chunk up front
+    /// walked every plugin the selection touched, including the ones whose rows a max_chars cut never reached, and
+    /// each of those walks costs a full enumeration of that plugin.</summary>
+    [Fact]
+    public void AChunkWalksOnlyThePluginsTheRenderedRowsCameFrom()
+    {
+        var q = Svc.CrossQuery(Ammo, null, null, false, null, null, RenderCostWorld.Spread * RenderCostWorld.AmmoPerPlugin);
+        Assert.Null(q.Error);
+        Assert.Equal(RenderCostWorld.Spread * RenderCostWorld.AmmoPerPlugin, q.Keys.Count);
+
+        var before = LoadOrderResolver.CollectPasses;
+        using var reader = new ScanDetailReader(Svc, q, new[] { "EditorID" }, 1, false, false, null, null, default);
+        for (int i = 0; i < RenderCostWorld.AmmoPerPlugin; i++) Assert.Null(reader.Row(i).Error);   // one plugin's rows
+        var walks = LoadOrderResolver.CollectPasses - before;
+
+        Assert.True(walks <= 1, $"reading {RenderCostWorld.AmmoPerPlugin} rows from one plugin walked {walks} plugins.");
     }
 
     /// <summary>The BODY lane pays the same. <c>project.form='everything'</c> takes the batch read rather than the

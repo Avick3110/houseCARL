@@ -2928,7 +2928,7 @@ public sealed class LoadOrderService : IDisposable
             try { keys[i] = view.ParseFormId(formids[i]); }
             catch (Exception ex) { parseErrors[i] = $"bad FormID '{formids[i]}': {ex.Message}"; }
         }
-        Dictionary<FormKey, IMajorRecordGetter>? chunk = null;
+        BodyPrefetch.Chunk? chunk = null;
         int chunkStart = -1;
         for (int i = 0; i < formids.Count; i++)
         {
@@ -2942,7 +2942,7 @@ public sealed class LoadOrderService : IDisposable
                                             _ => plugin, getterTypes, ct);
             }
             var fk = keys[i];
-            var body = chunk is { } c && c.TryGetValue(fk, out var b) ? b : null;
+            var body = chunk?.Body(fk);   // the plugin is walked here, on the first row of the chunk that wants it
             outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body)
                          with { Stamp = view.Stamp, Pin = pin });   // the batch's one build, stamped and pinned per item
         }
@@ -3089,7 +3089,7 @@ public sealed class LoadOrderService : IDisposable
                 try { keys[i] = view.ParseFormId(formids[i]); }
                 catch (Exception ex) { parseErrors[i] = $"bad FormID '{formids[i]}': {ex.Message}"; }
             }
-            Dictionary<FormKey, IMajorRecordGetter>? chunk = null;
+            BodyPrefetch.Chunk? chunk = null;
             int chunkStart = -1;
             for (int i = 0; i < formids.Count; i++)
             {
@@ -3103,7 +3103,7 @@ public sealed class LoadOrderService : IDisposable
                                                 _ => plugin, getterTypes, ct);
                 }
                 var fk = keys[i];
-                var body = chunk is { } c && c.TryGetValue(fk, out var b) ? b : null;
+                var body = chunk?.Body(fk);   // the plugin is walked here, on the first row of the chunk that wants it
                 outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body)
                              with { Stamp = view.Stamp, Pin = pin });
             }
