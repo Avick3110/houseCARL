@@ -4,9 +4,10 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>The sentence a run prints when it cannot make the fixture directory it works in — a full or
-/// read-only temp volume, or a plain file already at that path. The redirect itself cannot be driven from a
-/// test without repointing this process's own temp directory, so the sentence is tested where it is built.
+/// <summary>The sentence a run prints when it cannot make the fixture directory it works in — a full,
+/// read-only or missing temp volume, or a plain file already at that path. The redirect itself cannot be
+/// driven from a test without repointing this process's own temp directory, so the sentence is tested where
+/// it is built.
 /// Reflected: the builder is private to the class that owns the redirect.</summary>
 [Trait("tier", "unit")]
 public sealed class ProbeTempStartTests
@@ -29,5 +30,6 @@ public sealed class ProbeTempStartTests
         var sentence = StartFailure(@"C:\Temp\hc-1234", new IOException("A file with the same name exists."));
         Assert.Contains("free space", sentence);
         Assert.Contains("remove", sentence);
+        Assert.Contains("TMP/TEMP", sentence);
     }
 }
