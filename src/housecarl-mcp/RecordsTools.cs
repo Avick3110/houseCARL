@@ -1861,8 +1861,11 @@ public static class RecordsTools
 
     /// <summary>The tree form's text render: per record the touching list in load order with the winner last,
     /// and each provider's delta against the reference. Same wording rules as the delta form — identical is
-    /// never claimed over a truncated read, list contents compare by content, and reorders are flagged.</summary>
-    static string RenderRecordsTree(IReadOnlyList<LoadOrderService.TreeRow> rows, int total, int contested, int errors,
+    /// never claimed over a truncated read, list contents compare by content, and reorders are flagged.
+    /// Internal so a test can drive it against a hand-built <see cref="LoadOrderService.TreeRow"/>, the same
+    /// reason <see cref="AppendChildDeclarers"/> is: a node shape no fixture produces (an incomplete comparison
+    /// on a record only one in-order plugin touches) has no other way in.</summary>
+    internal static string RenderRecordsTree(IReadOnlyList<LoadOrderService.TreeRow> rows, int total, int contested, int errors,
                                     bool fieldsNarrow, string headerLine, OrderStamp? epoch, int maxChars,
                                     SpillState? spill, out bool truncated)
     {
@@ -1917,10 +1920,15 @@ public static class RecordsTools
                     break;
                 }
                 sb.Append("    ").Append(n.Plugin).Append(n.IsWinner ? " (winner)" : "").Append(": ");
+                // The incompleteness note goes on EVERY incomplete node, not only the one with no deltas: an
+                // unreadable leaf always produces a delta line, so gating it on an empty delta list left the
+                // normal shape saying nothing about what was skipped.
                 if (n.Deltas.Count > 0)
-                    sb.Append(string.Join("; ", n.Deltas)).Append('\n');
+                    sb.Append(string.Join("; ", n.Deltas))
+                      .Append(n.Complete ? "" : " — the comparison is INCOMPLETE: a field could not be read (nothing at or under it was compared), or the deep read hit the cap (which suppresses list-content and one-sided-presence deltas for the whole record)")
+                      .Append('\n');
                 else if (!n.Complete)
-                    sb.Append("no differing fields in what was read, but the deep read was TRUNCATED — not a clean 'identical'.\n");
+                    sb.Append("no differing fields in what was read, but the comparison is INCOMPLETE — the deep read was TRUNCATED at the cap, so this is not a clean 'identical'.\n");
                 else
                     sb.Append(fieldsNarrow
                         ? $"identical to {row.ReferencePlugin} across the fields read ({n.AgreedCount} leaf/leaves agree)\n"
