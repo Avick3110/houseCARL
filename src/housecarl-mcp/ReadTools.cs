@@ -233,9 +233,13 @@ static class Wire
     /// limit=/offset= window, and the count beside the cost is the BODIES READ, which a pole that has no version of
     /// an id or a malformed token leaves short of the list (#607).</param>
     /// <param name="header">The caller's own header line, written INSIDE the budget for the same reason.</param>
+    /// <param name="matches">Parallel to <paramref name="outcomes"/>: which multi-target references= target(s) each
+    /// row hit, in the scan render's own spelling, so a body-lane form un-merges a reverse lookup the same way the
+    /// scan lane does. Null when the selection was not a multi-target reverse lookup (#576).</param>
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars,
                                      SpillState? spill, out bool truncated, LeverNames? levers = null,
-                                     (int RowsRead, long Millis)? bodyCost = null, string? header = null)
+                                     (int RowsRead, long Millis)? bodyCost = null, string? header = null,
+                                     IReadOnlyList<string?>? matches = null)
     {
         truncated = false;
         var lv = levers ?? LeverNames.Legacy;
@@ -259,12 +263,16 @@ static class Wire
             " or raise max_chars]\n";
         var spillText = SpillText(spill);
         int budget = cap - costReserve - spillText.Length - Notice(outcomes.Count).Length;
-        foreach (var o in outcomes)
+        for (int i = 0; i < outcomes.Count; i++)
         {
             if (spill?.ManifestOnly ?? false) break;   // to_file: only the manifest renders — the rows are the FILE
+            var o = outcomes[i];
             int mark = sb.Length;
             var noteMark = notes.Mark();
             sb.Append('\n');
+            // The scan render's exact line, so a reverse lookup un-merges the same way whichever form answered it.
+            if (matches is { } mt && i < mt.Count && mt[i] is { } hit)
+                sb.Append("  ").Append(o.FormKey).Append("  matches=").Append(hit).Append('\n');
             if (o.Error is not null) sb.Append("error: ").Append(o.Error).Append('\n');
             else AppendRecordBlock(sb, o, new RenderCap(cap, budget), notes, lv);
             // Whole records only, and the clause this record earned goes back with it: the clauses already earned are
