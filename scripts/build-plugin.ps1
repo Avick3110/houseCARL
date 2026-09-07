@@ -10,6 +10,7 @@
 
   Outputs (all gitignored build artifacts, reproducible on demand):
       dist/housecarl/                         the plugin tree (what `claude plugin validate` checks)
+      dist/codex/skills/housecarl/            the Codex umbrella skill, under a skills/ root
       dist/houseCARL-Setup.exe                the no-CLI desktop installer
       dist/START-HERE.txt                     friend-facing note (version stamped from plugin.json)
       dist/.claude-plugin/marketplace.json    CLI-install descriptor (local marketplace)
@@ -21,9 +22,10 @@
   After it succeeds, run the validation gate (necessary, not sufficient):
       claude plugin validate ./dist/housecarl --strict
 
-  -PluginTreeOnly assembles just dist/housecarl (skills + plugin files) and stops: no corpus,
-  no server publish, no setup exe, no zip. That is the whole tree `claude plugin validate`
-  reads, and it is what CI runs the real validator against.
+  -PluginTreeOnly assembles just dist/housecarl (skills + plugin files) and the Codex skill tree,
+  runs the skill leak-check over both, and stops: no corpus, no server publish, no setup exe, no
+  zip. dist/housecarl is the whole tree `claude plugin validate` reads, and it is what CI runs the
+  real validator against; the leak-check runs here so CI runs it too.
 
   Reference:
       dev/plans/PLUGIN_BUILD_EXECUTION_2026-06-03.md   (the checklist this implements)
@@ -41,6 +43,8 @@ $PkgRoot      = Join-Path $RepoRoot 'dist'              # package root: ships ho
 $DistRoot     = Join-Path $PkgRoot 'housecarl'          # the plugin tree (what `claude plugin validate` checks)
 $ServerDir    = Join-Path $DistRoot 'server'
 $SkillsDir    = Join-Path $DistRoot 'skills'
+$CodexRoot    = Join-Path $PkgRoot 'codex'              # the Codex bundle root (beside, not inside, the plugin tree)
+$CodexSkills  = Join-Path $CodexRoot 'skills'           # Codex skill dirs are immediate children of a skills/ root
 $PluginSrc    = Join-Path $RepoRoot 'plugin'
 $GeneratedDir = Join-Path $RepoRoot 'generated'
 $CorpusSrc    = Join-Path $GeneratedDir 'corpus.json'
@@ -67,7 +71,7 @@ Write-Host ("Building houseCARL v{0}" -f $Version) -ForegroundColor Green
 # Clean the WHOLE package root, not just dist/housecarl: stale package-root extras (codex/,
 # START-HERE.txt, a previous setup exe) would otherwise survive into the zip - a stale nested
 # codex/codex/ subtree did exactly that at the 1.2.2 build.
-Step '0/11' 'Clean dist/ (package root)'
+Step '0/12' 'Clean dist/ (package root)'
 if (Test-Path $PkgRoot) { Remove-Item $PkgRoot -Recurse -Force }
 New-Item -ItemType Directory -Path $DistRoot -Force | Out-Null
 
@@ -76,7 +80,7 @@ New-Item -ItemType Directory -Path $DistRoot -Force | Out-Null
 if (-not $PluginTreeOnly) {
 
   # ---- 1. regenerate the rulebook (corpus.json + mutagen-reference shards, in sync by construction)
-  Step '1/11' 'Regenerate corpus.json (generator)'
+  Step '1/12' 'Regenerate corpus.json (generator)'
   # Explicit absolute args make this CWD-independent (Program.cs defaults are relative to CWD).
   dotnet run --project $GenProj -c Release -- $GeneratedDir $RefDir
   if ($LASTEXITCODE -ne 0) { throw "generator failed (exit $LASTEXITCODE)" }
@@ -86,7 +90,7 @@ if (-not $PluginTreeOnly) {
   # ---- 2. publish the server (framework-dependent; trimming OFF) -------------
   # -p:Version stamps the plugin.json version into the exe, which ServerInfo reports over MCP
   # (one version home; an unstamped dev build says 0.0.0-dev).
-  Step '2/11' 'Publish server (Release, win-x64, framework-dependent)'
+  Step '2/12' 'Publish server (Release, win-x64, framework-dependent)'
   dotnet publish $McpProj -c Release -r win-x64 --self-contained false -p:Version=$Version -o $ServerDir
   if ($LASTEXITCODE -ne 0) { throw "publish failed (exit $LASTEXITCODE)" }
   $Exe = Join-Path $ServerDir 'housecarl-mcp.exe'
@@ -100,48 +104,102 @@ if (-not $PluginTreeOnly) {
   # Mutagen release its corresponding-source line points at. Both are written here from the publish just
   # made, so neither can drift from what ships; the licence texts stay hand-authored. Both tracked copies
   # (repo root and plugin/) are rewritten from one string, so they stay byte-identical.
-  Step '3/11' 'Write the generated notices regions from the publish output'
+  Step '3/12' 'Write the generated notices regions from the publish output'
   & (Join-Path $PSScriptRoot 'generate-notices.ps1') -PublishDir $ServerDir -RepoRoot $RepoRoot
 
   # ---- 4. corpus beside the exe (the proven #1 requirement) ------------------
   # Reads survive without it via a reflection fallback, but writes + type-filtered queries need it.
-  Step '4/11' 'Copy corpus.json beside the exe'
+  Step '4/12' 'Copy corpus.json beside the exe'
   Copy-Item $CorpusSrc (Join-Path $ServerDir 'corpus.json') -Force
 }
 
-# ---- 5. bundle the 11 skills (exclude evals/ + _CORPUS_STATUS.md; KEEP all .jsonl) ----
-Step '5/11' 'Bundle skills'
+# ---- 5. bundle the skills, both trees (exclude evals/ + _CORPUS_STATUS.md; KEEP all .jsonl) ----
+# The Codex umbrella skill (the $housecarl entry point for Codex) ships at the PACKAGE ROOT, beside -
+# not inside - dist/housecarl/, so the Claude install (which copies the housecarl/ plugin tree
+# wholesale) never picks it up; only the setup utility's Codex path places it. Its skill dir is an
+# immediate child of a skills/ root (dist/codex/skills/housecarl), the shape Codex accepts.
+Step '5/12' 'Bundle skills (plugin tree + Codex umbrella)'
 New-Item -ItemType Directory -Path $SkillsDir -Force | Out-Null
 foreach ($s in $Skills) {
   $src = Join-Path $RepoRoot ".claude\skills\$s"
   if (-not (Test-Path $src)) { throw "skill not found: $src" }
   Copy-Item $src (Join-Path $SkillsDir $s) -Recurse -Force
 }
-# prune dev/QA meta from the copies (index.jsonl + the mutagen shards stay - load-bearing)
-Get-ChildItem $SkillsDir -Directory -Recurse -Filter 'evals' | Remove-Item -Recurse -Force
-Get-ChildItem $SkillsDir -File -Recurse -Filter '_CORPUS_STATUS.md' | Remove-Item -Force
+$CodexSrc = Join-Path $PluginSrc 'codex'
+$SkillRoots = @($SkillsDir)
+if (Test-Path $CodexSrc) {
+  New-Item -ItemType Directory -Path $CodexSkills -Force | Out-Null
+  Get-ChildItem $CodexSrc -Directory | ForEach-Object { Copy-Item $_.FullName $CodexSkills -Recurse -Force }
+  $SkillRoots += $CodexSkills
+}
+# prune dev/QA meta from the copies (index.jsonl + the mutagen shards stay - load-bearing). The eval
+# file is evals/evals.json (dev/DECISIONS.md, 2026-09-07, ruling 3); the whole directory is stripped.
+foreach ($r in $SkillRoots) {
+  Get-ChildItem $r -Directory -Recurse -Filter 'evals' | Remove-Item -Recurse -Force
+  Get-ChildItem $r -File -Recurse -Filter '_CORPUS_STATUS.md' | Remove-Item -Force
+}
 
 # ---- 6. plugin source files ------------------------------------------------
-Step '6/11' 'Copy plugin files'
+Step '6/12' 'Copy plugin files'
 Copy-Item (Join-Path $PluginSrc '.claude-plugin') $DistRoot -Recurse -Force   # -> dist/housecarl/.claude-plugin/plugin.json
 foreach ($f in @('.mcp.json','LICENSE','THIRD-PARTY-NOTICES.txt','README.md','CHANGELOG.md')) {
   Copy-Item (Join-Path $PluginSrc $f) (Join-Path $DistRoot $f) -Force
 }
 
+# ---- 7. leak-check the shipped skill trees (excluded files + SKILL.md pointers) ----
+# Runs on both trees before the -PluginTreeOnly return, so CI (which assembles with that switch)
+# runs it too. Two invariants, from dev/DECISIONS.md 2026-09-07 ruling 2: nothing this script
+# excludes may survive into a shipped copy, and every references/<file> a shipped SKILL.md body
+# writes must exist in that same copy and must not be a file this script excludes.
+Step '7/12' 'Leak-check skills (excluded files + SKILL.md pointers)'
+$skillLeaks = @()
+foreach ($r in $SkillRoots) {
+  $skillLeaks += Get-ChildItem $r -Recurse -Force -File -Filter '_CORPUS_STATUS.md'
+  $skillLeaks += Get-ChildItem $r -Recurse -Force -Directory -Filter 'evals'
+}
+if ($skillLeaks.Count -gt 0) {
+  $skillLeaks | ForEach-Object { Write-Host "  LEAK (excluded file present): $($_.FullName)" -ForegroundColor Red }
+  throw "leak-check failed: excluded files present in dist"
+}
+$pointerFails = @()
+foreach ($r in $SkillRoots) {
+  foreach ($skillDir in (Get-ChildItem $r -Directory)) {
+    $body = Join-Path $skillDir.FullName 'SKILL.md'
+    if (-not (Test-Path $body)) { continue }
+    $bodyText = Get-Content $body -Raw
+    foreach ($m in [regex]::Matches($bodyText, '(?:references|evals)/[A-Za-z0-9_./-]+')) {
+      $ptr  = $m.Value.TrimEnd('.', ',', ';', ':', ')')
+      $leaf = Split-Path $ptr -Leaf
+      if ($ptr.EndsWith('/') -or ($leaf -notmatch '\.')) { continue }   # names the directory, not a file
+      if ($ptr -like 'evals/*' -or $leaf -eq '_CORPUS_STATUS.md') {
+        $pointerFails += ("{0} points at {1}, which this script strips from every shipped copy." -f $skillDir.Name, $ptr)
+      } elseif (-not (Test-Path (Join-Path $skillDir.FullName $ptr))) {
+        $pointerFails += ("{0} points at {1}, which is not in the shipped copy." -f $skillDir.Name, $ptr)
+      }
+    }
+  }
+}
+if ($pointerFails.Count -gt 0) {
+  $pointerFails | Sort-Object -Unique | ForEach-Object { Write-Host "  POINTER: $_" -ForegroundColor Red }
+  throw "leak-check failed: a shipped SKILL.md points at a file that does not ship beside it"
+}
+Write-Host ("skill leak-check clean ({0} skills across {1} tree(s))." -f ($SkillRoots | ForEach-Object { (Get-ChildItem $_ -Directory).Count } | Measure-Object -Sum).Sum, $SkillRoots.Count) -ForegroundColor Green
+
 # The validator's whole input is assembled now. Stop here when only that was asked for.
 if ($PluginTreeOnly) {
   $skillCount = (Get-ChildItem $SkillsDir -Directory).Count
   Write-Host ("`nPlugin tree assembled: {0}   skills: {1}" -f $DistRoot, $skillCount) -ForegroundColor Green
+  Write-Host ("Codex skill tree:      {0}" -f $CodexSkills)
   Write-Host "Server, setup utility and zip were skipped (-PluginTreeOnly)."
   return
 }
 
-# ---- 7. package-root extras (START-HERE note + local marketplace.json) -----
+# ---- 8. package-root extras (START-HERE note + local marketplace.json) -----
 # These live in the PACKAGE ROOT (dist/), beside - not inside - dist/housecarl/, so the leak-check's
 # excluded-file scan (scoped to dist/housecarl) leaves them out, while the dev-path scan (step 9) still
 # covers them. Source: packaging/ (tracked). START-HERE.txt is version-stamped from plugin.json;
 # marketplace.json is the local CLI-install descriptor (`claude plugin marketplace add <this folder>`).
-Step '7/11' 'Package-root extras (START-HERE.txt + marketplace.json + codex umbrella)'
+Step '8/12' 'Package-root extras (START-HERE.txt + marketplace.json)'
 $startHere = (Get-Content (Join-Path $PackagingSrc 'START-HERE.txt') -Raw) -replace '\{\{VERSION\}\}', $Version
 if ($startHere -match '\{\{') { throw "START-HERE.txt has an unresolved {{token}} after substitution" }
 [System.IO.File]::WriteAllText((Join-Path $PkgRoot 'START-HERE.txt'), $startHere, (New-Object System.Text.UTF8Encoding($false)))
@@ -149,13 +207,7 @@ $MpDir = Join-Path $PkgRoot '.claude-plugin'
 New-Item -ItemType Directory -Path $MpDir -Force | Out-Null
 Copy-Item (Join-Path $PackagingSrc 'marketplace.json') (Join-Path $MpDir 'marketplace.json') -Force
 
-# Codex-only umbrella skill (the $housecarl entry point for Codex). Ships at the PACKAGE ROOT
-# (dist/codex/), beside - not inside - dist/housecarl/, so the Claude install (which copies the
-# housecarl/ plugin tree wholesale) never picks it up; only the setup utility's Codex path places it.
-$CodexSrc = Join-Path $PluginSrc 'codex'
-if (Test-Path $CodexSrc) { Copy-Item $CodexSrc (Join-Path $PkgRoot 'codex') -Recurse -Force }
-
-# ---- 8. publish the setup utility into dist/ (beside the plugin) -----------
+# ---- 9. publish the setup utility into dist/ (beside the plugin) -----------
 # houseCARL-Setup.exe: the no-CLI desktop installer a user double-clicks. It copies the plugin into
 # ~/.claude/skills/housecarl/ (desktop auto-loads the skills) and registers the MCP server in
 # ~/.claude.json (desktop spawns it per session). It ships in the PACKAGE ROOT (dist\), beside - not
@@ -165,19 +217,19 @@ if (Test-Path $CodexSrc) { Copy-Item $CodexSrc (Join-Path $PkgRoot 'codex') -Rec
 # framework-dependent SERVER needs (.NET Runtime + ASP.NET Core Runtime - separate installers on
 # Windows) and say exactly which is missing. Trimming is safe HERE (setup uses only the
 # System.Text.Json DOM, no reflection serialization) - the server's trimming ban is untouched.
-Step '8/11' 'Publish the setup utility (houseCARL-Setup.exe) into dist/'
+Step '9/12' 'Publish the setup utility (houseCARL-Setup.exe) into dist/'
 dotnet publish $SetupProj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=true -p:EnableCompressionInSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o $PkgRoot
 if ($LASTEXITCODE -ne 0) { throw "setup-utility publish failed (exit $LASTEXITCODE)" }
 $SetupExe = Join-Path $PkgRoot 'houseCARL-Setup.exe'
 if (-not (Test-Path $SetupExe)) { throw "setup utility not produced at $SetupExe" }
 Write-Host ("houseCARL-Setup.exe: {0:N2} MB" -f ((Get-Item $SetupExe).Length / 1MB))
 
-# ---- 9. leak-check ---------------------------------------------------------
-Step '9/11' 'Leak-check assembled tree'
+# ---- 10. leak-check the server half + the whole package root ----------------
+# The skill trees were leak-checked at step 7 (excluded files + body pointers); this covers what only
+# a full build produces: the published server, and every shipped text file under the package root.
+Step '10/12' 'Leak-check assembled tree'
 $leaks = @()
 $leaks += Get-ChildItem $DistRoot -Recurse -Force -Filter 'appsettings*.json'
-$leaks += Get-ChildItem $DistRoot -Recurse -Force -Filter '_CORPUS_STATUS.md'
-$leaks += Get-ChildItem $DistRoot -Recurse -Force -Directory -Filter 'evals'
 if ($leaks.Count -gt 0) {
   $leaks | ForEach-Object { Write-Host "  LEAK (excluded file present): $($_.FullName)" -ForegroundColor Red }
   throw "leak-check failed: excluded files present in dist"
@@ -204,7 +256,7 @@ Write-Host "leak-check clean." -ForegroundColor Green
 # One zip, single 'houseCARL/' root (so unzipping never scatters files), built from dist/ via the
 # .NET zip API (Compress-Archive can't set a custom root). Lands in release/ - outside dist/, so it
 # never includes itself. FileMode::Create overwrites a same-version zip in place.
-Step '10/11' 'Pack release zip'
+Step '11/12' 'Pack release zip'
 New-Item -ItemType Directory -Path $ReleaseDir -Force | Out-Null
 $ZipPath = Join-Path $ReleaseDir ("houseCARL-{0}.zip" -f $Version)
 Add-Type -AssemblyName System.IO.Compression
@@ -227,7 +279,7 @@ $ZipMB = [math]::Round((Get-Item $ZipPath).Length / 1MB, 2)
 Write-Host ("packed {0} entries -> {1} ({2} MB)" -f $ZipEntryCount, $ZipPath, $ZipMB) -ForegroundColor Green
 
 # ---- 11. summary -----------------------------------------------------------
-Step '11/11' 'Summary'
+Step '12/12' 'Summary'
 $fileCount  = (Get-ChildItem $DistRoot -Recurse -Force -File).Count
 $totalMB    = (Get-ChildItem $DistRoot -Recurse -Force -File | Measure-Object Length -Sum).Sum / 1MB
 $skillCount = (Get-ChildItem $SkillsDir -Directory).Count
@@ -240,7 +292,7 @@ Write-Host ("  manifest:    {0}" -f (Test-Path (Join-Path $DistRoot '.claude-plu
 Write-Host ("  setup util:  {0}   ({1})" -f (Test-Path $SetupExe), (Split-Path $SetupExe -Leaf))
 Write-Host ("  start-here:  {0}" -f (Test-Path (Join-Path $PkgRoot 'START-HERE.txt')))
 Write-Host ("  marketplace: {0}" -f (Test-Path (Join-Path $PkgRoot '.claude-plugin\marketplace.json')))
-Write-Host ("  codex skill: {0}" -f (Test-Path (Join-Path $PkgRoot 'codex\housecarl\SKILL.md')))
+Write-Host ("  codex skill: {0}" -f (Test-Path (Join-Path $CodexSkills 'housecarl\SKILL.md')))
 Write-Host ("Shippable zip:    {0}  ({1} MB, {2} entries)" -f $ZipPath, $ZipMB, $ZipEntryCount)
 Write-Host "`nDONE." -ForegroundColor Green
 Write-Host "Next - validation gate (necessary, not sufficient):" -ForegroundColor Yellow

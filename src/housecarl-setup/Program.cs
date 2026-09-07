@@ -446,10 +446,11 @@ public static class Program
 
         // Codex-only umbrella skill: the $housecarl entry point (a top-level SKILL.md routing to the
         // helpers + an agents/openai.yaml declaring the MCP-server dependency). It ships beside the plugin
-        // in the package (codex/housecarl), NOT inside it, so the Claude install never sees it. Placed in
-        // ~/.agents/skills/ alongside the helpers - the location a fresh Codex install was confirmed to
-        // scan (the helpers there are discovered and working).
-        string umbrellaSrc = Path.Combine(Path.GetDirectoryName(pluginSrc)!, "codex", "housecarl");
+        // in the package (codex/skills/housecarl, the skill dir an immediate child of a skills/ root), NOT
+        // inside it, so the Claude install never sees it. Placed in ~/.agents/skills/ alongside the helpers
+        // - the location a fresh Codex install was confirmed to scan (the helpers there are discovered and
+        // working).
+        string umbrellaSrc = Path.Combine(Path.GetDirectoryName(pluginSrc)!, "codex", "skills", "housecarl");
         bool shipsUmbrella = Directory.Exists(umbrellaSrc);
         if (shipsUmbrella)
         {
