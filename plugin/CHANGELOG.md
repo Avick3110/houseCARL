@@ -48,7 +48,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   does not ship goes. `~/.agents/skills/` (the Codex location) is shared with other agents' skills, so setup
   takes back only the folder names it recorded installing — and it starts recording them in this version, which
   means a Codex install made before it still has `biped-slot-reference/`, `papyrus-optimization/` and
-  `tool-output-awareness/` there; delete those three folders by hand once.
+  `tool-output-awareness/` there; delete those three folders by hand once. Removing a folder is cleanup, not
+  part of the install: one that will not delete — a read-only file inside it, a file open in an editor — leaves
+  the install to finish and register as usual, and setup names the folder at the end for you to delete by hand.
+  A package with no `skills` folder at all is a broken download, not a version that ships no skills: setup
+  refuses it rather than reading it as "remove every skill installed".
 
 - **A `housecarl_records` `formids=` read is now held to the render bound on every form that reads a body, and
   says what those bodies cost.** `summary` and `aggregate` read a body per id on this lane exactly as `fields`,
