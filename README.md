@@ -83,11 +83,11 @@ models — by construction, not a hand-maintained subset.
   compatibility patch installed on purpose isn't misread as out of date; trace a file to its mod by MD5
   hash; and a raw GraphQL backstop reaches any field the curated tools don't surface yet. All keyless and
   read-only: it finds and informs; downloading stays your mod manager's "Mod Manager Download" handoff.
-- **Look things up, author distributor files, and review scripts** through 13 bundled, namespaced skills:
+- **Look things up and author distributor files** through 11 bundled, namespaced skills:
   record schemas (every type Mutagen models), Papyrus / SKSE signatures, SkyPatcher / SPID / KID
   distributor grammars, Skyrim dialogue authoring, Open Animation Replacer config authoring, SKSE plugin
-  (C++/CommonLibSSE-NG) authoring, Papyrus performance review, dark-face NPC diagnosis, equip-slot lookup,
-  tool-output awareness, and bulk record-job planning.
+  (C++/CommonLibSSE-NG) authoring, dark-face NPC diagnosis, NPC appearance copying, and bulk record-job
+  planning.
 
 ## Requirements
 
@@ -174,13 +174,12 @@ Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Code
 - **`skypatcher-authoring`**, **`spid-authoring`**, **`kid-authoring`** — author SkyPatcher INI,
   SPID `_DISTR.ini`, and KID `_KID.ini` distributor files from a grammar reference rather than invented
   syntax.
-- **`papyrus-optimization`** — review a Papyrus script for performance: classify each part broken /
-  suboptimal / clean, explain what makes it heavy, and give the fix. The cost-and-habits complement to
-  `papyrus-reference`, and houseCARL's first community-contributed skill (DrHeisen).
 - **`facegen-diagnostics`** — walk the dark / grey / black-face NPC bug end to end: compare which plugin
   wins the NPC record against which mod or BSA wins the facegen file, then place the correct facegen as a
   winning override or forward the matching appearance into a new plugin, instructing the CK / NifSkope /
   RaceMenu steps houseCARL can't perform.
+- **`npc-appearance-copy`** — copy an NPC's face onto another NPC or into a standalone clone: the seed
+  field set, the tint and morph bundle, and the FaceGen mesh and tint files that have to travel with it.
 - **`dialogue-authoring`** — author or audit Skyrim dialogue at the data layer: create topics (DIAL) and
   lines (INFO) in a new plugin, wire them to a branch and quest, attach result scripts, write the
   start-game-enabled `.seq`, and validate a whole topic's or quest's dialogue graph — encoding the
@@ -189,14 +188,6 @@ Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Code
   `user.json`, condition sets, submod priorities (OAR ignores load order — higher priority wins), the
   source-verified `IsEquippedType` enum, addon conditions (Math / RaySense / IED / …), and DAR legacy
   folders. File-based; uses houseCARL only to resolve the forms a condition references. (DrHeisen.)
-- **`tool-output-awareness`** — recognize the plugins and assets that generated tools produce (Reqtificator,
-  ParallaxGen, DynDOLOD, Synthesis, TexGen, xLODGen, NPC Plugin Chooser 2) and keep their re-derived records
-  and asset paths out of an authored patch — so you never bake a regenerable artifact into a hand patch that
-  goes stale the next time the tool runs. (DrHeisen.)
-- **`biped-slot-reference`** — turn a biped slot (a number like 52, a vanilla name like Body, or a community
-  label like SOS / pelvis) into the `FirstPersonFlags` bit to query on, so finding every armor on an equip
-  slot — multi-slot pieces an exact match misses included — is one `housecarl_records` scan with a `where=` bit test
-  instead of power-of-two mental math.
 - **`skse-plugin-authoring`** — author, build, or audit a native **SKSE plugin DLL** (C++ on CommonLibSSE-NG:
   the layer beneath every SPID / KID / SkyPatcher distributor, framework, and crash logger) — scaffold the
   MSVC / CMake / vcpkg toolchain, write a plugin from scratch (lifecycle, event sinks, hooks), expose new
@@ -225,7 +216,5 @@ pointers.
   for the bundled `papyrus-reference` skill. Thank you.
 - **Zzyxzz** (SkyPatcher) and **powerofthree** (SPID and KID) — whose public documentation the
   distributor-authoring grammar facts were drawn from.
-- **DrHeisen** — contributed the `papyrus-optimization` skill (houseCARL's first community-contributed
-  skill, a Papyrus performance reviewer), the `oar-authoring` skill (Open Animation Replacer config
-  authoring), and the `tool-output-awareness` skill (keeping generated-tool output out of authored patches).
-  Thank you.
+- **DrHeisen** — contributed the `oar-authoring` skill (Open Animation Replacer config authoring), and
+  houseCARL's first community-contributed skill. Thank you.

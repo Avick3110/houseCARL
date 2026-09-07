@@ -1,11 +1,11 @@
 ---
 name: housecarl
-description: Work with Skyrim Special Edition load-order records and assets through the houseCARL MCP server — set or switch the MO2 instance, inspect active or disabled plugins and conflict trees, read records, query across plugins, author reviewable patch ESPs, create or remove records, edit leveled lists and composed structs, diff and resolve, edit NIF meshes and facegen, author dialogue, audit the SkyPatcher and SKSE runtime layers, compact or merge plugins, drive Papyrus compile/decompile and BSA archives, and look mods up on Nexus. Also the router for the bundled Skyrim helper skills (mutagen-reference, papyrus-reference, biped-slot-reference, skypatcher-authoring, spid-authoring, kid-authoring, dialogue-authoring, facegen-diagnostics, oar-authoring, skse-plugin-authoring, papyrus-optimization, tool-output-awareness, bulk-record-jobs, npc-appearance-copy). Use whenever the user mentions houseCARL, an MO2 modlist, plugins, load order, conflicts, ESP patches, overrides, a record type (ARMO/WEAP/NPC_/LVLI/MGEF/…), leveled lists, keywords, facegen or dark faces, dialogue, SKSE plugins, Papyrus, BSA archives, Nexus, or a no-ESP runtime distribution — even when the task looks like a single edit, load this first to pick the right tool and read before you write.
+description: Work with Skyrim Special Edition load-order records and assets through the houseCARL MCP server — set or switch the MO2 instance, inspect active or disabled plugins and conflict trees, read records, query across plugins, author reviewable patch ESPs, create or remove records, edit leveled lists and composed structs, diff and resolve, edit NIF meshes and facegen, author dialogue, audit the SkyPatcher and SKSE runtime layers, compact or merge plugins, drive Papyrus compile/decompile and BSA archives, and look mods up on Nexus. Also the router for the bundled Skyrim helper skills (mutagen-reference, papyrus-reference, skypatcher-authoring, spid-authoring, kid-authoring, dialogue-authoring, facegen-diagnostics, oar-authoring, skse-plugin-authoring, bulk-record-jobs, npc-appearance-copy). Use whenever the user mentions houseCARL, an MO2 modlist, plugins, load order, conflicts, ESP patches, overrides, a record type (ARMO/WEAP/NPC_/LVLI/MGEF/…), leveled lists, keywords, facegen or dark faces, dialogue, SKSE plugins, Papyrus, BSA archives, Nexus, or a no-ESP runtime distribution — even when the task looks like a single edit, load this first to pick the right tool and read before you write.
 ---
 
 # houseCARL
 
-Use this skill for data-layer Skyrim Special Edition modding through the configured houseCARL MCP server. houseCARL reads a Mod Organizer 2 instance, resolves the true load-order winner, and writes changes into reviewable patch plugins; original source mods are never edited. Beyond the record read/write core it reaches the whole data layer — assets and NIF meshes, the SkyPatcher and SKSE runtime layers, dialogue, plugin operations, Papyrus compile/decompile, BSA archives, and keyless Nexus lookups — plus the 14 focused helper skills below for the specialist grammars and workflows.
+Use this skill for data-layer Skyrim Special Edition modding through the configured houseCARL MCP server. houseCARL reads a Mod Organizer 2 instance, resolves the true load-order winner, and writes changes into reviewable patch plugins; original source mods are never edited. Beyond the record read/write core it reaches the whole data layer — assets and NIF meshes, the SkyPatcher and SKSE runtime layers, dialogue, plugin operations, Papyrus compile/decompile, BSA archives, and keyless Nexus lookups — plus the 11 focused helper skills below for the specialist grammars and workflows.
 
 ## Core workflow (read before you write)
 
@@ -56,7 +56,7 @@ Beyond the core workflow, reach for the right group. Depth for the specialist ar
 
 **Plugin operations** — `housecarl_compact_plugin` (ESL-renumber, carries FormID-keyed facegen/voice along), `housecarl_merge_plugins`. A standalone NPC appearance is two calls — `housecarl_copy` for the records, `housecarl_place` for the FaceGen, with the mod folder the copy names as `source_provider=`; depth: `npc-appearance-copy`.
 
-**Papyrus / SKSE code** — `housecarl_compile_script` (`.psc` → `.pex`), `housecarl_decompile_script` (`.pex` → `.psc`). Depth: `papyrus-reference`, `papyrus-optimization`, `skse-plugin-authoring`.
+**Papyrus / SKSE code** — `housecarl_compile_script` (`.psc` → `.pex`), `housecarl_decompile_script` (`.pex` → `.psc`). Depth: `papyrus-reference`, `skse-plugin-authoring`.
 
 **BSA archives** — `housecarl_bsa_list`, `housecarl_bsa_extract`, `housecarl_bsa_repack`.
 
@@ -68,10 +68,9 @@ Beyond the core workflow, reach for the right group. Depth for the specialist ar
 
 Load the specialist skill before composing in its domain:
 
-- **Reference** — `mutagen-reference` (record schemas), `papyrus-reference` (Papyrus / SKSE function signatures), `biped-slot-reference` (armor by biped slot).
+- **Reference** — `mutagen-reference` (record schemas), `papyrus-reference` (Papyrus / SKSE function signatures).
 - **Runtime distribution grammars** — `skypatcher-authoring` (record edits), `spid-authoring` (spells / perks / items / factions / outfits → NPCs), `kid-authoring` (keywords → items).
 - **Content authoring / investigation** — `dialogue-authoring`, `facegen-diagnostics` (the dark-face NPC bug), `npc-appearance-copy` (copy a face onto another NPC or into a standalone clone), `oar-authoring` (Open Animation Replacer), `skse-plugin-authoring` (C++ SKSE plugin DLLs).
-- **Performance & guardrail** — `papyrus-optimization` (script cost review), `tool-output-awareness` (keep generated tool output out of authored patches).
 - **Bulk planning** — `bulk-record-jobs` (catalogues, audits, link graphs, conflict surveys, fan-out extraction — many records into one structured deliverable).
 
 ## FormID notes

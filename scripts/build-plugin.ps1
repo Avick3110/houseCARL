@@ -52,8 +52,8 @@ $PackagingSrc = Join-Path $RepoRoot 'packaging'        # tracked source for pack
 $ReleaseDir   = Join-Path $RepoRoot 'release'          # output dir for the shippable zip (gitignored)
 $PluginManifest = Join-Path $PluginSrc '.claude-plugin\plugin.json'   # single source of truth for the version
 
-# the 14 shipped skills (the modlist-authoring cluster was removed; tool-surface skills wait)
-$Skills = @('mutagen-reference','papyrus-reference','skypatcher-authoring','spid-authoring','kid-authoring','papyrus-optimization','facegen-diagnostics','dialogue-authoring','oar-authoring','tool-output-awareness','biped-slot-reference','skse-plugin-authoring','bulk-record-jobs','npc-appearance-copy')
+# the 11 shipped skills (the modlist-authoring cluster was removed; tool-surface skills wait)
+$Skills = @('mutagen-reference','papyrus-reference','skypatcher-authoring','spid-authoring','kid-authoring','facegen-diagnostics','dialogue-authoring','oar-authoring','skse-plugin-authoring','bulk-record-jobs','npc-appearance-copy')
 
 function Step($n,$msg) { Write-Host "`n=== [$n] $msg ===" -ForegroundColor Cyan }
 
@@ -109,7 +109,7 @@ if (-not $PluginTreeOnly) {
   Copy-Item $CorpusSrc (Join-Path $ServerDir 'corpus.json') -Force
 }
 
-# ---- 5. bundle the 13 skills (exclude evals/ + _CORPUS_STATUS.md; KEEP all .jsonl) ----
+# ---- 5. bundle the 11 skills (exclude evals/ + _CORPUS_STATUS.md; KEEP all .jsonl) ----
 Step '5/11' 'Bundle skills'
 New-Item -ItemType Directory -Path $SkillsDir -Force | Out-Null
 foreach ($s in $Skills) {

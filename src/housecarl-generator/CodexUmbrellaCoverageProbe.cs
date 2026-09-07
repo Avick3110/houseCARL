@@ -8,7 +8,7 @@ namespace HousecarlGenerator;
 /// REGRESSION GUARD (standing CI instrument, self-contained) — CODEX UMBRELLA COVERAGE.
 ///
 /// The Codex packaging ships ONE umbrella routing skill (plugin/codex/housecarl/SKILL.md) that hand-lists
-/// houseCARL's MCP tools and helper skills. Unlike the 13 Claude Code skills — each its own trigger — the
+/// houseCARL's MCP tools and helper skills. Unlike the 11 Claude Code skills — each its own trigger — the
 /// umbrella is Codex's single hand-maintained router, so nothing forced it to track the tool/skill surface: it
 /// silently drifted from full coverage to 9 of ~45 tools over ~2 months because adding a tool never touched it.
 ///
