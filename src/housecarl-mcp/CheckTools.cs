@@ -138,7 +138,9 @@ public static class CheckTools
              "is checked for coverage and staleness (without it the quest is dormant on a fresh save and its " +
              "dialogue never shows). BOUNDARY: it cannot EVALUATE whether a WELL-FORMED condition passes — only " +
              "the running game can — and it does not check lip-sync or audio content, so 'checks passed' never " +
-             "reads as 'this will play'.")]
+             "reads as 'this will play'. The dialogue family FLAGS, never silently rewrites: a stale .seq, a " +
+             "blank subtype marker or a missing CNAM/ENAM is reported for you to fix, and nothing in the checked " +
+             "plugin is touched.")]
             string[]? findings = null,
         [Description("Optional. true = return ONLY the header totals plus each running family's histograms, with no per-plugin or per-record listing. Errors: dangling-by-TARGET-plugin (which plugin the broken refs point INTO — the one absent dependency behind a wall of findings) and dangling-by-SOURCE-plugin (which plugin they come FROM — how much is vanilla baseline and how much your mods introduced). Scripts: unbound-by-PROPERTY-NAME. Dialogue: the totals and the unreachable-seed roster alone, no per-topic blocks — a seed nobody could reach bounds the answer rather than sitting inside it, so this does not silence it. The cheap before/after-a-fix comparison; totals stay exact (never limit-capped) and limit= caps the histogram ROWS instead.")]
             bool counts_only = false,
