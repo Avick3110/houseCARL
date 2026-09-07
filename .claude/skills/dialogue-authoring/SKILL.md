@@ -65,7 +65,7 @@ The Skyrim-specific knowledge lives in the `references/` files — read the one 
 
 The condition / branch / quest references are **hand-curated** (sourced from the CK wiki + Mutagen's record
 model, not the by-construction generator), so they carry a staleness duty — provenance and the re-check
-checklist live in `references/_CORPUS_STATUS.md` (dev-side; not shipped in the plugin).
+checklist live in the corpus status note in the skill's source tree (dev-side; not shipped in the plugin).
 
 ## Read the flow model first
 
