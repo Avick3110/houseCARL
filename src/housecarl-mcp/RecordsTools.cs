@@ -1861,8 +1861,13 @@ public static class RecordsTools
                 spec = new LoadOrderService.PoleSpec(LoadOrderService.PoleKind.Overlay, OverlayState: st.ToLowerInvariant(), Draft: plan);
                 return null;
             }
+            // The draft keys ride the overlay pole. On a {"file"} pole they have no meaning, and accepting them
+            // would answer with that plugin's own record while the caller read it as the draft's post state.
+            if (e.TryGetProperty("ini", out _) || e.TryGetProperty("subfolder", out _))
+                return $"error: {param}= names \"ini\"/\"subfolder\" without \"overlay\" — a draft INI is a value on the SkyPatcher overlay pole, " +
+                       "so pass {\"overlay\": \"skypatcher\", \"state\": \"post\", \"ini\": \"<absolute path>\", \"subfolder\": \"<type folder>\"}.";
             if (!e.TryGetProperty("file", out var fEl) || fEl.ValueKind != JsonValueKind.String)
-                return $"error: a structured {param}= names the plugin as {{\"file\": \"X.esp\"[, \"mod\": \"<mod folder>\"]}} or the runtime view as {{\"overlay\": \"skypatcher\", \"state\": \"pre\"|\"post\"}}.";
+                return $"error: a structured {param}= names the plugin as {{\"file\": \"X.esp\"[, \"mod\": \"<mod folder>\"]}} or the runtime view as {{\"overlay\": \"skypatcher\", \"state\": \"pre\"|\"post\"[, \"ini\": \"<draft path>\", \"subfolder\": \"<type folder>\"]}}.";
             string? mod = e.TryGetProperty("mod", out var mEl) && mEl.ValueKind == JsonValueKind.String ? mEl.GetString()!.Trim() : null;
             spec = new LoadOrderService.PoleSpec(LoadOrderService.PoleKind.Named, fEl.GetString()!.Trim(), mod);
             return null;
