@@ -33,6 +33,11 @@ public sealed class RecordsWorld : IDisposable
     /// it is the type whose toggle only a folder INVENTED by a draft fold can consult.</summary>
     public const string ToggledOffSkyPatcherType = "Armor";
 
+    /// <summary>The on-disk path of a placed SkyPatcher INI nested under a mod-specific subfolder. It patches
+    /// nothing either; it exists so a draft can be pointed at a file the layer already reads, whose sort key is a
+    /// relative path rather than a bare filename.</summary>
+    public string NestedSkyPatcherIniPath { get; }
+
     public string MasterName { get; }
     public string MidName { get; }
     public string OverrideName { get; }
@@ -217,6 +222,9 @@ public sealed class RecordsWorld : IDisposable
         var spDir = Path.Combine(ModsDir, "MasterMod", "SKSE", "Plugins", "SkyPatcher", "weapon");
         Directory.CreateDirectory(spDir);
         File.WriteAllText(Path.Combine(spDir, LiveSkyPatcherIni), "; placed, and deliberately patches nothing\r\n");
+        Directory.CreateDirectory(Path.Combine(spDir, "MyMod"));
+        NestedSkyPatcherIniPath = Path.Combine(spDir, "MyMod", "nested.ini");
+        File.WriteAllText(NestedSkyPatcherIniPath, "; placed under a mod subfolder, and patches nothing either\r\n");
         // The [Patcher] toggles, with 'armor' switched off and no live armor folder at all: the type a draft can
         // be folded into that the DLL would skip wholesale. 'weapon' is left at its default (on).
         File.WriteAllText(Path.Combine(ModsDir, "MasterMod", "SKSE", "Plugins", "SkyPatcher.ini"),
