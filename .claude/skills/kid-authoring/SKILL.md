@@ -121,7 +121,8 @@ the reference may be behind and offer to re-derive from the current KID source/d
 
 - **Provenance.** The `references/` corpus is reconstructed from the MIT KID source
   (`powerof3/Keyword-Item-Distributor`, v3.5.0) and the Nexus #55728 description, with forwarded enum
-  values confirmed against `powerof3/CommonLibSSE`. See `references/_CORPUS_STATUS.md`. On a KID version
+  values confirmed against `powerof3/CommonLibSSE`; the corpus status note in the skill's source tree
+  records it (dev-side; not shipped in the plugin). On a KID version
   bump, re-derive before trusting it for new features.
 - **Lookup without authoring.** The same reference answers "what's the spell-type number for Ability",
   "which body slot is 33", or "what archetypes can I filter magic effects by" — open `value-tables.md`;
