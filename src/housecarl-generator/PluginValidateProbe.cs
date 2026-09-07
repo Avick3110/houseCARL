@@ -31,7 +31,7 @@ namespace HousecarlGenerator;
 ///          --- ... --- fenced block parses as a YAML mapping with a non-empty `name` and `description`. The parse
 ///          uses a real YAML parser (YamlDotNet) — a FAITHFUL PROXY for, not byte-identical to, the harness's own
 ///          (JS) YAML parser: it reliably catches the colon-space class (RED-proven below), but the residual risk
-///          is a false-NEGATIVE (YamlDotNet accepts what the real loader would drop). For the 14 bundled skills
+///          is a false-NEGATIVE (YamlDotNet accepts what the real loader would drop). For the 11 bundled skills
 ///          the CI `claude plugin validate --strict` step closes that residual; for the Codex umbrella skill it
 ///          does not, and this is the only check. (RED: the literal colon-space description that dropped
 ///          dialogue-authoring; a frontmatter missing `description`; a file with no fence at all.)

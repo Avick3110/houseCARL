@@ -73,14 +73,14 @@ It can:
   read-only; downloading stays your mod manager's job.
 - Look up **record schemas** (every type Mutagen models) and **Papyrus / SKSE signatures**, author
   **SkyPatcher**, **SPID**, and **KID** distributor files, **author Skyrim dialogue** and **Open Animation
-  Replacer configs**, **author SKSE plugins in C++** (CommonLibSSE-NG), **review Papyrus scripts for
-  performance**, **diagnose the dark / grey / black-face NPC bug**, **find armor by equip slot**,
-  **recognize generated tool output**, and **plan bulk record-jobs** — through 13 bundled,
+  Replacer configs**, **author SKSE plugins in C++** (CommonLibSSE-NG),
+  **diagnose the dark / grey / black-face NPC bug**, **copy an NPC appearance**,
+  and **plan bulk record-jobs** — through 11 bundled,
   namespaced skills (`/housecarl:mutagen-reference`, `/housecarl:papyrus-reference`,
   `/housecarl:skypatcher-authoring`, `/housecarl:spid-authoring`, `/housecarl:kid-authoring`,
-  `/housecarl:dialogue-authoring`, `/housecarl:papyrus-optimization`, `/housecarl:facegen-diagnostics`,
-  `/housecarl:oar-authoring`, `/housecarl:skse-plugin-authoring`, `/housecarl:tool-output-awareness`,
-  `/housecarl:biped-slot-reference`, `/housecarl:bulk-record-jobs`).
+  `/housecarl:dialogue-authoring`, `/housecarl:facegen-diagnostics`,
+  `/housecarl:oar-authoring`, `/housecarl:skse-plugin-authoring`,
+  `/housecarl:npc-appearance-copy`, `/housecarl:bulk-record-jobs`).
 
 Coverage is **reflection-driven**: the set of record types houseCARL understands *is* the set Mutagen
 models, by construction — not a hand-maintained subset.
@@ -134,7 +134,5 @@ no linking exception), which houseCARL bundles. Every third-party component and 
   the bundled `papyrus-reference` skill. Thank you.
 - **Zzyxzz** (SkyPatcher) and **powerofthree** (SPID and KID) — the public documentation behind the
   distributor-authoring skills.
-- **DrHeisen** — contributed the `papyrus-optimization` skill (houseCARL's first community-contributed
-  skill, a Papyrus performance reviewer), the `oar-authoring` skill (Open Animation Replacer config
-  authoring), and the `tool-output-awareness` skill (keeping generated-tool output out of authored patches).
-  Thank you.
+- **DrHeisen** — contributed the `oar-authoring` skill (Open Animation Replacer config authoring), and
+  houseCARL's first community-contributed skill. Thank you.
