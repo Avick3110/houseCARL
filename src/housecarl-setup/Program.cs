@@ -86,7 +86,10 @@ public static class Program
             string pluginSrc   = Path.Combine(pkgDir, PluginFolderName);
             string srcManifest = Path.Combine(pluginSrc, ".claude-plugin", "plugin.json");
             string srcExe      = Path.Combine(pluginSrc, "server", "housecarl-mcp.exe");
-            if (!File.Exists(srcManifest) || !File.Exists(srcExe))
+            // The skills folder is checked with the manifest and the exe: a package always ships one, and a
+            // package missing it is a broken unzip, not a version that dropped every skill.
+            string srcSkills   = Path.Combine(pluginSrc, "skills");
+            if (!File.Exists(srcManifest) || !File.Exists(srcExe) || !Directory.Exists(srcSkills))
             {
                 Console.Error.WriteLine("ERROR: couldn't find the houseCARL plugin next to this program.");
                 Console.Error.WriteLine("  Looked in: " + pluginSrc);
@@ -187,6 +190,10 @@ public static class Program
     /// below). A clean first install (no destination exe yet) is never blocked. As defense in depth, a
     /// sharing violation that slips past the pre-flight (a held sibling DLL, or a session started between the
     /// check and the copy) is caught and surfaced with the same guidance instead of the generic failure.
+    ///
+    /// The stale-skill prune runs between the copy and the registration, so a folder it cannot delete is
+    /// collected rather than thrown: cleanup does not fail an install that otherwise worked, and the run says
+    /// at the end which folders are still there.
     /// </summary>
     public static InstallResult TryInstall(Target target, string pluginSrc, string home, string? homeOverride)
     {
@@ -200,10 +207,14 @@ public static class Program
                         "Can't update the server here — it looks like it's running (or the file is locked/read-only): " + destExe)
                     { RefusedBeforeAnyCopy = true };
 
+        // Leftover skill folders the prune could not delete. Cleanup never fails an otherwise good install, so
+        // the failures are collected and said at the end instead of thrown.
+        List<string> keptBack = new();
+
         try
         {
-            if (target is Target.Claude or Target.Both) InstallForClaude(pluginSrc, home);
-            if (target is Target.Codex  or Target.Both) InstallForCodex(pluginSrc, home, homeOverride);
+            if (target is Target.Claude or Target.Both) InstallForClaude(pluginSrc, home, keptBack);
+            if (target is Target.Codex  or Target.Both) InstallForCodex(pluginSrc, home, homeOverride, keptBack);
         }
         catch (IOException ex) when (IsSharingViolation(ex))
         {
@@ -213,6 +224,7 @@ public static class Program
                 "A houseCARL file was in use during the update (the server, or a config file it writes).");
         }
 
+        ReportKeptBack(keptBack);
         return new InstallResult(InstallOutcome.Installed, null);
     }
 
@@ -364,7 +376,7 @@ public static class Program
 
     // ---- Claude Code install (unchanged from the proven desktop install) ---
 
-    private static void InstallForClaude(string pluginSrc, string home)
+    private static void InstallForClaude(string pluginSrc, string home, List<string> keptBack)
     {
         string skillsDest = Path.Combine(home, ".claude", "skills", PluginFolderName);
         string destExe    = ClaudeDestExe(home);
@@ -376,16 +388,24 @@ public static class Program
 
         // CopyDirectory only overwrites, so a skill dropped since the installed version would survive an
         // upgrade and keep loading. This skills root is houseCARL's outright, so anything not in the package
-        // is a leftover.
+        // is a leftover. A package with no skills folder at all ships no skill list to diff against, so the
+        // prune is refused rather than read as "this version dropped every skill".
         string installedSkills = Path.Combine(skillsDest, "skills");
-        List<string> shipped = ShippedSkillNames(pluginSrc);
-        List<string> stale = Directory.Exists(installedSkills)
-            ? Directory.GetDirectories(installedSkills)
-                .Select(d => Path.GetFileName(d)!)
-                .Where(n => !shipped.Contains(n, StringComparer.OrdinalIgnoreCase))
-                .ToList()
-            : new List<string>();
-        ReportRemoved("Claude Code", installedSkills, RemoveSkillDirs(installedSkills, stale));
+        List<string>? shipped = ShippedSkillNames(pluginSrc);
+        if (shipped is null)
+        {
+            ReportNoSkillsShipped("Claude Code");
+        }
+        else
+        {
+            List<string> stale = Directory.Exists(installedSkills)
+                ? Directory.GetDirectories(installedSkills)
+                    .Select(d => Path.GetFileName(d)!)
+                    .Where(n => !shipped.Contains(n, StringComparer.OrdinalIgnoreCase))
+                    .ToList()
+                : new List<string>();
+            ReportRemoved("Claude Code", installedSkills, RemoveSkillDirs(installedSkills, stale, keptBack).Removed);
+        }
 
         Console.WriteLine("[Claude Code] registering the MCP server");
         Console.WriteLine("      -> " + claudeJson);
@@ -395,7 +415,7 @@ public static class Program
 
     // ---- Codex install -----------------------------------------------------
 
-    private static void InstallForCodex(string pluginSrc, string home, string? homeOverride)
+    private static void InstallForCodex(string pluginSrc, string home, string? homeOverride, List<string> keptBack)
     {
         // Server + corpus go to a neutral per-user dir, NOT the skills dir: Codex scans ~/.agents/skills
         // for skill FOLDERS, and the server is not a skill. Under a test home (HOUSECARL_SETUP_HOME) the
@@ -424,30 +444,48 @@ public static class Program
             foreach (string skillDir in Directory.GetDirectories(skillsSrc))
                 CopyDirectory(skillDir, Path.Combine(skillsRoot, Path.GetFileName(skillDir)));
 
-        // Drop the skills a previous version put here and this package no longer ships. ~/.agents/skills is
-        // shared with every other agent's skills, so this prunes ONLY the folder names houseCARL recorded
-        // installing — never a directory diff of a dir we do not own.
-        List<string> shippedSkills = ShippedSkillNames(pluginSrc);
-        string recordPath = CodexSkillRecord(home, homeOverride);
-        List<string> staleSkills = ReadSkillRecord(recordPath)
-            .Where(n => !shippedSkills.Contains(n, StringComparer.OrdinalIgnoreCase))
-            .ToList();
-        ReportRemoved("Codex", skillsRoot, RemoveSkillDirs(skillsRoot, staleSkills));
-        Directory.CreateDirectory(Path.GetDirectoryName(recordPath)!);
-        File.WriteAllLines(recordPath, shippedSkills);
-
         // Codex-only umbrella skill: the $housecarl entry point (a top-level SKILL.md routing to the
         // helpers + an agents/openai.yaml declaring the MCP-server dependency). It ships beside the plugin
         // in the package (codex/housecarl), NOT inside it, so the Claude install never sees it. Placed in
         // ~/.agents/skills/ alongside the helpers - the location a fresh Codex install was confirmed to
         // scan (the helpers there are discovered and working).
         string umbrellaSrc = Path.Combine(Path.GetDirectoryName(pluginSrc)!, "codex", "housecarl");
-        if (Directory.Exists(umbrellaSrc))
+        bool shipsUmbrella = Directory.Exists(umbrellaSrc);
+        if (shipsUmbrella)
         {
             string umbrellaDest = Path.Combine(skillsRoot, PluginFolderName);
             Console.WriteLine("[Codex] installing the houseCARL umbrella skill");
             Console.WriteLine("      -> " + umbrellaDest);
             CopyDirectory(umbrellaSrc, umbrellaDest);
+        }
+
+        // Drop the folders a previous version put here and this package no longer ships. ~/.agents/skills is
+        // shared with every other agent's skills, so this prunes ONLY the folder names houseCARL recorded
+        // installing — never a directory diff of a dir we do not own. A package with no skills folder ships no
+        // list to reconcile against, so the prune and the record write are both refused.
+        List<string>? shippedSkills = ShippedSkillNames(pluginSrc);
+        if (shippedSkills is null)
+        {
+            ReportNoSkillsShipped("Codex");
+        }
+        else
+        {
+            // Everything this install put under the shared root, the umbrella included, so a later upgrade
+            // can take back exactly those.
+            List<string> installedNames = new(shippedSkills);
+            if (shipsUmbrella) installedNames.Add(PluginFolderName);
+
+            string recordPath = CodexSkillRecord(home, homeOverride);
+            List<string> staleSkills = ReadSkillRecord(recordPath)
+                .Where(n => !installedNames.Contains(n, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+            var prune = RemoveSkillDirs(skillsRoot, staleSkills, keptBack);
+            ReportRemoved("Codex", skillsRoot, prune.Removed);
+
+            // A folder the prune could not take back stays on the record, so the next upgrade tries it again
+            // instead of forgetting a leftover houseCARL put there.
+            Directory.CreateDirectory(Path.GetDirectoryName(recordPath)!);
+            File.WriteAllLines(recordPath, installedNames.Concat(prune.Failed));
         }
 
         Console.WriteLine("[Codex] registering the MCP server");
@@ -484,13 +522,16 @@ public static class Program
 
     // ---- stale skill folders ----------------------------------------------
 
-    /// <summary>The skill folder names this package ships.</summary>
-    private static List<string> ShippedSkillNames(string pluginSrc)
+    /// <summary>The skill folder names this package ships, or null when the package has no skills folder at
+    /// all. Null is not an empty list: a package that ships no skills folder is a broken package (a partial
+    /// unzip, a quarantined folder), not a version that dropped every skill, and a prune that read it as the
+    /// latter would delete the user's whole installed skill set.</summary>
+    private static List<string>? ShippedSkillNames(string pluginSrc)
     {
         string skillsSrc = Path.Combine(pluginSrc, "skills");
         return Directory.Exists(skillsSrc)
             ? Directory.GetDirectories(skillsSrc).Select(d => Path.GetFileName(d)!).ToList()
-            : new List<string>();
+            : null;
     }
 
     /// <summary>Where the Codex install records the skill folders it put in the shared ~/.agents/skills, so a
@@ -510,18 +551,33 @@ public static class Program
             .ToList();
     }
 
-    /// <summary>Delete the named skill folders under <paramref name="skillsRoot"/>; returns the ones that were there.</summary>
-    private static List<string> RemoveSkillDirs(string skillsRoot, IEnumerable<string> names)
+    /// <summary>Delete the named skill folders under <paramref name="skillsRoot"/>; returns the ones that went
+    /// and the ones that would not. A folder that will not delete (a read-only file inside it, a held handle)
+    /// is caught PER FOLDER: the run keeps going to the next one, its path is added to
+    /// <paramref name="keptBack"/> for the report at the end, and the install continues to the MCP
+    /// registration. Cleanup cannot fail an install that otherwise worked — before the prune existed, the
+    /// leftover simply survived and the install succeeded.</summary>
+    private static (List<string> Removed, List<string> Failed) RemoveSkillDirs(
+        string skillsRoot, IEnumerable<string> names, List<string> keptBack)
     {
         List<string> removed = new();
+        List<string> failed  = new();
         foreach (string name in names)
         {
             string dir = Path.Combine(skillsRoot, name);
             if (!Directory.Exists(dir)) continue;
-            Directory.Delete(dir, recursive: true);
-            removed.Add(name);
+            try
+            {
+                Directory.Delete(dir, recursive: true);
+                removed.Add(name);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                failed.Add(name); // read-only file inside, or a handle held on one
+                keptBack.Add(dir);
+            }
         }
-        return removed;
+        return (removed, failed);
     }
 
     private static void ReportRemoved(string host, string skillsRoot, List<string> removed)
@@ -531,6 +587,25 @@ public static class Program
         Console.WriteLine("      -> " + skillsRoot);
         foreach (string name in removed)
             Console.WriteLine("      - " + name);
+    }
+
+    /// <summary>Said when the package has no skills folder: the prune is refused, and the reason is stated
+    /// rather than left as a silently skipped step.</summary>
+    private static void ReportNoSkillsShipped(string host)
+    {
+        Console.WriteLine("[" + host + "] this package has no skills folder, so no installed skill was removed");
+        Console.WriteLine("      (a package ships skills; unzip the download again if this is not what you expect)");
+    }
+
+    /// <summary>Said at the end of an otherwise finished install: the folders the prune could not delete.</summary>
+    private static void ReportKeptBack(List<string> keptBack)
+    {
+        if (keptBack.Count == 0) return;
+        Console.WriteLine("NOTE: houseCARL installed, but these old skill folders could not be deleted (a file in");
+        Console.WriteLine("      them is read-only or open) — delete them by hand so they stop loading:");
+        foreach (string dir in keptBack)
+            Console.WriteLine("      - " + dir);
+        Console.WriteLine();
     }
 
     // ---- file copy --------------------------------------------------------
