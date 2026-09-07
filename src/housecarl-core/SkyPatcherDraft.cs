@@ -30,7 +30,7 @@ public static class SkyPatcherDraft
         /// nothing".</summary>
         public SkyPatcherDiscovery.LayerScan Fold(SkyPatcherDiscovery.LayerScan live, SkyPatcherCatalog catalog,
                                                   Func<string, bool> pluginPresent, out string? refusal,
-                                                  List<string>? warnings = null)
+                                                  SkyPatcherOverlay.WarningSink? warnings = null)
         {
             refusal = null;
             var name = Path.GetFileName(IniPath);

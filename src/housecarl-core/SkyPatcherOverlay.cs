@@ -35,6 +35,35 @@ namespace HousecarlCore;
 /// </summary>
 public static class SkyPatcherOverlay
 {
+    /// <summary>
+    /// One call's collector for the replay's warnings, across every record it replays. A warning names the record
+    /// it was raised for, so one INI line yields a DIFFERENT string per record and a batch of N records raises N
+    /// of them — while a render shows at most <see cref="Cap"/>. So the sink keeps that many and counts the rest:
+    /// membership is a hash lookup, and neither the kept list nor the seen set grows with the batch.
+    /// <para>Past the cap the seen set stops growing, so <see cref="Overflow"/> counts further warnings rather
+    /// than further DISTINCT ones — a number for "there were more", which is all it is ever rendered as.</para>
+    /// </summary>
+    public sealed class WarningSink
+    {
+        /// <summary>How many warnings are kept for rendering; the rest are counted.</summary>
+        public const int Cap = 20;
+
+        readonly HashSet<string> _seen = new(StringComparer.Ordinal);
+        readonly List<string> _kept = new();
+
+        /// <summary>The warnings a render lists, in the order they were first raised.</summary>
+        public IReadOnlyList<string> Kept => _kept;
+
+        /// <summary>How many further warnings were raised beyond <see cref="Kept"/>.</summary>
+        public int Overflow { get; private set; }
+
+        public void Add(string warning)
+        {
+            if (_kept.Count < Cap) { if (_seen.Add(warning)) _kept.Add(warning); return; }
+            if (!_seen.Contains(warning)) Overflow++;
+        }
+    }
+
     /// <summary>Everything the overlay needs from the load order, kept behind an interface so the
     /// engine itself stays testable off fixtures (the service implements this over the live resolver).</summary>
     public interface IFormResolver

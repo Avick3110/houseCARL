@@ -1055,12 +1055,12 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>Carry one replay's warnings (unknown key, unmapped op, unresolved filter, parse note) into the
     /// caller's sink, deduplicated: a line the layer could not apply belongs beside the answer, not in silence.
     /// Each warning already names its own file and line, so a draft's warnings name the draft's path.</summary>
-    static void CollectOverlayWarnings(IReadOnlyList<SkyPatcherFolderOutcome> folders, List<string>? sink)
+    static void CollectOverlayWarnings(IReadOnlyList<SkyPatcherFolderOutcome> folders, SkyPatcherOverlay.WarningSink? sink)
     {
         if (sink is null) return;
         foreach (var f in folders)
             foreach (var w in f.Result?.Warnings ?? Array.Empty<string>())
-                if (!sink.Contains(w)) sink.Add(w);
+                sink.Add(w);
     }
 
     /// <summary>
@@ -3251,7 +3251,7 @@ public sealed class LoadOrderService : IDisposable
         IReadOnlyList<string> formids, PoleSpec subject, PoleSpec reference, IReadOnlyList<string>? fields,
         ArtifactDemand? demand,
         out string? subjectArm, out string? referenceArm, out bool epochCoversAll,
-        out string? refusal, out OrderStamp? epoch, List<string>? overlayWarnings = null)
+        out string? refusal, out OrderStamp? epoch, SkyPatcherOverlay.WarningSink? overlayWarnings = null)
     {
         subjectArm = null; referenceArm = null; epochCoversAll = true; refusal = null;
         var resolver = Resolver;
@@ -3331,7 +3331,7 @@ public sealed class LoadOrderService : IDisposable
     PoleReader MakePoleReader(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                               PoleSpec spec, IReadOnlyList<string>? fields, IReadOnlyCollection<FormKey>? wanted,
                               out string? armStatement, out bool covers, out string? error, out PoleInfo? offOrderArm,
-                              List<string>? overlayWarnings = null)
+                              SkyPatcherOverlay.WarningSink? overlayWarnings = null)
     {
         error = null; covers = true; offOrderArm = null;
         // '*parent' on fields=: every in-order arm below reads through this captured view and open session, so the
@@ -3452,7 +3452,7 @@ public sealed class LoadOrderService : IDisposable
     PoleReader MakeOverlayPoleReader(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                      PoleSpec spec, IReadOnlyList<string>? fields,
                                      out string? armStatement, out bool covers, out string? error,
-                                     List<string>? overlayWarnings = null)
+                                     SkyPatcherOverlay.WarningSink? overlayWarnings = null)
     {
         error = null;
         var hop = ContainmentIndex.ReadHop(view, session);   // both overlay arms read through the order's own index
@@ -3608,7 +3608,7 @@ public sealed class LoadOrderService : IDisposable
         IReadOnlyList<int>? depths = null,
         CancellationToken ct = default,
         SkyPatcherDraft.Plan? draft = null,
-        List<string>? overlayWarnings = null)
+        SkyPatcherOverlay.WarningSink? overlayWarnings = null)
     {
         refusal = null; refusalEpoch = null;
         var resolver = Resolver;

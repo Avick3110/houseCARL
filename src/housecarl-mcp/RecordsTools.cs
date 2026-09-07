@@ -458,13 +458,12 @@ public static class RecordsTools
         // Every warning the SkyPatcher replay produced — a key it does not know, an op it cannot map, a filter it
         // cannot evaluate, a parse note — named beside the answer, each already carrying its own file and line. A
         // draft INI's lines carry the draft's path, so a bad draft line reads where a bad live line does.
-        const int WarningCap = 20;
-        var overlayWarnings = new List<string>();
+        var overlayWarnings = new HousecarlCore.SkyPatcherOverlay.WarningSink();
         void StateOverlayWarnings()
         {
-            if (overlayWarnings.Count == 0) return;
-            var shown = overlayWarnings.Take(WarningCap).ToList();
-            int over = overlayWarnings.Count - shown.Count;
+            var shown = overlayWarnings.Kept;
+            if (shown.Count == 0) return;
+            int over = overlayWarnings.Overflow;
             envelope.Add(new("skypatcher_warnings",
                              string.Join(" | ", shown) + (over > 0 ? $" (+{over} more not listed)" : "")));
             foreach (var w in shown) headerLine += "\n[!] skypatcher: " + w;
