@@ -29,6 +29,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   than a plugin, and its version and runtime-compatibility checks never ran. That walk is bounded by the counts
   inside the directory, not by the header size, so a declared address is now read whatever the size says. A
   directory with no address at all is still genuine absence and still reads as no exports.
+- **A `housecarl_records` reverse lookup over several targets says which target each row hit whatever form
+  answered it.** `references=["A","B"]` records per match which of the targets it links to, and the scan render
+  has always shown that as `matches=`. The forms that read a body per row — `project.form='rows'`,
+  `'everything'`, a `fields` read under a `plugins=` scope with a named `source=`, and a `fields` projection with
+  a quantified path — render through the batch writer instead, which carried no such column, so the same
+  two-target lookup could be un-merged back into per-target answers under one form and not under another. All of
+  them now carry it, on text, on json, and in a `to_file=` artifact's rows. A single-target `references=` still
+  adds no column, for the reason it never did: there is nothing to un-merge.
+
 - **A SkyPatcher INI can be checked before it is placed in a mod.** `housecarl_records`'s overlay pole takes a
   draft file: `source={"overlay": "skypatcher", "state": "post", "ini": "<absolute path to a draft .ini>",
   "subfolder": "weapon"}` reads the record as the game would see it once that draft is placed — the live layer
