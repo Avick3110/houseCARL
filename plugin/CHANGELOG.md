@@ -53,6 +53,19 @@ saying it sets an expectation their install may contradict. Say what is known, a
   the install to finish and register as usual, and setup names the folder at the end for you to delete by hand.
   A package with no `skills` folder at all is a broken download, not a version that ships no skills: setup
   refuses it rather than reading it as "remove every skill installed".
+- **The standing instructions now carry three cross-cutting facts, and nine parameter descriptions say what
+  they were missing.** The instructions every session is given state which runtime framework owns a job
+  (SPID / KID / CID / SkyPatcher), that nothing houseCARL writes wins until the mod is enabled in MO2, and
+  that generated output — a Reqtificator, DynDOLOD, ParallaxGen, Synthesis or xLODGen product — is never
+  copied into an authored patch. The parameters gain the semantics they alone can state: `housecarl_apply`'s
+  `ops=` on what `Remove` clears, on the cardinality pre-flight, and on `from_source=`; `housecarl_forward`'s
+  `source=` on forwarding from the authored plugin when a generated one wins; `housecarl_create`'s `records=`
+  on the Creation Kit bookkeeping it auto-fills; `housecarl_check`'s `findings=` on the dialogue family
+  flagging rather than rewriting; `housecarl_records`' `where=`, `project=` and `fields_source=` on the
+  FormLink wire token, the flag `has` test, aggregate's uncapped count and the scoped-versus-winner display
+  pole; and `housecarl_write_seq`'s `into=` on the byte-identical skip its `output_dir=` sibling states. The
+  two read-back parameters now say a patch wins nothing until "enabled", not "enabled + sorted" — a new mod
+  loads last, so enabling is the step.
 
 - **A `housecarl_records` `formids=` read is now held to the render bound on every form that reads a body, and
   says what those bodies cost.** `summary` and `aggregate` read a body per id on this lane exactly as `fields`,
