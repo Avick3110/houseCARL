@@ -134,5 +134,5 @@ no linking exception), which houseCARL bundles. Every third-party component and 
   the bundled `papyrus-reference` skill. Thank you.
 - **Zzyxzz** (SkyPatcher) and **powerofthree** (SPID and KID) — the public documentation behind the
   distributor-authoring skills.
-- **DrHeisen** — contributed the `oar-authoring` skill (Open Animation Replacer config authoring), and
-  houseCARL's first community-contributed skill. Thank you.
+- **DrHeisen** — contributed the `oar-authoring` skill (Open Animation Replacer config authoring), along
+  with two earlier community-contributed skills that have since been retired. Thank you.

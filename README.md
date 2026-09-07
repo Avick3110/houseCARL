@@ -216,5 +216,5 @@ pointers.
   for the bundled `papyrus-reference` skill. Thank you.
 - **Zzyxzz** (SkyPatcher) and **powerofthree** (SPID and KID) — whose public documentation the
   distributor-authoring grammar facts were drawn from.
-- **DrHeisen** — contributed the `oar-authoring` skill (Open Animation Replacer config authoring), and
-  houseCARL's first community-contributed skill. Thank you.
+- **DrHeisen** — contributed the `oar-authoring` skill (Open Animation Replacer config authoring), along
+  with two earlier community-contributed skills that have since been retired. Thank you.
