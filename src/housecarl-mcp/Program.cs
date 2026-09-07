@@ -165,7 +165,9 @@ static void AddMcp(IServiceCollection services, bool stdio)
             "NEVER COPY GENERATED OUTPUT: a tool re-derives it on its next run, so it is never copied into an " +
             "authored patch and never the base for authored work — 'Requiem for the Indifferent.esp'; " +
             "'PGPatcher.esp' / 'PG_1.esp'; 'DynDOLOD.esm' / 'DynDOLOD.esp' / 'Occlusion.esp'; a mod folder holding " +
-            "'NPC_Token.json' or 'ParallaxGen_Diff.json'; a Synthesis, TexGen or xLODGen output folder.";
+            "'NPC_Token.json' or 'ParallaxGen_Diff.json'; a Synthesis, TexGen or xLODGen output folder. A mod that " +
+            "only NAMES a generator ('… Resources', '… Fixes', a downloaded patch) is an INPUT it consumes, not " +
+            "output: patch it normally.";
     });
     // Stateless HTTP: each request is independent (no MCP session affinity); the resolver singleton persists across
     // requests regardless. Stdio is inherently a single long-lived session over the pipe.
