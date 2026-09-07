@@ -54,6 +54,9 @@ internal static class SetupUpdateLockProbe
         string claudeDll = Path.Combine(home, ".claude", "skills", "housecarl", "server", "Mutagen.Bethesda.dll");
         string codexExe  = Path.Combine(home, "houseCARL", "server", "housecarl-mcp.exe");
         string sentinel  = Path.Combine(home, ".claude", "skills", "housecarl", "skills", "demo-skill", "SKILL.md");
+        // The Codex umbrella's install destination: the packager path and the installer path must agree,
+        // or InstallForCodex's Directory.Exists guard skips the copy and says nothing.
+        string umbrella  = Path.Combine(home, ".agents", "skills", "housecarl", "SKILL.md");
 
         byte[] exeV1 = { 1, 1, 1, 1 };
         byte[] exeV2 = { 2, 2, 2, 2 }; // a different "version", so a copy that ran WOULD change the on-disk bytes
@@ -73,6 +76,7 @@ internal static class SetupUpdateLockProbe
             Check(clean.Outcome == SetupProgram.InstallOutcome.Installed, "clean install (Both) => Installed");
             Check(File.Exists(claudeExe), "Claude server exe landed at ~/.claude/skills/housecarl/server");
             Check(File.Exists(codexExe),  "Codex server exe landed under the (test) data dir");
+            Check(File.Exists(umbrella),  "Codex umbrella skill landed at ~/.agents/skills/housecarl");
 
             // ===================================================== T2: locked Claude exe => pre-flight refuses, before any copy
             Console.WriteLine();
