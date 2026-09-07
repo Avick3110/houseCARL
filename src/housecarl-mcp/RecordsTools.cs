@@ -1020,7 +1020,8 @@ public static class RecordsTools
                 if (srcSpec.Kind != LoadOrderService.PoleKind.Winner)
                     return Wire.Refuse(json, "error: the tree form has no subject — every provider of each record is on the bench, and the pole each is diffed against is versus=. Drop source= (or use form='delta' for a subject-vs-reference comparison).");
                 var rows = svc.TreeBatch(ids, versusSpec!, projFields, demand,
-                                         out var rArm, out var covers, out var refusal, out var epoch);
+                                         out var rArm, out var covers, out var refusal, out var epoch,
+                                         overlayWarnings);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + Wire.EpochLine(epoch);
                 return TreeResponse(rows, rArm, covers, epoch, Echo());
@@ -1083,6 +1084,7 @@ public static class RecordsTools
             headerLine += $"  versus={refStatement}";
             Arm("every provider of each record (the touching stack, winner last)");
             CoverageNote(covers);
+            StateOverlayWarnings();
             int contested = rows.Count(x => x.Error is null && x.Touchers.Count > 1);
             int errs = rows.Count(x => x.Error is not null);
             if (counts_only)

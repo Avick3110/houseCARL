@@ -3713,11 +3713,13 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>The project=tree batch: per record, the full provider stack (touching list, winner last) with each
     /// provider diffed against the reference pole — the winner by default, or a named plugin, active or off-order
     /// under the one-pole rule, with untouched records refused by naming the touchers. One captured build for
-    /// everything.</summary>
+    /// everything. An overlay reference replays the SkyPatcher INI layer like the delta form's does, so
+    /// <paramref name="overlayWarnings"/> collects that replay's warnings here too.</summary>
     public IReadOnlyList<TreeRow> TreeBatch(
         IReadOnlyList<string> formids, PoleSpec reference, IReadOnlyList<string>? fields,
         ArtifactDemand? demand,
-        out string? referenceArm, out bool epochCoversAll, out string? refusal, out OrderStamp? epoch)
+        out string? referenceArm, out bool epochCoversAll, out string? refusal, out OrderStamp? epoch,
+        SkyPatcherOverlay.WarningSink? overlayWarnings = null)
     {
         referenceArm = null; epochCoversAll = true; refusal = null;
         var resolver = Resolver;
@@ -3744,7 +3746,7 @@ public sealed class LoadOrderService : IDisposable
         PoleReader? refReader = null;
         if (reference.Kind is not PoleKind.Winner)
         {
-            refReader = MakePoleReader(view, session, reference, fields, wantedT, out referenceArm, out var rCovers, out var rErr, out _);
+            refReader = MakePoleReader(view, session, reference, fields, wantedT, out referenceArm, out var rCovers, out var rErr, out _, overlayWarnings);
             if (rErr is not null) { refusal = "versus: " + rErr; return Array.Empty<TreeRow>(); }
             epochCoversAll = rCovers;
         }
