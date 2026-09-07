@@ -46,7 +46,7 @@ internal static class SetupUpdateLockProbe
 
         string root = Path.Combine(Path.GetTempPath(), "hc-setup-lock-" + Guid.NewGuid().ToString("N"));
         string pkg  = Path.Combine(root, "package");   // the unzipped package dir
-        string src  = Path.Combine(pkg, "housecarl");  // pluginSrc (beside it lives codex/housecarl)
+        string src  = Path.Combine(pkg, "housecarl");  // pluginSrc (beside it lives codex/skills/housecarl)
         string home = Path.Combine(root, "home");      // stand-in for the user profile
 
         // The destinations TryInstall computes (mirrored here for the lock-holding + assertions).
@@ -65,7 +65,7 @@ internal static class SetupUpdateLockProbe
             WriteFile(Path.Combine(src, "server", "housecarl-mcp.exe"), exeV1);
             WriteFile(Path.Combine(src, "server", "Mutagen.Bethesda.dll"), new byte[] { 9 }); // a sibling DLL (T4)
             WriteFile(Path.Combine(src, "skills", "demo-skill", "SKILL.md"), "demo");
-            WriteFile(Path.Combine(pkg, "codex", "housecarl", "SKILL.md"), "umbrella");
+            WriteFile(Path.Combine(pkg, "codex", "skills", "housecarl", "SKILL.md"), "umbrella");
 
             // ===================================================== T1: a clean first install succeeds
             Console.WriteLine("--- T1: a clean first install succeeds (pre-flight never false-blocks a fresh machine) ---");
