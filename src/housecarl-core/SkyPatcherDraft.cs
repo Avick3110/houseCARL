@@ -60,7 +60,7 @@ public static class SkyPatcherDraft
             {
                 refusal = $"the draft's filename '{name}' is already live in the '{Subfolder}' folder as '{clash.RelPath}'"
                         + (clash.WinningProvider is null ? "" : $" (from '{clash.WinningProvider}')")
-                        + ", so placing the draft there would shadow that file or be shadowed by it depending on mod order — rename the draft, or nest it under a mod-specific subfolder.";
+                        + ", so placing the draft there would shadow that file or be shadowed by it depending on mod order — give the draft a filename not yet placed in that folder, which is also what decides where it sorts among them.";
                 return live;
             }
 

@@ -127,11 +127,13 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
         Refused(ReadW0(DraftPole(ini, "weapon", state: "pre")), "\"post\"");
     }
 
+    /// <summary>The remedy has to be one the pole can express: a nested placement cannot be named on it, so the
+    /// refusal asks for a filename that is not yet placed instead.</summary>
     [Fact]
     public void ADraftWhoseFilenameIsAlreadyPlacedIsRefused()
     {
         var ini = Draft("draft-clash", RecordsWorld.LiveSkyPatcherIni, "filterByWeapons=HcRecW0:attackDamage=1\r\n");
-        Refused(ReadW0(DraftPole(ini, "weapon")), RecordsWorld.LiveSkyPatcherIni, "shadow");
+        Refused(ReadW0(DraftPole(ini, "weapon")), RecordsWorld.LiveSkyPatcherIni, "shadow", "not yet placed");
     }
 
     /// <summary>A draft pointed at a file the layer already reads would be folded in beside it and replay its lines
