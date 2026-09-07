@@ -2803,14 +2803,16 @@ public static class WritePatchBuilder
     /// itself (<see cref="WriteEngine.WriteInPlace"/>) instead of a new patch — full create parity, incl. nesting
     /// under a parent the target doesn't itself own (the parent is overridden IN, exactly as the patch lane does into a new
     /// patch; a parent the target DOES own is sourced from the target so its content is preserved). Every in-place fork is
-    /// additive + gated on this param: the patch lane (inPlaceTarget null) is behaviourally unchanged.
+    /// additive + gated on this param: the patch lane (inPlaceTarget null) is behaviourally unchanged. IN PLACE an editorid
+    /// the target ALREADY defines refuses the whole call unless <paramref name="replaceExisting"/> says to overwrite it.
     /// </summary>
     public static CreateOutcome CreateRecords(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
-        IReadOnlyList<CreateSpec> specs, string outPath, bool extend, bool fullReadback = false, string? inPlaceTarget = null)
+        IReadOnlyList<CreateSpec> specs, string outPath, bool extend, bool fullReadback = false, string? inPlaceTarget = null,
+        bool replaceExisting = false)
     {
         OrderStamp? epoch = null;
-        var outcome = CreateRecordsCore(resolver, rulebook, specs, outPath, extend, fullReadback, inPlaceTarget, ref epoch);
+        var outcome = CreateRecordsCore(resolver, rulebook, specs, outPath, extend, fullReadback, inPlaceTarget, replaceExisting, ref epoch);
         return epoch is null ? outcome : outcome with { Stamp = epoch };
     }
 
@@ -2821,7 +2823,7 @@ public static class WritePatchBuilder
     static CreateOutcome CreateRecordsCore(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
         IReadOnlyList<CreateSpec> specs, string outPath, bool extend, bool fullReadback, string? inPlaceTarget,
-        ref OrderStamp? epoch)
+        bool replaceExisting, ref OrderStamp? epoch)
     {
         if (specs.Count == 0) return CreateOutcome.Fail("no records to create supplied.");
         bool inPlace = inPlaceTarget is not null;
@@ -2923,6 +2925,19 @@ public static class WritePatchBuilder
             carried ??= patchMod.EnumerateMajorRecords().GroupBy(r => r.FormKey).ToDictionary(g => g.Key, g => g.First());
             return carried.TryGetValue(fk, out var rec) ? rec : null;
         }
+        // The target's OWN defined records by editorid, indexed once — the in-place collision pre-flight below asks per
+        // spec, and enumerating the destination each time is the same O(specs x records) the parent index avoids. Only
+        // records the destination DEFINES: a carried override keeps its foreign FormKey and is refused loud at the
+        // upsert, which never replaces one. Lazy: nothing is built off the in-place lane.
+        Dictionary<string, IMajorRecord>? definedHere = null;
+        IMajorRecord? DefinedInTarget(string editorId)
+        {
+            definedHere ??= patchMod.EnumerateMajorRecords()
+                .Where(r => r.EditorID is not null && r.FormKey.ModKey == patchMod.ModKey)
+                .GroupBy(r => r.EditorID!, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+            return definedHere.TryGetValue(editorId, out var rec) ? rec : null;
+        }
         var cellKinds = new CellCreate[specs.Count];   // cell-create routing per spec (None / Exterior / Interior)
         var singularClaims = new HashSet<(string Parent, string Slot)>();   // one create per singular slot per call
         for (int i = 0; i < specs.Count; i++)
@@ -2944,6 +2959,18 @@ public static class WritePatchBuilder
                     cellKinds[i] = CellCreate.Interior;
                 }
                 else if (!WriteEngine.CanCreateType(s.RecordType, out var why)) { problems.Add($"{s.RecordType} '{s.EditorId}': {why}"); continue; }
+                // In place, a flat create whose editorid the target already defines would rebuild that record from this
+                // spec at its own FormID and discard everything else it held. That is right under into=, where the
+                // artifact is houseCARL's own and a re-run should be idempotent; on a file houseCARL does not own the
+                // name is far likelier one the caller did not know was taken. Refused before anything is written;
+                // replace= opts back in.
+                else if (inPlace && !replaceExisting && DefinedInTarget(s.EditorId) is { } clash)
+                {
+                    problems.Add($"{s.RecordType} '{s.EditorId}': {fileName} already defines "
+                        + $"{RecordNaming.StripOverlay(clash.GetType().Name)} {clash.FormKey.ID:X6} with that editorid. "
+                        + "Pass replace=true to overwrite it, or pick another editorid.");
+                    continue;
+                }
             }
             else
             {
@@ -3340,11 +3367,14 @@ public static class WritePatchBuilder
     /// as the patch lane, pointed at <paramref name="targetPath"/> and serialized over the file itself
     /// (<see cref="WriteEngine.WriteInPlace"/>). The created-record verify
     /// (<paramref name="fullReadback"/>) defaults ON. CONSENT + the persistent acknowledge handshake are enforced by the
-    /// SERVICE before this is reached.</summary>
+    /// SERVICE before this is reached. <paramref name="replaceExisting"/> lets a create overwrite a record the target
+    /// already defines under the same editorid; without it that collision refuses the whole call.</summary>
     public static CreateOutcome CreateRecordsInPlace(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
-        IReadOnlyList<CreateSpec> specs, string targetPath, string targetName, bool fullReadback = true)
-        => CreateRecords(resolver, rulebook, specs, targetPath, extend: false, fullReadback, inPlaceTarget: targetName);
+        IReadOnlyList<CreateSpec> specs, string targetPath, string targetName, bool fullReadback = true,
+        bool replaceExisting = false)
+        => CreateRecords(resolver, rulebook, specs, targetPath, extend: false, fullReadback, inPlaceTarget: targetName,
+                         replaceExisting: replaceExisting);
 
     /// <summary>Read each just-written record IN FULL off the re-opened written file — the overlay Phase 5 already
     /// opens to confirm masters, so no new handle class (opened AFTER the serialize, disposed with Phase 5; the
