@@ -246,25 +246,34 @@ internal static class Artifacts
     /// <summary>Build and save the artifact for a batch read — one row per input, in input order, exactly the rows
     /// the json render emits. Per-item errors are included: dropping them would make the file claim a cleaner
     /// batch than the call returned. <paramref name="levers"/> and <paramref name="rowCap"/> carry the same
-    /// contract as on <see cref="WriteCrossQuery"/>.</summary>
+    /// contract as on <see cref="WriteCrossQuery"/>. <paramref name="matches"/> is parallel to
+    /// <paramref name="outcomes"/> and carries the multi-target references= un-merge, so a spilled body-lane row says
+    /// which target it hit exactly as the inline render does (#576).</summary>
     public static (SpillInfo? Spill, string? Error) WriteBatch(
         IReadOnlyList<ReadOutcome> outcomes, string path, string reason, IReadOnlyList<KeyValuePair<string, string>> query,
-        LeverNames? levers = null, int rowCap = int.MaxValue)
+        LeverNames? levers = null, int rowCap = int.MaxValue, IReadOnlyList<string?>? matches = null)
     {
         using var writer = new ResultArtifact.Writer();
-        foreach (var o in outcomes)
+        for (int i = 0; i < outcomes.Count; i++)
         {
+            var o = outcomes[i];
+            string? hit = matches is { } mt && i < mt.Count ? mt[i] : null;
             if (o.Error is not null)
-                writer.WriteRow((w, _) => { w.WriteStartObject(); w.WriteString("formid", o.FormKey.ToString()); w.WriteString("error", o.Error); w.WriteEndObject(); });
+                writer.WriteRow((w, _) =>
+                {
+                    w.WriteStartObject(); w.WriteString("formid", o.FormKey.ToString()); w.WriteString("error", o.Error);
+                    if (hit is not null) w.WriteString("matches", hit);
+                    w.WriteEndObject();
+                });
             else
-                writer.WriteRow((w, ms) => JsonWire.WriteReadRecord(w, o, ms, rowCap, levers: levers), o.Record!.Type);
+                writer.WriteRow((w, ms) => JsonWire.WriteReadRecord(w, o, ms, rowCap, hit, levers: levers), o.Record!.Type);
         }
         // The batch's one build, from the first row that consulted one. A batch of pure parse failures carries "",
         // and such an artifact refuses epoch-checked re-entry against any build.
         var epoch = outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? "";
         // The manifest's tool stamp; see WriteResolve.
         var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
-                                          new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "fields" },
+                                          new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "matches?", "fields" },
                                           "input order", outcomes.Count, epoch, OwnedChildNotes(AnnotatedFields(outcomes), outcomes.Any(o => o.OwnedChildUnioned)));
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
     }

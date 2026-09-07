@@ -87,6 +87,90 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
         Assert.Contains($"{Fid(W.W2)}  matches={Fid(W.KwB)}\n", r);
     }
 
+    // The body-lane forms answer the same selection through the shared BATCH render rather than the scan's own,
+    // so each of them has to carry the un-merge too — one lookup that cannot be un-merged under one form and can
+    // under another is the same query answered two different ways (#576).
+
+    static RecordsTools.RecordsProject Rows(params string[] paths) =>
+        new() { form = "rows", fields = paths };
+
+    /// <summary>A record object from a batch render's "records" array, by FormID.</summary>
+    static JsonElement BatchRow(JsonElement root, string formid) =>
+        root.GetProperty("records").EnumerateArray().Single(m => m.GetProperty("formid").GetString() == formid);
+
+    string[] BothKeywords => new[] { Fid(W.KwA), Fid(W.KwB) };
+
+    [Fact]
+    public void TheRowsFormSaysWhichTargetsEachRowHit()
+    {
+        var r = RecordsTools.Records(Svc, types: Weap, references: BothKeywords, project: Rows("Keywords"));
+        Served(r, $"matches={Fid(W.KwA)}, {Fid(W.KwB)}");   // W3, both targets
+        Assert.Contains($"{Fid(W.W2)}  matches={Fid(W.KwB)}\n", r);
+    }
+
+    [Fact]
+    public void TheRowsFormsJsonRecordsCarryTheMatchesColumn()
+    {
+        var doc = Doc(RecordsTools.Records(Svc, types: Weap, references: BothKeywords,
+                                           format: "json", project: Rows("Keywords")));
+        Assert.Equal($"{Fid(W.KwA)}, {Fid(W.KwB)}", BatchRow(doc, Fid(W.W3)).GetProperty("matches").GetString());
+        Assert.Equal(Fid(W.KwB), BatchRow(doc, Fid(W.W2)).GetProperty("matches").GetString());
+    }
+
+    /// <summary>A quantified fields= path folds through the body lane, so it reads the batch render too.</summary>
+    [Fact]
+    public void AQuantifiedFieldsProjectionCarriesTheMatchesColumn()
+    {
+        var doc = Doc(RecordsTools.Records(Svc, types: Weap, references: BothKeywords, format: "json",
+                                           project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Keywords[*]" } }));
+        Assert.Equal($"{Fid(W.KwA)}, {Fid(W.KwB)}", BatchRow(doc, Fid(W.W3)).GetProperty("matches").GetString());
+    }
+
+    /// <summary>A plugins= scope with a named source= reads the POLE's bodies through the batch render, and the
+    /// two scoped matches hit different targets — the column is the only thing that says which.</summary>
+    [Fact]
+    public void AScopedFieldsReadCarriesTheMatchesColumn()
+    {
+        var doc = Doc(RecordsTools.Records(Svc, types: Weap, plugins: MasterScope, source: Plugin(W.MasterName),
+                                           references: BothKeywords, format: "json", project: Fields(DamagePath)));
+        Assert.Equal(Fid(W.KwA), BatchRow(doc, Fid(W.W1)).GetProperty("matches").GetString());
+        Assert.Equal(Fid(W.KwB), BatchRow(doc, Fid(W.W2)).GetProperty("matches").GetString());
+    }
+
+    /// <summary>The whole-body form takes the same lane and states the same thing.</summary>
+    [Fact]
+    public void TheEverythingFormCarriesTheMatchesColumn()
+    {
+        var doc = Doc(RecordsTools.Records(Svc, types: Weap, references: BothKeywords,
+                                           format: "json", project: Form("everything")));
+        Assert.Equal(Fid(W.KwB), BatchRow(doc, Fid(W.W2)).GetProperty("matches").GetString());
+    }
+
+    /// <summary>One target is nothing to un-merge, so the column would be the same value on every row — the
+    /// batch render stays as quiet about it as the scan render does.</summary>
+    [Fact]
+    public void ASingleTargetReverseLookupAddsNoMatchesColumnToTheBodyLane()
+    {
+        var doc = Doc(RecordsTools.Records(Svc, types: Weap, references: new[] { Fid(W.KwB) },
+                                           format: "json", project: Rows("Keywords")));
+        Assert.False(BatchRow(doc, Fid(W.W2)).TryGetProperty("matches", out _));
+    }
+
+    /// <summary>Under to_file= the rows ARE the answer, so the un-merge has to reach the file — an artifact
+    /// re-entered later has no response beside it to read the targets off.</summary>
+    [Fact]
+    public void ASpilledBodyLaneArtifactCarriesTheMatchesColumn()
+    {
+        var art = W.Scratch("rows-matches.jsonl");
+        RecordsTools.Records(Svc, types: Weap, references: BothKeywords, format: "json",
+                             project: Rows("Keywords"), to_file: art);
+        var lines = File.ReadAllLines(art);
+        Assert.Contains(Doc(lines[0]).GetProperty("row_schema").EnumerateArray().Select(e => e.GetString()),
+                        s => s == "matches?");
+        var w3 = lines.Skip(1).Select(Doc).Single(d => d.GetProperty("formid").GetString() == Fid(W.W3));
+        Assert.Equal($"{Fid(W.KwA)}, {Fid(W.KwB)}", w3.GetProperty("matches").GetString());
+    }
+
     // ---- exact-window paging ----------------------------------------------------------------------
 
     [Fact]

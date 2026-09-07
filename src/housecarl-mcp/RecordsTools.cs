@@ -1518,13 +1518,16 @@ public static class RecordsTools
                 // These bodies were selected by a scan, not a formids list, so the batch notice's selection
                 // clause must name limit= — the knob that actually windows this response.
                 var evLevers = formLevers.OnScanSelection();
+                // These rows were selected by the scan, so they carry its multi-target references= un-merge too —
+                // one row per key, in key order, which is what makes the list parallel to the bodies.
+                var evMatches = outcome.MatchedTargets;
                 string RenderEv(SpillState? sp, out bool trunc) => json
-                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, evLevers, (bodies.Count, bodyClock.ElapsedMilliseconds))
-                    : Wire.RenderBatch(bodies, max_chars, sp, out trunc, evLevers, (bodies.Count, bodyClock.ElapsedMilliseconds), headerLine);
+                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, evLevers, (bodies.Count, bodyClock.ElapsedMilliseconds), evMatches)
+                    : Wire.RenderBatch(bodies, max_chars, sp, out trunc, evLevers, (bodies.Count, bodyClock.ElapsedMilliseconds), headerLine, evMatches);
                 SpillState? evSpill = null;
                 if (wantFile)
                 {
-                    var (s, aerr) = Artifacts.WriteBatch(bodies, toFile!, "to_file", Echo(), evLevers);
+                    var (s, aerr) = Artifacts.WriteBatch(bodies, toFile!, "to_file", Echo(), evLevers, matches: evMatches);
                     if (aerr is not null) return json ? JsonWire.RenderError(aerr, bodyEpoch) : "error: " + aerr;
                     evSpill = SpillState.Spilled(s!, manifestOnly: true);
                 }
@@ -1532,7 +1535,7 @@ public static class RecordsTools
                 if (evSpill is null && evTrunc)
                 {
                     var path = ResultsStore.NextPath(ToolNames.Records, bodyEpoch?.Epoch ?? "none");
-                    var (s, aerr) = Artifacts.WriteBatch(bodies, path, "ceiling", Echo(), evLevers);
+                    var (s, aerr) = Artifacts.WriteBatch(bodies, path, "ceiling", Echo(), evLevers, matches: evMatches);
                     if (aerr is not null) ResultsStore.Release(path);
                     evRendered = RenderEv(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
@@ -1738,14 +1741,16 @@ public static class RecordsTools
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
                 // Selected by the off-order file scan, so the remedy vocabulary matches the body lane above.
                 var offLevers = formLevers.OnScanSelection();
+                // Same rule as the in-order body lane: the file scan's rows carry its references= un-merge too.
+                var offMatches = outcome.MatchedTargets;
                 string RenderOff(SpillState? sp, out bool trunc) => json
-                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, offLevers, (bodies.Count, offClock.ElapsedMilliseconds))
-                    : Wire.RenderBatch(bodies, max_chars, sp, out trunc, offLevers, (bodies.Count, offClock.ElapsedMilliseconds), headerLine);
+                    ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, offLevers, (bodies.Count, offClock.ElapsedMilliseconds), offMatches)
+                    : Wire.RenderBatch(bodies, max_chars, sp, out trunc, offLevers, (bodies.Count, offClock.ElapsedMilliseconds), headerLine, offMatches);
                 SpillState? offSpill = null;
                 var offEpoch = bodies.FirstOrDefault(o => o.Stamp is not null)?.Stamp ?? outcome.Stamp;
                 if (wantFile)
                 {
-                    var (sp, aerr) = Artifacts.WriteBatch(bodies, toFile!, "to_file", Echo(), offLevers);
+                    var (sp, aerr) = Artifacts.WriteBatch(bodies, toFile!, "to_file", Echo(), offLevers, matches: offMatches);
                     if (aerr is not null) return json ? JsonWire.RenderError(aerr, offEpoch) : "error: " + aerr;
                     offSpill = SpillState.Spilled(sp!, manifestOnly: true);
                 }
@@ -1753,7 +1758,7 @@ public static class RecordsTools
                 if (offSpill is null && offTrunc)
                 {
                     var path = ResultsStore.NextPath(ToolNames.Records, offEpoch?.Epoch ?? "none");
-                    var (sp, aerr) = Artifacts.WriteBatch(bodies, path, "ceiling", Echo(), offLevers);
+                    var (sp, aerr) = Artifacts.WriteBatch(bodies, path, "ceiling", Echo(), offLevers, matches: offMatches);
                     if (aerr is not null) ResultsStore.Release(path);
                     offRendered = RenderOff(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }

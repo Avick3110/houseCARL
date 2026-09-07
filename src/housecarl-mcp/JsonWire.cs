@@ -472,9 +472,13 @@ static class JsonWire
     /// WITH the milliseconds rather than being taken off this list: the formids= lane hands this renderer a
     /// limit=/offset= window, and the count beside the cost is the BODIES READ, which a pole that has no version of
     /// an id or a malformed token leaves short of the list (#607).</param>
+    /// <param name="matches">Parallel to <paramref name="outcomes"/>: which multi-target references= target(s) each
+    /// row hit, written on the row under the same key the scan lane uses, so a body-lane form un-merges a reverse
+    /// lookup the same way the scan lane does. Null when the selection was not a multi-target reverse lookup (#576).</param>
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars, SpillState? spill, out bool truncated,
                                      IReadOnlyList<KeyValuePair<string, string>>? envelope = null, LeverNames? levers = null,
-                                     (int RowsRead, long Millis)? bodyCost = null)
+                                     (int RowsRead, long Millis)? bodyCost = null,
+                                     IReadOnlyList<string?>? matches = null)
     {
         truncated = false;
         int cap = Cap(maxChars);
@@ -491,13 +495,15 @@ static class JsonWire
             w.WriteStartArray("records");
             int rendered = 0; bool rowsTruncated = false;
             var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the annotated fields the rows RENDERED carried
-            foreach (var o in outcomes)
+            for (int i = 0; i < outcomes.Count; i++)
             {
                 if (manifestOnly) break;   // to_file: the rows are the FILE
                 w.Flush();
                 if (ms.Length >= cap) { rowsTruncated = true; break; }
-                if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", o.FormKey.ToString()); w.WriteString("error", o.Error); w.WriteEndObject(); }
-                else WriteReadRecord(w, o, ms, cap, childFields: childFields, levers: levers);
+                var o = outcomes[i];
+                string? hit = matches is { } mt && i < mt.Count ? mt[i] : null;   // multi-target references= un-merge
+                if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", o.FormKey.ToString()); w.WriteString("error", o.Error); if (hit is not null) w.WriteString("matches", hit); w.WriteEndObject(); }
+                else WriteReadRecord(w, o, ms, cap, hit, childFields: childFields, levers: levers);
                 rendered++;
             }
             w.WriteEndArray();
