@@ -49,6 +49,16 @@ namespace HousecarlGenerator;
 ///       and reads what the generator reported — from the COVERAGE ANOMALIES channel, which is printed in full,
 ///       never sharing the unbounded warning stream's print cap. It pins the RECORD path only — the arm path has
 ///       no live exhibit and is stated as unpinned at the check itself, rather than left for a reader to assume.
+///   E — THE RESOLVER IS ARITY-AWARE, AND OWN-NAMED ONLY (#424). CorpusGenerator.GetterInterfaceFor built its
+///       probe name straight off Type.Name, so every generic modeled type asked for the impossible
+///       "IFoo`1Getter" and answered "no getter interface" — a hand-shaped hole in a by-construction coverage
+///       claim. E pins the arity fix: a generic type resolves, and a CLOSED one resolves the CLOSED interface
+///       rather than the open definition. The other half of #424 — whether a class that implements a getter
+///       interface named after ANOTHER type should resolve — was answered no, because that shape is exactly
+///       Mutagen's read-only projections and is what ClassifyArm reads. That boundary needs no check of its
+///       own: widening it turns B4 red (its exhibit would resolve IGenderedItemGetter&lt;bool&gt;) and D0b red
+///       (both record-path exhibits would resolve a borrowed getter interface), which is the pin working from
+///       two directions.
 ///
 /// The types in B/C are named deliberately, and a rename or a Mutagen bump that changes their shape SHOULD break
 /// this guard — that is the tripwire working. #397's whole point is that a bump is what arms this class; a guard
@@ -65,9 +75,10 @@ public static class ArmClassificationProbe
     const string AuthorableExhibit = "Mutagen.Bethesda.Skyrim.Armor";                   // getter interface + mutable twin
     const string ProjectionExhibit = "Mutagen.Bethesda.Skyrim.SkyrimMultiModOverlay";   // none resolved by name, 0 authorable
     const string ProjectionExhibit2 = "Mutagen.Bethesda.Skyrim.MergedCellBlock";        // none resolved by name, 0 authorable
-    // Resolves no I{Name}Getter BY NAME while implementing IGenderedItemGetter&lt;bool&gt;, and its data IS
-    // catalogued, as GenderedItem&lt;Boolean&gt;. That is precisely why this line reports rather than diagnoses,
-    // and why the name-resolution defect it exposes is filed as #424 instead of worked around here.
+    // Owns no getter interface while implementing IGenderedItemGetter&lt;bool&gt;, and its data IS catalogued,
+    // as GenderedItem&lt;Boolean&gt;. That is precisely why this line reports rather than diagnoses. #424 settled
+    // that borrowing another type's getter interface must NOT resolve here (see E), so this exhibit is a
+    // standing consequence of that decision, not an outstanding defect.
     const string UnextractableExhibit = "Mutagen.Bethesda.Skyrim.ArmorAddonWeightSliderContainer"; // none by name, 2/2 authorable
 
     [CiProbe("arm-classification-guard")]
@@ -235,6 +246,33 @@ public static class ArmClassificationProbe
             missing.Count == 0 ? null
                 : $"emitted report does not name: {string.Join(", ", missing.Take(10))} — the anomaly is " +
                   $"computed but never printed, which is the failure mode this arm exists for");
+
+        // ---------------------------------------------------------------- E: the resolver is arity-aware (#424)
+        // Named generic types rather than a sweep: each is one of the issue's own measured cases, and a bump
+        // that changes their shape SHOULD break this, exactly as B/C's exhibits do.
+        var genderedOpen = CorpusGenerator.GetterInterfaceFor(typeof(Mutagen.Bethesda.Plugins.Records.GenderedItem<>));
+        Check("E1. a generic modeled type resolves its arity-matched getter interface (GenderedItem<T>)",
+            genderedOpen != null
+            && genderedOpen.IsGenericType
+            && genderedOpen.GetGenericTypeDefinition() == typeof(Mutagen.Bethesda.Plugins.Records.IGenderedItemGetter<>),
+            $"got {genderedOpen?.Name ?? "null"} — the probe name is built from Type.Name, which carries the " +
+            $"arity, so it asked for IGenderedItem`1Getter");
+
+        // The group containers are the case with teeth: IsList hard-codes ISkyrimGroupGetter`1 by full name, so
+        // the resolver disagreeing with that list is the generator contradicting itself.
+        var groupOpen = CorpusGenerator.GetterInterfaceFor(typeof(SkyrimGroup<>));
+        Check("E2. the record-group container resolves too (SkyrimGroup<T> -> ISkyrimGroupGetter<T>)",
+            groupOpen != null
+            && groupOpen.IsGenericType
+            && groupOpen.GetGenericTypeDefinition() == typeof(ISkyrimGroupGetter<>),
+            $"got {groupOpen?.Name ?? "null"}");
+
+        // A CLOSED generic must resolve the CLOSED interface. Assembly.GetType can only ever hand back the open
+        // definition, which would catalogue GenderedItem<T> where the field really carries GenderedItem<Boolean>.
+        var genderedClosed = CorpusGenerator.GetterInterfaceFor(typeof(Mutagen.Bethesda.Plugins.Records.GenderedItem<bool>));
+        Check("E3. a closed generic resolves the CLOSED interface, not the open definition",
+            genderedClosed == typeof(Mutagen.Bethesda.Plugins.Records.IGenderedItemGetter<bool>),
+            $"got {genderedClosed?.FullName ?? "null"}");
 
         Console.WriteLine();
         Console.WriteLine(failures == 0
