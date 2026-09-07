@@ -10,7 +10,8 @@ reference is how you turn the bytes into meaning.
 Run On options, the operators — is taken **by construction from Mutagen** (houseCARL's `mutagen-reference`),
 so it is exactly what `housecarl_read_record` surfaces and what `housecarl_bulk_apply`/`housecarl_set_field`
 compose. The *semantics* — what each function tests, the Run On scoping rules — are from the Creation Kit
-wiki + modding practice (see `_CORPUS_STATUS.md` for provenance and the staleness duty). Confirm any exact
+wiki + modding practice (provenance and the staleness duty live in the corpus status note in the skill's
+source tree; dev-side, not shipped in the plugin). Confirm any exact
 field path or arm name against `mutagen-reference` before composing a write.
 
 ## The shape of a condition (CTDA)

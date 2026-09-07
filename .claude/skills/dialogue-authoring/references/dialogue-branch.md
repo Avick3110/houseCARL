@@ -5,7 +5,8 @@ A **Dialogue Branch** is a conversation entry point — the record that makes a 
 branch flags change in-game behavior in ways a record-only glance won't reveal, and one of them
 (`Exclusive`) can silently lock an NPC out of all dialogue.
 
-Field names are Mutagen spellings (by construction from the record model — see `_CORPUS_STATUS.md`); flag
+Field names are Mutagen spellings (by construction from the record model — the corpus status note in the
+skill's source tree records it; dev-side, not shipped in the plugin); flag
 **semantics** are from the Creation Kit wiki. Confirm exact paths against `mutagen-reference`.
 
 ## Fields (Mutagen `DialogBranch`)
