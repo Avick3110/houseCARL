@@ -63,6 +63,17 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
         Served(ReadW0(DraftPole(ini, "weapon")), ini, "not in the SkyPatcher reference");
     }
 
+    /// <summary>A filter the layer has no evaluation for warns from the filter evaluators rather than the line loop,
+    /// and that warning has to name its file as the rest do: unprefixed it is byte-identical to the one a placed INI
+    /// would raise, so the modder cannot tell which of the two carries the filter.</summary>
+    [Fact]
+    public void AFilterTheLayerCannotEvaluateWarnsWithTheDraftsPathAndLine()
+    {
+        var ini = Draft("draft-filter", "Unmapped.ini",
+                        "filterByWeapons=HcRecW0:filterByHasAmmoFromWeaponList=x:attackDamage=9\r\n");
+        Served(ReadW0(DraftPole(ini, "weapon")), ini + ":1: filter 'filterByHasAmmoFromWeaponList'");
+    }
+
     /// <summary>A draft named for a plugin that is not in the order would never be read once placed, so the post
     /// state is the plain winner and the response says why rather than reading as "the draft changes nothing".</summary>
     [Fact]
