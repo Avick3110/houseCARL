@@ -14,6 +14,7 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
 
     static RecordsTools.RecordsProject Damage => new() { form = "fields", fields = new[] { "BasicStats.Damage" } };
     static RecordsTools.RecordsProject DamageDelta => new() { form = "delta", fields = new[] { "BasicStats.Damage" } };
+    static RecordsTools.RecordsProject DamageTree => new() { form = "tree", fields = new[] { "BasicStats.Damage" } };
 
     /// <summary>A draft INI on disk, outside any mod, and the pole that folds it in.</summary>
     string Draft(string dir, string file, string body)
@@ -71,6 +72,25 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
         var r = ReadW0(DraftPole(ini, "weapon"));
         Served(r, "not in the active load order");
         Assert.DoesNotContain("BasicStats.Damage = 131", r);
+    }
+
+    /// <summary>The tree form takes an overlay pole as versus= as much as delta does, and a draft's skipped line is
+    /// the same fact there: without it every provider reads as identical to the reference with nothing said.</summary>
+    [Fact]
+    public void ADraftLineTheLayerSkipsIsNamedOnTheTreeFormToo()
+    {
+        var ini = Draft("draft-tree", "TreeTypo.ini", "filterByWeapons=HcRecW0:attakDamage=5\r\n");
+        Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, versus: DraftPole(ini, "weapon"),
+                                    project: DamageTree), ini, "not in the SkyPatcher reference");
+    }
+
+    /// <summary>The gate warning comes from the fold rather than the replay, so the tree form has to render it too.</summary>
+    [Fact]
+    public void ADraftGatedOnAnInactivePluginSaysSoOnTheTreeFormToo()
+    {
+        var ini = Draft("draft-tree-gate", "AlsoNotHere.esp.ini", "filterByWeapons=HcRecW0:attackDamage=131\r\n");
+        Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, versus: DraftPole(ini, "weapon"),
+                                    project: DamageTree), "not in the active load order");
     }
 
     /// <summary>A draft in a type the SkyPatcher.ini [Patcher] section switches off is folded into a folder the live
