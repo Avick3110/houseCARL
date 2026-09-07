@@ -54,11 +54,15 @@ public static class SkyPatcherDiscovery
         IReadOnlyList<IniFile> Files);
 
     /// <summary>The whole layer: per-folder ordered scans, layer-level notes, and whether the read was
-    /// incomplete (an unreadable archive means an "absent" answer may be wrong).</summary>
+    /// incomplete (an unreadable archive means an "absent" answer may be wrong). <see cref="PatcherToggles"/>
+    /// is the whole <c>SkyPatcher.ini</c> <c>[Patcher]</c> map, not just the toggles the scanned folders used:
+    /// a type with no live INI produces no <see cref="FolderScan"/>, so anything that INVENTS one (a draft
+    /// folded in) needs the toggle for a folder this scan never built.</summary>
     public sealed record LayerScan(
         IReadOnlyList<FolderScan> Folders,
         IReadOnlyList<string> Notes,
-        bool ReadIncomplete);
+        bool ReadIncomplete,
+        IReadOnlyDictionary<string, bool> PatcherToggles);
 
     /// <summary>Per-file INI parse cache — the same cheap freshness discipline the rest of houseCARL
     /// uses, on the same <see cref="FileStamp"/> key. Keyed on the winning loose file's full path; an
@@ -168,7 +172,7 @@ public static class SkyPatcherDiscovery
                 files.OrderBy(f => f.SortKey, StringComparer.OrdinalIgnoreCase).ToList()));
         }
 
-        return new LayerScan(folders, notes, view.ReadIncomplete);
+        return new LayerScan(folders, notes, view.ReadIncomplete, toggles);
     }
 
     /// <summary>The plugin a filename gates on: 'Skyrim.esm.ini' → "Skyrim.esm"; 'myEdits.ini' → null.
@@ -244,6 +248,6 @@ public static class SkyPatcherDiscovery
     /// <summary>Whether a subfolder's patcher is enabled. The toggle token matches the subfolder
     /// case-insensitively for every documented type (npc→NPC, formList→Formlist, encounterzone→
     /// EncounterZone, …), so no hand-kept toggle↔folder table can drift.</summary>
-    static bool ToggleEnabled(Dictionary<string, bool> toggles, string subfolder)
+    public static bool ToggleEnabled(IReadOnlyDictionary<string, bool> toggles, string subfolder)
         => !toggles.TryGetValue(subfolder, out var on) || on;
 }

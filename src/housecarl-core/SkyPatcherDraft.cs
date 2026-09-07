@@ -25,8 +25,9 @@ public static class SkyPatcherDraft
         /// <summary>Fold this draft into a live layer scan: its type folder gains the draft, sorted among the
         /// live files by filename exactly as <see cref="SkyPatcherDiscovery.Scan"/> sorts them. Returns the live
         /// scan unchanged when <paramref name="refusal"/> is set. <paramref name="warnings"/> collects the facts
-        /// a replay would otherwise swallow — a gated-off draft applies nothing, and silence there would read as
-        /// "the draft changes nothing".</summary>
+        /// a replay would otherwise swallow — a gated-off draft, or one in a type the <c>SkyPatcher.ini</c>
+        /// <c>[Patcher]</c> toggles off, applies nothing, and silence there would read as "the draft changes
+        /// nothing".</summary>
         public SkyPatcherDiscovery.LayerScan Fold(SkyPatcherDiscovery.LayerScan live, SkyPatcherCatalog catalog,
                                                   Func<string, bool> pluginPresent, out string? refusal,
                                                   List<string>? warnings = null)
@@ -70,10 +71,20 @@ public static class SkyPatcherDraft
             var draft = new SkyPatcherDiscovery.IniFile(IniPath, Subfolder, name, DraftProvider,
                                                         Array.Empty<string>(), gate, notApplied, lines);
 
+            // The SkyPatcher.ini [Patcher] toggle for this type. A folder the live scan built carries it already;
+            // a folder invented here for a type with no live INI has no scan to carry it, so it is read off the
+            // layer's toggle map — assuming enabled there would read a disabled type as applied.
+            bool folderEnabled = at >= 0
+                ? live.Folders[at].PatchingEnabled
+                : SkyPatcherDiscovery.ToggleEnabled(live.PatcherToggles, Subfolder);
+            if (!folderEnabled)
+                warnings?.Add($"{IniPath}: SkyPatcher.ini disables '{Subfolder}' patching (iEnable…Patching=0) — the DLL skips the whole folder, " +
+                              "so the draft would apply nothing once placed and this post state is the plain winner.");
+
             var folders = new List<SkyPatcherDiscovery.FolderScan>(live.Folders);
             if (at < 0)
             {
-                folders.Add(new SkyPatcherDiscovery.FolderScan(Subfolder, catalog.ForSubfolder(Subfolder), true,
+                folders.Add(new SkyPatcherDiscovery.FolderScan(Subfolder, catalog.ForSubfolder(Subfolder), folderEnabled,
                                                                new List<SkyPatcherDiscovery.IniFile> { draft }));
                 folders = folders.OrderBy(f => f.Subfolder, StringComparer.OrdinalIgnoreCase).ToList();
             }
@@ -87,7 +98,7 @@ public static class SkyPatcherDraft
             var notes = live.Notes.Append(
                 $"the draft INI '{IniPath}' was folded into the '{Subfolder}' folder as '{name}' — it is NOT on disk in a mod, " +
                 "so this reads what the game would see once it is placed there.").ToList();
-            return new SkyPatcherDiscovery.LayerScan(folders, notes, live.ReadIncomplete);
+            return new SkyPatcherDiscovery.LayerScan(folders, notes, live.ReadIncomplete, live.PatcherToggles);
         }
     }
 
