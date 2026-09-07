@@ -5,7 +5,8 @@ the **journal** the player sees is driven by **objectives** and stage **log entr
 distinct things people conflate — stage number, objective index, and log entry — and conflating them is how
 a journal goes wrong while the dialogue is fine.
 
-Field names are Mutagen spellings (by construction — see `_CORPUS_STATUS.md`); the display/script behavior is
+Field names are Mutagen spellings (by construction — the corpus status note in the skill's source tree
+records it; dev-side, not shipped in the plugin); the display/script behavior is
 from the Creation Kit wiki + practice. Confirm exact paths against `mutagen-reference`.
 
 ## The three things, kept separate
