@@ -1089,38 +1089,52 @@ public static class WriteEngine
                 var existing = matches[0];
                 if (!CanCreateType(typeName, out var reason)) throw new InvalidOperationException(reason);
                 var formKey = existing.FormKey;
-
-                // Abstract-group arm (GlobalFloat / GameSettingFloat / …): the cross-type guard compares the existing
-                // record's CONCRETE type to the requested arm (re-running a GlobalFloat create over a stored GlobalInt
-                // of the same editorid IS a cross-type collision — different concrete records), and the re-add goes
-                // through Add(T), not the abstract-base InvokeAddNewWithFormKey (which can't close AddNew<T>).
-                if (TryResolveAbstractGroupArm(patchMod, typeName, out var armGroup, out var armType))
-                {
-                    if (!armType!.IsInstanceOfType(existing))
-                        throw new InvalidOperationException(
-                            $"upsert refused: existing record '{editorId}' ({formKey}) is a {existing.GetType().Name}, not a {typeName} — " +
-                            "an EditorID collision across record types is a real authoring error, surfaced not swallowed (Q3).");
-                    InvokeRemove(armGroup!, formKey);
-                    var freshArm = AddConcreteArmToGroup(armGroup!, armType, formKey, editorId);
-                    return (freshArm, true);
-                }
-
-                object? group = null; Type? tMajor = null;
-                foreach (var (prop, tm, _) in EnumerateFlatGroups(patchMod.GetType()))
-                    if (string.Equals(tm.Name, typeName, StringComparison.OrdinalIgnoreCase)) { group = prop.GetValue(patchMod); tMajor = tm; break; }
-                if (group is null || tMajor is null)
-                    throw new InvalidOperationException($"upsert: no flat group found for type '{typeName}'.");
-                if (!tMajor.IsInstanceOfType(existing))
+                // The cross-type guard compares the existing record's CONCRETE type to the one being created — for an
+                // abstract-group ARM too (re-running a GlobalFloat create over a stored GlobalInt of the same editorid
+                // IS a cross-type collision — different concrete records).
+                if (!UpsertWouldReplace(patchMod, typeName, matches))
                     throw new InvalidOperationException(
                         $"upsert refused: existing record '{editorId}' ({formKey}) is a {existing.GetType().Name}, not a {typeName} — " +
                         "an EditorID collision across record types is a real authoring error, surfaced not swallowed (Q3).");
-                InvokeRemove(group, formKey);
-                var fresh = InvokeAddNewWithFormKey(group, tMajor, formKey);
+
+                // An arm re-adds through Add(T), not the abstract-base InvokeAddNewWithFormKey (which can't close AddNew<T>).
+                if (TryResolveAbstractGroupArm(patchMod, typeName, out var armGroup, out var armType))
+                {
+                    InvokeRemove(armGroup!, formKey);
+                    var freshArm = AddConcreteArmToGroup(armGroup!, armType!, formKey, editorId);
+                    return (freshArm, true);
+                }
+
+                if (!TryResolveFlatGroup(patchMod, typeName, out var group, out var tMajor))
+                    throw new InvalidOperationException($"upsert: no flat group found for type '{typeName}'.");
+                InvokeRemove(group!, formKey);
+                var fresh = InvokeAddNewWithFormKey(group!, tMajor!, formKey);
                 fresh.EditorID = editorId;
                 return (fresh, true);
             }
         }
         return (GenericAddNew(patchMod, typeName, editorId), false);
+    }
+
+    /// <summary>Would <see cref="GenericUpsertNew"/> REPLACE the records <paramref name="matches"/> holds under one
+    /// EditorID with a fresh <paramref name="typeName"/>, or refuse the collision? False for each of the three it
+    /// refuses instead — a carried OVERRIDE, duplicate residue, a cross-TYPE name — none of which any overwrite can
+    /// resolve. The in-place create pre-flight asks this before it offers to overwrite, so what it offers and what the
+    /// upsert does cannot drift.</summary>
+    public static bool UpsertWouldReplace(SkyrimMod patchMod, string typeName, IReadOnlyList<IMajorRecord> matches)
+        => matches.Count == 1
+           && matches[0].FormKey.ModKey == patchMod.ModKey
+           && (TryResolveAbstractGroupArm(patchMod, typeName, out _, out var arm)
+                   ? arm!.IsInstanceOfType(matches[0])
+                   : TryResolveFlatGroup(patchMod, typeName, out _, out var tMajor) && tMajor!.IsInstanceOfType(matches[0]));
+
+    /// <summary>The live flat <c>SkyrimGroup&lt;T&gt;</c> a record type is stored in, plus its T.</summary>
+    static bool TryResolveFlatGroup(SkyrimMod patchMod, string typeName, out object? group, out Type? tMajor)
+    {
+        foreach (var (prop, tm, _) in EnumerateFlatGroups(patchMod.GetType()))
+            if (string.Equals(tm.Name, typeName, StringComparison.OrdinalIgnoreCase))
+            { group = prop.GetValue(patchMod); tMajor = tm; return true; }
+        group = null; tMajor = null; return false;
     }
 
     /// <summary>Remove a record from a flat group by FormKey. Tries the group's own instance <c>Remove(FormKey)</c>
