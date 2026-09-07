@@ -36,7 +36,7 @@ public static class SkyPatcherConflictsProbe
 
         SkyPatcherDiscovery.IniFile Ini(string name, params string[] lines) => new(
             RelPath: $"SKSE\\Plugins\\SkyPatcher\\weapon\\{name}", Subfolder: "weapon", SortKey: name,
-            WinningProvider: "TestMod", ShadowedProviders: Array.Empty<string>(), GatePlugin: null,
+            WinningProvider: "TestMod", LooseFilePath: null, ShadowedProviders: Array.Empty<string>(), GatePlugin: null,
             NotApplied: null, Lines: lines.Select(SkyPatcherParse.ParseLine).ToList());
 
         const string target = "Skyrim.esm|12EB7";          // 012EB7:Skyrim.esm

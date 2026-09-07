@@ -34,12 +34,15 @@ public static class SkyPatcherDiscovery
 
     /// <summary>One INI in the layer. <see cref="NotApplied"/> is null when the game reads this file;
     /// otherwise it NAMES why it doesn't (BSA-only / plugin-gated off / unreadable). Parsed lines are
-    /// kept either way (an inactive patch is still inspectable).</summary>
+    /// kept either way (an inactive patch is still inspectable). <see cref="LooseFilePath"/> is the
+    /// on-disk path of the winning loose copy, null when there is none (BSA-only) — it is what tells a
+    /// draft apart from the file it would be folded in beside.</summary>
     public sealed record IniFile(
         string RelPath,
         string Subfolder,
         string SortKey,
         string? WinningProvider,
+        string? LooseFilePath,
         IReadOnlyList<string> ShadowedProviders,
         string? GatePlugin,
         string? NotApplied,
@@ -148,7 +151,9 @@ public static class SkyPatcherDiscovery
 
             }
 
-            var file = new IniFile(rel, subfolder, sortKey, winner?.ProviderName, shadowed, GatePluginOf(rel), notApplied, lines);
+            var file = new IniFile(rel, subfolder, sortKey, winner?.ProviderName,
+                                   winner?.Kind == AssetKind.Loose ? winner.LooseFilePath : null,
+                                   shadowed, GatePluginOf(rel), notApplied, lines);
             (byFolder.TryGetValue(subfolder, out var list) ? list : byFolder[subfolder] = new()).Add(file);
 
             if (shadowed.Count > 0)

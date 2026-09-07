@@ -134,6 +134,12 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
         Refused(ReadW0(DraftPole(ini, "weapon")), RecordsWorld.LiveSkyPatcherIni, "shadow");
     }
 
+    /// <summary>A draft pointed at a file the layer already reads would be folded in beside it and replay its lines
+    /// twice. A nested live INI sorts under its relative path, so the filename clash above never sees it.</summary>
+    [Fact]
+    public void ADraftThatIsAlreadyPlacedIsRefusedRatherThanFoldedInTwice() =>
+        Refused(ReadW0(DraftPole(W.NestedSkyPatcherIniPath, "weapon")), "already placed", "twice");
+
     /// <summary>The draft keys are a value on the overlay pole. On a {"file"} pole they would be dropped and that
     /// plugin's own record would read as the draft's post state.</summary>
     [Fact]

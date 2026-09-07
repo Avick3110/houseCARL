@@ -38,6 +38,20 @@ public static class SkyPatcherDraft
             for (int i = 0; i < live.Folders.Count; i++)
                 if (live.Folders[i].Subfolder.Equals(Subfolder, StringComparison.OrdinalIgnoreCase)) { at = i; break; }
 
+            // A draft that IS one of the layer's live files: folding it in would put the same file in the folder
+            // twice and replay every one of its lines twice, a post state the game never produces. The filename
+            // clash below catches this only when the live copy sits flat in the type folder, since a nested one
+            // sorts under 'MyMod\Blades.ini' and no bare filename matches it.
+            var placed = live.Folders.SelectMany(f => f.Files)
+                             .FirstOrDefault(f => f.LooseFilePath is { } p && SamePath(p, IniPath));
+            if (placed is not null)
+            {
+                refusal = $"the draft '{IniPath}' is already placed — it is the file the layer reads as '{placed.RelPath}'"
+                        + (placed.WinningProvider is null ? "" : $" (from '{placed.WinningProvider}')")
+                        + ", so folding it in would replay its lines twice; read it with the plain post state by dropping \"ini\".";
+                return live;
+            }
+
             // Same relative path once placed = the VFS same-path collision: one copy wins by mod order and the
             // other is never read, so which body this call would answer with is not the draft's to decide.
             var clash = at < 0 ? null
@@ -68,7 +82,7 @@ public static class SkyPatcherDraft
                 warnings?.Add($"{IniPath}: the draft is {notApplied} — SkyPatcher would not read it once placed, so this post state is the plain winner.");
             }
 
-            var draft = new SkyPatcherDiscovery.IniFile(IniPath, Subfolder, name, DraftProvider,
+            var draft = new SkyPatcherDiscovery.IniFile(IniPath, Subfolder, name, DraftProvider, IniPath,
                                                         Array.Empty<string>(), gate, notApplied, lines);
 
             // The SkyPatcher.ini [Patcher] toggle for this type. A folder the live scan built carries it already;
@@ -100,6 +114,13 @@ public static class SkyPatcherDraft
                 "so this reads what the game would see once it is placed there.").ToList();
             return new SkyPatcherDiscovery.LayerScan(folders, notes, live.ReadIncomplete, live.PatcherToggles);
         }
+    }
+
+    /// <summary>Two paths naming the same file, compared as the filesystem does here: normalized, case-insensitive.</summary>
+    static bool SamePath(string a, string b)
+    {
+        try { return Path.GetFullPath(a).Equals(Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase); }
+        catch { return false; }
     }
 
     /// <summary>What the draft's provider column says: it comes from no mod, and saying so keeps a render from
