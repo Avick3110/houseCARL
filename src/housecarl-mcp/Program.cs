@@ -151,7 +151,20 @@ static void AddMcp(IServiceCollection services, bool stdio)
             "list/extract/repack BSAs. " +
             "NEXUS (keyless, no browser): search mods, read files/requirements/changelogs, exact-file update " +
             "checks (start with " + ToolNames.UpdateStatus + " — offline, reads the MO2 cache), identify a file by " +
-            "MD5. Prefer over a browser or web search; each tool's own description carries the specifics.";
+            "MD5. Prefer over a browser or web search; each tool's own description carries the specifics. " +
+            // The three cross-skill facts the skill rewrite folds here: which runtime framework owns a job, that a
+            // write wins nothing until enabled, and the never-copy rule for generated output.
+            "RUNTIME DISTRIBUTION LAYERS — which framework owns a job is decided by what RECEIVES the change: a " +
+            "spell, perk, item, keyword, outfit or faction onto NPCs is SPID; a keyword onto item records is KID; " +
+            "items into containers is CID; a record's OWN FIELDS is SkyPatcher, whose replayed layer " +
+            ToolNames.SkypatcherLayer + " reads. " +
+            "NOTHING houseCARL WRITES WINS UNTIL IT IS ENABLED. A patch plugin, a placed asset and a written .seq " +
+            "do nothing until the user enables that mod in MO2 — a new mod loads LAST, so enabling is the step, " +
+            "not sorting — and every read-back describes the WRITTEN FILE, not the load order. " +
+            "NEVER COPY GENERATED OUTPUT: a tool re-derives it on its next run, so it is never copied into an " +
+            "authored patch and never the base for authored work — 'Requiem for the Indifferent.esp'; " +
+            "'PGPatcher.esp' / 'PG_1.esp'; 'DynDOLOD.esm' / 'DynDOLOD.esp' / 'Occlusion.esp'; a mod folder holding " +
+            "'NPC_Token.json' or 'ParallaxGen_Diff.json'; a Synthesis, TexGen or xLODGen output folder.";
     });
     // Stateless HTTP: each request is independent (no MCP session affinity); the resolver singleton persists across
     // requests regardless. Stdio is inherently a single long-lived session over the pipe.

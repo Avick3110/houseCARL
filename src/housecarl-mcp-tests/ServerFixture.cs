@@ -41,6 +41,9 @@ public sealed class ServerFixture : IDisposable
     /// <summary>The published tool objects by name — schema included.</summary>
     public IReadOnlyDictionary<string, JsonElement> PublishedTools { get; }
 
+    /// <summary>The instructions string `initialize` published — the standing context a client is handed.</summary>
+    public string PublishedInstructions { get; }
+
     public ServerFixture()
     {
         var exe = Path.Combine(HarnessPaths.RepoRoot, "src", "housecarl-mcp", "bin",
@@ -71,12 +74,14 @@ public sealed class ServerFixture : IDisposable
         _out = _proc.StandardOutput;
         _lines = new LinePump(_out);   // ONE reader on this stream for the fixture's whole life
 
-        Rpc("initialize", new
+        var init = Rpc("initialize", new
         {
             protocolVersion = "2025-06-18",
             capabilities = new { },
             clientInfo = new { name = "housecarl-mcp-tests", version = "0" },
         });
+        // Served, not the source literal: instructions ride the initialize result, the way descriptions ride tools/list.
+        PublishedInstructions = init.TryGetProperty("instructions", out var ins) ? ins.GetString() ?? "" : "";
         Notify("notifications/initialized");
 
         var tools = Rpc("tools/list", new { });
