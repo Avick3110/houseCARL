@@ -41,7 +41,7 @@ public static class SeqTools
             string source,
         [Description("LANE: base name for a NEW patch-mod folder the .seq lands in (default: the plugin's own houseCARL folder if it's in one, else 'houseCARL_SEQ'); auto-suffixed if taken.")]
             string? patch = null,
-        [Description("LANE: filename of an existing houseCARL patch mod to write the .seq into (e.g. the patch that holds the .esp, so one mod deploys both).")]
+        [Description("LANE: filename of an existing houseCARL patch mod to write the .seq into (e.g. the patch that holds the .esp, so one mod deploys both). A .seq already there with exactly these bytes is left alone and reported 'unchanged', with only its timestamp refreshed if it was older than the plugin — the same skip the output_dir= lane states, and the reason re-running after an edit is cheap.")]
             string? into = null,
         [Description("LANE: land the .seq in a folder of YOUR choosing instead of a houseCARL patch folder — pass the mod-folder ROOT (typically the plugin's own mod, after an in-place edit); houseCARL appends SEQ\\ (and won't double it if you already point at a ...\\SEQ folder). When set, patch=/into= are ignored. An existing .seq at that path is OVERWRITTEN with no backup (the response says 'replaced'), and a byte-identical one is left alone with only its timestamp refreshed if it was older than the plugin. The game reads SEQ files from exactly <mods>\\<YourMod>\\SEQ, the MO2 overwrite folder, or <Data>\\SEQ — anywhere else the .seq is still written and you're warned it won't be read (a nested path like <mods>\\<YourMod>\\Sub is 'under mods' but does NOT deploy).")]
             string? output_dir = null,
