@@ -912,7 +912,10 @@ public static class WriteTools
             var c = o.Created[ci];
             listed++;
             sb.Append("  ").Append(c.RecordType).Append(' ').Append(c.FormKey).Append("  ").Append(c.EditorId);
-            if (c.ReplacedExisting) sb.Append("  [REPLACED: this patch already defined this editorid — re-created fresh at the same FormID; prior contents, including any " + ToolNames.Apply + " edits since, were discarded]");
+            // "this patch" belongs to the artifact lanes; in place the file is the caller's own plugin, and naming it a
+            // patch would misread as houseCARL's.
+            if (c.ReplacedExisting) sb.Append("  [REPLACED: ").Append(o.InPlace ? file : "this patch")
+                                      .Append(" already defined this editorid — re-created fresh at the same FormID; prior contents, including any " + ToolNames.Apply + " edits since, were discarded]");
             sb.Append('\n');
             // A nested create had to override its parent in to host the child, and WHOSE version it copied is a choice
             // the caller never made and cannot see in the record afterwards. One line, only when there was one.
