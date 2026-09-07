@@ -55,9 +55,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   refuses it rather than reading it as "remove every skill installed".
 - **The standing instructions now carry three cross-cutting facts, and nine parameter descriptions say what
   they were missing.** The instructions every session is given state which runtime framework owns a job
-  (SPID / KID / CID / SkyPatcher), that nothing houseCARL writes wins until the mod is enabled in MO2, and
-  that generated output — a Reqtificator, DynDOLOD, ParallaxGen, Synthesis or xLODGen product — is never
-  copied into an authored patch. The parameters gain the semantics they alone can state: `housecarl_apply`'s
+  (SPID / KID / CID / SkyPatcher), that nothing houseCARL writes wins until the mod is enabled in MO2 — a new
+  mod folder loads last, while a write into an existing mod keeps that mod's priority and may still need
+  sorting — and that generated output — a Reqtificator, DynDOLOD, ParallaxGen, Synthesis or xLODGen product —
+  is never copied into an authored patch, while a mod that only carries a generator's name (a "… Resources"
+  or "… Fixes" companion, a downloaded patch) is an input and is patched normally. The parameters gain the
+  semantics they alone can state: `housecarl_apply`'s
   `ops=` on what `Remove` clears, on the cardinality pre-flight, and on `from_source=`; `housecarl_forward`'s
   `source=` on forwarding from the authored plugin when a generated one wins; `housecarl_create`'s `records=`
   on the Creation Kit bookkeeping it auto-fills; `housecarl_check`'s `findings=` on the dialogue family
