@@ -407,7 +407,7 @@ has no `Subtype` field. Copy the exact value from a known-good ForceGreet topic 
 - **Quest scaffolding rides along.** A flat `QUST` and its stages/aliases/objectives are createable today
   with `housecarl_create_record`/`housecarl_bulk_create`; this skill is the dialogue layer that wires onto
   it. Set the quest up first, then author the topics that reference it.
-- **Result-script review.** For the TIF fragment's Papyrus, `papyrus-reference` has the signatures and
-  `papyrus-optimization` grades the script — a result script that stack-dumps is its own silent failure.
+- **Result-script review.** For the TIF fragment's Papyrus, `papyrus-reference` has the signatures — a
+  result script that stack-dumps is its own silent failure.
 - **Out of lane.** Exterior-cell-keyed placement and runtime-spawned (`FFxxxxxx`) speakers are separate
   capabilities, not dialogue authoring — name the limit rather than guessing a path.

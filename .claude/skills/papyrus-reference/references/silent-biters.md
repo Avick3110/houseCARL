@@ -51,8 +51,7 @@ key.
 
 `Utility.Wait` inside an input or menu handler that runs while a pause-game UI is open does not count real
 time (the VM is paused), and every queued handler bursts on unpause → doubled stage advances / doubled fires.
-Use `RegisterForSingleUpdate` for any delay taken from a menu/input context. (The `papyrus-optimization` skill
-covers `Utility.Wait` thread-pinning and cost more generally.)
+Use `RegisterForSingleUpdate` for any delay taken from a menu/input context.
 
 ## 7. String-literal and docstring escaping rules
 
