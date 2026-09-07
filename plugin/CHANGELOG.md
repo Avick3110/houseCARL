@@ -25,7 +25,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
   the reason it already gives. Like the rest of the INI layer, a draft sits outside the epoch fingerprint, and
   the response names it on the source arm. Every warning the replay produces for a draft's line — an unknown
   key, an op with no field mapping, a filter it cannot evaluate — now renders beside the answer with the
-  draft's path as the file name, as it does for a placed INI's lines.
+  draft's path as the file name, as it does for a placed INI's lines, on every form that takes the pole.
+  A draft SkyPatcher would not read once placed — one whose filename gates on a plugin that is not in the
+  order, or one in a type switched off in `SkyPatcher.ini`'s `[Patcher]` section — applies nothing, so the
+  post state is the plain winner and the response says which of the two it was.
 - **A `housecarl_records` `formids=` read is now held to the render bound on every form that reads a body, and
   says what those bodies cost.** `summary` and `aggregate` read a body per id on this lane exactly as `fields`,
   `rows` and `everything` do — one cheap leaf off each — but only the last three were measured against the bound,
