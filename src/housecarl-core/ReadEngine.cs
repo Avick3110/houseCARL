@@ -18,12 +18,13 @@ namespace HousecarlCore;
 /// read-proof, and diff. Used to decode a value that is correct but opaque — a biped-slot bitmask into its slot
 /// numbers — without disturbing the token that must round-trip. Null on every leaf that needs no annotation.</para>
 ///
-/// <para><see cref="Link"/> is the resolve_names annotation: when a leaf's <see cref="Token"/> is a
-/// form reference (a token that round-trips to a FormKey), the SERVICE layer resolves its target's identity
-/// (editorid/name) against the load order and hangs it here. Like <see cref="Display"/> it is DISPLAY-ONLY — never
-/// part of the round-trip <see cref="Token"/>, so it is invisible to write, read-proof, and diff. Populated by the
-/// service (which holds the resolver), never by the core read (which reads one record's bytes and cannot resolve a
-/// target). Null unless resolve_names was requested and the leaf carries a resolvable FormKey.</para></summary>
+/// <para><see cref="Link"/> is the resolve_names annotation: when a line RENDERS a form reference — its
+/// <see cref="Token"/>, or the <see cref="NoteRef"/> its summary note shows — the SERVICE layer resolves that
+/// target's identity (editorid/name) against the load order and hangs it here. Like <see cref="Display"/> it is
+/// DISPLAY-ONLY — never part of the round-trip <see cref="Token"/>, so it is invisible to write, read-proof, and
+/// diff. Populated by the service (which holds the resolver), never by the core read (which reads one record's
+/// bytes and cannot resolve a target). Null unless resolve_names was requested and the line renders a
+/// FormKey.</para></summary>
 /// <param name="Present">Is anything THERE? True for a value and for a present container/substruct (whose own
 /// <paramref name="Count"/> says how much); false only when the leaf holds nothing — absent, no such field,
 /// unreadable. Carried structurally because the two render alike (both are parenthesised notes), so a consumer
@@ -37,9 +38,14 @@ namespace HousecarlCore;
 /// carried structurally for the same reason <paramref name="Present"/> is: the folded line's TEXT is prose, and a
 /// consumer must be able to read the values, the resolve_names links and the counts out of the row without
 /// parsing it.</param>
+/// <param name="NoteRef">The form reference this line's <paramref name="Note"/> RENDERS, when the line carries no
+/// round-trip <paramref name="Token"/> — a container element's summary identity (<c>[Effect]
+/// BaseEffect=033975:Skyrim.esm</c>). Carried structurally for the same reason <paramref name="Present"/> is: the
+/// note is prose, and resolve_names must reach the FormID a line shows without parsing it. Null on every line
+/// whose note renders no form reference.</param>
 public sealed record FieldValue(string Path, bool HasValue, string? Token, string? Note, string? Display = null, ResolvedRef? Link = null,
                                 bool Present = true, int? Count = null, bool Readable = true,
-                                IReadOnlyList<FieldValue>? Cells = null);
+                                IReadOnlyList<FieldValue>? Cells = null, string? NoteRef = null);
 
 /// <summary>The resolved identity of a form reference — the shared contract behind housecarl_resolve (a full row)
 /// and the resolve_names field annotation. <see cref="Resolved"/> false ⇒ the FormKey is valid but not present in
@@ -620,8 +626,11 @@ public static class ReadEngine
         // a container or substruct — summarise (with an element identity where we can), then maybe open it.
         // Present/Count are set on the DEEP path too: they exist so a consumer never parses a note to decide
         // presence, and left at their defaults a depth-2 read of an EMPTY list claims content.
+        // NoteRef carries the FormID the summary spelled, so resolve_names annotates the reference this line SHOWS
+        // by the one rule it applies to a token — no second, note-shaped special case.
         int? deepCount = val is System.Collections.IEnumerable de and not string ? de.Cast<object?>().Count() : null;
-        if (!Emit(sink, ref budget, new FieldValue(path, false, null, ElementSummary(val, isDict), Present: true, Count: deepCount))) return;
+        var summary = ElementSummary(val, isDict, out var summaryRef);
+        if (!Emit(sink, ref budget, new FieldValue(path, false, null, summary, Present: true, Count: deepCount, NoteRef: summaryRef))) return;
 
         // Two POLYMORPHIC-ARM families normally stop here at their identity summary, hiding their VALUE, and both
         // surface it ONE bounded level deeper even at the depth floor so a read reaches parity with the write
@@ -836,8 +845,17 @@ public static class ReadEngine
     /// (<see cref="SummariseContainer"/>); for a struct, <c>[TypeName]</c> plus a representative identity
     /// field (Name/EditorID/Title) where present — so a list line like
     /// <c>Properties[5] = [ScriptObjectProperty] Name=DAK_HorseBuyPerk</c> reveals which element is which.</summary>
-    static string ElementSummary(object val, bool isDict = false)
+    static string ElementSummary(object val, bool isDict = false) => ElementSummary(val, isDict, out _);
+
+    /// <summary>Overload that also yields the form reference the summary RENDERED, so a caller building the line's
+    /// <see cref="FieldValue"/> can carry it on <see cref="FieldValue.NoteRef"/> and resolve_names annotates the
+    /// FormID a reader can see. It is the identity FIELD's target (an <c>Effect</c>'s BaseEffect, a
+    /// <c>PerkPlacement</c>'s Perk) — a reference OUT of this element, exactly what a leaf Token is. An owned child
+    /// RECORD's own FormKey is not one: it is this element's own identity, already spelled with its editorid, and
+    /// resolving it would annotate a line with itself.</summary>
+    static string ElementSummary(object val, bool isDict, out string? refToken)
     {
+        refToken = null;
         if (val is System.Collections.IEnumerable && val is not string) return SummariseContainer(val, isDict);
         var t = val.GetType();
         var typeName = RecordNaming.StripGetterInterface(RecordNaming.StripOverlay(t.Name));
@@ -855,14 +873,16 @@ public static class ReadEngine
             if (p is null || p.GetIndexParameters().Length != 0) continue;
             object? iv; try { iv = p.GetValue(val); } catch { continue; }
             var s = iv switch { null => null, string str => str, IFormLinkGetter fl => fl.FormKey.ToString(), _ => iv.ToString() };
-            if (!string.IsNullOrEmpty(s)) return $"[{typeName}] {idName}={s}";
+            if (string.IsNullOrEmpty(s)) continue;
+            if (iv is IFormLinkGetter) refToken = s;
+            return $"[{typeName}] {idName}={s}";
         }
         // No Name/EditorID/Title identity. If the struct carries EXACTLY ONE FormLink field, that link IS its
         // identity (PerkPlacement.Perk, and any other single-link struct) — surface it so a depth=2 element line
         // reveals which record it points at, the way a Name= identity does, instead of a bare [Type] that reads as
         // "the FormID isn't surfaced". Exactly one link only — 2+ are ambiguous and we don't guess which is the
         // identity.
-        if (LoneFormLinkIdentity(val, t) is { } linkId) return $"[{typeName}] {linkId}";
+        if (LoneFormLinkIdentity(val, t, out refToken) is { } linkId) return $"[{typeName}] {linkId}";
         return $"[{typeName}]";
     }
 
@@ -871,8 +891,11 @@ public static class ReadEngine
     /// FormLink or MORE THAN ONE (ambiguous — don't guess which is the identity). A present-but-null link still
     /// counts: it names the field and shows the null FormKey, the exact signal a reader chasing a dangling ref wants.
     /// Display-only, best-effort — any reflection fault yields null (falls back to the bare <c>[Type]</c>).</summary>
-    static string? LoneFormLinkIdentity(object val, Type t)
+    /// <param name="refToken">The FormKey the identity renders, for <see cref="FieldValue.NoteRef"/>; null
+    /// whenever this returns null.</param>
+    static string? LoneFormLinkIdentity(object val, Type t, out string? refToken)
     {
+        refToken = null;
         PropertyInfo? only = null;
         foreach (var p in t.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
@@ -882,7 +905,12 @@ public static class ReadEngine
             only = p;
         }
         if (only is null) return null;
-        try { return only.GetValue(val) is IFormLinkGetter fl ? $"{only.Name}={fl.FormKey}" : null; }
+        try
+        {
+            if (only.GetValue(val) is not IFormLinkGetter fl) return null;
+            refToken = fl.FormKey.ToString();
+            return $"{only.Name}={refToken}";
+        }
         catch { return null; }
     }
 

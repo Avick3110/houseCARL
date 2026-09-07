@@ -2437,9 +2437,12 @@ public sealed class LoadOrderService : IDisposable
                { OwnedChildFields = childFields }.WithRuntime(view.RuntimeAddressOf(fk));
     }
 
-    /// <summary>resolve_names (P7): annotate every field whose <see cref="FieldValue.Token"/> is a form reference (a
-    /// token that round-trips to a FormKey) with its target's load-order identity, hung on <see cref="FieldValue.Link"/>
-    /// — DISPLAY-ONLY, never touching the round-trip Token. Type-agnostic: a token that parses as a FormKey IS a form
+    /// <summary>resolve_names (P7): annotate every field that RENDERS a form reference with its target's load-order
+    /// identity, hung on <see cref="FieldValue.Link"/> — DISPLAY-ONLY, never touching the round-trip Token. The
+    /// reference is the leaf's <see cref="FieldValue.Token"/>, or, on a line that has no token, the
+    /// <see cref="FieldValue.NoteRef"/> a container element's summary spelled ("[Effect]
+    /// BaseEffect=033975:Skyrim.esm") — so the annotation reaches the FormID wherever the read shows one.
+    /// Type-agnostic: a token that parses as a FormKey IS a form
     /// reference (FormLinks and condition-target FLOIs both emit a bare FormKey token; scalars never do), so this
     /// inherits coverage from the read surface with no per-type wiring. Resolution rides the SAME captured view +
     /// open session the read used, memoised so a keyword that recurs across a whole record (or batch) resolves once.
@@ -2455,7 +2458,10 @@ public sealed class LoadOrderService : IDisposable
         for (int i = 0; i < rf.Fields.Count; i++)
         {
             var f = rf.Fields[i];
-            if (f.HasValue && f.Token is { } tok && FormKey.TryFactory(tok, out var fk) && !fk.IsNull)
+            // Whichever carrier the line RENDERED its reference on: the round-trip token, or the FormID a
+            // container element's summary note spelled (FieldValue.NoteRef). One rule, one shape of value.
+            var rendered = f.HasValue ? f.Token : f.NoteRef;
+            if (rendered is { } tok && FormKey.TryFactory(tok, out var fk) && !fk.IsNull)
             {
                 rebuilt ??= new List<FieldValue>(rf.Fields);
                 rebuilt[i] = f with { Link = ResolveRefOne(view, session, fk, memo) };
