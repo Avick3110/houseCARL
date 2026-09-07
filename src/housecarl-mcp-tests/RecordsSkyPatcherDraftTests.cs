@@ -142,6 +142,27 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
     public void ADraftThatIsAlreadyPlacedIsRefusedRatherThanFoldedInTwice() =>
         Refused(ReadW0(DraftPole(W.NestedSkyPatcherIniPath, "weapon")), "already placed", "twice");
 
+    /// <summary>Whether a draft can be folded at all is a fact about the whole call. Reaching the delta lane as a
+    /// per-record error would leave counts_only, which renders no row text, reporting one error and no reason.</summary>
+    [Fact]
+    public void ADraftTheFoldRefusesRefusesTheDeltaCall()
+    {
+        var ini = Draft("draft-delta-clash", RecordsWorld.LiveSkyPatcherIni, "filterByWeapons=HcRecW0:attackDamage=1\r\n");
+        Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, source: DraftPole(ini, "weapon"),
+                                     versus: Overlay("post"), project: DamageDelta, counts_only: true),
+                RecordsWorld.LiveSkyPatcherIni);
+    }
+
+    /// <summary>The tree lane resolves its reference through the same pole reader, so it refuses the same way.</summary>
+    [Fact]
+    public void ADraftTheFoldRefusesRefusesTheTreeCall()
+    {
+        var ini = Draft("draft-tree-clash", RecordsWorld.LiveSkyPatcherIni, "filterByWeapons=HcRecW0:attackDamage=1\r\n");
+        Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, versus: DraftPole(ini, "weapon"),
+                                     project: DamageTree, counts_only: true),
+                RecordsWorld.LiveSkyPatcherIni);
+    }
+
     /// <summary>The draft keys are a value on the overlay pole. On a {"file"} pole they would be dropped and that
     /// plugin's own record would read as the draft's post state.</summary>
     [Fact]

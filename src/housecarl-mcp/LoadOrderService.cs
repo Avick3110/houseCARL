@@ -3494,34 +3494,44 @@ public sealed class LoadOrderService : IDisposable
         // would re-apply every INI line onto the already-mutated copy. One replay per key.
         var postMemo = new Dictionary<FormKey, PoleReading>();
         string? setupError = null;
+        void Setup()
+        {
+            if (scan is not null || setupError is not null) return;
+            try
+            {
+                AssetResolver.AssetView assets;
+                lock (_gate) { assets = Assets.Capture(); }
+                fieldMap = SkyPatcherFieldMap.Load();
+                catalog = SkyPatcherCatalog.Load();
+                scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin, _skyPatcherParseCache);
+                if (spec.Draft is not null)
+                {
+                    scan = spec.Draft.Fold(scan, catalog, view.ContainsPlugin, out var draftRefusal, overlayWarnings);
+                    if (draftRefusal is not null) { scan = null; setupError = draftRefusal; return; }
+                }
+                scratch = new SkyrimMod(SkyPatcherScratchKey, SkyrimRelease.SkyrimSE);
+                formResolver = new SkyPatcherServiceResolver(this, view, session);
+                linesCache = new Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>(StringComparer.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                setupError = $"the SkyPatcher layer could not be discovered for the overlay pole: {ex.Message}";
+            }
+        }
+        // A draft is folded up front rather than on the first record: whether it can be folded at all is a fact
+        // about the whole call, so it refuses by name here. Left to the reader it would reach the delta and tree
+        // lanes as a per-record error, which counts_only renders as a bare error count with the reason nowhere.
+        if (spec.Draft is not null)
+        {
+            Setup();
+            if (setupError is not null) { error = setupError; return (_, _) => new PoleReading(null, null, null, setupError); }
+        }
         return (fk, _) =>
         {
             if (setupError is not null) return new PoleReading(null, null, null, setupError);
             if (postMemo.TryGetValue(fk, out var memoized)) return memoized;
-            if (scan is null)
-            {
-                try
-                {
-                    AssetResolver.AssetView assets;
-                    lock (_gate) { assets = Assets.Capture(); }
-                    fieldMap = SkyPatcherFieldMap.Load();
-                    catalog = SkyPatcherCatalog.Load();
-                    scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin, _skyPatcherParseCache);
-                    if (spec.Draft is not null)
-                    {
-                        scan = spec.Draft.Fold(scan, catalog, view.ContainsPlugin, out var draftRefusal, overlayWarnings);
-                        if (draftRefusal is not null) { setupError = draftRefusal; return new PoleReading(null, null, null, setupError); }
-                    }
-                    scratch = new SkyrimMod(SkyPatcherScratchKey, SkyrimRelease.SkyrimSE);
-                    formResolver = new SkyPatcherServiceResolver(this, view, session);
-                    linesCache = new Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>(StringComparer.OrdinalIgnoreCase);
-                }
-                catch (Exception ex)
-                {
-                    setupError = $"the SkyPatcher layer could not be discovered for the overlay pole: {ex.Message}";
-                    return new PoleReading(null, null, null, setupError);
-                }
-            }
+            Setup();
+            if (setupError is not null) return new PoleReading(null, null, null, setupError);
             var r = ReplaySkyPatcher(view, session, scan, catalog!, fieldMap!, scratch!, formResolver!, fk, linesCache);
             CollectOverlayWarnings(r.Folders, overlayWarnings);
             if (r.Error is not null)
