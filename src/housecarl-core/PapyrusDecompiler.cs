@@ -10,7 +10,8 @@ namespace HousecarlCore;
 ///   - jump offsets relative to the jump instruction itself
 ///   - while  = cond; JMPF -> E; body; JMP (backward); E:
 ///   - if     = cond; JMPF -> L; then; JMP -> M; L: else; M:   (JMP -> L means no else)
-///   - and/or = short-circuit JMPF/JMPT landing ON the final consuming conditional jump, same temp
+///   - and/or = short-circuit JMPF/JMPT whose arm rewrites the same temp, read again at the join —
+///     usually landing ON the consumer, further on when later call arguments evaluate in between
 ///   - auto-prop backing var ::Name_var; AutoReadOnly = GET returning a literal
 ///   - compiler-generated GotoState/GetState in the '' state (skipped on emit)
 ///   - FunctionFlags raw bits: bit0 = Global, bit1 = Native (Mutagen's enum names sit one off)
@@ -559,12 +560,18 @@ public sealed class PapyrusDecompiler
                             target = hi;
                         }
 
-                        // Short-circuit: the jump lands ON the instruction that consumes the temp as a
-                        // source — another conditional jump (plain &&/||), a CAST hop into a different
-                        // temp (nested mixed-temp conditions), an ASSIGN/RETURN/call-arg (`x = a || b`).
-                        // Temps only: a real-var condition is always a plain if.
+                        // Short-circuit: the arm leaves the right operand in the SAME temp and the
+                        // join side still reads it. The jump usually lands ON that consumer — another
+                        // conditional jump (plain &&/||), a CAST hop into a different temp (nested
+                        // mixed-temp conditions), an ASSIGN/RETURN/call-arg (`x = a || b`). When the
+                        // value is a call argument that is NOT the last one, the arguments after it
+                        // evaluate first and the consuming call sits further on, so also accept an
+                        // arm that writes the temp whose value is read before being rewritten at or
+                        // after the join. Temps only: a real-var condition is always a plain if.
                         if (condName is not null && IsTemp(condName) && target < hi
-                            && ConsumesAsSource(_ins[target], condName))
+                            && (ConsumesAsSource(_ins[target], condName)
+                                || (WritesDestIn(i + 1, target, condName)
+                                    && ReadsBeforeWrite(target, hi, condName))))
                         {
                             var (left, leftStart) = Consume(condName, i);
                             // Pre-if discarded-result calls may still pend here (their temps can be
@@ -573,7 +580,12 @@ public sealed class PapyrusDecompiler
                             FlushPendingCalls(stmts);
                             // Evaluate the right side (cur+1 .. target) — must produce only pending values.
                             var sub = Structure(i + 1, target, flushAtEnd: false, exits: new HashSet<int>(), cont: target);
-                            if (sub.Count > 0) throw new StructureException($"short-circuit arm @{i + 1}..{target} produced statements");
+                            // The arm is lazily evaluated, so a statement in it cannot be hoisted out
+                            // without changing semantics. Name the first one: it is what pins the
+                            // sub-shape when the pex itself is not to hand.
+                            if (sub.Count > 0)
+                                throw new StructureException(
+                                    $"short-circuit arm @{i + 1}..{target} evaluates a statement, not just a value (first: {sub[0].Trim()})");
                             var (right, _) = Consume(condName, target);
                             var combined = new EBin(op == InstructionOpcode.JMPF ? "&&" : "||", left, right);
                             SetPending(condName, combined, stmts, leftStart);
@@ -1041,6 +1053,16 @@ public sealed class PapyrusDecompiler
                 if (ConsumesAsSource(_ins[k], name)) return true;
                 if (WritesDest(_ins[k], name)) return false;
             }
+            return false;
+        }
+
+        /// <summary>Is <paramref name="name"/> written as a destination anywhere in [lo, hi)?
+        /// A short-circuit arm always writes its own temp; a plain if's condition temp is dead in
+        /// the block it guards.</summary>
+        bool WritesDestIn(int lo, int hi, string name)
+        {
+            for (int k = lo; k < hi && k < _ins.Count; k++)
+                if (WritesDest(_ins[k], name)) return true;
             return false;
         }
 

@@ -91,6 +91,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
   skill directory that is an immediate child of `skills/`. The installer places it in the same place it always
   did (`~/.agents/skills/housecarl`), so an install run from `houseCARL-Setup.exe` is unchanged; a copy taken by
   hand out of the zip comes from the new path.
+- **`housecarl_decompile_script` now reconstructs a short-circuit (`&&` / `||`) whose value is a call argument
+  followed by another argument.** The arguments after it evaluate before the call, so the false-path jump lands on
+  the next argument's first instruction rather than on the call itself; the reader took only the jump-lands-on-the-
+  consumer form, read the rest as a plain `if`, and promoted the condition temp to a named local — which then made
+  a later arm of the same expression emit statements and fail the whole function to a raw-bytecode comment block.
+  The expression now comes back whole, and because the CK compiler itself emits this form, the optimizer-compiled
+  ("Caprica class") note it used to trigger no longer fires on it. An arm that genuinely evaluates a statement
+  still fails loud, and the failure now names the statement.
 
 - **A `housecarl_records` `formids=` read is now held to the render bound on every form that reads a body, and
   says what those bodies cost.** `summary` and `aggregate` read a body per id on this lane exactly as `fields`,
