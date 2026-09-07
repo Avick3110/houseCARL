@@ -315,7 +315,6 @@ For crafting-graph jobs specifically, the blessed per-recipe entry:
 | The question is really… | Go to |
 |---|---|
 | "What fields does record type X have / what are the legal enum values?" | `mutagen-reference` |
-| "Which armors sit on biped slot N?" | `biped-slot-reference` |
 | What a specific mod's keywords/conventions *mean* (any per-mod semantics) | that mod's own skill lane (e.g. a Requiem companion skill), never encoded here |
 | One record to read or edit | the tools directly — no bulk planning needed |
 | Distributing spells/keywords/items at runtime instead of cataloguing them | `spid-authoring` / `kid-authoring` / `skypatcher-authoring` |

@@ -187,4 +187,4 @@ One thing does not widen: with `source_provider=` **omitted**, resolution still 
 
 - `asset_status` takes `asset_paths` — one or many, resolved in order, results returned in the same order — so the decide-before-you-place pass is ONE call over every candidate path, not a call each.
 - The three calls accumulate into one patch when you pass `into=` the same filename, so the result stays one reviewable artifact even though it took three operations to build.
-- A record copied out of a generated plugin (a Synthesis or Reqtificator output, an NPC-merge result) is regenerated output, not authored content — see `tool-output-awareness` before copying from one.
+- A record copied out of a generated plugin (a Synthesis or Reqtificator output, an NPC-merge result) is regenerated output, not authored content — copy the record from the mod that authored it, not from the generated plugin.
