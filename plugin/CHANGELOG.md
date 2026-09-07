@@ -34,8 +34,21 @@ saying it sets an expectation their install may contradict. Say what is known, a
   order, or one in a type switched off in `SkyPatcher.ini`'s `[Patcher]` section — applies nothing, so the
   post state is the plain winner and the response says which of the two it was.
 - **Three skills are removed: `biped-slot-reference`, `papyrus-optimization` and `tool-output-awareness`.**
-  Eleven skills ship now; the biped slot fact they were kept for is already in the server's own output, which
-  decodes a `BodyTemplate.FirstPersonFlags` value into its slot numbers.
+  Eleven skills ship now. `biped-slot-reference` said slot N is `FirstPersonFlags` bit N−30; the server's own
+  output already decodes a `BodyTemplate.FirstPersonFlags` value into its slot numbers, so that fact stays.
+  `papyrus-optimization` leaves nothing behind — its script-cost review was no better than the review you get
+  without it. `tool-output-awareness`'s rule — never copy a record or asset path a generated tool re-derives —
+  and its list of the plugins that produce them move into the server's own instructions, which every session
+  reads (a separate change in this release); the same fact for a copied NPC is now stated in
+  `npc-appearance-copy`.
+
+- **Setup now removes skill folders a previous install left behind, and says which ones.** It used to copy over
+  an existing install without deleting anything, so a skill dropped from the package survived the upgrade and
+  kept loading. `~/.claude/skills/housecarl/skills/` is houseCARL's own, so anything there that this package
+  does not ship goes. `~/.agents/skills/` (the Codex location) is shared with other agents' skills, so setup
+  takes back only the folder names it recorded installing — and it starts recording them in this version, which
+  means a Codex install made before it still has `biped-slot-reference/`, `papyrus-optimization/` and
+  `tool-output-awareness/` there; delete those three folders by hand once.
 
 - **A `housecarl_records` `formids=` read is now held to the render bound on every form that reads a body, and
   says what those bodies cost.** `summary` and `aggregate` read a body per id on this lane exactly as `fields`,
