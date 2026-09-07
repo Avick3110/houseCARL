@@ -21,7 +21,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   there. The same pole is legal as `versus=`, so the draft's post state against the plain post state is the
   draft's own effect and nothing else. An undocumented subfolder, a draft whose filename is already placed in
   that folder (which would shadow or be shadowed depending on mod order), and `state: "pre"` with a draft are
-  each refused by name. The draft rides the `formids=` lane; the scan lane still refuses an overlay pole for
+  each refused by name — as are a draft that is itself one of the layer's placed files, whose lines would
+  replay twice, and `ini`/`subfolder` passed on a `{"file"}` pole, where they would otherwise be dropped and
+  that plugin's own record would read as the draft's post state. A refusal is the call's on every form the
+  pole takes, so `counts_only` cannot report it as an error count with the reason nowhere.
+  The draft rides the `formids=` lane; the scan lane still refuses an overlay pole for
   the reason it already gives. Like the rest of the INI layer, a draft sits outside the epoch fingerprint, and
   the response names it on the source arm. Every warning the replay produces for a draft's line — an unknown
   key, an op with no field mapping, a filter it cannot evaluate — now renders beside the answer with the
