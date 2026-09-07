@@ -133,13 +133,14 @@ public static class SkyPatcherOverlay
         var applied = new List<SkyPatcherAppliedOp>();
         var directives = new List<SkyPatcherDirective>();
         var warnings = new List<string>();
-        var dedupe = new HashSet<string>(StringComparer.Ordinal);   // layer-fact warnings (e.g. a keyword not in the order) fire once, not per line
+        var warn = new FilterWarnings(warnings);
         int matched = 0, unresolvedSkips = 0;
 
         foreach (var line in lines)
         {
             if (line.Parsed.Kind != SkyPatcherLineKind.Patch) continue;
             var where = $"{line.File}:{line.LineNumber}";
+            warn.At(line.File, where);
             if (line.Parsed.Note is { } parseNote)
                 warnings.Add($"{where}: parse note — {parseNote}");
 
@@ -172,7 +173,7 @@ public static class SkyPatcherOverlay
             if (ops.Count == 0) continue;   // a line with no operation does nothing
 
             // ---- evaluate the filters against THIS record (unsupported ⇒ loud skip). ----
-            var verdict = EvaluateFilters(mutableRecord, fk, editorId, recordCatalog, fieldMap, filters, resolver, warnings, dedupe);
+            var verdict = EvaluateFilters(mutableRecord, fk, editorId, recordCatalog, fieldMap, filters, resolver, warn);
             if (verdict == FilterVerdict.Unresolved)
             {
                 unresolvedSkips++;
@@ -244,10 +245,24 @@ public static class SkyPatcherOverlay
         "filterByMgefs", "filterByAlternateTextures",
     };
 
+    /// <summary>Where the filter evaluators put their warnings. Every one is prefixed with the file and line being
+    /// evaluated, as the op-side warnings already are: without it two INIs raising the same filter warning produce
+    /// the same string, and a draft's cannot be told from a placed file's. The dedupe key is scoped to the file, so
+    /// a filter no evaluator handles is named once per INI rather than once per line.</summary>
+    sealed class FilterWarnings
+    {
+        readonly List<string> _out;
+        readonly HashSet<string> _seen = new(StringComparer.Ordinal);
+        string _file = "", _where = "";
+        public FilterWarnings(List<string> sink) => _out = sink;
+        public void At(string file, string where) { _file = file; _where = where; }
+        public void Add(string key, string text) { if (_seen.Add(_file + "|" + key)) _out.Add($"{_where}: {text}"); }
+    }
+
     static FilterVerdict EvaluateFilters(object record, FormKey fk, string? editorId,
         SkyPatcherRecordCatalog recordCatalog, RecordMap? fieldMap,
         IReadOnlyList<(SkyPatcherSegment seg, SkyPatcherKeyClass cls)> filters, IFormResolver resolver,
-        List<string> warnings, HashSet<string> dedupe)
+        FilterWarnings warn)
     {
         var mutagenRecordType = fieldMap?.RecordType;
 
@@ -312,7 +327,7 @@ public static class SkyPatcherOverlay
                 any = true; continue;
             }
 
-            var verdict = EvaluateOneFilter(record, fk, editorId, cls, seg, conn, fieldMap, resolver, warnings, dedupe);
+            var verdict = EvaluateOneFilter(record, fk, editorId, cls, seg, conn, fieldMap, resolver, warn);
             if (verdict != FilterVerdict.Match) return verdict;
             any = true;
         }
@@ -325,23 +340,22 @@ public static class SkyPatcherOverlay
     /// CREATED object's keywords, not its own). Anything else is Unresolved — loud skip upstream.</summary>
     static FilterVerdict EvaluateOneFilter(object record, FormKey fk, string? editorId,
         SkyPatcherKeyClass cls, SkyPatcherSegment seg, string conn, RecordMap? fieldMap,
-        IFormResolver resolver, List<string> warnings, HashSet<string> dedupe)
+        IFormResolver resolver, FilterWarnings warn)
     {
         var spec = fieldMap?.Filters.GetValueOrDefault(cls.BaseKey);
         if (spec is { IsUnmapped: true })
         {
-            if (dedupe.Add($"fu:{cls.BaseKey}"))
-                warnings.Add($"filter '{cls.BaseKey}' has no static evaluation — {spec.Unmapped}");
+            warn.Add($"fu:{cls.BaseKey}", $"filter '{cls.BaseKey}' has no static evaluation — {spec.Unmapped}");
             return FilterVerdict.Unresolved;
         }
         if (spec is not null)
-            return EvaluateSpec(record, cls, seg, conn, spec, fieldMap!, resolver, warnings, dedupe);
+            return EvaluateSpec(record, cls, seg, conn, spec, fieldMap!, resolver, warn);
 
         switch (cls.BaseKey)
         {
             case "filterByKeywords":
             case "restrictToKeywords":   // post-match narrowing; for ONE record that's the same verdict
-                return KeywordVerdict(ReadEngine.KeywordKeys(record), seg, cls.BaseKey, conn, resolver, warnings, dedupe);
+                return KeywordVerdict(ReadEngine.KeywordKeys(record), seg, cls.BaseKey, conn, resolver, warn);
 
             case "filterByEditorIdContains":
                 return ContainsVerdict(seg, conn, editorId ?? "") ? FilterVerdict.Match : FilterVerdict.NoMatch;
@@ -360,8 +374,7 @@ public static class SkyPatcherOverlay
                 if (resolver.WinnerPluginOf(fk) is { } winner
                     && seg.Values.Any(v => v.Raw.Equals(winner, StringComparison.OrdinalIgnoreCase)) != inSet)
                 {
-                    if (dedupe.Add($"mn:{fk}"))
-                        warnings.Add($"filterByModNames{conn}: the record's defining master ('{origin}') and winning override ('{winner}') disagree on membership — which one the DLL tests is unverified, so whether the line applies is UNRESOLVED.");
+                    warn.Add($"mn:{fk}", $"filterByModNames{conn}: the record's defining master ('{origin}') and winning override ('{winner}') disagree on membership — which one the DLL tests is unverified, so whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 bool ok = conn is "Excluded" or "Exclude" ? !inSet : inSet;
@@ -382,15 +395,13 @@ public static class SkyPatcherOverlay
                 // in the Excluded spelling; any other connective is unresolved, never guessed.
                 if (conn is not ("Excluded" or "Exclude"))
                 {
-                    if (dedupe.Add($"ovc:{cls.BaseKey}{conn}"))
-                        warnings.Add($"filter '{cls.BaseKey}{conn}' — only the Excluded spelling is documented; whether this connective yields or selects is UNRESOLVED.");
+                    warn.Add($"ovc:{cls.BaseKey}{conn}", $"filter '{cls.BaseKey}{conn}' — only the Excluded spelling is documented; whether this connective yields or selects is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 var winner = resolver.WinnerPluginOf(fk);
                 if (winner is null)
                 {
-                    if (dedupe.Add($"ov:{fk}"))
-                        warnings.Add($"modNamesLastOverridden{conn}: could not resolve the winning override plugin of {fk} — whether the line yields is UNRESOLVED.");
+                    warn.Add($"ov:{fk}", $"modNamesLastOverridden{conn}: could not resolve the winning override plugin of {fk} — whether the line yields is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 bool hit = seg.Values.Any(v => v.Raw.Equals(winner, StringComparison.OrdinalIgnoreCase));
@@ -402,19 +413,18 @@ public static class SkyPatcherOverlay
                 // Effects array's BaseEffect links. (On the magicEffect folder filterByMgefs is the
                 // PRIMARY filter and never reaches here.)
                 var mine = EntryKeys(record, new[] { "Effects" }, "BaseEffect");
-                return FormSetVerdict(mine, seg, cls.BaseKey, conn, "MagicEffect", resolver, warnings, dedupe);
+                return FormSetVerdict(mine, seg, cls.BaseKey, conn, "MagicEffect", resolver, warn);
             }
             case "filterByAlternateTextures":
             {
                 // Items carrying a given texture set: the model's alternate-texture entries' NewTexture.
                 var mine = EntryKeys(record, new[] { "Model", "AlternateTextures" }, "NewTexture");
-                return FormSetVerdict(mine, seg, cls.BaseKey, conn, "TextureSet", resolver, warnings, dedupe);
+                return FormSetVerdict(mine, seg, cls.BaseKey, conn, "TextureSet", resolver, warn);
             }
             default:
                 // Neither built-in nor mapped — a coverage gap the filtermap guard should have caught;
                 // named here too so a stale plugin build can't skip silently.
-                if (dedupe.Add($"nf:{cls.BaseKey}"))
-                    warnings.Add($"filter '{cls.BaseKey}' has no evaluation (neither built-in nor in the filter map) — whether lines carrying it apply is UNRESOLVED (a coverage gap; report it).");
+                warn.Add($"nf:{cls.BaseKey}", $"filter '{cls.BaseKey}' has no evaluation (neither built-in nor in the filter map) — whether lines carrying it apply is UNRESOLVED (a coverage gap; report it).");
                 return FilterVerdict.Unresolved;
         }
     }
@@ -423,7 +433,7 @@ public static class SkyPatcherOverlay
 
     static FilterVerdict EvaluateSpec(object record, SkyPatcherKeyClass cls, SkyPatcherSegment seg,
         string conn, FilterSpec spec, RecordMap fieldMap, IFormResolver resolver,
-        List<string> warnings, HashSet<string> dedupe)
+        FilterWarnings warn)
     {
         bool excluded = conn is "Excluded" or "Exclude";
         switch (spec.Eval)
@@ -438,7 +448,7 @@ public static class SkyPatcherOverlay
                 foreach (var v in seg.Values)
                 {
                     var k = ResolveFormValue(v, spec.FormType, resolver);
-                    if (k is null) { WarnUnresolvableForm(v, cls.BaseKey, conn, spec, warnings, dedupe); continue; }
+                    if (k is null) { WarnUnresolvableForm(v, cls.BaseKey, conn, spec, warn); continue; }
                     matched |= current.Any(t => string.Equals(t, k.Value.ToString(), StringComparison.OrdinalIgnoreCase));
                 }
                 return (excluded ? !matched : matched) ? FilterVerdict.Match : FilterVerdict.NoMatch;
@@ -448,8 +458,8 @@ public static class SkyPatcherOverlay
                 var segs = SplitPath(spec.Paths[0]);
                 var mine = spec.KeyPath is null ? TryFormLinkKeys(record, segs) : EntryKeys(record, segs, spec.KeyPath);
                 if (spec.EidSubstring)
-                    return EidAwareListVerdict(mine, seg, cls.BaseKey, conn, spec, resolver, warnings, dedupe);
-                return FormSetVerdict(mine, seg, cls.BaseKey, conn, spec.FormType, resolver, warnings, dedupe);
+                    return EidAwareListVerdict(mine, seg, cls.BaseKey, conn, spec, resolver, warn);
+                return FormSetVerdict(mine, seg, cls.BaseKey, conn, spec.FormType, resolver, warn);
             }
             case SkyPatcherFilterEval.EnumEquals:
             {
@@ -468,8 +478,7 @@ public static class SkyPatcherOverlay
                     var member = spec.ValueMap?.GetValueOrDefault(v.Raw) ?? v.Raw;
                     if (enumType is not null && !TryParseEnumMember(enumType, member, out _))
                     {
-                        if (dedupe.Add($"ee:{cls.BaseKey}:{v.Raw}"))
-                            warnings.Add($"filter '{cls.BaseKey}' — '{v.Raw}' is not a {enumType.Name} member (no valueMap match either); whether the line applies is UNRESOLVED.");
+                        warn.Add($"ee:{cls.BaseKey}:{v.Raw}", $"filter '{cls.BaseKey}' — '{v.Raw}' is not a {enumType.Name} member (no valueMap match either); whether the line applies is UNRESOLVED.");
                         return FilterVerdict.Unresolved;
                     }
                     if (current is not null && string.Equals(current, member, StringComparison.OrdinalIgnoreCase)) matched = true;
@@ -482,13 +491,12 @@ public static class SkyPatcherOverlay
                 bool? want = ParseBoolToken(raw);
                 if (want is null)
                 {
-                    if (dedupe.Add($"fb:{cls.BaseKey}:{raw}"))
-                        warnings.Add($"filter '{cls.BaseKey}={raw}' — not a boolean; whether the line applies is UNRESOLVED.");
+                    warn.Add($"fb:{cls.BaseKey}:{raw}", $"filter '{cls.BaseKey}={raw}' — not a boolean; whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 var (bits, enumType) = FlagLeaf(record, spec.Paths[0]);
                 if (enumType is null || !TryParseEnumMember(enumType, spec.Flag!, out var bit))
-                    return UnresolvedLeaf(cls.BaseKey, spec.Paths[0], warnings, dedupe);
+                    return UnresolvedLeaf(cls.BaseKey, spec.Paths[0], warn);
                 bool set = (bits & bit) != 0;
                 if (spec.Invert) set = !set;
                 return set == want.Value ? FilterVerdict.Match : FilterVerdict.NoMatch;
@@ -496,15 +504,14 @@ public static class SkyPatcherOverlay
             case SkyPatcherFilterEval.FlagAnyOf:
             {
                 var (bits, enumType) = FlagLeaf(record, spec.Paths[0]);
-                if (enumType is null) return UnresolvedLeaf(cls.BaseKey, spec.Paths[0], warnings, dedupe);
+                if (enumType is null) return UnresolvedLeaf(cls.BaseKey, spec.Paths[0], warn);
                 var hits = new List<bool>();
                 foreach (var v in seg.Values)
                 {
                     var member = spec.ValueMap?.GetValueOrDefault(v.Raw) ?? v.Raw;
                     if (!TryParseEnumMember(enumType, member, out var bit))
                     {
-                        if (dedupe.Add($"fa:{cls.BaseKey}:{v.Raw}"))
-                            warnings.Add($"filter '{cls.BaseKey}' — flag '{v.Raw}' is not a member of the {spec.Paths[0]} enum (no valueMap match either); whether the line applies is UNRESOLVED.");
+                        warn.Add($"fa:{cls.BaseKey}:{v.Raw}", $"filter '{cls.BaseKey}' — flag '{v.Raw}' is not a member of the {spec.Paths[0]} enum (no valueMap match either); whether the line applies is UNRESOLVED.");
                         return FilterVerdict.Unresolved;
                     }
                     hits.Add((bits & bit) != 0);
@@ -519,8 +526,7 @@ public static class SkyPatcherOverlay
                 else if (raw.Equals("male", StringComparison.OrdinalIgnoreCase)) female = false;
                 else
                 {
-                    if (dedupe.Add($"g:{raw}"))
-                        warnings.Add($"filter '{cls.BaseKey}={raw}' — expected male|female; whether the line applies is UNRESOLVED.");
+                    warn.Add($"g:{raw}", $"filter '{cls.BaseKey}={raw}' — expected male|female; whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 // A TRAITS-templated NPC takes its gender from the TEMPLATE actor — the own-record
@@ -530,13 +536,12 @@ public static class SkyPatcherOverlay
                 var (tBits, tType) = FlagLeaf(record, "Configuration.TemplateFlags");
                 if (tType is not null && TryParseEnumMember(tType, "Traits", out var traitsBit) && (tBits & traitsBit) != 0)
                 {
-                    if (dedupe.Add($"gt:{cls.BaseKey}"))
-                        warnings.Add($"filter '{cls.BaseKey}' — this NPC templates its TRAITS (gender comes from the template actor, not this record); whether the line applies is UNRESOLVED.");
+                    warn.Add($"gt:{cls.BaseKey}", $"filter '{cls.BaseKey}' — this NPC templates its TRAITS (gender comes from the template actor, not this record); whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 var (bits, enumType) = FlagLeaf(record, spec.Paths[0]);
                 if (enumType is null || !TryParseEnumMember(enumType, "Female", out var bit))
-                    return UnresolvedLeaf(cls.BaseKey, spec.Paths[0], warnings, dedupe);
+                    return UnresolvedLeaf(cls.BaseKey, spec.Paths[0], warn);
                 return ((bits & bit) != 0) == female ? FilterVerdict.Match : FilterVerdict.NoMatch;
             }
             case SkyPatcherFilterEval.PcLevelMult:
@@ -545,8 +550,7 @@ public static class SkyPatcherOverlay
                 bool? want = ParseBoolToken(raw);
                 if (want is null)
                 {
-                    if (dedupe.Add($"pl:{cls.BaseKey}:{raw}"))
-                        warnings.Add($"filter '{cls.BaseKey}={raw}' — not a boolean; whether the line applies is UNRESOLVED.");
+                    warn.Add($"pl:{cls.BaseKey}:{raw}", $"filter '{cls.BaseKey}={raw}' — not a boolean; whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 var (parent, leaf) = Navigate(record, SplitPath(spec.Paths[0]));
@@ -565,8 +569,7 @@ public static class SkyPatcherOverlay
                 var hay = resolver.ReadWinnerLeaf(donor.Value, spec.Paths[0]);
                 if (hay is null)
                 {
-                    if (dedupe.Add($"ds:{cls.BaseKey}:{donor}"))
-                        warnings.Add($"filter '{cls.BaseKey}' — could not read '{spec.Paths[0]}' off {donor}'s winner; whether the line applies is UNRESOLVED.");
+                    warn.Add($"ds:{cls.BaseKey}:{donor}", $"filter '{cls.BaseKey}' — could not read '{spec.Paths[0]}' off {donor}'s winner; whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 return ContainsVerdict(seg, conn, hay) ? FilterVerdict.Match : FilterVerdict.NoMatch;
@@ -578,11 +581,10 @@ public static class SkyPatcherOverlay
                 var mine = resolver.KeywordsOf(donor.Value);
                 if (mine is null)
                 {
-                    if (dedupe.Add($"dk:{cls.BaseKey}:{donor}"))
-                        warnings.Add($"filter '{cls.BaseKey}' — could not read the keywords of {donor}'s winner; whether the line applies is UNRESOLVED.");
+                    warn.Add($"dk:{cls.BaseKey}:{donor}", $"filter '{cls.BaseKey}' — could not read the keywords of {donor}'s winner; whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
-                return KeywordVerdict(mine, seg, cls.BaseKey, conn, resolver, warnings, dedupe);
+                return KeywordVerdict(mine, seg, cls.BaseKey, conn, resolver, warn);
             }
             case SkyPatcherFilterEval.NumericLess:
             {
@@ -592,8 +594,7 @@ public static class SkyPatcherOverlay
                 var raw = seg.Values.Count > 0 ? seg.Values[0].Raw : "";
                 if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var n))
                 {
-                    if (dedupe.Add($"nl:{cls.BaseKey}:{raw}"))
-                        warnings.Add($"filter '{cls.BaseKey}={raw}' — not a number; whether the line applies is UNRESOLVED.");
+                    warn.Add($"nl:{cls.BaseKey}:{raw}", $"filter '{cls.BaseKey}={raw}' — not a number; whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 return current < n ? FilterVerdict.Match : FilterVerdict.NoMatch;
@@ -608,8 +609,7 @@ public static class SkyPatcherOverlay
                 {
                     if (!int.TryParse(v.Raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var idx) || idx is < 0 or > 31)
                     {
-                        if (dedupe.Add($"bs:{cls.BaseKey}:{v.Raw}"))
-                            warnings.Add($"filter '{cls.BaseKey}' — '{v.Raw}' is not a biped slot INDEX (0–31; slot number − 30); whether the line applies is UNRESOLVED.");
+                        warn.Add($"bs:{cls.BaseKey}:{v.Raw}", $"filter '{cls.BaseKey}' — '{v.Raw}' is not a biped slot INDEX (0–31; slot number − 30); whether the line applies is UNRESOLVED.");
                         return FilterVerdict.Unresolved;
                     }
                     hits.Add((bits & (1UL << idx)) != 0);
@@ -628,8 +628,7 @@ public static class SkyPatcherOverlay
             default:
                 // Unreachable while the FilterSpec parser and this switch agree on the eval kinds —
                 // named anyway so a drift can't skip silently (the same contract every arm honors).
-                if (dedupe.Add($"ue:{cls.BaseKey}"))
-                    warnings.Add($"filter '{cls.BaseKey}' — eval kind '{spec.Eval}' has no evaluator; whether the line applies is UNRESOLVED (report it).");
+                warn.Add($"ue:{cls.BaseKey}", $"filter '{cls.BaseKey}' — eval kind '{spec.Eval}' has no evaluator; whether the line applies is UNRESOLVED (report it).");
                 return FilterVerdict.Unresolved;
         }
     }
@@ -649,9 +648,9 @@ public static class SkyPatcherOverlay
     /// <summary>The keyword-family verdict — <see cref="FormSetVerdict"/> scoped to Keyword. Null set ⇒
     /// the type has no keyword list we can read (unresolved).</summary>
     static FilterVerdict KeywordVerdict(IReadOnlyList<FormKey>? mine, SkyPatcherSegment seg,
-        string baseKey, string conn, IFormResolver resolver, List<string> warnings, HashSet<string> dedupe)
+        string baseKey, string conn, IFormResolver resolver, FilterWarnings warn)
         => mine is null ? FilterVerdict.Unresolved
-            : FormSetVerdict(mine, seg, baseKey, conn, "Keyword", resolver, warnings, dedupe, noun: "keyword");
+            : FormSetVerdict(mine, seg, baseKey, conn, "Keyword", resolver, warn, noun: "keyword");
 
     /// <summary>List-membership verdict for a set of the record's own attached forms (keywords, mgefs,
     /// alternate textures, factions, recipe ingredients…): bare = ALL listed present, Or = any,
@@ -661,7 +660,7 @@ public static class SkyPatcherOverlay
     /// e.g. SLA_KillerHeels) — and makes the bare-AND unsatisfiable.</summary>
     static FilterVerdict FormSetVerdict(IReadOnlyList<FormKey> mine, SkyPatcherSegment seg,
         string baseKey, string conn, string? formType, IFormResolver resolver,
-        List<string> warnings, HashSet<string> dedupe, string noun = "form")
+        FilterWarnings warn, string noun = "form")
     {
         var wanted = new List<FormKey>();
         int unresolved = 0;
@@ -671,8 +670,7 @@ public static class SkyPatcherOverlay
             if (k is null)
             {
                 unresolved++;
-                if (dedupe.Add($"fs:{baseKey}:{v.Raw}"))
-                    warnings.Add($"{noun} '{v.Raw}' (in a {baseKey}{conn}) resolves to nothing in the active order — treated as attached to no record.");
+                warn.Add($"fs:{baseKey}:{v.Raw}", $"{noun} '{v.Raw}' (in a {baseKey}{conn}) resolves to nothing in the active order — treated as attached to no record.");
             }
             else wanted.Add(k.Value);
         }
@@ -685,7 +683,7 @@ public static class SkyPatcherOverlay
     /// EditorID (resolver lookup).</summary>
     static FilterVerdict EidAwareListVerdict(IReadOnlyList<FormKey> mine, SkyPatcherSegment seg,
         string baseKey, string conn, FilterSpec spec, IFormResolver resolver,
-        List<string> warnings, HashSet<string> dedupe)
+        FilterWarnings warn)
     {
         var eids = new Lazy<List<string>>(() => mine
             .Select(k => resolver.EditorIdOf(k) ?? "")
@@ -775,10 +773,9 @@ public static class SkyPatcherOverlay
 
     /// <summary>The named-warning Unresolved for a flag/enum leaf that can't be resolved on this record
     /// — every Unresolved return owes a per-filter warning (the line-level skip message points at it).</summary>
-    static FilterVerdict UnresolvedLeaf(string baseKey, string path, List<string> warnings, HashSet<string> dedupe)
+    static FilterVerdict UnresolvedLeaf(string baseKey, string path, FilterWarnings warn)
     {
-        if (dedupe.Add($"ul:{baseKey}:{path}"))
-            warnings.Add($"filter '{baseKey}' — could not resolve '{path}' (or its member) on this record; whether the line applies is UNRESOLVED.");
+        warn.Add($"ul:{baseKey}:{path}", $"filter '{baseKey}' — could not resolve '{path}' (or its member) on this record; whether the line applies is UNRESOLVED.");
         return FilterVerdict.Unresolved;
     }
 
@@ -788,10 +785,9 @@ public static class SkyPatcherOverlay
          : null;
 
     static void WarnUnresolvableForm(SkyPatcherValue v, string baseKey, string conn, FilterSpec spec,
-        List<string> warnings, HashSet<string> dedupe)
+        FilterWarnings warn)
     {
-        if (dedupe.Add($"fe:{baseKey}:{v.Raw}"))
-            warnings.Add($"form '{v.Raw}' (in a {baseKey}{conn}) resolves to nothing in the active order{(spec.FormType is null ? "" : $" among {spec.FormType} winners")} — treated as matching no record.");
+        warn.Add($"fe:{baseKey}:{v.Raw}", $"form '{v.Raw}' (in a {baseKey}{conn}) resolves to nothing in the active order{(spec.FormType is null ? "" : $" among {spec.FormType} winners")} — treated as matching no record.");
     }
 
     static bool ContainsVerdict(SkyPatcherSegment seg, string conn, string haystack)
