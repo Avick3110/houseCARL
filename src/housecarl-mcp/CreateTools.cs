@@ -24,7 +24,7 @@ public static class CreateTools
          "Each axis's grammar is on its own parameters:\n" +
          "WHAT — records= (the inline spec array, or \"@<absolute path>\" naming a JSON manifest of the SAME " +
          "array), and its members record_type / editorid / ops / parent / collection / grid.\n" +
-         "LANE — patch= | into= | in_place= with acknowledge=.\n" +
+         "LANE — patch= | into= | in_place= with acknowledge= (and replace=, for an editorid the target already uses).\n" +
          "TRANSPORT — readback= | format= | max_chars=.\n\n" +
          "COMPOSITION: a parent record and its children are authored in ONE call — declare the parent BEFORE them " +
          "(see parent=).\n\n" +
@@ -43,6 +43,8 @@ public static class CreateTools
             string? in_place = null,
         [Description("Confirms the one-time in-place trade-off for the plugin named by in_place= — needed only on the FIRST in-place write to a given plugin (edit, create, remove, OR forward), and not again once one has LANDED — a call that is refused records nothing, so it may be needed again. Without it that first call returns a confirmation prompt instead of writing; re-call with acknowledge=true. Waives the consent to touch your original ONLY; it NEVER skips the record verify. Meaningless without in_place=, and refused there rather than ignored.")]
             bool acknowledge = false,
+        [Description("Overwrite a record the in_place= target ALREADY defines under one of the editorids in records=: that record is re-created FRESH at its own FormID from this call's spec, and everything else it held is DISCARDED. Without it such a collision refuses the WHOLE call before anything is written, naming each record — an editorid a plugin you did not author already uses is far more likely a name you did not know was taken than a re-run of your own create. Meaningless without in_place=, and refused there rather than ignored: a new patch has nothing to collide with, and into= already re-creates its OWN record at a stable FormID.")]
+            bool replace = false,
         [Description("TRANSPORT: expand the read-back to the FULL deep field-by-field dump of every record this call created (not just the fields you set) — confirm composed structures landed WITHOUT enabling the patch in MO2. In place, the verify ALWAYS runs and shows compactly by default; this widens it. The read-back is the WRITTEN FILE's content, NOT load-order truth: the patch wins nothing until enabled in MO2, and a write into an EXISTING mod keeps that mod's priority and may still need sorting above the current winner.")]
             bool readback = false,
         [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band). Every response answered from a build carries the epoch stamp — the identity of the index build parents and link values resolved from — spelled epoch=<hex> on 'text', and as an 'epoch' member on 'json'; a refusal that consulted no build carries none.")]
@@ -76,6 +78,8 @@ public static class CreateTools
             return Refuse($"patch='{patch}' names a NEW patch to write, but in_place='{in_place}' writes into that plugin's own file — the two lanes are exclusive. Drop patch= to create in place, or drop in_place= to write a patch.");
         if (acknowledge && !hasInPlace)
             return Refuse("acknowledge= confirms the in-place trade-off and is meaningless without in_place=<plugin filename>. Drop it, or name the file to write into.");
+        if (replace && !hasInPlace)
+            return Refuse("replace= overwrites a record the in-place target already defines under the same editorid and is meaningless without in_place=<plugin filename>. Drop it, or name the file to write into.");
 
         // ---- records= -----------------------------------------------------------------------------------
         if (records is not { } recEl || recEl.ValueKind is JsonValueKind.Null)
@@ -115,7 +119,7 @@ public static class CreateTools
             });
         }
 
-        var outcome = svc.CreateRecordsBatch(wire, patchName, into, readback, in_place, hasInPlace, acknowledge);
+        var outcome = svc.CreateRecordsBatch(wire, patchName, into, readback, in_place, hasInPlace, acknowledge, replace);
         // The lane the CALL named — stated, not derived from the outcome's flags.
         return json
             ? JsonWire.RenderCreateOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")

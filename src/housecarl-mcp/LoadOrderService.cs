@@ -7353,7 +7353,7 @@ public sealed class LoadOrderService : IDisposable
     /// malformed spec refuses the whole call with per-record reasons, and the core likewise refuses the whole batch on
     /// any creatability or parent problem. One serialize for the lot.</summary>
     public WritePatchBuilder.CreateOutcome CreateRecordsBatch(IReadOnlyList<CreateOp> records, string? patchName, string? into, bool fullReadback = false,
-        string? target = null, bool inPlace = false, bool acknowledge = false)
+        string? target = null, bool inPlace = false, bool acknowledge = false, bool replace = false)
     {
         if (records is null || records.Count == 0)
             return WritePatchBuilder.CreateOutcome.Fail("no records to create supplied — pass one or more {record_type, editorid, operations?, parent?, collection?, grid?} specs.");
@@ -7380,7 +7380,7 @@ public sealed class LoadOrderService : IDisposable
         if (problems.Count > 0)
             return WritePatchBuilder.CreateOutcome.Fail(
                 $"refused — {problems.Count} problem(s) across {records.Count} record(s); NOTHING created:\n  - " + string.Join("\n  - ", problems));
-        return CommitCreate(specs, patchName, into, fullReadback, target, inPlace, acknowledge);
+        return CommitCreate(specs, patchName, into, fullReadback, target, inPlace, acknowledge, replace);
     }
 
     /// <summary>Build one core <see cref="WritePatchBuilder.CreateSpec"/> from wire parts, shared by the single
@@ -7444,7 +7444,7 @@ public sealed class LoadOrderService : IDisposable
     /// refused create that just made the output folder leaves no orphan. Shared by the single and batch
     /// create.</summary>
     WritePatchBuilder.CreateOutcome CommitCreate(IReadOnlyList<WritePatchBuilder.CreateSpec> specs, string? patchName, string? into, bool fullReadback,
-        string? target = null, bool inPlace = false, bool acknowledge = false)
+        string? target = null, bool inPlace = false, bool acknowledge = false, bool replace = false)
     {
         // In-place is the explicit, named-file opt-in: create into an existing plugin, including one houseCARL did
         // not author, instead of writing a new patch. The contract is validated up front — it requires target=, is
@@ -7459,6 +7459,11 @@ public sealed class LoadOrderService : IDisposable
         if (!inPlace && !string.IsNullOrWhiteSpace(target))
             return WritePatchBuilder.CreateOutcome.Fail(
                 "target= is only meaningful with in_place=true (it names the plugin to create into in place). For the default patch lane omit target=; use into= to extend an existing houseCARL patch.");
+        // replace= answers the in-place collision refusal and nothing else: a fresh patch has nothing to collide with,
+        // and into= already rebuilds its own record at a stable FormKey so a re-run stays idempotent.
+        if (!inPlace && replace)
+            return WritePatchBuilder.CreateOutcome.Fail(
+                "replace=true overwrites a record the in-place TARGET already defines under the same editorid, and is only meaningful with in_place=true. Drop it, or name the file to create into.");
 
         lock (_writeGate)                                                 // one write at a time, resolve through commit
         {
@@ -7466,7 +7471,7 @@ public sealed class LoadOrderService : IDisposable
             var rulebook = Rulebook;
 
             if (inPlace)
-                return CommitCreateInPlace(resolver, rulebook, specs, target!.Trim(), acknowledge);
+                return CommitCreateInPlace(resolver, rulebook, specs, target!.Trim(), acknowledge, replace);
 
             string outPath; bool extend, created;
             try { outPath = ResolveOutputPath(patchName, into, out extend, out created, freshPatch: FreshPatchRemedy.NamedByPatchParam); }
@@ -7493,7 +7498,7 @@ public sealed class LoadOrderService : IDisposable
     /// holds.</summary>
     WritePatchBuilder.CreateOutcome CommitCreateInPlace(
         LoadOrderResolver resolver, CorpusRulebook rulebook, IReadOnlyList<WritePatchBuilder.CreateSpec> specs,
-        string target, bool acknowledge)
+        string target, bool acknowledge, bool replace = false)
     {
         // Resolve target to its real on-disk path via the load order, by plugin filename. Refuse loudly if it is not
         // a real active plugin, which closes the coincidental-folder collision. Same resolver as the edit lane.
@@ -7529,7 +7534,8 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.CreateOutcome.Fail(why) with { Stamp = view.Stamp };
 
         // The write, with the created-record verify forced on.
-        var outcome = WritePatchBuilder.CreateRecordsInPlace(resolver, rulebook, specs, targetPath, targetName, fullReadback: true);
+        var outcome = WritePatchBuilder.CreateRecordsInPlace(resolver, rulebook, specs, targetPath, targetName, fullReadback: true,
+                                                             replaceExisting: replace);
 
         // On success, record the acknowledgement, then run the same post-write checks the patch lane runs, since the
         // service owns the live asset resolver and in-place create can author dialogue lines and cells under any

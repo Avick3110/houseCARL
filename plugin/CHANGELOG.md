@@ -99,6 +99,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
   The expression now comes back whole, and because the CK compiler itself emits this form, the optimizer-compiled
   ("Caprica class") note it used to trigger no longer fires on it. An arm that genuinely evaluates a statement
   still fails loud, and the failure now names the statement.
+- **`housecarl_create` in place now refuses an editorid the target plugin already defines, instead of re-creating
+  that record.** A create whose editorid collides used to rebuild the existing record fresh at its own FormID from
+  the call's spec, discarding everything else it held — and reported it afterwards, once the record was already gone.
+  In place the file is one you own and the name is likelier one you did not know was taken, so the whole call is now
+  refused before anything is written, naming each colliding record, its FormID, and its type. Pass `replace=true` to
+  get the rebuild anyway; it is refused off the in-place lane, for the reason its own description gives. The `into=`
+  lane is unchanged: regenerating a houseCARL patch re-creates its own record at a stable FormID, which is what makes
+  a re-run idempotent.
 
 - **A `housecarl_records` `formids=` read is now held to the render bound on every form that reads a body, and
   says what those bodies cost.** `summary` and `aggregate` read a body per id on this lane exactly as `fields`,
