@@ -134,6 +134,17 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
         Refused(ReadW0(DraftPole(ini, "weapon")), RecordsWorld.LiveSkyPatcherIni, "shadow");
     }
 
+    /// <summary>The draft keys are a value on the overlay pole. On a {"file"} pole they would be dropped and that
+    /// plugin's own record would read as the draft's post state.</summary>
+    [Fact]
+    public void TheDraftKeysOnAPluginPoleAreRefusedNamingTheOverlayPole()
+    {
+        var ini = Draft("draft-wrong-pole", "Mixed.ini", "filterByWeapons=HcRecW0:attackDamage=1\r\n");
+        Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) },
+                                     source: Je("{\"file\": \"" + W.OverrideName + "\", \"ini\": " + JsonSerializer.Serialize(ini) + "}"),
+                                     project: Damage), "overlay");
+    }
+
     [Fact]
     public void AMissingDraftFileIsRefused() =>
         Refused(ReadW0(DraftPole(W.Scratch("draft-missing", "Gone.ini"), "weapon")), "no file at");
