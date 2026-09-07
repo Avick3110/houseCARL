@@ -2517,6 +2517,16 @@ offset, paging meant slicing by `editorid_contains`. Now:
   name the chain form and `housecarl_records references=[…]` (bounded with `types=` or `plugins=`) now. The
   unscannable-record note that said "Inspect one with read_record" names `housecarl_records formids=[…]`.
 
+- **`resolve_names` now names the target a container element's summary line shows.** At `project.depth=2` a list
+  element renders as a one-line summary carrying its identity field, and where that field is a FormLink the line
+  shows a FormID — `Effects[0] = [Effect] BaseEffect=033975:Skyrim.esm`. `resolve_names=true` annotated only a
+  field's round-trip value, so the FormID on that line was left bare and the editorid was reachable only by
+  re-reading at `depth=3`. It is now annotated wherever the read shows it, in the same parenthetical and the same
+  `link` sibling in json, and the summary text itself is unchanged. The element's OWN FormID — an owned child
+  record's, which the summary already spells with its editorid — is not annotated with itself. An element with two
+  or more FormLink fields still renders as a bare `[Type]` and so shows no FormID to annotate, for the reason it
+  already gives.
+
 ## 1.9.0 — 2026-07-17
 
 houseCARL's view of the **SKSE-plugin layer** grows from *inventory* into *diagnosis*: two new audit tools
