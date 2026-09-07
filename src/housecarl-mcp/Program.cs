@@ -159,8 +159,9 @@ static void AddMcp(IServiceCollection services, bool stdio)
             "items into containers is CID; a record's OWN FIELDS is SkyPatcher, whose replayed layer " +
             ToolNames.SkypatcherLayer + " reads. " +
             "NOTHING houseCARL WRITES WINS UNTIL IT IS ENABLED. A patch plugin, a placed asset and a written .seq " +
-            "do nothing until the user enables that mod in MO2 — a new mod loads LAST, so enabling is the step, " +
-            "not sorting — and every read-back describes the WRITTEN FILE, not the load order. " +
+            "do nothing until the user enables that mod in MO2 — a NEW mod folder loads LAST, so enabling is the " +
+            "step, not sorting, while a write into an EXISTING mod keeps that mod's priority and may still need " +
+            "sorting above the current winner — and every read-back describes the WRITTEN FILE, not the load order. " +
             "NEVER COPY GENERATED OUTPUT: a tool re-derives it on its next run, so it is never copied into an " +
             "authored patch and never the base for authored work — 'Requiem for the Indifferent.esp'; " +
             "'PGPatcher.esp' / 'PG_1.esp'; 'DynDOLOD.esm' / 'DynDOLOD.esp' / 'Occlusion.esp'; a mod folder holding " +
