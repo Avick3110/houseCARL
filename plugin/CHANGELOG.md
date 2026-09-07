@@ -70,6 +70,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   two read-back parameters now carry the same enabling sentence the instructions do, bound and all: a new mod
   loads last, so enabling is the step, while a write into an existing mod keeps that mod's priority.
 
+- **The Codex umbrella skill now ships under a `skills/` root in the package.** In the release zip it is
+  `houseCARL/codex/skills/housecarl/` where it was `houseCARL/codex/housecarl/` — the shape Codex expects, a
+  skill directory that is an immediate child of `skills/`. The installer places it in the same place it always
+  did (`~/.agents/skills/housecarl`), so an install run from `houseCARL-Setup.exe` is unchanged; a copy taken by
+  hand out of the zip comes from the new path.
+
 - **A `housecarl_records` `formids=` read is now held to the render bound on every form that reads a body, and
   says what those bodies cost.** `summary` and `aggregate` read a body per id on this lane exactly as `fields`,
   `rows` and `everything` do — one cheap leaf off each — but only the last three were measured against the bound,
