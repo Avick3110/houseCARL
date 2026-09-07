@@ -20,7 +20,7 @@ namespace HousecarlGenerator;
 /// <para>Co-hosting contract — the shared state <see cref="RunAll"/> resets before each probe, and the only
 /// cross-probe state in the suite: <c>CorpusRulebook.CorpusPath</c> (the one mutable static) is reset to the
 /// runner's canonical corpus, so the check-first probes never validate against a prior probe's deleted temp
-/// corpus; the <c>CODEX_HOME</c> env var is restored, because setup-update-lock-guard nulls it and does not;
+/// corpus; the <c>CODEX_HOME</c> env var is restored, because the setup probes null it and do not;
 /// and each probe runs in its own try/catch, so a probe that throws fails only itself. Everything else is
 /// per-probe already — its own fixture directory and an explicit-path UserConfigStore — and the class-parents
 /// and decompile caches are per-LoadOrderService-instance, not process statics. Those fixture directories
@@ -237,7 +237,7 @@ public static class CiAll
             Console.WriteLine($"  (shared-corpus pre-gen failed: {ex.Message} — probes will self-generate)");
         }
 
-        var codexHome = Environment.GetEnvironmentVariable("CODEX_HOME");   // snapshot once (setup-update-lock nulls it)
+        var codexHome = Environment.GetEnvironmentVariable("CODEX_HOME");   // snapshot once (the setup probes null it)
         var results = new List<(string Name, bool Ok, string? Error, double Secs)>();
 
         foreach (var probe in probes)
