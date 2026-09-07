@@ -374,6 +374,19 @@ public static class Program
         Console.WriteLine("      -> " + skillsDest);
         CopyDirectory(pluginSrc, skillsDest);
 
+        // CopyDirectory only overwrites, so a skill dropped since the installed version would survive an
+        // upgrade and keep loading. This skills root is houseCARL's outright, so anything not in the package
+        // is a leftover.
+        string installedSkills = Path.Combine(skillsDest, "skills");
+        List<string> shipped = ShippedSkillNames(pluginSrc);
+        List<string> stale = Directory.Exists(installedSkills)
+            ? Directory.GetDirectories(installedSkills)
+                .Select(d => Path.GetFileName(d)!)
+                .Where(n => !shipped.Contains(n, StringComparer.OrdinalIgnoreCase))
+                .ToList()
+            : new List<string>();
+        ReportRemoved("Claude Code", installedSkills, RemoveSkillDirs(installedSkills, stale));
+
         Console.WriteLine("[Claude Code] registering the MCP server");
         Console.WriteLine("      -> " + claudeJson);
         RegisterClaudeMcpServer(claudeJson, McpServerName, destExe);
@@ -410,6 +423,18 @@ public static class Program
         if (Directory.Exists(skillsSrc))
             foreach (string skillDir in Directory.GetDirectories(skillsSrc))
                 CopyDirectory(skillDir, Path.Combine(skillsRoot, Path.GetFileName(skillDir)));
+
+        // Drop the skills a previous version put here and this package no longer ships. ~/.agents/skills is
+        // shared with every other agent's skills, so this prunes ONLY the folder names houseCARL recorded
+        // installing — never a directory diff of a dir we do not own.
+        List<string> shippedSkills = ShippedSkillNames(pluginSrc);
+        string recordPath = CodexSkillRecord(home, homeOverride);
+        List<string> staleSkills = ReadSkillRecord(recordPath)
+            .Where(n => !shippedSkills.Contains(n, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+        ReportRemoved("Codex", skillsRoot, RemoveSkillDirs(skillsRoot, staleSkills));
+        Directory.CreateDirectory(Path.GetDirectoryName(recordPath)!);
+        File.WriteAllLines(recordPath, shippedSkills);
 
         // Codex-only umbrella skill: the $housecarl entry point (a top-level SKILL.md routing to the
         // helpers + an agents/openai.yaml declaring the MCP-server dependency). It ships beside the plugin
@@ -455,6 +480,57 @@ public static class Program
         try { Console.ReadKey(intercept: true); } catch { /* no interactive console (redirected) */ }
         Console.WriteLine();
         return exitCode;
+    }
+
+    // ---- stale skill folders ----------------------------------------------
+
+    /// <summary>The skill folder names this package ships.</summary>
+    private static List<string> ShippedSkillNames(string pluginSrc)
+    {
+        string skillsSrc = Path.Combine(pluginSrc, "skills");
+        return Directory.Exists(skillsSrc)
+            ? Directory.GetDirectories(skillsSrc).Select(d => Path.GetFileName(d)!).ToList()
+            : new List<string>();
+    }
+
+    /// <summary>Where the Codex install records the skill folders it put in the shared ~/.agents/skills, so a
+    /// later upgrade can take back exactly those and nothing else. It sits in houseCARL's own data dir, beside
+    /// the server dir, not in the shared skills dir.</summary>
+    private static string CodexSkillRecord(string home, string? homeOverride)
+        => Path.Combine(Path.GetDirectoryName(CodexServerDir(home, homeOverride))!, "installed-skills.txt");
+
+    /// <summary>The skill folder names a previous Codex install recorded. Anything that is not a bare folder
+    /// name is dropped, so a hand-edited record can never point the delete below at another path.</summary>
+    private static List<string> ReadSkillRecord(string recordPath)
+    {
+        if (!File.Exists(recordPath)) return new List<string>();
+        return File.ReadAllLines(recordPath)
+            .Select(l => l.Trim())
+            .Where(l => l.Length > 0 && l != "." && l != ".." && l == Path.GetFileName(l))
+            .ToList();
+    }
+
+    /// <summary>Delete the named skill folders under <paramref name="skillsRoot"/>; returns the ones that were there.</summary>
+    private static List<string> RemoveSkillDirs(string skillsRoot, IEnumerable<string> names)
+    {
+        List<string> removed = new();
+        foreach (string name in names)
+        {
+            string dir = Path.Combine(skillsRoot, name);
+            if (!Directory.Exists(dir)) continue;
+            Directory.Delete(dir, recursive: true);
+            removed.Add(name);
+        }
+        return removed;
+    }
+
+    private static void ReportRemoved(string host, string skillsRoot, List<string> removed)
+    {
+        if (removed.Count == 0) return;
+        Console.WriteLine("[" + host + "] removed skills this version no longer ships");
+        Console.WriteLine("      -> " + skillsRoot);
+        foreach (string name in removed)
+            Console.WriteLine("      - " + name);
     }
 
     // ---- file copy --------------------------------------------------------
