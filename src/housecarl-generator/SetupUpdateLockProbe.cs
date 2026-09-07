@@ -12,7 +12,9 @@ namespace HousecarlGenerator;
 /// ~/.codex, or %LOCALAPPDATA% touched):
 ///
 ///   T1 (control)  a clean first install (no destination exe yet) SUCCEEDS for Claude AND Codex — the
-///                 pre-flight never false-blocks a fresh machine.
+///                 pre-flight never false-blocks a fresh machine — and the Codex umbrella skill lands at
+///                 ~/.agents/skills/housecarl, so the packager path and the installer path must agree
+///                 (disagree on either side and the installer's Directory.Exists guard skips the copy).
 ///   T2 (Claude)   with the installed server exe held open like a running session, the re-install refuses:
 ///                 ServerInUse, RefusedBeforeAnyCopy (the PRE-FLIGHT path, not the catch), a deleted sentinel
 ///                 file is STILL absent (no copy ran), and the held exe is byte-intact.
