@@ -73,6 +73,19 @@ public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
         Assert.DoesNotContain("BasicStats.Damage = 131", r);
     }
 
+    /// <summary>A draft in a type the SkyPatcher.ini [Patcher] section switches off is folded into a folder the live
+    /// scan never built — nothing is placed in that type — so the toggle has to be read off the layer rather than
+    /// assumed on: once placed the DLL would skip the whole folder, and the post state stays the plain winner.</summary>
+    [Fact]
+    public void ADraftInATypeToggledOffInSkyPatcherIniAppliesNothingAndSaysSo()
+    {
+        var ini = Draft("draft-toggle", "Armors.ini", "filterByArmors=HcRecA0:damageResist=99\r\n");
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Armor) }, source: DraftPole(ini, "armor"),
+                                     project: new() { form = "fields", fields = new[] { "ArmorRating" } });
+        Served(r, "disables 'armor' patching");
+        Assert.DoesNotContain("ArmorRating = 99", r);
+    }
+
     [Fact]
     public void AnUndocumentedSubfolderIsRefusedNamingTheDocumentedFolders()
     {

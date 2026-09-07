@@ -29,6 +29,10 @@ public sealed class RecordsWorld : IDisposable
     /// changes no record's post state; it exists so a draft can be given the same name and collide with it.</summary>
     public const string LiveSkyPatcherIni = "placed.ini";
 
+    /// <summary>The SkyPatcher type this world's SkyPatcher.ini switches off. Nothing is placed in its folder, so
+    /// it is the type whose toggle only a folder INVENTED by a draft fold can consult.</summary>
+    public const string ToggledOffSkyPatcherType = "Armor";
+
     public string MasterName { get; }
     public string MidName { get; }
     public string OverrideName { get; }
@@ -213,6 +217,10 @@ public sealed class RecordsWorld : IDisposable
         var spDir = Path.Combine(ModsDir, "MasterMod", "SKSE", "Plugins", "SkyPatcher", "weapon");
         Directory.CreateDirectory(spDir);
         File.WriteAllText(Path.Combine(spDir, LiveSkyPatcherIni), "; placed, and deliberately patches nothing\r\n");
+        // The [Patcher] toggles, with 'armor' switched off and no live armor folder at all: the type a draft can
+        // be folded into that the DLL would skip wholesale. 'weapon' is left at its default (on).
+        File.WriteAllText(Path.Combine(ModsDir, "MasterMod", "SKSE", "Plugins", "SkyPatcher.ini"),
+            "[Patcher]\r\niEnable" + ToggledOffSkyPatcherType + "Patching=0\r\n");
 
         var genDir = Path.Combine(Root, "corpus-gen");
         CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
