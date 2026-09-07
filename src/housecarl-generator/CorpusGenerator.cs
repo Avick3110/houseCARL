@@ -558,10 +558,11 @@ public static class CorpusGenerator
         /// <summary>A read-only PROJECTION of a real writable type (Mutagen's multi-mod overlay, the
         /// merged-cell view). Nothing is lost by excluding it — it can never be composed.</summary>
         ReadOnlyProjection,
-        /// <summary>No <c>I{Name}Getter</c> resolved BY NAME, yet the class carries settable state. Reported,
-        /// not diagnosed: the name probe misses a type whose getter interface is generic or differently
-        /// named, so this verdict does NOT establish a coverage gap — only that a human should check whether
-        /// the data is reachable elsewhere in the catalogue.</summary>
+        /// <summary>No OWN-named getter interface resolved, yet the class carries settable state. Reported,
+        /// not diagnosed: <see cref="GetterInterfaceFor"/> deliberately answers only for the interface a class
+        /// owns, so a type borrowing another type's getter interface lands here, and this verdict does NOT
+        /// establish a coverage gap — only that a human should check whether the data is reachable elsewhere
+        /// in the catalogue.</summary>
         WritableButUnextractable,
     }
 
@@ -588,9 +589,8 @@ public static class CorpusGenerator
     /// <see cref="EmittedArmNames"/>.
     ///
     /// THE SPLIT. When a getter interface EXISTS, authorability is whether its mutable twin does; no twin
-    /// means a read-only projection, the correct exclusion. When NO getter interface exists, handing the
-    /// concrete class to <see cref="MutableInterfaceFor"/> always answers "excluded" — its
-    /// <c>EndsWith("Getter")</c> test a concrete class never passes — which makes "has no getter interface"
+    /// means a read-only projection, the correct exclusion. When NO getter interface exists there is nothing to
+    /// take a mutable twin of, so the type is excluded either way — which would make "has no getter interface"
     /// indistinguishable in the output from "is a read-only projection", though only the second is a correct
     /// reason to exclude. So split here on whether the class actually carries writable state.
     /// </summary>
@@ -598,12 +598,13 @@ public static class CorpusGenerator
     {
         var gi = GetterInterfaceFor(t);
 
-        // The `?? t` fallback is load-bearing, not the dead branch it looks like. A concrete class whose OWN name
-        // ends in "Getter" (FormLinkNullableGetter`1, FormLinkOrIndexGetter`1 in Mutagen.Bethesda.Core) passes
-        // MutableInterfaceFor's arity-stripped EndsWith test and resolves a mutable twin through it, so it is
-        // authorable and must stay so. Computing this from `gi` alone silently flips both types, and both are in
-        // the walk because BuildCorpus seeds IPexFileGetter from that same assembly.
-        if (MutableInterfaceFor(gi ?? t) != null) return ArmClass.Authorable;
+        // This used to read MutableInterfaceFor(gi ?? t), the `?? t` rescuing two concrete classes whose own
+        // names end in "Getter" — FormLinkNullableGetter`1 and FormLinkOrIndexGetter`1 in Mutagen.Bethesda.Core,
+        // in the walk because BuildCorpus seeds IPexFileGetter from that assembly. It was compensating for the
+        // arity bug in GetterInterfaceFor (#424): both DO own a getter interface, and now resolve it. Measured
+        // across all three assemblies the walk visits, no class reaches this line with no getter interface and a
+        // mutable twin of its own name, so the fallback is gone rather than left as a dead branch.
+        if (gi != null && MutableInterfaceFor(gi) != null) return ArmClass.Authorable;
 
         // Not authorable. Everything below only decides WHICH exclusion to report — never whether to exclude.
         if (gi != null) return ArmClass.ReadOnlyProjection;
@@ -680,11 +681,13 @@ public static class CorpusGenerator
     /// gap, and does NOT say the fix belongs upstream in Mutagen — neither is established by "no
     /// <c>I{Name}Getter</c> resolved by name", and the second is provably false for at least one type that
     /// reaches this line: ArmorAddonWeightSliderContainer implements <c>IGenderedItemGetter&lt;bool&gt;</c> and
-    /// its data ships in the reference today as <c>GenderedItem&lt;Boolean&gt;</c>, 2/2 writable. The name probe
-    /// is <c>I{Name}Getter</c> built from <c>Type.Name</c>, which carries the generic arity, so a type whose
-    /// getter interface is named differently — or is generic — resolves null here while being perfectly
-    /// extractable. That is a real defect in <see cref="GetterInterfaceFor"/>; until it is fixed this line must
-    /// not diagnose, only report, and hand the reader the one check that settles it.
+    /// its data ships in the reference today as <c>GenderedItem&lt;Boolean&gt;</c>, 2/2 writable.
+    /// <see cref="GetterInterfaceFor"/> resolves the getter interface a class OWNS and nothing else — a
+    /// deliberate boundary, not an oversight (#424): implementing someone else's getter interface is the
+    /// structural signal <see cref="ClassifyArm"/> uses to spot a read-only projection. So a type that is not a
+    /// projection yet borrows another type's getter interface resolves null here while being perfectly
+    /// extractable, and this line must not diagnose, only report, and hand the reader the one check that
+    /// settles it.
     ///
     /// Shared by the record path and the union-arm path so both name the same thing the same way.
     /// </summary>
@@ -693,9 +696,9 @@ public static class CorpusGenerator
         var (w, total) = WritableSurfaceCount(t);
         var name = t.FullName ?? t.Name;   // FullName: ~350 distinct nested types share the simple name "ErrorMask"
         if (w == 0)
-            return $"No I{t.Name}Getter resolved by name for {role} {name} — {w} of {total} properties are " +
+            return $"No {GetterProbeName(t)} resolved by name for {role} {name} — {w} of {total} properties are " +
                    $"authorable (public settable, or a mutable collection). {ReachabilityCheck}";
-        return $"UNEXTRACTABLE BY NAME: {role} {name} — no I{t.Name}Getter resolved by name, and {w} of {total} " +
+        return $"UNEXTRACTABLE BY NAME: {role} {name} — no {GetterProbeName(t)} resolved by name, and {w} of {total} " +
                $"properties are authorable (public settable, or a mutable collection). It is excluded from the " +
                $"catalog. {ReachabilityCheck}";
     }
@@ -728,15 +731,53 @@ public static class CorpusGenerator
         return gf?.GetValue(null) is RecordType g ? g.ToString() : null;
     }
 
-    /// <summary>The "I{Name}Getter" interface for a concrete Mutagen class.</summary>
+    /// <summary>
+    /// The name this resolver probes for: the getter interface a class of this name would OWN.
+    /// The arity suffix stays where the runtime puts it — <c>GenderedItem`1</c>'s getter interface is
+    /// <c>IGenderedItemGetter`1</c>, never the impossible <c>IGenderedItem`1Getter</c> a probe built straight
+    /// off <see cref="Type.Name"/> asks for. One source of truth, so the anomaly line reports the name that
+    /// was actually looked up.
+    /// </summary>
+    internal static string GetterProbeName(Type concrete)
+    {
+        var tick = concrete.Name.IndexOf('`');
+        return tick >= 0
+            ? $"I{concrete.Name[..tick]}Getter{concrete.Name[tick..]}"
+            : $"I{concrete.Name}Getter";
+    }
+
+    /// <summary>
+    /// The getter interface a concrete Mutagen class OWNS — the one named after it.
+    ///
+    /// Arity-aware throughout, the same trap <see cref="MutableInterfaceFor"/> already fixes: the probe name
+    /// carries the suffix in the runtime's position (see <see cref="GetterProbeName"/>), and the last fallback
+    /// strips it before testing for the "Getter" ending, which a generic interface's own name never has
+    /// (<c>ISkyrimGroupGetter`1</c>). Missing that answered "no getter interface" for every generic modeled
+    /// type — GenderedItem&lt;T&gt;, SkyrimGroup&lt;T&gt;, FormLinkNullable&lt;T&gt; — in a walk whose whole
+    /// claim is that coverage is Mutagen's coverage by construction.
+    ///
+    /// OWN-NAMED ONLY, deliberately. A class that implements a getter interface named after some OTHER type
+    /// does NOT resolve here, and must not: implementing only the getter side of a type you are not is exactly
+    /// the shape of Mutagen's read-only projections (SkyrimMultiModOverlay implements ISkyrimModDisposableGetter,
+    /// MergedWorldspace implements IWorldspaceGetter, MergedCellBlock implements ICellBlockGetter, and the
+    /// Consolidated*/Merged* group views likewise). <see cref="ClassifyArm"/> reads "no getter interface" as
+    /// precisely that structural signal, so widening this to any implemented getter interface would hand every
+    /// one of those a mutable twin and re-admit it as an authorable arm of a union it can never be composed
+    /// into. The cost of the narrow answer is that a NON-projection implementing someone else's getter
+    /// interface — ArmorAddonWeightSliderContainer, which implements IGenderedItemGetter&lt;bool&gt; — still
+    /// resolves null; its data is catalogued anyway, as GenderedItem&lt;Boolean&gt;, which is why
+    /// <see cref="UnextractableWarning"/> reports rather than diagnoses.
+    /// </summary>
     internal static Type? GetterInterfaceFor(Type concrete)
     {
         if (concrete.IsInterface) return concrete;
-        var direct = concrete.Assembly.GetType($"{concrete.Namespace}.I{concrete.Name}Getter");
-        if (direct != null) return direct;
-        return concrete.GetInterfaces()
-            .FirstOrDefault(i => i.Name == $"I{concrete.Name}Getter")
-            ?? concrete.GetInterfaces().FirstOrDefault(i => i.Name.EndsWith("Getter") && Normalize(i.Name) == Normalize(concrete.Name));
+        var probe = GetterProbeName(concrete);
+        var ifaces = concrete.GetInterfaces();
+        // The IMPLEMENTED interface is asked first, ahead of the assembly lookup: on a CLOSED generic class it
+        // is the closed IFooGetter<Bar>, where Assembly.GetType can only ever hand back the open definition.
+        return ifaces.FirstOrDefault(i => i.Name == probe)
+            ?? concrete.Assembly.GetType($"{concrete.Namespace}.{probe}")
+            ?? ifaces.FirstOrDefault(i => i.Name.Split('`')[0].EndsWith("Getter") && Normalize(i.Name) == Normalize(concrete.Name));
     }
 
     /// <summary>The mutable twin of a getter interface (strip the "Getter" suffix).</summary>
