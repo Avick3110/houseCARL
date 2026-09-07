@@ -25,6 +25,10 @@ public sealed class RecordsWorld : IDisposable
     public string OldFile { get; }
     public string ModsDir { get; }
 
+    /// <summary>The filename of the one SkyPatcher INI actually placed in a mod. It carries no patch line, so it
+    /// changes no record's post state; it exists so a draft can be given the same name and collide with it.</summary>
+    public const string LiveSkyPatcherIni = "placed.ini";
+
     public string MasterName { get; }
     public string MidName { get; }
     public string OverrideName { get; }
@@ -203,6 +207,12 @@ public sealed class RecordsWorld : IDisposable
         midMod.BeginWrite.ToPath(midFile).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
         ovMod.BeginWrite.ToPath(OverrideFile).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
         oldMod.BeginWrite.ToPath(OldFile).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
+
+        // One placed SkyPatcher INI, comment-only: it gives the layer a real 'weapon' folder for a draft to be
+        // sorted into and a filename for a draft to collide with, while patching nothing.
+        var spDir = Path.Combine(ModsDir, "MasterMod", "SKSE", "Plugins", "SkyPatcher", "weapon");
+        Directory.CreateDirectory(spDir);
+        File.WriteAllText(Path.Combine(spDir, LiveSkyPatcherIni), "; placed, and deliberately patches nothing\r\n");
 
         var genDir = Path.Combine(Root, "corpus-gen");
         CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));

@@ -13,6 +13,19 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **A SkyPatcher INI can be checked before it is placed in a mod.** `housecarl_records`'s overlay pole takes a
+  draft file: `source={"overlay": "skypatcher", "state": "post", "ini": "<absolute path to a draft .ini>",
+  "subfolder": "weapon"}` reads the record as the game would see it once that draft is placed — the live layer
+  plus the draft, sorted into its type folder by filename among the live files. `subfolder` may be omitted when
+  the draft's parent directory is already the type folder, and the response says the folder was taken from
+  there. The same pole is legal as `versus=`, so the draft's post state against the plain post state is the
+  draft's own effect and nothing else. An undocumented subfolder, a draft whose filename is already placed in
+  that folder (which would shadow or be shadowed depending on mod order), and `state: "pre"` with a draft are
+  each refused by name. The draft rides the `formids=` lane; the scan lane still refuses an overlay pole for
+  the reason it already gives. Like the rest of the INI layer, a draft sits outside the epoch fingerprint, and
+  the response names it on the source arm. Every warning the replay produces for a draft's line — an unknown
+  key, an op with no field mapping, a filter it cannot evaluate — now renders beside the answer with the
+  draft's path as the file name, as it does for a placed INI's lines.
 - **A `housecarl_records` `formids=` read is now held to the render bound on every form that reads a body, and
   says what those bodies cost.** `summary` and `aggregate` read a body per id on this lane exactly as `fields`,
   `rows` and `everything` do — one cheap leaf off each — but only the last three were measured against the bound,

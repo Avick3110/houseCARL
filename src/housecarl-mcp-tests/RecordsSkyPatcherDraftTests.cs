@@ -1,0 +1,113 @@
+using System.Text.Json;
+using HousecarlMcp;
+using Xunit;
+
+namespace HousecarlMcpTests;
+
+/// <summary>The draft-INI value on the SkyPatcher overlay pole: a file not yet placed in a mod, folded into the
+/// live layer so the record reads as the game would see it once the draft is placed.</summary>
+[Collection("records")]
+[Trait("tier", "integration")]
+public sealed class RecordsSkyPatcherDraftTests : RecordsTestBase
+{
+    public RecordsSkyPatcherDraftTests(RecordsFixture f) : base(f) { }
+
+    static RecordsTools.RecordsProject Damage => new() { form = "fields", fields = new[] { "BasicStats.Damage" } };
+    static RecordsTools.RecordsProject DamageDelta => new() { form = "delta", fields = new[] { "BasicStats.Damage" } };
+
+    /// <summary>A draft INI on disk, outside any mod, and the pole that folds it in.</summary>
+    string Draft(string dir, string file, string body)
+    {
+        var path = W.Scratch(dir, file);
+        File.WriteAllText(path, body);
+        return path;
+    }
+
+    static JsonElement DraftPole(string ini, string? subfolder = null, string state = "post") =>
+        Je("{\"overlay\": \"skypatcher\", \"state\": \"" + state + "\", \"ini\": " + JsonSerializer.Serialize(ini)
+           + (subfolder is null ? "" : ", \"subfolder\": \"" + subfolder + "\"") + "}");
+
+    string ReadW0(JsonElement pole) =>
+        RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, source: pole, project: Damage);
+
+    [Fact]
+    public void ADraftThatSetsALeafIsReadInThePostState()
+    {
+        var ini = Draft("draft-set", "MyWeapons.ini", "filterByWeapons=HcRecW0:attackDamage=123\r\n");
+        Served(ReadW0(DraftPole(ini, "weapon")), "BasicStats.Damage = 123", ini);
+    }
+
+    [Fact]
+    public void TheSubfolderIsTakenFromTheDraftsParentDirectoryAndTheArmSaysSo()
+    {
+        var ini = Draft("weapon", "Inferred.ini", "filterByWeapons=HcRecW0:attackDamage=77\r\n");
+        Served(ReadW0(DraftPole(ini)), "BasicStats.Damage = 77", "parent directory");
+    }
+
+    /// <summary>The composition the skill's verify step wants: the draft's post state against the plain post state
+    /// is the draft's own effect and nothing else.</summary>
+    [Fact]
+    public void TheDraftsPostVersusThePlainPostIsTheDraftsOwnEffect()
+    {
+        var ini = Draft("draft-delta", "Delta.ini", "filterByWeapons=HcRecW0:attackDamage=140\r\n");
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, source: DraftPole(ini, "weapon"),
+                                     versus: Overlay("post"), project: DamageDelta);
+        Served(r, "BasicStats.Damage", "140", "1 difference");
+    }
+
+    [Fact]
+    public void ADraftLineWithAnUnknownKeyWarnsAndNamesTheDraftsPath()
+    {
+        var ini = Draft("draft-typo", "Typo.ini", "filterByWeapons=HcRecW0:attakDamage=5\r\n");
+        Served(ReadW0(DraftPole(ini, "weapon")), ini, "not in the SkyPatcher reference");
+    }
+
+    /// <summary>A draft named for a plugin that is not in the order would never be read once placed, so the post
+    /// state is the plain winner and the response says why rather than reading as "the draft changes nothing".</summary>
+    [Fact]
+    public void ADraftGatedOnAnInactivePluginIsNotAppliedAndSaysSo()
+    {
+        var ini = Draft("draft-gate", "NotHere.esp.ini", "filterByWeapons=HcRecW0:attackDamage=131\r\n");
+        var r = ReadW0(DraftPole(ini, "weapon"));
+        Served(r, "not in the active load order");
+        Assert.DoesNotContain("BasicStats.Damage = 131", r);
+    }
+
+    [Fact]
+    public void AnUndocumentedSubfolderIsRefusedNamingTheDocumentedFolders()
+    {
+        var ini = Draft("draft-sub", "Bad.ini", "filterByWeapons=HcRecW0:attackDamage=1\r\n");
+        Refused(ReadW0(DraftPole(ini, "weapons")), "weapons", "documented folders are");
+    }
+
+    [Fact]
+    public void ASubfolderThatCannotBeInferredIsRefusedAskingForOne()
+    {
+        var ini = Draft("draft-nofolder", "Loose.ini", "filterByWeapons=HcRecW0:attackDamage=1\r\n");
+        Refused(ReadW0(DraftPole(ini)), "subfolder");
+    }
+
+    [Fact]
+    public void TheDraftIsRefusedOnThePreState()
+    {
+        var ini = Draft("draft-pre", "Pre.ini", "filterByWeapons=HcRecW0:attackDamage=1\r\n");
+        Refused(ReadW0(DraftPole(ini, "weapon", state: "pre")), "\"post\"");
+    }
+
+    [Fact]
+    public void ADraftWhoseFilenameIsAlreadyPlacedIsRefused()
+    {
+        var ini = Draft("draft-clash", RecordsWorld.LiveSkyPatcherIni, "filterByWeapons=HcRecW0:attackDamage=1\r\n");
+        Refused(ReadW0(DraftPole(ini, "weapon")), RecordsWorld.LiveSkyPatcherIni, "shadow");
+    }
+
+    [Fact]
+    public void AMissingDraftFileIsRefused() =>
+        Refused(ReadW0(DraftPole(W.Scratch("draft-missing", "Gone.ini"), "weapon")), "no file at");
+
+    [Fact]
+    public void ASubfolderWithNoDraftIsRefusedByName() =>
+        Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) },
+                                     source: Je("{\"overlay\": \"skypatcher\", \"state\": \"post\", \"subfolder\": \"weapon\"}"),
+                                     project: Damage), "\"ini\"");
+}

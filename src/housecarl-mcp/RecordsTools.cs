@@ -122,9 +122,9 @@ public static class RecordsTools
             string? where_source = null,
         [Description("SELECT: find records that REFERENCE these FormIDs (reverse, one step; OR over the list, each match names which target(s) it hit). Needs no bounding scope: unbounded it is answered off the reverse-reference index, which is built on the first such call, costs one whole-order link-walk, and reports that cost and its own per-plugin freshness key in the response. A bounded references= — with a types= or plugins= — is unchanged and still cheaper. A '!' before an entry NEGATES it: references=[\"!XXXXXX:A.esm\"] keeps only records that do NOT reference that target, and plain and negated entries in one call compose by AND; the sigil takes the @file spelling too — references=[\"!@C:/work/targets.jsonl\"] excludes every target the file names. A negated entry ALONE with no types=/plugins= scope is the ORPHAN sweep: the universe becomes every record nothing in the order references, and the named target then excludes any of those that link it — bound the call if you meant the narrower question. Accepts [\"@<path>\"] like formids=.")]
             string[]? references = null,
-        [Description("SOURCE decides whose version you read; this is the SUBJECT of the call. Omit or \"winner\" for the load-order winner (the default). A plugin filename (e.g. \"OldPatch.esp\") reads THAT plugin's version WHEREVER the plugin lives — active in your order, or sitting on disk unticked — you do not have to know which, and the response STATES which arm resolved (active, or out-of-load-order and from where); use {\"file\": \"X.esp\", \"mod\": \"<mod folder>\"} when two mods ship the same filename. A plugin found in neither place is refused naming both places searched. A record the named plugin does not touch is refused naming the plugins that DO touch it — never silently absent. {\"overlay\": \"skypatcher\", \"state\": \"pre\"|\"post\"} reads around the SkyPatcher INI layer (post = after it replays). Content read from outside the load order — an off-order file, or the SkyPatcher INI layer — sits OUTSIDE the epoch fingerprint, and the response says so. \"previous_provider\" is a versus= value only — it is measured FROM the subject this parameter names.")]
+        [Description("SOURCE decides whose version you read; this is the SUBJECT of the call. Omit or \"winner\" for the load-order winner (the default). A plugin filename (e.g. \"OldPatch.esp\") reads THAT plugin's version WHEREVER the plugin lives — active in your order, or sitting on disk unticked — you do not have to know which, and the response STATES which arm resolved (active, or out-of-load-order and from where); use {\"file\": \"X.esp\", \"mod\": \"<mod folder>\"} when two mods ship the same filename. A plugin found in neither place is refused naming both places searched. A record the named plugin does not touch is refused naming the plugins that DO touch it — never silently absent. {\"overlay\": \"skypatcher\", \"state\": \"pre\"|\"post\"} reads around the SkyPatcher INI layer (post = after it replays); add \"ini\": \"<absolute path to a draft .ini>\" (with \"subfolder\": the SkyPatcher type folder it would be placed in, or omit it when the draft's parent directory already IS that folder) to read the post state with a draft INI that is not yet in a mod folded into the layer, so a draft can be checked before it is placed. Content read from outside the load order — an off-order file, or the SkyPatcher INI layer — sits OUTSIDE the epoch fingerprint, and the response says so. \"previous_provider\" is a versus= value only — it is measured FROM the subject this parameter names.")]
             JsonElement? source = null,
-        [Description("SOURCE (comparison forms): the REFERENCE pole a delta/tree compares against. Same forms as source= — \"winner\" | a plugin filename | {\"file\", \"mod\"} | {\"overlay\", \"state\"} — plus \"previous_provider\": the plugin immediately below the SUBJECT (whatever source= names) in the record's touching stack, measured FROM THE SUBJECT, never from the winner. Its four cases are all declared: subject=winner → next plugin down; subject mid-stack → still the one below the SUBJECT, with what sits above reported as plain fact (a mid-stack patch is ordinary practice, not judged); subject defines the record → refused naming it (never an empty diff that reads as 'no changes'); subject doesn't touch it → refused naming the actual touchers. REQUIRED when project.form='delta'; defaults to \"winner\" on 'tree'; refused on other forms.")]
+        [Description("SOURCE (comparison forms): the REFERENCE pole a delta/tree compares against. Same forms as source= — \"winner\" | a plugin filename | {\"file\", \"mod\"} | {\"overlay\", \"state\"[, \"ini\", \"subfolder\"]} — plus \"previous_provider\": the plugin immediately below the SUBJECT (whatever source= names) in the record's touching stack, measured FROM THE SUBJECT, never from the winner. Its four cases are all declared: subject=winner → next plugin down; subject mid-stack → still the one below the SUBJECT, with what sits above reported as plain fact (a mid-stack patch is ordinary practice, not judged); subject defines the record → refused naming it (never an empty diff that reads as 'no changes'); subject doesn't touch it → refused naming the actual touchers. REQUIRED when project.form='delta'; defaults to \"winner\" on 'tree'; refused on other forms.")]
             JsonElement? versus = null,
         [Description("The pole field VALUES display from, when it differs from the matching pole: \"winner\" shows the live winner's values on a plugins=-scoped scan (the old winner_fields=true). Display only — where_source= governs matching.")]
             string? fields_source = null,
@@ -455,6 +455,21 @@ public static class RecordsTools
             envelope.Add(new("source", statement));
             headerLine += $"  source={statement}";
         }
+        // Every warning the SkyPatcher replay produced — a key it does not know, an op it cannot map, a filter it
+        // cannot evaluate, a parse note — named beside the answer, each already carrying its own file and line. A
+        // draft INI's lines carry the draft's path, so a bad draft line reads where a bad live line does.
+        const int WarningCap = 20;
+        var overlayWarnings = new List<string>();
+        void StateOverlayWarnings()
+        {
+            if (overlayWarnings.Count == 0) return;
+            var shown = overlayWarnings.Take(WarningCap).ToList();
+            int over = overlayWarnings.Count - shown.Count;
+            envelope.Add(new("skypatcher_warnings",
+                             string.Join(" | ", shown) + (over > 0 ? $" (+{over} more not listed)" : "")));
+            foreach (var w in shown) headerLine += "\n[!] skypatcher: " + w;
+            if (over > 0) headerLine += $"\n[!] skypatcher: {over} further warning(s) not listed.";
+        }
         // When a walk or scan derived the selection this call now reads, the two captures meet at a seam: every
         // downstream form's epoch is compared against the deriving step's, and a divergence refuses loud rather
         // than mixing builds.
@@ -617,14 +632,17 @@ public static class RecordsTools
                 // The overlay post source: every record's winner replayed through the SkyPatcher INI layer, the
                 // replayed body read at the caller's own depth.
                 outcomes = svc.OverlayPostBatch(ids, readFields, depth, resolveNames, demand, out var ovRefusal, out var ovEpoch, out _,
-                                                LeverNames.Records.ContainerHint, readFieldDepths, ct);
+                                                LeverNames.Records.ContainerHint, readFieldDepths, ct,
+                                                draft: srcSpec.Draft, overlayWarnings: overlayWarnings);
                 if (ovRefusal is not null)
                     return json ? JsonWire.RenderError(ovRefusal, ovEpoch)
                                 : "error: " + ovRefusal + Wire.EpochLine(ovEpoch);
-                Arm("skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays");
+                Arm("skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays"
+                    + (srcSpec.Draft is null ? "" : $", with {srcSpec.Draft.Arm}"));
                 envelope.Add(new("epoch_covers_source", "false"));
                 headerLine += "\n(the SkyPatcher INI layer's files are OUTSIDE the epoch fingerprint — an INI edit changes answers " +
                               "without changing the epoch; a record whose type SkyPatcher cannot patch reads as its plain winner)";
+                StateOverlayWarnings();
             }
             else if (srcName is null)
             {
@@ -992,7 +1010,8 @@ public static class RecordsTools
             if (form == "delta")
             {
                 var rows = svc.DeltaBatch(ids, srcSpec, versusSpec!, projFields, demand,
-                                          out var sArm, out var rArm, out var covers, out var refusal, out var epoch);
+                                          out var sArm, out var rArm, out var covers, out var refusal, out var epoch,
+                                          overlayWarnings);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + Wire.EpochLine(epoch);
                 return DeltaResponse(rows, sArm, rArm, covers, epoch, Echo());
@@ -1018,6 +1037,7 @@ public static class RecordsTools
             envelope.Add(new("versus", rArm ?? versusSpec!.Label));
             headerLine += $"  versus={rArm ?? versusSpec!.Label}";
             CoverageNote(covers);
+            StateOverlayWarnings();
             // A no-verdict (a field neither side could be compared at) is a THIRD state: it is not a value
             // difference, so it stays out of `differing`, and it is not identity either — `identical` already
             // excludes it via Complete. It gets its own count instead of being folded into one of the two.
@@ -1819,7 +1839,25 @@ public static class RecordsTools
                 string? st = e.TryGetProperty("state", out var stEl) && stEl.ValueKind == JsonValueKind.String ? stEl.GetString()!.Trim() : "post";
                 if (!st!.Equals("pre", StringComparison.OrdinalIgnoreCase) && !st.Equals("post", StringComparison.OrdinalIgnoreCase))
                     return $"error: {param}= overlay state '{st}' — use \"pre\" (the winner before the INI layer) or \"post\" (after it; the default).";
-                spec = new LoadOrderService.PoleSpec(LoadOrderService.PoleKind.Overlay, OverlayState: st.ToLowerInvariant());
+                // The draft INI: a file not yet placed in a mod, folded into the layer so it can be checked before
+                // the write. It is a value on this pole, not a mode of its own.
+                if (e.TryGetProperty("ini", out var iniEl) && iniEl.ValueKind != JsonValueKind.String)
+                    return $"error: {param}= overlay \"ini\" is the absolute path to a draft .ini file, as a string.";
+                if (e.TryGetProperty("subfolder", out var subEl) && subEl.ValueKind != JsonValueKind.String)
+                    return $"error: {param}= overlay \"subfolder\" is the SkyPatcher type folder the draft would be placed in, as a string.";
+                string? draftIni = iniEl.ValueKind == JsonValueKind.String ? iniEl.GetString() : null;
+                string? draftSub = subEl.ValueKind == JsonValueKind.String ? subEl.GetString() : null;
+                SkyPatcherDraft.Plan? plan = null;
+                if (draftIni is null && draftSub is not null)
+                    return $"error: {param}= overlay names \"subfolder\" with no \"ini\" — the subfolder says where a DRAFT would be placed, so pass the draft's path as \"ini\" too, or drop \"subfolder\".";
+                if (draftIni is not null)
+                {
+                    if (st.Equals("pre", StringComparison.OrdinalIgnoreCase))
+                        return $"error: {param}= overlay state \"pre\" IS the plain load-order winner, the body the INI layer starts from, so a draft INI cannot change it — read the draft with state \"post\".";
+                    if (SkyPatcherDraft.Prepare(draftIni, draftSub, SkyPatcherCatalog.Load(), out plan) is { } derr)
+                        return $"error: {param}= {derr}";
+                }
+                spec = new LoadOrderService.PoleSpec(LoadOrderService.PoleKind.Overlay, OverlayState: st.ToLowerInvariant(), Draft: plan);
                 return null;
             }
             if (!e.TryGetProperty("file", out var fEl) || fEl.ValueKind != JsonValueKind.String)

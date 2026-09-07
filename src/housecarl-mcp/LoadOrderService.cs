@@ -1052,6 +1052,17 @@ public sealed class LoadOrderService : IDisposable
         return (typeName, winner.Value.WinnerPlugin, body.EditorID, folders, null, copy);
     }
 
+    /// <summary>Carry one replay's warnings (unknown key, unmapped op, unresolved filter, parse note) into the
+    /// caller's sink, deduplicated: a line the layer could not apply belongs beside the answer, not in silence.
+    /// Each warning already names its own file and line, so a draft's warnings name the draft's path.</summary>
+    static void CollectOverlayWarnings(IReadOnlyList<SkyPatcherFolderOutcome> folders, List<string>? sink)
+    {
+        if (sink is null) return;
+        foreach (var f in folders)
+            foreach (var w in f.Result?.Warnings ?? Array.Empty<string>())
+                if (!sink.Contains(w)) sink.Add(w);
+    }
+
     /// <summary>
     /// Scan the whole SkyPatcher layer: every loose INI as the DLL reads it (ordered union, VFS
     /// same-path collisions surfaced, gates and toggles evaluated), plus the INI-vs-INI same-field SET
@@ -3204,8 +3215,10 @@ public sealed class LoadOrderService : IDisposable
     public enum PoleKind { Winner, Named, PreviousProvider, Overlay }
 
     /// <summary>A parsed pole expression — the tool layer parses the wire spelling ("winner", a plugin filename,
-    /// {file, mod}, "previous_provider", {overlay, state}) into this engine value.</summary>
-    public sealed record PoleSpec(PoleKind Kind, string? Plugin = null, string? Mod = null, string? OverlayState = null)
+    /// {file, mod}, "previous_provider", {overlay, state, ini, subfolder}) into this engine value. <see cref="Draft"/>
+    /// is the not-yet-placed INI an overlay post pole folds into the live layer.</summary>
+    public sealed record PoleSpec(PoleKind Kind, string? Plugin = null, string? Mod = null, string? OverlayState = null,
+                                  SkyPatcherDraft.Plan? Draft = null)
     {
         public static readonly PoleSpec Winner = new(PoleKind.Winner);
         /// <summary>The arm statement a render leads with when the pole is uniform across the batch. PreviousProvider
@@ -3214,7 +3227,7 @@ public sealed class LoadOrderService : IDisposable
         {
             PoleKind.Winner => "winner",
             PoleKind.PreviousProvider => "previous_provider (the provider immediately below the subject, per record)",
-            PoleKind.Overlay => $"skypatcher overlay ({OverlayState})",
+            PoleKind.Overlay => $"skypatcher overlay ({OverlayState})" + (Draft is null ? "" : $", with {Draft.Arm}"),
             _ => Plugin ?? "?",
         };
     }
@@ -3231,12 +3244,14 @@ public sealed class LoadOrderService : IDisposable
     /// comparison can never span two. Subject defaults to winner; reference may be winner, a named plugin (active or
     /// off-order, with off-order files declared outside the epoch fingerprint), or previous_provider, which is
     /// subject-relative. A named pole that does not touch a record is a per-item refusal naming the actual touchers,
-    /// which the caller counts as not_touched. Overlay poles resolve via the SkyPatcher replay.</summary>
+    /// which the caller counts as not_touched. Overlay poles resolve via the SkyPatcher replay, and
+    /// <paramref name="overlayWarnings"/> collects every warning that replay produced so a line the layer could not
+    /// apply is visible beside the answer instead of being swallowed.</summary>
     public IReadOnlyList<DeltaRow> DeltaBatch(
         IReadOnlyList<string> formids, PoleSpec subject, PoleSpec reference, IReadOnlyList<string>? fields,
         ArtifactDemand? demand,
         out string? subjectArm, out string? referenceArm, out bool epochCoversAll,
-        out string? refusal, out OrderStamp? epoch)
+        out string? refusal, out OrderStamp? epoch, List<string>? overlayWarnings = null)
     {
         subjectArm = null; referenceArm = null; epochCoversAll = true; refusal = null;
         var resolver = Resolver;
@@ -3259,9 +3274,9 @@ public sealed class LoadOrderService : IDisposable
         }
 
         // Resolve the uniform arms once (named poles; winner/overlay are per-record but uniform in statement).
-        var sReader = MakePoleReader(view, session, subject, fields, wanted, out subjectArm, out var sCovers, out var sErr, out var sOffOrder);
+        var sReader = MakePoleReader(view, session, subject, fields, wanted, out subjectArm, out var sCovers, out var sErr, out var sOffOrder, overlayWarnings);
         if (sErr is not null) { refusal = "source: " + sErr; return Array.Empty<DeltaRow>(); }
-        var rReader = MakePoleReader(view, session, reference, fields, wanted, out referenceArm, out var rCovers, out var rErr, out _);
+        var rReader = MakePoleReader(view, session, reference, fields, wanted, out referenceArm, out var rCovers, out var rErr, out _, overlayWarnings);
         if (rErr is not null) { refusal = "versus: " + rErr; return Array.Empty<DeltaRow>(); }
         epochCoversAll = sCovers && rCovers;
 
@@ -3315,7 +3330,8 @@ public sealed class LoadOrderService : IDisposable
     /// null otherwise — a uniform fact about the whole call, so a caller can judge it once instead of per record.</summary>
     PoleReader MakePoleReader(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                               PoleSpec spec, IReadOnlyList<string>? fields, IReadOnlyCollection<FormKey>? wanted,
-                              out string? armStatement, out bool covers, out string? error, out PoleInfo? offOrderArm)
+                              out string? armStatement, out bool covers, out string? error, out PoleInfo? offOrderArm,
+                              List<string>? overlayWarnings = null)
     {
         error = null; covers = true; offOrderArm = null;
         // '*parent' on fields=: every in-order arm below reads through this captured view and open session, so the
@@ -3370,7 +3386,7 @@ public sealed class LoadOrderService : IDisposable
                 };
 
             case PoleKind.Overlay:
-                return MakeOverlayPoleReader(view, session, spec, fields, out armStatement, out covers, out error);
+                return MakeOverlayPoleReader(view, session, spec, fields, out armStatement, out covers, out error, overlayWarnings);
 
             default:   // Named — the one-pole rule: active in the order, else an on-disk file.
                 var (arm, armErr) = ResolvePoleArm(view, spec.Plugin!, spec.Mod);
@@ -3435,7 +3451,8 @@ public sealed class LoadOrderService : IDisposable
     /// IS pre there, which is an answer rather than an error.</summary>
     PoleReader MakeOverlayPoleReader(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                      PoleSpec spec, IReadOnlyList<string>? fields,
-                                     out string? armStatement, out bool covers, out string? error)
+                                     out string? armStatement, out bool covers, out string? error,
+                                     List<string>? overlayWarnings = null)
     {
         error = null;
         var hop = ContainmentIndex.ReadHop(view, session);   // both overlay arms read through the order's own index
@@ -3464,8 +3481,9 @@ public sealed class LoadOrderService : IDisposable
             };
         }
 
-        covers = false;   // the INI layer's files are outside the index fingerprint
-        armStatement = "skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays";
+        covers = false;   // the INI layer's files are outside the index fingerprint (a draft INI likewise)
+        armStatement = "skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays"
+                     + (spec.Draft is null ? "" : $", with {spec.Draft.Arm}");
         // The replay context is built lazily once for the whole batch: discovery scan, catalogs, scratch mod, form
         // resolver and per-folder line cache.
         SkyPatcherFieldMap? fieldMap = null; SkyPatcherCatalog? catalog = null;
@@ -3489,6 +3507,11 @@ public sealed class LoadOrderService : IDisposable
                     fieldMap = SkyPatcherFieldMap.Load();
                     catalog = SkyPatcherCatalog.Load();
                     scan = SkyPatcherDiscovery.Scan(assets, catalog, view.ContainsPlugin, _skyPatcherParseCache);
+                    if (spec.Draft is not null)
+                    {
+                        scan = spec.Draft.Fold(scan, catalog, view.ContainsPlugin, out var draftRefusal, overlayWarnings);
+                        if (draftRefusal is not null) { setupError = draftRefusal; return new PoleReading(null, null, null, setupError); }
+                    }
                     scratch = new SkyrimMod(SkyPatcherScratchKey, SkyrimRelease.SkyrimSE);
                     formResolver = new SkyPatcherServiceResolver(this, view, session);
                     linesCache = new Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>(StringComparer.OrdinalIgnoreCase);
@@ -3500,6 +3523,7 @@ public sealed class LoadOrderService : IDisposable
                 }
             }
             var r = ReplaySkyPatcher(view, session, scan, catalog!, fieldMap!, scratch!, formResolver!, fk, linesCache);
+            CollectOverlayWarnings(r.Folders, overlayWarnings);
             if (r.Error is not null)
             {
                 // An unpatchable type is an answer, not a failure: the layer cannot touch it, so post IS pre.
@@ -3582,7 +3606,9 @@ public sealed class LoadOrderService : IDisposable
         ArtifactDemand? demand, out string? refusal, out OrderStamp? refusalEpoch, out OrderStamp? epoch,
         string? containerHint = ReadEngine.DepthExpandHint,
         IReadOnlyList<int>? depths = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        SkyPatcherDraft.Plan? draft = null,
+        List<string>? overlayWarnings = null)
     {
         refusal = null; refusalEpoch = null;
         var resolver = Resolver;
@@ -3615,6 +3641,11 @@ public sealed class LoadOrderService : IDisposable
             refusalEpoch = view.Stamp;
             return Array.Empty<ReadOutcome>();
         }
+        if (draft is not null)
+        {
+            scan = draft.Fold(scan, catalog, view.ContainsPlugin, out var draftRefusal, overlayWarnings);
+            if (draftRefusal is not null) { refusal = draftRefusal; refusalEpoch = view.Stamp; return Array.Empty<ReadOutcome>(); }
+        }
         var linesCache = new Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>(StringComparer.OrdinalIgnoreCase);
 
         // Per-batch replay memo: the scratch mod is shared across the batch, so a duplicated key's second replay
@@ -3639,6 +3670,7 @@ public sealed class LoadOrderService : IDisposable
                 continue;
             }
             var r = ReplaySkyPatcher(view, session, scan, catalog, fieldMap, scratch, formResolver, fk, linesCache);
+            CollectOverlayWarnings(r.Folders, overlayWarnings);
             IMajorRecordGetter? bodyToRead = r.Copy;
             if (r.Error is not null)
             {
