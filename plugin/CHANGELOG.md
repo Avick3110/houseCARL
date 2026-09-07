@@ -104,7 +104,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   the call's spec, discarding everything else it held — and reported it afterwards, once the record was already gone.
   In place the file is one you own and the name is likelier one you did not know was taken, so the whole call is now
   refused before anything is written, naming each colliding record, its FormID, and its type. Pass `replace=true` to
-  get the rebuild anyway; it is refused off the in-place lane, for the reason its own description gives. The `into=`
+  get the rebuild anyway — over a collision an overwrite can settle; a name the target holds on a record of another
+  type, on two records at once, or on an override it carries is refused either way, and the refusal says so instead of
+  offering `replace=`. `replace=` is refused off the in-place lane, for the reason its own description gives. The `into=`
   lane is unchanged: regenerating a houseCARL patch re-creates its own record at a stable FormID, which is what makes
   a re-run idempotent.
 

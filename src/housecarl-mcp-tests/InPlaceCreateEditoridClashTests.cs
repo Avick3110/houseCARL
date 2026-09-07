@@ -24,6 +24,8 @@ public sealed class InPlaceCreateEditoridClashTests : IDisposable
     const string MasterName = "HcClashMaster.esm";
     const string UserName = "HcClashUser.esp";
     const string TakenEditorId = "HcClashFaction";
+    const string KeywordEditorId = "HcClashUserKeyword";   // a Keyword, so a Faction create under it is CROSS-TYPE
+    const string DupeEditorId = "HcClashDupe";             // two Factions share it — duplicate editorid residue
 
     readonly string _root, _userPath, _priorCorpusPath;
     readonly LoadOrderService _svc;
@@ -45,6 +47,10 @@ public sealed class InPlaceCreateEditoridClashTests : IDisposable
         fac.EditorID = TakenEditorId;
         fac.Name = "Original faction";
         _faction = fac.FormKey;
+        // Two collisions no overwrite can resolve: a name held by a record of ANOTHER type, and a name held twice.
+        var userKw = user.Keywords.AddNew(); userKw.EditorID = KeywordEditorId;
+        var dupeA = user.Factions.AddNew(); dupeA.EditorID = DupeEditorId;
+        var dupeB = user.Factions.AddNew(); dupeB.EditorID = DupeEditorId;
 
         var instance = Path.Combine(_root, "inst");
         var mods = Path.Combine(instance, "mods");
@@ -108,6 +114,33 @@ public sealed class InPlaceCreateEditoridClashTests : IDisposable
             in_place: UserName, acknowledge: true);
         Assert.Contains("error:", r);
         Assert.Equal(before, Hash());
+    }
+
+    // ---- collisions replace= cannot resolve -------------------------------------------------------
+
+    /// <summary>The clashing record is a Keyword, so the upsert would refuse the create outright rather than overwrite
+    /// it. The refusal must say to pick another editorid and NOT offer replace=, which would land on a second refusal.
+    /// </summary>
+    [Fact]
+    public void ACrossTypeClashIsRefusedWithoutOfferingReplace()
+    {
+        var r = CreateTools.Create(_svc, records: Je($"[{Spec(KeywordEditorId, "Overwritten")}]"),
+            in_place: UserName, acknowledge: true);
+        Assert.Contains("error:", r);
+        Assert.Contains("Keyword", r);
+        Assert.DoesNotContain("replace=", r);
+    }
+
+    /// <summary>Two records already share the editorid, so which one an overwrite would keep is the caller's call —
+    /// the refusal names the removal, not replace=.</summary>
+    [Fact]
+    public void ADuplicateEditoridClashIsRefusedWithoutOfferingReplace()
+    {
+        var r = CreateTools.Create(_svc, records: Je($"[{Spec(DupeEditorId, "Overwritten")}]"),
+            in_place: UserName, acknowledge: true);
+        Assert.Contains("error:", r);
+        Assert.Contains("housecarl_remove", r);
+        Assert.DoesNotContain("replace=", r);
     }
 
     // ---- replace= opts back in --------------------------------------------------------------------

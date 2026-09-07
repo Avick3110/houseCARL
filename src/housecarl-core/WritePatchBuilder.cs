@@ -2804,7 +2804,8 @@ public static class WritePatchBuilder
     /// under a parent the target doesn't itself own (the parent is overridden IN, exactly as the patch lane does into a new
     /// patch; a parent the target DOES own is sourced from the target so its content is preserved). Every in-place fork is
     /// additive + gated on this param: the patch lane (inPlaceTarget null) is behaviourally unchanged. IN PLACE an editorid
-    /// the target ALREADY defines refuses the whole call unless <paramref name="replaceExisting"/> says to overwrite it.
+    /// the target ALREADY carries refuses the whole call unless <paramref name="replaceExisting"/> says to overwrite it
+    /// AND the upsert would honour that (<see cref="WriteEngine.UpsertWouldReplace"/>).
     /// </summary>
     public static CreateOutcome CreateRecords(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
@@ -2925,18 +2926,38 @@ public static class WritePatchBuilder
             carried ??= patchMod.EnumerateMajorRecords().GroupBy(r => r.FormKey).ToDictionary(g => g.Key, g => g.First());
             return carried.TryGetValue(fk, out var rec) ? rec : null;
         }
-        // The target's OWN defined records by editorid, indexed once — the in-place collision pre-flight below asks per
-        // spec, and enumerating the destination each time is the same O(specs x records) the parent index avoids. Only
-        // records the destination DEFINES: a carried override keeps its foreign FormKey and is refused loud at the
-        // upsert, which never replaces one. Lazy: nothing is built off the in-place lane.
-        Dictionary<string, IMajorRecord>? definedHere = null;
-        IMajorRecord? DefinedInTarget(string editorId)
+        // The target's records by editorid, indexed once — the in-place collision pre-flight below asks per spec, and
+        // enumerating the destination each time is the same O(specs x records) the parent index avoids. The WHOLE match
+        // set, carried overrides included, because that is the set the upsert judges. Lazy: nothing is built off the
+        // in-place lane.
+        Dictionary<string, List<IMajorRecord>>? carriedByEdid = null;
+        IReadOnlyList<IMajorRecord> CarriedUnder(string editorId)
         {
-            definedHere ??= patchMod.EnumerateMajorRecords()
-                .Where(r => r.EditorID is not null && r.FormKey.ModKey == patchMod.ModKey)
+            carriedByEdid ??= patchMod.EnumerateMajorRecords()
+                .Where(r => r.EditorID is not null)
                 .GroupBy(r => r.EditorID!, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-            return definedHere.TryGetValue(editorId, out var rec) ? rec : null;
+                .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+            return carriedByEdid.TryGetValue(editorId, out var recs) ? recs : Array.Empty<IMajorRecord>();
+        }
+        // What the caller can do about one. An overwrite is offered ONLY where the upsert would honour it: the three
+        // collisions it refuses instead are not resolvable by overwriting anything, and naming replace= there would
+        // send the caller into a second refusal.
+        string ClashReason(string wantType, IReadOnlyList<IMajorRecord> clash)
+        {
+            if (clash.FirstOrDefault(r => r.FormKey.ModKey != patchMod.ModKey) is { } foreign)
+                return $"{fileName} carries an override of {foreign.FormKey} under that editorid — re-creating over an "
+                     + $"override would blank the original plugin's record. Edit it with {ToolNames.Apply}, or pick another editorid.";
+            if (clash.Count > 1)
+                return $"{fileName} defines {clash.Count} records with that editorid "
+                     + $"({string.Join(", ", clash.Select(c => c.FormKey.ID.ToString("X6")))}) — external references may point at "
+                     + $"either copy, so which survives is your call: remove the extra(s) with {ToolNames.Remove}, then re-run.";
+            var one = clash[0];
+            var itsType = RecordNaming.StripOverlay(one.GetType().Name);
+            return WriteEngine.UpsertWouldReplace(patchMod, wantType, clash)
+                ? $"{fileName} already defines {itsType} {one.FormKey.ID:X6} with that editorid. "
+                  + "Pass replace=true to overwrite it, or pick another editorid."
+                : $"{fileName} already defines {itsType} {one.FormKey.ID:X6} with that editorid — an editorid collision "
+                  + $"across record types, which no overwrite resolves: a {itsType} cannot be re-created as a {wantType}. Pick another editorid.";
         }
         var cellKinds = new CellCreate[specs.Count];   // cell-create routing per spec (None / Exterior / Interior)
         var singularClaims = new HashSet<(string Parent, string Slot)>();   // one create per singular slot per call
@@ -2963,12 +2984,11 @@ public static class WritePatchBuilder
                 // spec at its own FormID and discard everything else it held. That is right under into=, where the
                 // artifact is houseCARL's own and a re-run should be idempotent; on a file houseCARL does not own the
                 // name is far likelier one the caller did not know was taken. Refused before anything is written;
-                // replace= opts back in.
-                else if (inPlace && !replaceExisting && DefinedInTarget(s.EditorId) is { } clash)
+                // replace= opts back in, but only over a collision the upsert would actually overwrite.
+                else if (inPlace && CarriedUnder(s.EditorId) is { Count: > 0 } clash
+                         && !(replaceExisting && WriteEngine.UpsertWouldReplace(patchMod, s.RecordType, clash)))
                 {
-                    problems.Add($"{s.RecordType} '{s.EditorId}': {fileName} already defines "
-                        + $"{RecordNaming.StripOverlay(clash.GetType().Name)} {clash.FormKey.ID:X6} with that editorid. "
-                        + "Pass replace=true to overwrite it, or pick another editorid.");
+                    problems.Add($"{s.RecordType} '{s.EditorId}': " + ClashReason(s.RecordType, clash));
                     continue;
                 }
             }
@@ -3368,7 +3388,8 @@ public static class WritePatchBuilder
     /// (<see cref="WriteEngine.WriteInPlace"/>). The created-record verify
     /// (<paramref name="fullReadback"/>) defaults ON. CONSENT + the persistent acknowledge handshake are enforced by the
     /// SERVICE before this is reached. <paramref name="replaceExisting"/> lets a create overwrite a record the target
-    /// already defines under the same editorid; without it that collision refuses the whole call.</summary>
+    /// already defines under the same editorid; without it that collision refuses the whole call, as does a collision
+    /// no overwrite can settle (another type, two records, a carried override) whatever it says.</summary>
     public static CreateOutcome CreateRecordsInPlace(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
         IReadOnlyList<CreateSpec> specs, string targetPath, string targetName, bool fullReadback = true,
