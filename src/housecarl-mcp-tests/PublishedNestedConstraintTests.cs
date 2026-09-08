@@ -141,9 +141,9 @@ public sealed class PublishedNestedConstraintTests
 
     // ---- the assertions ----------------------------------------------------------------------------------
 
-    /// <summary>Identifying a node by its member set is only sound while no two marked shapes share one.</summary>
+    /// <summary>Identifying a node by its member set is only sound while no two marked shapes share one. Reflection
+    /// only — it reads the C# shapes, never the served document.</summary>
     [Fact]
-    [Trait("tier", "unit")]
     public void NoTwoMarkedShapesPublishTheSameMemberSet()
     {
         var clashes = MarkedShapes().GroupBy(s => Key(s.Members))
@@ -154,17 +154,17 @@ public sealed class PublishedNestedConstraintTests
         Assert.Equal(Array.Empty<string>(), clashes);
     }
 
-    /// <summary>The stamp is ADDITIVE, so the published <c>required</c> is asserted as a superset of what the shape
-    /// marks rather than as an equal: the generator emits its own entry for a non-nullable nested member, and the pass
-    /// unions with it instead of replacing it. What bounds the other side is that every published name must be a
-    /// member the shape declares — a stamped name that is not is the stamping bug this would otherwise miss. Extras
-    /// are printed, so a generator contribution appearing here is visible rather than merely tolerated.</summary>
+    /// <summary>The published <c>required</c> is asserted EQUAL to what the shape marks, in both directions: an
+    /// omission and an over-stamp are each a failure. The pass is additive — it unions with an entry the generator
+    /// published rather than replacing it — but the generator emits no nested <c>required</c> anywhere on this
+    /// surface, so equality is what is true today and a superset check would assert nothing about the extras. When a
+    /// generator entry does appear, name it in an allowlist beside <c>shape.Required</c> here rather than relaxing
+    /// this to a superset.</summary>
     [Fact]
     public void EveryPublishedOccurrenceOfAMarkedShapeCarriesItsRequiredAndEnum()
     {
         var shapes = MarkedShapes().ToDictionary(s => Key(s.Members), s => s);
         var problems = new List<string>();
-        var extras = new List<string>();
         int occurrences = 0;
 
         foreach (var node in PublishedObjects())
@@ -172,17 +172,9 @@ public sealed class PublishedNestedConstraintTests
             if (!shapes.TryGetValue(Key(node.Members), out var shape)) continue;
             occurrences++;
 
-            var missing = shape.Required.Except(node.Required, StringComparer.Ordinal).ToArray();
-            if (missing.Length > 0)
-                problems.Add($"{node.Tool} {node.Path}: required=[{string.Join(",", node.Required)}] omits " +
-                             $"[{string.Join(",", missing)}], which {shape.Type.Name} marks");
-            foreach (var name in node.Required.Except(shape.Required, StringComparer.Ordinal))
-            {
-                if (!node.Members.Contains(name, StringComparer.Ordinal))
-                    problems.Add($"{node.Tool} {node.Path}: required names '{name}', which is not a member of " +
-                                 $"{shape.Type.Name}");
-                else extras.Add($"{node.Tool} {node.Path}: '{name}' required by the generator, not by a mark");
-            }
+            if (!node.Required.SequenceEqual(shape.Required, StringComparer.Ordinal))
+                problems.Add($"{node.Tool} {node.Path}: required=[{string.Join(",", node.Required)}], " +
+                             $"{shape.Type.Name} marks [{string.Join(",", shape.Required)}]");
 
             foreach (var (member, table) in shape.Enums)
             {
@@ -201,9 +193,7 @@ public sealed class PublishedNestedConstraintTests
                 problems.Add($"{node.Tool} {node.Path}.{member}: publishes an enum {shape.Type.Name} does not name");
         }
 
-        _out.WriteLine($"{occurrences} published occurrence(s) of {MarkedShapes().Count} marked shape(s); " +
-                       $"{extras.Count} required entry(ies) the generator contributed");
-        foreach (var e in extras) _out.WriteLine("  " + e);
+        _out.WriteLine($"{occurrences} published occurrence(s) of {MarkedShapes().Count} marked shape(s)");
         Assert.Equal(Array.Empty<string>(), problems.ToArray());
     }
 
