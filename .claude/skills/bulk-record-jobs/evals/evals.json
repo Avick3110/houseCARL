@@ -1,0 +1,187 @@
+{
+  "skill_name": "bulk-record-jobs",
+  "reads": "dist/housecarl/skills/bulk-record-jobs/SKILL.md — the packaged body, never .claude/skills/, so no run reads an authoring-tree file the host also lists in the agent's own environment.",
+  "method": {
+    "arms": [
+      "with-skill — the packaged skill in the menu",
+      "without-skill — the same query, the same menu minus this skill; a case that passes in both arms is not differentiating, and that is a finding rather than a pass"
+    ],
+    "runs_per_query": 3,
+    "trigger_rate_threshold": 0.5,
+    "split": "60/40 train / held-out; best iteration chosen by held-out score, at most 5 iterations. A fix generalises the category the failing query belongs to; it never pastes that query's own nouns into the description.",
+    "coexistence": "the reduced menu — the eleven skills shipping after the 2026-09-07 deletions",
+    "isolation": "one run with this skill alone in the menu",
+    "failure_modes_named": [
+      "triggering accuracy — a positive below 0.5 or a negative above it",
+      "isolation — the skill fires on a query no skill should own",
+      "coexistence — a sibling's lane is taken, or this skill's lane is lost to a sibling",
+      "instruction following — the skill loads and the plan still loops per record or drifts the output shape",
+      "output quality — the deliverable arm below"
+    ],
+    "model_tiers": "sonnet judges with an opus adjudicator, plus a haiku judging arm; a tier that is skipped is recorded here as skipped, never left unstated",
+    "assertions": "the deliverable assertions in output_quality_arm are checked by a verification script, not by model judgement"
+  },
+  "baseline_carried_forward": {
+    "from": "evals/eval_set.json, retired by this file",
+    "gate": { "recall_threshold": 0.8, "specificity_threshold": 0.5 },
+    "last_recorded": "2026-07-28 revalidation (run 2, hardened judge prompts): recall 9/9 = 1.00, specificity 10/10 = 1.00, passed",
+    "contamination_audit_2026-07-28": "11 of 281 judge rows leaked OLD description text from the agents' own environment skill listing, and some adjudicator notes confabulated quotes from that stale environment. All contaminated rows were re-judged with an explicit stale-environment warning; 15/15 confirmed their verdicts except dialogue-authoring q19, whose recorded miss was itself the artifact. Running from the packaged tree is what removes the cause rather than re-judging the effect.",
+    "soft_edge_to_watch": "row 19 — a single-record old-versus-new diff sits close to the patch-rebuild trigger. The description's 'Not for one record' clause is the answer; the case stays a negative."
+  },
+  "evals": [
+    {
+      "id": 1,
+      "split": "train",
+      "prompt": "Build me a catalogue of every piece of armour the exotic armour plugins add — name, armor rating, slots, and how you craft each one. I want it as a spreadsheet eventually.",
+      "expected_output": "bulk-record-jobs is loaded before the first houseCARL call.",
+      "expectations": ["the skill is selected", "the plan sizes the scope with a census before reading rows"]
+    },
+    {
+      "id": 2,
+      "split": "train",
+      "prompt": "which mods win the contested Apocalypse spell records? there are like 800 of them, i just want a breakdown by plugin",
+      "expected_output": "bulk-record-jobs is loaded before the first houseCARL call.",
+      "expectations": ["the skill is selected", "the plan reaches for an aggregate count rather than a row dump"]
+    },
+    {
+      "id": 3,
+      "split": "train",
+      "prompt": "I need to rebuild the old Requiem-Apocalypse patch against Apocalypse 10.2.3 — the old patch is disabled in MO2 but still on disk. Figure out what deltas it applied and re-apply the still-valid ones onto the new baseline.",
+      "expected_output": "bulk-record-jobs is loaded, and references/patch-rebuild.md is read before the first write.",
+      "expectations": ["the skill is selected", "the patch-rebuild reference is opened rather than the recipe improvised"]
+    },
+    {
+      "id": 4,
+      "split": "train",
+      "prompt": "Extract every weapon defined in Heavy Armory.esp with its damage, reach, speed and material keywords, and return the results as JSON rows.",
+      "expected_output": "bulk-record-jobs is loaded before the first houseCARL call.",
+      "expectations": ["the skill is selected", "the definitions-versus-touches distinction is applied to the plugin scope"]
+    },
+    {
+      "id": 5,
+      "split": "train",
+      "prompt": "can you list all the smithing recipes that use ebony ingots across my whole load order and which perks gate them",
+      "expected_output": "bulk-record-jobs is loaded, and the link-graph recipe is followed.",
+      "expectations": ["the skill is selected", "one reverse call over the whole target list, not one call per target"]
+    },
+    {
+      "id": 6,
+      "split": "held_out",
+      "prompt": "Aaron wants an in-game book listing every craftable jewelry piece with materials and stations - can you pull that data together?",
+      "expected_output": "bulk-record-jobs is loaded before the first houseCARL call.",
+      "expectations": ["the skill is selected"]
+    },
+    {
+      "id": 7,
+      "split": "held_out",
+      "prompt": "audit Immersive Weapons for me - what does it actually add vs just override, and are its stats still live after all my patches?",
+      "expected_output": "bulk-record-jobs is loaded before the first houseCARL call.",
+      "expectations": ["the skill is selected", "both scope-truth clauses are applied: definitions versus touches, and the winner's values rather than the scoped era"]
+    },
+    {
+      "id": 8,
+      "split": "held_out",
+      "prompt": "I'm fanning this out to 6 subagents, each takes a plugin group and extracts the NPC data. What should I tell them so the outputs merge cleanly?",
+      "expected_output": "bulk-record-jobs is loaded, and the canonical deliverable shape is handed to the subagents.",
+      "expectations": ["the skill is selected", "one schema is pinned before any extraction starts"]
+    },
+    {
+      "id": 9,
+      "split": "held_out",
+      "prompt": "make me a table of all requiem heavy armors w/ live AR values, the ones in the esp are stale i think",
+      "expected_output": "bulk-record-jobs is loaded before the first houseCARL call.",
+      "expectations": ["the skill is selected", "live values are read from the winner rather than the scoped plugin's era"]
+    },
+    {
+      "id": 10,
+      "split": "train",
+      "prompt": "What fields does the COBJ record type have? Is WorkbenchKeyword writable?",
+      "expected_output": "bulk-record-jobs is not loaded; the schema question routes to housecarl:mutagen-reference.",
+      "expectations": ["the skill is not selected"]
+    },
+    {
+      "id": 11,
+      "split": "train",
+      "prompt": "Why does my character's face turn grey when I install this NPC replacer mod?",
+      "expected_output": "bulk-record-jobs is not loaded; the question routes to housecarl:facegen-diagnostics.",
+      "expectations": ["the skill is not selected"]
+    },
+    {
+      "id": 12,
+      "split": "train",
+      "prompt": "Change the damage on Chillrend to 25 in a new patch plugin",
+      "expected_output": "bulk-record-jobs is not loaded; one record needs no bulk plan.",
+      "expectations": ["the skill is not selected"]
+    },
+    {
+      "id": 13,
+      "split": "train",
+      "prompt": "Write a SPID ini that distributes this cloak spell to all bandit NPCs",
+      "expected_output": "bulk-record-jobs is not loaded; the job routes to housecarl:spid-authoring.",
+      "expectations": ["the skill is not selected"]
+    },
+    {
+      "id": 14,
+      "split": "train",
+      "prompt": "Which armors sit on biped slot 52 in my load order?",
+      "expected_output": "bulk-record-jobs is not loaded; a slot filter is one where= flag test on BodyTemplate.FirstPersonFlags, not a bulk plan.",
+      "expectations": ["the skill is not selected", "the recorded near-miss: the query is many-records-in, one-list-out in shape, which is what makes it the hardest negative in the set"]
+    },
+    {
+      "id": 15,
+      "split": "train",
+      "prompt": "What does REQ_DisableRecipe mean when it's the workbench keyword on a recipe record?",
+      "expected_output": "bulk-record-jobs is not loaded; per-mod semantics belong to that mod's own skill lane.",
+      "expectations": ["the skill is not selected"]
+    },
+    {
+      "id": 16,
+      "split": "held_out",
+      "prompt": "My game CTDs when I open the smithing menu at the forge, can you check the crash logs?",
+      "expected_output": "bulk-record-jobs is not loaded; no skill owns this.",
+      "expectations": ["the skill is not selected"]
+    },
+    {
+      "id": 17,
+      "split": "held_out",
+      "prompt": "read me the stats of the iron sword real quick",
+      "expected_output": "bulk-record-jobs is not loaded; one record needs no bulk plan.",
+      "expectations": ["the skill is not selected"]
+    },
+    {
+      "id": 18,
+      "split": "held_out",
+      "prompt": "Compact my new patch plugin to ESL and run the error check on it",
+      "expected_output": "bulk-record-jobs is not loaded; the tools answer this directly.",
+      "expectations": ["the skill is not selected"]
+    },
+    {
+      "id": 19,
+      "split": "held_out",
+      "prompt": "what changed between the two versions of this one perk record, 0A1B2C in the old esp vs the new one?",
+      "expected_output": "bulk-record-jobs is not loaded; a single-record diff is one call, not a rebuild.",
+      "expectations": ["the skill is not selected", "the recorded soft edge: the patch-rebuild clause reads close to this query, and 'Not for one record' is what separates them"]
+    }
+  ],
+  "output_quality_arm": {
+    "task": "On the live ARR 2.0 order (3,801 plugins), catalogue every NPC_ record at its load-order winner as a CSV carrying FormID, EditorID, Name, Race as both resolved EditorID and wire token, and the level shape (fixed level, or the PC-level multiplier with its calculated bounds), plus the winning plugin.",
+    "arms": "control (no skill in the catalogue) and with-skill (told to load the skill first). One run each, fresh context, 40-call cap.",
+    "bar": "The control's recorded outcome: the right shape composed in one un-windowed call, then 'sent no response or progress for 1800s; aborting', with no partial artifact to salvage.",
+    "beats_the_control_when": [
+      "1. A complete deliverable exists — row count equals the reported total (66,856 on the audited order), zero duplicate FormIDs.",
+      "2. It is self-accounting — every window's artifact manifest is checked in the file, the manifests sum to total, and every window carries the same epoch; a differing epoch is re-run from offset 0, never stitched.",
+      "3. It is inside budget — fewer than ten houseCARL calls, no call aborted on the idle timeout. (The audited with-skill run: six calls, about 49 minutes.)",
+      "4. The column contract holds — FormIDs are full wire tokens verbatim; Race carries token and identity; Name is empty where the record has none rather than back-filled with the EditorID.",
+      "5. The identity-annotation trap is avoided — the arm does not annotate every link on the full render."
+    ],
+    "gate": "At least one expectation passes with the skill and fails without it. A rebuilt skill whose assertions pass in both arms is not differentiating, and that is the finding, not a pass.",
+    "mechanical_assertions": [
+      "the deliverable parses",
+      "total equals the row count",
+      "every formid matches the wire-token form XXXXXX:Plugin.esp",
+      "every classification value is inside its declared enum",
+      "no FormID appears twice"
+    ],
+    "recorded_per_arm": ["pass rate", "total_tokens", "duration_ms", "houseCARL call count"]
+  }
+}
