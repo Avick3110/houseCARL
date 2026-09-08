@@ -1,0 +1,168 @@
+{
+  "skill_name": "housecarl (the Codex umbrella router)",
+  "reads": "dist/codex/skills/housecarl/SKILL.md — the packaged Codex tree, never plugin/codex/, so no run reads an authoring-tree file. scripts/build-plugin.ps1 strips evals/ from every shipped copy, so this file is a repository artifact the regrade reads and the body never points at it (dev/DECISIONS.md, 2026-09-07, rulings 2 and 3).",
+  "numbers_are_borrowed": "Every threshold, run count and split below is Anthropic's published skill-eval method. No OpenAI page states a harness, runner, trigger-rate metric or threshold for a Codex skill, and this bundle ships only to Codex, so the numbers are borrowed and labelled borrowed rather than presented as this host's own (checklist D5.20, 'no source').",
+  "baseline": "None. This skill has never carried an eval set, and the 2026-09 audit ran neither arm for it (audit-2026-09/SUMMARY.md:43, both cells 'not run') — the only row in the batch with no with-skill and no control log. There is nothing to carry forward; this file is the first measurement.",
+  "method": {
+    "arms": [
+      "with-skill — the packaged umbrella in the menu, the houseCARL MCP server attached and its instructions injected, as any real session has it",
+      "without-skill — the same query, the same menu minus this skill, the server still attached; a case that passes in both arms is not differentiating, and that is a finding rather than a pass"
+    ],
+    "runs_per_query": 3,
+    "trigger_rate_threshold": 0.5,
+    "split": "60/40 train / held-out; best iteration chosen by held-out score, at most 5 iterations. A fix generalises the category the failing query belongs to; it never pastes that query's own nouns into the description.",
+    "coexistence": "the reduced menu — the eleven sibling skills that install beside this one under ~/.agents/skills after the 2026-09-07 deletions",
+    "isolation": "one run with this skill alone in the menu",
+    "reported_separately": "triggering and output quality are two result sets, never one blended rate (checklist D5.19)",
+    "fresh_context": "each arm from a fresh context; the with-skill and without-skill runs are separate sessions (checklist D5.21)",
+    "failure_modes_named": [
+      "triggering accuracy — a positive below 0.5 or a negative above it",
+      "isolation — the router fires on a query no skill should own",
+      "coexistence — the router answers where a sibling owns the grammar, or a sibling's own description already routes the job and the router adds a hop",
+      "instruction following — the router loads and the session still writes before reading the winner and the schema",
+      "output quality — the deliverable arm below"
+    ],
+    "positives_cover": "one per routing destination the DESCRIPTION claims. Three of the eleven destinations have no positive — open-animation-replacer, npc-appearance-copy and papyrus-reference are reachable from the routing table but the description carries no animation, face-copy or signature-lookup term. That is deliberate: the description was not widened to chase them (its 611 characters are the measured fix for D2.21 / D3.5 / D4.59), and on both hosts those three siblings carry their own trigger descriptions beside this one. Recorded rather than papered over — verify row 9.11."
+  },
+  "evals": [
+    {
+      "id": 1,
+      "split": "train",
+      "prompt": "A bunch of NPCs from my follower mod have gone dark-faced since I compacted the plugin to ESL. What's actually winning?",
+      "expected_output": "the umbrella is loaded and routes to facegen-diagnostics before any call.",
+      "expectations": ["the skill is selected", "the route names facegen-diagnostics rather than composing a read first"]
+    },
+    {
+      "id": 2,
+      "split": "train",
+      "prompt": "I want to nerf every steel weapon's damage in my order without adding another ESP. What's the cleanest way?",
+      "expected_output": "the umbrella is loaded and routes to skypatcher-authoring.",
+      "expectations": ["the skill is selected", "the route reaches a no-ESP INI grammar rather than a patch plugin"]
+    },
+    {
+      "id": 3,
+      "split": "train",
+      "prompt": "write me a _DISTR.ini that gives every Forsworn a frost cloak spell",
+      "expected_output": "the umbrella is loaded and routes to spid-authoring.",
+      "expectations": ["the skill is selected", "the route names spid-authoring, not skypatcher-authoring"]
+    },
+    {
+      "id": 4,
+      "split": "train",
+      "prompt": "how do I tag all the mod-added dwarven armour with the vendor keyword using KID?",
+      "expected_output": "the umbrella is loaded and routes to kid-authoring.",
+      "expectations": ["the skill is selected", "the route names kid-authoring, keywords onto item records"]
+    },
+    {
+      "id": 5,
+      "split": "train",
+      "prompt": "I added a new greeting line to my follower quest and it never plays in game. Can you look at the dialogue?",
+      "expected_output": "the umbrella is loaded and routes to dialogue-authoring.",
+      "expectations": ["the skill is selected", "the route names dialogue-authoring before judging the INFO records"]
+    },
+    {
+      "id": 6,
+      "split": "train",
+      "prompt": "what fields does an ARMO record actually have, and what are the legal values for the armor type?",
+      "expected_output": "the umbrella is loaded and routes to mutagen-reference.",
+      "expectations": ["the skill is selected", "the route names mutagen-reference rather than answering the schema from memory"]
+    },
+    {
+      "id": 7,
+      "split": "train",
+      "prompt": "Give me a spreadsheet of every contested WEAP record in my 3800-plugin order and which mod wins each one.",
+      "expected_output": "the umbrella is loaded and routes to bulk-record-jobs before the first call.",
+      "expectations": ["the skill is selected", "the route names bulk-record-jobs, and the plan is sized before rows are read"]
+    },
+    {
+      "id": 8,
+      "split": "train",
+      "prompt": "my SKSE plugin dll builds fine but the game doesn't load it on AE, where do I even start",
+      "expected_output": "the umbrella is loaded and routes to skse-plugin-authoring.",
+      "expectations": ["the skill is selected", "the route names skse-plugin-authoring, not papyrus-reference"]
+    },
+    {
+      "id": 9,
+      "split": "train",
+      "prompt": "Which mods am I running that touch the Iron Sword, and what does the winner set its damage to?",
+      "expected_output": "the umbrella is loaded; the read order is followed — the winner and its conflict tree before any write.",
+      "expectations": ["the skill is selected", "no sibling is loaded — this is the router's own read step"]
+    },
+    {
+      "id": 10,
+      "split": "train",
+      "prompt": "Can you bump the carry weight on my custom backpack record and hand me a patch I can review?",
+      "expected_output": "the umbrella is loaded; the schema and the winner are read before the write, and the patch name is reported back.",
+      "expectations": ["the skill is selected", "the write lands in a new patch rather than in the source mod", "the answer tells the user to enable the patch in MO2"]
+    },
+    {
+      "id": 11,
+      "split": "held_out",
+      "prompt": "my Fallout 4 modlist keeps CTDing on load, can you sort out the plugin order?",
+      "expected_output": "the umbrella is not loaded; houseCARL is Skyrim Special Edition only.",
+      "expectations": ["the skill is not selected", "the near-miss: every noun but the game is in the description's trigger list"]
+    },
+    {
+      "id": 12,
+      "split": "held_out",
+      "prompt": "How do I install Mod Organizer 2 and point it at my Steam copy of Skyrim?",
+      "expected_output": "the umbrella is not loaded; installing and configuring MO2 is outside the data layer.",
+      "expectations": ["the skill is not selected", "the near-miss: MO2 is the first noun in the description"]
+    },
+    {
+      "id": 13,
+      "split": "held_out",
+      "prompt": "what's the best perk build for a stealth archer in Requiem?",
+      "expected_output": "the umbrella is not loaded; gameplay advice with no data-layer step.",
+      "expectations": ["the skill is not selected"]
+    },
+    {
+      "id": 14,
+      "split": "held_out",
+      "prompt": "write me an xEdit script that renames every editor ID in a plugin",
+      "expected_output": "the umbrella is not loaded; the Pascal scripting host is not this surface.",
+      "expectations": ["the skill is not selected", "the near-miss: records and plugins in a load order, through the wrong tool"]
+    },
+    {
+      "id": 15,
+      "split": "held_out",
+      "prompt": "how do I get Vortex to deploy my mods to the right folder?",
+      "expected_output": "the umbrella is not loaded; houseCARL reads Mod Organizer 2, and this is a different manager's deployment question.",
+      "expectations": ["the skill is not selected"]
+    },
+    {
+      "id": 16,
+      "split": "held_out",
+      "prompt": "what's a good armour mod to install next?",
+      "expected_output": "the umbrella is not loaded; a recommendation is not a data-layer step.",
+      "expectations": ["the skill is not selected", "the near-miss: 'armour' plus 'install' reads adjacent to a record type and a modlist"]
+    },
+    {
+      "id": 17,
+      "split": "train",
+      "prompt": "in Papyrus, what's the difference between a State and an Event, conceptually?",
+      "expected_output": "the umbrella is not loaded; a language question with no load order in it.",
+      "expectations": ["the skill is not selected", "the recorded soft edge: 'Papyrus' IS a description trigger term, so this is the hardest negative in the set — the boundary is the closing 'no data-layer step' clause, and if this case fails the fix is that clause, never dropping the term"]
+    },
+    {
+      "id": 18,
+      "split": "train",
+      "prompt": "I can't log in to my Nexus account, the download button does nothing",
+      "expected_output": "the umbrella is not loaded; an account and website problem, not a mod lookup.",
+      "expectations": ["the skill is not selected", "the near-miss: houseCARL does read Nexus keylessly, which is what makes an account question adjacent"]
+    }
+  ],
+  "output_quality_arm": {
+    "why_it_exists": "Ruling 3 makes the audit's own with/without task the output-quality arm. This skill has no such run — both audit cells are 'not run' — and it is the one measurement that answers whether the router earns its always-on listing at all (checklist rows D5.19, D5.21, D5.26, D5.52, all fails). The rewrite is not gradeable until it exists.",
+    "task": "On the live ARR 2.0 order (3,801 plugins), one prompt whose ROUTING is the whole difference, phrased the way a user would: \"A batch of NPCs from one of my follower mods came out grey-faced after I ESL-compacted a plugin. Sort out what actually wins and fix it.\"",
+    "arms": "control (no skill in the catalogue, the houseCARL MCP server attached and its instructions injected) and with-skill (told to load this skill first). One Opus agent, 40-call cap, one run each, fresh context.",
+    "beats_the_control_when": [
+      "1. The route is taken before the first call — the with-skill arm loads facegen-diagnostics and reaches for the record-versus-file precedence model before composing anything; the control does not, or reaches it late and after a wrong call.",
+      "2. Every call is live — no 1.x tool name is composed in the with-skill transcript, the direct test of the seventeen dead names against the packaged tree.",
+      "3. The deliverable differs measurably — something passes with the skill and fails without it."
+    ],
+    "gate": "All three, or the arm does not pass. A faster route to the same answer is not enough on its own: the pair is the only honest measure, and two skills in the 2026-09 audit had their self-reported value contradicted by their own controls.",
+    "if_the_control_matches": "The ruled outcome is not a smaller rewrite. It is FOLD-IN.md N9: the routing map is dropped rather than migrated, and item 27 decides whether the Codex bundle ships a router at all beside eleven skills that each describe themselves.",
+    "recorded_per_arm": ["pass rate", "total_tokens", "duration_ms", "houseCARL call count", "which skills were loaded and when"]
+  }
+}
