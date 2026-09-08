@@ -88,7 +88,8 @@ PNAM. Vanilla orders the lines within a topic by the `Responses` list + their `C
 PNAM chain.
 
 PNAM is only meaningful when an **author deliberately** chains forced lines (set it to the FormID the
-create call reported for the preceding line, in a second call on the same lane). Consequences for
+create call reported for the preceding line, in a second `housecarl_apply` call on the same lane).
+Consequences for
 authoring and auditing:
 
 - **Absence is the universal norm.** Never treat a missing or non-chained PNAM as a defect, and never
