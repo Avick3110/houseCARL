@@ -435,6 +435,7 @@ public static class WritePatchBuilder
         //     session, never an arbitrary un-enabled plugin, so no winner-confusion hazard arises. ---
         var view = resolver.Capture();
         epoch = view.Stamp;                                               // stamped on every outcome from here down
+        var linkTypes = LinkTypeLookup(view, session);
         var resolved = new List<(PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label, IMajorRecordGetter? srcBody)>(edits.Count);
         var problems = new List<string>();
         // Records the extended patch DEFINES (FormKey in the patch's own master space — created by a prior into=
@@ -525,7 +526,7 @@ public static class WritePatchBuilder
                 Key = e.Key, Value = e.Value, Values = e.Values, Entries = e.Entries, Struct = e.Struct, Structs = e.Structs,
             };
             var label = Label(req);
-            if (rulebook.Validate(req) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
+            if (rulebook.Validate(req, null, linkTypes) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
             resolved.Add((e, body, winnerPlugin, patchLocal, req, label, srcBody));
         }
         if (problems.Count > 0)
@@ -672,6 +673,24 @@ public static class WritePatchBuilder
         return copyFromSources is not null
             && IsOffOrderCopySource(e, view)
             && copyFromSources.TryGetValue(e, out body);
+    }
+
+    /// <summary>The pre-flight's link-TARGET resolver: a FormLink value in, the runtime type of the record it points
+    /// at out. Answers off the call's ONE captured view, so the type a link is checked against is the same build
+    /// every other decision in the write reads, and memoizes per call because one list edit can name a FormID many
+    /// times. Null for a token that does not parse or that the order does not carry — pre-flight then does not
+    /// type-check that link rather than refusing on a guess.</summary>
+    static CorpusRulebook.LinkTargetLookup LinkTypeLookup(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session)
+    {
+        var memo = new Dictionary<string, Type?>(StringComparer.OrdinalIgnoreCase);
+        return token =>
+        {
+            if (memo.TryGetValue(token, out var hit)) return hit;
+            Type? type = null;
+            if (FormKey.TryFactory(token, out var fk) && view.ResolveWinner(fk) is { } w)
+                type = view.GetRecord(session, w.WinnerPlugin, fk)?.GetType();
+            return memo[token] = type;
+        };
     }
 
     /// <summary>Does this edit's CopyFrom source need the OFF-ORDER on-disk locate — i.e. is it a CopyFrom naming a
@@ -822,6 +841,7 @@ public static class WritePatchBuilder
                 $"cannot edit '{targetName}' in place: it was EXCLUDED from this session ({excluded}) — houseCARL won't " +
                 "re-serialize a plugin it can't fully parse (that would risk dropping the record it couldn't read, Q3). The file is UNTOUCHED.");
 
+        var linkTypes = LinkTypeLookup(view, session);
         var resolved = new List<(PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label, IMajorRecordGetter? srcBody, bool selfSource)>(edits.Count);
         var problems = new List<string>();
         foreach (var e in edits)
@@ -841,7 +861,7 @@ public static class WritePatchBuilder
                 Key = e.Key, Value = e.Value, Values = e.Values, Entries = e.Entries, Struct = e.Struct, Structs = e.Structs,
             };
             var label = Label(req);
-            if (rulebook.Validate(req) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
+            if (rulebook.Validate(req, null, linkTypes) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
 
             // CopyFrom SOURCE resolution — the same contract Apply enforces, on this lane too: the lane axis is
             // uniform, so every write verb must compose with in_place. Without this a CopyFrom op reaches ApplyVerb,

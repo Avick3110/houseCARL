@@ -45,7 +45,17 @@ public sealed class StructSpec
 public sealed class CorpusRulebook
 {
     readonly Corpus _corpus;
-    CorpusRulebook(Corpus corpus) => _corpus = corpus;
+    /// <summary>Non-null only on a validate call the write path handed a load order to resolve link targets against.</summary>
+    readonly LinkTargetLookup? _linkTargets;
+    /// <summary>Memo for the printed legal-type list, per link target type; only a refusal fills it.</summary>
+    readonly Dictionary<string, string> _linkTargetNames = new(StringComparer.Ordinal);
+    CorpusRulebook(Corpus corpus, LinkTargetLookup? linkTargets = null)
+        => (_corpus, _linkTargets) = (corpus, linkTargets);
+
+    /// <summary>Resolves a FormLink value (a FormID token) to the runtime type of the record it points at, or null
+    /// when nothing in the load order carries it. Supplied by the write path, which holds the captured view; without
+    /// one the schema-only rulebook cannot know what a FormID points at, so the link TYPE check does not run.</summary>
+    public delegate Type? LinkTargetLookup(string formIdToken);
 
     /// <summary>The legal shapes of a condition FormLinkOrIndex target value — shared by the nested-sets
     /// (<see cref="ValidateFromType"/>) and the flat-fields (<see cref="CheckValue"/>) rejects so the two compose entry
@@ -131,9 +141,16 @@ public sealed class CorpusRulebook
     /// quest): a FormLink value of the form <c>@editorid</c> in that set is accepted as a forward-ref the create path
     /// resolves post-allocation. The set threads into composed StructSpec Fields/Sets too. Null (the override/set_field
     /// path) ⇒ an <c>@editorid</c> value is rejected loud — it has no meaning when there are no same-call
-    /// creations.</summary>
-    public string? Validate(WriteRequest req, IReadOnlyCollection<string>? siblingEditorIds = null)
+    /// creations.
+    /// <para><paramref name="linkTargets"/> (the write path, which has the load order) turns on the FormLink TARGET
+    /// TYPE check: a link whose FormID resolves to a record the field cannot point at is refused. It is carried on a
+    /// per-call copy of the rulebook rather than threaded through the recursion, so every value slot — a singular
+    /// Set, a list element, a composed struct's field — sees it without a parameter at each hop.</para></summary>
+    public string? Validate(WriteRequest req, IReadOnlyCollection<string>? siblingEditorIds = null,
+        LinkTargetLookup? linkTargets = null)
     {
+        if (linkTargets is not null && !ReferenceEquals(linkTargets, _linkTargets))
+            return new CorpusRulebook(_corpus, linkTargets).Validate(req, siblingEditorIds);
         // (1) resolve the record, then validate rooted at it. ValidateFromType is shared with StructSpec validation
         // (a build-from-parts spec's nested writes) so the record path and the composition path can never disagree.
         var recType = Type(req.RecordType);
@@ -680,6 +697,7 @@ public sealed class CorpusRulebook
                                "declare it before the record that references it (in spec order).";
                 }
                 else if (!WriteEngine.IsValidFormLinkValue(v)) return FormLinkElementReject(v, leaf);
+                else if (LinkTypeRefusal(leaf, v, "element") is { } mixedTypeErr) return mixedTypeErr;
             }
             return null;
         }
@@ -765,7 +783,8 @@ public sealed class CorpusRulebook
                 // apply. A null-synonym clears the link; otherwise it must parse as a FormKey. The recognizer is
                 // SHARED with the engine apply path (no drift).
                 if (leaf.Cardinality == "formlink")
-                    return WriteEngine.IsValidFormLinkValue(req.Value) ? null
+                    return WriteEngine.IsValidFormLinkValue(req.Value)
+                        ? LinkTypeRefusal(leaf, req.Value, "target")
                         : $"Illegal FormLink target '{req.Value}' for '{leaf.Name}': expected a FormID " +
                           "(XXXXXX:Plugin.esp) or a null-clear ('0', '00000000', 'Null', '000000:Null').";
                 return CoercibilityReject(leaf);
@@ -825,6 +844,12 @@ public sealed class CorpusRulebook
                 if (!WriteEngine.IsValidFormLinkValue(v)) return FormLinkElementReject(v, leaf);
             foreach (var kv in req.Entries ?? new())
                 if (!WriteEngine.IsValidFormLinkValue(kv.Value)) return FormLinkElementReject(kv.Value, leaf);
+            // …and the TYPE of every element whose shape just passed, by the same slot-faithful sweep.
+            if (LinkTypeRefusal(leaf, req.Value, "element") is { } elemTypeErr) return elemTypeErr;
+            foreach (var v in req.Values ?? Array.Empty<string>())
+                if (LinkTypeRefusal(leaf, v, "element") is { } valsTypeErr) return valsTypeErr;
+            foreach (var kv in req.Entries ?? new())
+                if (LinkTypeRefusal(leaf, kv.Value, "element") is { } entTypeErr) return entTypeErr;
         }
         // NON-FORMLINK coercible-element collection value-SHAPE — the value twin of the formlink block above and of the
         // dict-Set value block (which gates dict Set's value but not the other collection verbs). A list Add/SetAtIndex/
@@ -1047,6 +1072,8 @@ public sealed class CorpusRulebook
             }
             if (CheckValue(af.Type, f.Value, $"'{f.Key}' on '{spec.Type}'",
                     af.MutableTypeAssemblyQualified ?? af.GetterTypeAssemblyQualified) is { } e) return e;
+            // A composed field is a link slot like any other — a leveled-list entry's Reference is set here, not at a leaf.
+            if (af.Cardinality == "formlink" && LinkTypeRefusal(af, f.Value, "target") is { } linkErr) return linkErr;
         }
         // With no ctor_args the type still has to be BUILDABLE: either it has a parameterless constructor, or the
         // fields just checked satisfy one of its constructors (a discriminator arm). WriteEngine.TryRecognizeInstantiable
@@ -1077,6 +1104,65 @@ public sealed class CorpusRulebook
                    "navigate into it and Set a sub-field.";
         return $"'{leaf.Name}' ({leaf.Type}) needs a typed-value spec, not a plain value (e.g. a condition " +
                "FormLinkOrIndex target). Known deferred surface — surfaced, never silently accepted.";
+    }
+
+    // ---- FormLink TARGET TYPE ---------------------------------------------------------------------------------
+    //  The value-SHAPE checks above prove a FormID parses; they say nothing about WHAT it points at. A link set to a
+    //  record of the wrong type serializes fine and is wrong in game — the silent failure this gate closes. The
+    //  allowed set is not written down anywhere: the generator stamps every formlink field with its Mutagen link
+    //  target interface (FormLinkTargetAssemblyQualified), so "is this record allowed here" is one IsAssignableFrom
+    //  against the resolved record's own runtime type, and the printed legal names are the corpus record types that
+    //  satisfy the same interface. A field whose link accepts any record (IMajorRecordGetter and friends) admits
+    //  everything by construction, so it is never refused. An unresolvable FormID is not type-checked: the order
+    //  cannot say what it is, and a link to a record that is not present is the dangling-reference check's business.
+
+    /// <summary>The refusal when a FormLink value points at a record type the field cannot link to, else null.
+    /// <paramref name="slot"/> reads "target" for a singular link and "element" for a collection one.</summary>
+    string? LinkTypeRefusal(FieldSchema leaf, string? value, string slot)
+    {
+        if (_linkTargets is null || value is null) return null;
+        if (WriteEngine.IsFormKeyNullSynonym(value)) return null;              // a clear points at nothing
+        if (leaf.FormLinkTargetAssemblyQualified is not { } aq) return null;
+        if (WriteEngine.ResolveType(aq) is not { } target) return null;
+        if (_linkTargets(value) is not { } actual) return null;                // the order cannot say — never a guess
+        if (target.IsAssignableFrom(actual)) return null;
+        return $"Illegal FormLink {slot} '{value}' for '{leaf.Name}': that record is a " +
+               $"{RecordNaming.StripOverlay(actual.Name)}, but '{leaf.Name}' links to {AllowedLinkTypes(leaf, target, aq)}.";
+    }
+
+    /// <summary>The record types the corpus says satisfy a link target interface, as one printed phrase. Capped, so
+    /// a wide base does not answer with a hundred names; falls back to the interface's own bare name where no
+    /// modeled record satisfies it (an owned-child or non-record link).</summary>
+    string AllowedLinkTypes(FieldSchema leaf, Type target, string aq)
+    {
+        lock (_linkTargetNames)
+        {
+            if (_linkTargetNames.TryGetValue(aq, out var cached)) return cached;
+            var names = new List<string>();
+            foreach (var ts in _corpus.Types.Values)
+                if (ts.Kind == "record" && WriteEngine.ResolveType(ts.GetterInterfaceAssemblyQualified) is { } gi
+                    && target.IsAssignableFrom(gi))
+                    names.Add(ts.Name);
+            names.Sort(StringComparer.Ordinal);
+            const int cap = 12;
+            var phrase = names.Count switch
+            {
+                0 => BareTargetName(leaf.FormLinkTarget ?? target.Name),
+                1 => names[0],
+                _ when names.Count <= cap => "one of: " + string.Join(", ", names),
+                _ => $"one of {names.Count} types: " + string.Join(", ", names.Take(cap)) + ", …",
+            };
+            return _linkTargetNames[aq] = phrase;
+        }
+    }
+
+    /// <summary>A Mutagen getter interface name as the record name it stands for: IRaceGetter -> Race.</summary>
+    static string BareTargetName(string interfaceName)
+    {
+        var n = interfaceName;
+        if (n.Length > 1 && n[0] == 'I' && char.IsUpper(n[1])) n = n[1..];
+        if (n.EndsWith("Getter", StringComparison.Ordinal)) n = n[..^"Getter".Length];
+        return n;
     }
 
     /// <summary>The loud per-element rejection for a malformed FormLink collection ELEMENT — the SAME legal-set copy
