@@ -188,6 +188,8 @@ verbatim.
 
 Then tell the user to **enable** the new mod in MO2. A new mod folder lands last in the priority order,
 so enabling is the step that makes the write win; re-resolve the path (§7) rather than asserting it.
+Each write opens its **own** folder, so doing both leaves two mods to enable — write the record patch
+first, then pass its filename as `into=` on the `housecarl_place` call to land the pair in that one mod.
 
 Mesh-side repairs — a stale embedded FaceTint path after a compaction, a baked shape name that does not
 match the record, a wrong skin slot — are `housecarl_nif_set` territory and live in the reference (§11).
