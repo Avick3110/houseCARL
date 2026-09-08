@@ -251,6 +251,39 @@ public sealed class TreeIncompleteNoteTests
     }
 }
 
+/// <summary>The delta form keeps that note when max_chars cuts its delta lines. The two statements are about
+/// different things — INCOMPLETE says deltas were never computed, the cut notice says computed lines did not fit
+/// — so a reader who raises max_chars on the cut gets the rest of a comparison that still never looked at list
+/// contents. Driven against a hand-built row: no fixture makes an incomplete read with lines enough to cut.</summary>
+[Trait("tier", "unit")]
+public sealed class DeltaIncompleteNoteTests
+{
+    static string Render(int cap)
+    {
+        var diff = new FieldsDiff.Result(
+            new[] { "Name: 'A' (reference 'B')", "Value: 10 (reference 20)", "Weight: 1.0 (reference 2.0)",
+                    "Damage: 5 (reference 6)", "Keywords: 3 entries (reference 2)" },
+            Complete: false, AgreedCount: 0, AgreedSample: Array.Empty<string>(), NoVerdictCount: 0);
+        var row = new LoadOrderService.DeltaRow("000800:A.esm",
+            new LoadOrderService.DiffPole("B.esp", "active", true, "Weapon", "HcWeap"),
+            new LoadOrderService.DiffPole("A.esm", "active", true, "Weapon", "HcWeap"),
+            diff, null, null, null);
+        return RecordsTools.RenderRecordsDelta(new[] { row }, 1, 1, 0, 0, 0, "records  form=delta", null,
+                                               cap, null, out _);
+    }
+
+    /// <summary>One char under what the whole render takes, so the delta lines are cut — and the note about what
+    /// was never compared is still there beside the notice about what did not fit.</summary>
+    [Fact]
+    public void ACutDeltaListStillSaysTheComparisonWasIncomplete()
+    {
+        var r = Render(Render(100_000).Length - 1);
+
+        Assert.Contains("[delta lines cut", r);
+        Assert.Contains("the comparison is INCOMPLETE", r);
+    }
+}
+
 /// <summary>A deep read carries the readable bit on a LINK leaf too. A condition target (FormLinkOrIndex) the
 /// emit cannot read is a fault, and a fault that renders with Present=false and Readable=true tells every
 /// consumer reading the bits that nothing is there.</summary>
