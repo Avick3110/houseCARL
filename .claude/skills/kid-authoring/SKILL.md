@@ -50,7 +50,9 @@ Read what your task needs, not everything.
    keyword at runtime**, so a custom tag like `MyCursedGear` is valid. A runtime keyword has no
    persistent FormID, so when other tooling must point at the tag, author the record instead —
    `housecarl_create` with `records=[{"record_type": "Keyword", "editorid": "MyCursedGear"}]` and
-   `patch` naming the new plugin — and use the FormID the call reports back.
+   `patch` naming the new plugin. Convert the FormID it reports, `XXXXXX:Plugin.esp`, to KID's tilde
+   form `0xXXXXX~Plugin.esp` (leading zeros stripped) before it goes in the line: pasted as reported
+   it reads as an EditorID and quietly creates an empty runtime keyword.
 
 2. **Identify the item type.** One of the 19 listed in the types file, written **exactly** as given
    (`Magic Effect`, not `MagicEffect`). One line targets one type; repeat the line per type.
