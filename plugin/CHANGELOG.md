@@ -35,12 +35,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **A dialogue topic whose numeric `Subtype` contradicts its SNAM marker is now flagged, and the marker is named
   as the authoritative one.** The engine buckets topics by SNAM; the numeric subtype is stale on topics authored
   before the Dragonborn-era Creation Kit inserted six `FlyingMount*` values into the enum, so a vanilla `HELO`
-  topic can read as `RechargeExit`. The dialogue check now warns on the disagreement — only for a topic a mod
-  defines or overrides, so a whole-quest check over vanilla topics stays quiet — and both renders label the pair
-  (`subtype=… (stale)`, `subtype_marker=… (authoritative)`, `subtype_stale`, `subtype_from_marker`) on every
-  topic. A non-blank marker houseCARL does not model is named rather than passed over, and the blank-marker
-  advice says its recommended marker is derived from that unreliable field. Nothing is rewritten: no field on the
-  record distinguishes the two numberings.
+  topic can read as `RechargeExit`. The dialogue check now warns on the disagreement, and on a non-blank marker
+  houseCARL does not model. Both warnings are scoped to a pair the plugin itself states: a topic whose winner is
+  force-loaded content (the base masters, Creation Club, `_ResourcePack.esl` — the implicit group
+  `housecarl_load_order_status` lists) is passed over, and so is an override that carries the base record's pair
+  forward unchanged, so a whole-quest check over vanilla topics stays quiet. The labels are not scoped: both
+  renders show the pair (`subtype=… (stale)`, `subtype_marker=… (authoritative)`, `subtype_stale`,
+  `subtype_from_marker`) on every topic. The advice follows the numbers: a stored value exactly six below the
+  marker's modern index is the renumbering, and any other gap is two fields edited apart, where the warning says
+  the `Subtype` edit does nothing in game until SNAM is synced to it — which is what setting `Subtype` through
+  houseCARL does for you. Where a recommendation is derived from that unreliable field rather than from the base
+  record's SNAM, it says so. Nothing is rewritten: no field on the record distinguishes the two numberings.
 
 - **`open-animation-replacer` now states how a DAR `_conditions.txt` chain binds, and that the DAR weapon-type
   numbers convert unchanged.** Both were marked unverified in its reference, and the skill told you to convert
