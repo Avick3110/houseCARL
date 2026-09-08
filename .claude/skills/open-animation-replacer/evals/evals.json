@@ -1,9 +1,9 @@
 {
-  "skill_name": "oar-authoring",
+  "skill_name": "open-animation-replacer",
   "_meta": {
     "authored": "2026-09-08",
     "status": "AUTHORED, NOT YET RUN against the rewritten description. The 20 carried-over trigger cases hold their last measured verdicts (2026-07-28 revalidation for issue #294: recall 10/10, specificity 10/10) as a baseline only; the 4 added cases have never been measured, and the description they measure changed in this rewrite. Nothing here is a prediction: a case with no run behind it says so.",
-    "run_from": "dist/housecarl/skills/oar-authoring/ - the PACKAGED tree, not .claude/skills/. The packager strips evals/, so the suite is driven from outside the tree it tests, which is also the check that no body pointer dangles in dist/.",
+    "run_from": "dist/housecarl/skills/open-animation-replacer/ - the PACKAGED tree, not .claude/skills/. The packager strips evals/, so the suite is driven from outside the tree it tests, which is also the check that no body pointer dangles in dist/.",
     "arms": {
       "trigger": "Which ONE skill a fresh-context agent loads for a query, measured with-skill and without-skill.",
       "output_quality": "The audit's own DAR-to-OAR task on the live order, run as a pair: control (no housecarl:* skill in the catalogue) against with-skill. Eval id 25."
@@ -38,104 +38,104 @@
     {
       "id": 1,
       "prompt": "my new dual-wield moveset plays even when I have an axe out, it should be swords only - fix the OAR config",
-      "expected_output": "Load oar-authoring.",
-      "expectations": ["picks oar-authoring", "reasoning names editing an OAR condition set"],
+      "expected_output": "Load open-animation-replacer.",
+      "expectations": ["picks open-animation-replacer", "reasoning names editing an OAR condition set"],
       "should_trigger": true,
       "evidence": "2026-07-28: picked, against the pre-rewrite description."
     },
     {
       "id": 2,
       "prompt": "write a user.json so this idle only plays at night, without editing the original animation mod",
-      "expected_output": "Load oar-authoring.",
-      "expectations": ["picks oar-authoring", "reasoning names user.json"],
+      "expected_output": "Load open-animation-replacer.",
+      "expectations": ["picks open-animation-replacer", "reasoning names user.json"],
       "should_trigger": true,
       "evidence": "2026-07-28: picked, against the pre-rewrite description."
     },
     {
       "id": 3,
       "prompt": "which submod wins for the bow draw animation, the priority 9007010 OAR one or the legacy DAR _CustomConditions 225000 one?",
-      "expected_output": "Load oar-authoring.",
-      "expectations": ["picks oar-authoring", "reasoning names priority or winner resolution"],
+      "expected_output": "Load open-animation-replacer.",
+      "expectations": ["picks open-animation-replacer", "reasoning names priority or winner resolution"],
       "should_trigger": true,
       "evidence": "2026-07-28: picked, against the pre-rewrite description."
     },
     {
       "id": 4,
       "prompt": "why isn't my dodge animation playing when I have a shield equipped",
-      "expected_output": "Load oar-authoring.",
-      "expectations": ["picks oar-authoring", "reasoning names conditions not passing or a losing priority"],
+      "expected_output": "Load open-animation-replacer.",
+      "expectations": ["picks open-animation-replacer", "reasoning names conditions not passing or a losing priority"],
       "should_trigger": true,
       "evidence": "2026-07-28: picked, against the pre-rewrite description."
     },
     {
       "id": 5,
       "prompt": "add a condition so this sprint animation only triggers when the actor is a vampire",
-      "expected_output": "Load oar-authoring.",
-      "expectations": ["picks oar-authoring", "reasoning names condition authoring"],
+      "expected_output": "Load open-animation-replacer.",
+      "expectations": ["picks open-animation-replacer", "reasoning names condition authoring"],
       "should_trigger": true,
       "evidence": "2026-07-28: picked, against the pre-rewrite description."
     },
     {
       "id": 6,
       "prompt": "convert this _conditions.txt into the new OAR config format",
-      "expected_output": "Load oar-authoring.",
-      "expectations": ["picks oar-authoring", "reasoning names DAR conversion"],
+      "expected_output": "Load open-animation-replacer.",
+      "expectations": ["picks open-animation-replacer", "reasoning names DAR conversion"],
       "should_trigger": true,
       "evidence": "2026-07-28: picked, against the pre-rewrite description."
     },
     {
       "id": 7,
       "prompt": "what does this config.json actually do? it has IsEquippedType 6 and a HasMagicEffect line",
-      "expected_output": "Load oar-authoring.",
-      "expectations": ["picks oar-authoring", "reasoning names interpreting an existing config"],
+      "expected_output": "Load open-animation-replacer.",
+      "expectations": ["picks open-animation-replacer", "reasoning names interpreting an existing config"],
       "should_trigger": true,
       "evidence": "2026-07-28: picked, against the pre-rewrite description."
     },
     {
       "id": 8,
       "prompt": "gate the Smooth greatsword moveset behind a perk so it only applies once the player learns it",
-      "expected_output": "Load oar-authoring.",
-      "expectations": ["picks oar-authoring", "reasoning names gating an animation by perk"],
+      "expected_output": "Load open-animation-replacer.",
+      "expectations": ["picks open-animation-replacer", "reasoning names gating an animation by perk"],
       "should_trigger": true,
       "evidence": "2026-07-28: picked, against the pre-rewrite description."
     },
     {
       "id": 9,
       "prompt": "set the priority on my idle replacer so it beats Leviathan Animations",
-      "expected_output": "Load oar-authoring.",
-      "expectations": ["picks oar-authoring", "reasoning names submod priority"],
+      "expected_output": "Load open-animation-replacer.",
+      "expectations": ["picks open-animation-replacer", "reasoning names submod priority"],
       "should_trigger": true,
       "evidence": "2026-07-28: picked, against the pre-rewrite description."
     },
     {
       "id": 10,
       "prompt": "can I use the Math plugin condition to make this animation play based on stamina percentage?",
-      "expected_output": "Load oar-authoring.",
-      "expectations": ["picks oar-authoring", "reasoning names an addon condition"],
+      "expected_output": "Load open-animation-replacer.",
+      "expectations": ["picks open-animation-replacer", "reasoning names an addon condition"],
       "should_trigger": true,
       "evidence": "2026-07-28: picked, against the pre-rewrite description."
     },
     {
       "id": 11,
       "prompt": "this DAR file is NOT IsInCombat() AND A OR B OR C - does the combat guard apply to all three or just the first?",
-      "expected_output": "Load oar-authoring.",
-      "expectations": ["picks oar-authoring", "reasoning names the DAR grammar or AND/OR binding", "the answer states the binding is unsettled rather than asserting one reading"],
+      "expected_output": "Load open-animation-replacer.",
+      "expectations": ["picks open-animation-replacer", "reasoning names the DAR grammar or AND/OR binding", "the answer states the binding is unsettled rather than asserting one reading"],
       "should_trigger": true,
       "evidence": "NEW with this rewrite - never measured. Added for the DAR-conversion clause and the reference's new unsettled note."
     },
     {
       "id": 12,
       "prompt": "which mod is this OpenAnimationReplacer config.json actually coming from in my load order?",
-      "expected_output": "Load oar-authoring.",
-      "expectations": ["picks oar-authoring", "reasoning names the OAR file layer or which copy wins"],
+      "expected_output": "Load open-animation-replacer.",
+      "expectations": ["picks open-animation-replacer", "reasoning names the OAR file layer or which copy wins"],
       "should_trigger": true,
       "evidence": "NEW with this rewrite - never measured. Added for the locate-sweep step."
     },
     {
       "id": 13,
       "prompt": "distribute this idle-marker spell to all bandits",
-      "expected_output": "Do not load oar-authoring; spid-authoring is the fit.",
-      "expectations": ["does not pick oar-authoring"],
+      "expected_output": "Do not load open-animation-replacer; spid-authoring is the fit.",
+      "expectations": ["does not pick open-animation-replacer"],
       "should_trigger": false,
       "note": "SPID - form distribution to NPCs, not an animation config.",
       "evidence": "2026-07-28: routed to spid-authoring."
@@ -143,8 +143,8 @@
     {
       "id": 14,
       "prompt": "write a KID ini to tag all greatswords with a custom keyword",
-      "expected_output": "Do not load oar-authoring; kid-authoring is the fit.",
-      "expectations": ["does not pick oar-authoring"],
+      "expected_output": "Do not load open-animation-replacer; kid-authoring is the fit.",
+      "expectations": ["does not pick open-animation-replacer"],
       "should_trigger": false,
       "note": "KID - keyword on items; shares 'greatswords' vocabulary but not OAR.",
       "evidence": "2026-07-28: routed to kid-authoring."
@@ -152,8 +152,8 @@
     {
       "id": 15,
       "prompt": "buff the attack damage on this sword in SkyPatcher",
-      "expected_output": "Do not load oar-authoring; skypatcher-authoring is the fit.",
-      "expectations": ["does not pick oar-authoring"],
+      "expected_output": "Do not load open-animation-replacer; skypatcher-authoring is the fit.",
+      "expectations": ["does not pick open-animation-replacer"],
       "should_trigger": false,
       "note": "SkyPatcher record edit.",
       "evidence": "2026-07-28: routed to skypatcher-authoring."
@@ -161,35 +161,35 @@
     {
       "id": 16,
       "prompt": "this Papyrus script calls RegisterForAnimationEvent in an OnUpdate loop - is it heavy?",
-      "expected_output": "Do not load oar-authoring.",
-      "expectations": ["does not pick oar-authoring"],
+      "expected_output": "Do not load open-animation-replacer.",
+      "expectations": ["does not pick open-animation-replacer"],
       "should_trigger": false,
-      "note": "An animation EVENT in script, not an OAR config. The skill this once routed to (papyrus-optimization) is deleted, so the case now tests only that oar-authoring stays out.",
-      "evidence": "2026-07-28: did not pick oar-authoring."
+      "note": "An animation EVENT in script, not an OAR config. The skill this once routed to (papyrus-optimization) is deleted, so the case now tests only that open-animation-replacer stays out.",
+      "evidence": "2026-07-28: did not pick open-animation-replacer."
     },
     {
       "id": 17,
       "prompt": "the NPC T-poses in his walk animation - is a skeleton node missing from the nif?",
-      "expected_output": "Do not load oar-authoring.",
-      "expectations": ["does not pick oar-authoring"],
+      "expected_output": "Do not load open-animation-replacer.",
+      "expectations": ["does not pick open-animation-replacer"],
       "should_trigger": false,
       "note": "Skeleton / NIF, not an OAR condition problem.",
-      "evidence": "2026-07-28: did not pick oar-authoring."
+      "evidence": "2026-07-28: did not pick open-animation-replacer."
     },
     {
       "id": 18,
       "prompt": "what biped slot does this animated armor mesh occupy?",
-      "expected_output": "Do not load oar-authoring.",
-      "expectations": ["does not pick oar-authoring"],
+      "expected_output": "Do not load open-animation-replacer.",
+      "expectations": ["does not pick open-animation-replacer"],
       "should_trigger": false,
       "note": "Mesh inspection; 'animated' is a red herring.",
-      "evidence": "2026-07-28: did not pick oar-authoring."
+      "evidence": "2026-07-28: did not pick open-animation-replacer."
     },
     {
       "id": 19,
       "prompt": "my follower's face is dark after I gave her a new animation pack",
-      "expected_output": "Do not load oar-authoring; facegen-diagnostics is the fit.",
-      "expectations": ["does not pick oar-authoring"],
+      "expected_output": "Do not load open-animation-replacer; facegen-diagnostics is the fit.",
+      "expectations": ["does not pick open-animation-replacer"],
       "should_trigger": false,
       "note": "facegen-diagnostics; 'animation pack' is a red herring.",
       "evidence": "2026-07-28: routed to facegen-diagnostics."
@@ -197,8 +197,8 @@
     {
       "id": 20,
       "prompt": "add a SPID _DISTR line so guards use a different voice type",
-      "expected_output": "Do not load oar-authoring; spid-authoring is the fit.",
-      "expectations": ["does not pick oar-authoring"],
+      "expected_output": "Do not load open-animation-replacer; spid-authoring is the fit.",
+      "expectations": ["does not pick open-animation-replacer"],
       "should_trigger": false,
       "note": "SPID.",
       "evidence": "2026-07-28: rate-limited in the main run, backfilled the same day; routed to spid-authoring."
@@ -206,26 +206,26 @@
     {
       "id": 21,
       "prompt": "I just added a new dual-wield moveset animation mod - do I need to run Nemesis or Pandora to regenerate the behavior?",
-      "expected_output": "Do not load oar-authoring.",
-      "expectations": ["does not pick oar-authoring"],
+      "expected_output": "Do not load open-animation-replacer.",
+      "expectations": ["does not pick open-animation-replacer"],
       "should_trigger": false,
       "note": "Behaviour-graph generation is an animation-engine build step, not OAR config authoring; shares 'moveset' and 'animation mod' vocabulary.",
-      "evidence": "2026-07-28: did not pick oar-authoring."
+      "evidence": "2026-07-28: did not pick open-animation-replacer."
     },
     {
       "id": 22,
       "prompt": "repoint the purple texture on this animated waterfall mesh",
-      "expected_output": "Do not load oar-authoring.",
-      "expectations": ["does not pick oar-authoring"],
+      "expected_output": "Do not load open-animation-replacer.",
+      "expectations": ["does not pick open-animation-replacer"],
       "should_trigger": false,
       "note": "NIF editing; 'animated' is a red herring.",
-      "evidence": "2026-07-28: did not pick oar-authoring."
+      "evidence": "2026-07-28: did not pick open-animation-replacer."
     },
     {
       "id": 23,
       "prompt": "my FNIS behavior files are out of date after adding a creature animation pack - how do I rebuild them?",
-      "expected_output": "Do not load oar-authoring.",
-      "expectations": ["does not pick oar-authoring"],
+      "expected_output": "Do not load open-animation-replacer.",
+      "expectations": ["does not pick open-animation-replacer"],
       "should_trigger": false,
       "note": "NEW with this rewrite - never measured. Near-miss for the new exclusion clause: FNIS/Nemesis behaviour files are named as out of scope, and this query is the closest phrasing to them.",
       "evidence": "none - not yet run."
@@ -233,8 +233,8 @@
     {
       "id": 24,
       "prompt": "give this NPC a new idle - point his idle marker at a different form in the record",
-      "expected_output": "Do not load oar-authoring; the record edit is skypatcher-authoring or spid-authoring.",
-      "expectations": ["does not pick oar-authoring"],
+      "expected_output": "Do not load open-animation-replacer; the record edit is skypatcher-authoring or spid-authoring.",
+      "expectations": ["does not pick open-animation-replacer"],
       "should_trigger": false,
       "note": "NEW with this rewrite - never measured. Near-miss for the new exclusion clause: an idle phrased as a record edit rather than an animation config.",
       "evidence": "none - not yet run."

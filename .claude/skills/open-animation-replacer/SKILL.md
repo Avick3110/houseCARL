@@ -1,11 +1,11 @@
 ---
-name: oar-authoring
+name: open-animation-replacer
 description: >-
   Authors and interprets Open Animation Replacer (OAR) configs against the OAR 3.0.0 schema — config.json / user.json conditions, submod priorities, DAR _conditions.txt conversion. Load before composing or judging any condition, priority or DAR folder — OAR picks winners by priority, not load order, and a wrong token no-ops. Use when gating animations by weapon, keyword, perk, or race, editing or auditing an OAR config, or asking why an animation isn't playing or which submod wins. Not for .hkx or Nemesis/FNIS behaviour files, and not for record edits — those are SkyPatcher or SPID INIs.
 compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 2 instance.
 ---
 
-# OAR Authoring
+# Open Animation Replacer
 
 ## What this skill does
 

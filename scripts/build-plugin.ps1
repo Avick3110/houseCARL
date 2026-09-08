@@ -57,7 +57,7 @@ $ReleaseDir   = Join-Path $RepoRoot 'release'          # output dir for the ship
 $PluginManifest = Join-Path $PluginSrc '.claude-plugin\plugin.json'   # single source of truth for the version
 
 # the 11 shipped skills (the modlist-authoring cluster was removed; tool-surface skills wait)
-$Skills = @('mutagen-reference','papyrus-reference','skypatcher-authoring','spid-authoring','kid-authoring','facegen-diagnostics','dialogue-authoring','oar-authoring','skse-plugin-authoring','bulk-record-jobs','npc-appearance-copy')
+$Skills = @('mutagen-reference','papyrus-reference','skypatcher-authoring','spid-authoring','kid-authoring','facegen-diagnostics','dialogue-authoring','open-animation-replacer','skse-plugin-authoring','bulk-record-jobs','npc-appearance-copy')
 
 function Step($n,$msg) { Write-Host "`n=== [$n] $msg ===" -ForegroundColor Cyan }
 
