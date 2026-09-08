@@ -1,4 +1,4 @@
-using Mutagen.Bethesda;
+﻿using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
@@ -49,6 +49,43 @@ public sealed class RuntimeFormIdTests
     [InlineData("not-a-formid")]
     public void OnlyAnEightHexTokenWithNoPluginIsARuntimeFormId(string token)
         => Assert.False(RuntimeFormId.TryParse(token, out _));
+
+    // ---- the hybrid: eight digits AND a plugin name ------------------------------------------------
+
+    /// <summary>A pasted runtime FormID that kept its plugin name is neither notation, and the sentence hands
+    /// back the six-digit form rather than leaving the caller to work out which half to drop.</summary>
+    [Fact]
+    public void TheHybridNoteNamesTheSixDigitFormToUse()
+    {
+        var note = RuntimeFormId.HybridNote("000A2C94:Skyrim.esm");
+        Assert.NotNull(note);
+        Assert.Contains("'0A2C94:Skyrim.esm'", note);
+    }
+
+    /// <summary>A light hybrid's local id comes off the ESL window, not the middle six digits.</summary>
+    [Fact]
+    public void ALightHybridNamesTheEslWindowLocalId()
+        => Assert.Contains("'000800:HcRtLight.esl'", RuntimeFormId.HybridNote("FE012800:HcRtLight.esl"));
+
+    [Theory]
+    [InlineData("000800:Skyrim.esm")]      // the plugin form itself
+    [InlineData("0A2C94:Skyrim.esm")]      // six digits, the form to use
+    [InlineData("000A2C94")]               // the runtime form on its own
+    [InlineData("000A2C94:")]              // no plugin after the colon
+    [InlineData("not-a-formid:X.esp")]
+    public void OnlyAnEightDigitTokenWithAPluginIsAHybrid(string token)
+        => Assert.Null(RuntimeFormId.HybridNote(token));
+
+    /// <summary>The door a tool body parses through refuses it by name, so a read says which form to use.</summary>
+    [Fact]
+    public void AReadOfAHybridIsRefusedWithTheSixDigitForm()
+    {
+        using var w = new World();
+        var fk = w.FullWeapon;
+        var response = Read(w, $"00{fk.ID:X6}:{fk.ModKey.FileName}");
+        Assert.Contains("error=bad FormID", response);
+        Assert.Contains($"Write '{World.Fid(fk)}'", response);
+    }
 
     // ---- reading by a runtime FormID --------------------------------------------------------------
 

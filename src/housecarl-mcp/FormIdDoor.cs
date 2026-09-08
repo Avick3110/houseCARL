@@ -1,4 +1,4 @@
-using Mutagen.Bethesda.Plugins;
+﻿using Mutagen.Bethesda.Plugins;
 using HousecarlCore;
 
 namespace HousecarlMcp;
@@ -42,6 +42,8 @@ internal sealed class FormIdDoor
     /// sentence on anything it cannot answer, and on a runtime FormID at a <see cref="ForWrite"/> door.</summary>
     public FormKey Parse(string? raw)
     {
+        // A runtime form with the plugin name still on it is neither notation: say which half to drop.
+        if (RuntimeFormId.HybridNote(raw) is { } hybrid) throw new FormatException(hybrid);
         if (!RuntimeFormId.TryParse(raw, out _)) return FormKey.Factory((raw ?? "").Trim());
         _view ??= _svc!.CaptureView();
         var fk = _view.Value.ParseFormId(raw);
