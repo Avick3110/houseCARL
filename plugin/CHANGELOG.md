@@ -2615,6 +2615,20 @@ offset, paging meant slicing by `editorid_contains`. Now:
   installed plugin; the multi-runtime reference gains an "SE+AE only" route for a target with no VR in it, which
   says to tell SE from AE at runtime because a dual build defines neither `EXCLUSIVE_SKYRIM_SE` nor `_AE`; and the
   toolchain reference gains `vcpkg.json`'s `builtin-baseline`, under the condition the reference states.
+- **The SPID skill's Level Filter answer is corrected, and it now measures a line's reach before writing it.**
+  The skill said a Level Filter moves the line to a leveled pass that only auto-levelled NPCs receive. It does
+  not: SPID checks the filter against every matching NPC's own level, and the separate pass re-evaluates only
+  NPCs on a PC level multiplier as the player levels. The corrected rule, with its citations into SPID's MIT
+  source, is in the skill's `references/filters.md` §3, and the skill body points there rather than restating
+  it. On one live order the two populations differed by a factor of hundreds, so a line written on the old
+  reading understated its own reach. The skill now names the three read-only checks that exist —
+  `housecarl_records` with `counts_only=true` for the population a filter names and for how many of those are
+  on a PC level multiplier, and `housecarl_asset_status` for which mod wins the placed `_DISTR.ini` — and says
+  plainly that nothing reports the set a composed line reaches and nothing parses a draft `_DISTR.ini` offline.
+  It also states the version window in both directions: `references/filters.md` marks the features added in
+  7.3, and `housecarl_skse` with `findings='inventory'` reads what the installed SPID DLL declares as its
+  version. The EditorID caveat is new too — an EditorID is stable across merging, ESL conversion and FormID
+  compaction, but not against a winning override that renames the record, which resolves to nothing silently.
 
 ## 1.9.0 — 2026-07-17
 
