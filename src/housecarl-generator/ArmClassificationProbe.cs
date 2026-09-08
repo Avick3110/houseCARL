@@ -291,7 +291,9 @@ public static class ArmClassificationProbe
         var orderDependent = bothWays.Where(t =>
         {
             var forward = CorpusGenerator.OwnNamedGetterAmong(t, t.GetInterfaces());
-            var reversed = CorpusGenerator.OwnNamedGetterAmong(t, t.GetInterfaces().Reverse());
+            // Enumerable.Reverse spelled out: on the Type[] this returns, `.Reverse()` binds to
+            // MemoryExtensions.Reverse<T>(Span<T>) on newer SDKs, which reverses in place and returns void.
+            var reversed = CorpusGenerator.OwnNamedGetterAmong(t, Enumerable.Reverse(t.GetInterfaces()));
             return forward != reversed || forward is not { IsGenericType: true };
         }).Select(t => t.Name).ToArray();
         Check("E4. the normalized fallback prefers the arity match, whatever order GetInterfaces() lists",
