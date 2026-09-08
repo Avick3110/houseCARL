@@ -465,6 +465,11 @@ public sealed class FieldPredicateSet
         if (pseudo == PseudoPath.FormId)
             return (null, $"predicate '{raw}': 'formid' takes the membership ops only — \"formid in <list>\" / \"formid not in <list>\" (a single record is \"formid in [XXXXXX:Plugin.esp]\").");
 
+        // A scalar operand that mixes the two FormID notations is refused HERE, at the same door the formid list
+        // parses through: it would otherwise fall past ValueEquals's FormKey attempt into a plain string compare
+        // and report a healthy scan with 0 matches — a silently wrong answer for the very token being asked about.
+        if (HybridRefusal(raw, operand) is { } hybrid) return (null, hybrid);
+
         // 5. a numeric operator demands a numeric operand — fail fast at parse (before any scan).
         double num = 0;
         if (IsNumericOp(op) && !TryNum(operand, out num))
@@ -552,7 +557,11 @@ public sealed class FieldPredicateSet
         foreach (var t in content.Split(ListSeparators, StringSplitOptions.RemoveEmptyEntries))
         {
             var tok = t.Trim('[', ']', '"', '\'', ' ', '\t');
-            if (tok.Length > 0) members.Add(tok);
+            if (tok.Length == 0) continue;
+            // Same door as the scalar operand: a hybrid entry would compare as a plain string and quietly match
+            // nothing.
+            if (HybridRefusal(raw, tok) is { } hybrid) return (null, null, null, hybrid);
+            members.Add(tok);
         }
         if (members.Count == 0)
             return (null, null, null, $"predicate '{raw}': the value list is empty — give at least one entry.");
@@ -625,6 +634,8 @@ public sealed class FieldPredicateSet
             // style) strips clean; a chained Trim().Trim('[',…) stops at the inner space and leaves a quote behind.
             var tok = t.Trim('[', ']', '"', '\'', ' ', '\t');
             if (tok.Length == 0) continue;
+            // Named before the door runs, so the sentence is the same with or without a load order in hand.
+            if (HybridRefusal(raw, tok) is { } hybrid) return (null, null, hybrid);
             try { set.Add(toKey(tok)); }
             catch (Exception ex)
             {
@@ -1225,6 +1236,12 @@ public sealed class FieldPredicateSet
 
     static bool TryNum(string s, out double d)
         => double.TryParse(s, NumberStyles.Float | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out d);
+
+    /// <summary>The refusal for an operand token that MIXES the two FormID notations (eight runtime digits with a
+    /// plugin name), or null for anything else — the same sentence every FormID door gives, so a where= value is
+    /// judged by the same rule as a formids= one instead of string-comparing to a quiet zero.</summary>
+    static string? HybridRefusal(string raw, string token)
+        => RuntimeFormId.HybridNote(token) is { } note ? $"predicate '{raw}': {note}" : null;
 
     /// <summary>True only for a real FormKey string (<c>XXXXXX:Plugin.esp</c>). A plain number or enum name has no
     /// <c>:Plugin</c> tail, so it never parses here — the FormKey branch can't swallow a numeric/string compare.</summary>

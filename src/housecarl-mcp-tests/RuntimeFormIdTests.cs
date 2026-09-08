@@ -87,6 +87,38 @@ public sealed class RuntimeFormIdTests
         Assert.Contains($"Write '{World.Fid(fk)}'", response);
     }
 
+    /// <summary>A hybrid as a where= operand is refused at parse. It would otherwise miss the FormKey branch and
+    /// compare as a plain string — a healthy-looking scan reporting 0 matches for the token being asked about.</summary>
+    [Theory]
+    [InlineData("ObjectEffect = 000A2C94:Skyrim.esm")]          // a scalar operand
+    [InlineData("Race in [000A2C94:Skyrim.esm]")]               // a non-formid membership list
+    [InlineData("formid in [000A2C94:Skyrim.esm]")]             // the identity list, with no load-order door in hand
+    public void AHybridInAWhereOperandIsRefusedRatherThanStringCompared(string clause)
+    {
+        var (set, err) = FieldPredicateSet.Parse(new[] { clause });
+        Assert.Null(set);
+        Assert.NotNull(err);
+        Assert.Contains("'0A2C94:Skyrim.esm'", err);
+    }
+
+    /// <summary>create's parent= takes an EditorID too, so it goes through the door's refusal check rather than
+    /// its parse — the hybrid must be named there as well, not left to "Malformed FormKey string".</summary>
+    [Fact]
+    public void CreateRefusesAHybridParentAndNamesTheSixDigitForm()
+    {
+        using var w = new World();
+        var fk = w.FullWeapon;
+        var outcome = w.Svc.CreateRecordsBatch(
+            new[] { new CreateOp { RecordType = "Weapon", Editorid = "HcRtHybridParent", Parent = $"00{fk.ID:X6}:{fk.ModKey.FileName}" } },
+            "HcRtPatch", null);
+        Assert.False(outcome.Success);
+        Assert.NotNull(outcome.Error);
+        Assert.Contains("parent:", outcome.Error);
+        Assert.Contains($"Write '{World.Fid(fk)}'", outcome.Error);
+        Assert.DoesNotContain("Malformed FormKey", outcome.Error);
+        Assert.Equal(w.ModFolders, Directory.GetDirectories(w.ModsDir).Length);
+    }
+
     // ---- reading by a runtime FormID --------------------------------------------------------------
 
     [Fact]
