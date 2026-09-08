@@ -377,6 +377,37 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         }
     }
 
+    /// <summary>The census is a text render too, and the ceiling is stated over every one of them: a counts_only
+    /// response carries the header's source and selection statements whatever the budget, so at a max_chars it
+    /// cannot fit in it says so and names the number that clears it, rather than answering several times over the
+    /// cap in silence.</summary>
+    [Fact]
+    public void ACensusTooBigForItsCapSaysSoAndNamesTheNumberThatClearsIt()
+    {
+        foreach (var (name, call) in new (string, Func<int, string>)[]
+        {
+            ("scan census", cap => RecordsTools.Records(Svc, types: new[] { "SPEL" }, counts_only: true, max_chars: cap)),
+            ("list census", cap => RecordsTools.Records(Svc, formids: SummaryIds, project: Form("identity"),
+                                                        counts_only: true, max_chars: cap)),
+            ("delta census", cap => RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("delta"),
+                                                         versus: Je("\"" + W.MasterName + "\""), counts_only: true, max_chars: cap)),
+            ("tree census", cap => RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("tree"),
+                                                        counts_only: true, max_chars: cap)),
+            ("chain census", cap => RecordsTools.Records(Svc, types: new[] { "SPEL" }, walk: new RecordsTools.RecordsWalk(),
+                                                         project: Form("chain"), counts_only: true, max_chars: cap)),
+            ("reverse census", cap => RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
+                                                           walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" },
+                                                           project: Form("chain"), counts_only: true, max_chars: cap)),
+        })
+        {
+            var r = call(50);
+
+            Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+            Assert.True(r.Length > 50, $"the {name} fits 50 chars, so it cannot show the overrun arm");
+            InsideItsCap(r, 50, name);
+        }
+    }
+
     /// <summary>The other side of the bound: a render whose complete output fits inside max_chars IS that output.
     /// Every reserve the bounded pass holds back is room for a notice a complete render never writes, so charging
     /// them against one that fits cut answers that fitted — and the cut then spilled, the spill block was charged
