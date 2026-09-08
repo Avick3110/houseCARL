@@ -20,6 +20,11 @@ types, flags and doc-comments — for vanilla scripts, SKSE's additions, and the
 this skill ships. It is generated from BellCube's
 [papyrus-index](https://github.com/BellCubeDev/papyrus-index) and lives under `references/`.
 
+The lookup itself is offline: the index and the reference files ship inside this skill, and reading
+them needs no server and no configured instance. The frontmatter's compatibility line is the
+prerequisite for the availability half only — the checks that ask whether a function is real on this
+machine call the houseCARL MCP server, and a lookup never has to wait on one.
+
 This covers the **API surface**. Reading a modlist's actual `.psc` source is a file job (ask
 `housecarl_asset_status` which mod or BSA wins a `Scripts\...` path first, then read it with your
 own file tool); compiling is `housecarl_compile_script`.
@@ -47,15 +52,26 @@ exists to prevent. **Validate the instrument before you trust a zero:** grep a t
 there (`"name":"OnInit"` resolves to several entries). Only once the pattern is proven is an empty
 result "not in the corpus".
 
+Casing manufactures the same silent zero, and more often, because Papyrus is case-insensitive and a
+call site is written however its author liked. `Debug.notification("...")` is legal Papyrus; the
+corpus carries the row as `Notification`, and a case-exact grep for `"name":"notification"` returns
+zero for a function that is one line away. **Grep case-insensitively** (`grep -i`) and take the
+casing off the matched row, never off the call site.
+
 1. **Take the unqualified name from the call site.** `Self.GetActorValue("Health")` → `GetActorValue`;
    `StringUtil.Substring(s, 0, 4)` → `Substring`.
-2. **Grep `references/index.jsonl` for `"name":"<Name>"`.** Three result shapes:
+2. **Grep `references/index.jsonl` case-insensitively for `"name":"<Name>"`.** Three result shapes:
    - **One match.** Take its `file`, `line_start`, `line_end`.
    - **Several matches.** Disambiguate on `qualified`. A qualified call site is authoritative —
      `StringUtil.Substring` is the row whose `qualified` is `StringUtil.Substring`; `solveObjSetter`
      exists on `JDB`, `JFormDB` and `JValue`, and only the call site says which. An unqualified call
      inside a script body resolves up the calling script's `extends` chain — `Self.GetActorValue(...)`
-     in a script extending `Actor` is `Actor#GetActorValue`.
+     in a script extending `Actor` is `Actor#GetActorValue`. **`qualified` does not always settle
+     it:** many class members carry both a `vanilla` and an `skse` row under one `qualified`, and
+     `Actor#GetActorValue` is one of them. When it still ties, break on `source` and prefer `skse` —
+     an SKSE install extends the vanilla class. Almost every such pair renders the same block; where
+     the two differ they differ on whether a parameter is required, so read both and say which
+     declaration you took.
    - **No match.** Go to "Bundled-or-warn" below.
 3. **Read the block at `line_start`..`line_end`.** Line-exact, never the whole file: a whole-file
    read pulls in hundreds of unrelated entries and costs orders of magnitude more than the block.
@@ -83,10 +99,10 @@ StorageUtil.FormListAdd(Self, "HC_Audit.forms", theForm)
 Grep `"name":"FormListAdd"` in `references/index.jsonl`; the `StorageUtil` row reads:
 
 ```json
-{"name":"FormListAdd","qualified":"StorageUtil.FormListAdd","source":"papyrusutil","file":"references/papyrusutil.md","kind":"global","requires_plugin":"PapyrusUtilSE.dll","line_start":5185,"line_end":5197}
+{"name":"FormListAdd","qualified":"StorageUtil.FormListAdd","source":"papyrusutil","file":"references/papyrusutil.md","kind":"global","requires_plugin":"PapyrusUtilSE.dll","line_start":5163,"line_end":5175}
 ```
 
-Read `references/papyrusutil.md` lines 5185-5197 and the block gives
+Read `references/papyrusutil.md` lines 5163-5175 and the block gives
 `FormListAdd(ObjKey, KeyName, value, allowDuplicate) → Int`, `Native Global`, with
 `allowDuplicate: Bool` defaulting to **`true`**. That default is the payoff: without a
 `FormListClear` first, a re-init silently doubles the list — and it still compiles.
@@ -148,9 +164,12 @@ upstream bug — both cost far more than the non-answer.
 ## Tier 2 — the corpus carries more than a modlist installs
 
 The corpus ships two tiers, and the tier is a fact about the corpus, not about the user's machine.
-Tier 1 is `vanilla/` and `skse/`, which any Skyrim + SKSE install has; their rows carry no
-`requires_plugin`. Tier 2 is the SKSE-plugin sources — PapyrusUtil, JContainers, MCMHelper, po3,
-SkyUI and the rest — whose rows do.
+**Read the tier off `source`, never off the presence of `requires_plugin`.** Tier 1 is `source`
+`vanilla` or `skse`, which any Skyrim + SKSE install has. Everything else is Tier 2 — the
+SKSE-plugin sources, PapyrusUtil, JContainers, MCMHelper, po3, SkyUI and the rest — whether or not
+the row names a DLL. Several Tier-2 sources carry no `requires_plugin` on any row (`clib`,
+`dynamicwetness`, `skyprompt` among them), and reading a missing key as Tier 1 reports a
+third-party function as always present and skips the availability check below.
 
 `requires_plugin` is an **indicative hint, not a gate**. The filename it carries differs between
 builds: StorageUtil rows name `PapyrusUtilSE.dll` while the AE build installs `PapyrusUtil.dll`,
@@ -183,23 +202,27 @@ and the call will no-op at runtime. Say that, rather than the bundled-or-warn wa
 - `name` — unqualified function, event or property name. The lookup key.
 - `qualified` — `Script.Function`, `Script#Method`, `Script.Event`, `Script.Property`. Disambiguates
   a `name` that collides across sources.
-- `source` — the source directory the entry came from (`vanilla`, `skse`, `papyrusutil`, …).
+- `source` — the source directory the entry came from (`vanilla`, `skse`, `papyrusutil`, …). Also
+  the tier discriminator, and the tie-break when `qualified` collides.
 - `file` — the reference file holding the entry, rooted at the skill folder.
 - `kind` — `global`, `instance-method`, `event` or `property`.
 - `line_start` / `line_end` — 1-indexed inclusive block range inside `file`.
-- `requires_plugin` — Tier 2 only, and indicative (see above).
+- `requires_plugin` — on some Tier-2 rows only, and indicative (see above). Its absence says
+  nothing about the tier.
 
-**The index is the intended second hop.** Every other file under `references/` is reached through a
-row's `file` field and read at its `line_start`..`line_end`; each carries a `## Contents` table for
-the rare fallback read, and no read off the index is ever whole-file. The index itself is grepped,
-never bulk-loaded.
+**The index is the intended second hop.** Every generated file under `references/` is reached
+through a row's `file` field and read at its `line_start`..`line_end`, and no read off the index is
+ever whole-file. Generated files **over 100 lines** carry a `## Contents` table for the rare
+fallback read; the shorter ones do not, and that is not a corpus bug. The index itself is grepped,
+never bulk-loaded. Two files sit outside all of this: `silent-biters.md` and `corpus-notes.md` are
+hand-authored, are reachable from no row, and are read whole by name.
 
 ## Getting it wrong, and the rule instead
 
-- Grep the index with the compact token, `"name":"Dispel"` (a spaced `"name": "Dispel"` matches
-  nothing and reads as absence).
-- Look up by the unqualified `name`, and use `qualified` only to disambiguate (the index's key is
-  `Substring`, not `StringUtil.Substring`).
+- Grep the index case-insensitively with the compact token, `grep -i '"name":"Dispel"'` (a spaced
+  `"name": "Dispel"` and a miscased `"name":"dispel"` both match nothing and read as absence).
+- Look up by the unqualified `name`, and use `qualified` only to disambiguate, then `source` when
+  `qualified` ties (the index's key is `Substring`, not `StringUtil.Substring`).
 - Trust the index's `file` field over any file a user names (if a lookup for `Foo` resolves to
   `references/skse/Form.md` and the user said `Actor.md`, the index wins — investigate the gap).
 - Read the block at `line_start`..`line_end`, batching several ranges into one call where you can
