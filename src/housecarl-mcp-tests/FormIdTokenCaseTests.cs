@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
@@ -139,5 +140,91 @@ public sealed class FormIdTokenCaseTests : IDisposable
 
         Assert.Equal(direct, throughTheLink, StringComparer.Ordinal);
         Assert.Equal($"{_w.Race.ID:X6}:{Path.GetFileName(_w.MasterPath)}", direct);
+    }
+
+    /// <summary>The write's read-back rows are what a caller joins its next read against, so they must spell the
+    /// plugin the load order's way even when the caller typed the FormID in another case.</summary>
+    [Fact]
+    public void TheWriteReadbackSpellsThePluginTheOrdersWayNotTheWayTheCallerTypedIt()
+    {
+        var typedLowercase = $"{_w.Npc.ID:X6}:{MasterCaseDriftWorld.PatchName.ToLowerInvariant()}";
+        var ops = JsonDocument.Parse(
+            $"[{{\"formid\":\"{typedLowercase}\",\"field_path\":\"Height\",\"value\":\"1.1\"}}]").RootElement;
+
+        var json = ApplyTools.Apply(_w.Svc, ops: ops, patch: "HcCaseWrite", readback: true, format: "json");
+
+        // Both the op row and the read-back row spell it the order's way, so the two join and so does the next read.
+        Assert.Equal(2, Regex.Matches(json, $"\"formid\": \"{_w.Npc.ID:X6}:{MasterCaseDriftWorld.PatchName}\"").Count);
+        Assert.DoesNotContain(typedLowercase, json);
+    }
+
+    /// <summary>A walk's node labels name the parent of every child row (pulled_by), so a label built from the
+    /// caller's own spelling would leave the table unable to join a child back to its parent.</summary>
+    [Fact]
+    public void AWalksNodeLabelsSpellThePluginTheOrdersWay()
+    {
+        var typedLowercase = $"{_w.Npc.ID:X6}:{MasterCaseDriftWorld.PatchName.ToLowerInvariant()}";
+
+        var json = RecordsTools.Records(_w.Svc,
+            formids: new[] { typedLowercase },
+            walk: new RecordsTools.RecordsWalk { depth = 2 },
+            project: new RecordsTools.RecordsProject { form = "chain" },
+            format: "json");
+
+        Assert.Contains(MasterCaseDriftWorld.PatchName, json);
+        Assert.DoesNotContain(typedLowercase, json);
+    }
+
+    /// <summary>The text render is a join surface too — a modder pastes a printed token into the next call — so it
+    /// spells the plugin the order's way rather than echoing the case the caller typed.</summary>
+    [Fact]
+    public void TheTextRenderSpellsThePluginTheOrdersWay()
+    {
+        var typedLowercase = $"{_w.Npc.ID:X6}:{MasterCaseDriftWorld.PatchName.ToLowerInvariant()}";
+
+        var text = RecordsTools.Records(_w.Svc, formids: new[] { typedLowercase });
+
+        Assert.Contains($"{_w.Npc.ID:X6}:{MasterCaseDriftWorld.PatchName}", text);
+        Assert.DoesNotContain(typedLowercase, text);
+    }
+
+    /// <summary>A read that failed still names the record, and that row is the one a caller retries from — so the
+    /// error line spells the plugin the same way a successful row would.</summary>
+    [Fact]
+    public void AFailedReadsTextRowSpellsThePluginTheOrdersWay()
+    {
+        var missingLowercase = $"FFFFFF:{MasterCaseDriftWorld.PatchName.ToLowerInvariant()}";
+
+        var text = RecordsTools.Records(_w.Svc, formids: new[] { missingLowercase });
+
+        Assert.Contains($"FFFFFF:{MasterCaseDriftWorld.PatchName}", text);
+        Assert.DoesNotContain(missingLowercase, text);
+    }
+}
+
+/// <summary>The canonical table is the plugins of the order LOADED NOW. The server repoints at another MO2
+/// instance without a restart, so a publish REPLACES the table: a name the new order does not carry must fall
+/// back to its own spelling rather than keep the old order's.</summary>
+[Trait("tier", "unit")]
+public sealed class FormIdTokenPublishTests
+{
+    [Fact]
+    public void ARebuildReplacesTheTableRatherThanAddingToIt()
+    {
+        try
+        {
+            FormIdToken.Publish(new[] { "AwesomeMod.esp", "Shared.esp" });
+            Assert.Equal("AwesomeMod.esp", FormIdToken.Plugin("awesomemod.esp"));
+
+            // The new instance does not carry AwesomeMod.esp at all — an off-order read of it must print its own
+            // spelling, not the spelling the previous instance published.
+            FormIdToken.Publish(new[] { "Shared.esp" });
+            Assert.Equal("awesomemod.esp", FormIdToken.Plugin("awesomemod.esp"));
+            Assert.Equal("Shared.esp", FormIdToken.Plugin("SHARED.ESP"));
+        }
+        finally
+        {
+            FormIdToken.Publish(Array.Empty<string>());   // a fresh process's table; the next build republishes
+        }
     }
 }
