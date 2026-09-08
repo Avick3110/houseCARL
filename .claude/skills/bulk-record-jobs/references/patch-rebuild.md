@@ -42,10 +42,12 @@ rule in the server's standing instructions decides `source=`: name the authored 
 
 One `housecarl_apply` call carries the whole op list:
 
-- **Whole-field transplants**: an `ops[]` entry with `from_source="OldPatch.esp"` takes that field's
-  value from the plugin you name instead of from the winner — off-order sources included.
-- **List rebuilds**: `composes` on one op appends N elements or replaces the list wholesale;
-  `composes=[]` clears it.
+- **Whole-field transplants**: an `ops[]` entry of `op="CopyFrom"` with `from_source="OldPatch.esp"`
+  takes that field's value from the plugin you name instead of from the winner — off-order sources
+  included. The pole belongs to that verb: on any other op it is refused by name, and `CopyFrom`
+  itself takes no `value`.
+- **List rebuilds**: `composes` on one op — `op="Add"` appends N elements, `op="ReplaceAll"`
+  replaces the list wholesale, and `composes=[]` under `ReplaceAll` clears it.
 - A large job goes through a manifest: `ops="@<absolute path>"` reads the same array from a JSON
   file, so the ops are written once, dry-run from the file, then applied — and re-running the same
   manifest recovers an interrupted write, because overrides are idempotent.

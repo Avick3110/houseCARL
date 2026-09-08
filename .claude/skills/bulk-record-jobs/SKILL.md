@@ -46,13 +46,16 @@ Write the deliverable schema down before any extraction starts, especially befor
 ## Getting the whole set out — one lane, not two
 
 There is one lane, with two knobs. `max_chars` is a ceiling on the **render**, never on the result:
-an over-ceiling result spills in full to a server-side JSONL artifact whose line 1 is the manifest
-(query echo, row schema, epoch), and the response names the file. So the move for a big enumeration
-is a **small** `max_chars`, not a large one.
+an over-ceiling result spills to a server-side JSONL artifact whose line 1 is the manifest (query
+echo, row schema, epoch), and the response names the file. So the move for a big enumeration is a
+**small** `max_chars`, not a large one — but what spills is what `limit=` let through (default 500),
+and the marker says which: `spilled: complete result (N rows)` against `spilled: the returned WINDOW
+(N rows of T total matches)`, whose matches beyond `limit=` are in no file at all.
 
-`to_file="<absolute .jsonl>"` is the explicit spelling of the same lane — the complete result
-written there, only the manifest rendered inline. It refuses `offset=`: the artifact is never a
-window. Re-enter it later with `formids=["@<path>"]` or `where=["formid in @<path>"]`, epoch-checked.
+`to_file="<absolute .jsonl>"` is what captures the **complete** result — it is the spelling that
+lifts the window, writing every selected row and rendering only the manifest inline. It refuses
+`offset=`: the artifact is never a window. Re-enter it later with `formids=["@<path>"]` or
+`where=["formid in @<path>"]`, epoch-checked.
 
 ```
 housecarl_records(types=["NPC_"], format="json",
@@ -60,9 +63,15 @@ housecarl_records(types=["NPC_"], format="json",
                   to_file="C:/work/npc-winners.jsonl")
 ```
 ```
-{"manifest":{"total":66856,"rendered":66856,"epoch":"7f3a1c","schema":["formid","EditorID","Name","Race"]}}
-wrote C:/work/npc-winners.jsonl — 66,856 rows
+"total": 66856, "matches": [],
+"spilled": {"path":"C:/work/npc-winners.jsonl", "reason":"to_file", "complete":true,
+            "row_count":66856, "total":66856, "identity":"formid", "epoch":"7f3a1c",
+            "row_schema":["formid","runtime_formid","type","editorid","winner","override_depth",
+                          "source","matches?","fields"]}
 ```
+
+The row schema is the artifact's own, not the fields you asked for: the requested paths sit **under
+`fields`** on each row, never as top-level columns — `row.fields["EditorID"]`, not `row.EditorID`.
 
 Run scripts against the file; never read a multi-MB artifact into context. If you page instead,
 `offset=` **re-scans** the selection from the start, so every window pays the whole scan again and a
@@ -82,12 +91,15 @@ join it locally.
 
 A persisted result is trustworthy only after these three checks, made **in the file**:
 
-1. Line 1 is the manifest, and it is the thing you read — not the chat response's summary.
-2. The rows sum to the reported `total`.
+1. Line 1 is the manifest — a flat object keyed `housecarl_artifact`, `tool`, `query`, `identity`,
+   `row_schema`, `sort`, `row_count`, `total`, `epoch` — and it is the thing you read, not the chat
+   response's summary.
+2. `row_count` equals `total`. Short of it means the file holds a **window**, not the result.
 3. Every window carries the **same** `epoch`.
 
 ```
-head -1 C:/work/npc-winners.jsonl   →  {"manifest":{"total":66856,…,"epoch":"7f3a1c"}}
+head -1 C:/work/npc-winners.jsonl   →  {"housecarl_artifact":1,"tool":"housecarl_records",…,
+                                        "row_count":66856,"total":66856,"epoch":"7f3a1c"}
 wc -l   C:/work/npc-winners.jsonl   →  66857     (manifest + 66,856 rows)
 ```
 
@@ -123,8 +135,8 @@ Reach for the primitive, never the loop.
 | Read two plugin versions and subtract by hand | `project={"form":"delta"}` with `source=` the subject and `versus=` the reference pole; either may be an on-disk, unticked plugin |
 | Walk a link chain call by call | `walk=` — the traversal is a SELECT term, and any reading form consumes what it reaches |
 | Filter matches after the read | `where=` — comparisons, flag tests, quantified list steps, `*parent`, one `->` link step, `formid in @<file>` |
-| Re-type another version's field values into ops | `housecarl_apply` with an `ops[]` entry naming `from_source=` — the field is taken from the plugin you name, not from the winner |
-| Add list elements one op at a time | `composes` on one op — appends N elements, or rebuilds the whole list (`composes=[]` clears it) |
+| Re-type another version's field values into ops | `housecarl_apply` with an `ops[]` entry of `op="CopyFrom"` + `from_source=` — the field is taken from the plugin you name, not from the winner (the pole is CopyFrom's; any other verb refuses it by name) |
+| Add list elements one op at a time | `composes` on one op — `op="Add"` appends N elements, `op="ReplaceAll"` rebuilds the whole list and `composes=[]` under it clears (the default `Set` has no list element to mean) |
 
 ## The canonical deliverable shape
 
