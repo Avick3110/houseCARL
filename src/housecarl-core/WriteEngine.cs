@@ -2316,9 +2316,16 @@ public static class WriteEngine
     static object BuildStruct(StructSpec spec)
     {
         var type = ResolveStructType(spec.Type);
-        var instance = Instantiate(type, spec.CtorArgs);
+        // A type whose every constructor takes arguments is built FROM the compose's own fields when no explicit
+        // ctor_args were given — the caller names the discriminator as a field, which is the natural spelling and the
+        // one the discriminator refusal already sends them to.
+        var fromFields = spec.CtorArgs is null ? CtorArgsFromFields(type, spec.Fields) : null;
+        var instance = Instantiate(type, spec.CtorArgs ?? fromFields?.Args);
         foreach (var (name, val) in spec.Fields ?? new())
         {
+            // A field the constructor already carried is not re-set: it is written, and on an arm whose discriminator
+            // is read-only re-setting it would throw.
+            if (fromFields?.Consumed.Contains(name) == true) continue;
             var p = ResolveProperty(type, name)
                 ?? throw new InvalidOperationException($"No field '{name}' on '{spec.Type}'");
             if (!p.CanWrite) throw new InvalidOperationException($"Field '{name}' on '{spec.Type}' is not writable");
@@ -2422,8 +2429,9 @@ public static class WriteEngine
     /// EXCLUDES the composition-residuals <c>GenderedItem&lt;T&gt;</c> / <c>Array2d&lt;T&gt;</c> (no parameterless ctor,
     /// so Instantiate routes to <see cref="InstantiateComposition"/>, which builds only gendered halves and throws for the
     /// rest) and any name ResolveStructType can't resolve. Used by the substruct-leaf compose gate so it accepts EXACTLY
-    /// what apply can build (gate==apply, by construction; no per-type list). A ctor-arg-only type is (correctly) excluded:
-    /// a substruct leaf whose whole value needs positional ctor args is not a plain compose target.</summary>
+    /// what apply can build (gate==apply, by construction; no per-type list). A ctor-arg-only type is excluded here
+    /// because this question is asked of the SCHEMA alone, with no spec in hand; whether a given compose satisfies
+    /// such a type's constructor is <see cref="TryRecognizeInstantiable"/>'s question, asked per call.</summary>
     internal static bool IsPlainComposableStruct(string? typeName)
     {
         if (typeName is null) return false;
@@ -2477,6 +2485,73 @@ public static class WriteEngine
                        $"{Pretty(ps[i].ParameterType)} (parameter '{ps[i].Name}').";
         return null;
     }
+
+    /// <summary>Positional constructor args drawn from a compose's OWN fields, for a type whose every constructor
+    /// takes arguments — a polymorphic arm carrying its discriminator in the constructor
+    /// (<c>MagicEffectArchetype(TypeEnum)</c>). Recognised by the missing parameterless ctor, never by type name.
+    /// Picks the SMALLEST public constructor whose every parameter is named by a supplied field (matched
+    /// case-insensitively, so the parameter <c>type</c> is satisfied by the field <c>Type</c>) and whose value
+    /// coerces; returns those args in positional order together with the field names it consumed, or null when no
+    /// constructor is satisfied. Reads nothing and builds nothing, so the pre-flight gate calls the same method the
+    /// apply does and the two cannot drift.</summary>
+    static (string[] Args, HashSet<string> Consumed)? CtorArgsFromFields(Type t, IReadOnlyDictionary<string, string>? fields)
+    {
+        if (t.GetConstructor(Type.EmptyTypes) is not null || fields is not { Count: > 0 }) return null;
+        foreach (var ctor in t.GetConstructors().Where(c => c.GetParameters().Length > 0)
+                              .OrderBy(c => c.GetParameters().Length))
+        {
+            var ps = ctor.GetParameters();
+            var args = new string[ps.Length];
+            var consumed = new HashSet<string>(StringComparer.Ordinal);
+            bool ok = true;
+            for (int i = 0; i < ps.Length && ok; i++)
+            {
+                var named = fields.Keys.FirstOrDefault(k => string.Equals(k, ps[i].Name, StringComparison.OrdinalIgnoreCase));
+                if (named is null || !TryCoerce(fields[named], ps[i].ParameterType, out _)) { ok = false; break; }
+                args[i] = fields[named];
+                consumed.Add(named);
+            }
+            if (ok) return (args, consumed);
+        }
+        return null;
+    }
+
+    /// <summary>The pre-flight twin of <see cref="BuildStruct"/>'s no-ctor_args instantiate: can this compose type be
+    /// built at all from the fields supplied? Null = yes (it has a parameterless ctor, or its constructor is
+    /// satisfied by the fields — the <see cref="CtorArgsFromFields"/> path, called here so gate and apply agree by
+    /// construction); else the loud message naming the constructor parameter the compose is missing. Without it a
+    /// compose of a constructor-argument arm is ACCEPTED and then throws mid-apply (#563). A type with no
+    /// argument-taking constructor at all is left alone: that is Mutagen's composition family
+    /// (<c>GenderedItem&lt;T&gt;</c>, <c>Array2d&lt;T&gt;</c>), whose gap
+    /// <see cref="InstantiateComposition"/> names in its own words. Called only when <c>spec.CtorArgs</c> is null;
+    /// supplied ctor_args are checked by <see cref="TryRecognizeCtorArgs"/> instead.</summary>
+    internal static string? TryRecognizeInstantiable(string structTypeName, IReadOnlyDictionary<string, string>? fields)
+    {
+        Type t;
+        try { t = ResolveStructType(structTypeName); }
+        catch { return null; }                                   // unknown type — ResolveStructType says so loudly at apply
+        if (t.GetConstructor(Type.EmptyTypes) is not null) return null;
+        if (CtorArgsFromFields(t, fields) is not null) return null;
+        var ctor = t.GetConstructors().Where(c => c.GetParameters().Length > 0)
+                    .OrderBy(c => c.GetParameters().Length).FirstOrDefault();
+        if (ctor is null) return null;
+        var ps = ctor.GetParameters();
+        var named = ps.Select(p => FieldNameFor(t, p)).ToList();
+        return $"compose type '{structTypeName}' has no parameterless constructor — it is built from " +
+               string.Join(" and ", ps.Select((p, i) => $"'{named[i]}' ({Pretty(p.ParameterType)})")) +
+               $", so a compose that leaves {(ps.Length == 1 ? "it" : "one")} out has nothing to build. Name " +
+               $"{string.Join(" and ", named.Select(n => $"'{n}'"))} in fields= (e.g. " +
+               $"fields={{\"{named[0]}\":\"<value>\"}}), or pass the same value(s) positionally in ctor_args. " +
+               $"Constructors on {structTypeName}: {CtorList(t)}.";
+    }
+
+    /// <summary>The FIELD name a constructor parameter is named by — the type's own property matching the parameter
+    /// case-insensitively (Mutagen's <c>type</c> parameter is the <c>Type</c> property), so the advice names what a
+    /// caller can actually pass rather than a capitalisation guess. Falls back to the parameter's own name.</summary>
+    static string FieldNameFor(Type t, ParameterInfo p) =>
+        t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .FirstOrDefault(x => string.Equals(x.Name, p.Name, StringComparison.OrdinalIgnoreCase))?.Name
+        ?? p.Name ?? "arg";
 
     /// <summary>A composition type has NO parameterless ctor — it is built only from its parts. Recognised by its
     /// generic definition (the engine's normal type-recognition, like IList&lt;&gt;/FormLink&lt;&gt; — NOT a hand-listed

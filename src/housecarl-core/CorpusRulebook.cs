@@ -1039,6 +1039,12 @@ public sealed class CorpusRulebook
             if (CheckValue(af.Type, f.Value, $"'{f.Key}' on '{spec.Type}'",
                     af.MutableTypeAssemblyQualified ?? af.GetterTypeAssemblyQualified) is { } e) return e;
         }
+        // With no ctor_args the type still has to be BUILDABLE: either it has a parameterless constructor, or the
+        // fields just checked satisfy one of its constructors (a discriminator arm). WriteEngine.TryRecognizeInstantiable
+        // calls the very method BuildStruct instantiates through, so gate and apply cannot drift. Runs AFTER the field
+        // loop so a field that is misspelled or won't coerce is reported as itself, not as a missing constructor arg.
+        if (spec.CtorArgs is null && WriteEngine.TryRecognizeInstantiable(spec.Type, spec.Fields) is { } buildErr)
+            return buildErr;
         foreach (var s in spec.Sets ?? new())
             // siblingEditorIds threads through — a same-call @editorid ref inside a COMPOSED struct's nested Sets
             // (e.g. a VMAD quest-fragment's Property.Object=@<own quest>) validates by the SAME gates as a top-level
