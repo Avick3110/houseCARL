@@ -98,6 +98,12 @@ housecarl_create(
 come from at runtime, and voice and result-script coverage are checked on create, so setting it later
 does not backfill the `.fuz` path.
 
+**The two `Priority` fields above are different fields.** `Quest.Priority` is the byte you measured in
+step 3 — 65, above `DialogueWhiterun`'s 30 — and it is what gets your topic reached at all.
+`DialogTopic.Priority` is the DIAL's own float, carried from the exemplar topic at 50; it is not the
+number you measured, and putting your measured number there leaves the quest at its default and the
+topic unreachable.
+
 Then **clone the gate** onto the new line from the vanilla exemplar you read in step 2 — never
 hand-synthesize the operator bytes (Recipe A in `references/write-side-recipes.md`). One call:
 
