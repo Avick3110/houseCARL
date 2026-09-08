@@ -37,3 +37,8 @@ chargeTime=2.5
 enchantmentAmount=24
 clear=true
 ```
+
+> **Corpus note — one example above is wrong.** The `filterByAlchs=` line is an Ingestible example
+> carried over verbatim from the source article; `filterByAlchs` belongs to ALCH
+> (`alchemy-ingestible.md`). On an ENCH record the primary filter is `filterByEnchs`. Where an
+> example disagrees with the filter list, the filter list and the router table in `SKILL.md` win.

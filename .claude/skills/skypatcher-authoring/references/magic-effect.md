@@ -57,3 +57,8 @@ filterByMagicEffects=Skyrim.esm|12FD0:hitShader=Skyrim.esm|3F2C3
 perkToApply=null
 modNamesLastOverriddenExcluded=SomePatch.esp, MyBalanceOverhaul.esp
 ```
+
+> **Corpus note — one example above is wrong.** `filterByMagicEffects=` is not in this file's filter
+> list and is not a documented MGEF filter; the primary filter here is `filterByMgefs`. The example
+> is preserved verbatim from the source article, typo and all. Where an example disagrees with the
+> filter list, the filter list and the router table in `SKILL.md` win.

@@ -6,6 +6,9 @@ armor/ammo/book/faction flags, etc.) stay in their own record file.
 
 All values are lowercase, as SkyPatcher expects them.
 
+Sections: Cast type · Delivery type · Resist type · Magic-effect sound slots · Skills · Soul types ·
+Biped slot index · Magic Effect archetypes · Actor values.
+
 ---
 
 ## Cast type

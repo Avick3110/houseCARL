@@ -1,10 +1,15 @@
 # SkyPatcher Grammar — Core
 
-The shared spine every per-record reference builds on: how SkyPatcher loads INIs, how a
-patch string is shaped, how records are addressed, how filters combine, and the operation
-conventions that recur across record types. Per-record files in `records/` list the filters
-and operations specific to one type and assume this file for the mechanics. Shared value
-enumerations (cast types, actor values, biped slots, …) live in `value-tables.md`.
+The shared spine every per-record reference builds on: how a patch string is shaped, how records
+are addressed, how filters combine, and the operation conventions that recur across record types.
+Per-record files (`<type>.md`) list the filters and operations specific to one type and assume this
+file for the mechanics. Shared value enumerations (cast types, actor values, biped slots, …) live in
+`value-tables.md`; everything about the file rather than the line — folders, filenames, conflicts,
+global switches — is in `placement-and-conflicts.md`.
+
+Sections: 1. What SkyPatcher does · 2. File system (moved) · 3. Patch string structure ·
+4. Addressing · 5. Filter system · 6. Common filters · 7. Operation conventions ·
+8. Global settings (moved).
 
 > **Availability varies by record type.** A filter or operation named here as "common" is
 > not guaranteed on every record — each record's reference file is authoritative for what
@@ -21,92 +26,16 @@ over the live load order, two INIs that touch *different* fields of the same rec
 conflict, which is what makes SkyPatcher low-conflict compared to ESP overrides.
 
 The set of record types it can patch is fixed by the DLL and surfaced as `iEnable<Type>Patching`
-toggles in `SkyPatcher.ini` (§8). This corpus documents 27 of those types; the one gap is Object
-Modification (OMOD) — see `records/object-modification.md`.
+toggles in `SkyPatcher.ini` (`placement-and-conflicts.md` §6). This corpus documents 27 of those
+types; the one gap is Object Modification (OMOD) — see `object-modification.md`.
 
 ---
 
 ## 2. File system & discovery
 
-```
-Data/
-└── SKSE/
-    └── Plugins/
-        ├── SkyPatcher.dll
-        ├── SkyPatcher.ini            ← global settings (§8)
-        └── SkyPatcher/
-            ├── npc/                   ← one subfolder per record type
-            ├── weapon/
-            ├── armor/
-            └── … (see table below)
-```
-
-- An INI goes in the **subfolder for its record type**. A race patch must live under `race/`,
-  a weapon patch under `weapon/`, etc. INIs in the wrong subfolder are read by the wrong patcher
-  (or ignored).
-- You may **nest freely** inside a type folder to organize by mod:
-  `SkyPatcher/npc/MyMod/bandits/file.ini`.
-- **Comments** start with `;`.
-
-### Record type → subfolder / toggle / primary filter / signature
-
-| Record type | Subfolder | Toggle (`iEnable…Patching`) | Primary filter | xEdit sig | Reference |
-|---|---|---|---|---|---|
-| NPC | `npc` | `NPC` | `filterByNpcs` | NPC_ | `records/npc.md` |
-| Weapon | `weapon` | `Weapon` | `filterByWeapons` | WEAP | `records/weapon.md` |
-| Armor | `armor` | `Armor` | `filterByArmors` | ARMO | `records/armor.md` |
-| Ammo | `ammo` | `Ammo` | `filterByAmmos` | AMMO | `records/ammo.md` |
-| Spell | `spell` | `Spell` | `filterBySpells` | SPEL | `records/spell.md` |
-| Scroll | `scroll` | `Scroll` | `filterByScrolls` | SCRL | `records/scroll.md` |
-| Enchantment | `enchantment` | `Enchantment` | `filterByEnchs` | ENCH | `records/enchantment.md` |
-| Magic Effect | `magicEffect` | `MagicEffect` | `filterByMgefs` | MGEF | `records/magic-effect.md` |
-| Alchemy / Ingestible | `ingestible` | `Ingestible` | `filterByAlchs` | ALCH | `records/alchemy-ingestible.md` |
-| Ingredient | `ingredient` | `Ingredient` | `filterByIngs` | INGR | `records/ingredient.md` |
-| Book | `book` | `Book` | `filterByBooks` | BOOK | `records/book.md` |
-| Misc Item | `misc` | `Misc` | `filterByMiscs` | MISC | `records/misc.md` |
-| Soul Gem | `soulGem` | `SoulGem` | `filterBySoulGems` | SLGM | `records/soul-gem.md` |
-| Outfit | `outfit` | `Outfit` | `filterByOutfits` | OTFT | `records/outfit.md` |
-| FormList | `formList` | `Formlist` | `filterByFormLists` | FLST | `records/formlist.md` |
-| Leveled List | `leveledList` | `LeveledList` | `filterByLLs` / `filterByLLNPCs` | LVLI / LVLN | `records/leveled-list.md` |
-| Container | `container` | `Container` | `filterByContainers` | CONT | `records/container.md` |
-| Constructible Object | `constructibleObject` | `ConstructibleObject` | `filterByCobjs` | COBJ | `records/constructible-object.md` |
-| Cell | `cell` | `Cell` | `filterByCells` | CELL | `records/cell.md` |
-| Location | `location` | `Location` | `filterByLocations` | LCTN | `records/location.md` |
-| Encounter Zone | `encounterzone` | `EncounterZone` | `filterByEncounterZones` | ECZN | `records/encounter-zone.md` |
-| Reference | `reference` | `Reference` | `filterByRefs` | REFR | `records/reference.md` |
-| Faction | `faction` | `Faction` | `filterByFactions` | FACT | `records/faction.md` |
-| Movement Type | `movementType` | `MovementType` | `filterByMovementTypes` | MOVT | `records/movement-type.md` |
-| Projectile | `projectile` | `Projectile` | `filterByProjectiles` | PROJ | `records/projectile.md` |
-| Race | `race` | `Race` | `filterByRaces` | RACE | `records/race.md` |
-| Race Hook | `raceHook` | `RaceHook` | `filterByRaces` | RACE (hook) | `records/race-hook.md` |
-| Object Modification | *(see status)* | `ObjectModification` | *(undocumented)* | OMOD | `records/object-modification.md` |
-
-> Subfolder casing is taken from the shipped mod (`constructibleObject`, `formList`,
-> `magicEffect`, `movementType`, `raceHook`, `soulGem` are camelCase; `encounterzone` is all
-> lowercase). Windows file systems are case-insensitive, but match the shipped casing.
-
-### Two INI filename behaviors
-
-| Filename shape | When it loads |
-|---|---|
-| `anything.ini` (e.g. `myEdits.ini`) | **Always** loaded. |
-| `Plugin.esm.ini` / `Plugin.esp.ini` (name = a plugin filename) | **Only** when that plugin is active in the load order; otherwise skipped. |
-
-The plugin-gated form is how you ship conditional patches: name the file after the plugin
-whose records you patch, and it self-disables when that plugin is absent. This is distinct
-from the `hasPlugins` filter (§6) — the filename gate decides whether the *file* is read at
-all; `hasPlugins` decides whether a *line* applies.
-
-> **Mod-manager collision warning:** two mods that both ship `Skyrim.esm.ini` in the same
-> SkyPatcher subfolder will overwrite each other (same path). Always nest plugin-named INIs
-> in a mod-specific subfolder: `SkyPatcher/npc/MyMod/Skyrim.esm.ini`.
-
-### Conflict resolution
-
-INIs within a type folder are read in filename order `0`→`z`. If two lines set the **same
-field** of the same record, the later-sorted file wins (`zPatch.ini` beats `mPatch.ini`).
-Add/remove operations (e.g. `keywordsToAdd`, `formsToAdd`) **accumulate** rather than
-overwrite, so multiple INIs can add to the same record without conflict.
+Moved to `placement-and-conflicts.md`: the SkyPatcher folder tree, the per-type subfolder and its
+casing, the two INI filename behaviours, the mod-manager same-path collision, and filename-order
+conflict resolution. The record type -> subfolder mapping is the router table in `SKILL.md`.
 
 ---
 
@@ -200,7 +129,7 @@ Rules:
 
 | Filter | Meaning |
 |---|---|
-| `filterBy<Type>s` / `…Excluded` | The record's **primary filter** (e.g. `filterByWeapons`). See the table in §2. |
+| `filterBy<Type>s` / `…Excluded` | The record's **primary filter** (e.g. `filterByWeapons`). See the router table in `SKILL.md`. |
 | `filterByModNames` / `…Excluded` | Restrict to records that come from / aren't from the named plugin(s). |
 | `filterByEditorIdContains` / `…Or` / `…Excluded` | Substring match on the record's EditorID. |
 | `filterByKeywords` / `…Or` / `…Excluded` | Match by attached keywords. |
@@ -274,22 +203,6 @@ Set a sub-slot to `null` to leave it unchanged where the op supports it (e.g.
 
 ## 8. Global settings — `SkyPatcher.ini`
 
-`Data/SKSE/Plugins/SkyPatcher.ini` holds three sections:
-
-- **`[Patcher]`** — one `iEnable<Type>Patching=1|0` per record type (all on by default). Turning
-  a type off skips its whole subfolder.
-- **`[Log]`** — `iEnablelog=0|1`.
-- **`[Features]`** — global behaviors. The load-bearing ones:
-  - `iAllowLeveledListsAddedToContainers=0` — off by default; LLs added to containers can CTD
-    for some users (see `records/container.md` / `records/leveled-list.md`).
-  - `iEnableUnlevelNPCs=0` — unlevels NPCs and encounter zones when on.
-  - `iEnableSetLevelDirectlyByPCMult=0` — controls how a delevelled NPC's level is computed.
-  - `iUpdateNPC=1` — apply NPC changes to already-spawned actors while playing (visuals,
-    perks, spells). `iUpdateNPCExclude` + `iUpdateNPCExcludeList` carve out exceptions.
-  - `iRefreshNPCStats=1` — refresh NPC stats at runtime when mods are added/updated/removed.
-  - `iUpdateRefs=1` — enable REFR patching (see `records/reference.md`).
-  - `iUpdateNPCVisualsOnLoad` — 0 none / 1 by function / 2 by disable+enable.
-
-These are user/global settings, not per-patch — a patch author rarely ships them, but should
-know `iAllowLeveledListsAddedToContainers` and the `iUpdateNPC`/`iRefreshNPCStats` behaviors
-because they change whether a patch takes effect on an existing save.
+Moved to `placement-and-conflicts.md` §6: the `[Patcher]` per-type toggles, `[Log]`, and the
+`[Features]` switches (`iAllowLeveledListsAddedToContainers`, `iUpdateNPC`, `iRefreshNPCStats`,
+`iUpdateRefs`, …) that decide whether a patch takes effect on an existing save.

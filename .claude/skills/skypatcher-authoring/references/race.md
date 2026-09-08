@@ -3,7 +3,7 @@
 `SkyPatcher/race/` · `iEnableRacePatching` · primary filter `filterByRaces`
 Shared mechanics → `grammar-core.md`.
 
-For attack-data edits attached via race, see `records/race-hook.md` (different folder).
+For attack-data edits attached via race, see `race-hook.md` (different folder).
 
 ## Filters
 
