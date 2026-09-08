@@ -77,6 +77,33 @@ public class DecompileShortCircuitTests
         Assert.Contains("Nudge()", Assert.Single(res.Failures));
     }
 
+    [Fact]
+    public void AGuardedBlockThatRewritesItsConditionTempStaysAPlainIf()
+    {
+        // bool b = flag / if b / Nudge(b) / b = Ping() / endif / Sink(b, "T " + label) under a
+        // compiler that keeps b in a temp slot: the block writes the temp and the temp is read after
+        // the join, but it is also READ in the block, which is what the promotion path is for. The
+        // short-circuit match must leave this one alone.
+        var f = Fn(("Bool", "flag"), ("String", "label"));
+        Local(f, "Bool", "::temp0");
+        Local(f, "String", "::temp2");
+        Local(f, "None", "::NoneVar");
+        Ins(f, InstructionOpcode.CAST, Id("::temp0"), Id("flag"));
+        Ins(f, InstructionOpcode.JMPF, Id("::temp0"), Int(3));                        // -> 4, the STRCAT
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Nudge"), Id("self"), Id("::NoneVar"),
+                                             Int(1), Id("::temp0"));                  // reads the temp
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Ping"), Id("self"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.STRCAT, Id("::temp2"), Str("T "), Id("label"));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Sink"), Id("self"), Id("::NoneVar"),
+                                             Int(2), Id("::temp0"), Id("::temp2"));
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_ReuseProbe", ("Reuse", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        Assert.Contains("if temp0", res.Source);
+        Assert.Contains("Sink(temp0, \"T \" + label)", res.Source);
+    }
+
     // ---------------------------------------------------------------- in-memory pex builders
     static PexFile File(string objectName, params (string Name, PexObjectFunction Fn)[] fns)
     {

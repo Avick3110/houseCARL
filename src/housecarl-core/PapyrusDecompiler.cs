@@ -567,10 +567,13 @@ public sealed class PapyrusDecompiler
                         // value is a call argument that is NOT the last one, the arguments after it
                         // evaluate first and the consuming call sits further on, so also accept an
                         // arm that writes the temp whose value is read before being rewritten at or
-                        // after the join. Temps only: a real-var condition is always a plain if.
+                        // after the join. An arm that READS the temp first is not an arm at all: it
+                        // is a guarded block over a reused condition temp, which the promotion path
+                        // below owns. Temps only: a real-var condition is always a plain if.
                         if (condName is not null && IsTemp(condName) && target < hi
                             && (ConsumesAsSource(_ins[target], condName)
                                 || (WritesDestIn(i + 1, target, condName)
+                                    && !ReadsBeforeWrite(i + 1, target, condName)
                                     && ReadsBeforeWrite(target, hi, condName))))
                         {
                             var (left, leftStart) = Consume(condName, i);
