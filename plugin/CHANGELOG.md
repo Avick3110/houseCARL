@@ -2625,6 +2625,9 @@ offset, paging meant slicing by `editorid_contains`. Now:
   `housecarl_records` with `counts_only=true` for the population a filter names and for how many of those are
   on a PC level multiplier, and `housecarl_asset_status` for which mod wins the placed `_DISTR.ini` — and says
   plainly that nothing reports the set a composed line reaches and nothing parses a draft `_DISTR.ini` offline.
+  It also says what those counts are: `where` predicates are ANDed, so the second check carries the first
+  check's predicate, and both read each record's own local data, which a template masks — SPID matches the
+  resolved NPC, so a census is a floor and the skill says to quote it as one.
   It also states the version window in both directions: `references/filters.md` marks the features added in
   7.3, and `housecarl_skse` with `findings='inventory'` reads what the installed SPID DLL declares as its
   version. The EditorID caveat is new too — an EditorID is stable across merging, ESL conversion and FormID
