@@ -808,9 +808,10 @@ public static class WritePatchBuilder
     /// DialogTopic this call edited where it SET <c>Subtype</c> but NOT <c>SubtypeName</c>, sync the SNAM marker to
     /// the new Subtype — otherwise the change is a silent in-game no-op, because the engine buckets topics by the SNAM
     /// marker and a stale marker keeps the old bucket. It fires ONLY when Subtype was actively set in THIS call, so it
-    /// never rewrites the SNAM of a topic whose subtype the call didn't touch — which is what keeps it off the
-    /// countless vanilla topics whose DATA\Subtype is legitimately noisy (a blanket "SubtypeName != marker" lint would
-    /// false-positive on those). Adds a report op on a real change, never silent; returns a non-null error to FAIL the
+    /// never rewrites the SNAM of a topic whose subtype the call didn't touch — the countless vanilla topics whose
+    /// DATA\Subtype is stale under the Dragonborn-era renumbering are read as the marker says and left alone (the
+    /// validator only WARNS on that disagreement, and only for a record a mod authored). Adds a report op on a real
+    /// change, never silent; returns a non-null error to FAIL the
     /// whole call on an unmodeled Subtype (never leave a mismatched/blank marker), else null. <paramref name="mod"/>
     /// is the mutable mod the overrides live in.</summary>
     static string? SyncEditedTopicMarkers(SkyrimMod mod, IReadOnlyList<PatchEdit> edits, List<OpResult> ops)

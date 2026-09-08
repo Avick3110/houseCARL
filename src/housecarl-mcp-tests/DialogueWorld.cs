@@ -10,7 +10,8 @@ namespace HousecarlMcpTests;
 /// <summary>
 /// The synthetic MO2 world the dialogue family's info-order and CK-parity facts are driven against.
 ///
-/// <para>Three plugins: <see cref="MasterName"/> (the topic + the CK-parity-complete view/branch/quest seeds),
+/// <para>Four plugins: <see cref="VanillaName"/> (a base master by filename, carrying the stale-subtype topics the
+/// SNAM ownership gate reads as "not the modder's"), <see cref="MasterName"/> (the topic + the CK-parity-complete view/branch/quest seeds),
 /// <see cref="MidName"/> (re-lists 6 of the topic's 8 INFOs, PNAM-chained, in reverse — moves nothing),
 /// <see cref="LastName"/> — the WINNER — (re-lists ONLY INFO 0 with no PNAM, which evicts it to the
 /// tail).</para>
@@ -29,6 +30,9 @@ namespace HousecarlMcpTests;
 /// </summary>
 public sealed class DialogueWorld : IDisposable
 {
+    /// <summary>A base master BY FILENAME — what <see cref="ErrorCheck.BaseMasters"/> matches on, so its own records
+    /// are the "vanilla, not the modder's" side of the SNAM ownership gate.</summary>
+    public const string VanillaName = "Skyrim.esm";
     public const string MasterName = "HcDvMaster.esp";
     public const string MidName = "HcDvMid.esp";
     public const string LastName = "HcDvLast.esp";
@@ -61,6 +65,18 @@ public sealed class DialogueWorld : IDisposable
     /// <summary>The control: Subtype and SNAM naming the same subtype, so a topic that agrees is never labelled.</summary>
     public FormKey AgreeingSubtypeTopic { get; }
 
+    /// <summary>The same stale shape in the base master <see cref="VanillaName"/>, touched by nothing — Bethesda's own
+    /// number, which the modder cannot act on, so the check stays quiet about it.</summary>
+    public FormKey VanillaStaleTopic { get; }
+
+    /// <summary>A stale base-master topic that <see cref="LastName"/> OVERRIDES, carrying the stale number forward —
+    /// now a record a mod authored, so the check warns.</summary>
+    public FormKey VanillaStaleOverriddenTopic { get; }
+
+    /// <summary>A topic whose SNAM is a non-blank marker the table does not model (<c>ZZZZ</c>) — neither blank nor a
+    /// disagreement, and silently unbucketed in game if nothing says so.</summary>
+    public FormKey UnmodeledMarkerTopic { get; }
+
     public DialogueWorld()
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-dialogue-tests-" + Guid.NewGuid().ToString("N"));
@@ -69,6 +85,18 @@ public sealed class DialogueWorld : IDisposable
         var masterKey = ModKey.FromNameAndExtension(MasterName);
         var midKey = ModKey.FromNameAndExtension(MidName);
         var lastKey = ModKey.FromNameAndExtension(LastName);
+
+        // The base master, by filename: two topics carrying the pre-Dragonborn numbering, one of which LastMod
+        // overrides. Which side of the SNAM ownership gate a record falls on is decided by this filename.
+        var sky = new SkyrimMod(new ModKey("Skyrim", ModType.Master), SkyrimRelease.SkyrimSE);
+        var vanillaStale = sky.DialogTopics.AddNew(); vanillaStale.EditorID = "HcDvVanillaStale";
+        vanillaStale.Subtype = DialogTopic.SubtypeEnum.RechargeExit;
+        vanillaStale.SubtypeName = new RecordType("HELO");
+        VanillaStaleTopic = vanillaStale.FormKey;
+        var vanillaOver = sky.DialogTopics.AddNew(); vanillaOver.EditorID = "HcDvVanillaStaleOverridden";
+        vanillaOver.Subtype = DialogTopic.SubtypeEnum.RechargeExit;
+        vanillaOver.SubtypeName = new RecordType("HELO");
+        VanillaStaleOverriddenTopic = vanillaOver.FormKey;
 
         var master = new SkyrimMod(masterKey, SkyrimRelease.SkyrimSE);
 
@@ -90,6 +118,11 @@ public sealed class DialogueWorld : IDisposable
         agree.Subtype = DialogTopic.SubtypeEnum.Hello;
         agree.SubtypeName = new RecordType("HELO");
         AgreeingSubtypeTopic = agree.FormKey;
+        // A non-blank marker the table does not model — the silent-fallthrough case.
+        var unmodeled = master.DialogTopics.AddNew(); unmodeled.EditorID = "HcDvUnmodeledMarker";
+        unmodeled.Subtype = DialogTopic.SubtypeEnum.Hello;
+        unmodeled.SubtypeName = new RecordType("ZZZZ");
+        UnmodeledMarkerTopic = unmodeled.FormKey;
 
         // CK-parity-complete seeds — the no-false-positive lock for V1 (a real authored view/branch/quest never
         // renders as a gap).
@@ -103,12 +136,14 @@ public sealed class DialogueWorld : IDisposable
 
         Instance = Path.Combine(Root, "inst");
         var mods = Path.Combine(Instance, "mods");
+        Directory.CreateDirectory(Path.Combine(mods, "VanillaStub"));
         Directory.CreateDirectory(Path.Combine(mods, "MasterMod"));
         Directory.CreateDirectory(Path.Combine(mods, "MidMod"));
         Directory.CreateDirectory(Path.Combine(mods, "LastMod"));
         MasterPath = Path.Combine(mods, "MasterMod", MasterName);
         MidPath = Path.Combine(mods, "MidMod", MidName);
         LastPath = Path.Combine(mods, "LastMod", LastName);
+        sky.BeginWrite.ToPath(Path.Combine(mods, "VanillaStub", VanillaName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         master.BeginWrite.ToPath(MasterPath).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
         // MID: re-lists INFOs 2..7, PNAM-chained, in REVERSE — moves nothing (a well-behaved patch).
@@ -128,16 +163,19 @@ public sealed class DialogueWorld : IDisposable
         var lastTopic = (IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(last, topic);
         lastTopic.Responses.Clear();
         lastTopic.Responses.Add(new DialogResponses(info[0], SkyrimRelease.SkyrimSE) { EditorID = "HcDvLine0" });
-        last.BeginWrite.ToPath(LastPath).WithLoadOrder(new ISkyrimModGetter[] { master, mid }).Write();
+        // …and overrides one stale base-master topic, carrying the stale number forward: now a mod's own record.
+        WriteEngine.GenericGetOrAddAsOverride(last, vanillaOver);
+        last.BeginWrite.ToPath(LastPath).WithLoadOrder(new ISkyrimModGetter[] { sky, master, mid }).Write();
 
         File.WriteAllText(Path.Combine(Instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
         var prof = Path.Combine(Instance, "profiles", "Default");
         Directory.CreateDirectory(prof);
-        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n" + MidName + "\r\n" + LastName + "\r\n");
+        File.WriteAllText(Path.Combine(prof, "loadorder.txt"),
+            "# header\r\n" + VanillaName + "\r\n" + MasterName + "\r\n" + MidName + "\r\n" + LastName + "\r\n");
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + MasterName + "\r\n*" + MidName + "\r\n*" + LastName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+LastMod\r\n+MidMod\r\n+MasterMod\r\n");
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+LastMod\r\n+MidMod\r\n+MasterMod\r\n+VanillaStub\r\n");
 
         var store = new UserConfigStore(Path.Combine(Root, "user.json"));
         Svc = LoadOrderService.WithInstance(Instance, 0, store);

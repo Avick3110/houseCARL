@@ -14,8 +14,9 @@ namespace HousecarlCore;
 //
 // The table below is sourced from xEdit's record definition, not derived: the name↔marker mapping is not a
 // blind echo (Custom→CUST but ShootBow→FIWE), Mutagen does not model it, and it cannot be scraped from
-// vanilla because Bethesda's own DATA\Subtype numbers are unreliable (many HELO topics ship with DATA≠79) —
-// which is why xEdit ignores DATA\Subtype and treats SNAM as the required master field. Rows are the join of
+// vanilla because Bethesda's own DATA\Subtype numbers are stale under the Dragonborn-era renumbering (many HELO
+// topics ship with DATA≠79 — see MarkerDisagreesWithSubtype), which is why xEdit ignores DATA\Subtype and treats
+// SNAM as the required master field. Rows are the join of
 // xEdit's DATA\Subtype index→name enum and its 4-char-signature→name enum, matched by subtype name.
 // Mutagen's SubtypeEnum integer values equal these indices, so the lookup key is (int)DialogTopic.Subtype.
 

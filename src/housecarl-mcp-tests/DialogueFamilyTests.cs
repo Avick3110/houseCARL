@@ -343,6 +343,58 @@ public sealed class DialogueFamilyTests
         Assert.False(Stale(W.AgreeingSubtypeTopic));
     }
 
+    /// <summary>The JSON carries the marker-derived NAME too, so a consumer reading past a stale subtype never has to
+    /// re-implement the marker→name table.</summary>
+    [Fact]
+    public void TheJsonSweepNamesTheSubtypeTheMarkerGives()
+    {
+        var result = Svc.CheckDialogue(new[] { Fid(W.StaleSubtypeTopic) }, 1000);
+        Assert.Null(result.Error);
+        var json = JsonDocument.Parse(JsonWire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000));
+        var row = json.RootElement.GetProperty("families")
+                      .GetProperty(SweepFamilySelection.Token(SweepFamily.Dialogue))
+                      .GetProperty("seeds").EnumerateArray()
+                      .SelectMany(s => s.GetProperty("topics").EnumerateArray())
+                      .Single(t => t.GetProperty("topic").GetString() == W.StaleSubtypeTopic.ToString());
+
+        Assert.Equal("RechargeExit", row.GetProperty("subtype").GetString());
+        Assert.Equal("Hello", row.GetProperty("subtype_from_marker").GetString());
+    }
+
+    /// <summary>The ownership gate (Aaron's ruling): the disagreement is a WARNING only on a record a mod defines or
+    /// overrides. A base master's own topic, touched by nothing, is Bethesda's stale number — labelled, never warned
+    /// about, so a whole-quest check over vanilla topics stays quiet.</summary>
+    [Fact]
+    public void AVanillaTopicNoPluginTouchesIsLabelledButNotWarnedAbout()
+    {
+        var block = SeedBlock(CheckDialogue(Svc, W.VanillaStaleTopic), Fid(W.VanillaStaleTopic));
+
+        Assert.Contains("subtype=RechargeExit (stale)", block);
+        Assert.Contains("subtype_marker=HELO (authoritative)", block);
+        Assert.DoesNotContain("the MARKER is authoritative", block);
+    }
+
+    /// <summary>…and the same vanilla topic DOES warn once a plugin overrides it, carrying the stale number forward.</summary>
+    [Fact]
+    public void AnOverrideCarryingAStaleSubtypeForwardIsWarnedAbout()
+    {
+        var block = SeedBlock(CheckDialogue(Svc, W.VanillaStaleOverriddenTopic), Fid(W.VanillaStaleOverriddenTopic));
+
+        Assert.Contains("the MARKER is authoritative", block);
+        Assert.Contains("Treat this topic's subtype as Hello, not RechargeExit", block);
+    }
+
+    /// <summary>A non-blank marker the table does not model is neither blank nor a disagreement — it must still be
+    /// named, not fall through both checks in silence.</summary>
+    [Fact]
+    public void AMarkerTheTableDoesNotModelIsNamed()
+    {
+        var block = SeedBlock(CheckDialogue(Svc, W.UnmodeledMarkerTopic), Fid(W.UnmodeledMarkerTopic));
+
+        Assert.Contains("is ZZZZ, which is not a marker houseCARL models", block);
+        Assert.Contains("never plays", block);
+    }
+
     /// <summary>Everything AFTER the seed prefix the sweep echoes — the composed refusal itself. The sweep writes
     /// "{seed}: {refusal}.", and the seed is "&lt;id&gt;:&lt;definer&gt;", so a plugin name found anywhere in the
     /// whole response may be the seed's own echo rather than the failure's subject.</summary>
