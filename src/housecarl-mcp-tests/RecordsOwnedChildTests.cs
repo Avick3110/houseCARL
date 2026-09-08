@@ -894,6 +894,36 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         RecordsTools.Records(Svc, formids: new[] { OwnedChildWorld.Fid(fk) }, format: format, to_file: toFile,
                              max_chars: maxChars, project: new RecordsTools.RecordsProject { form = "tree" });
 
+    /// <summary>The tree render on its own, with none of the tool's artifact lane around it. The cap boundaries the
+    /// tests below pin are properties of THIS render; a response the ceiling cuts carries an auto-spill block
+    /// naming an absolute path, so driving them through the tool would pin this checkout's path length into every
+    /// one of those numbers.</summary>
+    const string TreeHeader = "records  form=tree  versus=winner";
+
+    string TreeRender(FormKey fk, int cap, out bool truncated)
+    {
+        var rows = Svc.TreeBatch(new[] { OwnedChildWorld.Fid(fk) }, LoadOrderService.PoleSpec.Winner, null, null,
+                                 out _, out _, out var refusal, out _);
+        Assert.Null(refusal);
+        return RecordsTools.RenderRecordsTree(rows, rows.Count, 0, 0, false, TreeHeader, null, cap, null, out truncated)
+                           .Replace("\r\n", "\n");
+    }
+
+    string TreeRender(FormKey fk, int cap) => TreeRender(fk, cap, out _);
+
+    /// <summary>Whatever the cap, the tree render answers inside it — the ceiling holds across the whole band
+    /// where a row is cut, not only at the caps the tests above pin.</summary>
+    [Fact]
+    public void TheTreeRenderIsNeverWiderThanItsCap()
+    {
+        foreach (var fk in new[] { _w.CellC, _w.CellF })
+            for (int cap = 150; cap <= 1800; cap += 7)
+            {
+                var r = TreeRender(fk, cap);
+                Assert.True(r.Length <= cap, $"the tree returned {r.Length} chars at max_chars={cap}");
+            }
+    }
+
     [Fact]
     public void TheRemedyIsServedOnTheSameFormidsTheAnnotatedReadUsed()
     {
@@ -1092,23 +1122,36 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.DoesNotContain("spilled:", r);
     }
 
-    // ---- the block's own TAIL, not just its per-line checks -------------------------------------------------
+    // ---- where the row's own width decides, the render is driven directly ------------------------------------
     //
-    // The per-field checks run BEFORE each line and never after the last one, so a final line that pushes
-    // sb.Length past the cap goes unnoticed — nothing downstream catches it once the row ends there.
-    //
-    // The tail-trip case is driven on CellF (3 touchers), not CellC: `truncated` says the ANSWER is incomplete
-    // and drives the spill, so it is set at the tail only for a row that LOST something — the diff a
-    // multi-provider row never reached. CellC at the same tail loses nothing and is the DoesNotContain control
-    // two tests down (ASoleProviderRowWhoseCompleteBlockEndsPastTheCapClaimsNothingWasCut).
+    // Everything below pins a CAP against what the tree render does at it. A response the ceiling cuts carries an
+    // auto-spill block naming an ABSOLUTE path, so every one of those numbers taken through the tool would carry
+    // this checkout's path length inside it. TreeRender drives the render with no artifact lane around it.
 
     [Fact]
     public void ATextRowsDeclarersBlockTailAloneCanTripMaxChars_AndTheResponseIsMarkedTruncated() =>
         Assert.Contains("spilled: complete result", Tree(_w.CellF, maxChars: 830));
 
+    /// <summary>888 is the last cap the whole row does not fit inside, so the block is cut and says so; 889 is the
+    /// first it does, where nothing is cut and nothing claims the answer is short.</summary>
     [Fact]
-    public void ARowWhoseDeclarersBlockFitsExactlyAtTheTailIsNotMarkedTruncated() =>
-        Assert.DoesNotContain("spilled:", Tree(_w.CellC, maxChars: 846));
+    public void ARowThatFitsWholeIsNotMarkedTruncated()
+    {
+        var r = TreeRender(_w.CellC, 889, out bool truncated);
+        Assert.False(truncated);
+        Assert.DoesNotContain("[child declarers cut", r);
+        Assert.Contains("Temporary: ", r);          // the block ran to its last field
+        Assert.True(r.Length <= 889, $"the tree returned {r.Length} chars at max_chars=889");
+    }
+
+    [Fact]
+    public void ARowOneCharacterTooWideIsCutAndSaysSo()
+    {
+        var r = TreeRender(_w.CellC, 888, out bool truncated);
+        Assert.True(truncated);
+        Assert.Contains("[child declarers cut at max_chars=888", r);
+        Assert.True(r.Length <= 888, $"the tree returned {r.Length} chars at max_chars=888");
+    }
 
     /// <summary>When the block is cut on a multi-provider row the row stops there: no "diff (field deltas…):"
     /// header may follow for a section the cap already forbade. The row does carry the "[nodes cut" notice — the
@@ -1116,82 +1159,66 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void ACutDeclarersBlockEndsTheRow_NoEmptyDiffHeaderOverASectionThatNeverRendered()
     {
-        var r = Tree(_w.CellF, maxChars: 600);
+        var r = TreeRender(_w.CellF, 500);
         Assert.Contains("[child declarers cut", r);
         Assert.DoesNotContain("diff (field deltas", r);
-        Assert.Contains("[nodes cut at max_chars=600", r);
+        Assert.Contains("[nodes cut at max_chars=500", r);
     }
 
-    // ---- what the tail cut notice CLAIMS, not just that the tail check exists ------------------------------
+    // ---- what a COMPLETE block that leaves no room under it claims ------------------------------------------
     //
-    // The tail is reachable only when the field loop ran to completion, so at the tail nothing in the block was
-    // ever cut. A "[child declarers cut …]" notice there is false in every case it can fire, and its remedy
-    // (project.fields=) points at narrowing a block that is already complete. What the row loses at the tail is
-    // its DIFF — or, on a sole-provider row, nothing at all.
+    // Each declarer line is priced with its own cut notice beside it, so a block that ran to its last field never
+    // says it was cut. What a row loses where the block ends is its DIFF — or, on a sole provider, nothing at all.
 
     [Fact]
-    public void ASoleProviderRowWhoseCompleteBlockEndsPastTheCapClaimsNothingWasCut()
+    public void AMultiProviderRowWhoseCompleteBlockLeavesNoRoomForTheDiffNamesTheDiffItLost()
     {
-        var r = Tree(_w.CellC, maxChars: 845);
-        Assert.Contains("Temporary: ", r);              // the block ran to completion…
-        Assert.Contains("NavigationMeshes: ", r);
-        Assert.DoesNotContain("[child declarers cut", r);   // …so nothing may say it was cut,
-        Assert.DoesNotContain("[nodes cut", r);             // and a sole provider loses no diff either.
-        // …and nothing else may say it either: `truncated` reaches TreeResponse, which writes a JSONL artifact
-        // and re-renders with "spilled: complete result". A row that lost nothing does not spill.
-        Assert.DoesNotContain("spilled", r);
-    }
-
-    [Fact]
-    public void AMultiProviderRowWhoseCompleteBlockEndsPastTheCapNamesTheDiffItLost()
-    {
-        var r = Tree(_w.CellF, maxChars: 830);
+        var r = TreeRender(_w.CellF, 1000);
         Assert.Contains("Temporary: ", r);
         Assert.Contains("NavigationMeshes: ", r);
         Assert.DoesNotContain("[child declarers cut", r);
-        Assert.Contains("[nodes cut at max_chars=830", r);   // what actually went
-        Assert.DoesNotContain("diff (field deltas", r);      // and no header over a section that never rendered
+        Assert.Contains("[nodes cut at max_chars=1000", r);   // what actually went
+        Assert.DoesNotContain("diff (field deltas", r);       // and no header over a section that never rendered
     }
 
-    /// <summary>The other side: when declarer lines really ARE dropped, the notice still says so. 660 cuts CellF's
+    /// <summary>The other side: when declarer lines really ARE dropped, the notice still says so. 800 cuts CellF's
     /// block after its first field line (Landscape), leaving the other three unwritten. A multi-provider row that
     /// stops there loses its DIFF as well, so it names BOTH — the declarers it dropped and the nodes it never
     /// reached. Each notice claims one thing; neither claims the other's loss.</summary>
     [Fact]
     public void ABlockCutMidWayStillSaysTheDeclarersWereCut()
     {
-        var r = Tree(_w.CellF, maxChars: 660);
-        Assert.Contains("[child declarers cut at max_chars=660", r);
+        var r = TreeRender(_w.CellF, 800);
+        Assert.Contains("[child declarers cut at max_chars=800", r);
         Assert.Contains("Landscape: ", r);
         Assert.DoesNotContain("NavigationMeshes: ", r);
-        Assert.Contains("[nodes cut at max_chars=660", r);
+        Assert.Contains("[nodes cut at max_chars=800", r);
     }
 
-    /// <summary>The SOLE-provider control for the same cut branch: CellC at 700 drops declarer lines (its block
-    /// runs 591-808 before completing), so the declarers notice fires — and there is no diff to lose, so the
-    /// nodes notice must NOT — which pins each notice to the row's actual loss rather than to the branch it
-    /// came back through.</summary>
+    /// <summary>The SOLE-provider control for the same cut branch: CellC at 800 drops declarer lines, so the
+    /// declarers notice fires — and there is no diff to lose, so the nodes notice must NOT — which pins each
+    /// notice to the row's actual loss rather than to the branch it came back through.</summary>
     [Fact]
     public void ASoleProviderRowCutMidBlockSaysTheDeclarersWereCutAndNamesNoDiff()
     {
-        var r = Tree(_w.CellC, maxChars: 700);
-        Assert.Contains("[child declarers cut at max_chars=700", r);
-        Assert.Contains("NavigationMeshes: ", r);        // the block got two of its four field lines out…
+        var r = TreeRender(_w.CellC, 800);
+        Assert.Contains("[child declarers cut at max_chars=800", r);
+        Assert.Contains("NavigationMeshes: ", r);        // the block got some of its four field lines out…
         Assert.DoesNotContain("Temporary: ", r);         // …and was cut before the rest,
         Assert.DoesNotContain("[nodes cut", r);          // with no diff to lose.
     }
 
     /// <summary>The block's OTHER early return — the framing reserve, which returns before a single declarer line
     /// is written — comes back through the same caller line, so a multi-provider row refused the framing carries
-    /// both notices too. On CellF, 625 is the last cap that refuses the framing line and 626 the first it fits
+    /// both notices too. On CellF, 755 is the last cap that refuses the framing line and 756 the first it fits
     /// inside.</summary>
     [Fact]
     public void TheFramingReserveBranchOnAMultiProviderRowNamesBothTheDeclarersAndTheDiff()
     {
-        var r = Tree(_w.CellF, maxChars: 625);
+        var r = TreeRender(_w.CellF, 755);
         Assert.DoesNotContain(ReadSentences.DeclarersLead, r);        // not one declarer line was written…
-        Assert.Contains("[child declarers cut at max_chars=625", r);  // …which the block says,
-        Assert.Contains("[nodes cut at max_chars=625", r);            // …and the diff loss the caller says.
+        Assert.Contains("[child declarers cut at max_chars=755", r);  // …which the block says,
+        Assert.Contains("[nodes cut at max_chars=755", r);            // …and the diff loss the caller says.
     }
 
     // ---- the framing line is RESERVED against max_chars, not written and regretted -------------------------
@@ -1199,21 +1226,21 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     // The block's framing line is invariant text of a known length, so checking only sb.Length < cap before it
     // writes its whole length past the cap with nothing able to take it back — json reserves the identical
     // sentence (JsonWire's DeclarersLeadReserve) and the cheap tier reserves its own clause (ClauseReserve).
-    // On CellC the block starts at 297 chars, so 590 is the last cap the framing does not fit in and 591 the
-    // first that it does.
+    // The block's own cut notice is reserved beside it, so on CellC 631 is the last cap the pair does not fit in
+    // and 632 the first that it does.
 
     [Fact]
     public void TheFramingLineIsReservedAgainstMaxChars_NotWrittenPastIt()
     {
-        var r = Tree(_w.CellC, maxChars: 590);
+        var r = TreeRender(_w.CellC, 631);
         Assert.DoesNotContain(ReadSentences.DeclarersLead, r);
-        Assert.Contains("[child declarers cut at max_chars=590", r);
+        Assert.Contains("[child declarers cut at max_chars=631", r);
     }
 
     [Fact]
     public void TheFramingLineRidesAtTheFirstCapItFitsInside()
     {
-        Assert.Contains(ReadSentences.DeclarersLead, Tree(_w.CellC, maxChars: 591));
+        Assert.Contains(ReadSentences.DeclarersLead, TreeRender(_w.CellC, 632));
     }
 
     /// <summary>The lead is invariant framing text, not per-record content, so a multi-row response states it once
@@ -1255,7 +1282,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void TheChildDeclarersCutNoticesNameNoWrongLever()
     {
-        var text = Tree(_w.CellC, maxChars: 200);
+        var text = TreeRender(_w.CellC, 400);
         var jsonR = Tree(_w.CellC, format: "json", maxChars: 300);
 
         var textHits = text.Split('\n').Where(l => RemedyHarvest.RemedyLine.IsMatch(l)).ToList();
@@ -1339,7 +1366,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     {
         var sb = new StringBuilder();
         bool leadWritten = false;
-        RecordsTools.AppendChildDeclarers(sb, FiveDeclarerRow(), cap: 100_000, ref leadWritten, out _);
+        RecordsTools.AppendChildDeclarers(sb, FiveDeclarerRow(), cap: new RenderCap(100_000, 100_000), tailReserve: 0, ref leadWritten, out _, out _);
         Assert.Contains(
             $"Persistent: {ReadSentences.DeclaredBy} A.esp, B.esp, C.esp (+2 more){ReadSentences.DeclarersOverflowRemedy}",
             sb.ToString());
@@ -1381,7 +1408,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     {
         var sb = new StringBuilder();
         bool leadWritten = false;
-        RecordsTools.AppendChildDeclarers(sb, row, cap: 100_000, ref leadWritten, out _);
+        RecordsTools.AppendChildDeclarers(sb, row, cap: new RenderCap(100_000, 100_000), tailReserve: 0, ref leadWritten, out _, out _);
         return sb.ToString();
     }
 
