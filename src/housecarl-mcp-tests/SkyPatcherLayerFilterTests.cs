@@ -58,4 +58,91 @@ public sealed class SkyPatcherLayerFilterTests
         Assert.Contains("health=200", text);
         Assert.DoesNotContain("nothing matched", text);
     }
+
+    static SkyPatcherLayerData TwoFolders() =>
+        Layer(new SkyPatcherDiscovery.FolderScan("npc", Catalog: null, PatchingEnabled: true,
+                  Files: new[] { Ini("npc", "Bandits.ini", "Bandit Overhaul") }),
+              new SkyPatcherDiscovery.FolderScan("weapon", Catalog: null, PatchingEnabled: true,
+                  Files: new[] { Ini("weapon", "Blades.ini", "Weapon Overhaul") }));
+
+    [Fact]
+    public void AFilterListsOnlyTheMatchingFolder()
+    {
+        var text = SkyPatcherWire.RenderLayer(TwoFolders(), "weapon", 80_000);
+
+        Assert.Contains("Blades.ini", text);
+        Assert.DoesNotContain("Bandits.ini", text);           // filter= selects, it does not merely expand
+        Assert.Contains("1 of 2 INI(s) match", text);
+    }
+
+    /// <summary>A layer whose matching folder sorts after enough inventory to be cut by a modest max_chars.</summary>
+    static SkyPatcherLayerData LateMatchLayer() =>
+        Layer(new SkyPatcherDiscovery.FolderScan("npc", Catalog: null, PatchingEnabled: true,
+                  Files: Enumerable.Range(1, 10).Select(i => Ini("npc", $"Bandits{i}.ini", "Bandit Overhaul")).ToArray()),
+              new SkyPatcherDiscovery.FolderScan("weapon", Catalog: null, PatchingEnabled: true,
+                  Files: new[] { Ini("weapon", "Blades.ini", "Weapon Overhaul") }));
+
+    /// <summary>A cap landing exactly on the second folder's boundary in the unfiltered render.</summary>
+    static int CapAtTheWeaponFolder() =>
+        SkyPatcherWire.RenderLayer(LateMatchLayer(), null, 1_000_000).IndexOf("\nweapon:", StringComparison.Ordinal);
+
+    [Fact]
+    public void AMatchingFolderIsNotLostToTheCapAndTheCutNoticeDoesNotSuggestAFilter()
+    {
+        var text = SkyPatcherWire.RenderLayer(LateMatchLayer(), "weapon", CapAtTheWeaponFolder());
+
+        Assert.Contains("Blades.ini", text);                  // selection puts the late match inside the same cap
+        Assert.DoesNotContain("pass filter=", text);          // never recommend what the caller already passed
+    }
+
+    [Fact]
+    public void AnUnfilteredCutStillSuggestsAFilter()
+    {
+        var text = SkyPatcherWire.RenderLayer(LateMatchLayer(), null, CapAtTheWeaponFolder());
+
+        Assert.DoesNotContain("Blades.ini", text);
+        Assert.Contains("pass filter=", text);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ABlankFilterIsNoFilterAtBothSites(string filter)
+    {
+        var text = SkyPatcherWire.RenderLayer(TwoFolders(), filter, 80_000);
+
+        Assert.Contains("Bandits.ini", text);                 // not a zero match
+        Assert.Contains("Blades.ini", text);
+        Assert.DoesNotContain("health=200", text);            // and not a whole-layer expansion either
+        Assert.DoesNotContain("INI(s) match", text);
+    }
+
+    [Fact]
+    public void ZeroMatchStillRendersTheScanNotes()
+    {
+        var d = OneNpcFolder();
+        var withNotes = d with
+        {
+            Scan = new SkyPatcherDiscovery.LayerScan(d.Scan.Folders,
+                new[] { "subfolder 'npcs' is not a documented SkyPatcher record type" },
+                ReadIncomplete: false, new Dictionary<string, bool>()),
+            NoOpNotes = new[] { "a replay note" },
+        };
+
+        var text = SkyPatcherWire.RenderLayer(withNotes, "weapon", 80_000);
+
+        Assert.Contains("not a documented SkyPatcher record type", text);
+        Assert.Contains("a replay note", text);
+    }
+
+    [Fact]
+    public void AnEmptyLayerWithAnIncompleteReadIsNotCalledEmpty()
+    {
+        var d = Layer() with { ReadIncomplete = true };
+
+        var text = SkyPatcherWire.RenderLayer(d, "weapon", 80_000);
+
+        Assert.DoesNotContain("no SkyPatcher INIs at all", text);
+        Assert.Contains("the read was incomplete", text);
+    }
 }
