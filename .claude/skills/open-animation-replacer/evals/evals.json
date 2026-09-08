@@ -117,7 +117,7 @@
     },
     {
       "id": 11,
-      "prompt": "this DAR file is NOT IsInCombat() AND A OR B OR C - does the combat guard apply to all three or just the first?",
+      "prompt": "my DAR _conditions.txt has one function per line - NOT IsInCombat() AND, then A OR, then B OR, then C - does the combat guard apply to all three or just the first?",
       "expected_output": "Load open-animation-replacer.",
       "expectations": ["picks open-animation-replacer", "reasoning names the DAR grammar or AND/OR binding", "the answer says the guard applies to all three, because OR binds tighter than AND and A OR B OR C is one group"],
       "should_trigger": true,
