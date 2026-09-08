@@ -47,10 +47,20 @@ public sealed class CorpusRulebook
     readonly Corpus _corpus;
     /// <summary>Non-null only on a validate call the write path handed a load order to resolve link targets against.</summary>
     readonly LinkTargetLookup? _linkTargets;
-    /// <summary>Memo for the printed legal-type list, per link target type; only a refusal fills it.</summary>
+    /// <summary>Memo for the printed legal-type list, per link target type; only a refusal fills it. Real because a
+    /// write lane derives ONE link-target rulebook per call (<see cref="WithLinkTargets"/>) and validates every edit
+    /// through it, so a 200-op apply that names the same wrong target 200 times scans the corpus once. Unlocked: the
+    /// derived rulebook is a per-call object used on the calling thread, and the shared schema-only rulebook never
+    /// fills this (a refusal needs <see cref="_linkTargets"/>).</summary>
     readonly Dictionary<string, string> _linkTargetNames = new(StringComparer.Ordinal);
     CorpusRulebook(Corpus corpus, LinkTargetLookup? linkTargets = null)
         => (_corpus, _linkTargets) = (corpus, linkTargets);
+
+    /// <summary>This rulebook plus a load-order link-target resolver: the same corpus, with the FormLink TARGET TYPE
+    /// check turned on. Derived ONCE per write call, not per edit — the lookup rides on the rulebook rather than
+    /// through the recursion, so every value slot (a singular Set, a list element, a composed struct's field) sees it
+    /// without a parameter at each hop, and the memo above spans the whole call.</summary>
+    public CorpusRulebook WithLinkTargets(LinkTargetLookup linkTargets) => new(_corpus, linkTargets);
 
     /// <summary>Resolves a FormLink value (a FormID token) to the runtime type of the record it points at, or null
     /// when nothing in the load order carries it. Supplied by the write path, which holds the captured view; without
@@ -142,15 +152,11 @@ public sealed class CorpusRulebook
     /// resolves post-allocation. The set threads into composed StructSpec Fields/Sets too. Null (the override/set_field
     /// path) ⇒ an <c>@editorid</c> value is rejected loud — it has no meaning when there are no same-call
     /// creations.
-    /// <para><paramref name="linkTargets"/> (the write path, which has the load order) turns on the FormLink TARGET
-    /// TYPE check: a link whose FormID resolves to a record the field cannot point at is refused. It is carried on a
-    /// per-call copy of the rulebook rather than threaded through the recursion, so every value slot — a singular
-    /// Set, a list element, a composed struct's field — sees it without a parameter at each hop.</para></summary>
-    public string? Validate(WriteRequest req, IReadOnlyCollection<string>? siblingEditorIds = null,
-        LinkTargetLookup? linkTargets = null)
+    /// <para>The FormLink TARGET TYPE check — a link whose FormID resolves to a record the field cannot point at is
+    /// refused — runs only on a rulebook derived by <see cref="WithLinkTargets"/>, which the write path (the one with
+    /// a load order) builds once per call.</para></summary>
+    public string? Validate(WriteRequest req, IReadOnlyCollection<string>? siblingEditorIds = null)
     {
-        if (linkTargets is not null && !ReferenceEquals(linkTargets, _linkTargets))
-            return new CorpusRulebook(_corpus, linkTargets).Validate(req, siblingEditorIds);
         // (1) resolve the record, then validate rooted at it. ValidateFromType is shared with StructSpec validation
         // (a build-from-parts spec's nested writes) so the record path and the composition path can never disagree.
         var recType = Type(req.RecordType);
@@ -1145,26 +1151,23 @@ public sealed class CorpusRulebook
     /// or non-record link).</summary>
     string AllowedLinkTypes(FieldSchema leaf, Type target, string aq)
     {
-        lock (_linkTargetNames)
+        if (_linkTargetNames.TryGetValue(aq, out var cached)) return cached;
+        var names = new List<string>();
+        foreach (var ts in _corpus.Types.Values)
+            if (ts.Kind == "record" && WriteEngine.ResolveType(ts.GetterInterfaceAssemblyQualified) is { } gi
+                && target.IsAssignableFrom(gi))
+                names.Add(ts.Name);
+        names.Sort(StringComparer.Ordinal);
+        var bare = RecordNaming.StripInterfaceToConcrete(leaf.FormLinkTarget ?? target.Name);
+        const int cap = 12;
+        var phrase = names.Count switch
         {
-            if (_linkTargetNames.TryGetValue(aq, out var cached)) return cached;
-            var names = new List<string>();
-            foreach (var ts in _corpus.Types.Values)
-                if (ts.Kind == "record" && WriteEngine.ResolveType(ts.GetterInterfaceAssemblyQualified) is { } gi
-                    && target.IsAssignableFrom(gi))
-                    names.Add(ts.Name);
-            names.Sort(StringComparer.Ordinal);
-            var bare = RecordNaming.StripInterfaceToConcrete(leaf.FormLinkTarget ?? target.Name);
-            const int cap = 12;
-            var phrase = names.Count switch
-            {
-                0 => bare,
-                1 => names[0],
-                _ when names.Count <= cap => "one of: " + string.Join(", ", names),
-                _ => $"any {bare} record ({names.Count} record types qualify)",
-            };
-            return _linkTargetNames[aq] = phrase;
-        }
+            0 => bare,
+            1 => names[0],
+            _ when names.Count <= cap => "one of: " + string.Join(", ", names),
+            _ => $"any {bare} record ({names.Count} record types qualify)",
+        };
+        return _linkTargetNames[aq] = phrase;
     }
 
     /// <summary>The loud per-element rejection for a malformed FormLink collection ELEMENT — the SAME legal-set copy
