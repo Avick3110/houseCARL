@@ -90,7 +90,7 @@
         },
         {
           "id": "c5",
-          "assert": "Every row of every '## Contents' table names a heading that exists at the stated line and heads a real section (Properties, Events, Functions, Global Functions, or a backticked class name); no doc-comment line is listed as a section.",
+          "assert": "Every row of every '## Contents' table names a heading that exists at the stated line and heads a real section (Properties, Events, Functions, Global Functions, or a backticked class name); no doc-comment line is listed as a section; and each row's entry count equals the number of index rows whose line_start falls inside that section, so a doc-comment '### ' line is never counted as an entry.",
           "expected": "pass for every table row"
         },
         {

@@ -34,7 +34,11 @@ body's promises do not hold in.
    section** — `Properties`, `Events`, `Functions`, `Global Functions`, and the backticked class
    names. Upstream emits some function doc-comment lines as `##` headings, so a table built by
    walking `^## ` lists prose as sections and splits the enclosing section's entry count across
-   them; `papyrusutil.md` carried 22 such lines and was corrected on 2026-09-08.
+   them; `papyrusutil.md` carried 22 such lines and was corrected on 2026-09-08. **Count entries, not
+   `###` lines** — upstream emits some doc-comment prose as `###` headings too, and counting those
+   overstates a section: `messagebox.md` claimed 23 global functions where the index resolves 8, and
+   was corrected on 2026-09-08. The count for a section is the number of index rows whose
+   `line_start` falls inside it.
 4. **Re-derive the index's line ranges.** Pass 3 inserts lines above every entry block in the files
    it touches; every affected row's `line_start` and `line_end` shift by the size of the inserted
    block. Verify afterwards that every row's `line_start` lands on a `### ` heading naming that
