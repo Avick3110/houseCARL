@@ -181,6 +181,13 @@ public static class DialogueSubtype
     /// unmodeled (and "" for the one index Mutagen's enum omits). The honest label for a topic's subtype.</summary>
     public static string? NameForMarker(RecordType marker) => IndexForMarker(marker) is { } i ? NameAt(i) : null;
 
+    /// <summary>The best LABEL for the subtype a marker names, for a render or a message: Mutagen's enum name where
+    /// there is one, and the MARKER ITSELF for the one modeled row Mutagen's enum omits (index 3, FVDL) — never "",
+    /// which would hand a consumer nothing for a subtype this table can in fact name. null only when the marker is
+    /// blank or not one this table models, which is a different finding and says so in its own words.</summary>
+    public static string? LabelForMarker(RecordType marker) =>
+        IndexForMarker(marker) is { } i ? (NameAt(i) is { Length: > 0 } n ? n : Table[i].Marker) : null;
+
     /// <summary>True when a topic's numeric <c>Subtype</c> contradicts its SNAM marker — both modeled, and they name
     /// different subtypes. Bethesda renumbered the DATA\Subtype enum when the Dragonborn-era CK inserted six
     /// <c>FlyingMount*</c> values at index 20, so a topic authored before that stores a number six lower than the
@@ -189,6 +196,23 @@ public static class DialogueSubtype
     /// statement. Blank or unmodeled markers are NOT a disagreement — a blank one is its own finding.</summary>
     public static bool MarkerDisagreesWithSubtype(IDialogTopicGetter topic) =>
         IndexForMarker(topic.SubtypeName) is { } fromMarker && fromMarker != (int)topic.Subtype;
+
+    /// <summary>How many values the Dragonborn-era Creation Kit inserted at index 20 (the six <c>FlyingMount*</c>
+    /// rows), which is exactly how far a pre-Dragonborn DATA\Subtype sits below the modern table.</summary>
+    public const int RenumberOffset = 6;
+
+    /// <summary>The first modern index that also existed under the OLD numbering (20 + <see cref="RenumberOffset"/>).
+    /// A marker below this one names a subtype that predates the insertion or is one of the inserted rows, so it
+    /// cannot have been shifted and a disagreement there is not vintage.</summary>
+    public const int RenumberFirstShifted = 26;
+
+    /// <summary>Does a disagreeing pair carry the RENUMBERING signature — the marker's modern index sitting exactly
+    /// <see cref="RenumberOffset"/> above the stored number, at or above <see cref="RenumberFirstShifted"/>? True
+    /// means "old file, stale number, record not necessarily broken". False means the two fields were edited apart:
+    /// the numbers line up with no vintage that explains them, so the Subtype edit is an in-game no-op and the fix is
+    /// to sync SNAM. Asserting the vintage for EVERY mismatch would frame an authoring error as benign.</summary>
+    public static bool IsRenumberedVintage(int markerIndex, int subtypeValue) =>
+        markerIndex >= RenumberFirstShifted && markerIndex - subtypeValue == RenumberOffset;
 
     /// <summary>True when a topic's SNAM marker is empty/default (0000) OR whitespace-only — the malformed "no real
     /// marker" state. The single home for this test so the create path and the validator agree on what "no marker"

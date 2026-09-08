@@ -76,8 +76,9 @@ public sealed record TopicValidation(
     public bool SubtypeDisagreesWithMarker { get; init; }
 
     /// <summary>The subtype name the SNAM marker itself names — the honest label when <see cref="Subtype"/> is stale.
-    /// "" when the marker is blank or not one <see cref="DialogueSubtype"/> models, so a consumer never has to
-    /// re-implement the marker→name table to read past a disagreement.</summary>
+    /// The MARKER itself for the one modeled row Mutagen's enum leaves unnamed (index 3, FVDL), so a consumer never
+    /// has to re-implement the marker→name table to read past a disagreement. "" only when the marker is blank or not
+    /// one <see cref="DialogueSubtype"/> models — the cases where there is genuinely nothing to name.</summary>
     public string SubtypeFromMarker { get; init; } = "";
 }
 
@@ -256,8 +257,12 @@ public static class DialogueValidate
     /// <param name="pinned">the build to read, when a CALLER has already pinned one — a seed sweep validating several
     /// records in one response hands its own view down so every seed reads the build the response stamps. Null pins one
     /// here, which is what a single validation wants.</param>
+    /// <param name="forceLoaded">the force-loaded plugin names beyond the base masters (Creation Club,
+    /// <c>_ResourcePack.esl</c>) — the implicit group housecarl_load_order_status shows. Null when the caller cannot
+    /// read an MO2 composition; see <see cref="ValidateTopic"/>'s parameter of the same name for what that costs.</param>
     public static DialogueValidationReport Run(LoadOrderResolver resolver, AssetResolver assets, FormKey fk,
-                                               LoadOrderResolver.IndexView? pinned = null)
+                                               LoadOrderResolver.IndexView? pinned = null,
+                                               IReadOnlyCollection<string>? forceLoaded = null)
     {
         try
         {
@@ -282,6 +287,20 @@ public static class DialogueValidate
             // ValidateTopic.BadRef.
             bool InOrder(FormKey k) => !k.IsNull && view.ResolveWinner(k) is not null;
 
+            // The topic's copy in its DEFINING master, for the SNAM ownership gate: what an override inherited, so a
+            // pair the base record already carried is never blamed on the plugin that copied it forward. A TYPED DIAL
+            // seek (never the flat scan), cached per FormKey, and asked for only by a finding that is about to fire —
+            // so a clean order pays nothing and the quest fan-out pays at most one seek per already-suspect topic.
+            var baseCache = new Dictionary<FormKey, IDialogTopicGetter?>();
+            IDialogTopicGetter? BaseCopy(FormKey k)
+            {
+                if (baseCache.TryGetValue(k, out var c)) return c;
+                var g = view.GetRecord(session, k.ModKey.FileName.String, k, typeof(IDialogTopicGetter))
+                        as IDialogTopicGetter;
+                baseCache[k] = g;
+                return g;
+            }
+
 
             // Load every needed topic's per-plugin child lists in ONE typed DIAL pass per contributing plugin.
             // Deliberately NOT view.GetRecord per (topic, plugin): that is an UNINDEXED whole-overlay scan, so a
@@ -305,7 +324,7 @@ public static class DialogueValidate
 
             if (body is IDialogTopicGetter topic)
             {
-                var tv = ValidateTopic(topic, win.Value.WinnerPlugin, InOrder, Resolve, av)
+                var tv = ValidateTopic(topic, win.Value.WinnerPlugin, InOrder, Resolve, av, BaseCopy, forceLoaded)
                     with { InfoOrder = OrdersFor(new[] { fk }).GetValueOrDefault(fk) };
                 return new DialogueValidationReport(fk, "topic", topic.EditorID ?? "", win.Value.WinnerPlugin, new[] { tv })
                     { ReadIncomplete = av.ReadIncomplete };
@@ -332,7 +351,7 @@ public static class DialogueValidate
                     if (tbody is not IDialogTopicGetter dt) continue;
                     if (NonNull(dt.Quest.FormKeyNullable) is not { } qk || qk != fk) continue;
                     var wp = view.ResolveWinner(tfk)?.WinnerPlugin ?? win.Value.WinnerPlugin;
-                    topics.Add(ValidateTopic(dt, wp, InOrder, Resolve, av));
+                    topics.Add(ValidateTopic(dt, wp, InOrder, Resolve, av, BaseCopy, forceLoaded));
                 }
 
                 // Effective INFO order for EVERY topic in one batch, built AFTER the winner scan closes — never
@@ -405,8 +424,16 @@ public static class DialogueValidate
     /// References are vetted by <paramref name="inOrder"/> first (a cheap O(1) index lookup — a dangling/missing target,
     /// the common breakage, costs no body fetch); only a PRESENT target pays <paramref name="resolve"/> to name a wrong
     /// type. The voice/script reuse still uses <paramref name="resolve"/> for the speaker/quest bodies it must read.</summary>
+    /// <param name="baseCopy">the topic's body as its DEFINING master holds it — what an override inherited — or null
+    /// when that copy cannot be read. Only ever asked for on a record the SNAM checks are about to warn on.</param>
+    /// <param name="forceLoaded">the force-loaded plugin names beyond the base masters (Creation Club,
+    /// <c>_ResourcePack.esl</c>) — <c>Mo2Composition.ImplicitPluginNames</c>, the same grouping
+    /// housecarl_load_order_status shows as implicit. Null means the caller has no MO2 composition to read (a
+    /// synthesized order in a probe), and the ownership gate then knows only the five base masters: a force-loaded
+    /// plugin's own topic would warn where it should stay quiet — a louder answer, never a quieter one.</param>
     internal static TopicValidation ValidateTopic(IDialogTopicGetter topic, string winnerPlugin,
-        Func<FormKey, bool> inOrder, Func<FormKey, IMajorRecordGetter?> resolve, AssetResolver.AssetView assetView)
+        Func<FormKey, bool> inOrder, Func<FormKey, IMajorRecordGetter?> resolve, AssetResolver.AssetView assetView,
+        Func<FormKey, IDialogTopicGetter?> baseCopy, IReadOnlyCollection<string>? forceLoaded)
     {
         var edid = topic.EditorID ?? "";
         var issues = new List<DialogueIssue>();
@@ -470,17 +497,36 @@ public static class DialogueValidate
         //     expected marker is named so the fix is a copy-paste rather than a bare "invalid".
         // Ownership of the record the check actually reads, shared by every SNAM finding below.
         bool isOverride = !string.Equals(topic.FormKey.ModKey.FileName.String, winnerPlugin, StringComparison.OrdinalIgnoreCase);
-        // A base-game master's own winning record is content the modder neither wrote nor can act on.
-        bool modAuthored = !ErrorCheck.IsBaseMaster(winnerPlugin);
+        // Content the modder neither wrote nor can act on: the base masters PLUS the rest of the force-loaded set
+        // (Creation Club, _ResourcePack.esl), which is the same grouping housecarl_load_order_status calls implicit —
+        // reused via forceLoaded rather than re-listed here. See the parameter's own note for the unknowable case.
+        bool modAuthored = !ErrorCheck.IsBaseMaster(winnerPlugin)
+            && !(forceLoaded?.Contains(winnerPlugin, StringComparer.OrdinalIgnoreCase) ?? false);
+
+        // The (Subtype, SNAM) pair on the topic's copy in its DEFINING master — what an override INHERITED. Read once,
+        // and only for a finding that needs it, so the common clean topic pays nothing: the defining master is a
+        // different plugin from the winner whenever isOverride holds, so this never re-enters the plugin a quest
+        // fan-out is scanning. Null when the topic is not an override or the base copy cannot be read.
+        (int Subtype, RecordType Marker)? basePairCache = null;
+        bool basePairRead = false;
+        (int Subtype, RecordType Marker)? BasePair()
+        {
+            if (basePairRead) return basePairCache;
+            basePairRead = true;
+            if (isOverride && baseCopy(topic.FormKey) is { } b) basePairCache = ((int)b.Subtype, b.SubtypeName);
+            return basePairCache;
+        }
+
+        // The caveat every recommendation DERIVED from the numeric Subtype must carry: that field is unreliable on a
+        // topic authored before the Dragonborn-era CK renumbered the enum (see DialogueSubtype.MarkerDisagreesWithSubtype),
+        // so the advice says where it came from and points at the base record's marker rather than asserting a
+        // number-derived tag is right. Shared by the blank arm and the unmodeled-marker arm's fallback.
+        const string derived = " That comes from the numeric Subtype, which is stale on topics authored before the "
+            + "Dragonborn-era Creation Kit renumbered the subtype enum — check the base record's SNAM before writing it.";
+
         if (DialogueSubtype.IsBlankMarker(topic.SubtypeName))
         {
             var expected = DialogueSubtype.MarkerFor((int)topic.Subtype);
-            // Both arms recommend a marker DERIVED from the numeric Subtype, which is unreliable on a topic authored
-            // before the Dragonborn-era CK renumbered the enum (see DialogueSubtype.MarkerDisagreesWithSubtype). With
-            // SNAM blank there is nothing to cross-check it against, so the advice says where it came from and points
-            // at the base record's marker rather than asserting a number-derived tag is right.
-            const string derived = " That comes from the numeric Subtype, which is stale on topics authored before the "
-                + "Dragonborn-era Creation Kit renumbered the subtype enum — check the base record's SNAM before writing it.";
             var fix = (expected is not null
                 ? $"Set it to {expected} (the marker for Subtype={topic.Subtype}); houseCARL's create tools now auto-fill it, or {ToolNames.Apply} on SubtypeName with value={expected}."
                 : $"Set it to the correct 4-char marker for Subtype={topic.Subtype} via {ToolNames.Apply} on SubtypeName.") + derived;
@@ -500,20 +546,44 @@ public static class DialogueValidate
         //     so a topic authored before that stores a number six lower than the modern enum and every reader (Mutagen,
         //     xEdit, houseCARL) labels it six entries too early. No field distinguishes the two numberings, so this is
         //     reported, never "fixed" — rewriting DATA\Subtype here would be a guess at what the author meant.
-        //     Scoped to a record a mod defines or overrides (Aaron's ruling): a base master's own topic read through
-        //     the order carries Bethesda's stale number, which the modder cannot act on and which would fill a
-        //     whole-quest check with the same warning. There the verdict still rides the render's "(stale)" /
-        //     "(authoritative)" labels and the JSON's subtype_stale / subtype_from_marker fields.
-        else if (modAuthored && DialogueSubtype.MarkerDisagreesWithSubtype(topic))
+        //     Scoped to a record a mod actually AUTHORED the pair on (Aaron's ruling): a force-loaded plugin's own
+        //     topic (base masters, Creation Club, _ResourcePack.esl) carries Bethesda's stale number, and so does an
+        //     override that copies the base record's pair forward verbatim — neither is something the modder wrote or
+        //     can act on, and both would fill a whole-quest check with the same warning. There the verdict still rides
+        //     the render's "(stale)" / "(authoritative)" labels and the JSON's subtype_stale / subtype_from_marker
+        //     fields, which are ungated.
+        //     WHICH advice is given turns on the renumbering signature, never on an assumption: a stored number
+        //     exactly six below the marker's modern index is vintage, and anything else is two fields edited apart —
+        //     a real authoring error whose Subtype edit does nothing in game until SNAM is synced.
+        else if (DialogueSubtype.MarkerDisagreesWithSubtype(topic))
         {
-            var fromMarker = DialogueSubtype.NameForMarker(topic.SubtypeName);
-            issues.Add(new(DialogueIssueSeverity.Warning,
-                $"DialogTopic.Subtype reads {topic.Subtype} ((int){(int)topic.Subtype}) but the SNAM marker is "
-                + $"{topic.SubtypeName.Type}{(string.IsNullOrEmpty(fromMarker) ? "" : $" ({fromMarker})")} — they disagree, and the MARKER is "
-                + "authoritative: the game buckets topics by SNAM. The record is not necessarily broken; Bethesda renumbered the "
-                + "numeric subtype enum when the Dragonborn-era Creation Kit inserted six FlyingMount* values at index 20, so a "
-                + "topic authored before that stores a number six lower than the modern table and every reader labels it too early. "
-                + $"Treat this topic's subtype as {(string.IsNullOrEmpty(fromMarker) ? topic.SubtypeName.Type : fromMarker)}, not {topic.Subtype}."));
+            // An inherited pair is the base record's statement, not this plugin's: the override changed neither field.
+            bool inherited = BasePair() is { } b
+                && b.Subtype == (int)topic.Subtype
+                && string.Equals(b.Marker.Type, topic.SubtypeName.Type, StringComparison.Ordinal);
+            int fromIndex = DialogueSubtype.IndexForMarker(topic.SubtypeName)!.Value;
+            var fromMarker = DialogueSubtype.LabelForMarker(topic.SubtypeName)!;
+            if (modAuthored && !inherited)
+            {
+                var head = $"DialogTopic.Subtype reads {topic.Subtype} ((int){(int)topic.Subtype}) but the SNAM marker is "
+                    + $"{topic.SubtypeName.Type} ({fromMarker}) — they disagree, and the MARKER is authoritative: the game "
+                    + "buckets topics by SNAM. ";
+                if (DialogueSubtype.IsRenumberedVintage(fromIndex, (int)topic.Subtype))
+                    issues.Add(new(DialogueIssueSeverity.Warning, head
+                        + $"The numbers carry the renumbering signature (stored exactly {DialogueSubtype.RenumberOffset} below the "
+                        + "marker's modern index), so the record is not necessarily broken: Bethesda's Dragonborn-era Creation Kit "
+                        + $"inserted {DialogueSubtype.RenumberOffset} FlyingMount* values at index 20, and a topic authored before that "
+                        + "stores the older, lower number which every reader labels too early. "
+                        + $"Treat this topic's subtype as {fromMarker}, not {topic.Subtype}."));
+                else
+                    issues.Add(new(DialogueIssueSeverity.Warning, head
+                        + "The numbers do NOT carry the Dragonborn-era renumbering signature, so this is not an old file: the two "
+                        + $"fields were edited apart. The topic still buckets as {fromMarker}, which makes the Subtype value an "
+                        + $"in-game no-op. If {fromMarker} is the intended subtype, set Subtype to it and leave SNAM alone; if "
+                        + $"{topic.Subtype} is, sync SNAM to "
+                        + $"{DialogueSubtype.MarkerFor((int)topic.Subtype) ?? $"the marker for {topic.Subtype}"} via "
+                        + $"{ToolNames.Apply} on SubtypeName — setting Subtype through houseCARL does that sync for you."));
+            }
         }
 
         // --- A non-blank marker this table does not model: not a disagreement (there is nothing to compare) and not
@@ -521,12 +591,23 @@ public static class DialogueValidate
         //     dialogue handler reads. Same ownership gate as the disagreement above.
         else if (modAuthored && DialogueSubtype.IndexForMarker(topic.SubtypeName) is null)
         {
+            // What to set it TO. The base record's SNAM first when this is an override and that marker is modeled: SNAM
+            // is the authoritative statement of a topic's bucket, so an inherited marker beats anything derived from
+            // the numeric Subtype — which is the field this whole check exists because it is unreliable. Only with no
+            // base copy, or a base marker as unmodeled as this one, does the advice fall back to Subtype, and then it
+            // carries the same caveat the blank arm does.
+            var expected = DialogueSubtype.MarkerFor((int)topic.Subtype);
+            var fix = BasePair() is { } b && DialogueSubtype.LabelForMarker(b.Marker) is { } baseName
+                ? $"Set it to {b.Marker.Type} ({baseName}) — the marker on the base record in {topic.FormKey.ModKey.FileName}, "
+                  + $"which is the bucket this override inherits — via {ToolNames.Apply} on SubtypeName."
+                : expected is not null
+                    ? $"Set it to {expected} (the marker for Subtype={topic.Subtype}) via {ToolNames.Apply} on SubtypeName." + derived
+                    : $"Set it to the correct 4-char marker for Subtype={topic.Subtype} via {ToolNames.Apply} on SubtypeName.";
             issues.Add(new(DialogueIssueSeverity.Warning,
                 $"DialogTopic.SubtypeName (the SNAM subtype marker) is {topic.SubtypeName.Type}, which is not a marker houseCARL "
                 + "models — the game buckets topics by this 4-char tag, so an invented or mis-cased one (the tags are fixed case: "
-                + "HELO, not helo) puts the topic in a bucket no dialogue handler reads and it never plays. Set it to the marker for "
-                + $"the intended subtype (Subtype reads {topic.Subtype}) via {ToolNames.Apply} on SubtypeName — or, if {topic.SubtypeName.Type} "
-                + "is a real marker, report it: houseCARL's table is missing a row."));
+                + $"HELO, not helo) puts the topic in a bucket no dialogue handler reads and it never plays. {fix} Or, if "
+                + $"{topic.SubtypeName.Type} is a real marker, report it: houseCARL's table is missing a row."));
         }
 
         // Static condition lints need the owning quest's reference-alias IDs — resolved ONCE here off the load-order
@@ -627,7 +708,7 @@ public static class DialogueValidate
             issues, voiceLines, voiceUndet, scriptFindings)
         {
             SubtypeDisagreesWithMarker = DialogueSubtype.MarkerDisagreesWithSubtype(topic),
-            SubtypeFromMarker = DialogueSubtype.NameForMarker(topic.SubtypeName) ?? "",
+            SubtypeFromMarker = DialogueSubtype.LabelForMarker(topic.SubtypeName) ?? "",
         };
     }
 
