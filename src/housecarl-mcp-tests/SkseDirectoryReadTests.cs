@@ -5,16 +5,17 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>The import walk's bound on a declared directory. A data directory whose Size is zero but whose RVA is not
-/// is a table that IS there and cannot be bounded; the walk used to read that as "genuinely absent", so a DLL's whole
-/// delay-import set was dropped and the read still reported success — a complete-looking "imports (N): …" missing the
-/// very names the Debug-CRT verdict is built on (#416). Synthetic PEs, because the shape is a header field: the image
-/// below is the minimum <see cref="System.Reflection.PortableExecutable.PEReader"/> will open, with one .rdata section
-/// carrying a real import descriptor table, a real delay-load descriptor table, and the two name strings. The same
-/// image serves the sibling drop at the bottom: a VA-based delay descriptor, which used to be skipped the same
-/// way.</summary>
+/// <summary>What the reader makes of a PE data directory the header declares oddly. A directory whose Size is zero but
+/// whose RVA is not is a table that IS there, and both walks used to read that as "genuinely absent": the import walk
+/// dropped a DLL's whole delay-import set and still reported success — a complete-looking "imports (N): …" missing the
+/// very names the Debug-CRT verdict is built on (#416) — and the export walk answered an empty map, which classifies a
+/// real plugin as a bundled dependency. Synthetic PEs, because the shape is a header field: the image below is the
+/// minimum <see cref="System.Reflection.PortableExecutable.PEReader"/> will open, with one .rdata section carrying a
+/// real import descriptor table, a real delay-load descriptor table, a real export directory, and their name strings.
+/// The same image serves the sibling drop in the middle: a VA-based delay descriptor, which used to be skipped the
+/// same way.</summary>
 [Trait("tier", "unit")]
-public sealed class SkseImportDirectoryBoundTests
+public sealed class SkseDirectoryReadTests
 {
     /// <summary>A well-formed delay directory is walked, and what it carries is a debug-CRT import — the thing the
     /// Size==0 read dropped, and the reason dropping it is not cosmetic: absent from the list, the DLL reads as a clean
@@ -92,6 +93,38 @@ public sealed class SkseImportDirectoryBoundTests
         Assert.Null(info.Imports);
     }
 
+    /// <summary>The same declared-but-unsized shape on the export directory, where the header Size bounds nothing at
+    /// all — the walk is driven by the directory's own counts. A zero Size there answered an empty map, so a DLL that
+    /// does export SKSE's entry points was reported to the modder as "a bundled dependency DLL, not a plugin" and its
+    /// version and runtime checks never ran.</summary>
+    [Fact]
+    public void ExportDirectoryWithZeroSizeIsStillRead()
+    {
+        var info = SksePluginReader.ReadBytes("exports.dll", Image(0, 0, 0, 0, exportRva: ExportRva, exportSize: 0));
+
+        Assert.Equal(SksePluginReader.SksePluginKind.LegacyQuery, info.Kind);
+    }
+
+    /// <summary>The control for the case above: the same export directory with its Size declared, so what changes
+    /// between the two is the header field and nothing else.</summary>
+    [Fact]
+    public void ExportDirectoryWithItsSizeDeclaredIsRead()
+    {
+        var info = SksePluginReader.ReadBytes("exports.dll", Image(0, 0, 0, 0, exportRva: ExportRva, exportSize: ExportSize));
+
+        Assert.Equal(SksePluginReader.SksePluginKind.LegacyQuery, info.Kind);
+    }
+
+    /// <summary>The other half of that fork: no export RVA is a genuinely absent export table, and still classifies
+    /// NotSkse. Reading a declared directory must not stop a real bundled dependency from being named as one.</summary>
+    [Fact]
+    public void AbsentExportDirectoryIsNotSkse()
+    {
+        var info = SksePluginReader.ReadBytes("dep.dll", Image(ImportRva, ImportSize, 0, 0));
+
+        Assert.Equal(SksePluginReader.SksePluginKind.NotSkse, info.Kind);
+    }
+
     // ── the synthetic image ──────────────────────────────────────────────────────────────────────────────────────
 
     const int HeaderBytes = 0x200;      // SizeOfHeaders, one file-alignment unit
@@ -104,12 +137,20 @@ public sealed class SkseImportDirectoryBoundTests
     const int DelaySize = 64;                    // 2 * 32
     const int Kernel32Rva = SectionRva + 0x0C0;
     const int DebugCrtRva = SectionRva + 0x100;
+    const int ExportRva = SectionRva + 0x120;    // IMAGE_EXPORT_DIRECTORY, exporting SKSEPlugin_Query
+    const int ExportSize = 40;
+    const int EatRva = SectionRva + 0x150;       // AddressOfFunctions[1]
+    const int NameTableRva = SectionRva + 0x158; // AddressOfNames[1]
+    const int OrdinalTableRva = SectionRva + 0x160;
+    const int QueryNameRva = SectionRva + 0x168;
 
-    /// <summary>A minimal x64 PE image declaring the two import directories at the given RVA/Size. The tables and their
-    /// name strings are always written; only what the header declares about them varies, which is exactly the axis
-    /// under test. <paramref name="delayAttributes"/> and <paramref name="imageBase"/> pick how the delay table
-    /// addresses its name: bit0 set is an RVA, clear is the absolute address a VA-based table would carry.</summary>
-    static byte[] Image(int importRva, int importSize, int delayRva, int delaySize, uint delayAttributes = 1, ulong imageBase = 0x180000000)
+    /// <summary>A minimal x64 PE image declaring the two import directories and the export directory at the given
+    /// RVA/Size. The tables and their name strings are always written; only what the header declares about them varies,
+    /// which is exactly the axis under test. <paramref name="delayAttributes"/> and <paramref name="imageBase"/> pick
+    /// how the delay table addresses its name: bit0 set is an RVA, clear is the absolute address a VA-based table would
+    /// carry.</summary>
+    static byte[] Image(int importRva, int importSize, int delayRva, int delaySize, uint delayAttributes = 1, ulong imageBase = 0x180000000,
+                        int exportRva = 0, int exportSize = 0)
     {
         var img = new byte[HeaderBytes + SectionBytes];
 
@@ -136,6 +177,8 @@ public sealed class SkseImportDirectoryBoundTests
         U32(img, opt + 0x6C, 16);                    // NumberOfRvaAndSizes
 
         int dirs = opt + 0x70;
+        U32(img, dirs + 0 * 8, (uint)exportRva);     // IMAGE_DIRECTORY_ENTRY_EXPORT
+        U32(img, dirs + 0 * 8 + 4, (uint)exportSize);
         U32(img, dirs + 1 * 8, (uint)importRva);     // IMAGE_DIRECTORY_ENTRY_IMPORT
         U32(img, dirs + 1 * 8 + 4, (uint)importSize);
         U32(img, dirs + 13 * 8, (uint)delayRva);     // IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT
@@ -155,6 +198,16 @@ public sealed class SkseImportDirectoryBoundTests
         U32(img, At(DelayRva) + 0x04, delayName);        // ImgDelayDescr.DllName
         Ascii(img, At(Kernel32Rva), "kernel32.dll");
         Ascii(img, At(DebugCrtRva), "vcruntime140d.dll");
+
+        U32(img, At(ExportRva) + 0x14, 1);                       // NumberOfFunctions
+        U32(img, At(ExportRva) + 0x18, 1);                       // NumberOfNames
+        U32(img, At(ExportRva) + 0x1C, (uint)EatRva);            // AddressOfFunctions
+        U32(img, At(ExportRva) + 0x20, (uint)NameTableRva);      // AddressOfNames
+        U32(img, At(ExportRva) + 0x24, (uint)OrdinalTableRva);   // AddressOfNameOrdinals
+        U32(img, At(EatRva), (uint)SectionRva);                     // the export's own RVA; unread for a Query export, which classifies on the name
+        U32(img, At(NameTableRva), (uint)QueryNameRva);
+        U16(img, At(OrdinalTableRva), 0);
+        Ascii(img, At(QueryNameRva), "SKSEPlugin_Query");
         return img;
     }
 

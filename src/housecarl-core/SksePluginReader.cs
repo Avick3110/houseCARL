@@ -459,12 +459,16 @@ public static class SksePluginReader
     /// design: the SKSE loader itself resolves symbols by exact unmangled name string, so a name lookup is all we need.
     /// Returns an EMPTY map for a DLL with genuinely no export table (→ classify NotSkse), but <c>null</c> when the directory
     /// is present yet CORRUPT (a parse failure — the caller classifies Unreadable, never silently as a bundled
-    /// dependency). Never throws.</summary>
+    /// dependency). ABSENCE is a zero RVA and nothing else: a declared RVA is read whatever the header's Size says,
+    /// since this walk is driven by the directory's own counts (capped by <c>MaxExports</c>) and never by that Size.
+    /// Never throws.</summary>
     static Dictionary<string, int>? ReadExportRvas(PEReader pe)
     {
         var byName = new Dictionary<string, int>(StringComparer.Ordinal);
         var dir = pe.PEHeaders.PEHeader!.ExportTableDirectory;
-        if (dir.Size == 0 || dir.RelativeVirtualAddress == 0) return byName;   // no export table → empty (genuinely no exports)
+        // A zero Size beside a declared RVA is NOT "no exports": the table is there, and reading it as empty would
+        // classify a real plugin NotSkse — "a bundled dependency DLL, not a plugin" — and skip its version checks.
+        if (dir.RelativeVirtualAddress == 0) return byName;                    // no export table → empty (genuinely no exports)
         try
         {
             var ed = pe.GetSectionData(dir.RelativeVirtualAddress).GetReader();

@@ -23,6 +23,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   The same walk had a second silent drop: an old-style delay-load entry that gives an absolute address instead of
   a relative one was skipped, again leaving a short list that read as complete. Its address is now resolved
   against the image base like the loader does, and the read says `imports: UNKNOWN` when it cannot be.
+- **An SKSE DLL whose export directory declares an address but no size now has its exports read, instead of being
+  reported as a bundled dependency.** The same header shape on the export side failed the other way: the peek
+  answered "no exports", so a DLL that does export SKSE's entry points was named a bundled dependency DLL rather
+  than a plugin, and its version and runtime-compatibility checks never ran. That walk is bounded by the counts
+  inside the directory, not by the header size, so a declared address is now read whatever the size says. A
+  directory with no address at all is still genuine absence and still reads as no exports.
 - **A SkyPatcher INI can be checked before it is placed in a mod.** `housecarl_records`'s overlay pole takes a
   draft file: `source={"overlay": "skypatcher", "state": "post", "ini": "<absolute path to a draft .ini>",
   "subfolder": "weapon"}` reads the record as the game would see it once that draft is placed — the live layer
