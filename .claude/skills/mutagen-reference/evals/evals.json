@@ -1,0 +1,255 @@
+{
+  "skill_name": "mutagen-reference",
+  "gate": {
+    "recall_threshold": 0.8,
+    "specificity_threshold": 0.5
+  },
+  "method": {
+    "tree": "dist/housecarl/skills/mutagen-reference — every run loads the PACKAGED skill, never .claude/skills/, so a tool name or a pointer that does not ship is caught here (dev/DECISIONS.md, 2026-09-07, ruling 3)",
+    "arms": ["with_skill", "without_skill"],
+    "arm_rule": "every should_trigger case runs in both arms, each from a fresh context. An expectation that passes in both arms is not differentiating and is investigated rather than counted.",
+    "result_sets": ["triggering", "output_quality"],
+    "per_run_metrics": ["total_tokens", "duration_ms"],
+    "metrics_captured_at": "the task notification of each run",
+    "self_evaluation": "the fan-out is run by the conductor, never from inside this skill's own session: a skill judging itself reads its own live description and the run is contaminated (see history.contamination_audit_2026-07-28)",
+    "judging": "one fresh-context agent per prompt, shown the full skill menu plus NONE and asked which ONE to load; verdicts adjudicated from each agent's reasoning, PASS or FAIL with the output quoted as evidence"
+  },
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "what fields can I actually edit on an ARMO record? figuring out what's safe to override in my armor patch",
+      "should_trigger": true,
+      "expected_output": "The ARMO field roster and its writable count, read out of the bundled reference rather than probed for.",
+      "expectations": [
+        "The skill is selected",
+        "The answer quotes a line resolved from references/records.jsonl",
+        "The answer states the type's writable/total count (32/32)",
+        "No field name appears that is absent from that line"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "building a patch for my modlist, need to bump armor rating + add a keyword to a bunch of armors — what's the field name for armor rating and is it writable",
+      "should_trigger": true,
+      "expected_output": "ArmorRating, a writable scalar float; Keywords, a writable list.",
+      "expectations": [
+        "The skill is selected",
+        "The answer names ArmorRating and says it is writable",
+        "The answer names the cardinality of Keywords as a list"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "what are the legal values for the Aggression field on an NPC? want to set a follower to aggressive",
+      "should_trigger": true,
+      "expected_output": "The enum the field references, resolved one hop on, with its values spelled as the enum spells them.",
+      "expectations": [
+        "The skill is selected",
+        "The answer resolves the field's ref into references/enums.jsonl before quoting values",
+        "Every value quoted appears in that enum's values list"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "does the weapon record have a field for crit damage and what type is it",
+      "should_trigger": true,
+      "expected_output": "The WEAP field, its type and its cardinality, or an honest miss if no such field is modeled.",
+      "expectations": [
+        "The skill is selected",
+        "The answer names the field's t and c from the block, or says the library models no such field"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "im trying to set a magic effect's resist value to an actor value but idk what the valid actor values are called",
+      "should_trigger": true,
+      "expected_output": "MGEF's ResistValue is an enum with ref ActorValue; the legal names come from the ActorValue entry.",
+      "expectations": [
+        "The skill is selected",
+        "The answer names ResistValue and the ActorValue enum",
+        "The values quoted come from references/enums.jsonl, not from memory"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "the MGEF archetype field — i heard it's one of several types, which ones can it be?",
+      "should_trigger": true,
+      "expected_output": "The permitted arms, read off the polymorphic base's entry.",
+      "expectations": [
+        "The skill is selected",
+        "The answer resolves arms from references/polymorphic.jsonl or the field's own arms key"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "before I write this CELL override, what fields does a cell record even have",
+      "should_trigger": true,
+      "expected_output": "The CELL roster, including the owned-child fields and what that means for addressing them.",
+      "expectations": [
+        "The skill is selected",
+        "The answer names Landscape as an owned child record edited by its own FormID, not by a write at the field"
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "is the Name field on a book editable or is it computed? renaming a bunch of books in my merge",
+      "should_trigger": true,
+      "expected_output": "The field's own w, quoted from the BOOK block.",
+      "expectations": [
+        "The skill is selected",
+        "The answer cites the field's w rather than the type's writable/total summary"
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "what does the ALCH record map to in mutagen / what's it actually called there",
+      "should_trigger": true,
+      "expected_output": "Ingestible, from the index's name/sig pair.",
+      "expectations": [
+        "The skill is selected",
+        "The answer names Ingestible from a grep of references/index.jsonl"
+      ],
+      "note": "recorded miss in the 2026-06 fan-out — read by one judge as a pure name lookup rather than a schema request. Left as written rather than overfitting the description to it."
+    },
+    {
+      "id": 10,
+      "prompt": "I need every field on the Race record and which ones I can change for my custom race patch",
+      "should_trigger": true,
+      "expected_output": "The RACE roster with per-field writability.",
+      "expectations": [
+        "The skill is selected",
+        "The answer quotes the one line the index named and does not read the rest of the shard"
+      ]
+    },
+    {
+      "id": 11,
+      "prompt": "composing a write to add a magic effect to a spell — what's the field name and is EffectList a list I add a composed entry to or something else",
+      "should_trigger": true,
+      "expected_output": "The field's cardinality, and from it the field_path form and the op verbs that cardinality accepts.",
+      "expectations": [
+        "The skill is selected",
+        "The answer names the field's c from the block",
+        "The composed edit is a housecarl_apply op, and no tool name outside the published surface appears in it"
+      ],
+      "note": "exercises 'Addressing a field & what you can write': cardinality to path-form and verb."
+    },
+    {
+      "id": 12,
+      "prompt": "what's the armor rating value of Steel Armor in Skyrim.esm right now",
+      "should_trigger": false,
+      "expected_output": "A record read at the load-order winner, not a schema lookup.",
+      "expectations": [
+        "The skill is not selected"
+      ],
+      "note": "the near-miss the description's schema-only clause is aimed at: an instance value read against a schema skill."
+    },
+    {
+      "id": 13,
+      "prompt": "what does the GetActorValue papyrus function return and what params does it take",
+      "should_trigger": false,
+      "expected_output": "A Papyrus signature lookup.",
+      "expectations": ["The skill is not selected"],
+      "note": "sibling reference skill, papyrus-reference."
+    },
+    {
+      "id": 14,
+      "prompt": "game crashes when I equip this armor — read the crash log and tell me why",
+      "should_trigger": false,
+      "expected_output": "Crash diagnostics.",
+      "expectations": ["The skill is not selected"]
+    },
+    {
+      "id": 15,
+      "prompt": "which plugin in my Lorerim order is overriding the steel armor record",
+      "should_trigger": false,
+      "expected_output": "A conflict and override-winner investigation.",
+      "expectations": ["The skill is not selected"]
+    },
+    {
+      "id": 16,
+      "prompt": "extract the meshes from this BSA — what armor addons are inside",
+      "should_trigger": false,
+      "expected_output": "BSA and asset extraction.",
+      "expectations": ["The skill is not selected"]
+    },
+    {
+      "id": 17,
+      "prompt": "explain how leveled lists work in Skyrim for a beginner",
+      "should_trigger": false,
+      "expected_output": "A concept explanation.",
+      "expectations": ["The skill is not selected"]
+    },
+    {
+      "id": 18,
+      "prompt": "walk me through merging two ESPs that both edit the same leveled lists",
+      "should_trigger": false,
+      "expected_output": "A procedure, not a schema lookup.",
+      "expectations": ["The skill is not selected"]
+    },
+    {
+      "id": 19,
+      "prompt": "is MyPatch.esp in the right load order position",
+      "should_trigger": false,
+      "expected_output": "A load-order question.",
+      "expectations": ["The skill is not selected"]
+    },
+    {
+      "id": 20,
+      "prompt": "write a papyrus script that changes an NPC's aggression at runtime",
+      "should_trigger": false,
+      "expected_output": "Papyrus scripting.",
+      "expectations": ["The skill is not selected"]
+    },
+    {
+      "id": 21,
+      "prompt": "how do I install SKSE for my modlist",
+      "should_trigger": false,
+      "expected_output": "General modding how-to.",
+      "expectations": ["The skill is not selected"]
+    }
+  ],
+  "output_quality": {
+    "task": "On the live load order, answer whether a given ARMO is light or heavy, name the field that decides it and its legal values, say how many of the type's fields are writable, then compose the write.",
+    "arms": ["with_skill", "without_skill"],
+    "source": "dev/skill-validation/audit-2026-09/mutagen-reference/{with-skill,control}/log.md — the audit's own pair is this arm (dev/DECISIONS.md, 2026-09-07, ruling 3)",
+    "expectations": [
+      "The armor-type axis is named as BodyTemplate.ArmorType, a leaf on a sub-struct, quoted from lines resolved out of references/records.jsonl and references/structs.jsonl — not inferred from a refusal message and not answered as a keyword mechanism",
+      "The enum spelling is LightArmor / HeavyArmor / Clothing, quoted from references/enums.jsonl",
+      "The writable count 32/32 is read off the block, not inferred from per-field dry-run probes",
+      "The write is composed first try, and no tool name outside the published surface appears in any call",
+      "The without_skill arm fails at least one of the four above — if it stops failing, the skill has stopped adding anything and its existence is back on the table"
+    ]
+  },
+  "results": {
+    "triggering": {
+      "status": "pending the conductor's fan-out against the rebuilt description and the packaged tree",
+      "recall": null,
+      "specificity": null,
+      "passed": null,
+      "runs": []
+    },
+    "output_quality": {
+      "status": "pending the conductor's paired run on the live 2.0 order",
+      "with_skill": {"expectations_passed": null, "total_tokens": null, "duration_ms": null},
+      "without_skill": {"expectations_passed": null, "total_tokens": null, "duration_ms": null}
+    },
+    "note": "The figures are unset on purpose. The previous run's numbers are in history and are stale: they predate the 2.0 tool-name migration and the section this rewrite cut, and were scored from .claude/skills/ rather than dist/, which is how a body pointing at four tools that do not exist passed."
+  },
+  "history": {
+    "2026-06-16": {
+      "file": "evals/eval_set.json (superseded by this file)",
+      "recall": "9/10 = 0.90",
+      "specificity": "10/10 = 1.00",
+      "passed": true,
+      "lone_miss": "the ALCH name-lookup prompt (id 9 here), read by one judge as a name lookup rather than a schema request",
+      "stale_because": "the figures predate the case that exercises the write-composition section, and the whole set was scored against the source tree, not the package"
+    },
+    "revalidation_2026-07-28_294": {
+      "recall": "11/11 = 1.00",
+      "specificity": "9/10 = 0.90",
+      "passed": true,
+      "miss": "the instance-value prompt (id 12 here) picked this skill: the description's 'reading' verb read as covering a plain value read with no edit intent. The rewritten description answers it with an explicit schema-only clause.",
+      "contamination_audit_2026-07-28": "An independent review found adjudicator notes quoting description text that existed only in the pre-compression descriptions. Forensics: judges were shown the new menu, but 11 of 281 judge rows leaked old description text from the agents' own installed-plugin listing, and some adjudicator notes confabulated quotes from that same stale environment. Contaminated rows were re-judged with a hardened prompt and 15 of 15 confirmed their verdicts, one recorded miss on another skill excepted. Quoted description text in that run's notes is unreliable; the scores are pick-derived and were confirmed by the hardened re-run. This is why the method above bars the skill's own session from judging it."
+    }
+  }
+}
