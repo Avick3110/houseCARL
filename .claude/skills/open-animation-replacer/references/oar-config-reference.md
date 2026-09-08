@@ -7,7 +7,9 @@ legacy grammar. SKILL.md is the playbook; this is the lookup table.
 
 > **OAR version studied:** 3.0.0 (the DLL shipped in the Open Animation Replacer mod, Nexus 92109).
 > Source files cited: `src/Parsing.cpp`, `src/ReplacerMods.h`, `src/Conditions.h`,
-> `src/Conditions.cpp`, `src/BaseConditions.h`, `src/API/OpenAnimationReplacerAPI-Conditions.h`.
+> `src/Conditions.cpp`, `src/BaseConditions.h`, `src/OpenAnimationReplacer.cpp`,
+> `src/API/OpenAnimationReplacerAPI-Conditions.h`. §8's DAR facts were read from that source on
+> 2026-09-08.
 
 ## Table of contents
 1. Folder layout
@@ -307,13 +309,16 @@ OAR reads **Dynamic Animation Replacer** layouts at runtime and converts each in
 - `_conditions.txt` grammar: `(NOT) FunctionName("Plugin.esp" | 0xFormID, args…) (AND | OR) …`,
   one logical chain (DAR has **no parentheses grouping** — a real limitation OAR's nested
   `AND`/`OR` fixes). Missing `_conditions.txt` ⇒ the folder is skipped with a warning.
-- **How `AND` and `OR` bind in a mixed chain is UNSETTLED here.** No source available to this
-  reference states it: DAR's own parser is not published beside OAR's, and OAR's `Parsing.cpp`
-  legacy path has not been read for this question. The two readings — `AND` binding tighter than
-  `OR`, versus a flat left-to-right chain — give semantically different configs from the same file,
-  and both parse and load cleanly. **Do not guess silently.** Convert under one reading, state which
-  one in the submod's `description`, and say what the other would have meant. Treat this as a real
-  gap in this reference, not as a detail to resolve from memory or a web search.
+- **In a mixed chain, `OR` binds tighter than `AND`.** A chain is an `AND` of `OR`-groups, not a flat
+  left-to-right sequence. Source: `Parsing.cpp`, `ConditionsTxtFile::GetConditions` (read
+  2026-09-08). The file's conditions go into one top-level set that OAR evaluates with `EvaluateAll`
+  — every entry must pass, an implicit `AND`. When a line ends in `OR`, the parser opens a nested
+  `ORCondition` and recurses into it; the recursion takes that line and each following one, and
+  closes on the first line that does **not** end in `OR`, which is itself the last member of the
+  group. An `ORCondition` evaluates with `EvaluateAny` (`Conditions.cpp`,
+  `ORCondition::EvaluateImpl`), so the group passes if any one member does. A trailing `AND` is only
+  a separator; the parser does not otherwise act on it. So: **an `OR`-group is a maximal run of lines
+  ending in `OR`, plus the single line after it; the groups and the remaining lines are `AND`-ed.**
 - Common functions: `IsActorBase`, `IsPlayerTeammate`, `IsEquippedRight`, `IsEquippedLeft`,
   `IsEquippedRightType`, `IsEquippedLeftType`, `IsEquippedRightHasKeyword`,
   `IsEquippedLeftHasKeyword`, `IsEquippedShout`, `IsWorn`, `IsWornHasKeyword`, `IsInFaction`,
@@ -332,6 +337,9 @@ NOT IsEquippedLeftType(2) AND
 NOT IsEquippedLeftType(3) AND
 NOT IsEquippedLeftType(4)
 ```
+Under the binding rule above this is one `OR` group of the three `IsEquippedRightHasKeyword` lines —
+the first two end in `OR`, the third closes the group — `AND`-ed with the five `NOT` lines that
+follow.
 
 ### Form B — `<Plugin.esp>/<FormID>/` (no `_conditions.txt`)
 ```
@@ -361,17 +369,22 @@ built-in roster (§6) and the value-component shapes (§4); the hand flag is §4
 | `IsInCombat()` / `IsChild()` / `IsInInterior()` / `IsPlayerTeammate()` | same name | no parameters |
 | Form B's `<Plugin.esp>/<FormID>/` folder pair | `IsActorBase` | auto-synthesized from the folder names; write it out explicitly when converting by hand |
 
-**The type rows' `n → n` identity is UNVERIFIED at 6, 9, 10 and 11.** §5 records that OAR's enum
-deliberately differs from the vanilla one at exactly those four values — battleaxe 6 and warhammer 10
-split by the `WeapTypeWarhammer` keyword out of the single engine type `kTwoHandAxe`, crossbow 9,
-shield 11 — and DAR's own numbering has not been read for this reference; OAR's legacy parse in
-`Parsing.cpp` is the source that would settle it. Outside that range the two agree. So converting
-`IsEquippedRightType(6)` emits `"Type": { "value": 6.0 }`, which under §5 is battleaxe only: if DAR's
-6 covered the whole `kTwoHandAxe` class, the converted submod silently stops applying to warhammers,
-and 9/10/11 may not name what the DAR file named at all. Same rule as the `AND`/`OR` binding above:
-convert under one reading, say which in the submod's `description`, and test it in game. A narrowed
-type condition parses, loads and wins its priority slot while never passing, and Detected Problems
-stays clean.
+**The type rows are `n → n`, verified, at 6, 9, 10 and 11 as everywhere else.** There is no second
+numbering to translate. OAR registers the DAR names `IsEquippedRightType` and `IsEquippedLeftType` as
+hidden factories that build the very same `IsEquippedTypeCondition` as native `IsEquippedType`, with
+the hand flag preset — right for the first, left for the second (`OpenAnimationReplacer.cpp`,
+`InitFactories`; read 2026-09-08). The DAR argument is parsed straight into that condition's own
+numeric component by `IsEquippedTypeCondition::InitializeLegacy` (`Conditions.cpp`), and the values
+it labels come from `IsEquippedTypeCondition::GetEnumMap` — §5's table. So `IsEquippedRightType(6)`
+converts to `"Type": { "value": 6.0 }` and means battleaxe, 9 crossbow, 10 warhammer, 11 shield,
+exactly as §5 defines them.
+
+The `6` / `10` split is therefore already in force on the legacy folder, before any conversion: OAR
+is what parses `_conditions.txt`, so a DAR file that tries to catch every two-handed axe with `6`
+alone misses warhammers today, and a faithful conversion preserves that behaviour rather than
+introducing the gap. Widen such a chain to `6 OR 10` only when you mean to change what the animation
+covers, and say so in the submod's `description`. A narrowed type condition parses, loads and wins
+its priority slot while never passing, and Detected Problems stays clean.
 
 `NOT Fn(…)` becomes `"negated": true` on the converted condition. A DAR argument is ALREADY the local
 id within the plugin named beside it — that is what the `"Plugin.esp" | 0xFormID` pair means, so
