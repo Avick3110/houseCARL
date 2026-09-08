@@ -73,9 +73,14 @@ public sealed class PublishedNestedConstraintTests
 
     // ---- the served document, walked type-blind ----------------------------------------------------------
 
+    /// <summary>One published <c>enum</c>: its values (a JSON null reads as a null entry) beside whether the member's
+    /// published <c>type</c> admits null. The two travel together because a nullable member's enum must ADMIT null —
+    /// JSON Schema applies enum to every instance — or the schema contradicts itself on one member.</summary>
+    sealed record PublishedEnum(string?[] Values, bool TypeAdmitsNull);
+
     /// <summary>One published object node: where it sits, the member names it declares, its <c>required</c> list, and
     /// the <c>enum</c> each member carries.</summary>
-    sealed record Node(string Tool, string Path, string[] Members, string[] Required, Dictionary<string, string[]> Enums);
+    sealed record Node(string Tool, string Path, string[] Members, string[] Required, Dictionary<string, PublishedEnum> Enums);
 
     List<Node> PublishedObjects()
     {
@@ -100,13 +105,17 @@ public sealed class PublishedNestedConstraintTests
         if (!node.TryGetProperty("properties", out var props) || props.ValueKind != JsonValueKind.Object) return;
 
         var members = new List<string>();
-        var enums = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        var enums = new Dictionary<string, PublishedEnum>(StringComparer.Ordinal);
         foreach (var member in props.EnumerateObject())
         {
             members.Add(member.Name);
             if (member.Value.ValueKind == JsonValueKind.Object
                 && member.Value.TryGetProperty("enum", out var values) && values.ValueKind == JsonValueKind.Array)
-                enums[member.Name] = values.EnumerateArray().Select(v => v.GetString() ?? "<non-string>").ToArray();
+                enums[member.Name] = new PublishedEnum(
+                    values.EnumerateArray()
+                          .Select(v => v.ValueKind == JsonValueKind.Null ? null : v.GetString() ?? "<non-string>")
+                          .ToArray(),
+                    AdmitsNull(member.Value));
             Walk(tool, path + "." + member.Name, member.Value, found);
         }
 
@@ -117,6 +126,18 @@ public sealed class PublishedNestedConstraintTests
 
         found.Add(new Node(tool, path, members.OrderBy(n => n, StringComparer.Ordinal).ToArray(), required, enums));
     }
+
+    /// <summary>Does a published member's <c>type</c> accept a JSON null? Written here off the served document, not
+    /// read from the pass, so the two are still independent statements about the same member.</summary>
+    static bool AdmitsNull(JsonElement member)
+    {
+        if (!member.TryGetProperty("type", out var type)) return false;
+        if (type.ValueKind == JsonValueKind.String) return type.GetString() == "null";
+        return type.ValueKind == JsonValueKind.Array
+            && type.EnumerateArray().Any(v => v.ValueKind == JsonValueKind.String && v.GetString() == "null");
+    }
+
+    static string Render(IEnumerable<string?> values) => string.Join(",", values.Select(v => v ?? "null"));
 
     // ---- the assertions ----------------------------------------------------------------------------------
 
@@ -133,11 +154,17 @@ public sealed class PublishedNestedConstraintTests
         Assert.Equal(Array.Empty<string>(), clashes);
     }
 
+    /// <summary>The stamp is ADDITIVE, so the published <c>required</c> is asserted as a superset of what the shape
+    /// marks rather than as an equal: the generator emits its own entry for a non-nullable nested member, and the pass
+    /// unions with it instead of replacing it. What bounds the other side is that every published name must be a
+    /// member the shape declares — a stamped name that is not is the stamping bug this would otherwise miss. Extras
+    /// are printed, so a generator contribution appearing here is visible rather than merely tolerated.</summary>
     [Fact]
     public void EveryPublishedOccurrenceOfAMarkedShapeCarriesItsRequiredAndEnum()
     {
         var shapes = MarkedShapes().ToDictionary(s => Key(s.Members), s => s);
         var problems = new List<string>();
+        var extras = new List<string>();
         int occurrences = 0;
 
         foreach (var node in PublishedObjects())
@@ -145,23 +172,38 @@ public sealed class PublishedNestedConstraintTests
             if (!shapes.TryGetValue(Key(node.Members), out var shape)) continue;
             occurrences++;
 
-            if (!node.Required.SequenceEqual(shape.Required))
-                problems.Add($"{node.Tool} {node.Path}: required=[{string.Join(",", node.Required)}], " +
-                             $"{shape.Type.Name} marks [{string.Join(",", shape.Required)}]");
+            var missing = shape.Required.Except(node.Required, StringComparer.Ordinal).ToArray();
+            if (missing.Length > 0)
+                problems.Add($"{node.Tool} {node.Path}: required=[{string.Join(",", node.Required)}] omits " +
+                             $"[{string.Join(",", missing)}], which {shape.Type.Name} marks");
+            foreach (var name in node.Required.Except(shape.Required, StringComparer.Ordinal))
+            {
+                if (!node.Members.Contains(name, StringComparer.Ordinal))
+                    problems.Add($"{node.Tool} {node.Path}: required names '{name}', which is not a member of " +
+                                 $"{shape.Type.Name}");
+                else extras.Add($"{node.Tool} {node.Path}: '{name}' required by the generator, not by a mark");
+            }
 
-            foreach (var (member, expected) in shape.Enums)
+            foreach (var (member, table) in shape.Enums)
             {
                 if (!node.Enums.TryGetValue(member, out var published))
                 { problems.Add($"{node.Tool} {node.Path}.{member}: no enum published; {shape.Type.Name} names a closed set"); continue; }
-                if (!published.SequenceEqual(expected))
-                    problems.Add($"{node.Tool} {node.Path}.{member}: enum=[{string.Join(",", published)}], " +
-                                 $"the table holds [{string.Join(",", expected)}]");
+                // A nullable member's enum must carry null: the server reads a null verb as "none given" and defaults
+                // it, so an enum of names alone would publish narrower than the gate accepts.
+                var expected = new List<string?>(table);
+                if (published.TypeAdmitsNull) expected.Add(null);
+                if (!published.Values.SequenceEqual(expected))
+                    problems.Add($"{node.Tool} {node.Path}.{member}: enum=[{Render(published.Values)}], the table " +
+                                 $"holds [{Render(table)}] and the published type " +
+                                 (published.TypeAdmitsNull ? "admits null" : "does not admit null"));
             }
             foreach (var member in node.Enums.Keys.Where(m => !shape.Enums.ContainsKey(m)))
                 problems.Add($"{node.Tool} {node.Path}.{member}: publishes an enum {shape.Type.Name} does not name");
         }
 
-        _out.WriteLine($"{occurrences} published occurrence(s) of {MarkedShapes().Count} marked shape(s)");
+        _out.WriteLine($"{occurrences} published occurrence(s) of {MarkedShapes().Count} marked shape(s); " +
+                       $"{extras.Count} required entry(ies) the generator contributed");
+        foreach (var e in extras) _out.WriteLine("  " + e);
         Assert.Equal(Array.Empty<string>(), problems.ToArray());
     }
 

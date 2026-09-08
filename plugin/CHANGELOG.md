@@ -35,7 +35,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
   published, generated from the shapes the server binds and the verb tables it validates against — `WriteVerbs.All`
   on `apply`, and the create surface's own set (that list minus the verb it refuses by name) on `create`. What the
   tools accept, and every description, are unchanged; a member whose legal values no table holds is left as it was
-  rather than given a set invented for the schema.
+  rather than given a set invented for the schema. A verb member also accepts an explicit `null` — the server reads
+  that as "none given" and uses `Set` — so `null` is in the published set beside the names.
 
 - **An SKSE DLL whose import directory declares an address but no size now reads as UNKNOWN, not as a short
   import list.** The peek walks a DLL's import and delay-import directories bounded by the size the PE header

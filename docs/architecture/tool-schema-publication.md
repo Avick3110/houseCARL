@@ -100,6 +100,14 @@ for the surface that refuses the transplanting verb by name). The marks live on 
 a path list, because a shape is reached from several parameters — `compose` from four — and the
 recursion bound expands some of them twice.
 
+The stamp is **additive**. `required` unions with whatever the generator already published for that
+node — assigning over it would silently stop requiring a non-nullable member the binder still
+requires — and an `enum` on a member the generator typed as nullable carries `null` alongside the
+names, because JSON Schema applies `enum` to every instance and the server reads a null verb as
+"none given" and defaults it to `Set`. Without that entry the published schema would refuse, a hop
+earlier, a call the tool answers. (A blank verb defaults the same way and is not in the enum: an
+enum cannot state "any whitespace-only string", and no description offers that spelling.)
+
 It runs **after** the flatten, so every expanded copy of a shape carries the same stamps its first
 occurrence does, and the walk is bounded by the schema rather than the type: it descends only where
 the published document still spells a shape out, so the open node that closes a recursive chain
