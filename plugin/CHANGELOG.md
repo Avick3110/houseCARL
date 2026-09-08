@@ -67,8 +67,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
   flagging rather than rewriting; `housecarl_records`' `where=`, `project=` and `fields_source=` on the
   FormLink wire token, the flag `has` test, aggregate's uncapped count and the scoped-versus-winner display
   pole; and `housecarl_write_seq`'s `into=` on the byte-identical skip its `output_dir=` sibling states. The
-  two read-back parameters now say a patch wins nothing until "enabled", not "enabled + sorted" — a new mod
-  loads last, so enabling is the step.
+  two read-back parameters now carry the same enabling sentence the instructions do, bound and all: a new mod
+  loads last, so enabling is the step, while a write into an existing mod keeps that mod's priority.
 
 - **A `housecarl_records` `formids=` read is now held to the render bound on every form that reads a body, and
   says what those bodies cost.** `summary` and `aggregate` read a body per id on this lane exactly as `fields`,
