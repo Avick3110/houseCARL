@@ -118,6 +118,18 @@ saying it sets an expectation their install may contradict. Say what is known, a
   reads (a separate change in this release); the same fact for a copied NPC is now stated in
   `npc-appearance-copy`.
 
+- **`papyrus-reference` no longer gates an SKSE-plugin function on a DLL filename, and its corpus reads
+  cleanly.** The index's `requires_plugin` is now stated as an indicative hint: the filename it carries differs
+  between builds (`PapyrusUtilSE.dll` against an AE install's `PapyrusUtil.dll`), so matching it against the
+  load order refused a plugin that was present and working. The availability question goes to `housecarl_skse`
+  with `findings='pairing'`, whose own bound — a declaration is not a runtime guarantee — the skill now states
+  where it makes the call. The skill also names `housecarl_compile_script` as the check behind "never invent a
+  signature", carries the eight silent-biter rules in its body behind the conditions that should send you to
+  them, and says outright that base-class events on `Form.psc` are missing from the corpus, so a miss there is
+  reported as a hole rather than as an absence from Papyrus. In the corpus itself, 32 vanilla files that carried
+  no entry are gone, and every reference file over 100 lines gained a `## Contents` table, with the index's line
+  ranges re-derived so every lookup still lands on its own block.
+
 - **Setup now removes skill folders a previous install left behind, and says which ones.** It used to copy over
   an existing install without deleting anything, so a skill dropped from the package survived the upgrade and
   kept loading. `~/.claude/skills/housecarl/skills/` is houseCARL's own, so anything there that this package
