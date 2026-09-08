@@ -79,9 +79,10 @@ Read what your task needs, not everything.
    that produced it rather than as a claim. The census is `housecarl_records` with `types=["WEAP"]`,
    `where=["Data.AnimationType = OneHandDagger"]` and `counts_only=true`. To let the user eyeball
    the set, drop `counts_only` and pass a `limit` — the default `summary` rows carry each match's
-   identity, and form `fields` with `fields=["Name"]` puts the name beside it (form `identity`
-   labels a `formids=` list, and a scan refuses it). For a set too
-   large to render inline, pass `to_file` an absolute `.jsonl` path and re-enter it later as
+   identity, and `project={"form": "fields", "fields": ["Name"]}` puts the name beside it — field
+   paths live inside the form, never flat (form `identity` labels a `formids=` list, and a scan
+   refuses it). For a set too large to render inline, pass `to_file` an absolute `.jsonl` path and
+   re-enter it later as
    `formids=["@<that absolute path>"]`. Leave `source` omitted, or pass `"winner"` — the load-order
    winner is the record KID acts on. To show what a name filter would have caught instead, run the
    same scan with `where=["Name contains Dagger"]` — KID's String filter matches the item's
@@ -113,8 +114,8 @@ Keyword = HC_AuditDaggerTag|Weapon|NONE|OneHandDagger
 ```
 
 Grounded on a 3,801-plugin order this reaches 786 WEAP records, defined across 54 plugins and won by
-39 (`project` form `aggregate`, `group_by` `defined_in` and `winner`). A `*Dagger` **name** filter is
-wrong in **both** directions on the same order: it misses `REQ_Artifact_Keening` ("Keening"),
+39 (`project={"form": "aggregate", "group_by": "defined_in"}`, then `"winner"`). A `*Dagger` **name**
+filter is wrong in **both** directions on the same order: it misses `REQ_Artifact_Keening` ("Keening"),
 `REQ_Artifact_MehrunesRazor`, `REQ_Artifact_Nettlebane`, `BSKHatchet` ("Elven Hatchet"),
 `zzzCrbAkaviriKodachi` and `BPUFXelzazKukri`, whose names carry no "dagger"; and by
 `where=["Name contains Dagger", "Data.AnimationType != OneHandDagger"]` it catches exactly two —
