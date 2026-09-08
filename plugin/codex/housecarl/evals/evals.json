@@ -10,7 +10,7 @@
     ],
     "runs_per_query": 3,
     "trigger_rate_threshold": 0.5,
-    "split": "60/40 train / held-out; best iteration chosen by held-out score, at most 5 iterations. A fix generalises the category the failing query belongs to; it never pastes that query's own nouns into the description.",
+    "split": "11 train / 7 held out (≈60/40), positives and negatives on BOTH sides. An all-negative held-out set is the trap here: iteration is scored on it, and a description narrowed until the router stops firing scores perfectly against negatives alone, so the failure this set exists to catch would be the one it cannot see. Best iteration chosen by held-out score, at most 5 iterations. A fix generalises the category the failing query belongs to; it never pastes that query's own nouns into the description.",
     "coexistence": "the reduced menu — the eleven sibling skills that install beside this one under ~/.agents/skills after the 2026-09-07 deletions",
     "isolation": "one run with this skill alone in the menu",
     "reported_separately": "triggering and output quality are two result sets, never one blended rate (checklist D5.19)",
@@ -22,7 +22,8 @@
       "instruction following — the router loads and the session still writes before reading the winner and the schema",
       "output quality — the deliverable arm below"
     ],
-    "positives_cover": "one per routing destination the DESCRIPTION claims. Three of the eleven destinations have no positive — open-animation-replacer, npc-appearance-copy and papyrus-reference are reachable from the routing table but the description carries no animation, face-copy or signature-lookup term. That is deliberate: the description was not widened to chase them (its 611 characters are the measured fix for D2.21 / D3.5 / D4.59), and on both hosts those three siblings carry their own trigger descriptions beside this one. Recorded rather than papered over — verify row 9.11."
+    "positives_cover": "one per routing destination the DESCRIPTION claims. Three of the eleven destinations have no positive — open-animation-replacer, npc-appearance-copy and papyrus-reference are reachable from the routing table but the description carries no animation, face-copy or signature-lookup term. That is deliberate: the description was not widened to chase them (its 611 characters are the measured fix for D2.21 / D3.5 / D4.59), and on both hosts those three siblings carry their own trigger descriptions beside this one. Recorded rather than papered over — verify row 9.11.",
+    "trigger_gaps": "Nexus is the one capability no description in the bundle carries. The old description said 'look mods up on Nexus'; the rewrite drops it, and no sibling owns that grammar — the eleven routing rows are record, asset and script jobs. So on Codex 'which of my mods have updates on Nexus?' reaches housecarl_update_status and the housecarl_nexus_* tools only through the server's injected instructions, the dependency Q7 takes on faith. Left as a gap rather than closed by widening the description, and recorded here so the run measures it: whether it should be closed is the same question as whether the router earns its listing (item 27)."
   },
   "evals": [
     {
@@ -48,7 +49,7 @@
     },
     {
       "id": 4,
-      "split": "train",
+      "split": "held_out",
       "prompt": "how do I tag all the mod-added dwarven armour with the vendor keyword using KID?",
       "expected_output": "the umbrella is loaded and routes to kid-authoring.",
       "expectations": ["the skill is selected", "the route names kid-authoring, keywords onto item records"]
@@ -62,7 +63,7 @@
     },
     {
       "id": 6,
-      "split": "train",
+      "split": "held_out",
       "prompt": "what fields does an ARMO record actually have, and what are the legal values for the armor type?",
       "expected_output": "the umbrella is loaded and routes to mutagen-reference.",
       "expectations": ["the skill is selected", "the route names mutagen-reference rather than answering the schema from memory"]
@@ -76,7 +77,7 @@
     },
     {
       "id": 8,
-      "split": "train",
+      "split": "held_out",
       "prompt": "my SKSE plugin dll builds fine but the game doesn't load it on AE, where do I even start",
       "expected_output": "the umbrella is loaded and routes to skse-plugin-authoring.",
       "expectations": ["the skill is selected", "the route names skse-plugin-authoring, not papyrus-reference"]
@@ -90,21 +91,21 @@
     },
     {
       "id": 10,
-      "split": "train",
+      "split": "held_out",
       "prompt": "Can you bump the carry weight on my custom backpack record and hand me a patch I can review?",
       "expected_output": "the umbrella is loaded; the schema and the winner are read before the write, and the patch name is reported back.",
       "expectations": ["the skill is selected", "the write lands in a new patch rather than in the source mod", "the answer tells the user to enable the patch in MO2"]
     },
     {
       "id": 11,
-      "split": "held_out",
+      "split": "train",
       "prompt": "my Fallout 4 modlist keeps CTDing on load, can you sort out the plugin order?",
       "expected_output": "the umbrella is not loaded; houseCARL is Skyrim Special Edition only.",
       "expectations": ["the skill is not selected", "the near-miss: every noun but the game is in the description's trigger list"]
     },
     {
       "id": 12,
-      "split": "held_out",
+      "split": "train",
       "prompt": "How do I install Mod Organizer 2 and point it at my Steam copy of Skyrim?",
       "expected_output": "the umbrella is not loaded; installing and configuring MO2 is outside the data layer.",
       "expectations": ["the skill is not selected", "the near-miss: MO2 is the first noun in the description"]
@@ -118,14 +119,14 @@
     },
     {
       "id": 14,
-      "split": "held_out",
+      "split": "train",
       "prompt": "write me an xEdit script that renames every editor ID in a plugin",
       "expected_output": "the umbrella is not loaded; the Pascal scripting host is not this surface.",
       "expectations": ["the skill is not selected", "the near-miss: records and plugins in a load order, through the wrong tool"]
     },
     {
       "id": 15,
-      "split": "held_out",
+      "split": "train",
       "prompt": "how do I get Vortex to deploy my mods to the right folder?",
       "expected_output": "the umbrella is not loaded; houseCARL reads Mod Organizer 2, and this is a different manager's deployment question.",
       "expectations": ["the skill is not selected"]
@@ -139,7 +140,7 @@
     },
     {
       "id": 17,
-      "split": "train",
+      "split": "held_out",
       "prompt": "in Papyrus, what's the difference between a State and an Event, conceptually?",
       "expected_output": "the umbrella is not loaded; a language question with no load order in it.",
       "expectations": ["the skill is not selected", "the recorded soft edge: 'Papyrus' IS a description trigger term, so this is the hardest negative in the set — the boundary is the closing 'no data-layer step' clause, and if this case fails the fix is that clause, never dropping the term"]
