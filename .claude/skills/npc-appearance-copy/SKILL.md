@@ -2,11 +2,11 @@
 name: npc-appearance-copy
 description: >-
   Copies one NPC's face onto another, or clones an NPC as a standalone, via housecarl_copy —
-  records, inline face values, and the FaceGen files, which are three separate calls. Use for a
-  standalone follower, for borrowing a face from an overhaul, or when a copy you just made renders
-  dark; a face that was already wrong before any copy is housecarl:facegen-diagnostics. Load before
-  the copy — the wrong field set writes a blank face, and the copy is not done when the patch is
-  written.
+  records, inline face values, the FaceGen files and the tint path baked inside the placed mesh,
+  which are four separate calls. Use for a standalone follower, for borrowing a face from an
+  overhaul, or when a copy you just made renders dark; a face that was already wrong before any copy
+  is housecarl:facegen-diagnostics. Load before the copy — the wrong field set writes a blank face,
+  and the copy is not done when the patch is written.
 compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 2 instance.
 ---
 
