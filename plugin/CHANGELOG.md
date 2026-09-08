@@ -62,14 +62,21 @@ saying it sets an expectation their install may contradict. Say what is known, a
   copy where the numeric `Subtype` disagrees, and which of the two `Priority` fields carries the number you
   measured.
 - **A FormID that mixes the two forms — eight runtime digits with a plugin name, `000A2C94:Skyrim.esm` — is now
-  refused with the six-digit form to use (`0A2C94:Skyrim.esm`).** The refusal also names the runtime form on its
-  own, so either half can be dropped; it read "Malformed FormKey string" before and said neither.
+  refused with the six-digit form to use (`0A2C94:Skyrim.esm`).** It read "Malformed FormKey string" before and
+  named no form at all. The refusal offers that form only: the bare eight digits resolve against whatever order is
+  loaded now, which can be a different plugin than the one you named.
+- **A bare runtime FormID as a `where=` value — `where="ObjectEffect = 000A2C94"`, the form the console and the
+  logs print — now resolves through the call's own load order and compares as the record it addresses.** It
+  string-compared to a definite non-match on every record before, so the scan looked healthy and reported 0
+  matches. A call with no load order to resolve it against refuses it by name instead.
 - **`format='json'` now states that a record's fields are an ordered LIST of `{path, value}`, not a map keyed by
   path.** The order is the answer's own and a path repeats under a quantified step, which a map could not hold; a
   field that read no value carries `{path, note}` instead. Key a consumer on the position, or join on `'dense'`.
 - **A `where=` path that reads no value now says why per cause — unset, not a field on the record read, a
-  container, or a read fault — instead of one "no readable value" for all four.** A null field and the other arm
-  of a union are not read faults, and the counts are now named separately.
+  container, a `->` link whose targets are not in this load order, or a read fault — instead of one "no readable
+  value" for all five.** A null field and the other arm of a union are not read faults, and a link that is set but
+  points at a disabled plugin or a missing master is not unset: its remedy is to enable the plugin, not to widen
+  the scope. The counts are now named separately.
 - **`open-animation-replacer` now states how a DAR `_conditions.txt` chain binds, and that the DAR weapon-type
   numbers convert unchanged.** Both were marked unverified in its reference, and the skill told you to convert
   under one reading and say which. Both are now read off OAR's own source; the reference's §8 carries the rule,
