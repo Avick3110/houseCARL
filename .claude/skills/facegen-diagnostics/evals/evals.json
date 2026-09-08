@@ -157,16 +157,6 @@
       ]
     },
     {
-      "id": "st-player-grey-after-update",
-      "prompt": "after the latest skyrim update my character's face is grey in the inventory menu but npcs are all fine",
-      "expected_output": "facegen-diagnostics is loaded and the case is excluded as RaceMenu/SKEE runtime state, with houseCARL named as a no-op.",
-      "files": [],
-      "expectations": [
-        "The facegen-diagnostics skill is loaded.",
-        "The answer says houseCARL cannot fix this and names the runtime route."
-      ]
-    },
-    {
       "id": "st-which-facegen-wins",
       "prompt": "two of my npc mods both ship facegen for the same character and i think the wrong one is winning, can you tell which copy the game actually uses",
       "expected_output": "facegen-diagnostics is loaded and both halves of the pair are resolved, with multi-provider contention presented as the healthy default.",
@@ -251,6 +241,16 @@
       "files": [],
       "expectations": [
         "The facegen-diagnostics skill is NOT loaded."
+      ]
+    },
+    {
+      "id": "snt-player-grey-after-update",
+      "prompt": "after the latest skyrim update my character's face is grey in the inventory menu but npcs are all fine",
+      "expected_output": "RaceMenu/SKEE co-save state on the player alone, which the description's negative-scope clause excludes by name; no skill load needed.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded.",
+        "The player-only scope is read as runtime state rather than a per-NPC facegen desync."
       ]
     },
     {
