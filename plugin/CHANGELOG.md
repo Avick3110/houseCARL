@@ -89,6 +89,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
   A draft SkyPatcher would not read once placed — one whose filename gates on a plugin that is not in the
   order, or one in a type switched off in `SkyPatcher.ini`'s `[Patcher]` section — applies nothing, so the
   post state is the plain winner and the response says which of the two it was.
+- **The `skypatcher-authoring` skill is rewritten, and it now checks a draft INI before you place it.** Its
+  verify step named a tool that does not exist (`housecarl_skypatcher_read`), so following it produced a failed
+  call; the step now uses `housecarl_records` — the target set and every address proved before a line is
+  written, the draft file read through the overlay pole's `ini` draft form, and the placed file checked with
+  `housecarl_skypatcher_layer` and `housecarl_skse findings='config'`. The record-type router moved out of
+  `references/index.jsonl` and into the skill body, so every reference file is one hop from it; the reference
+  files are flat under `references/`, the file-and-folder half of the grammar reference is now its own
+  `placement-and-conflicts.md`, and the four worked examples carried over from the source articles with the
+  wrong record type's filter are marked as such where they sit. The description states the SkyPatcher version
+  the grammar is derived from and that distribution — forms onto NPCs, keywords onto items, items into
+  containers — is a different framework's job.
 - **Three skills are removed: `biped-slot-reference`, `papyrus-optimization` and `tool-output-awareness`.**
   Eleven skills ship now. `biped-slot-reference` said slot N is `FirstPersonFlags` bit N−30; the server's own
   output already decodes a `BodyTemplate.FirstPersonFlags` value into its slot numbers, so that fact stays.
