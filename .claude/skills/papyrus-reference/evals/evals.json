@@ -87,6 +87,21 @@
           "id": "c4",
           "assert": "SKILL.md describes requires_plugin as indicative and does not instruct a match of a DLL filename against the active load order.",
           "expected": "pass"
+        },
+        {
+          "id": "c5",
+          "assert": "Every row of every '## Contents' table names a heading that exists at the stated line and heads a real section (Properties, Events, Functions, Global Functions, or a backticked class name); no doc-comment line is listed as a section.",
+          "expected": "pass for every table row"
+        },
+        {
+          "id": "c6",
+          "assert": "Rows whose source is neither vanilla nor skse exist with no requires_plugin key, so SKILL.md derives the tier from source and states that a missing requires_plugin does not mean Tier 1.",
+          "expected": "pass"
+        },
+        {
+          "id": "c7",
+          "assert": "A case-folded grep of index.jsonl for a name written in a call site's casing (for example \"name\":\"notification\") resolves the row that a case-exact grep misses, and SKILL.md prescribes the case-insensitive match.",
+          "expected": "pass"
         }
       ]
     }
