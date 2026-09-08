@@ -87,10 +87,10 @@ Read what your task needs, not everything.
    so rather than implying the whole line was proved.
 
 7. **Place the file** at `Data\<name>_KID.ini`. The `_KID` substring is **mandatory** — a file
-   without it is never read — and the file sits flat in `Data\`, not under `Data\SKSE\Plugins\`
-   where SkyPatcher's INIs live. KID INIs have **no `[Section]` headers**; every line
-   sits at the top level, and `;` starts a comment. (Backslashed paths here are the game's own
-   literals; every path into this skill's own files is forward-slashed.)
+   without it is never read — and the file sits flat in `Data\`, not under
+   `Data\SKSE\Plugins\SkyPatcher\<type folder>\` where SkyPatcher's INIs live. KID INIs have **no
+   `[Section]` headers**; every line sits at the top level, and `;` starts a comment. (Backslashed
+   paths here are the game's own literals; every path into this skill's own files is forward-slashed.)
 
 8. **Confirm, then stop.** Check that the type matches the record kind, the pipe positions are right,
    the trait tokens are legal for that type, and the filename contains `_KID`. **The stop condition
@@ -157,8 +157,9 @@ The user's own instructions outrank anything in this skill.
   enchantment; `Enchantment` is the ENCH record type itself.
 - **Forgetting `_KID` in the filename**, or adding `[Section]` headers. The substring is required,
   and KID reads only the unnamed root section.
-- **Putting the file under `Data\SKSE\Plugins\`.** That is where SkyPatcher reads from; KID
-  reads `Data\` flat, so a correctly-named file in the wrong folder is never found.
+- **Putting the file under `Data\SKSE\Plugins\`.** SkyPatcher reads from
+  `Data\SKSE\Plugins\SkyPatcher\<type folder>\`; KID reads `Data\` flat, so a correctly-named file
+  in the wrong folder is never found.
 - **Inventing a trait or value.** Look the per-type trait list and the value tables up — a casting
   type or body slot that does not exist silently no-ops.
 
