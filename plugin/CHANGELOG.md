@@ -2595,6 +2595,14 @@ offset, paging meant slicing by `editorid_contains`. Now:
   is not built, or the path dead-ends on something the catalogue does not model at all (a `FormLink`, a string),
   the note stays the bare `(no field X)` it was. The `where=` lane's own accounting for the same dead-end is
   unchanged.
+- **`skse-plugin-authoring` now writes both halves of a new native Papyrus function, and its reference pointers
+  resolve.** The skill used to send the `.psc` declaration of a native you are inventing to `papyrus-reference`,
+  which is a lookup corpus for functions that already exist and by construction holds no entry for one that does
+  not; the declaration grammar and three worked cases — a global native, a latent function, and a return type that
+  compiles and then silently truncates — are written in the skill beside the C++ registration. Its nine reference
+  pointers are written `references/<file>.md` rather than as bare filenames, so they open as written from an
+  installed plugin; the multi-runtime reference gains an "SE+AE only" route for a target with no VR in it, and the
+  toolchain reference gains `vcpkg.json`'s `builtin-baseline`, whose absence errors where classic mode is off.
 
 ## 1.9.0 — 2026-07-17
 
