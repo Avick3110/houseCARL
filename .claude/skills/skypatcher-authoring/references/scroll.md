@@ -38,3 +38,10 @@ castType=scroll
 filterByBooks=Book1CheapBiographyofBarenziahvI:model=clutter\books\BCSSEBookTall.nif:alternateTexturesToAdd=BCS_BookBiographyQueenBarenziah01~Cover~2:inventoryArt=BCS_Book_BQB01
 filterByAlternateTextures=BCS_BookBiographyQueenBarenziah01:alternateTexturesToRemove=BCS_BookBiographyQueenBarenziah01
 ```
+
+> **Corpus note — two examples above are wrong.** The `filterByAlchs=` line is an Ingestible example
+> and the whole "Model + texture swap" block is a Book example (`filterByBooks`, a `clutter\books\`
+> model, `inventoryArt`); both are carried over verbatim from the source article. `filterByAlchs`
+> belongs to ALCH (`alchemy-ingestible.md`) and `filterByBooks` to BOOK (`book.md`). On a SCRL record
+> the primary filter is `filterByScrolls`. Where an example disagrees with the filter list, the
+> filter list and the router table in `SKILL.md` win.

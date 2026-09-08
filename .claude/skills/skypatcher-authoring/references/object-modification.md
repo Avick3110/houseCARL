@@ -24,5 +24,4 @@ Surface the gap honestly, then offer leads rather than a fabricated answer:
 - **Empirical.** A real-world SkyPatcher OMOD INI (from the SkyPatcher Discord or a mod that uses
   it) would be the authoritative source for a future fill.
 
-When that grammar is confirmed, this file can be replaced with a normal record reference and an
-`index.jsonl` entry added.
+When that grammar is confirmed, this file can be replaced with a normal record reference.

@@ -4,8 +4,11 @@
 Shared mechanics → `grammar-core.md`. Shared enums → `value-tables.md`.
 
 The richest patcher. Runtime application to already-spawned actors is governed by `iUpdateNPC`
-/ `iRefreshNPCStats` (`grammar-core.md` §8). **No filter → all NPCs except the player;** patch the
+/ `iRefreshNPCStats` (`placement-and-conflicts.md` §6). **No filter → all NPCs except the player;** patch the
 player explicitly with `filterByNpcs=Skyrim.esm|7`.
+
+Sections: Filters · Operations (names & visuals · level & stats · flags · inventory, factions,
+perks, spells · identity & appearance refs · AI · attack data) · Examples.
 
 ## Filters
 
@@ -90,7 +93,7 @@ Template flags:  traits  stats  factions  spells  aidata  aipackages  unused  ba
 
 ### Attack data
 - `attackDataToAdd` / `attackDataToChange` / `attackDataToRemove` — full spec (options, flags,
-  defaults) in `records/race-hook.md`; same syntax here.
+  defaults) in `race-hook.md`; same syntax here.
 
 ## Examples
 

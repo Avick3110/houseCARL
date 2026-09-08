@@ -34,7 +34,7 @@ Shared mechanics → `grammar-core.md`.
 
 > Adding leveled lists to **containers** can CTD for some users; the global
 > `iAllowLeveledListsAddedToContainers` (in `SkyPatcher.ini`) is **off by default**. See
-> `records/container.md`.
+> `container.md`.
 
 ## Examples
 
