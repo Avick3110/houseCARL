@@ -356,7 +356,7 @@ canonical install site — `void Register() { Event::Register(); DETECTION::Regi
 
 This pattern and the static-`func` hook member (lens 3b) go together for a concrete reason: singletons that
 hold engine addresses must use a `static REL::Relocation` — the authority states it plainly, "REL::Relocation
-Must Be Static" (`alandtse-ng CLAUDE.md:432`). The Manager singleton is where that static state lives.
+Must Be Static" (`ng/CLAUDE.md:432`). The Manager singleton is where that static state lives.
 
 **Log anchor.** `InitializeLog()` runs first in `SKSEPlugin_Load`, setting the plugin's log to
 `SKSE::log::log_directory() / <ProjectName>.log` — the name that maps a `.log` in
@@ -495,6 +495,6 @@ Treat them as reliable working assumptions, not proven facts — and never prese
 - **Log path and level.** Whether the log lands at `<ProjectName>.log` and honors the INI `LogLevel` is a
   runtime observation, not a static fact.
 - **Two corpus gaps.** No fully **NG-native worked exemplar** (`SKSEPluginLoad` + `add_commonlibsse_plugin`)
-  exists in the three studied plugins — that idiom is confirmed only in the alandtse NG headers / `CLAUDE.md`,
+  exists in the three studied plugins — that idiom is confirmed only in the alandtse NG headers / `ng/CLAUDE.md`,
   not from a production consumer; and the **CommonLib-as-vcpkg-port** lineage is asserted from the producer
   manifest alone, no consumer exemplar. Where you rely on either, say so.
