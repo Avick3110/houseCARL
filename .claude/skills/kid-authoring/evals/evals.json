@@ -258,7 +258,7 @@
    "id": "T19",
    "prompt": "how do i install KID and its requirements in my MO2 setup",
    "should_trigger": false,
-   "expected_output": "kid-authoring is NOT loaded; the query routes to modding-basics.",
+   "expected_output": "kid-authoring is NOT loaded; the pick is NONE on both declared menus, neither of which carries an install or orientation skill.",
    "expectations": [
     "with-skill arm: the pick is not kid-authoring on at least 2 of 3 runs",
     "with-skill arm: the reasoning names why the target is out of KID's lane",
@@ -271,7 +271,7 @@
    "id": "T20",
    "prompt": "i'm new to modding, what even is KID and do i need it for my load order",
    "should_trigger": false,
-   "expected_output": "kid-authoring is NOT loaded; the query routes to modding-basics.",
+   "expected_output": "kid-authoring is NOT loaded; the pick is NONE on both declared menus, neither of which carries an orientation skill.",
    "expectations": [
     "with-skill arm: the pick is not kid-authoring on at least 2 of 3 runs",
     "with-skill arm: the reasoning names why the target is out of KID's lane",
