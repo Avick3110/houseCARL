@@ -31,6 +31,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   a plugin that is valid on disk and wrong in game. The gate now resolves the FormID and compares that record's
   type against the link's own target, naming the field, the type given and the types allowed. A field whose link
   accepts any record, a null-clear, and a FormID no plugin in the order defines are not refused.
+- **`housecarl_apply` and `housecarl_create` now refuse a FormLink pointed at a record of the wrong type.**
+  Pre-flight checked that a link value parsed as a FormID and nothing more, so setting an armor's `Race` to a
+  keyword was accepted and wrote a plugin that is valid on disk and wrong in game. The gate now resolves the FormID
+  and compares that record's type against the link's own target, naming the field, the type given and the types
+  allowed. A field whose link accepts any record, a null-clear, a FormID no plugin in the order defines, and
+  removing a link already in a list are not refused.
 
 - **`open-animation-replacer` now states how a DAR `_conditions.txt` chain binds, and that the DAR weapon-type
   numbers convert unchanged.** Both were marked unverified in its reference, and the skill told you to convert
