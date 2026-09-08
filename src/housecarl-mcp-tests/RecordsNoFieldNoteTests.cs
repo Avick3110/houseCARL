@@ -42,6 +42,17 @@ public sealed class RecordsNoFieldNoteTests : RecordsTestBase
     public void ACaseOnlySlipIsOfferedTheExactSpelling() =>
         Served(Spell("editorid"), "did you mean 'EditorID'?");
 
+    /// <summary>A case-only slip whose OTHER casing is a real field somewhere else is still a case-only slip. The
+    /// corpus models 'DATA' on DialogResponses and nowhere else, and a Weapon spells the same subrecord 'Data' —
+    /// so a caller who typed xEdit's own spelling at a WEAP must be given 'Data', not told the name is fine.</summary>
+    [Fact]
+    public void ACaseOnlySlipBeatsTheSameCasingModeledElsewhere()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, project: Fields("DATA"));
+        Served(r, "did you mean 'Data'?");
+        Assert.DoesNotContain("not a mistyped name", r);
+    }
+
     /// <summary>The types the field IS modeled on are named, not just counted, so a caller can see the name is
     /// real. ArmorRating lives on exactly one type, which is the tightest form of that claim.</summary>
     [Fact]
