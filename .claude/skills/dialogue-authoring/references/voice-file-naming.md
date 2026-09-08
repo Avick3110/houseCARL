@@ -5,8 +5,8 @@ there is no `Voice` / `Wav` / `Lip` / `FileName` field on INFO / `DialogResponse
 corpus. So a byte-valid INFO with no `.fuz` on disk plays **silent**, and nothing in the record points at
 the cause. This is why voice is a presence check, not a field write.
 
-houseCARL computes the expected path and checks it for you: `housecarl_create_record` reports a
-**WILL BE SILENT** note per voiced response line at create time, and `housecarl_validate_dialogue` re-runs
+houseCARL computes the expected path and checks it for you: `housecarl_create` reports voice coverage
+per voiced response line at create time, and `housecarl_check(findings=["dialogue"], seeds=[…])` re-runs
 that check over an existing topic. This reference exists so you can explain the note, audit a path by hand,
 and avoid the override trap.
 

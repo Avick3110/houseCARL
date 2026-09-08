@@ -5,9 +5,18 @@ by reading a live load order through houseCARL (a generic-goodbye topic, a DA03 
 DialogBranch / DialogView census). Read this before authoring or auditing any dialogue — several of the
 rules here are counter-intuitive, and one (PNAM) is the opposite of what a naive insert assumes.
 
-Field names below are Mutagen spellings (what `housecarl_create_record` / `housecarl_set_field` and the
-`mutagen-reference` skill use), with the xEdit signature alongside. Confirm any exact field path against
-`mutagen-reference` before composing a write.
+Field names below are Mutagen spellings (what `housecarl_create` / `housecarl_apply` and the
+`housecarl:mutagen-reference` skill use), with the xEdit signature alongside. Confirm any exact field
+path against a real record or that skill before composing a write.
+
+## Contents
+
+- **Record hierarchy** — DLVW / DLBR / DIAL / INFO and their key fields.
+- **What drives the flow** — entry, eligibility, the topic chain, the quest tie.
+- **Authoring traps the model implies** — the four that no check can catch.
+- **PNAM** — why it is empty everywhere, and the one case where it is not optional.
+- **Resolution model** — lines merge; a conflict changes order, and how placement is computed.
+- **Does a Creation Kit save add anything?** — the measured answer.
 
 ## Record hierarchy (xEdit signature ↔ Mutagen type)
 
@@ -20,7 +29,7 @@ Field names below are Mutagen spellings (what `housecarl_create_record` / `house
 - **DIAL — Dialog Topic** (`DialogTopic`): groups INFOs. Key fields:
   `Branch` (BNAM — back-link to its DLBR; **often unset** — generic topics have none) · `Quest` (QNAM) ·
   `Subtype` / `SubtypeName` (Custom for branch topics; Goodbye / Hello / … for generic — confirm exact
-  values via the `mutagen-reference` skill; note `Service` is a `Category`, not a `Subtype`) ·
+  values via the `housecarl:mutagen-reference` skill; note `Service` is a `Category`, not a `Subtype`) ·
   `Category` · `Priority` · `Responses[]` = the INFOs under this topic.
 - **INFO — Dialog Info** (`DialogResponses`): THE CONTENT — one entry in a topic's `Responses` list.
   `Conditions` (CTDA) · `Responses[]` (the spoken row(s) — **one INFO can hold several `DialogResponse`
@@ -47,7 +56,7 @@ Field names below are Mutagen spellings (what `housecarl_create_record` / `house
 
 ## Authoring traps the model implies (non-lint)
 
-These follow from the flow model above but are author-side traps `housecarl_validate_dialogue` cannot
+These follow from the flow model above but are author-side traps the dialogue check cannot
 catch — it reads records, not the running game's stage state or CK's condition editor. Knowing them is the
 difference between a line that plays and one that is silently dead.
 
@@ -78,11 +87,12 @@ vanilla content**: a census found 2,757 / 2,757 multi-INFO `Skyrim.esm` topics h
 PNAM. Vanilla orders the lines within a topic by the `Responses` list + their `Conditions`, never by a
 PNAM chain.
 
-PNAM is only meaningful when an **author deliberately** chains forced lines (houseCARL's create path can
-set it via a sibling `@editorid` FormLink). Consequences for authoring and auditing:
+PNAM is only meaningful when an **author deliberately** chains forced lines (set it to the FormID the
+create call reported for the preceding line, in a second call on the same lane). Consequences for
+authoring and auditing:
 
 - **Absence is the universal norm.** Never treat a missing or non-chained PNAM as a defect, and never
-  "complete the chain" by adding PNAMs a topic was never meant to have. `housecarl_validate_dialogue`
+  "complete the chain" by adding PNAMs a topic was never meant to have. The dialogue check
   deliberately does not flag an empty PNAM for this reason.
 - **Only a SET-but-unresolvable PNAM is a real (dangling) defect** — a previous-link pointing at an INFO
   that doesn't exist. That is what the validator flags.
@@ -121,9 +131,10 @@ is itself a re-list (an override must sit in your plugin's copy of the topic), s
 bottom unless you carry its PNAM. When you edit an existing line, set its `PreviousDialog` to the line that
 precedes it **in the effective order** — not in the vanilla list. Those differ the moment another mod has
 already reordered the topic, and placement happens against the list as it stands, so anchoring to the vanilla
-predecessor lands the line somewhere you didn't intend. `housecarl_validate_dialogue` prints that order
-per-line for a **contested** topic; for an uncontested one it prints only a summary line, because there the
-effective order simply *is* the defining plugin's `Responses` list — read the predecessor from there.
+predecessor lands the line somewhere you didn't intend. `housecarl_records` with
+`project={"form":"info_order"}` prints that order per line for a **contested** topic; for an uncontested
+one the effective order simply *is* the defining plugin's `Responses` list — read the predecessor from
+there.
 
 **Know PNAM's failure mode before reaching for it.** A PNAM that cannot be resolved — a mistyped FormID, or a
 target in a plugin the user hasn't installed — does not fall back to "no link". It places the line at the
@@ -135,7 +146,7 @@ PNAM naming a line in **another topic** pulls that foreign line into this topic'
 A **cycle** (two lines pointing at each other, directly or through a chain) behaves differently and is worth
 separating out: no order can satisfy it, so the loop is broken at whichever of its lines ends up first, and
 the positions of the lines inside it are not meaningful. Don't expect a cyclic line at the top — expect it
-somewhere arbitrary. `validate_dialogue` reports the cycle explicitly rather than leaving you to infer it.
+somewhere arbitrary. The `info_order` projection reports the cycle explicitly rather than leaving you to infer it.
 
 > **Evidence note.** The head/tail/after-target placement rules are derived from xEdit's own INFO-ordering
 > implementation (`ProcessDIAL`) — the community's reference model of engine behaviour. Run against a live load
@@ -153,9 +164,21 @@ somewhere arbitrary. `validate_dialogue` reports the cycle explicitly rather tha
 Omitting a line no longer removes it. To stop one playing, condition it out (the verifiable lever) or mark it
 deleted — see the removal note in `SKILL.md`, including which tool to use and which not to.
 
-`housecarl_validate_dialogue` prints the effective merged order for a topic and flags any line whose
-position moved, naming the plugin that moved it.
+`housecarl_records(formids=["<topic>"], project={"form":"info_order"})` prints the effective merged order
+for a topic and flags any line whose position moved, naming the plugin that moved it. The merged order is
+deliberately not a finding on `housecarl_check` — it is an ordered sequence, not a defect list, and the
+check tool's own description points here for it.
 
-> Corrected 2026-07-27 (#275). This section previously stated the "DIAL wins wholesale" model — that a line
-> the winning topic doesn't re-list is dropped in game. That is false, and the "carry forward every line"
-> advice that followed from it causes the very conflict it was meant to prevent.
+## Does a Creation Kit save add anything?
+
+Measured, not asserted: a byte-diff of pure houseCARL output against the *same* plugin after a Creation
+Kit open-and-save came to **+90 bytes = 9 INFO `PNAM` subrecords and nothing else**. No TNAM, TIFC,
+SNAM/BNAM/DNAM/ENAM/CNAM and no re-layout changed — the create path's parity auto-fills had already
+written every subrecord the CK would. The reference mod ran from pure houseCARL output across multiple
+in-game sessions before any CK save existed.
+
+The one thing the CK adds — the PNAM chains — matters only for a topic that depends on first-valid-wins
+ordering among *overlapping* conditions, and the fix is at authoring time rather than in the editor: keep
+the topic's INFO `Conditions` mutually exclusive, or set the chain yourself. So the CK is never required.
+Reach for it only if you specifically want the editor's flowchart view, knowing the bytes are already
+written.

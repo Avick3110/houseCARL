@@ -46,7 +46,7 @@ If your dialogue is gated on a quest's stage (the common case — see `dialogue-
 quest is meant to be running from game start, the quest must be Start-Game-Enabled **and** have its entry
 in the `.seq`. Set the flag (a quest-record field write), then run `housecarl_write_seq` against the
 plugin. The `.seq` makes the quest START; it does not verify the quest or its dialogue is otherwise
-correct — that is `housecarl_validate_dialogue`'s job.
+correct — that is `housecarl_check(findings=["dialogue"], …)`'s job.
 
 ## Where it lands
 
@@ -63,8 +63,8 @@ folder — and it already holds exactly the bytes houseCARL would write, nothing
 response says `unchanged`, so re-running after every edit costs nothing. (With *no* lane named the
 destination is a freshly cut folder, empty by construction, so that call always writes — and cuts
 another folder each time. Name a lane if you regenerate repeatedly.) A `.seq` that is byte-identical
-but older than the plugin has its timestamp stamped forward, because `housecarl_validate_dialogue`'s
-SEQ staleness check reads mtime — otherwise a skipped write would leave that check calling a correct
+but older than the plugin has its timestamp stamped forward, because the dialogue family's
+`.seq` staleness check reads mtime — otherwise a skipped write would leave that check calling a correct
 file stale. (That check lints the `.seq` your load order *serves*, so the refresh clears it only when
 the folder you wrote to is the one that wins the `SEQ\` conflict.)
 

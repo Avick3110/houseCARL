@@ -7,12 +7,21 @@ fills; houseCARL cannot evaluate it (only the game can), but it **can** read it 
 reference is how you turn the bytes into meaning.
 
 **Two layers, two sources.** The *structure* below — which functions exist, each one's parameter shape, the
-Run On options, the operators — is taken **by construction from Mutagen** (houseCARL's `mutagen-reference`),
-so it is exactly what `housecarl_read_record` surfaces and what `housecarl_bulk_apply`/`housecarl_set_field`
-compose. The *semantics* — what each function tests, the Run On scoping rules — are from the Creation Kit
+Run On options, the operators — is taken **by construction from Mutagen** (houseCARL's
+`housecarl:mutagen-reference`), so it is exactly what `housecarl_records` surfaces and what
+`housecarl_apply` composes. The *semantics* — what each function tests, the Run On scoping rules — are from the Creation Kit
 wiki + modding practice (provenance and the staleness duty live in the corpus status note in the skill's
 source tree; dev-side, not shipped in the plugin). Confirm any exact
-field path or arm name against `mutagen-reference` before composing a write.
+field path or arm name against `housecarl:mutagen-reference` before composing a write.
+
+## Contents
+
+- **The shape of a condition (CTDA)** — the two arms, the operator, the comparison value.
+- **Run On** — Subject vs Target and the rest, and why it is the commonest silent error.
+- **The `OR` flag** — how rows group, and what it cannot express.
+- **Dialogue / quest condition functions** — the curated table.
+- **CTDA conditions vs Papyrus-only functions** — the `Is…` / `Get…` trap.
+- **Decoding a condition you read back** — a worked example.
 
 ## The shape of a condition (CTDA)
 
@@ -99,7 +108,7 @@ parameter and read state off the Run On object alone (`GetLevel`, `GetDead`, `Ge
 
 > **Composing a form-link param — it is a `FormLinkOrIndex`, not a plain link.** A condition's form-link
 > parameter (`Object`, `Quest`, `Perk`, `ItemOrList`, `Global`, …) is a Mutagen `FormLinkOrIndex<T>`, which
-> `housecarl_read_record` and the `mutagen-reference` schema **normalize to `FormLink<T>`** in their type
+> `housecarl_records` and the `housecarl:mutagen-reference` schema **normalize to `FormLink<T>`** in their type
 > display — the shown type understates it, because the target can be *either* a real FormID *or* a numeric
 > quest-alias / package-data index. When you compose one, give it a **FormID `XXXXXX:Plugin.esp`** (form mode)
 > or **`alias N` / `packdata N`** (index mode, for an alias-/package-relative target); houseCARL sets the arm's
@@ -173,7 +182,8 @@ operator + value as shown in the "Reads as" notes.
 
 This is a **curated dialogue/quest subset**, not the full set — Mutagen models **every** condition function
 (hundreds, including all the combat/VATS/weather/AI ones). To decode a function not in this table, read the
-`ConditionData` arm name and its named fields directly, and look the function up in `mutagen-reference`
+`ConditionData` arm name and its named fields directly, and look the function up in
+`housecarl:mutagen-reference`
 (the arm `<Function>ConditionData`) or the CK wiki.
 
 ## CTDA conditions vs Papyrus-only functions
@@ -195,14 +205,15 @@ The frequent confusions are the `Is…` Papyrus methods vs the `Get…` conditio
 
 Many `Is…` names **do** exist as conditions (`IsSneaking`, `IsInCombat`, `IsHostileToActor`, `IsWeaponOut`,
 …), so the rule isn't "Is = Papyrus, Get = condition" — it's **"only a name in the condition-function set is
-a condition."** When unsure: check the arm exists in `mutagen-reference` (as `<Name>ConditionData`), or read
+a condition."** When unsure: check the arm exists in `housecarl:mutagen-reference` (as
+`<Name>ConditionData`), or read
 a known-good CTDA back and copy its function. Never hand-write a function the CK's own dropdown wouldn't
 offer.
 
 ## Decoding a condition you read back — worked example
 
-`housecarl_read_record` on an INFO with `Conditions` deep returns, per row, the arm + operator + value +
-the Data arm + its params. Read this row:
+`housecarl_records(formids=["<info>"], project={"form":"fields","fields":["Conditions"],"depth":4})`
+returns, per row, the arm + operator + value + the Data arm + its params. Read this row:
 
 ```
 ConditionFloat
