@@ -249,7 +249,7 @@
         "The run states that OAR sorts every targeting submod by priority descending and that plugin/ESP load order is ignored, and does not inspect MO2 mod order to answer who wins.",
         "The run treats 2000030002 - the DAR folder's own name - as a priority in the same global space as native OAR integers, and compares it against them.",
         "Every child array inside AND/OR/XOR in the emitted config.json is capital-C Conditions and the submod's top-level array is lowercase conditions. Graded by parsing the emitted file, not by reading the prose: a file that parses cleanly with the wrong casing is a FAIL.",
-        "The AND/OR precedence question is named, not silently resolved. A run that emits one config without saying which binding it assumed FAILS; a run that names the ambiguity, states which reading it implemented and what the other would mean, PASSES.",
+        "The AND/OR binding is applied as the settled rule, not raised as an open question: OR binds tighter than AND, so each run of OR-terminated lines becomes one OR condition and the groups are AND-ed with the remaining terms. A run that emits a flat left-to-right chain FAILS, and so does one that presents the binding as ambiguous and picks a reading.",
         "The competing-submod scan is enumerated with housecarl_asset_status and an under= glob rather than a raw filesystem walk, and the answer names the VFS winner per config."
       ],
       "arm": "output_quality",
