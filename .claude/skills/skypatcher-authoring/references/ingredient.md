@@ -30,3 +30,8 @@ weight=0.5
 value=25
 clear=true
 ```
+
+> **Corpus note — one example above is wrong.** The `filterByAlchs=` line is an Ingestible example
+> carried over verbatim from the source article; `filterByAlchs` belongs to ALCH
+> (`alchemy-ingestible.md`). On an INGR record the primary filter is `filterByIngs`. Where an
+> example disagrees with the filter list, the filter list and the router table in `SKILL.md` win.
