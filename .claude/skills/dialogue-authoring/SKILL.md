@@ -53,14 +53,17 @@ Three cheap reads settle the design.
    goes comfortably above it. Vanilla `DialogueWhiterun` is `Priority = 30`, so 65 clears it. Do not
    guess the number; measure it.
 
-**Skyrim's activation greeting is the `HELO` subtype** — `SubtypeName = HELO`, written as `Subtype = "Hello"`.
-There is no `GREE` subtype; do not go looking for one. **A DIAL's `SNAM` marker (`SubtypeName`) is
-authoritative for its subtype, and the numeric `Subtype` enum can disagree with it — and the copy to
-distrust is the master's own** (issue #660). Records authored before the Dragonborn CK, which inserted
-enum members, decode six positions off: `02707A` read straight out of `Skyrim.esm` prints
-`Subtype = RechargeExit` while its later winner prints `Subtype = Hello`, for one unchanged `HELO`
-marker (`0904AC` prints `Recharge` for `GBYE` the same way). Steps 1-2 above send you into `Skyrim.esm`,
-which is exactly the read that prints the wrong name — read `SubtypeName`, not `Subtype`.
+**Skyrim's activation greeting is the `HELO` subtype** — the marker is `SubtypeName = HELO`, and the
+subtype you write on a new topic is `Subtype = "Hello"`. There is no `GREE` subtype; do not go looking
+for one. **A DIAL's `SNAM` marker (`SubtypeName`) is authoritative for its subtype, and the numeric
+`Subtype` enum can disagree with it on any copy — read `SubtypeName`, never `Subtype`, whatever plugin
+the record came from.** Bethesda's own numeric subtypes are unreliable, which is why xEdit ignores the
+number and treats `SNAM` as the required field. Issue #660 has the measured pair: `02707A` read out of
+`Skyrim.esm` prints `Subtype = RechargeExit` while its later winner prints `Subtype = Hello`, for one
+unchanged `HELO` marker (`0904AC` / `GBYE` is the second reproducer). Why the two disagree is still open
+there — pre-Dragonborn enum numbering is the hypothesis #660 records, not an established rule, so do not
+narrow the distrust to the master. Steps 1-2 above read out of `Skyrim.esm`, one of the reads that prints
+the wrong name.
 
 Then one create call. The quest, topic and line are three records in one all-or-nothing write, linked
 by `@<editorid>` same-call sibling references and by `parent`:
