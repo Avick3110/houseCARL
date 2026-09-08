@@ -17,6 +17,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   numbers convert unchanged.** Both were marked unverified in its reference, and the skill told you to convert
   under one reading and say which. Both are now read off OAR's own source; the reference's §8 carries the rule,
   the source files and the date they were read.
+- **A face gone dark right after a copy now routes to `npc-appearance-copy`, not `facegen-diagnostics`.** The copy
+  skill owns the copy and everything the copy leaves behind, so a prompt that used to load facegen-diagnostics and
+  run the mesh-versus-tint flow now loads the copy skill instead. `facegen-diagnostics` cedes the case in both
+  places it routes from — its description and its §11 table — and still owns a face that was wrong before any copy.
+- **`npc-appearance-copy`'s "Common mistakes" table now gives the rule that replaces each mistake.** Its heading
+  promised one; the table carried only what the mistake costs.
 - **`facegen-diagnostics`'s compatibility line now spells out Mod Organizer 2.** It read `MO2`; the line now
   matches the string every other skill carries.
 - **`mutagen-reference` and `papyrus-reference` now say in their frontmatter that their lookup works offline.**
