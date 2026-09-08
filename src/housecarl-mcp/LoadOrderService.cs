@@ -7643,7 +7643,7 @@ public sealed class LoadOrderService : IDisposable
         var specs = MapComposes(op, where, spec, out error);
         if (error is not null) return null;
 
-        if (string.Equals(op.Verb, "CopyFrom", StringComparison.Ordinal) || !string.IsNullOrWhiteSpace(op.FromPlugin))
+        if (string.Equals(op.Verb, WriteVerbs.Transplanting, StringComparison.Ordinal) || !string.IsNullOrWhiteSpace(op.FromPlugin))
         {
             // Named as the create surface spells it. This is reachable even though that surface declares no
             // from_plugin member, because the strict reader gates undeclared members and `op` is declared, so a
