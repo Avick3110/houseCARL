@@ -11,18 +11,20 @@ plugin.
 
 ## Recipe A — clone a verified condition gate onto N lines
 
-**Never hand-synthesize the operator bytes.** A `Condition` (CTDA) is a polymorphic struct: a
-`ConditionFloat` carrying a `CompareOperator`, a `ComparisonValue`, and a polymorphic `Data` holding
-the function and its parameters. Computing that encoded operator and comparison by hand is exactly
-what once wrote 26 broken conditions onto one gate. So read a known-good gate and copy it.
+**When the gate already exists, copy it rather than retyping it.** A `Condition` (CTDA) is a
+polymorphic struct: a `ConditionFloat` carrying a `CompareOperator`, a `ComparisonValue`, and a
+polymorphic `Data` holding the function and its parameters. A gate you are authoring fresh composes as
+typed rows in the write call — `compose` a `ConditionFloat` with a nested `Data` compose, and the
+server encodes the bytes. This recipe is the other case: a verified gate that already sits on a record,
+several rows deep or onto many lines at once, where reading it and copying it beats retyping every row.
 
 1. **Build the gate once** — in the Creation Kit, or on one INFO you have validated — and read it
    back: `housecarl_records(formids=["<source>"], project={"form":"fields","fields":["Conditions"],"depth":4})`.
    Note that `depth` is a sub-parameter *inside* the form; passing it beside the form is refused, and
    the `delta` form does not take it at all.
 2. **Read each target first, so you know what you are about to overwrite.** Do not skip the targets
-   that already carry `Conditions` — a broken hand-synthesized gate is exactly what this recipe
-   exists to replace, and skipping those repairs none of them.
+   that already carry `Conditions` — a target whose existing gate is the one being replaced is exactly
+   the case this recipe exists for, and skipping those repairs none of them.
 3. **Copy the field with the zip**, many pairs in one call. `bundle=` names the paths copied for
    every pair; `assignments=` pairs each target with its own source. Only what `bundle` names is
    copied — identity and every other field are untouched by construction:
@@ -40,9 +42,17 @@ what once wrote 26 broken conditions onto one gate. So read a known-good gate an
    zip issues, and there is no merge variant. That is why step 2 says to read each target first.
    `target` and `from` must be the same record type — INFO to INFO.
 
-Nothing is computed anywhere in this recipe, which is the whole point. Confirm the written rows
-against the source with the read-back before enabling the patch. A conditions-only edit does not
-disturb the `.seq`.
+4. **Drop the rows that did not belong.** The copy is wholesale, so a target that wanted only some of
+   the source's rows needs a second call per unwanted row, keyed by its index in the read-back —
+   highest index first, since a removal renumbers everything after it:
+
+   ```json
+   housecarl_apply(ops=[{ "formid": "0A12C4:MyMod.esp", "field_path": "Conditions",
+                          "op": "Remove", "key": "0" }])
+   ```
+
+Confirm the written rows against the source with the read-back before enabling the patch. A
+conditions-only edit does not disturb the `.seq`.
 
 ## Recipe B — write an INFO subtype the CK's dropdown refuses to offer
 
