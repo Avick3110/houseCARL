@@ -34,6 +34,10 @@ internal sealed class SchemaValuesAttribute(SchemaVocabulary vocabulary) : Attri
 /// neither. It derives both from the C# shapes the server binds and validates against — the marked members and the
 /// verb tables — so a client can check a nested call before sending it, and nothing here is a second copy of a fact.
 ///
+/// <para>ADDITIVE: it unions with the <c>required</c> the generator already published rather than replacing it, and
+/// an <c>enum</c> on a member the generator typed as nullable carries null, so nothing it stamps publishes narrower
+/// than the gate accepts.</para>
+///
 /// <para>Runs LAST, after the flatten, so every recursion-expanded copy of a shape is stamped as well as the first.
 /// The walk is TYPE-DIRECTED and the schema bounds it: it descends only where the published document still spells a
 /// shape out, so the open node that closes a recursive chain constrains nothing, exactly as before.</para>
@@ -110,7 +114,7 @@ internal static class NestedSchemaConstraints
         if (node["properties"] is not JsonObject props) return false;
 
         bool changed = false;
-        var required = new JsonArray();
+        var required = new List<string>();
         foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
             if (property.GetCustomAttribute<JsonIgnoreAttribute>() is not null) continue;
@@ -122,15 +126,45 @@ internal static class NestedSchemaConstraints
             {
                 var legal = new JsonArray();
                 foreach (var v in Values(values.Vocabulary)) legal.Add(v);
+                // JSON Schema applies enum to EVERY instance, null included, so a member the generator published as
+                // nullable needs null in the list or the two constraints contradict each other — and this member is
+                // one the server defaults rather than refuses (an absent, null or blank verb is read as Set), so an
+                // enum without null would refuse, a hop earlier, a call the tool answers.
+                if (AdmitsNull(member)) legal.Add((JsonNode?)null);
                 member["enum"] = legal;
                 changed = true;
             }
             changed |= Walk(property.PropertyType, member);
         }
 
-        if (required.Count > 0) { node["required"] = required; changed = true; }
+        // UNION, never assignment: the generator emits its own nested `required` for a non-nullable member, and
+        // overwriting would silently stop publishing a requirement the binder still enforces.
+        if (required.Count > 0)
+        {
+            var names = new List<string>();
+            if (node["required"] is JsonArray already)
+                foreach (var entry in already)
+                    if (entry is JsonValue v && v.TryGetValue<string>(out var name)
+                        && !names.Contains(name, StringComparer.Ordinal)) names.Add(name);
+            foreach (var name in required)
+                if (!names.Contains(name, StringComparer.Ordinal)) names.Add(name);
+
+            var merged = new JsonArray();
+            foreach (var name in names) merged.Add(name);
+            node["required"] = merged;
+            changed = true;
+        }
         return changed;
     }
+
+    /// <summary>Does the published type of this member accept a JSON null? Read off the DOCUMENT, so the answer is
+    /// whatever the generator actually emitted rather than a second reading of the CLR type's nullability.</summary>
+    static bool AdmitsNull(JsonObject member) => member["type"] switch
+    {
+        JsonArray types => types.Any(t => t is JsonValue v && v.TryGetValue<string>(out var s) && s == "null"),
+        JsonValue single => single.TryGetValue<string>(out var s) && s == "null",
+        _ => false,
+    };
 
     /// <summary>The element type of a published ARRAY shape, or null when the type is not one. Arrays only: every
     /// list-valued wire shape on this surface is <c>T[]</c>, and a dictionary publishes
