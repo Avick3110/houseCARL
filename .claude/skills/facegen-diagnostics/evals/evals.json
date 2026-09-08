@@ -47,7 +47,7 @@
     {
       "dimension": "coexistence",
       "covered_by": "the cases below plus the output-quality task, coexisting configuration",
-      "failure_mode": "housecarl:npc-appearance-copy loads instead of this skill on a diagnosis prompt, or a sweep prompt loads this skill and housecarl:bulk-record-jobs together and the two flows give contradictory instructions."
+      "failure_mode": "housecarl:npc-appearance-copy loads instead of this skill on a diagnosis prompt with no copy in it, or a sweep prompt loads this skill and housecarl:bulk-record-jobs together and the two flows give contradictory instructions."
     },
     {
       "dimension": "instruction following",
@@ -177,13 +177,13 @@
       ]
     },
     {
-      "id": "st-copy-face-boundary",
+      "id": "snt-copy-face-boundary",
       "prompt": "i copied a face from an overhaul onto my custom follower and now her head renders dark. did i copy the wrong fields, and what's the right way to do that copy?",
-      "expected_output": "facegen-diagnostics is loaded on the dark-face symptom, and the copy itself is ceded to housecarl:npc-appearance-copy.",
+      "expected_output": "housecarl:npc-appearance-copy, not this skill — a dark face right after a copy is the copy's own case, and the prompt asks how to do the copy.",
       "files": [],
       "expectations": [
-        "The facegen-diagnostics skill is loaded.",
-        "The authoring half is routed to housecarl:npc-appearance-copy rather than reinvented here.",
+        "The facegen-diagnostics skill is NOT loaded.",
+        "The copy is handled by housecarl:npc-appearance-copy rather than by a diagnosis flow.",
         "The answer still checks that the copied NPC's facegen files were carried, not only the record fields."
       ]
     },
