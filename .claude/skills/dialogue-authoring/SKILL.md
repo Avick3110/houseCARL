@@ -28,10 +28,14 @@ items is `housecarl:kid-authoring`, a record's own fields with no ESP is `housec
 
 For a new line on an NPC who already has lines, **do not append into the vanilla topic.** Author your
 own start-game-enabled `QUST` at a priority above the incumbent dialogue quest's, give it its own DIAL
-topic of the same subtype, hang your INFO under that, and write the `.seq`. Nothing vanilla is
-touched, so nothing can be re-listed, reordered or broken, and the higher quest priority is what gets
-your topic reached at all: **which topic the game enters is decided across quests by priority**, before
-intra-topic order is even consulted. The append route puts your line at the bottom of a topic that is
+topic of the same subtype, hang your INFO under that, and write the `.seq`. No vanilla record is
+touched, so nothing already in the vanilla topic is re-listed or reordered. Be clear about what that
+does not buy: the higher quest priority is what gets your topic reached at all — **which topic the
+game enters is decided across quests by priority**, before intra-topic order is even consulted — so
+whenever your line's gate passes, the engine enters *your* topic and the vanilla greetings do not
+play for that activation. That is preemption, not damage: the vanilla records are untouched and the
+old lines return the moment your gate fails. Gate the line so it passes only when you mean it to; a
+gate that passes on every activation replaces the NPC's whole greeting pool. The append route puts your line at the bottom of a topic that is
 often ten plugins deep, where whether it is ever selected is not knowable from the data layer.
 
 Three cheap reads settle the design.
@@ -49,11 +53,14 @@ Three cheap reads settle the design.
    goes comfortably above it. Vanilla `DialogueWhiterun` is `Priority = 30`, so 65 clears it. Do not
    guess the number; measure it.
 
-**Skyrim's activation greeting is the `HELO` subtype** — `Subtype = Hello`, `SubtypeName = HELO`.
+**Skyrim's activation greeting is the `HELO` subtype** — `SubtypeName = HELO`, written as `Subtype = "Hello"`.
 There is no `GREE` subtype; do not go looking for one. **A DIAL's `SNAM` marker (`SubtypeName`) is
-authoritative for its subtype, and the `Subtype` enum can disagree with it on a record read from a
-different form version** — the same topic read from `Skyrim.esm` and from a later-form-version override
-prints two different enum names for one unchanged marker (issue #660); trust `SubtypeName`.
+authoritative for its subtype, and the numeric `Subtype` enum can disagree with it — and the copy to
+distrust is the master's own** (issue #660). Records authored before the Dragonborn CK, which inserted
+enum members, decode six positions off: `02707A` read straight out of `Skyrim.esm` prints
+`Subtype = RechargeExit` while its later winner prints `Subtype = Hello`, for one unchanged `HELO`
+marker (`0904AC` prints `Recharge` for `GBYE` the same way). Steps 1-2 above send you into `Skyrim.esm`,
+which is exactly the read that prints the wrong name — read `SubtypeName`, not `Subtype`.
 
 Then one create call. The quest, topic and line are three records in one all-or-nothing write, linked
 by `@<editorid>` same-call sibling references and by `parent`:
@@ -75,13 +82,18 @@ housecarl_create(
 
     { "record_type": "DialogResponses", "editorid": "MyMod_BelethorGreetInfo",
       "parent": "MyMod_BelethorGreetTopic",
-      "ops": [ { "field_path": "Responses", "op": "Add",
+      "ops": [ { "field_path": "Speaker",   "value": "013BA1:Skyrim.esm" },
+               { "field_path": "Responses", "op": "Add",
                  "compose": { "type": "DialogResponse",
                               "fields": { "Text": "Browse as you like.", "ResponseNumber": "1",
                                           "Emotion": "Neutral", "EmotionValue": "50",
                                           "Flags": "UseEmotionAnimation" } } } ] }
   ])
 ```
+
+`Speaker` goes in that create call, not after it: your new quest has no aliases for the voice type to
+come from at runtime, and voice and result-script coverage are checked on create, so setting it later
+does not backfill the `.fuz` path.
 
 Then **clone the gate** onto the new line from the vanilla exemplar you read in step 2 — never
 hand-synthesize the operator bytes (Recipe A in `references/write-side-recipes.md`). One call:
@@ -95,7 +107,9 @@ housecarl_apply(into="<the filename the create call reported>", readback=true,
 Copy only the entries that belong: a vanilla greeting's gate is often a speaker check *plus* a cell
 check, and a line meant to play anywhere wants the speaker check alone.
 
-Then the `.seq`, which is not optional: `housecarl_write_seq(source="<patch>.esp")`. A
+Then the `.seq`, which is not optional:
+`housecarl_write_seq(source="<the filename the create call reported>")` — the reported filename, never
+the stem you passed, or the `.seq` lands on an older plugin of that name and your quest gets none. A
 start-game-enabled quest with no `.seq` never starts, and its dialogue never exists. Finish with the
 pre-enable sweep below, and note the `#615` limit under "Validate, then hand off" — the dialogue check
 cannot see a plugin that is not yet enabled.
