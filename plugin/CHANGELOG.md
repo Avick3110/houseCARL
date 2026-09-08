@@ -53,6 +53,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
   refused up front, in the same words a Set on that field gets: the value is fixed by which arm was named, so drop
   the field or name a different arm. A field the type's constructor carries is still accepted, because that is the
   one the constructor writes.
+- **`max_chars=` is now a ceiling on the last five `housecarl_records` text renders too.** The comparison forms
+  `delta` and `tree`, the walk lane's `chain` and reverse effect-chain renders, and `info_order` tested the
+  ceiling before the record, node or delta line they were about to write, so the block that crossed it went in
+  whole and the truncation notice and the `spilled:` block on top of that — the shape the other renders lost in
+  the change above, which named these five as the ones it did not cover. They now carry it: the notice and the
+  spill block are charged before the first record is laid, every inner list holds back the room its own cut
+  notice takes, and a record that would cross what is left is taken back out whole and counted. A record cut
+  inside itself stays, with the cut named where the caller can see it; where there is no room even to say a
+  section was cut, the whole record goes back out rather than ending in silence. The `max_chars=` parameter now
+  states the ceiling over the whole tool. As everywhere else, the result is untouched: what the ceiling holds
+  back inline is complete in the artifact the response names.
 
 - **A SkyPatcher INI can be checked before it is placed in a mod.** `housecarl_records`'s overlay pole takes a
   draft file: `source={"overlay": "skypatcher", "state": "post", "ini": "<absolute path to a draft .ini>",
@@ -216,9 +227,7 @@ saying it sets an expectation their install may contradict. Say what is known, a
   window put no row on the page at all, the accounting names both the cap to raise and the `offset=` that steps
   past the row that did not fit, which is the only knob that moves that case. A `housecarl_records` result the
   ceiling cuts still spills COMPLETE to its artifact — the ceiling bounds the render, never the answer. On
-  `housecarl_records` this covers the scan, batch, resolve, `group_by` and `summary` renders; the comparison
-  forms (`delta`, `tree`), the walk lane's chain and effect-chain renders and `info_order` still answer past
-  the cap by the block that crossed it, and the `max_chars=` parameter says so. The other case that can come
+  `housecarl_records` this covers the scan, batch, resolve, `group_by` and `summary` renders. The other case that can come
   back over the cap is a `max_chars` too small for what a response carries whatever the budget — its header,
   the alarms it owes, its accounting — and it now says so in a sentence naming the number that clears it,
   which is how you can check. An alarm is never dropped to meet the ceiling: an archive that failed to read is
