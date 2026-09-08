@@ -365,10 +365,12 @@ public static class SksePluginReader
     }
 
     /// <summary>Walk the PE IMPORT + DELAY-LOAD directories and return the imported DLL names, lower-cased and
-    /// deduplicated, in image order. Same rule as <see cref="ReadExportRvas"/>: an ABSENT directory yields an empty
-    /// list (a real, if odd, "imports nothing"), while a PRESENT-but-CORRUPT one yields <c>null</c> — a parse failure
-    /// the caller renders as UNKNOWN, since a corrupt import table must not read as a clean bill of health.
-    /// Never throws.
+    /// deduplicated, in image order. Absence is a zero RVA and nothing else, as in <see cref="ReadExportRvas"/>: an
+    /// ABSENT directory yields an empty list (a real, if odd, "imports nothing"), while a PRESENT-but-CORRUPT one
+    /// yields <c>null</c> — a parse failure the caller renders as UNKNOWN, since a corrupt import table must not read
+    /// as a clean bill of health. The two walks agree on what is present and part company only on what a DECLARED
+    /// directory with a zero Size can be made to yield: that Size is this walk's ONLY bound, so it fails here, while
+    /// the export walk is bounded by the directory's own counts and reads it. Never throws.
     ///
     /// Both directories are arrays of fixed-size descriptors terminated by an all-zero entry, each carrying an RVA to the
     /// imported DLL's ASCII name. Delay-load descriptors predate the RVA convention: bit0 of their Attributes is
