@@ -125,7 +125,7 @@ at all, so a String filter never sees them: that scan illustrates the predicate,
 **Tag one mod's armor above rating 20**, filters and traits both used:
 
 ```ini
-Keyword = MyLightSetTag|Armor|MyArmorMod.esp|AR(20/100)
+Keyword = MyLightSetTag|Armor|MyArmorMod.esp|AR(20)
 ```
 
 **Tag every soul gem that is black, and nothing else** — empty filters held with `NONE`:
