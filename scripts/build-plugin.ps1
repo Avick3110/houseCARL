@@ -264,11 +264,12 @@ Write-Host ("houseCARL-Setup.exe: {0:N2} MB" -f ((Get-Item $SetupExe).Length / 1
 # ---- 10. leak-check the server half + the whole package root ----------------
 # The skill trees were leak-checked at step 7 (excluded files + markdown pointers); this covers what
 # only a full build produces: the published server, and every shipped text file under the package
-# root. The excluded-file scan walks the whole package root, so an excluded file that lands outside
-# skills/ - a stray copy under .claude-plugin/, or one a future publish pulls in - is still caught.
+# root. All three excluded-file scans walk the whole package root, so an excluded file that lands
+# outside dist/housecarl - a stray copy under .claude-plugin/, or an appsettings.json the setup-utility
+# publish at step 9 drops beside houseCARL-Setup.exe - is still caught.
 Step '10/12' 'Leak-check assembled tree'
 $leaks = @()
-$leaks += Get-ChildItem $DistRoot -Recurse -Force -Filter 'appsettings*.json'
+$leaks += Get-ChildItem $PkgRoot -Recurse -Force -Filter 'appsettings*.json'
 $leaks += Get-ChildItem $PkgRoot -Recurse -Force -File -Filter '_CORPUS_STATUS.md'
 $leaks += Get-ChildItem $PkgRoot -Recurse -Force -Directory -Filter 'evals'
 if ($leaks.Count -gt 0) {
