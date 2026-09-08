@@ -229,10 +229,12 @@ target_precompile_headers(${PROJECT_NAME} PRIVATE PCH.h)                   # req
 ```
 
 Your `vcpkg.json` must carry `spdlog`, `fmt`, `directxtk`, `directxmath`, `rapidcsv` (rapidcsv because VR
-defaults on) — **and a `builtin-baseline`**, the commit sha of the vcpkg checkout the manifest pins its
-package versions to (`git -C %VCPKG_ROOT% rev-parse HEAD`). A manifest without it errors outright where
-classic mode is disabled, which is the default for manifest builds, and the message names versioning
-rather than the missing field:
+defaults on) and `xbyak` (the trampoline's assembler) — **and a `builtin-baseline`**, the commit sha of the
+vcpkg checkout the manifest pins its package versions to (`git -C %VCPKG_ROOT% rev-parse HEAD`). The field
+is only *required* once the manifest uses versioning — a `version>=` constraint, an `overrides` block, or a
+registry — and a manifest that omits it and uses none of those resolves against the ports in the current
+checkout and configures fine. Carry it anyway: the failure when it is needed names versioning rather than
+the missing field, and without it a build is pinned to whatever the checkout happens to be at:
 
 ```json
 {
@@ -470,3 +472,6 @@ proven fact:
   a runtime claim awaiting a real VR log.
 - **The libxse lineage's runtime coverage** (does its non-NG fork do AE/VR at all?) is unknown; treat any
   libxse `commonlibsse-template` multi-runtime story as unproven.
+- **The `builtin-baseline` requirement** is vcpkg behaviour, not a CommonLibSSE-NG one, so it carries no
+  `path:line` here: which manifests vcpkg rejects for a missing baseline has been read from its
+  versioning docs, not observed failing on this machine.
