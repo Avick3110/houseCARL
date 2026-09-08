@@ -21,7 +21,7 @@ generated corpus.
 
 | Layer | Source | Confidence |
 |---|---|---|
-| **Structure** — which condition functions exist, each one's parameter shape, the Run On enum, the compare operators, the DLBR/Quest/QuestStage/QuestObjective record fields | **By construction from Mutagen**, via houseCARL's own `mutagen-reference` (`arms.jsonl` / `records.jsonl` / `structs.jsonl` / `enums.jsonl`), read at the 1.3.1 dev head. This is exactly what `housecarl_read_record` surfaces and what the write tools compose. | **High** — it *is* the model houseCARL decodes. Re-derivable any time from `mutagen-reference`. |
+| **Structure** — which condition functions exist, each one's parameter shape, the Run On enum, the compare operators, the DLBR/Quest/QuestStage/QuestObjective record fields | **By construction from Mutagen**, via houseCARL's own `housecarl:mutagen-reference` (`arms.jsonl` / `records.jsonl` / `structs.jsonl` / `enums.jsonl`), read at the 1.3.1 dev head. This is exactly what `housecarl_records` surfaces and what the write tools compose. | **High** — it *is* the model houseCARL decodes. Re-derivable any time from `housecarl:mutagen-reference`. |
 | **Semantics** — what each function tests, Run On scoping rules (Subject = speaker, Target = player), DLBR flag behavior, objective/stage display behavior | **Creation Kit wiki** (UESP-hosted, `ck.uesp.net`: *Condition Functions*, *Conditions*, *Dialogue Speech Checks*, *Dialogue Branch*, *Quest Objectives Tab*, *SetObjectiveDisplayed/Completed*) **+ modding-domain knowledge.** | **High** for the well-established facts; domain-authored where noted. |
 
 ### Why the wiki wasn't fetched directly (the source-substitution, stated plainly)

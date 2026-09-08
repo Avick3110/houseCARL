@@ -7,7 +7,7 @@ branch flags change in-game behavior in ways a record-only glance won't reveal, 
 
 Field names are Mutagen spellings (by construction from the record model — the corpus status note in the
 skill's source tree records it; dev-side, not shipped in the plugin); flag
-**semantics** are from the Creation Kit wiki. Confirm exact paths against `mutagen-reference`.
+**semantics** are from the Creation Kit wiki. Confirm exact paths against `housecarl:mutagen-reference`.
 
 ## Fields (Mutagen `DialogBranch`)
 
@@ -56,10 +56,11 @@ other dialogue.
 A `Custom`-subtype topic is **not** matched by the generic subtype system (Hello/Goodbye/… are matched
 automatically; `Custom` is not). It becomes reachable only by being a branch's `StartingTopic` **or** the
 `LinkTo` target of another reachable topic. A byte-valid `Custom` topic with neither is **never entered** in
-game — the most common "I added a topic and nothing happens" cause. When you author a new player-choice menu,
-author the DLBR in the **same** `housecarl_bulk_create` call (declared *after* the topic) with
-`StartingTopic` set to the topic's `@editorid`, `Category = Player`, and `Flags = TopLevel` for an ordinary
-side-by-side option. (See the `SKILL.md` reachability note.)
+game — the most common "I added a topic and nothing happens" cause. When you author a new player-choice
+menu, author the DLBR with `Category = Player` and `Flags = TopLevel` for an ordinary side-by-side
+option, and point its `StartingTopic` at the topic's FormID — the create call reports each new record's
+FormID, and a second call on the same lane (`into="<this patch>.esp"`) is how one new record is made to
+point at another. (See the `SKILL.md` reachability note.)
 
 ## Quick decode
 

@@ -7,7 +7,7 @@ a journal goes wrong while the dialogue is fine.
 
 Field names are Mutagen spellings (by construction — the corpus status note in the skill's source tree
 records it; dev-side, not shipped in the plugin); the display/script behavior is
-from the Creation Kit wiki + practice. Confirm exact paths against `mutagen-reference`.
+from the Creation Kit wiki + practice. Confirm exact paths against `housecarl:mutagen-reference`.
 
 ## The three things, kept separate
 
@@ -70,6 +70,6 @@ treat aligned numbering as a convention authors *choose*, and verify it per ques
 Dialogue lines gate on **stage** (`GetStage`/`GetStageDone`), almost never on objectives — objectives are a
 display concern. So when "a line won't fire," check the **stage** condition against the quest's real stage
 indices here; when "the journal looks wrong," check **objectives** and **log entries**. They fail
-independently, and houseCARL can read all of them back (`housecarl_read_record` on the QUST,
-`housecarl_validate_dialogue` on the quest for the dialogue side). Remember `Stop()` resets the stage to 0 —
+independently, and houseCARL can read all of them back (`housecarl_records` on the QUST, and
+`housecarl_check(findings=["dialogue"], seeds=["<QUST>"])` for the dialogue side). Remember `Stop()` resets the stage to 0 —
 never gate post-completion dialogue on a stopping quest's stage (see the flow-model reference).
