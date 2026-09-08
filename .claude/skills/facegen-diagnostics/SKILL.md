@@ -2,7 +2,7 @@
 name: facegen-diagnostics
 compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 2 instance.
 description: >-
-  Diagnoses and repairs the dark / grey / black-face NPC bug in Skyrim SE by diffing which mod wins the head .nif against which wins the face .dds for the same NPC, then the record winner behind them. Use for any discolored face, neck seam, "fine in xEdit but wrong in game", NPCs gone dark after an ESL-compaction or merge, or any FaceGen / facegeom / facetint mention. Not a purple or white face (a missing texture) and not player-only grey (RaceMenu/SKEE); copying a face onto another NPC, or a face gone dark right after a copy, is housecarl:npc-appearance-copy. Load before judging any face bug — the mesh-versus-tint pair decides the fix.
+  Diagnoses and repairs the dark / grey / black-face NPC bug in Skyrim SE by diffing which mod wins the head .nif against which wins the face .dds for the same NPC, then the record winner behind them. Use for any discolored face, neck seam, "fine in xEdit but wrong in game", NPCs gone dark after an ESL-compaction or merge, or any FaceGen / facegeom / facetint mention. Not a purple or white face (a missing texture) and not player-only grey (RaceMenu/SKEE); copying a face onto another NPC, or a face gone dark right after a copy, is a housecarl_copy plus housecarl_place job, not a diagnosis. Load before judging any face bug — the mesh-versus-tint pair decides the fix.
 ---
 
 # Facegen diagnostics
@@ -213,9 +213,9 @@ the baked ChangeForm. houseCARL does not edit saves.
 
 ## 8. A whole-order sweep is a bulk job
 
-"A bunch of NPCs went dark after I installed X" is an enumerate-and-dedupe job: plan it with
-`housecarl:bulk-record-jobs` — every `NPC_` the suspect plugin touches, deduped to load-order winners,
-spilled to an artifact — and bring the flagged subset back here for the pair diff and the fix.
+"A bunch of NPCs went dark after I installed X" is an enumerate-and-dedupe job: read every `NPC_` the
+suspect plugin touches in ONE `housecarl_records` call, deduped to load-order winners and spilled with
+`to_file=` to an artifact, then bring the flagged subset back here for the pair diff and the fix.
 
 Two things to know before you start. `housecarl_check` has **no facegen finding family** — its
 `findings=` takes `errors`, `scripts` and `dialogue` only, so a call there returns nothing for this job.
@@ -260,4 +260,4 @@ nothing. That is worse than a clear non-answer.
 | Causes and fixes by letter, the symptom table, and which community tool owns a case houseCARL cannot | `references/facegen-causes-and-fixes.md` — read it to pin a specific cause or justify a fix to the user; the flow above drives most diagnoses without it |
 | The mesh-side repairs — rewriting a baked shape name, the embedded FaceTint path, or a skin slot — and what each one can and cannot prove | `references/mesh-repairs.md` — read it when §3 says the file wins but the face is still wrong, or when a mesh refuses a write |
 | An `NPC_` field path or enum spelling, before composing a `housecarl_apply` op | `housecarl:mutagen-reference` |
-| Copying a face onto a *different* NPC, cloning one as a standalone, or a face gone dark right after either | `housecarl:npc-appearance-copy` |
+| Copying a face onto a *different* NPC, cloning one as a standalone, or a face gone dark right after either | `housecarl_copy` for the records and `housecarl_place` for the FaceGen pair — their own descriptions carry the lanes |
