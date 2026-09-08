@@ -166,6 +166,29 @@ public static class DialogueSubtype
     /// <summary>The 4-char SNAM marker for a <see cref="DialogTopic.SubtypeEnum"/>, or null if unmodeled.</summary>
     public static string? MarkerFor(DialogTopic.SubtypeEnum subtype) => MarkerFor((int)subtype);
 
+    /// <summary>Marker → subtype index, the reverse of the table. Ordinal (markers are fixed-case 4-char signatures).</summary>
+    static readonly Dictionary<string, int> ByMarker =
+        Table.Select((row, i) => (row.Marker, i)).ToDictionary(p => p.Marker, p => p.i, StringComparer.Ordinal);
+
+    /// <summary>The subtype index a 4-char SNAM marker names, or null when the marker is blank or not one this table
+    /// models. SNAM is the AUTHORITATIVE statement of a topic's subtype — the engine buckets by it — so this is the
+    /// lookup a reader should trust over <c>(int)DialogTopic.Subtype</c>.</summary>
+    public static int? IndexForMarker(RecordType marker) =>
+        !IsBlankMarker(marker) && ByMarker.TryGetValue(marker.Type, out var i) ? i : null;
+
+    /// <summary>Mutagen's SubtypeEnum name for the subtype a SNAM marker names, or null when the marker is blank or
+    /// unmodeled (and "" for the one index Mutagen's enum omits). The honest label for a topic's subtype.</summary>
+    public static string? NameForMarker(RecordType marker) => IndexForMarker(marker) is { } i ? NameAt(i) : null;
+
+    /// <summary>True when a topic's numeric <c>Subtype</c> contradicts its SNAM marker — both modeled, and they name
+    /// different subtypes. Bethesda renumbered the DATA\Subtype enum when the Dragonborn-era CK inserted six
+    /// <c>FlyingMount*</c> values at index 20, so a topic authored before that stores a number six lower than the
+    /// modern table and Mutagen labels it six entries too early. Nothing on the record distinguishes the two
+    /// numberings (form version does not: Dragonborn.esm mixes both at FormVersion 43), so SNAM is the only reliable
+    /// statement. Blank or unmodeled markers are NOT a disagreement — a blank one is its own finding.</summary>
+    public static bool MarkerDisagreesWithSubtype(IDialogTopicGetter topic) =>
+        IndexForMarker(topic.SubtypeName) is { } fromMarker && fromMarker != (int)topic.Subtype;
+
     /// <summary>True when a topic's SNAM marker is empty/default (0000) OR whitespace-only — the malformed "no real
     /// marker" state. The single home for this test so the create path and the validator agree on what "no marker"
     /// means. Whitespace counts as blank: it renders invisibly and buckets to a tag no real topic uses.</summary>

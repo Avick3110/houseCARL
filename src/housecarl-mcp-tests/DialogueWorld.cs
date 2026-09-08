@@ -54,6 +54,13 @@ public sealed class DialogueWorld : IDisposable
     public FormKey BranchOk { get; }
     public FormKey QuestOk { get; }
 
+    /// <summary>The #660 shape: numeric Subtype = RechargeExit (73) beside SNAM = HELO (Hello, 79) — a topic
+    /// carrying the pre-Dragonborn numbering, six low. The marker is authoritative.</summary>
+    public FormKey StaleSubtypeTopic { get; }
+
+    /// <summary>The control: Subtype and SNAM naming the same subtype, so a topic that agrees is never labelled.</summary>
+    public FormKey AgreeingSubtypeTopic { get; }
+
     public DialogueWorld()
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-dialogue-tests-" + Guid.NewGuid().ToString("N"));
@@ -72,6 +79,17 @@ public sealed class DialogueWorld : IDisposable
         var info = new FormKey[8];
         for (int i = 0; i < 8; i++) { var r = NewInfo($"HcDvLine{i}"); info[i] = r.FormKey; topic.Responses.Add(r); }
         Info = info;
+
+        // Subtype-vs-SNAM pair (#660): one topic carrying the pre-Dragonborn numbering (RechargeExit=73 under
+        // SNAM HELO, six low) and one where the two agree.
+        var stale = master.DialogTopics.AddNew(); stale.EditorID = "HcDvStaleSubtype";
+        stale.Subtype = DialogTopic.SubtypeEnum.RechargeExit;
+        stale.SubtypeName = new RecordType("HELO");
+        StaleSubtypeTopic = stale.FormKey;
+        var agree = master.DialogTopics.AddNew(); agree.EditorID = "HcDvAgreeingSubtype";
+        agree.Subtype = DialogTopic.SubtypeEnum.Hello;
+        agree.SubtypeName = new RecordType("HELO");
+        AgreeingSubtypeTopic = agree.FormKey;
 
         // CK-parity-complete seeds — the no-false-positive lock for V1 (a real authored view/branch/quest never
         // renders as a gap).
