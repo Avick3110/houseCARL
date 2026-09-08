@@ -2455,10 +2455,12 @@ public static class RecordsTools
                 sb.Append("  [!] the merge could not be computed for this topic (its key did not resolve in the touching index).\n");
             else if (row.Order.Order.Count == 0 && row.Order.Complete)
                 sb.Append("  no INFO lines — every touching plugin's child list is empty.\n");
-            else
-                // The shared view is bounded by what this render has left, not by the whole cap, and its own tail
-                // rides inside the topic block — so a topic that still crossed goes back out whole below.
-                DialogueWire.AppendInfoOrderView(sb, row.Order, "", budget, indent: false);
+            // The shared view is bounded by what this render has left, not by the whole cap, and its own tail
+            // rides inside the topic block — so a topic that still crossed goes back out whole below. Its own
+            // stop signal is kept rather than re-derived from Crossed: the two agree only because the view
+            // appends its marker AFTER the check that crossed, which is the view's business, not this render's.
+            else if (!DialogueWire.AppendInfoOrderView(sb, row.Order, "", budget, indent: false))
+                truncated = true;
             if (Crossed(sb, mark, budget, Notice(rendered), ref truncated)) break;
             rendered++;
         }
