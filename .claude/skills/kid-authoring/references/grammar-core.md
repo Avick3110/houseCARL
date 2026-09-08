@@ -37,7 +37,8 @@ KID's target is **items** (object/base records). That's its lane in the distribu
 
 - keyword/form to an **item record** → **KID** (this skill)
 - spell/perk/item/keyword to an **NPC** → **SPID**
-- item into a **container** → **CID**
+- item into a **container** → **SkyPatcher** (its container patcher — `filterByContainers` with
+  `addToContainers`)
 - editing a record's **own fields** (damage, value, an NPC's stats) → **SkyPatcher**
 
 KID and SPID share an author and many idioms (the `~` FormID form, the `+`/`-`/`*` filter modifiers),
@@ -179,7 +180,7 @@ e.g., material or rarity tags from doubling up on the same item.
 |---|---|
 | add a keyword to **items** (weapon/armor/potion/…) | **KID** ← this skill |
 | give a spell/perk/item/keyword to **NPCs** | SPID |
-| put an item into a **container** | CID |
+| put an item into a **container** | SkyPatcher (its container patcher) |
 | change a record's **own fields** (damage, value, NPC stats) | SkyPatcher |
 
 When unsure, ask **what receives the keyword**: an item record → KID; an NPC → SPID.
