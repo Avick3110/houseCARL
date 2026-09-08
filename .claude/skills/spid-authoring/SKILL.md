@@ -72,9 +72,11 @@ Read grammar-core plus the one or two files you need — don't bulk-load everyth
      override that **renames** the record, which is ordinary on a heavily overhauled order. Read the
      winner's EditorID before trusting the name; use the FormID when it has changed
      (`references/grammar-core.md` §6).
-   - **Count the pipes** — each section is positional. A value meant for Chance sits after six pipes,
-     one meant for Count after five. Leave an unused middle section blank (`||`) or `NONE`; a
-     trailing unused section can be dropped.
+   - **Count the pipes** — each section is positional. Positions are 0-based everywhere in this skill
+     and in `references/`: `FormOrEditorID` is position 0, String 1, Form 2, Level 3, Trait 4, Count 5,
+     Chance 6 (`references/grammar-core.md` §4). So a value meant for Chance sits after six pipes, one
+     meant for Count after five. Leave an unused middle section blank (`||`) or `NONE`; a trailing
+     unused section can be dropped.
    - Combine filters per `references/grammar-core.md`: **OR within a section, AND between
      sections**, **exclusions (`-X`) always AND**. For a *union* of groups, write multiple lines
      for one form.
@@ -86,7 +88,8 @@ Read grammar-core plus the one or two files you need — don't bulk-load everyth
 5. **Place the file** at `Data/<name>_DISTR.ini` — the **`_DISTR` suffix is mandatory** and the file
    is flat in `Data/`, never in a per-type subfolder; without both it is never read. Files load
    alphabetically A→Z, each top-to-bottom; comment with `;`. Ship it inside a mod the mod manager
-   handles, then confirm the placement with `housecarl_asset_status` (§5).
+   handles, then confirm the placement with `housecarl_asset_status` (*Check the reach before you
+   write it*, below).
 
 ## Two worked lines
 
@@ -103,11 +106,11 @@ Read back: perk `0xBCD2A` from `Skyrim.esm` to any NPC **in** `BanditFaction` (F
 > *"Half of all female Nords, and only them, get my custom keyword."*
 
 ```ini
-Keyword = HC_FrostTouched||NordRace|||F|50
+Keyword = HC_FrostTouched||NordRace||F||50
 ```
 
 Read back: create keyword `HC_FrostTouched` at runtime, give it to `NordRace` NPCs (Form, position
-2) who are Female (`F`, Trait, position 4), 50% of the time (Chance, position 7). Level and Count
+2) who are Female (`F`, Trait, position 4), 50% of the time (Chance, position 6). Level and Count
 are empty; every pipe before Chance is still written.
 
 ## Check the reach before you write it
@@ -122,7 +125,7 @@ A SPID line is written blind unless you measure the population first. Three chec
 2. **Count how many of those are on a PC level multiplier**, when a Level Filter is in play:
    `housecarl_records` with the same `types`, `where=["Configuration.Level.LevelMult >= 0"]` and
    `counts_only=true`. That is the population the re-distribution pass covers, not the population
-   the line reaches — see §8.
+   the line reaches — see *Verifying a distribution actually happened*.
 3. **Prove the file is the one the game reads**, after placing it: `housecarl_asset_status` with
    `asset_paths=["<name>_DISTR.ini"]`, a Data-relative path like any other. It names the winning
    source, every source that provides it, and whether more than one contends.
@@ -139,7 +142,7 @@ The `references/` corpus documents SPID **7.3.0**. If a form type, filter, trait
 in it, **say so — do not fabricate a plausible token.** There is no backstop on this path: no
 houseCARL tool reads a `_DISTR.ini`, and SPID skips an unparseable line, an unknown filter term or
 an unresolvable form with no error, so a guessed token yields a file that quietly distributes
-nothing. The only checks that exist are the three in §5.
+nothing. The only checks that exist are the three under *Check the reach before you write it*.
 
 The window runs **both** ways. Above 7.3.0 the corpus may be behind — surface that and offer to
 re-derive. **Below 7.3.0 a documented feature may not exist yet**: `references/filters.md` marks the
@@ -190,8 +193,8 @@ what SPID looked up; only a live actor shows what SPID applied.
 - **A Level Filter narrows by the NPC's own level; it does not narrow to auto-levelled NPCs.** It is
   checked against every NPC the line otherwise matches. The separate re-distribution pass covers
   only NPCs on a PC level multiplier and exists to re-evaluate them as the player levels — it does
-  not shrink the target set. `references/filters.md` §3 owns this with its source citation; §5
-  check 2 counts the difference.
+  not shrink the target set. `references/filters.md` §3 owns this with its source citation; check 2
+  under *Check the reach before you write it* counts the difference.
 - **Sample somewhere NPCs must be** — testing practice, not a SPID rule. An interior cell with known
   occupants beats an exterior spawn marker: finding no NPC in scan range there is inconclusive, not
   a failing distribution.
