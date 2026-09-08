@@ -16,6 +16,9 @@ section on them is ignored. **[source]**
 - **`KEY(value)`** = a single enum number; the value lists live in `value-tables.md`.
 - Traits are **comma-separated**; combine several to AND them (`P,F` = poison **and** food).
 
+**Trait classes in this file:** Armor · Weapon · Ammo · Magic Effect · Potion · Ingredient · Book ·
+Soul Gem · Spell / Enchantment / Scroll (shared) · Furniture · Worked examples.
+
 ---
 
 ## Armor (ARMO)

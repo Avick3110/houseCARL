@@ -11,6 +11,9 @@ Two kinds of entry:
 
 Both kinds take the **pattern-matching modifiers** (`+` / `-` / `*` / none). §3.
 
+**Sections in this file:** 1. String filters · 2. Form / EditorID filters · 3. Pattern-matching
+modifiers · 4. Worked examples.
+
 ---
 
 ## 1. String filters
