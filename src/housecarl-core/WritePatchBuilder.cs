@@ -454,7 +454,7 @@ public static class WritePatchBuilder
             if (w is not null)
             {
                 body = view.GetRecord(session, w.Value.WinnerPlugin, e.Target);
-                if (body is null) { problems.Add($"{e.Target}: winner '{w.Value.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
+                if (body is null) { problems.Add($"{FormIdToken.Of(e.Target)}: winner '{w.Value.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
                 winnerPlugin = w.Value.WinnerPlugin;
             }
             else
@@ -471,7 +471,7 @@ public static class WritePatchBuilder
                 }
                 if (patchLocal is null)
                 {
-                    problems.Add($"{e.Target}: not present in the load order ({view.PluginCount} plugins)"
+                    problems.Add($"{FormIdToken.Of(e.Target)}: not present in the load order ({view.PluginCount} plugins)"
                         + (extend
                             ? $", and not a record '{fileName}' (the patch being extended) itself defines — a record " +
                               "the patch merely OVERRIDES resolves via the load order, so its defining plugin must be enabled."
@@ -496,18 +496,18 @@ public static class WritePatchBuilder
                 if (TryOffOrderCopyBody(copyFromSources, e, view, out var offSrc))
                     srcBody = offSrc;
                 else if (string.IsNullOrWhiteSpace(srcPlugin))
-                { problems.Add($"{e.Target}: CopyFrom is missing from_plugin (internal — the mapper should have caught this)."); continue; }
+                { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom is missing from_plugin (internal — the mapper should have caught this)."); continue; }
                 else if (string.Equals(srcPlugin, fileName, StringComparison.OrdinalIgnoreCase))
-                { problems.Add($"{e.Target}: CopyFrom from_plugin '{srcPlugin}' is the output patch itself — name the OTHER plugin whose version to copy from."); continue; }
+                { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom from_plugin '{srcPlugin}' is the output patch itself — name the OTHER plugin whose version to copy from."); continue; }
                 else if (!view.ContainsPlugin(srcPlugin))
                 // Deliberately NO AbsenceClause here: the service pre-resolves every off-order CopyFrom source before
                 // Apply — a source that is merely unticked / in a disabled mod / shadowed is LOCATED and supplied via
                 // copyFromSources above, and one that cannot be located aborts the whole call earlier. So the only
                 // name reaching this arm has no on-disk copy at all, which the explainer cannot explain — it would pay
                 // a profile parse plus a whole-install sweep, per edit, for nothing the message does not already say.
-                { problems.Add($"{e.Target}: CopyFrom source '{srcPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk."); continue; }
+                { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk."); continue; }
                 else if (view.ExcludedPlugins.TryGetValue(srcPlugin, out var why))
-                { problems.Add($"{e.Target}: CopyFrom source '{srcPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
+                { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
                 else
                 {
                     srcBody = view.GetRecord(session, srcPlugin, e.CopySource);
@@ -529,7 +529,7 @@ public static class WritePatchBuilder
                 Key = e.Key, Value = e.Value, Values = e.Values, Entries = e.Entries, Struct = e.Struct, Structs = e.Structs,
             };
             var label = Label(req);
-            if (linkRulebook.Validate(req) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
+            if (linkRulebook.Validate(req) is { } reject) { problems.Add($"{recType} {FormIdToken.Of(e.Target)} [{label}]: {reject}"); continue; }
             resolved.Add((e, body, winnerPlugin, patchLocal, req, label, srcBody));
         }
         if (problems.Count > 0)
@@ -570,7 +570,7 @@ public static class WritePatchBuilder
                 // key): render its clean guidance, NOT the gate/apply-inconsistency wrapper. All-or-nothing still holds —
                 // the whole call is refused and no file is written.
                 return PatchOutcome.Fail(
-                    $"refused applying [{label}] to {req.RecordType} {e.Target} — {ex.Message} (no patch written)");
+                    $"refused applying [{label}] to {req.RecordType} {FormIdToken.Of(e.Target)} — {ex.Message} (no patch written)");
             }
             catch (MalformedTargetDataException ex)
             {
@@ -579,12 +579,12 @@ public static class WritePatchBuilder
                 // … a real inconsistency" wrapper, which would mislabel pre-existing bad source data as an engine bug.
                 // All-or-nothing holds — no file written.
                 return PatchOutcome.Fail(
-                    $"refused applying [{label}] to {req.RecordType} {e.Target} — {ex.Message} (no patch written)");
+                    $"refused applying [{label}] to {req.RecordType} {FormIdToken.Of(e.Target)} — {ex.Message} (no patch written)");
             }
             catch (Exception ex)
             {
                 return PatchOutcome.Fail(
-                    $"engine error applying [{label}] to {req.RecordType} {e.Target}: pre-flight ACCEPTED it but the apply " +
+                    $"engine error applying [{label}] to {req.RecordType} {FormIdToken.Of(e.Target)}: pre-flight ACCEPTED it but the apply " +
                     $"threw — a real inconsistency, surfaced not swallowed (Q3): {ex.GetType().Name}: {ex.Message}");
             }
         }
@@ -657,8 +657,8 @@ public static class WritePatchBuilder
     /// record" would point at the wrong one half the time.</summary>
     static string CopySourceMissing(PatchEdit e, string srcPlugin) =>
         e.FromTarget is null
-            ? $"{e.Target}: CopyFrom source '{srcPlugin}' is in the load order but does NOT define or override this record — there is no version of it there to copy."
-            : $"{e.Target}: CopyFrom source '{srcPlugin}' is in the load order but does NOT define or override the SOURCE record {e.CopySource} — there is no version of it there to copy from.";
+            ? $"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' is in the load order but does NOT define or override this record — there is no version of it there to copy."
+            : $"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' is in the load order but does NOT define or override the SOURCE record {FormIdToken.Of(e.CopySource)} — there is no version of it there to copy from.";
 
     /// <summary>Does this edit's CopyFrom source resolve through the service's OFF-ORDER pre-locate? The arm is decided
     /// from <paramref name="view"/> — THIS call's capture — rather than from the dictionary alone, so the body used is
@@ -780,7 +780,7 @@ public static class WritePatchBuilder
         var w = view.ResolveWinner(e.CopySource);
         if (w is null)
         {
-            error = $"{e.Target}: the source record {e.CopySource} is not present in the load order ({view.PluginCount} plugins), " +
+            error = $"{FormIdToken.Of(e.Target)}: the source record {FormIdToken.Of(e.CopySource)} is not present in the load order ({view.PluginCount} plugins), " +
                     "so there is no winning version of it to copy from. Enable the plugin that defines it, or name a specific " +
                     "plugin in from_source.";
             return null;
@@ -799,7 +799,7 @@ public static class WritePatchBuilder
         var srcType = RecordNaming.StripOverlay(srcBody.GetType().Name);
         var tgtType = RecordNaming.StripOverlay(targetBody.GetType().Name);
         if (string.Equals(srcType, tgtType, StringComparison.Ordinal)) return null;
-        return $"{e.Target}: cannot copy from {e.CopySource} — the source is a {srcType} and the target is a {tgtType}. " +
+        return $"{FormIdToken.Of(e.Target)}: cannot copy from {FormIdToken.Of(e.CopySource)} — the source is a {srcType} and the target is a {tgtType}. " +
                "A field bundle copies between records of the SAME record type (a field path means different things on " +
                "different types); pair each target with a source of its own type.";
     }
@@ -913,7 +913,7 @@ public static class WritePatchBuilder
             var body = view.GetRecord(session, targetName, e.Target);
             if (body is null)
             {
-                problems.Add($"{e.Target}: '{targetName}' does not define or override this record — in-place edits only what the " +
+                problems.Add($"{FormIdToken.Of(e.Target)}: '{targetName}' does not define or override this record — in-place edits only what the " +
                              "file OWNS. To change a record defined in another plugin, use the default patch lane (a new override) instead.");
                 continue;
             }
@@ -924,7 +924,7 @@ public static class WritePatchBuilder
                 Key = e.Key, Value = e.Value, Values = e.Values, Entries = e.Entries, Struct = e.Struct, Structs = e.Structs,
             };
             var label = Label(req);
-            if (linkRulebook.Validate(req) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
+            if (linkRulebook.Validate(req) is { } reject) { problems.Add($"{recType} {FormIdToken.Of(e.Target)} [{label}]: {reject}"); continue; }
 
             // CopyFrom SOURCE resolution — the same contract Apply enforces, on this lane too: the lane axis is
             // uniform, so every write verb must compose with in_place. Without this a CopyFrom op reaches ApplyVerb,
@@ -940,13 +940,13 @@ public static class WritePatchBuilder
                 if (TryOffOrderCopyBody(copyFromSources, e, view, out var offSrc))
                     srcBody = offSrc;
                 else if (string.IsNullOrWhiteSpace(srcPlugin))
-                { problems.Add($"{e.Target}: CopyFrom is missing from_plugin (internal — the mapper should have caught this)."); continue; }
+                { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom is missing from_plugin (internal — the mapper should have caught this)."); continue; }
                 else if (e.FromTarget is null && string.Equals(srcPlugin, targetName, StringComparison.OrdinalIgnoreCase))
-                { problems.Add($"{e.Target}: CopyFrom from_plugin '{srcPlugin}' is the in-place target itself — copying this record's own field onto itself is a no-op; name the OTHER plugin whose version to copy from."); continue; }
+                { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom from_plugin '{srcPlugin}' is the in-place target itself — copying this record's own field onto itself is a no-op; name the OTHER plugin whose version to copy from."); continue; }
                 else if (!view.ContainsPlugin(srcPlugin))
-                { problems.Add($"{e.Target}: CopyFrom source '{srcPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk."); continue; }
+                { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk."); continue; }
                 else if (view.ExcludedPlugins.TryGetValue(srcPlugin, out var cfWhy))
-                { problems.Add($"{e.Target}: CopyFrom source '{srcPlugin}' was excluded from this session ({cfWhy}) — its records aren't resolvable."); continue; }
+                { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' was excluded from this session ({cfWhy}) — its records aren't resolvable."); continue; }
                 else
                 {
                     srcBody = view.GetRecord(session, srcPlugin, e.CopySource);
@@ -1047,17 +1047,17 @@ public static class WritePatchBuilder
             catch (ExpectedApplyRejectionException ex)
             {
                 return PatchOutcome.Fail(
-                    $"refused applying [{label}] to {req.RecordType} {e.Target} — {ex.Message} (the file is untouched)");
+                    $"refused applying [{label}] to {req.RecordType} {FormIdToken.Of(e.Target)} — {ex.Message} (the file is untouched)");
             }
             catch (MalformedTargetDataException ex)
             {
                 return PatchOutcome.Fail(
-                    $"refused applying [{label}] to {req.RecordType} {e.Target} — {ex.Message} (the file is untouched)");
+                    $"refused applying [{label}] to {req.RecordType} {FormIdToken.Of(e.Target)} — {ex.Message} (the file is untouched)");
             }
             catch (Exception ex)
             {
                 return PatchOutcome.Fail(
-                    $"engine error applying [{label}] to {req.RecordType} {e.Target}: pre-flight ACCEPTED it but the apply " +
+                    $"engine error applying [{label}] to {req.RecordType} {FormIdToken.Of(e.Target)}: pre-flight ACCEPTED it but the apply " +
                     $"threw — a real inconsistency, surfaced not swallowed (Q3): {ex.GetType().Name}: {ex.Message}");
             }
         }
@@ -1714,7 +1714,7 @@ public static class WritePatchBuilder
         foreach (var s in specs)
         {
             if (!seen.Add(s.Target))
-            { problems.Add($"{s.Target}: forwarded more than once in this call — name each target once (one source per record)."); continue; }
+            { problems.Add($"{FormIdToken.Of(s.Target)}: forwarded more than once in this call — name each target once (one source per record)."); continue; }
             // Is the source THE FILE THIS CALL IS ABOUT TO WRITE? Judged by NAME for an in-order source (a filename is
             // unique in an order, so the name IS the identity) and by FULL-PATH identity for an off-order one: source=
             // can be a direct path, and two install copies legitimately share a filename — refusing on the name alone
@@ -1727,8 +1727,8 @@ public static class WritePatchBuilder
             if (sourceIsSelf)
             {
                 problems.Add(selfIsTarget
-                    ? $"{s.Target}: {sourceParam} '{s.FromPlugin}' is the in-place target itself — forwarding a plugin's own version into itself is a no-op; name the OTHER plugin whose version you want carried in."
-                    : $"{s.Target}: {sourceParam} '{s.FromPlugin}' is the output patch itself — forwarding a patch's own version into itself is a no-op; name the EARLIER plugin whose version you want to re-assert.");
+                    ? $"{FormIdToken.Of(s.Target)}: {sourceParam} '{s.FromPlugin}' is the in-place target itself — forwarding a plugin's own version into itself is a no-op; name the OTHER plugin whose version you want carried in."
+                    : $"{FormIdToken.Of(s.Target)}: {sourceParam} '{s.FromPlugin}' is the output patch itself — forwarding a patch's own version into itself is a no-op; name the EARLIER plugin whose version you want to re-assert.");
                 continue;
             }
             // The record's ORIGIN plugin must be active whatever the source is: the patch overrides the ORIGIN FormKey,
@@ -1744,7 +1744,7 @@ public static class WritePatchBuilder
             // self-forward guard just used.
             var originMaster = s.Target.ModKey.FileName.String;
             if (!string.Equals(originMaster, fileName, StringComparison.OrdinalIgnoreCase) && !view.ContainsPlugin(originMaster))
-            { problems.Add($"{s.Target}: the record ORIGINATES in '{originMaster}', which is not active — a forward overrides the record's origin FormKey, so the patch would need '{originMaster}' as a master. Enable it first (forwarding copies FROM source, but it cannot invent the origin master).{Absence(originMaster)}"); continue; }
+            { problems.Add($"{FormIdToken.Of(s.Target)}: the record ORIGINATES in '{originMaster}', which is not active — a forward overrides the record's origin FormKey, so the patch would need '{originMaster}' as a master. Enable it first (forwarding copies FROM source, but it cannot invent the origin master).{Absence(originMaster)}"); continue; }
             IMajorRecordGetter? body;
             bool offOrderBody = IsOffOrderSource(offOrder, s, view);
             if (offOrderBody)
@@ -1752,17 +1752,17 @@ public static class WritePatchBuilder
                 // Pre-fetched by the service off the file's own overlay; a record the file doesn't define was already
                 // refused there, so a miss here would be an engine inconsistency rather than a user error.
                 if (!offOrder!.Bodies.TryGetValue(s.Target, out body) || body is null)
-                { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' resolved off-order ({offOrder.Path}) but its body was not pre-fetched — surfaced, not skipped (Q3)."); continue; }
+                { problems.Add($"{FormIdToken.Of(s.Target)}: source plugin '{s.FromPlugin}' resolved off-order ({offOrder.Path}) but its body was not pre-fetched — surfaced, not skipped (Q3)."); continue; }
             }
             else
             {
                 if (!view.ContainsPlugin(s.FromPlugin))
-                { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' is not in the load order — name an active plugin that defines or overrides this record.{Absence(s.FromPlugin)}"); continue; }
+                { problems.Add($"{FormIdToken.Of(s.Target)}: source plugin '{s.FromPlugin}' is not in the load order — name an active plugin that defines or overrides this record.{Absence(s.FromPlugin)}"); continue; }
                 if (view.ExcludedPlugins.TryGetValue(s.FromPlugin, out var why))
-                { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
+                { problems.Add($"{FormIdToken.Of(s.Target)}: source plugin '{s.FromPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
                 body = view.GetRecord(session, s.FromPlugin, s.Target);
                 if (body is null)
-                { problems.Add($"{s.Target}: source plugin '{s.FromPlugin}' is in the load order but does NOT define or override this record (it doesn't touch it) — there is no version of it there to forward."); continue; }
+                { problems.Add($"{FormIdToken.Of(s.Target)}: source plugin '{s.FromPlugin}' is in the load order but does NOT define or override this record (it doesn't touch it) — there is no version of it there to forward."); continue; }
             }
             var w = view.ResolveWinner(s.Target);
             // An OFF-ORDER source is by definition not in the order, so it can never BE the winner — wasWinner is false
@@ -1912,7 +1912,7 @@ public static class WritePatchBuilder
                     ((IMajorRecordEnumerable)targetMod).Remove(spec.Target, WriteEngine.RemovalTypeFor(existing), throwIfUnknown: true);
                     if (targetMod.EnumerateMajorRecords().Any(x => x.FormKey == spec.Target))
                         return ForwardOutcome.Fail(
-                            $"cannot replace {spec.Target}: '{fileName}' already carries this record and its existing " +
+                            $"cannot replace {FormIdToken.Of(spec.Target)}: '{fileName}' already carries this record and its existing " +
                             "version could not be dropped before the copy (the engine no-op'd without throwing) — " +
                             "surfaced, not a silent skip (Q3); your original is UNTOUCHED.");
                     replaced = true;
@@ -1927,7 +1927,7 @@ public static class WritePatchBuilder
             catch (Exception ex)
             {
                 return ForwardOutcome.Fail(
-                    $"engine error forwarding {spec.Target} from '{spec.FromPlugin}': the source resolved but the " +
+                    $"engine error forwarding {FormIdToken.Of(spec.Target)} from '{spec.FromPlugin}': the source resolved but the " +
                     $"override-copy threw — a real inconsistency, surfaced not swallowed (Q3): {ex.GetType().Name}: {ex.Message}. Your original is UNTOUCHED.");
             }
         }
@@ -2412,7 +2412,7 @@ public static class WritePatchBuilder
                     // copy, else GetOrAdd would silently return the old record again.
                     if (patchMod.EnumerateMajorRecords().Any(x => x.FormKey == spec.Target))
                         return ForwardOutcome.Fail(
-                            $"cannot replace {spec.Target}: the patch already carries this record and its existing " +
+                            $"cannot replace {FormIdToken.Of(spec.Target)}: the patch already carries this record and its existing " +
                             "override could not be dropped before the copy (the engine no-op'd without throwing) — " +
                             "surfaced, not a silent skip (Q3); nothing was serialized (the extended patch's on-disk file is untouched).");
                     replaced = true;
@@ -2427,7 +2427,7 @@ public static class WritePatchBuilder
             catch (Exception ex)
             {
                 return ForwardOutcome.Fail(
-                    $"engine error forwarding {spec.Target} from '{spec.FromPlugin}': the source resolved but the " +
+                    $"engine error forwarding {FormIdToken.Of(spec.Target)} from '{spec.FromPlugin}': the source resolved but the " +
                     $"override-copy threw — a real inconsistency, surfaced not swallowed (Q3): {ex.GetType().Name}: {ex.Message}");
             }
         }
@@ -3129,7 +3129,7 @@ public static class WritePatchBuilder
                     {
                         parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(ownParent.GetType().Name));
                         parentPlans[i] = (null, null, null, ownParent);
-                        parentHosts[i] = $"{RecordNaming.StripOverlay(ownParent.GetType().Name)} {parentFk} is the target plugin's OWN record — it hosts the child directly (nothing copied in, no master added)";
+                        parentHosts[i] = $"{RecordNaming.StripOverlay(ownParent.GetType().Name)} {FormIdToken.Of(parentFk)} is the target plugin's OWN record — it hosts the child directly (nothing copied in, no master added)";
                     }
                     else if (AlreadyCarried(parentFk) is { } already)
                     {
@@ -3142,7 +3142,7 @@ public static class WritePatchBuilder
                         // REPORTED as the host — a provenance line that lies.
                         parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(already.GetType().Name));
                         parentPlans[i] = (null, null, null, already);
-                        parentHosts[i] = $"{RecordNaming.StripOverlay(already.GetType().Name)} {parentFk} was already carried by this artifact — its existing record hosts the child (nothing copied in)";
+                        parentHosts[i] = $"{RecordNaming.StripOverlay(already.GetType().Name)} {FormIdToken.Of(parentFk)} was already carried by this artifact — its existing record hosts the child (nothing copied in)";
                     }
                     else if (view.ResolveWinner(parentFk) is { } w)
                     {
@@ -3171,13 +3171,13 @@ public static class WritePatchBuilder
                         // N, against the bigger file. The real fix for that would be an index, not a memo.
                         var fromDefiner = ParentBodyFrom(definer, parentFk);
                         var parentBody = fromDefiner ?? ParentBodyFrom(w.WinnerPlugin, parentFk);
-                        if (parentBody is null) { problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} winner '{w.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
+                        if (parentBody is null) { problems.Add($"{s.RecordType} '{s.EditorId}': parent {FormIdToken.Of(parentFk)} winner '{w.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
                         var readFrom = fromDefiner is not null ? definer : w.WinnerPlugin;
                         parentType = WriteEngine.ResolveConcreteRecordType(RecordNaming.StripOverlay(parentBody.GetType().Name));
                         parentPlans[i] = (parentBody, readFrom, null, null);
                         bool overWinner = fromDefiner is not null && !string.Equals(readFrom, w.WinnerPlugin, StringComparison.OrdinalIgnoreCase);
                         parentContested[i] = overWinner;
-                        parentHosts[i] = $"{RecordNaming.StripOverlay(parentBody.GetType().Name)} {parentFk} hosted from '{readFrom}'"
+                        parentHosts[i] = $"{RecordNaming.StripOverlay(parentBody.GetType().Name)} {FormIdToken.Of(parentFk)} hosted from '{readFrom}'"
                             + (fromDefiner is null
                                 ? $" (the load-order WINNER — its defining plugin '{definer}' does not carry it: an injected or excluded parent)"
                                 : !overWinner
@@ -3209,7 +3209,7 @@ public static class WritePatchBuilder
                     {
                         // Genuinely absent from the load order AND the destination — a loud refusal, never a
                         // misleading "wrong FormID". Name the one-call workaround for the common new-topic case.
-                        problems.Add($"{s.RecordType} '{s.EditorId}': parent {parentFk} is not present in the load order"
+                        problems.Add($"{s.RecordType} '{s.EditorId}': parent {FormIdToken.Of(parentFk)} is not present in the load order"
                             + (extend ? " or this patch" : "") + (inPlace ? " or the target plugin" : "") + " — name an existing parent, or create the parent and this "
                             + "child in ONE call (a same-call sibling parent, by the parent's editorid).");
                         continue;
@@ -3576,7 +3576,7 @@ public static class WritePatchBuilder
         string? One(string? v)
         {
             if (err is not null || !WriteEngine.IsSameCallSiblingRef(v, out var ed)) return v;
-            if (created.TryGetValue(ed, out var rec)) return FormIdToken.Of(rec.FormKey);
+            if (created.TryGetValue(ed, out var rec)) return rec.FormKey.ToString();
             err = $"internal: same-call reference '@{ed}' on {onWhat} resolved to no record created in this call — " +
                   "pre-flight should have caught it; surfaced, not swallowed (Q3).";
             return v;
@@ -3635,7 +3635,7 @@ public static class WritePatchBuilder
                     if (!created.TryGetValue(ed, out var rec))
                         return (sp, $"internal: same-call reference '@{ed}' on {onWhat} resolved to no record created " +
                                     "in this call — pre-flight should have caught it; surfaced, not swallowed (Q3).");
-                    nf[kv.Key] = FormIdToken.Of(rec.FormKey);
+                    nf[kv.Key] = rec.FormKey.ToString();
                 }
                 else nf[kv.Key] = kv.Value;
             }

@@ -569,7 +569,7 @@ public static class SkyPatcherOverlay
                 var hay = resolver.ReadWinnerLeaf(donor.Value, spec.Paths[0]);
                 if (hay is null)
                 {
-                    warn.Add($"ds:{cls.BaseKey}:{donor}", $"filter '{cls.BaseKey}' — could not read '{spec.Paths[0]}' off {donor}'s winner; whether the line applies is UNRESOLVED.");
+                    warn.Add($"ds:{cls.BaseKey}:{donor}", $"filter '{cls.BaseKey}' — could not read '{spec.Paths[0]}' off {FormIdToken.Of(donor.Value)}'s winner; whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 return ContainsVerdict(seg, conn, hay) ? FilterVerdict.Match : FilterVerdict.NoMatch;
@@ -581,7 +581,7 @@ public static class SkyPatcherOverlay
                 var mine = resolver.KeywordsOf(donor.Value);
                 if (mine is null)
                 {
-                    warn.Add($"dk:{cls.BaseKey}:{donor}", $"filter '{cls.BaseKey}' — could not read the keywords of {donor}'s winner; whether the line applies is UNRESOLVED.");
+                    warn.Add($"dk:{cls.BaseKey}:{donor}", $"filter '{cls.BaseKey}' — could not read the keywords of {FormIdToken.Of(donor.Value)}'s winner; whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 return KeywordVerdict(mine, seg, cls.BaseKey, conn, resolver, warn);
@@ -1173,7 +1173,7 @@ public static class SkyPatcherOverlay
 
         string token;
         if (v.IsNameLiteral) token = v.NameText!;                       // rename literal, wrapper stripped
-        else if (v.Address is { IsFormId: true } a && TryFormKey(a, out var fk1)) token = FormIdToken.Of(fk1);
+        else if (v.Address is { IsFormId: true } a && TryFormKey(a, out var fk1)) token = fk1.ToString();
         else if (map.ValueMap is { } vm && vm.TryGetValue(v.Raw, out var mapped)) token = mapped;
         else if (map.FormType is not null)
         {

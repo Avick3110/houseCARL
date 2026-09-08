@@ -3977,7 +3977,7 @@ public sealed class LoadOrderService : IDisposable
                 }
                 if (i == hops - 1 && hops == segs.Length) return new List<FormKey> { pk.Value };
                 var up = Fetch(pk.Value);
-                if (up is null) { note = $"(the containing record {pk.Value} would not fetch)"; return new List<FormKey>(); }
+                if (up is null) { note = $"(the containing record {FormIdToken.Of(pk.Value)} would not fetch)"; return new List<FormKey>(); }
                 body = up;
             }
 
@@ -4012,7 +4012,7 @@ public sealed class LoadOrderService : IDisposable
                 rows[i] = new WalkSeedResult(FormIdToken.Of(seedFk), null, null, Array.Empty<WalkNodeRow>(), Array.Empty<string>(), null, null,
                     seedWin is null
                         ? UnresolvedFormId(view, seedFk) + " Nothing to walk from."
-                        : $"the winner body of {seedFk} could not be read from '{seedWin.Value.WinnerPlugin}' — nothing to walk from.");
+                        : $"the winner body of {FormIdToken.Of(seedFk)} could not be read from '{seedWin.Value.WinnerPlugin}' — nothing to walk from.");
                 continue;
             }
             var seedType = TypeOf(seedBody);
@@ -4021,7 +4021,7 @@ public sealed class LoadOrderService : IDisposable
                 Key = seedFk,
                 Body = seedBody,
                 Type = seedType,
-                Label = $"{seedType} {seedFk} ({seedBody.EditorID ?? "<no editorid>"})",
+                Label = $"{seedType} {FormIdToken.Of(seedFk)} ({seedBody.EditorID ?? "<no editorid>"})",
                 Visited = new HashSet<FormKey> { seedFk },
             };
 
@@ -4089,7 +4089,7 @@ public sealed class LoadOrderService : IDisposable
                     {
                         // A named-follow walk is a linear chain per seed, so a revisit IS a cycle: recorded and named,
                         // never looped and never silently stopped. Closure walks dedupe on the visited set instead.
-                        if (followSegs is not null) st.Cycles.Add($"{pulledBy} -> {key} (already on this chain)");
+                        if (followSegs is not null) st.Cycles.Add($"{pulledBy} -> {FormIdToken.Of(key)} (already on this chain)");
                         continue;
                     }
                     if (st.Nodes.Count >= maxNodes)
@@ -4113,7 +4113,7 @@ public sealed class LoadOrderService : IDisposable
                         // seed IN SEED ORDER that reaches the class at the SHALLOWEST hop any seed reaches it.
                         if (excl.Refuse)
                         {
-                            refusal = $"the walk reached a {type} ({key}, via {pulledBy}) — a node class this call excludes with severity 'refuse'. Nothing is returned for this call.";
+                            refusal = $"the walk reached a {type} ({FormIdToken.Of(key)}, via {pulledBy}) — a node class this call excludes with severity 'refuse'. Nothing is returned for this call.";
                             return Array.Empty<WalkSeedResult>();
                         }
                         st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), type, body.EditorID, hop, pulledBy, "kept", $"excluded ({type}, severity stop) — recorded as a boundary, not entered"));
@@ -4128,7 +4128,7 @@ public sealed class LoadOrderService : IDisposable
                         st.Truncation ??= $"walk reached its depth cap ({depth}) on at least one chain — nodes at the cap are recorded, not entered; raise walk.depth to walk deeper.";
                         continue;
                     }
-                    var label = $"{type} {key} ({body.EditorID ?? "<no editorid>"})";
+                    var label = $"{type} {FormIdToken.Of(key)} ({body.EditorID ?? "<no editorid>"})";
                     foreach (var l in LinksOf(body, followSegs, out _))
                         if (!l.IsNull) st.Frontier.Enqueue((l, hop + 1, label));
                 }
@@ -4250,7 +4250,7 @@ public sealed class LoadOrderService : IDisposable
                 var typeName = RecordNaming.StripOverlay(body.GetType().Name);
                 rows.Add(new InfoOrderRow(FormIdToken.Of(fk), typeName, body.EditorID, win.Value.WinnerPlugin, null,
                     $"{FormIdToken.Of(fk)} is a {typeName}, and the info_order form renders the merged INFO sequence of a DIALOGUE TOPIC (DIAL). " +
-                    "For a quest's topics, select them by composition: types=[\"DIAL\"] where=[\"Quest = " + fk + "\"]."));
+                    "For a quest's topics, select them by composition: types=[\"DIAL\"] where=[\"Quest = " + FormIdToken.Of(fk) + "\"]."));
                 continue;
             }
             dialRows.Add((rows.Count, fk));
@@ -5451,22 +5451,22 @@ public sealed class LoadOrderService : IDisposable
                 comp = Mo2LoadOrder.ReadComposition(profileDir);
             }
             var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, e.FromPlugin!, null);
-            if (loc.Error is not null) { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' is not in the load order and {loc.Error}"); continue; }
-            if (loc.Ambiguous is not null) { problems.Add($"{e.Target}: CopyFrom source '{e.FromPlugin}' matches several mod folders on disk — pass an exact path to disambiguate."); continue; }
+            if (loc.Error is not null) { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source '{e.FromPlugin}' is not in the load order and {loc.Error}"); continue; }
+            if (loc.Ambiguous is not null) { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source '{e.FromPlugin}' matches several mod folders on disk — pass an exact path to disambiguate."); continue; }
             ISkyrimModGetter ov;
             try { ov = LoadOrderResolver.OpenOverlay(loc.Path!, string.IsNullOrEmpty(dataDir) ? null : dataDir); }
-            catch (Exception ex) { problems.Add($"{e.Target}: CopyFrom source file '{e.FromPlugin}' could not be opened as a Skyrim plugin ({ex.Message})."); continue; }
+            catch (Exception ex) { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source file '{e.FromPlugin}' could not be opened as a Skyrim plugin ({ex.Message})."); continue; }
             IMajorRecordGetter? body;
             try { body = ov.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == e.CopySource); }
-            catch (Exception ex) { (ov as IDisposable)?.Dispose(); problems.Add($"{e.Target}: CopyFrom source file '{e.FromPlugin}' could not be read ({ex.Message})."); continue; }
+            catch (Exception ex) { (ov as IDisposable)?.Dispose(); problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source file '{e.FromPlugin}' could not be read ({ex.Message})."); continue; }
             if (body is null)
             {
                 (ov as IDisposable)?.Dispose();
                 // Name WHICH record the file is missing: the target's own version for a same-record copy, or the
                 // zip's source record for a cross-record one — "this record" would point at the wrong one.
                 problems.Add(e.FromTarget is null
-                    ? $"{e.Target}: CopyFrom source file '{e.FromPlugin}' does not define or override this record — there is no version of it there to copy."
-                    : $"{e.Target}: CopyFrom source file '{e.FromPlugin}' does not define or override the SOURCE record {e.CopySource} — there is no version of it there to copy from.");
+                    ? $"{FormIdToken.Of(e.Target)}: CopyFrom source file '{e.FromPlugin}' does not define or override this record — there is no version of it there to copy."
+                    : $"{FormIdToken.Of(e.Target)}: CopyFrom source file '{e.FromPlugin}' does not define or override the SOURCE record {FormIdToken.Of(e.CopySource)} — there is no version of it there to copy from.");
                 continue;
             }
             (overlays ??= new()).Add((IDisposable)ov);
