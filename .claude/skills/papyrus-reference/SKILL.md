@@ -1,115 +1,217 @@
 ---
 name: papyrus-reference
 description: >-
-  Look up Papyrus function signatures, parameter and return types, and flags from bundled references — vanilla + SKSE + ~45 SKSE-plugin APIs (PapyrusUtil, JContainers, MCMHelper, …). Use for any .psc read or edit, any added or changed function call, or an unknown-identifier / type-mismatch compile error. Unbundled functions get a warning, never an invented signature.
+  Looks up Papyrus function, event and property signatures — parameter order, types, defaults,
+  return type and flags — in a bundled offline corpus covering vanilla, SKSE and the shipped
+  SKSE-plugin APIs (PapyrusUtil, JContainers, MCMHelper, po3, SkyUI). Use for any .psc read or
+  edit, any added or changed function call, and for an unknown-identifier or type-mismatch
+  compile error. Covers the API surface only — not reading a modlist's .psc source, not
+  compiling it. A function the corpus does not carry gets a warning and a check path, never an
+  invented signature.
+compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 2 instance.
 ---
 
 # Papyrus Reference
 
 ## Overview
 
-This skill provides offline lookup for Papyrus function signatures, parameter shapes, return types, flags, and doc-comments. The reference corpus is generated from BellCube's [papyrus-index](https://github.com/BellCubeDev/papyrus-index) and ships in this skill's `references/` tree. The body walks the lookup procedure, the surgical-read pattern that uses each index entry's `line_start`/`line_end` to read only the relevant entry block from its source file, the bundled-or-warn fallback when a function isn't in the corpus, and the tier strategy that gates SKSE-plugin sources by modlist content.
+An offline corpus of Papyrus signatures — parameters in order, their types and defaults, return
+types, flags and doc-comments — for vanilla scripts, SKSE's additions, and the SKSE-plugin APIs
+this skill ships. It is generated from BellCube's
+[papyrus-index](https://github.com/BellCubeDev/papyrus-index) and lives under `references/`.
 
-This skill covers the **API surface** — function signatures and docs. Reading actual `.psc` source from a modlist, and compiling `.psc` → `.pex`, are separate concerns handled with your normal file-reading and compiler tooling.
+This covers the **API surface**. Reading a modlist's actual `.psc` source is a file job (ask
+`housecarl_asset_status` which mod or BSA wins a `Scripts\...` path first, then read it with your
+own file tool); compiling is `housecarl_compile_script`.
 
-For the compiles-clean-but-misbehaves traps a correct signature does NOT reveal — `GetForm` returning `None` for the whole ESL range, `SendModEvent`'s 4-arg handler arity, `FormList.HasForm` missing base-`NPC_` entries, mixed storage backends, `Utility.Wait` in a paused menu, literal/docstring escaping, common-noun type collisions — see [references/silent-biters.md](references/silent-biters.md). It is a hand-curated companion, separate from the by-construction signature corpus.
+The corpus is the cheap route to a signature, not the only one and not the proof. The deterministic
+check is the compile: `housecarl_compile_script` binds every call against the real sources on the
+import path, so a signature it rejects is wrong whatever a lookup said, and one it accepts that the
+corpus lacks is a corpus hole worth reporting. That is what stands behind "never invent a
+signature" — the corpus gets you there in three greps instead of a build.
 
-## First step
+Invoked directly with a name (`/housecarl:papyrus-reference Substring`), treat the argument as the
+function to look up. On Codex the skill is the bare folder name, `papyrus-reference`, and the same
+text arrives as prose.
 
-When you encounter a Papyrus function call you need to verify, or when authoring a `.psc`, open the function index at `references/index.jsonl`. The index is JSONL — one entry per line — and resolves an unqualified function name to the per-script reference file that documents it AND the 1-indexed `line_start`/`line_end` range of the entry block within that file. The index is grep-friendly: the entries are compact JSON (no spaces after colons), so match the **full quoted token** `"name":"FunctionName"` — a spaced pattern like `"name": "…"` matches nothing.
+## Look it up
 
-Once you have the matching index entry, do **NOT** read the whole reference file — use the entry's `line_start`/`line_end` to read just the entry block via your file-reading tool's line-range (offset/limit) capability. The whole-file load is typically 10-300 KB; the targeted block read is 200-1500 bytes. Don't bulk-load the index either; it is ~1.5 MB and that defeats the per-session token economics. Use targeted reads throughout.
+Open the function index at `references/index.jsonl` whenever you need to verify a Papyrus call or
+author a `.psc`, and match the full quoted token `"name":"FunctionName"` — the entries are compact
+JSON, so a spaced pattern matches nothing.
 
-## Reasoning framework / Lookup procedure
+That trap fails silently. A spaced `"name": "Dispel"`, or one missing the leading quote, matches
+**zero lines** for a function that is present, and a format-induced zero is indistinguishable from
+a real miss — it routes a present function into the warning path, the exact failure this skill
+exists to prevent. **Validate the instrument before you trust a zero:** grep a token you know is
+there (`"name":"OnInit"` resolves to several entries). Only once the pattern is proven is an empty
+result "not in the corpus".
 
-1. **Identify the unqualified function name** from the call site — for `Self.GetActorValue("Health")` the name is `GetActorValue`; for `StringUtil.Substring(str, 0, 4)` the name is `Substring`.
+1. **Take the unqualified name from the call site.** `Self.GetActorValue("Health")` → `GetActorValue`;
+   `StringUtil.Substring(s, 0, 4)` → `Substring`.
+2. **Grep `references/index.jsonl` for `"name":"<Name>"`.** Three result shapes:
+   - **One match.** Take its `file`, `line_start`, `line_end`.
+   - **Several matches.** Disambiguate on `qualified`. A qualified call site is authoritative —
+     `StringUtil.Substring` is the row whose `qualified` is `StringUtil.Substring`; `solveObjSetter`
+     exists on `JDB`, `JFormDB` and `JValue`, and only the call site says which. An unqualified call
+     inside a script body resolves up the calling script's `extends` chain — `Self.GetActorValue(...)`
+     in a script extending `Actor` is `Actor#GetActorValue`.
+   - **No match.** Go to "Bundled-or-warn" below.
+3. **Read the block at `line_start`..`line_end`.** Line-exact, never the whole file: a whole-file
+   read pulls in hundreds of unrelated entries and costs orders of magnitude more than the block.
+   Line-exact is the rule; one call per entry is not — several blocks can come back in one call
+   (a `sed` script over the ranges you resolved), and on a multi-signature job they should.
+4. **Read the signature off the block**: parameter order, types, which parameters have defaults and
+   what those defaults are, return type, flags (`Native` / `Global` / `Hidden` / `BetaOnly` /
+   `DebugOnly`), doc-comment if one exists. Many entries are signature-only — normal, not missing
+   data, and never a reason to fall through to the warning path.
 
-2. **Look up the name in `references/index.jsonl`.** Match the **full quoted token** — `"name":"<FunctionName>"`, closing quote included — so the hit is exact and field-scoped. The index is **compact JSON** (no spaces after colons), so a spaced pattern like `"name": "…"`, or one missing the leading quote like `name:"…"`, matches **zero lines** even for a function that is present — a false "absent" indistinguishable from a true miss. If a lookup you expect to hit returns nothing, validate the pattern against a guaranteed-present token first (`"name":"OnInit"` resolves to several entries); only trust a zero-result as "not in the corpus" once the method itself is proven. There are three result shapes:
+Events and properties come out of the same index; the `kind` field discriminates them.
 
-   - **Single match.** Pull the entry's `file`, `line_start`, and `line_end`. Confirm signature (return type, parameter types, default values), flags (`Native` / `Global` / `Hidden` / `BetaOnly` / `DebugOnly`), and doc-comment if present via the block read in step 3.
-   - **Multiple matches across sources.** Use the source qualifier from the call site to disambiguate. For unqualified calls inside a script body, disambiguation hinges on the calling script's `extends` chain — `Self.GetActorValue(...)` inside a script extending `Actor` resolves to `Actor#GetActorValue`. For global calls, the `Script.Function` qualifier in the source is authoritative: `StringUtil.Substring` resolves to the entry whose `qualified` field is `StringUtil.Substring`.
-   - **No match in the bundled index.** Proceed to the "Bundled-or-warn" section below.
+**One stated coverage bound.** Base-class events on `Form.psc` are under-covered: there is no
+vanilla or skse row for `OnInit` today, only script-specific ones. A miss on a base-class event is
+a hole in this corpus to report, **never** an answer that the event is absent from Papyrus.
 
-3. **Block-read the resolved reference entry.** Read only lines `line_start`..`line_end` from the entry's `file` (use your file tool's offset/limit). This returns just the entry's lines — typically 8-30 lines for a function block. Do **NOT** read the whole reference file; a whole-file read on `Actor.md` (303 functions, ~80 KB) or `papyrusutil.md` (~140 KB multi-script source) costs 25-50× more tokens than the block read needs. Confirm parameters in order, types, default values, return type, flags. About 51% of functions carry doc-comments; the other 49% surface signature-only entries — that's normal, not a sign of missing data.
+## A worked lookup
 
-4. **For event lookups, property lookups, and struct member lookups,** the same index handles them — the `kind` field discriminates (`global` / `instance-method` / `event` / `property`). The per-script reference file groups them under `## Events`, `## Properties`, and `## Structs` sections.
+Call site, in a Quest script that has to survive a re-init:
+
+```papyrus
+StorageUtil.FormListAdd(Self, "HC_Audit.forms", theForm)
+```
+
+Grep `"name":"FormListAdd"` in `references/index.jsonl`; the `StorageUtil` row reads:
+
+```json
+{"name":"FormListAdd","qualified":"StorageUtil.FormListAdd","source":"papyrusutil","file":"references/papyrusutil.md","kind":"global","requires_plugin":"PapyrusUtilSE.dll","line_start":5185,"line_end":5197}
+```
+
+Read `references/papyrusutil.md` lines 5185-5197 and the block gives
+`FormListAdd(ObjKey, KeyName, value, allowDuplicate) → Int`, `Native Global`, with
+`allowDuplicate: Bool` defaulting to **`true`**. That default is the payoff: without a
+`FormListClear` first, a re-init silently doubles the list — and it still compiles.
+
+## Silent biters
+
+Eight traps a correct signature does not reveal. Each compiles clean and then misbehaves:
+
+- `Game.GetForm` returns `None` for the whole ESL range — use `Game.GetFormEx`.
+- `SendModEvent` sends three arguments; the handler receives **four** (the engine appends the
+  sender), and a three-parameter handler silently never runs.
+- Papyrus string `==` is case-**insensitive**, so a case difference is never the cause of a missed
+  string match.
+- `FormList.HasForm` misses base-`NPC_` entries when you pass a placed reference — check
+  `list.HasForm(akNPC) || list.HasForm(akNPC.GetActorBase())`.
+- `JFormDB` and `StorageUtil` are separate backends: write to one, read from the other, and the
+  read comes back empty with no error.
+- `Utility.Wait` inside a paused-menu or input handler does not count real time and bursts on
+  unpause — use `RegisterForSingleUpdate`.
+- `\n` in a string literal is not safe across compilers, and a docstring cannot contain a `{`.
+- `key`, `quest`, `actor`, `form` and other type names used as identifiers collide with the type
+  and surface as "variable X is undefined".
+
+Read `references/silent-biters.md` before any call that rebuilds a form from a stored FormID, sends
+or handles a mod event, gates on a `FormList` of NPCs, reads or writes external storage, waits
+inside a menu handler, or embeds free text in a literal — the eight rules are above, that file
+carries why each one bites.
 
 ## Bundled-or-warn — never invent a signature
 
-When the bundled index has no match for the requested function:
+When the index has no match, say so:
 
-1. **Emit an explicit warning to the user.** Use this shape:
-
-   ```
-   No Papyrus reference for `FunctionName` — not present in the bundled corpus.
-   I will not invent a signature.
-
-   Options to proceed:
-   - Verify the function name spelling (typos are the #1 cause of bundled-miss)
-   - Check whether the function lives in an SKSE plugin not in the bundled set
-     (~45 popular plugins are covered; brand-new or niche plugins may not be)
-   - Investigate via Creation Kit / Papyrus modding forums / the mod's shipped
-     source if it includes .psc files
-   - Author a custom reference file following this skill's index + block shape
-   - Skip the function call if it's not load-bearing for the current task
-   ```
-
-2. **Never invent a signature.** A confidently-asserted but wrong signature can cause the user to ship code that compiles but misbehaves at runtime, or to file a compile failure as an upstream bug when it's actually an authoring error — both are recoverable only through painful debugging the user shouldn't have been put through. A clear non-answer beats a confident wrong one.
-
-## Function index
-
-The index lives at `references/index.jsonl`. Entries are **compact JSON** — one per line, no spaces after colons (match with a full quoted token like `"name":"GetActorValue"`, never a spaced `"name": "…"`). Per-entry shape:
-
-```json
-{"name":"GetActorValue","qualified":"Actor#GetActorValue","source":"vanilla","file":"references/vanilla/Actor.md","kind":"instance-method","line_start":721,"line_end":732}
-{"name":"Substring","qualified":"StringUtil.Substring","source":"skse","file":"references/skse/StringUtil.md","kind":"global","line_start":131,"line_end":145}
-{"name":"PushString","qualified":"PapyrusUtil.PushString","source":"papyrusutil","file":"references/papyrusutil.md","kind":"global","requires_plugin":"PapyrusUtilSE.dll","line_start":2610,"line_end":2622}
+```
+No Papyrus reference for `FunctionName` — not in the bundled corpus.
+I will not invent a signature.
 ```
 
-Fields:
+Then work the checks, in cost order:
 
-- `name` — unqualified function/event/property name. This is the primary lookup key.
-- `qualified` — `Script.Function` for global functions, `Script#Method` for instance methods, `Script.Event` for events, `Script.Property` for properties. Use this to disambiguate when `name` collides across sources.
-- `source` — BellCube source directory (`vanilla`, `skse`, `papyrusutil`, `jcontainers`, etc.).
-- `file` — relative path to the per-script reference markdown, rooted at the skill folder.
-- `kind` — one of `global`, `instance-method`, `event`, `property`. Property entries appear in `## Properties` sections; events in `## Events`; functions split by `isGlobal` flag into `## Global Functions` vs `## Functions`.
-- `line_start` / `line_end` — 1-indexed inclusive line range of the entry's block within `file`. Use these for the targeted block read. Typical block sizes: properties 6-10 lines, events 5-15 lines, functions 8-30 lines.
-- `requires_plugin` (Tier 2 only) — the SKSE plugin DLL name that gates this entry's availability. Omitted for Tier 1 vanilla + skse entries (always available).
+1. **Spelling and the grep pattern.** A typo and a spaced pattern produce the same empty result.
+2. **Is the function real on this machine?** `housecarl_skse` with `findings='pairing'` and
+   `filter=<Class or providing mod>` lists the native function names the winning compiled script
+   actually declares for that class. That is a declaration, not a runtime guarantee: the tool
+   answers whether a pairing is plausible and healthy, never whether the DLL registers exactly
+   these functions, and the absence of a token proves nothing.
+3. **The declaration itself.** `housecarl_decompile_script` with `pex=` recovers the real
+   declaration — names, types, properties, states, events and docstrings all survive. For a class
+   inside an archive, `housecarl_bsa_extract` with `archive=` and `dest=` first, then decompile the
+   extracted path. **Parameter defaults do not survive a decompile** — they never existed in the
+   `.pex` — so a decompiled declaration answers arity and types and cannot answer a default.
+4. **Compile it.** `housecarl_compile_script` with `script=` is the deterministic answer: it puts
+   the enabled mods' own Papyrus sources on the import path and returns per-line errors. A call
+   that compiles binds; a call the corpus lacks that compiles is a corpus hole to report.
 
-## Tier strategy
+Never invent a signature, including under pressure to "just guess". A confidently wrong signature
+ships code that compiles and misbehaves at runtime, or turns an authoring error into a filed
+upstream bug — both cost far more than the non-answer.
 
-The corpus ships in three tiers. All bundled entries are present in `references/index.jsonl` regardless of tier; tier filtering happens at lookup time, not at install time.
+## Tier 2 — the corpus carries more than a modlist installs
 
-- **Tier 1 — always available.** `vanilla/` (~25-30 scripts: `Actor`, `Form`, `ObjectReference`, `Quest`, `Game`, `Utility`, `Debug`, etc.) + `skse/` (~15-20 scripts: `StringUtil`, `Math`, `Input`, SKSE-additions to base types). These ship with any Skyrim install + SKSE, so there's no useful gating. Their index entries omit `requires_plugin`.
+The corpus ships two tiers, and the tier is a fact about the corpus, not about the user's machine.
+Tier 1 is `vanilla/` and `skse/`, which any Skyrim + SKSE install has; their rows carry no
+`requires_plugin`. Tier 2 is the SKSE-plugin sources — PapyrusUtil, JContainers, MCMHelper, po3,
+SkyUI and the rest — whose rows do.
 
-- **Tier 2 — modlist-gated.** ~45 popular SKSE plugin sources (`PapyrusUtil`, `JContainers`, `RaceMenu`, `MCMHelper`, etc.). Each Tier 2 entry's index row carries `requires_plugin` — the SKSE plugin DLL filename.
+`requires_plugin` is an **indicative hint, not a gate**. The filename it carries differs between
+builds: StorageUtil rows name `PapyrusUtilSE.dll` while the AE build installs `PapyrusUtil.dll`,
+so matching that filename against the load order fails on a plugin that is present and working.
+Match on the mod or plugin *name* when you need a quick read, and defer the real question to
+`housecarl_skse` with `findings='pairing'` and `filter=<class or providing mod>`, which pairs the
+declaring scripts to the DLLs the providing mod ships and leads with **PAIRED-BUT-DEAD** and
+**UNPAIRED**.
 
-  When you look up a function and the matching index entries are all Tier 2, confirm the gating plugin is present in the user's **active load order** before recommending the function — read the load order / active-plugins list if you have filesystem access to it, otherwise ask the user. If the plugin isn't active, fall through to the "Bundled-or-warn" path: the function exists in the bundle, but the user's modlist doesn't include the plugin that provides it.
+Installed is not the same as working. `findings='pairing'` calls a plugin PAIRED-BUT-DEAD when
+every candidate DLL statically cannot load — wrong game runtime, BSA-only, subfolder-shipped,
+32-bit, unreadable, debug-built. `findings='inventory'` leads with its own diagnostics over the
+whole SKSE layer: version-LOCKED plugins, legacy query-only plugins, non-plugin DLLs, subfolder
+DLLs, DLLs contested by more than one mod, and debug-build plugins. Report either answer as a
+verify flag, not as a promise about a running game.
 
-- **Tier 3 — omitted.** Fallout 4 and Starfield sources are not included in the Skyrim corpus.
+A Tier-2 function whose provider is missing or dead is not a corpus miss: the signature is correct
+and the call will no-op at runtime. Say that, rather than the bundled-or-warn warning.
 
-## Common mistakes
+## The index format
 
-- **Inventing a function signature when the bundled index has no match.** Surface the explicit warning instead. If the user pushes back ("just guess"), explain that a wrong signature can cause silent runtime misbehavior or false-positive bug reports, and ask them to confirm via CK or source before proceeding.
+`references/index.jsonl` is one compact-JSON entry per line. Three real rows:
 
-- **Writing the index grep with spaces after colons, or dropping the leading quote.** Entries are compact JSON — `"name":"Dispel"`, never `"name": "Dispel"`. A spaced pattern (`"name": "`) or a quote-dropped one (`name:"`) matches **zero lines** for functions that are present, and that format-induced zero-match is indistinguishable from a true "not in corpus" — so it silently routes a present function into the bundled-or-warn path, the exact failure this skill exists to prevent. Match the full compact token (`"name":"Dispel"`); when an expected hit returns empty, suspect the pattern before the corpus.
+```json
+{"name":"GetActorValue","qualified":"Actor#GetActorValue","source":"vanilla","file":"references/vanilla/Actor.md","kind":"instance-method","line_start":734,"line_end":745}
+{"name":"Substring","qualified":"StringUtil.Substring","source":"skse","file":"references/skse/StringUtil.md","kind":"global","line_start":142,"line_end":156}
+{"name":"solveObjSetter","qualified":"JDB.solveObjSetter","source":"jcontainers","file":"references/jcontainers.md","kind":"global","requires_plugin":"JContainers64.dll","line_start":1317,"line_end":1328}
+```
 
-- **Looking up by qualified name when only unqualified is provided.** The index's `name` field is unqualified — `Substring`, not `StringUtil.Substring`. Use `name` for the primary lookup and `qualified` only for disambiguation when multiple entries share a `name`.
+- `name` — unqualified function, event or property name. The lookup key.
+- `qualified` — `Script.Function`, `Script#Method`, `Script.Event`, `Script.Property`. Disambiguates
+  a `name` that collides across sources.
+- `source` — the source directory the entry came from (`vanilla`, `skse`, `papyrusutil`, …).
+- `file` — the reference file holding the entry, rooted at the skill folder.
+- `kind` — `global`, `instance-method`, `event` or `property`.
+- `line_start` / `line_end` — 1-indexed inclusive block range inside `file`.
+- `requires_plugin` — Tier 2 only, and indicative (see above).
 
-- **Treating a missing doc-comment as a missing function.** About 49% of the corpus carries signature-only entries (no doc-block in the source `.psc`). The function exists and the signature is authoritative — there just isn't a doc-comment. Don't fall through to "Bundled-or-warn" on missing docs alone.
+**The index is the intended second hop.** Every other file under `references/` is reached through a
+row's `file` field and read at its `line_start`..`line_end`; each carries a `## Contents` table for
+the rare fallback read, and no read off the index is ever whole-file. The index itself is grepped,
+never bulk-loaded.
 
-- **Loading a per-source reference file when the index pointed somewhere else.** Always trust the index's `file` field. If the user says "look up `Foo` in `Actor.md`" but the index resolves `Foo` to `references/skse/Form.md`, the index is authoritative — investigate the discrepancy before guessing.
+## Getting it wrong, and the rule instead
 
-- **Reading the whole reference file instead of block-reading via `line_start`/`line_end`.** Every index entry carries an inclusive 1-indexed line range pointing at the entry's block. A whole-file load on `Actor.md` is ~80 KB and pulls in 300+ unrelated entries — pure token waste. Only fall back to a whole-file read if the entry block is malformed (extremely rare; would indicate a corpus-generation bug worth reporting) or if you genuinely need cross-entry context like the script's `Extends` header.
+- Grep the index with the compact token, `"name":"Dispel"` (a spaced `"name": "Dispel"` matches
+  nothing and reads as absence).
+- Look up by the unqualified `name`, and use `qualified` only to disambiguate (the index's key is
+  `Substring`, not `StringUtil.Substring`).
+- Trust the index's `file` field over any file a user names (if a lookup for `Foo` resolves to
+  `references/skse/Form.md` and the user said `Actor.md`, the index wins — investigate the gap).
+- Read the block at `line_start`..`line_end`, batching several ranges into one call where you can
+  (a whole-file read on a large source is pure waste; fall back to one only for a malformed block,
+  which is a corpus bug worth reporting).
+- Treat a signature-only entry as complete (a missing doc-comment is not a missing function).
+- Say that events are engine-invoked when someone asks how to call one — `kind: "event"` rows look
+  like functions and are not called.
+- Re-grep and re-read for every signature question, including a name you looked up earlier in the
+  same session. A remembered signature is a recalled signature; the index costs one grep.
 
-- **Skipping the Tier 2 plugin-active check for a script-context lookup.** A `PapyrusUtil.PushString` call only makes sense if `PapyrusUtilSE.dll` is active. If the user's modlist doesn't include it, the call won't resolve at runtime — the bundled-or-warn path is the correct response, not "here's the signature, use it."
+## Maintaining the corpus
 
-- **Conflating events with functions.** Events have `kind: "event"` in the index and live in `## Events` sections. Their signatures (`Event OnInit()`, `Event OnEffectStart(Actor akTarget, Actor akCaster)`) look like function signatures but they're invoked by the engine, not called. If a user asks "how do I call `OnEffectStart`," that's a confused question — surface that events are engine-driven, not user-called.
-
-## Notes
-
-- **Corpus provenance** — the `references/` tree is generated from BellCube's [papyrus-index](https://github.com/BellCubeDev/papyrus-index). To update coverage (e.g. a newly-released plugin), regenerate from upstream and refresh `references/` + `index.jsonl`.
-
-- **Hand-curated companion** — `references/silent-biters.md` is NOT part of the BellCube-generated corpus (it carries semantic gotchas, not signatures) and is never resolved by the index lookup. Preserve it across any regeneration of `references/` + `index.jsonl`; it carries a hand-maintained-staleness duty.
-
-- **Authoring custom reference files** — for plugins not in the bundled corpus, you can hand-author a per-script reference file plus matching `index.jsonl` entries following the same `name` / `qualified` / `source` / `file` / `kind` / `line_start` / `line_end` shape this skill uses. The lookup procedure above then resolves them identically.
+Regenerating the corpus, or hand-authoring an entry for a source it does not carry, is
+`references/corpus-notes.md` — read it only when changing the corpus, never to answer a lookup.
