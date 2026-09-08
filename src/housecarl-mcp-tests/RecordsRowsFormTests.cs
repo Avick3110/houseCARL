@@ -262,6 +262,19 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
     }
 
     [Fact]
+    public void ATrimmedElementCellKeepsNeitherTheFormIdNorItsName()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) },
+            project: new RecordsTools.RecordsProject { form = "rows", fields = new[] { "Effects" }, resolve_names = true });
+        var row = RowLine(r, "Effects[0]");
+        // The element cell is trimmed to its bare type because BaseEffect is a cell of its own on the same row.
+        // The name the trim's FormID resolved to goes with it: it names a FormID this cell no longer shows, and
+        // the cell that still shows it carries the same name one cell along.
+        Assert.Contains("[Effect] | BaseEffect=", row);
+        Assert.Equal(1, row.Split("HcRecMgefFire").Length - 1);
+    }
+
+    [Fact]
     public void ADepthOfTwoLeavesTheRowAtItsElementType()
     {
         // depth= means the same thing here as on the fields form: how far into each element the line reaches.
