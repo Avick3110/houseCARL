@@ -86,7 +86,7 @@ Read grammar-core plus the one or two files you need — don't bulk-load everyth
    Append `!` to the chance to make it deterministic (consistent per NPC + save across sessions).
 
 5. **Place the file** at `Data/<name>_DISTR.ini` — the **`_DISTR` suffix is mandatory** and the file
-   is flat in `Data/`, never in a per-type subfolder; without both it is never read. Files load
+   is flat in `Data/`, never in a per-type subfolder; without either it is never read. Files load
    alphabetically A→Z, each top-to-bottom; comment with `;`. Ship it inside a mod the mod manager
    handles, then confirm the placement with `housecarl_asset_status` (*Check the reach before you
    write it*, below).
