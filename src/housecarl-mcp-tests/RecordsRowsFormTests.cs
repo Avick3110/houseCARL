@@ -271,7 +271,7 @@ public sealed class RecordsRowsFormTests : RecordsTestBase
         // The name the trim's FormID resolved to goes with it: it names a FormID this cell no longer shows, and
         // the cell that still shows it carries the same name one cell along.
         Assert.Contains("[Effect] | BaseEffect=", row);
-        Assert.Equal(1, row.Split("HcRecMgefFire").Length - 1);
+        Assert.Equal(1, CountOf(row, "HcRecMgefFire"));
     }
 
     [Fact]
