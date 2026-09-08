@@ -20,6 +20,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `imports (N): …` and the debug-CRT verdict over that list returned a clean bill of health for a build the
   loader would refuse. It is now a parse failure like every other one in that walk, and says
   `imports: UNKNOWN`. A directory with no address at all is still genuine absence and still walks to an answer.
+  The same walk had a second silent drop: an old-style delay-load entry that gives an absolute address instead of
+  a relative one was skipped, again leaving a short list that read as complete. Its address is now resolved
+  against the image base like the loader does, and the read says `imports: UNKNOWN` when it cannot be.
 - **A SkyPatcher INI can be checked before it is placed in a mod.** `housecarl_records`'s overlay pole takes a
   draft file: `source={"overlay": "skypatcher", "state": "post", "ini": "<absolute path to a draft .ini>",
   "subfolder": "weapon"}` reads the record as the game would see it once that draft is placed — the live layer

@@ -372,7 +372,8 @@ public static class SksePluginReader
     ///
     /// Both directories are arrays of fixed-size descriptors terminated by an all-zero entry, each carrying an RVA to the
     /// imported DLL's ASCII name. Delay-load descriptors predate the RVA convention: bit0 of their Attributes is
-    /// <c>RvaBased</c>, and a (long-obsolete) VA-based table is SKIPPED rather than misread as an RVA.</summary>
+    /// <c>RvaBased</c>, and a (long-obsolete) VA-based table carries absolute addresses, resolved here the way the
+    /// loader does — VA minus the image base — and refused when that lands outside the image.</summary>
     static List<string>? ReadImportNames(PEReader pe)
     {
         var names = new List<string>();
@@ -409,10 +410,19 @@ public static class SksePluginReader
                     uint attributes = delay ? rd.ReadUInt32() : 0;     // delay-load: Attributes precedes the name RVA
                     rd.Offset = i * stride + nameOff;
                     int nameRva = rd.ReadInt32();
-                    // The all-zero descriptor terminates the array. A delay-load table whose bit0 (RvaBased) is clear is
-                    // VA-based (pre-VS2015); its "RVA" is an absolute address we must NOT resolve — skip, don't guess.
+                    // The all-zero descriptor terminates the array.
                     if (nameRva == 0) return true;
-                    if (delay && (attributes & 1) == 0) continue;
+                    // A delay-load table whose bit0 (RvaBased) is clear is VA-based (pre-VS2015): the field is an
+                    // absolute address, so subtract the image base to get the RVA, which is what the loader does.
+                    // Skipping it instead would drop the name behind a complete-looking list — the same silent partial
+                    // the zero Size above refuses. A VA outside the image is unresolvable, so it fails the walk; a
+                    // 32-bit field cannot express a 64-bit image's addresses, which is why such a table is x86-only.
+                    if (delay && (attributes & 1) == 0)
+                    {
+                        long fromBase = (uint)nameRva - (long)hdr.ImageBase;
+                        if (fromBase is <= 0 or > int.MaxValue) return false;
+                        nameRva = (int)fromBase;
+                    }
                     // An unresolvable name is CORRUPTION, and skipping it would hand back a short list that renders as a
                     // complete "imports (N): …" — a silent partial answer, which is worse here than no answer: if the
                     // entry we dropped were vcruntime140d.dll, the Debug-CRT check would report a clean bill of health.

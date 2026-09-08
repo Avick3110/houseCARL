@@ -10,7 +10,9 @@ namespace HousecarlMcpTests;
 /// delay-import set was dropped and the read still reported success — a complete-looking "imports (N): …" missing the
 /// very names the Debug-CRT verdict is built on (#416). Synthetic PEs, because the shape is a header field: the image
 /// below is the minimum <see cref="System.Reflection.PortableExecutable.PEReader"/> will open, with one .rdata section
-/// carrying a real import descriptor table, a real delay-load descriptor table, and the two name strings.</summary>
+/// carrying a real import descriptor table, a real delay-load descriptor table, and the two name strings. The same
+/// image serves the sibling drop at the bottom: a VA-based delay descriptor, which used to be skipped the same
+/// way.</summary>
 [Trait("tier", "unit")]
 public sealed class SkseImportDirectoryBoundTests
 {
@@ -68,6 +70,28 @@ public sealed class SkseImportDirectoryBoundTests
         Assert.Empty(info.Imports!);
     }
 
+    /// <summary>The sibling drop, in the same walk: a delay descriptor with Attributes bit0 clear is VA-based, and its
+    /// name field is an absolute address. That is resolvable — VA minus the image base is what the loader does — so it
+    /// must be read, not skipped past into a list that renders as the whole truth.</summary>
+    [Fact]
+    public void VaBasedDelayDescriptorIsResolvedAgainstTheImageBase()
+    {
+        var info = SksePluginReader.ReadBytes("va.dll", Image(ImportRva, ImportSize, DelayRva, DelaySize, delayAttributes: 0, imageBase: 0x400000));
+
+        Assert.Equal(new[] { "kernel32.dll", "vcruntime140d.dll" }, info.Imports);
+        Assert.Equal(new[] { "vcruntime140d.dll" }, SksePluginReader.DebugCrtImportsOf(info));
+    }
+
+    /// <summary>The same VA-based table under a 64-bit image base, which a 32-bit name field cannot express, so the
+    /// address lands outside the image. Unresolvable is UNKNOWN here, never a silently short list.</summary>
+    [Fact]
+    public void VaBasedDelayDescriptorOutsideTheImageAnswersUnknown()
+    {
+        var info = SksePluginReader.ReadBytes("va.dll", Image(ImportRva, ImportSize, DelayRva, DelaySize, delayAttributes: 0));
+
+        Assert.Null(info.Imports);
+    }
+
     // ── the synthetic image ──────────────────────────────────────────────────────────────────────────────────────
 
     const int HeaderBytes = 0x200;      // SizeOfHeaders, one file-alignment unit
@@ -83,8 +107,9 @@ public sealed class SkseImportDirectoryBoundTests
 
     /// <summary>A minimal x64 PE image declaring the two import directories at the given RVA/Size. The tables and their
     /// name strings are always written; only what the header declares about them varies, which is exactly the axis
-    /// under test.</summary>
-    static byte[] Image(int importRva, int importSize, int delayRva, int delaySize)
+    /// under test. <paramref name="delayAttributes"/> and <paramref name="imageBase"/> pick how the delay table
+    /// addresses its name: bit0 set is an RVA, clear is the absolute address a VA-based table would carry.</summary>
+    static byte[] Image(int importRva, int importSize, int delayRva, int delaySize, uint delayAttributes = 1, ulong imageBase = 0x180000000)
     {
         var img = new byte[HeaderBytes + SectionBytes];
 
@@ -101,6 +126,7 @@ public sealed class SkseImportDirectoryBoundTests
 
         int opt = coff + 20;
         U16(img, opt + 0x00, 0x20B);                 // PE32+
+        U64(img, opt + 0x18, imageBase);             // ImageBase, what a VA-based delay name is measured from
         U32(img, opt + 0x20, 0x1000);                // SectionAlignment
         U32(img, opt + 0x24, 0x200);                 // FileAlignment
         U16(img, opt + 0x30, 6);                     // MajorSubsystemVersion
@@ -124,8 +150,9 @@ public sealed class SkseImportDirectoryBoundTests
         U32(img, sec + 0x24, 0x40000040);            // CNT_INITIALIZED_DATA | MEM_READ
 
         U32(img, At(ImportRva) + 0x0C, Kernel32Rva); // IMAGE_IMPORT_DESCRIPTOR.Name
-        U32(img, At(DelayRva) + 0x00, 1);            // ImgDelayDescr.Attributes, bit0 = RvaBased
-        U32(img, At(DelayRva) + 0x04, DebugCrtRva);  // ImgDelayDescr.DllName
+        uint delayName = (delayAttributes & 1) != 0 ? (uint)DebugCrtRva : (uint)(imageBase + (ulong)DebugCrtRva);
+        U32(img, At(DelayRva) + 0x00, delayAttributes);  // ImgDelayDescr.Attributes, bit0 = RvaBased
+        U32(img, At(DelayRva) + 0x04, delayName);        // ImgDelayDescr.DllName
         Ascii(img, At(Kernel32Rva), "kernel32.dll");
         Ascii(img, At(DebugCrtRva), "vcruntime140d.dll");
         return img;
@@ -136,5 +163,6 @@ public sealed class SkseImportDirectoryBoundTests
 
     static void U16(byte[] b, int off, ushort v) => BinaryPrimitives.WriteUInt16LittleEndian(b.AsSpan(off), v);
     static void U32(byte[] b, int off, uint v) => BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(off), v);
+    static void U64(byte[] b, int off, ulong v) => BinaryPrimitives.WriteUInt64LittleEndian(b.AsSpan(off), v);
     static void Ascii(byte[] b, int off, string s) => Encoding.ASCII.GetBytes(s).CopyTo(b.AsSpan(off));
 }
