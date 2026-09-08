@@ -194,7 +194,8 @@ public static class CodexUmbrellaCoverageProbe
     /// The pattern matches any such identifier, tool-shaped or not, so the allow-list is the recorded exit for a
     /// <c>housecarl_*</c> name that is deliberately something else.</summary>
     static List<string> DeadToolNames(string umbrella, ISet<string> live, ISet<string> allow)
-        => Regex.Matches(umbrella, "housecarl_[a-z0-9_]+").Select(m => m.Value).Distinct(StringComparer.Ordinal)
+        => Regex.Matches(umbrella, "housecarl_[a-z0-9]+(?:_[a-z0-9]+)*", RegexOptions.IgnoreCase)
+                .Select(m => m.Value).Distinct(StringComparer.Ordinal)
                 .Where(n => !live.Contains(n) && !allow.Contains(n)).OrderBy(n => n, StringComparer.Ordinal).ToList();
 
     /// <summary>Does the text mention <paramref name="name"/> as a whole identifier — not as part of a LONGER
