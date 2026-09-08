@@ -183,10 +183,14 @@ adds re-evaluation to an already-distributed population, it does not shrink the 
 reached in the first place.
 
 **Why it matters in numbers.** On a heavily overhauled order the two populations are nowhere near
-each other — an audit of one live load order found 17 of 24,782 bandit-faction NPCs on a PC level
-multiplier, against 4,024 matching the line's own level bound. Reading the filter as "auto-levelled
-NPCs only" understates the reach by a factor of hundreds. Count both with `housecarl_records`
-(`counts_only=true`) before quoting a reach.
+each other — a census of one live load order (`housecarl_records`, `counts_only=true`) found 17 of
+24,782 bandit-faction NPCs on a PC level multiplier, against 4,024 matching the line's own level
+bound; that same order carries 963 PC-level-mult NPC records in total, across every faction.
+Reading the filter as "auto-levelled NPCs only" understates the reach by a factor of hundreds there.
+Those counts read each record's own local data, so a templated NPC whose stats are inherited is not
+counted although SPID matches the resolved actor (1,073 of the 24,782 inherit stats) — a census is a
+floor, and the source below, not the ratio, is what settles the rule. Count both with
+`housecarl_records` (`counts_only=true`) before quoting a reach.
 
 > **Source.** `powerof3/Spell-Perk-Item-Distributor`: `DistributeManager.cpp`
 > `detail::distribute_on_load` calls `Distribute(npcData, false)` for every NPC passing
