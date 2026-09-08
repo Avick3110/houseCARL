@@ -35,8 +35,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **A dialogue topic whose numeric `Subtype` contradicts its SNAM marker is now flagged, and the marker is named
   as the authoritative one.** The engine buckets topics by SNAM; the numeric subtype is stale on topics authored
   before the Dragonborn-era Creation Kit inserted six `FlyingMount*` values into the enum, so a vanilla `HELO`
-  topic can read as `RechargeExit`. The dialogue check now warns on the disagreement, the text and JSON renders
-  label the pair (`subtype=… (stale)`, `subtype_marker=… (authoritative)`, `subtype_stale`), and the blank-marker
+  topic can read as `RechargeExit`. The dialogue check now warns on the disagreement — only for a topic a mod
+  defines or overrides, so a whole-quest check over vanilla topics stays quiet — and both renders label the pair
+  (`subtype=… (stale)`, `subtype_marker=… (authoritative)`, `subtype_stale`, `subtype_from_marker`) on every
+  topic. A non-blank marker houseCARL does not model is named rather than passed over, and the blank-marker
   advice says its recommended marker is derived from that unreliable field. Nothing is rewritten: no field on the
   record distinguishes the two numberings.
 
