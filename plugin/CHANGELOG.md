@@ -2735,7 +2735,6 @@ offset, paging meant slicing by `editorid_contains`. Now:
   each candidate, which for an NPC defined in `Skyrim.esm` is not the folder the FaceGen path points at. The
   four Race cases and that provider test move to `references/race-and-provider-cases.md`, the body is about a
   third shorter, and the trigger set moves to the published `evals/evals.json` shape with a without-skill arm.
-- **`oar-authoring` names tools that exist, finds the config the game actually loads, and states what it does not
 - **The OAR skill is now `/housecarl:open-animation-replacer`.** It shipped as `/housecarl:oar-authoring`, and
   the old slash command no longer exists — retype it, and update anything that invokes it by name. A host that
   lists skills by name alone showed the old one as "oar", which reads as the English word rather than the mod;
