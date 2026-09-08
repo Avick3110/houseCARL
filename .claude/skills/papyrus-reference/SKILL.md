@@ -70,8 +70,9 @@ casing off the matched row, never off the call site.
      it:** many class members carry both a `vanilla` and an `skse` row under one `qualified`, and
      `Actor#GetActorValue` is one of them. When it still ties, break on `source` and prefer `skse` —
      an SKSE install extends the vanilla class. Almost every such pair renders the same block; where
-     the two differ they differ on whether a parameter is required, so read both and say which
-     declaration you took.
+     the two differ it is usually the doc-comment the `skse` block drops or replaces, and only rarely
+     a parameter's required-ness. Read both, and call it a declaration conflict only when the
+     signature differs, not when a sentence of prose does.
    - **No match.** Go to "Bundled-or-warn" below.
 3. **Read the block at `line_start`..`line_end`.** Line-exact, never the whole file: a whole-file
    read pulls in hundreds of unrelated entries and costs orders of magnitude more than the block.
