@@ -12,9 +12,9 @@ end explains why code copied from the older po3 fork (or SPID / po3 Papyrus Exte
 an NG single-DLL build.
 
 **Boundary — this is the C++ / vtable / memory surface only.** A `RelocateVirtual` vtable slot or a
-`RUNTIME_DATA` C++ field is never a Papyrus function signature. houseCARL's `papyrus-reference` skill owns
-the `.psc` surface; never state a Papyrus signature as though it were derived from these C++ headers. Where
-the C++/Papyrus line is crossed, say so and hand off.
+`RUNTIME_DATA` C++ field is never a Papyrus function signature. A signature for a function that already
+exists is a `housecarl:papyrus-reference` lookup; a native you are inventing is declared from the grammar
+in the skill body. Never state a Papyrus signature as though it were derived from these C++ headers.
 
 Provenance is cited as `path:line` against the pinned NG corpus (`alandtse/CommonLibVR` @ `8c048b3`, its
 bundled `ng/CLAUDE.md`, the CommonLibSSE-NG wiki, and real plugins OAR / SPID / po3 Papyrus Extender), so a
@@ -22,6 +22,7 @@ surprising claim traces back to source.
 
 ## Contents
 
+- [SE+AE only — the five rows](#se-ae-only) — the whole file matters once VR is in scope; this is the route when it isn't
 - [The core problem](#the-core-problem) — why one layout can't serve three runtimes
 - [The footgun catalog](#the-footgun-catalog) — **the centerpiece**: mistake → symptom → fix
 - [Compile-time vs runtime — the decision rule](#compile-time-vs-runtime--the-decision-rule)
@@ -30,6 +31,30 @@ surprising claim traces back to source.
 - [The preprocessor define set](#the-preprocessor-define-set) — ENABLE / EXCLUSIVE macros + the preset map
 - [Lineage caution](#lineage-caution) — po3 vs NG idioms are not portable
 - [Not yet verified in-game](#not-yet-verified-in-game) — what still needs an empirical build-test
+
+## SE+AE only — the five rows {#se-ae-only}
+
+Most of this file is about VR, which is the runtime that shifts vtables and changes base classes. If the
+target is **SE + AE and no VR**, read these five rows and stop; the rest is for when VR joins the set.
+
+1. **The derivation is in `Common.h`, and it wins.** Authors set only `ENABLE_SKYRIM_SE` /
+   `ENABLE_SKYRIM_AE` / `ENABLE_SKYRIM_VR`; every `EXCLUSIVE_*` macro is derived from those at preprocess
+   time. Read the derivation verbatim in [the preprocessor define set](#the-preprocessor-define-set) rather
+   than any summary table — where a table and `Common.h` disagree, `Common.h` wins.
+2. **FLAT is not SE and is not AE.** A dual SE+AE build defines `EXCLUSIVE_SKYRIM_FLAT` **alone**; `_SE` and
+   `_AE` are *not* defined (a single-runtime build defines its own plus FLAT). FLAT means "not VR", so it
+   cannot discriminate SE from AE — gate with `EXCLUSIVE_SKYRIM_SE` / `EXCLUSIVE_SKYRIM_AE` wherever the
+   two layouts differ (`BaseExtraList` is the canonical case). Assuming a dual build defines both is
+   exactly backwards, and the code compiles clean and reads the wrong offset on one runtime.
+3. **Both entry points, always.** SE loads a plugin through `SKSEPlugin_Query`; AE loads it through the
+   static `SKSEPlugin_Version` data. Ship only one and the DLL is silently skipped on the other runtime —
+   let `add_commonlibsse_plugin` (or the xmake plugin rule) generate both, and never hand-write a second
+   metadata path on top. Detail: [the dual-entrypoint requirement](#the-dual-entrypoint-requirement-footgun-13).
+4. **Save `RELOCATION_ID(...)` with `auto`.** Typing the result `REL::ID` drops NG's runtime dispatch and
+   silently pins the build to one of SE or AE. Two-arg form is `(SE-and-VR shared, AE)`.
+5. **The accessor rule still applies.** SE and AE differ in offsets too, so a member that NG exposes through
+   a `RUNTIME_DATA` accessor is read through that accessor, never by direct member access:
+   [the RUNTIME_DATA accessor rule](#the-runtime_data-accessor-rule).
 
 ## The core problem
 
