@@ -9,7 +9,7 @@
     "output_quality": "The audit's own authoring task on the live order, run as a pair: control (no skill in the catalogue) against with-skill."
   },
   "method": {
-    "cases": "32 — 17 should-trigger, 15 should-not. The shipped 26 (14/12) survive with their queries unchanged; 6 are added for the description's changed clauses (three distribution-shaped negatives for the new exclusion clause, three positives naming the newly front-loaded terms).",
+    "cases": "32 — 18 should-trigger, 14 should-not. The shipped 26 (14/12) survive with their queries unchanged; 6 are added for the description's changed clauses (three distribution-shaped cases for the exclusion clause, three positives naming the newly front-loaded terms). Case 29 moved from should-not to should-trigger on 2026-09-08 when the 'items into containers is CID' clause was dropped from the routing; 27 and 28 stay should-not, reworded for the new routing.",
     "runs_per_query": 3,
     "split": "60/40 train/held-out",
     "without_skill_arm": "The same 32 queries against a menu that omits this skill, recording what the agent does unaided. It is the baseline the delta is taken against, and it is how a negative case is proved to be a near-miss rather than an unreachable prompt.",
@@ -241,26 +241,26 @@
     {
       "id": 27,
       "prompt": "distribute a keyword to every dagger in my load order",
-      "expected_output": "Route to the KID skill — keywords onto items is not a SkyPatcher job.",
-      "expectations": ["does not pick skypatcher-authoring", "routes to the keywords-onto-items skill"],
+      "expected_output": "Route to the KID skill — a keyword onto item records is not a SkyPatcher job.",
+      "expectations": ["does not pick skypatcher-authoring", "routes to the keywords-onto-item-records skill"],
       "should_trigger": false,
-      "evidence": "NEW 2026-09-08, never measured. Tests the description's 'keywords onto items is KID' exclusion clause against a prompt with no framework named."
+      "evidence": "NEW 2026-09-08, never measured. Tests the description's 'keywords onto item records is KID' exclusion clause against a prompt with no framework named. Reworded 2026-09-08 when the CID clause was dropped; the KID half of the routing is unchanged, so the case still measures the same boundary."
     },
     {
       "id": 28,
       "prompt": "give every bandit a spell at runtime, no esp",
-      "expected_output": "Route to the SPID skill — forms onto NPCs is not a SkyPatcher job.",
-      "expectations": ["does not pick skypatcher-authoring", "routes to the forms-onto-NPCs skill"],
+      "expected_output": "Route to the SPID skill — distribution to NPCs by group is not a SkyPatcher job.",
+      "expectations": ["does not pick skypatcher-authoring", "routes to the distribution-to-NPCs-by-group skill"],
       "should_trigger": false,
-      "evidence": "NEW 2026-09-08, never measured. The 'runtime, no esp' phrasing is the lure; the exclusion clause is what should decide it."
+      "evidence": "NEW 2026-09-08, never measured. The 'runtime, no esp' phrasing is the lure; the exclusion clause is what should decide it. Rewritten 2026-09-08 for the new routing: 'every bandit' is a group (faction), which is SPID's half — an individual NPC's edits are SkyPatcher's, so the case now measures the group/individual line rather than forms-onto-NPCs."
     },
     {
       "id": 29,
       "prompt": "put these items into a chest without an ESP",
-      "expected_output": "Route to the CID skill — items into containers is not a SkyPatcher job.",
-      "expectations": ["does not pick skypatcher-authoring"],
-      "should_trigger": false,
-      "evidence": "NEW 2026-09-08, never measured. Hardest of the three: SkyPatcher does patch CONT records, so the boundary is what RECEIVES the change. No CID skill ships, unlike cases 27 and 28 whose KID and SPID targets do, so this case grades on the decline alone — a routing expectation here would be unsatisfiable."
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring", "reaches the container patcher — filterByContainers with addToContainers"],
+      "should_trigger": true,
+      "evidence": "NEW 2026-09-08, never measured. Written as a should-not case against the description's 'items into containers is CID' clause; moved to the should-trigger arm 2026-09-08 when that clause was dropped. SkyPatcher's container patcher owns the job outright (references/container.md — filterByContainers, addToContainers), and no CID skill ships, so the old decline had nowhere to route."
     },
     {
       "id": 30,
