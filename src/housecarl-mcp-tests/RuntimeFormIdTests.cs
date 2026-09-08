@@ -112,6 +112,51 @@ public sealed class RuntimeFormIdTests
         Assert.Contains("'0A2C94:Skyrim.esm'", err);
     }
 
+    /// <summary>A BARE runtime FormID as a where= operand goes through the call's own FormID door, so it compares
+    /// as the FormKey it names and matches the record. Left alone it would miss both the FormKey and the numeric
+    /// branch and string-compare to a DEFINITE false on every record — 0 matches with nothing said.</summary>
+    [Fact]
+    public void ABareRuntimeFormIdInAWhereOperandComparesAsAFormKey()
+    {
+        var mod = new SkyrimMod(new ModKey("HcRtWhere", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var ench = mod.ObjectEffects.AddNew();
+        var weapon = mod.Weapons.AddNew();
+        weapon.EditorID = "HcRtWhereWeapon";
+        weapon.ObjectEffect.SetTo(ench.FormKey);
+
+        var (set, err) = FieldPredicateSet.Parse(new[] { "ObjectEffect = 000A2C94" }, _ => ench.FormKey);
+        Assert.Null(err);
+        Assert.True(set!.Matches(weapon));
+        Assert.Null(set.AccountingNote());
+    }
+
+    /// <summary>With no load order in hand there is nothing to resolve it against, so it is refused by name rather
+    /// than compared as text.</summary>
+    [Fact]
+    public void ABareRuntimeFormIdInAWhereOperandIsRefusedWithNoLoadOrder()
+    {
+        var (set, err) = FieldPredicateSet.Parse(new[] { "ObjectEffect = 000A2C94" });
+        Assert.Null(set);
+        Assert.NotNull(err);
+        Assert.Contains("RUNTIME FormID", err);
+        Assert.Contains("XXXXXX:Plugin.esp", err);
+    }
+
+    /// <summary>The resolved key rides ALONGSIDE the operand, so a leaf that is not a FormKey keeps its own
+    /// comparison: an eight-digit number on a numeric field still compares as a number.</summary>
+    [Fact]
+    public void AnEightDigitOperandOnANumericLeafStillComparesAsANumber()
+    {
+        var mod = new SkyrimMod(new ModKey("HcRtNum", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var weapon = mod.Weapons.AddNew();
+        weapon.EditorID = "HcRtNumWeapon";
+        weapon.BasicStats = new WeaponBasicStats { Damage = 10, Value = 1234, Weight = 1 };
+
+        var (set, err) = FieldPredicateSet.Parse(new[] { "BasicStats.Value = 00001234" }, _ => weapon.FormKey);
+        Assert.Null(err);
+        Assert.True(set!.Matches(weapon));
+    }
+
     /// <summary>create's parent= takes an EditorID too, so it goes through the door's refusal check rather than
     /// its parse — the hybrid must be named there as well, not left to "Malformed FormKey string".</summary>
     [Fact]
