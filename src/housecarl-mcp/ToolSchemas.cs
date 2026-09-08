@@ -8,8 +8,9 @@ namespace HousecarlMcp;
 
 /// <summary>
 /// The published-schema layer: rewrites each tool's <c>inputSchema</c> once at registration, after the assembly
-/// scan has built it. Two passes — the <c>@file</c> union on the parameters listed in
-/// <see cref="FileListParams"/>, then <see cref="FlattenRefs"/> over every tool.
+/// scan has built it. Three passes — the <c>@file</c> union on the parameters listed in
+/// <see cref="FileListParams"/>, then <see cref="FlattenRefs"/> over every tool, then
+/// <see cref="NestedSchemaConstraints"/> stamping <c>required</c>/<c>enum</c> inside each parameter.
 ///
 /// <para>Changes only what is PUBLISHED, never what is ACCEPTED. Neither reader of a call's arguments is moved by
 /// it: <see cref="ToolCallShim"/> coerces and refuses off the published schema but reads only its top-level
@@ -73,6 +74,7 @@ internal static class ToolSchemas
         services.PostConfigure<McpServerOptions>(options =>
         {
             if (options.ToolCollection is not { } tools) return;
+            var roots = NestedSchemaConstraints.ParameterRoots();
             foreach (var tool in tools)
             {
                 if (JsonNode.Parse(tool.ProtocolTool.InputSchema.GetRawText()) is not JsonObject root) continue;
@@ -81,6 +83,9 @@ internal static class ToolSchemas
                 var shapes = ShapeUnionParams.Where(p => p.Tool == tool.ProtocolTool.Name).ToList();
                 changed |= shapes.Count > 0 && RewriteShapeUnions(root, shapes);
                 changed |= FlattenRefs(root);
+                // Last, so a recursion-expanded copy of a shape carries the same stamps its first occurrence does.
+                changed |= NestedSchemaConstraints.Stamp(
+                    root, roots.Where(r => r.Tool == tool.ProtocolTool.Name).Select(r => (r.Parameter, r.Type)));
                 if (changed) tool.ProtocolTool.InputSchema = JsonSerializer.Deserialize<JsonElement>(root.ToJsonString());
             }
         });

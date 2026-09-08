@@ -264,13 +264,13 @@ public static class ApplyTools
 /// <c>from_source</c> (the pole it is read at).</summary>
 public sealed record ApplyOp
 {
-    [JsonPropertyName("formid"), Description("The record to edit, as 'XXXXXX:Plugin.esp'.")]
+    [SchemaRequired, JsonPropertyName("formid"), Description("The record to edit, as 'XXXXXX:Plugin.esp'.")]
     public string? Formid { get; init; }
 
-    [JsonPropertyName("field_path"), Description("Dotted field path, e.g. 'BasicStats.Damage', 'Name', 'Keywords' or 'Entries'. Step into a list/dict element mid-path with brackets ('Effects[0].Data.Magnitude'); at the LEAF use op + key, not brackets.")]
+    [SchemaRequired, JsonPropertyName("field_path"), Description("Dotted field path, e.g. 'BasicStats.Damage', 'Name', 'Keywords' or 'Entries'. Step into a list/dict element mid-path with brackets ('Effects[0].Data.Magnitude'); at the LEAF use op + key, not brackets.")]
     public string? FieldPath { get; init; }
 
-    [JsonPropertyName("op"), Description(WriteVerbs.AllRecital + ". SetAtIndex OVERWRITES the element at key=; InsertAtIndex inserts a NEW one AT key= and shifts the rest right (key = the list's length appends) — use it to grow a POSITION-CONTIGUOUS run in place, e.g. adding an arm to an existing CTDA OR-group, where Add would land the row at the end as a separate AND-group. On a [Flags] enum (SPEL Flags, NPC Configuration.Flags, WEAP Data.Flags...) Add SETS a bit and Remove CLEARS one, leaving the OTHER bits untouched — the way to flip one flag WITHOUT a Set silently dropping every bit you didn't mention; to turn all bits off, Set the field to '0'. CopyFrom takes no value — the source IS another record's version, named by from_source= (and from= for a DIFFERENT record) — and it copies a WHOLE field (scalar, formlink, modeled list, sub-struct); it cannot copy owned child records (forward the whole record with " + ToolNames.Forward + " instead).")]
+    [SchemaValues(SchemaVocabulary.WriteVerbs), JsonPropertyName("op"), Description(WriteVerbs.AllRecital + ". SetAtIndex OVERWRITES the element at key=; InsertAtIndex inserts a NEW one AT key= and shifts the rest right (key = the list's length appends) — use it to grow a POSITION-CONTIGUOUS run in place, e.g. adding an arm to an existing CTDA OR-group, where Add would land the row at the end as a separate AND-group. On a [Flags] enum (SPEL Flags, NPC Configuration.Flags, WEAP Data.Flags...) Add SETS a bit and Remove CLEARS one, leaving the OTHER bits untouched — the way to flip one flag WITHOUT a Set silently dropping every bit you didn't mention; to turn all bits off, Set the field to '0'. CopyFrom takes no value — the source IS another record's version, named by from_source= (and from= for a DIFFERENT record) — and it copies a WHOLE field (scalar, formlink, modeled list, sub-struct); it cannot copy owned child records (forward the whole record with " + ToolNames.Forward + " instead).")]
     public string? Op { get; init; }
 
     [JsonPropertyName("value"), Description("The value, coerced to the field's real type — a number, an enum name ('OneHanded'), or a FormID for a reference. Omit for Remove / ReplaceAll / Merge / compose / CopyFrom; on a Remove, omitting it whole-clears a NULLABLE field.")]
@@ -309,10 +309,10 @@ public sealed record ApplyOp
 /// fan out to N*N copies.</summary>
 public sealed record Assignment
 {
-    [JsonPropertyName("target"), Description("The record being WRITTEN, as 'XXXXXX:Plugin.esp' — the §5.2 meaning of the bare word 'target': a copy's destination record.")]
+    [SchemaRequired, JsonPropertyName("target"), Description("The record being WRITTEN, as 'XXXXXX:Plugin.esp' — the §5.2 meaning of the bare word 'target': a copy's destination record.")]
     public string? Target { get; init; }
 
-    [JsonPropertyName("from"), Description("The record the bundle is copied FROM, as 'XXXXXX:Plugin.esp'. Must be the same record type as target.")]
+    [SchemaRequired, JsonPropertyName("from"), Description("The record the bundle is copied FROM, as 'XXXXXX:Plugin.esp'. Must be the same record type as target.")]
     public string? From { get; init; }
 
     [JsonPropertyName("from_source"), Description("Optional. WHOSE version of the source record to read — a plugin filename (active, or a file on disk out of the load order). Defaults to the source record's load-order winner.")]

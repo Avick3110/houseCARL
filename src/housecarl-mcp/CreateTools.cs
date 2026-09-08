@@ -134,10 +134,10 @@ public static class CreateTools
 /// <c>op</c>.</summary>
 public sealed record CreateRecordSpec
 {
-    [JsonPropertyName("record_type"), Description("The kind of record to create: a catalog name ('Keyword', 'Spell', 'Weapon', 'LeveledItem', 'DialogTopic', 'PlacedObject') or a 4-char signature ('KYWD'). Any flat top-level record is fair game — a keyword, spell, perk, magic effect, faction, armor, weapon, leveled list, global, quest — as is a nested one (see parent=). For an ABSTRACT record group name the CONCRETE subtype directly ('GlobalFloat'/'GlobalInt'/'GlobalShort', 'GameSettingFloat'/'GameSettingInt'/'GameSettingString') — that is how a global variable or game setting is created.")]
+    [SchemaRequired, JsonPropertyName("record_type"), Description("The kind of record to create: a catalog name ('Keyword', 'Spell', 'Weapon', 'LeveledItem', 'DialogTopic', 'PlacedObject') or a 4-char signature ('KYWD'). Any flat top-level record is fair game — a keyword, spell, perk, magic effect, faction, armor, weapon, leveled list, global, quest — as is a nested one (see parent=). For an ABSTRACT record group name the CONCRETE subtype directly ('GlobalFloat'/'GlobalInt'/'GlobalShort', 'GameSettingFloat'/'GameSettingInt'/'GameSettingString') — that is how a global variable or game setting is created.")]
     public string? RecordType { get; init; }
 
-    [JsonPropertyName("editorid"), Description("REQUIRED. The EditorID the new record is referenced by (in SkyPatcher/SPID, in xEdit); choose a clear, prefixed name. A nested child's parent= can name this editorid (a same-call sibling parent), and a FormLink value can reference it as '@<editorid>'.")]
+    [SchemaRequired, JsonPropertyName("editorid"), Description("REQUIRED. The EditorID the new record is referenced by (in SkyPatcher/SPID, in xEdit); choose a clear, prefixed name. A nested child's parent= can name this editorid (a same-call sibling parent), and a FormLink value can reference it as '@<editorid>'.")]
     public string? Editorid { get; init; }
 
     [JsonPropertyName("ops"), Description("The new record's fields: [{field_path, op?, value?, key?, values?, entries?, compose?, composes?}, …] — the same op shape " + ToolNames.Apply + " takes, MINUS formid (the record has no id yet). e.g. ops=[{field_path:'Name', value:'My Spell'}, {field_path:'EffectList', op:'Add', compose:{...}}]. Omit to create a bare record (type + editorid only).")]
@@ -158,10 +158,10 @@ public sealed record CreateRecordSpec
 /// record that already exists). Either one is refused BY NAME by the strict reader.</summary>
 public sealed record CreateFieldOp
 {
-    [JsonPropertyName("field_path"), Description("Dotted field path on the new record, e.g. 'Name' or 'BasicStats.Damage'. Step into a list/dict element mid-path with brackets ('Effects[0].Data.Magnitude'); at the LEAF use op + key, not brackets.")]
+    [SchemaRequired, JsonPropertyName("field_path"), Description("Dotted field path on the new record, e.g. 'Name' or 'BasicStats.Damage'. Step into a list/dict element mid-path with brackets ('Effects[0].Data.Magnitude'); at the LEAF use op + key, not brackets.")]
     public string? FieldPath { get; init; }
 
-    [JsonPropertyName("op"), Description("Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge. SetAtIndex OVERWRITES the element at key=; InsertAtIndex inserts a new one AT key= and shifts the rest right (key = the list's length appends). On a [Flags] enum, Add sets one bit and Remove clears one, leaving the others untouched. There is no CopyFrom on this surface — a record that does not exist yet has no other version to copy a field from; copying a field from ANOTHER record is " + ToolNames.Apply + "'s CopyFrom.")]
+    [SchemaValues(SchemaVocabulary.CreateVerbs), JsonPropertyName("op"), Description("Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge. SetAtIndex OVERWRITES the element at key=; InsertAtIndex inserts a new one AT key= and shifts the rest right (key = the list's length appends). On a [Flags] enum, Add sets one bit and Remove clears one, leaving the others untouched. There is no CopyFrom on this surface — a record that does not exist yet has no other version to copy a field from; copying a field from ANOTHER record is " + ToolNames.Apply + "'s CopyFrom.")]
     public string? Op { get; init; }
 
     [JsonPropertyName("value"), Description("The value, coerced to the field's type — a number, an enum name, a FormID 'XXXXXX:Plugin.esp', or '@<editorid>' for a same-call sibling on a FormLink field. '@<editorid>' must name a record declared EARLIER in the records= array or the record being created ITSELF (self-reference — e.g. a quest's VMAD alias fragment whose Property.Object is the quest); it works on FormLink fields only, including inside a compose spec. So a dialogue line's order-chain and its topic back-link are authored in the same call: ops:[{field_path:'Topic', value:'@MyTopic'}, {field_path:'PreviousDialog', value:'@MyTopic_L1'}].")]

@@ -1206,7 +1206,7 @@ public sealed record CreateOp
 /// flat coercible sub-fields, optional positional ctor args, and nested edits applied to the built struct.</summary>
 public sealed record StructInput
 {
-    [JsonPropertyName("type"), Description("The concrete catalog type to build (arm type for a polymorphic Set; the collection's element type for an Add, e.g. 'LeveledItemEntry'; or a polymorphic element's concrete ARM, e.g. 'ScriptObjectProperty' into VMAD Properties).")]
+    [SchemaRequired, JsonPropertyName("type"), Description("The concrete catalog type to build (arm type for a polymorphic Set; the collection's element type for an Add, e.g. 'LeveledItemEntry'; or a polymorphic element's concrete ARM, e.g. 'ScriptObjectProperty' into VMAD Properties).")]
     public string? Type { get; init; }
 
     [JsonPropertyName("fields"), Description("Flat coercible sub-fields set directly on the struct: name → value.")]
@@ -1222,7 +1222,7 @@ public sealed record StructInput
 /// <summary>One nested edit inside a <see cref="StructInput"/> (a path+verb+value rooted at the struct being built).</summary>
 public sealed record NestedSet
 {
-    [JsonPropertyName("path"), Description("Dotted path within the struct, e.g. 'Data.Level'.")]
+    [SchemaRequired, JsonPropertyName("path"), Description("Dotted path within the struct, e.g. 'Data.Level'.")]
     public string? Path { get; init; }
 
     [JsonPropertyName("verb"), Description("Set (default) | Add | Remove | SetAtIndex | InsertAtIndex.")]

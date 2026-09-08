@@ -73,10 +73,10 @@ public static class RecordsTools
 
     public sealed class RecordsWalkExclusion
     {
-        [Description("The record type name to match (as reads report it, e.g. 'Race', 'Npc').")]
+        [SchemaRequired, Description("The record type name to match (as reads report it, e.g. 'Race', 'Npc').")]
         public string? match { get; set; }
 
-        [Description("'stop' (prune here, record the boundary) or 'refuse' (the whole walk fails loud).")]
+        [SchemaRequired, Description("'stop' (prune here, record the boundary) or 'refuse' (the whole walk fails loud).")]
         public string? severity { get; set; }
     }
 

@@ -1,14 +1,15 @@
 # Tool schema publication
 
-**Class:** LIVING. Subsystem: `src/housecarl-mcp/ToolSchemas.cs`, registered from `Program.cs`.
-Pinned by `PublishedSchemaShapeTests` in `src/housecarl-mcp-tests` (the real published surface) and
-`schema-flatten-guard` (the flattening mechanism, over synthetic documents for the shapes the
-real surface cannot produce, and over the real pre-flatten surface for the emission grammar and
-the strict reader).
+**Class:** LIVING. Subsystem: `src/housecarl-mcp/ToolSchemas.cs` and
+`src/housecarl-mcp/NestedSchemaConstraints.cs`, registered from `Program.cs`. Pinned by
+`PublishedSchemaShapeTests` and `PublishedNestedConstraintTests` in `src/housecarl-mcp-tests`
+(the real published surface) and `schema-flatten-guard` (the flattening mechanism, over synthetic
+documents for the shapes the real surface cannot produce, and over the real pre-flatten surface
+for the emission grammar and the strict reader).
 
 houseCARL's MCP tools are discovered by an assembly scan, and the SDK generates each tool's
-`inputSchema` from its C# method signature. Two things that generator cannot get right on its
-own are corrected once, at registration, before anything is served. Both change only what is
+`inputSchema` from its C# method signature. Three things that generator cannot get right on its
+own are corrected once, at registration, before anything is served. All three change only what is
 **published**. The argument-binding shim does read a published schema, but only its top-level
 `properties` — never the nested part these passes rewrite — and the composed payloads are then
 read by `ListParams.Read<T>`, which consults no schema and is stricter than the SDK binder.
@@ -80,3 +81,33 @@ only moment it matters.
 
 The bound is a cost/legibility trade, not a correctness one: raising it deepens every recursive
 branch of every affected schema (at 1, the five affected tools grew ~3 KB each).
+
+## Pass 3 — `required` and `enum` inside a parameter
+
+The generator reads requiredness and closed value sets off the C# **method signature**, so it
+gets them right for a tool's own parameters and says nothing at all about the members inside
+one. A nested object published only a type: `create.records[].editorid` was described as
+"REQUIRED." in prose while the schema did not require it, and `apply.ops[].op`'s eight verbs
+were named in a sentence and published as a bare string. A client could not check a nested call
+before sending it, and the verb list had two homes — the table the gate reads, and the
+description text.
+
+So `NestedSchemaConstraints` walks each parameter's CLR type against the schema published for it
+and stamps what the shape declares: `required` for a member marked `[SchemaRequired]` — the ones
+the server refuses a call without — and `enum` for a member marked `[SchemaValues]`, whose values
+come from the table the gate itself validates against (`WriteVerbs.All`, and `WriteVerbs.OnCreate`
+for the surface that refuses the transplanting verb by name). The marks live on the member, not in
+a path list, because a shape is reached from several parameters — `compose` from four — and the
+recursion bound expands some of them twice.
+
+It runs **after** the flatten, so every expanded copy of a shape carries the same stamps its first
+occurrence does, and the walk is bounded by the schema rather than the type: it descends only where
+the published document still spells a shape out, so the open node that closes a recursive chain
+still constrains nothing.
+
+A closed set that exists only as prose is left alone. `walk.exclusions[].severity`,
+`walk.direction`, `project.form` and `assets[].kind` are each decided by a literal pattern at the
+call site, not by a collection anything else can read; publishing an enum for one would be
+inventing a second home rather than exposing the first. `compose.sets[].verb` is a narrower case
+of the same thing: its description names five verbs while the request it builds is validated by
+the same rulebook switch an op is, which accepts all eight — so nothing backs the five.

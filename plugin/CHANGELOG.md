@@ -28,6 +28,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   item records is KID; a record's own fields, and an individual NPC, are SkyPatcher. Group and individual are
   a preference, not a capability line: SPID can name one NPC by EditorID or FormID, as
   `spid-authoring`'s `references/filters.md` §1 and §2 show.
+- **The published tool schema now marks nested members `required`, and names the write verbs as an `enum`, so a
+  client can check a nested call before sending it.** `required` and `enum` were emitted only at the top level of a
+  tool's parameters; inside `apply.ops`, `create.records` and the rest, a member the server refuses a call without
+  said so in its description alone, and the legal verbs on `ops[].op` were prose beside a bare `string`. Both are now
+  published, generated from the shapes the server binds and the verb tables it validates against — `WriteVerbs.All`
+  on `apply`, and the create surface's own set (that list minus the verb it refuses by name) on `create`. What the
+  tools accept, and every description, are unchanged; a member whose legal values no table holds is left as it was
+  rather than given a set invented for the schema.
+
 - **An SKSE DLL whose import directory declares an address but no size now reads as UNKNOWN, not as a short
   import list.** The peek walks a DLL's import and delay-import directories bounded by the size the PE header
   declares for each. A directory with a non-zero address and a zero size read as "no such directory": its whole
