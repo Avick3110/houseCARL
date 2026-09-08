@@ -238,8 +238,8 @@ Then re-read it, naming the folder again —
 | Dropping a bundle member the donor lacks instead of clearing it | The target keeps its own morphs under the donor's head parts — a face built from two people | Copy what the donor has and clear what it lacks — `Remove`, or `ReplaceAll` with `composes: []` for `TintLayers` |
 | Stopping at the patch | The records exist, the FaceGen does not — a dark face you authored on purpose | The copy is four calls; Step 3 places the FaceGen pair |
 | Stopping at the placement | The placed mesh still points at the donor's tint: correct until the donor is uninstalled | Finish with Step 4 — repoint the tint inside the placed mesh, naming `mod=` |
-| Letting the FaceGen source default to the VFS winner | You place a replacer's face over the records of the donor you actually copied |
-| Reporting "copied" when the strip list is long | A clone with no factions, outfits, packages or scripts is not a working follower |
+| Letting the FaceGen source default to the VFS winner | You place a replacer's face over the records of the donor you actually copied | Name `source_provider` explicitly, chosen by inspecting each candidate with `housecarl_nif_inspect mod=` and keeping the copy whose baked shape names match — Step 3's "Which provider to name" |
+| Reporting "copied" when the strip list is long | A clone with no factions, outfits, packages or scripts is not a working follower | Report the strip list as work still owed, item by item, before calling the copy done |
 
 ## Verification — what this session can check
 
