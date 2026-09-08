@@ -376,6 +376,27 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         }
     }
 
+    /// <summary>The fourth form, which needs its own cap: the reverse effect chain's carrier rows are cut inside a
+    /// SHARED render, in a buffer this loop never measures — so unless that render says it cut, the cut is
+    /// invisible and the response neither counts the seeds nor names an artifact. At a cap the complete answer
+    /// fits inside with 100 chars to spare, a cut there still says so and still spills the complete result.</summary>
+    [Fact]
+    public void AReverseEffectChainCutInsideTheSharedRenderIsCountedAndSpilled()
+    {
+        string Call(int cap) =>
+            RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
+                                 walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" },
+                                 project: Form("chain"), max_chars: cap);
+
+        using var d = OwnResults("held-back-effect-chain");
+        int cap = Call(0).Length + 100;   // room to spare for the whole answer: only the shared render cuts here
+        var r = Call(cap);
+
+        Assert.Contains("at max_chars=" + cap + "]", r);          // the seeds it never reached are counted
+        Assert.Contains("spilled: complete result", r);           // and the artifact holds what went
+        InsideItsCap(r, cap, "effect chain");
+    }
+
     /// <summary>The one arm left: a max_chars smaller than the spill block the response must carry — the block that
     /// names the artifact holding the complete result — says so and names the cap that clears it, rather than
     /// answering over the ceiling in silence.</summary>
