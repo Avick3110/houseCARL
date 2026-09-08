@@ -107,12 +107,15 @@ Read what your task needs, not everything.
 Keyword = HC_AuditDaggerTag|Weapon|NONE|OneHandDagger
 ```
 
-Grounded on a 3,801-plugin order this reaches 786 WEAP records across 54 plugins. A `*Dagger` name
-filter is wrong in **both** directions on the same order: it misses `REQ_Artifact_Keening`,
-`REQ_Artifact_MehrunesRazor`, `REQ_Artifact_Nettlebane`, `BSKHatchet`, `zzzCrbAkaviriKodachi` and
-`BPUFXelzazKukri`, and it catches `DummyDagger`, `CWDummyDaggerSons`, `CWDummyDaggerImperial` (all
-`OneHandSword`), `DBMTWR_RiftenDaggerDummy` (`HandToHand`) and `zzzGHCrSkavenDaggers`
-(`TwoHandSword`).
+Grounded on a 3,801-plugin order this reaches 786 WEAP records, defined across 54 plugins and won by
+39 (`project` form `aggregate`, `group_by` `defined_in` and `winner`). A `*Dagger` **name** filter is
+wrong in **both** directions on the same order: it misses `REQ_Artifact_Keening` ("Keening"),
+`REQ_Artifact_MehrunesRazor`, `REQ_Artifact_Nettlebane`, `BSKHatchet` ("Elven Hatchet"),
+`zzzCrbAkaviriKodachi` and `BPUFXelzazKukri`, whose names carry no "dagger"; and by
+`where=["Name contains Dagger", "Data.AnimationType != OneHandDagger"]` it catches exactly two —
+`DBMTWR_RiftenDaggerDummy` ("The Dagger of Riften (2)", `HandToHand`) and `zzzGHCrSkavenDaggers`
+("Skaven Daggers", `TwoHandSword`). The `DummyDagger` records an EditorID scan turns up have no name
+at all, so a String filter never sees them: that scan illustrates the predicate, it does not repeat it.
 
 **Tag one mod's armor above rating 20**, filters and traits both used:
 
