@@ -214,8 +214,10 @@ the baked ChangeForm. houseCARL does not edit saves.
 ## 8. A whole-order sweep is a bulk job
 
 "A bunch of NPCs went dark after I installed X" is an enumerate-and-dedupe job: read every `NPC_` the
-suspect plugin touches in ONE `housecarl_records` call, deduped to load-order winners and spilled with
-`to_file=` to an artifact, then bring the flagged subset back here for the pair diff and the fix.
+suspect plugin touches in ONE `housecarl_records` call, deduped to load-order winners with
+`fields_source="winner"` — under a `plugins=` scope the default renders that plugin's OWN values, not the
+ones the game uses — and spilled with `to_file=` to an artifact, then bring the flagged subset back here
+for the pair diff and the fix.
 
 Two things to know before you start. `housecarl_check` has **no facegen finding family** — its
 `findings=` takes `errors`, `scripts` and `dialogue` only, so a call there returns nothing for this job.
