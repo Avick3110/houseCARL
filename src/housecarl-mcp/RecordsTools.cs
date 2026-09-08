@@ -2222,8 +2222,11 @@ public static class RecordsTools
     /// in, recorded cycles, the cap-truncation note — what is listed is proved — and the NPC TemplateFlags
     /// inheritance report where the walk followed a Template chain. max_chars is a CEILING, the same shape the
     /// delta and tree renders carry: the notice and the spill block are charged first, the node loop holds back
-    /// its own cut notice, and a seed that would cross what is left is taken back out whole and counted.</summary>
-    static string RenderRecordsChain(IReadOnlyList<LoadOrderService.WalkSeedResult> rows, int total, int reached,
+    /// its own cut notice, and a seed that would cross what is left is taken back out whole and counted.
+    /// Internal so a test can drive it against a hand-built <see cref="LoadOrderService.WalkSeedResult"/>, the same
+    /// reason <see cref="RenderRecordsTree"/> is: a seed shape no fixture produces (a walk that hit its node cap
+    /// with nodes enough for max_chars to cut) has no other way in.</summary>
+    internal static string RenderRecordsChain(IReadOnlyList<LoadOrderService.WalkSeedResult> rows, int total, int reached,
                                      int errors, string headerLine, OrderStamp? epoch, int maxChars,
                                      SpillState? spill, out bool truncated)
     {
@@ -2258,6 +2261,10 @@ public static class RecordsTools
             sb.Append("  ").Append(row.Type ?? "?").Append("  ").Append(row.EditorId ?? "<no editorid>").Append('\n');
             if (row.Nodes.Count == 0)
                 sb.Append("  no links to follow from this seed").Append(row.TruncationNote is null ? ".\n" : " before the cap.\n");
+            // What the seed says about its WALK is a different loss from the nodes max_chars held back, and the
+            // cut notice's remedy does not fix it — so the tail is reserved beside every node line and written
+            // whether or not the list was cut.
+            string tail = SeedTail(row);
             foreach (var n in row.Nodes)
             {
                 // Composed before it is priced, so the cut notice lands inside the budget rather than a character
@@ -2267,35 +2274,15 @@ public static class RecordsTools
                               + "  [" + n.Status + ']'
                               + (n.Note is not null ? "  " + n.Note : "")
                               + "  <- " + n.PulledBy + "\n";
-                if (sb.Length + line.Length + nodesCut.Length > budget)
+                if (sb.Length + line.Length + nodesCut.Length + tail.Length > budget)
                 {
-                    said = Said(sb, nodesCut, budget);
+                    said = Said(sb, nodesCut, budget - tail.Length);
                     mute = !said;
                     break;
                 }
                 sb.Append(line);
             }
-            // A seed cut mid-list ends there: what follows the nodes belongs to a seed the budget did not hold.
-            if (said || mute) goto measure;
-            foreach (var c in row.Cycles)
-                sb.Append("  cycle: ").Append(c).Append('\n');
-            if (row.TruncationNote is not null)
-                sb.Append("  [!] ").Append(row.TruncationNote).Append('\n');
-            if (row.TemplateReport is { } tr)
-            {
-                sb.Append("  template inheritance (TemplateFlags — a SET flag means the category is INHERITED and the seed's own local data for it is MASKED):\n");
-                foreach (var c in tr)
-                {
-                    sb.Append("    ").Append(c.Category).Append(": ");
-                    if (!c.InheritedAtSeed) sb.Append("local data ACTIVE");
-                    else if (c.ProviderKey is not null)
-                        sb.Append("INHERITED from ").Append(c.ProviderKey).Append(" (").Append(c.ProviderEditorId ?? "<no editorid>").Append(')');
-                    else sb.Append("INHERITED");
-                    if (c.Note is not null && c.InheritedAtSeed) sb.Append("  — ").Append(c.Note);
-                    sb.Append('\n');
-                }
-            }
-        measure:
+            if (!mute) sb.Append(tail);
             if (mute || !said)
             {
                 if (Crossed(sb, mark, budget, Notice(rendered), ref truncated, force: mute)) break;
@@ -2309,6 +2296,34 @@ public static class RecordsTools
         }
         sb.Append(spillText);
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+    }
+
+    /// <summary>What a walked seed states after its nodes: the cycles it recorded, the walk.max_nodes cap it hit,
+    /// and the NPC TemplateFlags inheritance report. Composed apart from the node loop because these are claims
+    /// about the WALK, not about the nodes that fit — a max_chars cut may not swallow them, and the cut notice's
+    /// remedy (raise max_chars, or to_file=) does not answer a walk that stopped at its own cap.</summary>
+    static string SeedTail(LoadOrderService.WalkSeedResult row)
+    {
+        var t = new StringBuilder();
+        foreach (var c in row.Cycles)
+            t.Append("  cycle: ").Append(c).Append('\n');
+        if (row.TruncationNote is not null)
+            t.Append("  [!] ").Append(row.TruncationNote).Append('\n');
+        if (row.TemplateReport is { } tr)
+        {
+            t.Append("  template inheritance (TemplateFlags — a SET flag means the category is INHERITED and the seed's own local data for it is MASKED):\n");
+            foreach (var c in tr)
+            {
+                t.Append("    ").Append(c.Category).Append(": ");
+                if (!c.InheritedAtSeed) t.Append("local data ACTIVE");
+                else if (c.ProviderKey is not null)
+                    t.Append("INHERITED from ").Append(c.ProviderKey).Append(" (").Append(c.ProviderEditorId ?? "<no editorid>").Append(')');
+                else t.Append("INHERITED");
+                if (c.Note is not null && c.InheritedAtSeed) t.Append("  — ").Append(c.Note);
+                t.Append('\n');
+            }
+        }
+        return t.ToString();
     }
 
     /// <summary>The reverse MGEF lane's text render: a header census over the complete seed list, each windowed

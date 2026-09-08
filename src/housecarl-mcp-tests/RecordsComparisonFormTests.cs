@@ -326,3 +326,37 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
         Refused(RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) }, fields_source: "winnner",
                                      walk: new RecordsTools.RecordsWalk()), "winnner");
 }
+
+/// <summary>What a seed says about its WALK — the cycles it recorded, the walk.max_nodes cap it hit, the
+/// TemplateFlags report — survives a max_chars cut of its node list. The two losses are on different axes, and
+/// the nodes notice's remedy (raise max_chars) does not answer a walk that stopped at its own cap. Driven against
+/// a hand-built seed: no fixture makes a capped walk with nodes enough for max_chars to cut.</summary>
+[Trait("tier", "unit")]
+public sealed class ChainSeedTailTests
+{
+    const string WalkCap = "walk truncated: the 2-node cap was reached — what is listed IS reached and proved; raise walk.max_nodes to walk further.";
+
+    static string Render(int cap)
+    {
+        var nodes = Enumerable.Range(0, 6).Select(i =>
+            new LoadOrderService.WalkNodeRow($"00080{i}:A.esm", "Weapon", "HcRecW" + i, 1, "Effects[].BaseEffect", "reached", null)).ToArray();
+        var row = new LoadOrderService.WalkSeedResult("000800:A.esm", "Npc", "HcRecNpcChild", nodes,
+            Array.Empty<string>(), WalkCap,
+            new[] { new LoadOrderService.NpcTemplateCategory("Traits", true, "000900:A.esm", "HcRecNpcParent", null) },
+            null);
+        return RecordsTools.RenderRecordsChain(new[] { row }, 1, nodes.Length, 0, "records  form=chain", null,
+                                               cap, null, out _);
+    }
+
+    /// <summary>One char under what the whole seed takes, so the node list is cut — and both statements the walk
+    /// itself owes are still there under the notice.</summary>
+    [Fact]
+    public void ASeedCutMidListStillSaysItsWalkHitItsOwnCap()
+    {
+        var r = Render(Render(100_000).Length - 1);
+
+        Assert.Contains("[nodes cut at max_chars=", r);
+        Assert.Contains(WalkCap, r);
+        Assert.Contains("Traits: INHERITED from", r);
+    }
+}
