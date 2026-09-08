@@ -164,10 +164,10 @@
     {
       "id": 13,
       "prompt": "add 5 gold and a healing potion to every merchant chest in my load order",
-      "expected_output": "NONE — no distributor skill covers containers, and this tree ships no CID skill",
-      "expectations": ["Does NOT route to this skill."],
+      "expected_output": "housecarl:skypatcher-authoring",
+      "expectations": ["Does NOT route to this skill.", "Routes to the SkyPatcher skill."],
       "should_trigger": false,
-      "evidence": "Container target; the description names CID and this tree ships no CID skill."
+      "evidence": "Container target, so not SPID's lane. Destination corrected 2026-09-08 on review of PR #649: the recorded answer was NONE while the description named CID; the CID clause is gone and SkyPatcher's container patcher owns the job, so a correct SkyPatcher routing must score as a pass, not a miss."
     },
     {
       "id": 14,
@@ -280,7 +280,7 @@
       "expectations": ["Does NOT route to this skill."],
       "should_trigger": false,
       "new_in": "2026-09-08 rewrite",
-      "evidence": "Added as an unbiased MEASUREMENT, not a predicted pass. The rewritten description expands the acronym in its first clause, which adds SPID tokens rather than removing them, and its 'Not this skill' clause is a target boundary against KID/CID/SkyPatcher — it says nothing about conceptual or beginner questions. If this row and row 19 both trigger, the fix is a conceptual/beginner exclusion in the description, and that is the finding to report."
+      "evidence": "Added as an unbiased MEASUREMENT, not a predicted pass. The rewritten description expands the acronym in its first clause, which adds SPID tokens rather than removing them, and its 'Not this skill' clause is a target boundary against KID/SkyPatcher — it says nothing about conceptual or beginner questions. If this row and row 19 both trigger, the fix is a conceptual/beginner exclusion in the description, and that is the finding to report."
     },
     {
       "id": 28,
