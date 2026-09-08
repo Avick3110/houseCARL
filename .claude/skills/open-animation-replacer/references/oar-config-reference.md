@@ -357,7 +357,7 @@ built-in roster (§6) and the value-component shapes (§4); the hand flag is §4
 | `IsEquippedLeftHasKeyword(kwd)` | `IsEquippedHasKeyword` | same `Keyword`, `"Left hand": true` |
 | `IsActorBase("P.esp" \| 0xF)` | `IsActorBase` | `"Actor base": { "pluginName": …, "formID": … }` |
 | `IsWorn` / `IsWornHasKeyword` | `IsWorn` / `IsWornHasKeyword` | one Form / Keyword component; no hand flag |
-| `HasPerk` / `HasSpell` / `HasMagicEffect` / `IsInFaction` / `IsRace` / `IsClass` | same name | one Form component named for the thing (`"Perk"`, `"Spell"`, …) — confirm the exact argument name per §6 |
+| `HasPerk` / `HasSpell` / `HasMagicEffect` / `IsInFaction` / `IsRace` / `IsClass` | same name | one Form component named for the thing — the exact argument name is not published in this reference; read it off the in-game editor or an existing config that uses the condition |
 | `IsInCombat()` / `IsChild()` / `IsInInterior()` / `IsPlayerTeammate()` | same name | no parameters |
 | Form B's `<Plugin.esp>/<FormID>/` folder pair | `IsActorBase` | auto-synthesized from the folder names; write it out explicitly when converting by hand |
 
