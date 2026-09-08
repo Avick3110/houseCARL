@@ -9,11 +9,11 @@ namespace HousecarlMcpTests;
 [Trait("tier", "unit")]
 public sealed class SkyPatcherLayerFilterTests
 {
-    static SkyPatcherDiscovery.IniFile Ini(string subfolder, string name, string provider) =>
+    static SkyPatcherDiscovery.IniFile Ini(string subfolder, string name, string provider, string value = "200") =>
         new(RelPath: subfolder + "\\" + name, Subfolder: subfolder, SortKey: name, WinningProvider: provider,
             LooseFilePath: "C:\\mods\\" + provider + "\\" + name, ShadowedProviders: Array.Empty<string>(),
             GatePlugin: null, NotApplied: null,
-            Lines: new[] { new SkyPatcherLine("filterByNpcs=Skyrim.esm|1A696:health=200", SkyPatcherLineKind.Patch,
+            Lines: new[] { new SkyPatcherLine("filterByNpcs=Skyrim.esm|1A696:health=" + value, SkyPatcherLineKind.Patch,
                                               Array.Empty<SkyPatcherSegment>(), null) });
 
     static SkyPatcherLayerData Layer(params SkyPatcherDiscovery.FolderScan[] folders) =>
@@ -71,8 +71,51 @@ public sealed class SkyPatcherLayerFilterTests
         var text = SkyPatcherWire.RenderLayer(TwoFolders(), "weapon", 80_000);
 
         Assert.Contains("Blades.ini", text);
-        Assert.DoesNotContain("Bandits.ini", text);           // filter= selects, it does not merely expand
+        Assert.DoesNotContain("Bandits.ini", text);           // filter= selects at the folder level, it does not merely expand
         Assert.Contains("1 of 2 INI(s) match", text);
+        Assert.Contains("in 1 of 2 type folder(s)", text);
+    }
+
+    /// <summary>One folder, one matching file, a sibling on each side of it in apply order.</summary>
+    static SkyPatcherLayerData FolderWithNeighbours() =>
+        Layer(new SkyPatcherDiscovery.FolderScan("npc", Catalog: null, PatchingEnabled: true,
+                  Files: new[]
+                  {
+                      Ini("npc", "aa_Before.ini", "Bandit Overhaul", "111"),
+                      Ini("npc", "zz_MyPatch.ini", "My Patch", "222"),
+                      Ini("npc", "zzz_After.ini", "Late Overhaul", "333"),
+                  }));
+
+    [Fact]
+    public void AMatchedFilesSiblingsAreStillListedUnexpanded()
+    {
+        var text = SkyPatcherWire.RenderLayer(FolderWithNeighbours(), "zz_MyPatch.ini", 80_000);
+
+        Assert.Contains("aa_Before.ini", text);               // where the match sorts is the answer the filter is for
+        Assert.Contains("zz_MyPatch.ini", text);
+        Assert.Contains("zzz_After.ini", text);
+        Assert.Contains("health=222", text);                  // only the match expands to its lines
+        Assert.DoesNotContain("health=111", text);
+        Assert.DoesNotContain("health=333", text);
+        Assert.True(text.IndexOf("  - aa_Before.ini", StringComparison.Ordinal)
+                    < text.IndexOf("  - zz_MyPatch.ini", StringComparison.Ordinal));   // apply order, not match-first
+    }
+
+    [Fact]
+    public void TheFolderHeaderCountsWhatIsExpandedUnderIt()
+    {
+        var text = SkyPatcherWire.RenderLayer(FolderWithNeighbours(), "zz_MyPatch.ini", 80_000);
+
+        Assert.Contains("npc: 3 INI(s) (1 matching, expanded), 3 patch line(s)", text);
+    }
+
+    [Fact]
+    public void AnUnfilteredFolderHeaderCarriesNoMatchCount()
+    {
+        var text = SkyPatcherWire.RenderLayer(FolderWithNeighbours(), null, 80_000);
+
+        Assert.Contains("npc: 3 INI(s), 3 patch line(s)", text);
+        Assert.DoesNotContain("matching, expanded", text);
     }
 
     /// <summary>A layer whose matching folder sorts after enough inventory to be cut by a modest max_chars.</summary>
@@ -133,6 +176,43 @@ public sealed class SkyPatcherLayerFilterTests
 
         Assert.Contains("not a documented SkyPatcher record type", text);
         Assert.Contains("a replay note", text);
+    }
+
+    [Fact]
+    public void ZeroMatchCutsItsNotesAtMaxCharsWithANotice()
+    {
+        var d = OneNpcFolder();
+        var withNotes = d with
+        {
+            Scan = new SkyPatcherDiscovery.LayerScan(d.Scan.Folders,
+                Enumerable.Range(1, 40).Select(i => $"scan note {i} " + new string('x', 200)).ToArray(),
+                ReadIncomplete: false, new Dictionary<string, bool>()),
+        };
+
+        var full = SkyPatcherWire.RenderLayer(withNotes, "weapon", 1_000_000);
+        var text = SkyPatcherWire.RenderLayer(withNotes, "weapon", 2_000);
+
+        Assert.True(full.Length > 5_000);                     // the unbounded answer really is far over the cap
+        Assert.True(text.Length < full.Length);               // max_chars is honoured on the zero-match path too
+        Assert.Contains("of 40 note(s); raise max_chars", text);
+        Assert.DoesNotContain("scan note 40 ", text);
+    }
+
+    [Fact]
+    public void ZeroMatchAlwaysRendersTheCaveatsEvenPastTheCap()
+    {
+        var d = OneNpcFolder();
+        var withNotes = d with
+        {
+            Scan = new SkyPatcherDiscovery.LayerScan(d.Scan.Folders,
+                Enumerable.Range(1, 40).Select(i => $"scan note {i} " + new string('x', 200)).ToArray(),
+                ReadIncomplete: false, new Dictionary<string, bool>()),
+            ReadIncomplete = true,
+        };
+
+        var text = SkyPatcherWire.RenderLayer(withNotes, "weapon", 2_000);
+
+        Assert.Contains("a BSA failed to read", text);        // a cut must never swallow the incomplete-read warning
     }
 
     [Fact]
