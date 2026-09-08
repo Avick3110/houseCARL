@@ -57,10 +57,11 @@ A `Custom`-subtype topic is **not** matched by the generic subtype system (Hello
 automatically; `Custom` is not). It becomes reachable only by being a branch's `StartingTopic` **or** the
 `LinkTo` target of another reachable topic. A byte-valid `Custom` topic with neither is **never entered** in
 game — the most common "I added a topic and nothing happens" cause. When you author a new player-choice
-menu, author the DLBR with `Category = Player` and `Flags = TopLevel` for an ordinary side-by-side
-option, and point its `StartingTopic` at the topic's FormID — the create call reports each new record's
-FormID, and a second `housecarl_apply` call on the same lane (`into="<this patch>.esp"`) is how one new
-record is made to point at another. (See the `SKILL.md` reachability note.)
+menu, author the DLBR in the **same** `housecarl_create` call, declared *after* the topic, with
+`Category = Player`, `Flags = TopLevel` for an ordinary side-by-side option, and `StartingTopic` set to
+the topic's `@editorid` — the create path substitutes the sibling's allocated FormID. (Across two calls
+instead, the create reports each new FormID and a second `housecarl_apply` on the same lane
+(`into="<this patch>.esp"`) sets the link.) (See the `SKILL.md` reachability note.)
 
 ## Quick decode
 
