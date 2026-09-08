@@ -61,6 +61,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   the `HELO` subtype with no `GREE`, that a topic's `SNAM` marker is authoritative for its subtype on any
   copy where the numeric `Subtype` disagrees, and which of the two `Priority` fields carries the number you
   measured.
+- **A FormID that mixes the two forms — eight runtime digits with a plugin name, `000A2C94:Skyrim.esm` — is now
+  refused with the six-digit form to use (`0A2C94:Skyrim.esm`).** The refusal also names the runtime form on its
+  own, so either half can be dropped; it read "Malformed FormKey string" before and said neither.
+- **A `where=` path that reads no value now says why per cause — unset, not a field on the record read, a
+  container, or a read fault — instead of one "no readable value" for all four.** A null field and the other arm
+  of a union are not read faults, and the counts are now named separately.
 - **`open-animation-replacer` now states how a DAR `_conditions.txt` chain binds, and that the DAR weapon-type
   numbers convert unchanged.** Both were marked unverified in its reference, and the skill told you to convert
   under one reading and say which. Both are now read off OAR's own source; the reference's §8 carries the rule,
