@@ -7,7 +7,7 @@
   "method": {
     "tree": "dist/housecarl/skills/mutagen-reference — every run loads the PACKAGED skill, never .claude/skills/, so a tool name or a pointer that does not ship is caught here (dev/DECISIONS.md, 2026-09-07, ruling 3)",
     "arms": ["with_skill", "without_skill"],
-    "arm_rule": "every should_trigger case runs in both arms, each from a fresh context. An expectation that passes in both arms is not differentiating and is investigated rather than counted.",
+    "arm_rule": "every should_trigger case runs in both arms, each from a fresh context (dev/DECISIONS.md, 2026-09-07, ruling 3). 'The skill is selected' is scored in the with_skill arm only — the skill is not in the without_skill menu, so there is nothing there for it to score; the without_skill arm scores the case's remaining expectations, which is what the arm is for. An expectation that passes in both arms is not differentiating and is investigated rather than counted.",
     "result_sets": ["triggering", "output_quality"],
     "per_run_metrics": ["total_tokens", "duration_ms"],
     "metrics_captured_at": "the task notification of each run",
