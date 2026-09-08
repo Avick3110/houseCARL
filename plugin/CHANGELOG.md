@@ -17,12 +17,18 @@ saying it sets an expectation their install may contradict. Say what is known, a
   numbers convert unchanged.** Both were marked unverified in its reference, and the skill told you to convert
   under one reading and say which. Both are now read off OAR's own source; the reference's §8 carries the rule,
   the source files and the date they were read.
-- **A face gone dark right after a copy now routes to `npc-appearance-copy`, not `facegen-diagnostics`.** The copy
-  skill owns the copy and everything the copy leaves behind, so a prompt that used to load facegen-diagnostics and
-  run the mesh-versus-tint flow now loads the copy skill instead. `facegen-diagnostics` cedes the case in both
-  places it routes from — its description and its §11 table — and still owns a face that was wrong before any copy.
-- **`npc-appearance-copy`'s "Common mistakes" table now gives the rule that replaces each mistake.** Its heading
-  promised one; the table carried only what the mistake costs.
+- **Two more skills are removed: `bulk-record-jobs` and `npc-appearance-copy`.** Nine skills ship now. A
+  behavioural gate ran each against a control with no skill loaded on the job it exists for, and both tied: the
+  same deliverable, the same errors. What each still bought is now on the tool that does the work.
+  `housecarl_records`' `fields_source=` says that an NPC whose `Configuration.TemplateFlags` include `Stats`
+  takes its level from its `Template`, so the level on its own row is not the one the game uses — the column the
+  bulk skill never mentioned and the control found unaided — and `to_file=` states the artifact manifest's own
+  accounting and the `row_count == total` check that says the file holds a complete result.
+  `housecarl_copy`'s `new_editorid=` says a clone carries an NPC's inline face values by construction, so no
+  separate write of them is owed, and the tool's own description says to sweep the patch with `housecarl_check`
+  off-order once the FaceGen files are placed and that textures baked inside the placed mesh still resolve from
+  the source mod. `facegen-diagnostics` cedes a copy and a whole-order sweep to those tools rather than to a
+  skill.
 - **`facegen-diagnostics`'s compatibility line now spells out Mod Organizer 2.** It read `MO2`; the line now
   matches the string every other skill carries.
 - **The Codex umbrella skill is rebuilt as a router, and no longer teaches seventeen tools that do not exist.**
@@ -123,17 +129,6 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `housecarl:mutagen-reference` for it, corrects the filter and trait section numbers in its grammar
   reference (filters are section 2, traits section 3), and drops a reference pointer that the packager
   deleted from every shipped copy.
-- **The `bulk-record-jobs` skill is rebuilt against the 2.0 tool surface.** Every call it plans is now a
-  `housecarl_records`, `housecarl_apply`, `housecarl_forward` or `housecarl_check` call; the ten 1.x tool
-  names it named are gone, as are `winner_fields=`, `group_by=` as a top-level argument, `plugin_a=`/`plugin_b=`
-  and the rest of the retired spellings. The big-enumeration advice is reversed to match what the tool does:
-  `max_chars` is a ceiling on the render and an over-ceiling result spills to a JSONL artifact, so the move is
-  a small `max_chars` rather than a large one; what spills is the window `limit=` allowed, and `to_file=` is
-  what captures the complete result; and `offset=` re-scans the selection rather than seeking into it — each
-  bound is on the parameter that owns it. The body is a third of its former length: the catalogue and link-graph recipes, the crafting-station
-  conventions and the patch rebuild moved into `references/` files the body names with the condition for
-  reading each.
-
 - **The `mutagen-reference` skill is rebuilt against the 2.0 tool surface.** It named four tools that no longer
   exist — `housecarl_set_field`, `housecarl_bulk_apply`, `housecarl_create_record` and `housecarl_read_record` —
   so an edit composed from it spent its first call on a retired name, which the server answers with a redirect
@@ -226,7 +221,7 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `housecarl_forward`. A console-printed FormID is no longer a dead end: the read tools take the runtime
   form, though a console click still selects the placed reference rather than the base actor, and
   `housecarl_apply` refuses the runtime form. The mesh-side repairs move to a second bundled reference,
-  the whole-order sweep is planned with `bulk-record-jobs`, and `housecarl_check` has no facegen finding
+  the whole-order sweep is one spilled `housecarl_records` call, and `housecarl_check` has no facegen finding
   family — the body says so where the sweep is described.
 
 - **Setup now removes skill folders a previous install left behind, and says which ones.** It used to copy over
@@ -234,8 +229,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   kept loading. `~/.claude/skills/housecarl/skills/` is houseCARL's own, so anything there that this package
   does not ship goes. `~/.agents/skills/` (the Codex location) is shared with other agents' skills, so setup
   takes back only the folder names it recorded installing — and it starts recording them in this version, which
-  means a Codex install made before it still has `biped-slot-reference/`, `papyrus-optimization/` and
-  `tool-output-awareness/` there; delete those three folders by hand once. Removing a folder is cleanup, not
+  means a Codex install made before it still has `biped-slot-reference/`, `papyrus-optimization/`,
+  `tool-output-awareness/`, `bulk-record-jobs/` and `npc-appearance-copy/` there; delete those five folders by
+  hand once. Removing a folder is cleanup, not
   part of the install: one that will not delete — a read-only file inside it, a file open in an editor — leaves
   the install to finish and register as usual, and setup names the folder at the end for you to delete by hand.
   A package with no `skills` folder at all is a broken download, not a version that ships no skills: setup
