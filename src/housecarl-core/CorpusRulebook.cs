@@ -697,6 +697,8 @@ public sealed class CorpusRulebook
                                "declare it before the record that references it (in spec order).";
                 }
                 else if (!WriteEngine.IsValidFormLinkValue(v)) return FormLinkElementReject(v, leaf);
+                // A literal FormID mixed in beside the siblings: the create lane hands the same lookup the apply
+                // lanes do, so it is type-checked here. A sibling is not — its record does not exist yet.
                 else if (LinkTypeRefusal(leaf, v, "element") is { } mixedTypeErr) return mixedTypeErr;
             }
             return null;
@@ -844,12 +846,18 @@ public sealed class CorpusRulebook
                 if (!WriteEngine.IsValidFormLinkValue(v)) return FormLinkElementReject(v, leaf);
             foreach (var kv in req.Entries ?? new())
                 if (!WriteEngine.IsValidFormLinkValue(kv.Value)) return FormLinkElementReject(kv.Value, leaf);
-            // …and the TYPE of every element whose shape just passed, by the same slot-faithful sweep.
-            if (LinkTypeRefusal(leaf, req.Value, "element") is { } elemTypeErr) return elemTypeErr;
-            foreach (var v in req.Values ?? Array.Empty<string>())
-                if (LinkTypeRefusal(leaf, v, "element") is { } valsTypeErr) return valsTypeErr;
-            foreach (var kv in req.Entries ?? new())
-                if (LinkTypeRefusal(leaf, kv.Value, "element") is { } entTypeErr) return entTypeErr;
+            // …and the TYPE of every element whose shape just passed, by the same slot-faithful sweep — but scoped,
+            // as the non-formlink twin below is, to the verbs that PUT a value IN. Remove is exempt at every slot: it
+            // takes an element OUT, and a list already carrying a wrong-typed link (written by another mod) is exactly
+            // what the caller needs to be able to remove. Gating it would refuse the one call that repairs the list.
+            if (req.Verb is "Add" or "SetAtIndex" or "InsertAtIndex"
+                && LinkTypeRefusal(leaf, req.Value, "element") is { } elemTypeErr) return elemTypeErr;
+            if (req.Verb is "ReplaceAll")
+                foreach (var v in req.Values ?? Array.Empty<string>())
+                    if (LinkTypeRefusal(leaf, v, "element") is { } valsTypeErr) return valsTypeErr;
+            if (req.Verb is "Merge" or "ReplaceAll")
+                foreach (var kv in req.Entries ?? new())
+                    if (LinkTypeRefusal(leaf, kv.Value, "element") is { } entTypeErr) return entTypeErr;
         }
         // NON-FORMLINK coercible-element collection value-SHAPE — the value twin of the formlink block above and of the
         // dict-Set value block (which gates dict Set's value but not the other collection verbs). A list Add/SetAtIndex/
@@ -1130,9 +1138,11 @@ public sealed class CorpusRulebook
                $"{RecordNaming.StripOverlay(actual.Name)}, but '{leaf.Name}' links to {AllowedLinkTypes(leaf, target, aq)}.";
     }
 
-    /// <summary>The record types the corpus says satisfy a link target interface, as one printed phrase. Capped, so
-    /// a wide base does not answer with a hundred names; falls back to the interface's own bare name where no
-    /// modeled record satisfies it (an owned-child or non-record link).</summary>
+    /// <summary>The record types the corpus says satisfy a link target interface, as one printed phrase. Few enough
+    /// to act on, they are all named; past the cap an alphabetical sample is worse than useless (the caller cannot
+    /// tell whether their type is in the unprinted tail), so the phrase names the target's own kind and how many
+    /// types it covers. Falls back to the interface's bare name where no modeled record satisfies it (an owned-child
+    /// or non-record link).</summary>
     string AllowedLinkTypes(FieldSchema leaf, Type target, string aq)
     {
         lock (_linkTargetNames)
@@ -1144,25 +1154,17 @@ public sealed class CorpusRulebook
                     && target.IsAssignableFrom(gi))
                     names.Add(ts.Name);
             names.Sort(StringComparer.Ordinal);
+            var bare = RecordNaming.StripInterfaceToConcrete(leaf.FormLinkTarget ?? target.Name);
             const int cap = 12;
             var phrase = names.Count switch
             {
-                0 => BareTargetName(leaf.FormLinkTarget ?? target.Name),
+                0 => bare,
                 1 => names[0],
                 _ when names.Count <= cap => "one of: " + string.Join(", ", names),
-                _ => $"one of {names.Count} types: " + string.Join(", ", names.Take(cap)) + ", …",
+                _ => $"any {bare} record ({names.Count} record types qualify)",
             };
             return _linkTargetNames[aq] = phrase;
         }
-    }
-
-    /// <summary>A Mutagen getter interface name as the record name it stands for: IRaceGetter -> Race.</summary>
-    static string BareTargetName(string interfaceName)
-    {
-        var n = interfaceName;
-        if (n.Length > 1 && n[0] == 'I' && char.IsUpper(n[1])) n = n[1..];
-        if (n.EndsWith("Getter", StringComparison.Ordinal)) n = n[..^"Getter".Length];
-        return n;
     }
 
     /// <summary>The loud per-element rejection for a malformed FormLink collection ELEMENT — the SAME legal-set copy
