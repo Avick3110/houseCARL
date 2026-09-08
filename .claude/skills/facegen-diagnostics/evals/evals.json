@@ -1,0 +1,366 @@
+{
+  "skill": "facegen-diagnostics",
+  "tree_under_test": "dist/housecarl/skills/facegen-diagnostics (the packaged subset, after the packager prunes evals/) — never .claude/skills/",
+  "method": {
+    "runs_per_query": 3,
+    "arms": [
+      {
+        "id": "with_skill",
+        "catalogue": "facegen-diagnostics present"
+      },
+      {
+        "id": "without_skill",
+        "catalogue": "facegen-diagnostics absent — the arm that shows a case which passes because the model would have done it anyway"
+      }
+    ],
+    "configurations": [
+      {
+        "id": "isolated",
+        "catalogue": "this skill alone, from the packaged tree"
+      },
+      {
+        "id": "coexisting",
+        "catalogue": "all rebuilt skills installed, same tree, same tasks"
+      }
+    ],
+    "grading": "Binary and evidence-bound: every expectation is PASS or FAIL with a quotation from that run's own transcript. No partial credit; a right-shaped answer with the wrong content FAILS. The hardened prompt (an explicit warning that the agent's own environment may list a stale copy of the description) is the default.",
+    "selection": "60/40 train / held-out split over the cases below; the description is selected on the held-out half only.",
+    "cost": "total_tokens and duration_ms are captured per run, in both configurations, and reported beside the pass-rate delta.",
+    "tier_scope": "Two model tiers today. A third tier is added, or the reason it is not is written down beside the results."
+  },
+  "gate": {
+    "per_query_trigger_floor": 0.5,
+    "recall_threshold": 0.8,
+    "specificity_threshold": 0.5
+  },
+  "gate_dimensions": [
+    {
+      "dimension": "triggering accuracy",
+      "covered_by": "the cases below, both arms, three runs per query",
+      "failure_mode": "A should-not case triggers above the 0.5 per-query floor — snt-mesh-winner-generic and snt-pair-diff-generic are the new lead-axis probes — or a should-trigger case falls below it."
+    },
+    {
+      "dimension": "isolation",
+      "covered_by": "the cases below plus the output-quality task, isolated configuration",
+      "failure_mode": "The flow dead-ends where the body cedes — a whole-order sweep, an NPC_ field spelling, or a face copy — because housecarl:bulk-record-jobs, housecarl:mutagen-reference or housecarl:npc-appearance-copy is absent, instead of the cede degrading to a plain instruction the agent can still follow."
+    },
+    {
+      "dimension": "coexistence",
+      "covered_by": "the cases below plus the output-quality task, coexisting configuration",
+      "failure_mode": "housecarl:npc-appearance-copy loads instead of this skill on a diagnosis prompt, or a sweep prompt loads this skill and housecarl:bulk-record-jobs together and the two flows give contradictory instructions."
+    },
+    {
+      "dimension": "instruction following",
+      "covered_by": "the output-quality task, measured against the body's own section 3 → 5 → 6 order",
+      "failure_mode": "The run abandons the body's flow and improvises, or repeats the eleven-call detour that proved one lane clean before touching the pair diff."
+    },
+    {
+      "dimension": "output quality",
+      "covered_by": "the output-quality task's four pass conditions",
+      "failure_mode": "One of the two fault families is missing, a diagnosis lands without its cause, fix and capability class, or a silent wrong answer passes — a facegen folder anchored to the conflict winner, or 'place this file and you're done' on an out-of-lane cause."
+    }
+  ],
+  "output_quality_task": {
+    "prompt": "Find the dark/grey-face NPCs in this load order and fix what can be fixed at the data layer.",
+    "environment": "The live ARR 2.0 install, 3,801 plugins, 40-call cap. Run once with the rebuilt skill and once with no skill in the catalogue, both from the packaged tree.",
+    "expected_output": "Both fault families reported in one run, each diagnosis carrying its cause, its fix and its capability class.",
+    "expectations": [
+      "The pair family is reported: NPCs whose head mesh wins while the face tint exists nowhere in the order, plus the cross-bake pairs where the two halves come from different sources.",
+      "The record family is reported: NPCs whose winning record zeroed the skin tone, and the re-templated actors that lost the Traits inheritance and so now own a face no FaceGen in the order was generated for.",
+      "The run follows the body's own order — the pair diff first, the record axis second — rather than improvising, and does not spend a quarter of the call budget proving one lane clean before the pair diff runs.",
+      "Every diagnosis states its cause, its fix and its capability class, or says explicitly that houseCARL cannot finish it and names the external tool that can.",
+      "No silent wrong answer: no facegen folder anchored to the conflict winner, and no 'place this file and you're done' on an out-of-lane cause.",
+      "Calls, total_tokens and duration_ms are reported for both arms beside the finding counts."
+    ]
+  },
+  "evals": [
+    {
+      "id": "st-dark-follower-overhaul",
+      "prompt": "i installed Bijin and now Lydia's face is way darker than her body with a visible neck seam, how do i fix it",
+      "expected_output": "facegen-diagnostics is loaded and the diagnosis starts from the mesh-versus-tint pair for Lydia's FormID under her defining master.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is loaded.",
+        "The facegen path is derived from the defining master, not from the overhaul that wins the record.",
+        "Both the head .nif and the face .dds are resolved, not one of them."
+      ]
+    },
+    {
+      "id": "st-fine-in-xedit-dark-in-game",
+      "prompt": "this NPC looks fine in xedit, no conflicts, but in game her face is black. what am i missing",
+      "expected_output": "facegen-diagnostics is loaded and the answer names the record-versus-file desync as the reason xEdit shows nothing.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is loaded.",
+        "The answer explains that the disagreement is between a record and a file, which is why a record-only tool sees no conflict."
+      ]
+    },
+    {
+      "id": "st-esl-batch-dark",
+      "prompt": "i compacted my follower mod to ESL and now every single NPC in it has a grey face. did i break the facegen?",
+      "expected_output": "facegen-diagnostics is loaded and the answer covers both halves of a renumber: the filenames and the FaceTint path baked inside each mesh.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is loaded.",
+        "The answer names both the file rename and the embedded FaceTint path rewrite, not the rename alone."
+      ]
+    },
+    {
+      "id": "st-generic-greyface-bug",
+      "prompt": "how do i fix the grey face bug on npcs in skyrim se",
+      "expected_output": "facegen-diagnostics is loaded.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is loaded."
+      ]
+    },
+    {
+      "id": "st-modder-baked-still-black",
+      "prompt": "i made a custom npc and baked the facegen with ctrl+f4 in the CK but her head is still pitch black in game",
+      "expected_output": "facegen-diagnostics is loaded; the pair diff runs first, and the winning mesh's baked shape names and embedded tint path are checked against the record before anything is placed.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is loaded.",
+        "The answer treats 'a file wins at the path' as necessary but not sufficient and reads the winning mesh.",
+        "The in-game check is handed to the user rather than claimed."
+      ]
+    },
+    {
+      "id": "st-fdf-mention",
+      "prompt": "should i just install Face Discoloration Fix for my black face npcs or is there a real fix",
+      "expected_output": "facegen-diagnostics is loaded and FDF is framed as a colour mask, with the FDF-off litmus named.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is loaded.",
+        "The answer distinguishes masking the colour from fixing the desync."
+      ]
+    },
+    {
+      "id": "st-dark-after-installing-mod",
+      "prompt": "a bunch of my npcs went dark in the face after i added that big npc overhaul pack, how do i track down which ones and fix them",
+      "expected_output": "facegen-diagnostics is loaded and the whole-order enumeration is ceded to housecarl:bulk-record-jobs, with the flagged subset coming back for the pair diff.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is loaded.",
+        "The enumeration is planned as a bulk job rather than a per-NPC loop.",
+        "The answer does not claim housecarl_check can find facegen faults."
+      ]
+    },
+    {
+      "id": "st-brown-face",
+      "prompt": "one of my followers has a brown face that doesn't match her body, the rest look fine",
+      "expected_output": "facegen-diagnostics is loaded and the case is triaged out of lane to weight or a save-baked value, not to a file placement.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is loaded.",
+        "No file placement is proposed; the runtime or save-side fix is named instead."
+      ]
+    },
+    {
+      "id": "st-player-grey-after-update",
+      "prompt": "after the latest skyrim update my character's face is grey in the inventory menu but npcs are all fine",
+      "expected_output": "facegen-diagnostics is loaded and the case is excluded as RaceMenu/SKEE runtime state, with houseCARL named as a no-op.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is loaded.",
+        "The answer says houseCARL cannot fix this and names the runtime route."
+      ]
+    },
+    {
+      "id": "st-which-facegen-wins",
+      "prompt": "two of my npc mods both ship facegen for the same character and i think the wrong one is winning, can you tell which copy the game actually uses",
+      "expected_output": "facegen-diagnostics is loaded and both halves of the pair are resolved, with multi-provider contention presented as the healthy default.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is loaded.",
+        "Contention across several providers is not reported as a fault by itself."
+      ]
+    },
+    {
+      "id": "st-nifset-facetint-repair",
+      "prompt": "after i compacted this follower mod to ESL the facetint texture path baked inside her head nif still points at the old form id and her face is grey, can you fix the embedded path",
+      "expected_output": "facegen-diagnostics is loaded and the repair is routed through the mesh-repair reference rather than to NifSkope.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is loaded rather than a raw mesh-write.",
+        "The answer says a verified data-layer write is not a verified render and hands off the in-game check."
+      ]
+    },
+    {
+      "id": "st-copy-face-boundary",
+      "prompt": "i copied a face from an overhaul onto my custom follower and now her head renders dark. did i copy the wrong fields, and what's the right way to do that copy?",
+      "expected_output": "facegen-diagnostics is loaded on the dark-face symptom, and the copy itself is ceded to housecarl:npc-appearance-copy.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is loaded.",
+        "The authoring half is routed to housecarl:npc-appearance-copy rather than reinvented here.",
+        "The answer still checks that the copied NPC's facegen files were carried, not only the record fields."
+      ]
+    },
+    {
+      "id": "snt-mesh-winner-generic",
+      "prompt": "which mod is winning this mesh in my load order, meshes/armor/daedric/cuirass_1.nif",
+      "expected_output": "No skill is loaded; the question is answered with a plain housecarl_asset_status call.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded.",
+        "The answer is a direct asset-status read, with no face-bug diagnosis attached."
+      ]
+    },
+    {
+      "id": "snt-pair-diff-generic",
+      "prompt": "is there a way to compare which mod wins the mesh against which mod wins the texture for my whole armor set?",
+      "expected_output": "No skill is loaded; the question is a general VFS-winner comparison with no NPC face involved.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded.",
+        "The mesh-versus-tint vocabulary alone does not pull the face-bug skill onto an armour question."
+      ]
+    },
+    {
+      "id": "snt-skypatcher-npc-face",
+      "prompt": "my skypatcher ini that changes an npc's head parts and skin tone isn't applying, can you see why",
+      "expected_output": "housecarl:skypatcher-authoring, not this skill.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded."
+      ]
+    },
+    {
+      "id": "snt-spid-distribute-appearance",
+      "prompt": "i want to give all the bandits in my game a new menacing look, how do i set that up with SPID",
+      "expected_output": "housecarl:spid-authoring, not this skill.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded."
+      ]
+    },
+    {
+      "id": "snt-ctd-on-npc",
+      "prompt": "my game crashes to desktop every time a specific npc loads in whiterun, here's the crash log",
+      "expected_output": "A crash diagnosis, not a face-rendering bug.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded."
+      ]
+    },
+    {
+      "id": "snt-shiny-enb-face",
+      "prompt": "my follower's face looks really shiny and oily in direct sunlight, the rest of the skin is fine",
+      "expected_output": "Specular or ENB, which the skill's own Step 0 excludes; no skill load needed.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded."
+      ]
+    },
+    {
+      "id": "snt-asset-status-only",
+      "prompt": "which mod is providing femalehead.dds in my load order right now?",
+      "expected_output": "A plain housecarl_asset_status read.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded."
+      ]
+    },
+    {
+      "id": "snt-npc-outfit-edit",
+      "prompt": "can you change this npc's default outfit and add a steel sword to her inventory in a patch",
+      "expected_output": "An ordinary record patch, nothing to do with a face bug.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded."
+      ]
+    },
+    {
+      "id": "snt-create-follower-mod",
+      "prompt": "i want to make my own custom follower from scratch, what's the process for setting up the npc record and her face",
+      "expected_output": "Greenfield authoring, not a symptom to diagnose.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded."
+      ]
+    },
+    {
+      "id": "snt-purple-armor-texture",
+      "prompt": "the steel armor on my new mod shows up bright purple in game, what did i do wrong",
+      "expected_output": "A missing texture on armour — the skill's own negative-scope clause.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded."
+      ]
+    },
+    {
+      "id": "snt-body-neck-seam-cbbe",
+      "prompt": "i'm getting a neck seam between the body and the head on my CBBE setup, different skin tone below the neck",
+      "expected_output": "A body-texture install problem, not a per-NPC facegen desync. This is the hardest near-miss in the set and the standing watch item.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded.",
+        "The reasoning distinguishes a body-wide seam from a single NPC's baked-face seam."
+      ]
+    },
+    {
+      "id": "snt-compile-papyrus",
+      "prompt": "how do i compile this quest script into a pex, i keep getting an unknown identifier error",
+      "expected_output": "An adjacent modding domain with no shared vocabulary.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded."
+      ]
+    },
+    {
+      "id": "snt-mesh-shapes-listing",
+      "prompt": "what shapes and bones are inside this armor mesh, meshes/armor/steel/cuirass.nif - can you list them",
+      "expected_output": "A raw housecarl_nif_inspect read of a non-face mesh.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded."
+      ]
+    },
+    {
+      "id": "snt-skeleton-nodetree",
+      "prompt": "can you dump the node tree and block types of my skeleton.nif so i can check the bone names",
+      "expected_output": "A raw housecarl_nif_inspect read; a skeleton is not a face.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded."
+      ]
+    },
+    {
+      "id": "snt-nif-texpaths-generic",
+      "prompt": "read the texture paths out of this weapon nif for me, i want to see what diffuse it points at",
+      "expected_output": "A raw housecarl_nif_inspect read.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded."
+      ]
+    },
+    {
+      "id": "snt-nifset-rename-generic",
+      "prompt": "rename the shape 'MyBottle01' to 'MyBottle01:0' inside meshes/clutter/bottle.nif so the material picks up",
+      "expected_output": "A raw housecarl_nif_set write on a clutter mesh.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded."
+      ]
+    },
+    {
+      "id": "snt-nifset-flags-generic",
+      "prompt": "can you set the alpha threshold and flags on a shape in my weapon mesh, the blade edge is showing hard alpha cutout",
+      "expected_output": "A raw housecarl_nif_set write on a weapon mesh.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded."
+      ]
+    },
+    {
+      "id": "snt-nifset-texpath-write-generic",
+      "prompt": "swap the diffuse texture path in this armor nif to point at my retextured dds",
+      "expected_output": "A raw housecarl_nif_set set_path write; an armour retexture, not a facegen slot repair.",
+      "files": [],
+      "expectations": [
+        "The facegen-diagnostics skill is NOT loaded."
+      ]
+    }
+  ]
+}
