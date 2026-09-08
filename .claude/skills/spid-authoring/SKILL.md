@@ -22,10 +22,12 @@ from scratch each launch, so a SPID mod is trace-free to add or remove. This ski
 reads SPID lines, taking every form type, filter, modifier and value from `references/` — look a
 token up, never invent one, because a wrong token fails silently.
 
-**Scope.** SPID's target is NPCs *by group* — faction, race, class. A keyword onto *item records* is
-`housecarl:kid-authoring`; a record's *own fields*, and an *individual* NPC's edits, are
-`housecarl:skypatcher-authoring`. Siblings carry the `housecarl:` prefix on a Claude Code plugin
-install; a Codex flat install sees the bare folder name (`kid-authoring`).
+**Scope.** SPID's target is NPCs. It is *best* for groups — faction, race, level, trait — and it can
+also name one NPC by EditorID or FormID (`references/filters.md` §1 and §2), so a single-NPC
+distribution is a real SPID line, not a refusal. For one NPC, `housecarl:skypatcher-authoring` is
+usually the *better* fit, and a record's *own fields* are its job outright; a keyword onto *item
+records* is `housecarl:kid-authoring`. Siblings carry the `housecarl:` prefix on a Claude Code
+plugin install; a Codex flat install sees the bare folder name (`kid-authoring`).
 
 ## First step — open the grammar reference
 

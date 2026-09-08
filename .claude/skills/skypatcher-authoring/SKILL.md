@@ -12,9 +12,10 @@ ESP or ESL is produced for the edit itself. This skill composes and reads those 
 places the file where SkyPatcher will read it. SkyPatcher edits a record's own fields, an individual
 NPC's included; it does not distribute. Two neighbouring jobs are someone else's: what fields a
 record has at the Mutagen/xEdit level, with their types and writability, is
-`housecarl:mutagen-reference`; distribution to NPCs by group — faction, race, class — or a keyword
-onto item records is `housecarl:spid-authoring` / `housecarl:kid-authoring`. On a Codex flat
-install these siblings are the bare folder names — `mutagen-reference`, `spid-authoring`,
+`housecarl:mutagen-reference`; distributing a form to NPCs is `housecarl:spid-authoring`, which is
+*best* for groups — faction, race, level, trait — and can also name one NPC, though for a single NPC
+SkyPatcher is usually the *better* fit; a keyword onto item records is `housecarl:kid-authoring`. On
+a Codex flat install these siblings are the bare folder names — `mutagen-reference`, `spid-authoring`,
 `kid-authoring`.
 
 ## Route to the record type
