@@ -115,6 +115,7 @@ references/
 skill + SKILL.md: KID's FormID is **suffix-tilde** `0x123~Plugin.esp` (shared with SPID/CID; SkyPatcher
 uses prefix-pipe). KID files are **flat `Data\*_KID*.ini`** with **no `[Section]` headers** (SPID is
 flat `Data/*_DISTR.ini`; SkyPatcher uses `SKSE\Plugins\` per-type subfolders). The deciding question
-across the family is **what receives the change**: an **item** record → KID; an **NPC** → SPID; a
-**container**, and a record's **own fields** → SkyPatcher. KID and SPID share the author and the
+across the family is **what receives the change**: an **item** record → KID; **NPCs** → SPID, best by
+group, with one named NPC usually SkyPatcher's; a **container**, and a record's **own fields** →
+SkyPatcher. KID and SPID share the author and the
 `+`/`-`/`*` modifier idioms — keep idiom wording aligned with `spid-authoring`.
