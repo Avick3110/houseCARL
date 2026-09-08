@@ -464,6 +464,13 @@ public static class ReadEngine
         if (v.OnOwner)
             return $"{NoFieldPrefix}{segName}: {typeName} declares '{segName}' but the read walk cannot resolve it)";
 
+        // The owner's own spelling of the very name asked for settles it, whatever else the corpus carries under
+        // that casing: DATA is a real field name (on DialogResponses) and still a typo at a Weapon, which spells
+        // it Data. The owner's schema is the one to fix the path against.
+        if (v.NearIsCaseSlip)
+            return $"{NoFieldPrefix}{segName}: a mistyped name — field names are case-sensitive; " +
+                   $"did you mean '{v.Near}'?)";
+
         if (v.ModeledOn.Count > 0)
         {
             var shown = string.Join(", ", v.ModeledOn.Take(3)) + (v.ModeledOn.Count > 3 ? ", …" : "");

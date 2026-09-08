@@ -20,8 +20,10 @@ public static class ModeledFieldIndex
 {
     /// <summary>What the schema says about a name that would not resolve on <c>OwnerType</c>.
     /// <para><see cref="OnOwner"/> true means the catalog DOES list the field on the owner type — the walk and the
-    /// schema disagree, which is a defect to name rather than a diagnosis to give.</para></summary>
-    public readonly record struct Verdict(bool OnOwner, IReadOnlyList<string> ModeledOn, string? Near);
+    /// schema disagree, which is a defect to name rather than a diagnosis to give.</para>
+    /// <para><see cref="NearIsCaseSlip"/> true means <see cref="Near"/> is the owner's own spelling of the very
+    /// name asked for, differing only in case — a certainty about the owner, not the nearest-name guess.</para></summary>
+    public readonly record struct Verdict(bool OnOwner, IReadOnlyList<string> ModeledOn, string? Near, bool NearIsCaseSlip);
 
     /// <summary>One slot, keyed by the corpus path it was built from. <c>CorpusRulebook.CorpusPath</c> is a
     /// process-global the probes and test worlds repoint at their own generated corpus, so a flat cache would
@@ -53,20 +55,22 @@ public static class ModeledFieldIndex
             var on = idx.ByField.TryGetValue(field, out var types) ? types : Array.Empty<string>();
             bool onOwner = on.Contains(owner, StringComparer.Ordinal);
             var others = onOwner ? on.Where(t => !string.Equals(t, owner, StringComparison.Ordinal)).ToArray() : on;
-            return new Verdict(onOwner, others, onOwner ? null : NearestOn(idx.ByType, owner, field));
+            var (near, caseSlip) = onOwner ? default : NearestOn(idx.ByType, owner, field);
+            return new Verdict(onOwner, others, near, caseSlip);
         });
     }
 
-    /// <summary>The owner type's own field that a miss most likely meant. A CASE-only difference is checked first
-    /// and answered exactly: field names are case-sensitive, and <see cref="PluginNameSuggest.Nearest"/> is
-    /// case-insensitive, so it declines the very match that explains the miss.</summary>
-    static string? NearestOn(Dictionary<string, string[]> byType, string ownerTypeName, string fieldName)
+    /// <summary>The owner type's own field that a miss most likely meant, and whether it is the CASE-only slip.
+    /// That case is checked first and answered exactly: field names are case-sensitive, and
+    /// <see cref="PluginNameSuggest.Nearest"/> is case-insensitive, so it declines the very match that explains
+    /// the miss.</summary>
+    static (string? Near, bool CaseSlip) NearestOn(Dictionary<string, string[]> byType, string ownerTypeName, string fieldName)
     {
-        if (!byType.TryGetValue(ownerTypeName, out var fields)) return null;
+        if (!byType.TryGetValue(ownerTypeName, out var fields)) return default;
         foreach (var f in fields)
-            if (string.Equals(f, fieldName, StringComparison.OrdinalIgnoreCase)) return f;
+            if (string.Equals(f, fieldName, StringComparison.OrdinalIgnoreCase)) return (f, true);
         var near = PluginNameSuggest.Nearest(fieldName, fields, 1);
-        return near.Count > 0 ? near[0] : null;
+        return near.Count > 0 ? (near[0], false) : default;
     }
 
     static (Dictionary<string, string[]> ByField, Dictionary<string, string[]> ByType)? Index()
