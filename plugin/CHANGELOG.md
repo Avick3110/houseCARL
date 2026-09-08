@@ -25,6 +25,16 @@ saying it sets an expectation their install may contradict. Say what is known, a
   promised one; the table carried only what the mistake costs.
 - **`facegen-diagnostics`'s compatibility line now spells out Mod Organizer 2.** It read `MO2`; the line now
   matches the string every other skill carries.
+- **The Codex umbrella skill is rebuilt as a router, and no longer teaches seventeen tools that do not exist.**
+  Its body carried a ~39-line catalogue of the whole tool surface, half of it 1.x names the 2.0 build retired,
+  under a sentence promising they "keep working" — a Codex session following it composed calls the server refuses
+  by name. The catalogue is gone: what a tool takes is in that tool's own description, which the server injects.
+  What is left is what only a router can do — a row per bundled skill saying which job it owns and when to load
+  it, the read-before-you-write order with one worked call, the FormID form, and the three write lanes (the
+  in-place one is gated by `acknowledge=` at the server, not by prose here). The description is 611 characters
+  against the 1,024 ceiling it used to breach, and opens on its trigger. The CI guard that watched this file
+  changed direction to match: it used to require every tool name to appear here, which is why it stayed green
+  through all seventeen dead names, and now requires every `housecarl_*` name written here to be a live tool.
 - **`mutagen-reference` and `papyrus-reference` now say in their frontmatter that their lookup works offline.**
   Both carried only the shared compatibility sentence — the houseCARL MCP server and a configured Mod Organizer 2
   instance — which read as gating the whole skill, including a schema or signature lookup that reads files bundled
