@@ -260,4 +260,4 @@ nothing. That is worse than a clear non-answer.
 | Causes and fixes by letter, the symptom table, and which community tool owns a case houseCARL cannot | `references/facegen-causes-and-fixes.md` — read it to pin a specific cause or justify a fix to the user; the flow above drives most diagnoses without it |
 | The mesh-side repairs — rewriting a baked shape name, the embedded FaceTint path, or a skin slot — and what each one can and cannot prove | `references/mesh-repairs.md` — read it when §3 says the file wins but the face is still wrong, or when a mesh refuses a write |
 | An `NPC_` field path or enum spelling, before composing a `housecarl_apply` op | `housecarl:mutagen-reference` |
-| Copying a face onto a *different* NPC, or cloning one as a standalone | `housecarl:npc-appearance-copy` |
+| Copying a face onto a *different* NPC, cloning one as a standalone, or a face gone dark right after either | `housecarl:npc-appearance-copy` |
