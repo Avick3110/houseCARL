@@ -105,9 +105,30 @@ public static class WriteVerbs
 
     /// <summary>The verbs a CREATE surface accepts — <see cref="All"/> minus the one it refuses by name, because a
     /// record that does not exist yet has no other version to copy a field from. DERIVED from the two, never a third
-    /// hand-typed list, so a verb added to the vocabulary reaches this surface too.</summary>
-    public static readonly IReadOnlyList<string> OnCreate =
-        All.Where(v => !string.Equals(v, Transplanting, StringComparison.Ordinal)).ToArray();
+    /// hand-typed list, so a verb added to the vocabulary reaches this surface too.
+    ///
+    /// <para><b>The subtraction is asserted, not assumed.</b> <see cref="Transplanting"/> being IN <see cref="All"/>
+    /// is the one fact the derivation rests on: rename or drop the verb in one place and the filter would match
+    /// nothing, leaving this silently equal to the whole vocabulary — a create surface publishing an <c>enum</c>
+    /// naming a verb it refuses, and <c>MapCreateEdit</c>'s by-name refusal no longer firing either. The throw makes
+    /// that a startup failure instead of a widening nobody sees.</para></summary>
+    public static readonly IReadOnlyList<string> OnCreate = BuildOnCreate();
+
+    /// <summary>The same vocabulary as the CALLER-FACING recital, for the create surface — <see cref="AllRecital"/>
+    /// minus the transplanting verb, and a second member for the same reason that one is: an attribute argument must
+    /// be a compile-time constant. The create description must CONCATENATE this rather than type the names out;
+    /// <c>INV4-CREATEHOMES</c> holds it against <see cref="OnCreate"/> and an independently written list.</summary>
+    public const string OnCreateRecital = "Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge";
+
+    static IReadOnlyList<string> BuildOnCreate()
+    {
+        if (!All.Contains(Transplanting, StringComparer.Ordinal))
+            throw new InvalidOperationException(
+                $"WriteVerbs.Transplanting is '{Transplanting}', which is not in WriteVerbs.All "
+                + $"([{string.Join(", ", All)}]) — OnCreate would subtract nothing and become the whole vocabulary. "
+                + "Spell the verb the same way in both.");
+        return All.Where(v => !string.Equals(v, Transplanting, StringComparison.Ordinal)).ToArray();
+    }
 
     /// <summary>The verbs that work on <paramref name="shape"/>, each with the slot it consumes and the phrase a
     /// remedy prints for it. Indexed by shape — the two facts in <see cref="CollectionShape"/> are the whole input,
