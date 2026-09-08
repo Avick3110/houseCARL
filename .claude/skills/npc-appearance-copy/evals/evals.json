@@ -1,0 +1,214 @@
+{
+  "skill_name": "npc-appearance-copy",
+  "_meta": {
+    "authored": "2026-09-08",
+    "status": "AUTHORED, NOT YET RUN against the rewritten description. The 20 trigger cases are carried over unchanged from the retired eval_set.json and hold their last measured verdicts (2026-08-15 fan-out: recall 9/10, specificity 10/10) as a BASELINE ONLY — that run measured the pre-rewrite description, which this PR replaces, and it had no without-skill arm. Nothing here is a prediction: a case with no run behind it says so.",
+    "run_from": "dist/housecarl/skills/npc-appearance-copy/ — the PACKAGED tree, not .claude/skills/. The packager strips evals/, so the suite is driven from outside the tree it tests, which is also the check that no body pointer dangles in dist/.",
+    "arms": {
+      "trigger": "Which ONE skill a fresh-context agent loads for a query, measured with-skill and without-skill.",
+      "output_quality": "The audit's own Lydia standalone task on the live order, run as a pair: control (no housecarl:* skill in the catalogue) against with-skill. Eval id 21."
+    },
+    "method": {
+      "cases": "20 trigger cases — 10 should-trigger, 10 should-not — plus 1 output-quality case. Four of the negatives hold the boundary against housecarl:facegen-diagnostics, which is the boundary the rewritten description now states outright.",
+      "runs_per_query": 3,
+      "trigger_rate_threshold": 0.5,
+      "split": "60/40 train/held-out; best iteration chosen by held-out score; at most 5 iterations.",
+      "without_skill_arm": "MANDATORY (rewrite ruling 3). Every query runs twice, with and without this skill in the catalogue, each from a clean context in a separate session or subagent — never the authoring session. Results are reported as a delta, not as an absolute rate, and the without-skill arm is also how a negative is shown to be a near-miss rather than an unreachable prompt.",
+      "coexistence": "A neutral menu of realistic sibling skills, this skill not flagged as under test.",
+      "isolation": "This skill alone in the menu, plus NONE. Each of the five gate dimensions — triggering accuracy, isolation, coexistence, instruction following, output quality — carries a named failure mode recorded per run.",
+      "models": "Haiku, Sonnet and Opus, results recorded per tier. No Fable-model agents.",
+      "grading": "Each expectation is PASS or FAIL with evidence that QUOTES a sentence from the run, never a pick token alone.",
+      "cost": "total_tokens and duration_ms recorded per run, beside the pass-rate delta.",
+      "staleness": "Any change to the description, or to the tool calls the body writes, re-runs the whole set before the next release."
+    },
+    "gate": {
+      "recall_threshold": 0.8,
+      "specificity_threshold": 0.5,
+      "last_measured": {
+        "run": "2026-08-15 fan-out, against the PRE-rewrite description and this same 20-case set",
+        "recall": "9/10 = 0.90",
+        "specificity": "10/10 = 1.00",
+        "passed": true
+      }
+    },
+    "open_question": "Case 3 is the one carried-forward recall miss. The rewritten description states the boundary outright — a face already wrong before any copy is housecarl:facegen-diagnostics — so this case may now be a CORRECT route rather than a miss. It is left as should_trigger:true and re-adjudicated on the next run; if it routes to facegen-diagnostics again, the row is reclassified rather than the description widened. Aaron decides (REWRITE Q3)."
+  },
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "i want to make Serana's face into a standalone follower of my own - new NPC, my own esp, and i don't want it to need Dawnguard's records for the head",
+      "expected_output": "Load npc-appearance-copy.",
+      "expectations": ["picks npc-appearance-copy", "reasoning names standalone-ization or internalizing the donor's records"],
+      "should_trigger": true,
+      "evidence": "2026-08-15: picked, against the pre-rewrite description."
+    },
+    {
+      "id": 2,
+      "prompt": "Bijin gives Ysolda a face i like. can you put that face onto the Ysolda that my modlist actually uses, without me having to install all of Bijin",
+      "expected_output": "Load npc-appearance-copy.",
+      "expectations": ["picks npc-appearance-copy", "reasoning names borrowing a face from an overhaul"],
+      "should_trigger": true,
+      "evidence": "2026-08-15: picked, against the pre-rewrite description."
+    },
+    {
+      "id": 3,
+      "prompt": "cloned an npc yesterday and now she's got a pitch black face in game. i copied the record with xedit but that's it",
+      "expected_output": "Load npc-appearance-copy.",
+      "expectations": ["picks npc-appearance-copy", "reasoning names a copy that is not finished — the FaceGen files never moved"],
+      "should_trigger": true,
+      "evidence": "2026-08-15: MISSED — routed to facegen-diagnostics, which read the copy as already done and the request as a diagnosis. See _meta.open_question: the new boundary clause may make that route correct."
+    },
+    {
+      "id": 4,
+      "prompt": "borrow the head from 000A2C94:Skyrim.esm for my custom follower please, including the tints",
+      "expected_output": "Load npc-appearance-copy.",
+      "expectations": ["picks npc-appearance-copy", "reasoning names the tints as a separate thing from the records"],
+      "should_trigger": true,
+      "evidence": "2026-08-15: picked, against the pre-rewrite description."
+    },
+    {
+      "id": 5,
+      "prompt": "what fields do i actually need to move to transfer an npc's appearance? i keep getting a blank/default face when i copy them over",
+      "expected_output": "Load npc-appearance-copy.",
+      "expectations": ["picks npc-appearance-copy", "reasoning names the field set or the blank-face failure"],
+      "should_trigger": true,
+      "evidence": "2026-08-15: picked, against the pre-rewrite description."
+    },
+    {
+      "id": 6,
+      "prompt": "make a standalone version of the follower from 'Sofia the Funny Fully Voiced Follower' that doesn't master her esp - just the look, i'll do the AI myself",
+      "expected_output": "Load npc-appearance-copy.",
+      "expectations": ["picks npc-appearance-copy", "reasoning names not mastering the donor plugin"],
+      "should_trigger": true,
+      "evidence": "2026-08-15: picked, against the pre-rewrite description."
+    },
+    {
+      "id": 7,
+      "prompt": "i want to duplicate this NPC record into my patch and take her facegen nif and dds with her so the head still renders",
+      "expected_output": "Load npc-appearance-copy.",
+      "expectations": ["picks npc-appearance-copy", "reasoning names the FaceGen mesh and tint as files that move separately"],
+      "should_trigger": true,
+      "evidence": "2026-08-15: picked, against the pre-rewrite description."
+    },
+    {
+      "id": 8,
+      "prompt": "copy the appearance from the overhaul's version of Lydia onto the vanilla Lydia record in my own patch esp",
+      "expected_output": "Load npc-appearance-copy.",
+      "expectations": ["picks npc-appearance-copy", "reasoning names reading the look through an override"],
+      "should_trigger": true,
+      "evidence": "2026-08-15: picked, against the pre-rewrite description."
+    },
+    {
+      "id": 9,
+      "prompt": "my cloned npc came out with no factions and no outfit after i made her standalone. did i do the copy wrong",
+      "expected_output": "Load npc-appearance-copy.",
+      "expectations": ["picks npc-appearance-copy", "reasoning names the clone's strip list"],
+      "should_trigger": true,
+      "evidence": "2026-08-15: picked, against the pre-rewrite description."
+    },
+    {
+      "id": 10,
+      "prompt": "transferring a face between two npcs of different races - is there anything extra i need to change or does it just work",
+      "expected_output": "Load npc-appearance-copy.",
+      "expectations": ["picks npc-appearance-copy", "reasoning names the race case"],
+      "should_trigger": true,
+      "evidence": "2026-08-15: picked, against the pre-rewrite description."
+    },
+    {
+      "id": 11,
+      "prompt": "about half the npcs in my load order have grey faces since i installed a new overhaul. nothing was copied, this is a fresh install - where do i even start",
+      "expected_output": "Load facegen-diagnostics, not this skill.",
+      "expectations": ["does not pick npc-appearance-copy", "reasoning names a face already wrong before any copy"],
+      "should_trigger": false,
+      "evidence": "2026-08-15: routed to facegen-diagnostics."
+    },
+    {
+      "id": 12,
+      "prompt": "give every female Nord bandit the Fortify Health spell without an esp",
+      "expected_output": "Load spid-authoring, not this skill.",
+      "expectations": ["does not pick npc-appearance-copy", "reasoning names runtime distribution onto NPCs"],
+      "should_trigger": false,
+      "evidence": "2026-08-15: routed to spid-authoring."
+    },
+    {
+      "id": 13,
+      "prompt": "build me a spreadsheet of every NPC_ record in the load order with their race, level and which plugin wins them",
+      "expected_output": "Load bulk-record-jobs, not this skill.",
+      "expectations": ["does not pick npc-appearance-copy", "reasoning names a catalogue or bulk job"],
+      "should_trigger": false,
+      "evidence": "2026-08-15: routed to bulk-record-jobs."
+    },
+    {
+      "id": 14,
+      "prompt": "what's the mutagen field name for the NPC head texture? i need the exact spelling for a script",
+      "expected_output": "Load mutagen-reference, not this skill.",
+      "expectations": ["does not pick npc-appearance-copy", "reasoning names a schema lookup"],
+      "should_trigger": false,
+      "evidence": "2026-08-15: routed to mutagen-reference."
+    },
+    {
+      "id": 15,
+      "prompt": "i want the overhaul's whole Lydia record - stats, AI, everything - forwarded into my patch as the winning override, not just her face",
+      "expected_output": "No skill; this is a plain forward.",
+      "expectations": ["does not pick npc-appearance-copy", "reasoning names a whole-record forward rather than an appearance copy"],
+      "should_trigger": false,
+      "evidence": "2026-08-15: routed to NONE."
+    },
+    {
+      "id": 16,
+      "prompt": "after i compacted my follower mod to esl all the faces went dark. i think the facegen filenames don't match the new formids",
+      "expected_output": "Load facegen-diagnostics, not this skill.",
+      "expectations": ["does not pick npc-appearance-copy", "reasoning names the compaction/filename mismatch as a diagnosis"],
+      "should_trigger": false,
+      "evidence": "2026-08-15: routed to facegen-diagnostics."
+    },
+    {
+      "id": 17,
+      "prompt": "merge these three follower plugins into one esp and keep their facegen working",
+      "expected_output": "Load facegen-diagnostics, not this skill.",
+      "expectations": ["does not pick npc-appearance-copy", "reasoning names the merge rather than a face copy"],
+      "should_trigger": false,
+      "evidence": "2026-08-15: routed to facegen-diagnostics."
+    },
+    {
+      "id": 18,
+      "prompt": "which mod is actually winning meshes/actors/character/facegendata/facegeom/Skyrim.esm/00013BBF.nif in my setup",
+      "expected_output": "Load facegen-diagnostics, not this skill.",
+      "expectations": ["does not pick npc-appearance-copy", "reasoning names a VFS winner question"],
+      "should_trigger": false,
+      "evidence": "2026-08-15: routed to facegen-diagnostics."
+    },
+    {
+      "id": 19,
+      "prompt": "add the VendorItemClothing keyword to every wig in my hair mod at runtime, no plugin",
+      "expected_output": "Load kid-authoring, not this skill.",
+      "expectations": ["does not pick npc-appearance-copy", "reasoning names keyword distribution onto items"],
+      "should_trigger": false,
+      "evidence": "2026-08-15: routed to kid-authoring."
+    },
+    {
+      "id": 20,
+      "prompt": "the head nif for my follower points at a texture path that doesn't exist anymore, can you repoint it",
+      "expected_output": "No skill; this is one housecarl_nif_set call.",
+      "expectations": ["does not pick npc-appearance-copy", "reasoning names a bare mesh edit with no copy in flight"],
+      "should_trigger": false,
+      "evidence": "2026-08-15: routed to NONE. Note: the rewritten body now teaches this call as Step 4, so watch this row — the skill must still not claim a repoint with no copy behind it."
+    },
+    {
+      "id": 21,
+      "prompt": "copy the load-order winner of 0A2C8E:Skyrim.esm onto a new standalone NPC in a new plugin, so the face renders correctly on the copy",
+      "expected_output": "A patch whose readback claims standalone (the source is NOT a master), both FaceGen files placed under the new FormID, and the placed mesh re-read showing the copy's own tint in slot 6.",
+      "expectations": [
+        "the readback says standalone: the source is NOT a master, with the donor mod internalized via from_source=",
+        "the copy routes away from a generated winner rather than basing the work on it",
+        "the tint repoint is done and re-read, in ONE housecarl_nif_set call rather than a probe chain",
+        "the report says which verification items are the caller's",
+        "fewer tool calls than the 2026-09-05 with-skill run's 18, and the run records whether references/race-and-provider-cases.md was opened at all"
+      ],
+      "should_trigger": true,
+      "arm": "output_quality",
+      "baseline": "dev/skill-validation/audit-2026-09/npc-appearance-copy/{control,with-skill}/log.md, 2026-09-05, Opus, 40-call cap. The control produced a clone that still linked UBE Lydia.esp and copied its record out of the generated winner (caveat noted, masters clean); it did repoint tex[6] and re-read it unaided, so the repoint is parity, not credit.",
+      "evidence": "Never run against the rewritten skill."
+    }
+  ]
+}
