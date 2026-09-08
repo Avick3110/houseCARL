@@ -43,7 +43,9 @@ not derived.
   is the game's own `Data` layer — the vanilla face, not the face you just copied. The plugin in the
   path names which master *defines* the NPC; it says nothing about whose bytes render.
 - **Read each candidate.** `housecarl_asset_status` on the FaceGen path lists every provider that has
-  a copy. Inspect them one at a time —
+  a copy — every provider *MO2 loads*, so a switched-off donor is listed by nobody and the path reads
+  absent. It is still a candidate: name its mod folder and read it anyway. Inspect them one at a
+  time —
   `housecarl_nif_inspect(npc = ["<donor FormID>"], sections = "shapes", mod = "<candidate>")` — and
   keep the copy whose baked shape names match the EditorIDs of the head parts the record copy
   carried. That match is the whole test: the mesh and the record have to agree by name or the engine
