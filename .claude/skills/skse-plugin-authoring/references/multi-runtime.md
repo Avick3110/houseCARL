@@ -41,11 +41,14 @@ target is **SE + AE and no VR**, read these five rows and stop; the rest is for 
    `ENABLE_SKYRIM_AE` / `ENABLE_SKYRIM_VR`; every `EXCLUSIVE_*` macro is derived from those at preprocess
    time. Read the derivation verbatim in [the preprocessor define set](#the-preprocessor-define-set) rather
    than any summary table — where a table and `Common.h` disagree, `Common.h` wins.
-2. **FLAT is not SE and is not AE.** A dual SE+AE build defines `EXCLUSIVE_SKYRIM_FLAT` **alone**; `_SE` and
-   `_AE` are *not* defined (a single-runtime build defines its own plus FLAT). FLAT means "not VR", so it
-   cannot discriminate SE from AE — gate with `EXCLUSIVE_SKYRIM_SE` / `EXCLUSIVE_SKYRIM_AE` wherever the
-   two layouts differ (`BaseExtraList` is the canonical case). Assuming a dual build defines both is
-   exactly backwards, and the code compiles clean and reads the wrong offset on one runtime.
+2. **FLAT is not SE and is not AE.** A dual SE+AE build (preset `flatrim`) defines `EXCLUSIVE_SKYRIM_FLAT`
+   **alone**; `_SE` and `_AE` are *not* defined (a single-runtime build defines its own plus FLAT). FLAT
+   means "not VR", so it cannot discriminate SE from AE. In one dual DLL, discriminate at **runtime**:
+   `REL::Module::IsAE()` for a branch, `REL::Relocate(seAndVr, ae)` for an offset (`BaseExtraList` is the
+   canonical case). Compile-time `EXCLUSIVE_SKYRIM_SE` / `_AE` gating selects an arm only when you ship two
+   separate builds (presets `se` and `ae`) — written into a `flatrim` build, every arm falls through and the
+   divergent code is silently absent on both runtimes. Assuming a dual build defines both is exactly
+   backwards. Detail: [compile-time vs runtime](#compile-time-vs-runtime--the-decision-rule).
 3. **Both entry points, always.** SE loads a plugin through `SKSEPlugin_Query`; AE loads it through the
    static `SKSEPlugin_Version` data. Ship only one and the DLL is silently skipped on the other runtime —
    let `add_commonlibsse_plugin` (or the xmake plugin rule) generate both, and never hand-write a second
@@ -100,7 +103,7 @@ memory / CTD on VR" is the one that ships and crashes a player.
 | 11 | Explicitly typing `RELOCATION_ID(...)` as `REL::ID` | Drops NG's runtime dispatch → silently AE-only or SE-only | Save the result with `auto` |
 | 12 | Treating `VariantID`'s third arg as a VR **ID** | Resolves the wrong VR address | The third arg is a raw VR **offset**, not an Address-Library ID |
 | 13 | Only one SKSE entrypoint implemented | Silent load failure — on SE/VR *or* on AE, depending which one you wrote | Supply both `SKSEPlugin_Query` and the `SKSEPlugin_Version` data — use the `SKSEPluginInfo` macro or CMake's `add_commonlibsse_plugin` (see `plugin-skeleton.md`) |
-| 14 | Reaching for `EXCLUSIVE_SKYRIM_FLAT` where SE and AE actually differ | Compiles clean, silently wrong in one of SE/AE | Gate with `EXCLUSIVE_SKYRIM_SE` / `EXCLUSIVE_SKYRIM_AE` when SE ≠ AE — FLAT only means "not VR" |
+| 14 | Reaching for `EXCLUSIVE_SKYRIM_FLAT` where SE and AE actually differ | Compiles clean, silently wrong in one of SE/AE | In a dual build discriminate at runtime (`REL::Module::IsAE()`, `REL::Relocate(seAndVr, ae)`) — FLAT only means "not VR", and `EXCLUSIVE_SKYRIM_SE` / `_AE` are undefined there |
 | 15 | Mis-ordering the `Relocate` / `RELOCATION_ID` two-arg form | Wrong id/offset on one runtime | 2-arg = `(SE-and-VR shared, AE)`; 3-arg = `(SE, AE, VR)` |
 
 Sources for the rows above: `ng/CLAUDE.md:432-448,480`, `Actor.h:776-778` (#1); `oar/src/Offsets.h:17` (#2);
@@ -475,8 +478,13 @@ a vtable pointer and shifting members by 8 (data at `0x08`, size `0x18`). The he
 undecidable from FLAT alone.
 
 **Authoring rule:** gate with `EXCLUSIVE_SKYRIM_FLAT` **only** when the code is identical across SE and AE
-and you just need "not VR." Gate with `EXCLUSIVE_SKYRIM_SE` / `EXCLUSIVE_SKYRIM_AE` whenever SE and AE
-differ. Reaching for FLAT where SE/AE diverge compiles clean but is silently wrong in one runtime.
+and you just need "not VR." Where SE and AE diverge, which mechanism you reach for depends on what you
+ship: `EXCLUSIVE_SKYRIM_SE` / `EXCLUSIVE_SKYRIM_AE` in a **single-runtime** build (presets `se`, `ae` —
+this is how the NG headers themselves discriminate, since CommonLib compiles under the plugin's own
+preset), and a **runtime** probe in a dual `flatrim` build, where neither macro is defined:
+`REL::Module::IsAE()` for a branch, `REL::Relocate(seAndVr, ae)` for an offset. Reaching for FLAT where
+SE/AE diverge compiles clean but is silently wrong in one runtime; reaching for `_SE`/`_AE` in `flatrim`
+compiles clean and drops the divergent code on both.
 
 ## Lineage caution
 
