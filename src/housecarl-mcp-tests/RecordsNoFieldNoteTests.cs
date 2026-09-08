@@ -53,6 +53,17 @@ public sealed class RecordsNoFieldNoteTests : RecordsTestBase
         Assert.DoesNotContain("not a mistyped name", r);
     }
 
+    /// <summary>A name the corpus models on other types can still be this record's typo. A Spell spells it
+    /// 'Effects' and the corpus carries the exact name 'Effect' on one other type, so the owner's own near field
+    /// is what the caller needs — not "not a mistyped name" over a one-character fix.</summary>
+    [Fact]
+    public void AnOwnerNearFieldBeatsTheModeledElsewhereClaim()
+    {
+        var r = Spell("Effect");
+        Served(r, "did you mean 'Effects'?");
+        Assert.DoesNotContain("not a mistyped name", r);
+    }
+
     /// <summary>The walk lands on values the catalog does not model at all — a FormLink is one — and the index can
     /// only speak about types it carries. Off one of those the note stays bare: a verdict there would name a
     /// schema that does not exist and tell the caller the name is right when the whole path is wrong.</summary>
