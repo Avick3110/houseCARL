@@ -2325,7 +2325,18 @@ public sealed class LoadOrderService : IDisposable
     /// a verify step: a mid-run resolve or asset failure rides
     /// <see cref="DialogueValidationReport.CheckError"/>, and a not-in-order or wrong-type input is a named
     /// <see cref="DialogueValidationReport.Error"/>.</summary>
-    public DialogueValidationReport ValidateDialogue(FormKey fk) => DialogueValidate.Run(Resolver, Assets, fk);
+    public DialogueValidationReport ValidateDialogue(FormKey fk)
+        => DialogueValidate.Run(Resolver, Assets, fk, null, ForceLoadedPluginNames());
+
+    /// <summary>The force-loaded plugin names — base masters aside, the Creation Club and <c>_ResourcePack.esl</c>
+    /// plugins the load-order status groups as implicit — for a check that must not blame a modder for content they
+    /// did not author. Null, never an empty set, when the MO2 profile cannot be read: a check told "nothing is
+    /// force-loaded" would warn on that content, and the caller says which way it then errs.</summary>
+    IReadOnlyCollection<string>? ForceLoadedPluginNames()
+    {
+        var (names, err) = ImplicitPluginNames();
+        return err is null ? names : null;
+    }
 
     /// <summary>The merged <c>check</c> surface's dialogue family: <see cref="ValidateDialogue"/> over a seed list,
     /// tallied for one section of a merged response. Deliberately thin — the family's own grammar (seed parse,
@@ -2346,7 +2357,10 @@ public sealed class LoadOrderService : IDisposable
             var view = resolver.Capture();
             // The seed door is pinned to that same view: a door of its own would capture a second build on the first
             // runtime FormID, so the seeds could name records from a build other than the one the response stamps.
-            return new DialogueSweep.Binding(fk => DialogueValidate.Run(resolver, assets, fk, view),
+            // Read once for the whole sweep, for the same reason the resolver and view are: every seed's ownership
+            // gate reads one composition, so one response cannot mix two answers to "who force-loads this".
+            var forceLoaded = ForceLoadedPluginNames();
+            return new DialogueSweep.Binding(fk => DialogueValidate.Run(resolver, assets, fk, view, forceLoaded),
                                              FormIdDoor.On(view).Parse, view.Epoch);
         }, seeds, limit, countsOnly);
 
