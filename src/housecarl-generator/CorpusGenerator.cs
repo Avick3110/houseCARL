@@ -754,7 +754,9 @@ public static class CorpusGenerator
     /// strips it before testing for the "Getter" ending, which a generic interface's own name never has
     /// (<c>ISkyrimGroupGetter`1</c>). Missing that answered "no getter interface" for every generic modeled
     /// type — GenderedItem&lt;T&gt;, SkyrimGroup&lt;T&gt;, FormLinkNullable&lt;T&gt; — in a walk whose whole
-    /// claim is that coverage is Mutagen's coverage by construction.
+    /// claim is that coverage is Mutagen's coverage by construction. A CLOSED generic answers with the closed
+    /// interface; an OPEN one answers with the generic type DEFINITION, which is the form that carries a
+    /// FullName the rest of the generator can key on.
     ///
     /// OWN-NAMED ONLY, deliberately. A class that implements a getter interface named after some OTHER type
     /// does NOT resolve here, and must not: implementing only the getter side of a type you are not is exactly
@@ -775,9 +777,18 @@ public static class CorpusGenerator
         var ifaces = concrete.GetInterfaces();
         // The IMPLEMENTED interface is asked first, ahead of the assembly lookup: on a CLOSED generic class it
         // is the closed IFooGetter<Bar>, where Assembly.GetType can only ever hand back the open definition.
-        return ifaces.FirstOrDefault(i => i.Name == probe)
+        var gi = ifaces.FirstOrDefault(i => i.Name == probe)
             ?? concrete.Assembly.GetType($"{concrete.Namespace}.{probe}")
             ?? ifaces.FirstOrDefault(i => i.Name.Split('`')[0].EndsWith("Getter") && Normalize(i.Name) == Normalize(concrete.Name));
+        // An OPEN generic class implements the CONSTRUCTED IFooGetter<T> over its own type parameter, and that
+        // type's FullName and AssemblyQualifiedName are both null. Every consumer keyed on the full name would
+        // degrade silently rather than fail: ExtractType would write GetterInterface as the bare
+        // "ISkyrimGroupGetter`1" with no namespace, and IsList's hard-coded
+        // "Mutagen.Bethesda.Skyrim.ISkyrimGroupGetter`1" could never match. An open class's own name denotes the
+        // DEFINITION, so answer with the definition and keep the closed-generic win of asking ifaces first.
+        return concrete.IsGenericTypeDefinition && gi is { IsGenericType: true, IsGenericTypeDefinition: false }
+            ? gi.GetGenericTypeDefinition()
+            : gi;
     }
 
     /// <summary>The mutable twin of a getter interface (strip the "Getter" suffix).</summary>

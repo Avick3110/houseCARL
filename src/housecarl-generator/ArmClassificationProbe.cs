@@ -52,8 +52,9 @@ namespace HousecarlGenerator;
 ///   E — THE RESOLVER IS ARITY-AWARE, AND OWN-NAMED ONLY (#424). CorpusGenerator.GetterInterfaceFor built its
 ///       probe name straight off Type.Name, so every generic modeled type asked for the impossible
 ///       "IFoo`1Getter" and answered "no getter interface" — a hand-shaped hole in a by-construction coverage
-///       claim. E pins the arity fix: a generic type resolves, and a CLOSED one resolves the CLOSED interface
-///       rather than the open definition. The other half of #424 — whether a class that implements a getter
+///       claim. E pins the arity fix: a generic type resolves, a CLOSED one resolves the CLOSED interface
+///       rather than the open definition, and an OPEN one resolves the DEFINITION (the form that has a
+///       FullName for IsList to match). The other half of #424 — whether a class that implements a getter
 ///       interface named after ANOTHER type should resolve — was answered no, because that shape is exactly
 ///       Mutagen's read-only projections and is what ClassifyArm reads. That boundary needs no check of its
 ///       own: widening it turns B4 red (its exhibit would resolve IGenderedItemGetter&lt;bool&gt;) and D0b red
@@ -259,13 +260,15 @@ public static class ArmClassificationProbe
             $"arity, so it asked for IGenderedItem`1Getter");
 
         // The group containers are the case with teeth: IsList hard-codes ISkyrimGroupGetter`1 by full name, so
-        // the resolver disagreeing with that list is the generator contradicting itself.
+        // the resolver disagreeing with that list is the generator contradicting itself. Asserted on the FULL
+        // NAME, which is what IsList matches on: an open class implements the CONSTRUCTED ISkyrimGroupGetter<T>
+        // over its own type parameter, and that type's FullName is null, so a resolver handing that back agrees
+        // with nothing while looking arity-correct.
         var groupOpen = CorpusGenerator.GetterInterfaceFor(typeof(SkyrimGroup<>));
-        Check("E2. the record-group container resolves too (SkyrimGroup<T> -> ISkyrimGroupGetter<T>)",
-            groupOpen != null
-            && groupOpen.IsGenericType
-            && groupOpen.GetGenericTypeDefinition() == typeof(ISkyrimGroupGetter<>),
-            $"got {groupOpen?.Name ?? "null"}");
+        Check("E2. the record-group container resolves the definition IsList names (SkyrimGroup<T>)",
+            groupOpen == typeof(ISkyrimGroupGetter<>)
+            && groupOpen.FullName == "Mutagen.Bethesda.Skyrim.ISkyrimGroupGetter`1",
+            $"got {groupOpen?.Name ?? "null"} with FullName {groupOpen?.FullName ?? "<null>"}");
 
         // A CLOSED generic must resolve the CLOSED interface. Assembly.GetType can only ever hand back the open
         // definition, which would catalogue GenderedItem<T> where the field really carries GenderedItem<Boolean>.
