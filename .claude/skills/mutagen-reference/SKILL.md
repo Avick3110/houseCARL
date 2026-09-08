@@ -2,7 +2,9 @@
 name: mutagen-reference
 description: >-
   Looks up the schema of any Skyrim record type — fields, types, cardinality, writability, and an enum field's legal values — from the by-construction reference bundled with this skill. Use before reading, editing, or patching any record (ARMO, WEAP, MGEF, NPC_, …) and for any "what fields does X have" or xEdit-signature question. Schema only, never instance values — the shape of a type, not what one record in one plugin holds. A type absent from the reference is a real library-coverage gap to surface, never something to guess.
-compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 2 instance.
+compatibility: >-
+  Requires the houseCARL MCP server and a configured Mod Organizer 2 instance. The lookup is
+  offline; only what reads the live load order needs them.
 ---
 
 # Mutagen Reference
