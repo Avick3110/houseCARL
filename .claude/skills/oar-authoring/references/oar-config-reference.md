@@ -307,6 +307,13 @@ OAR reads **Dynamic Animation Replacer** layouts at runtime and converts each in
 - `_conditions.txt` grammar: `(NOT) FunctionName("Plugin.esp" | 0xFormID, args…) (AND | OR) …`,
   one logical chain (DAR has **no parentheses grouping** — a real limitation OAR's nested
   `AND`/`OR` fixes). Missing `_conditions.txt` ⇒ the folder is skipped with a warning.
+- **How `AND` and `OR` bind in a mixed chain is UNSETTLED here.** No source available to this
+  reference states it: DAR's own parser is not published beside OAR's, and OAR's `Parsing.cpp`
+  legacy path has not been read for this question. The two readings — `AND` binding tighter than
+  `OR`, versus a flat left-to-right chain — give semantically different configs from the same file,
+  and both parse and load cleanly. **Do not guess silently.** Convert under one reading, state which
+  one in the submod's `description`, and say what the other would have meant. Treat this as a real
+  gap in this reference, not as a detail to resolve from memory or a web search.
 - Common functions: `IsActorBase`, `IsPlayerTeammate`, `IsEquippedRight`, `IsEquippedLeft`,
   `IsEquippedRightType`, `IsEquippedLeftType`, `IsEquippedRightHasKeyword`,
   `IsEquippedLeftHasKeyword`, `IsEquippedShout`, `IsWorn`, `IsWornHasKeyword`, `IsInFaction`,
@@ -335,9 +342,32 @@ NOT IsEquippedLeftType(4)
   `IsActorBase(<Plugin.esp>, <FormID>)` condition from the folder names (source `Parsing.cpp`
   ~L1310/L1380, `ConfigSource::kLegacyActorBase`).
 
-**Converting legacy → OAR:** in the in-game editor, a legacy submod can be converted to OAR format
-(writes a `config.json`), after which you can edit it normally. Leaving it legacy is fine — it still
-loads and competes by priority.
+### DAR function → OAR condition
+
+The mapping a by-hand conversion needs. Each row is this section's function roster crossed with the
+built-in roster (§6) and the value-component shapes (§4); the hand flag is §4's Bool component.
+
+| DAR function | OAR condition | Parameters |
+|---|---|---|
+| `IsEquippedRight("P.esp" \| 0xF)` | `IsEquipped` | `"Form": { "pluginName": "P.esp", "formID": "<local hex>" }`, `"Left hand": false` |
+| `IsEquippedLeft("P.esp" \| 0xF)` | `IsEquipped` | same `Form`, `"Left hand": true` |
+| `IsEquippedRightType(n)` | `IsEquippedType` | `"Type": { "value": n.0 }`, `"Left hand": false` |
+| `IsEquippedLeftType(n)` | `IsEquippedType` | `"Type": { "value": n.0 }`, `"Left hand": true` |
+| `IsEquippedRightHasKeyword(kwd)` | `IsEquippedHasKeyword` | `"Keyword": { "editorID": … }` or a form, `"Left hand": false` |
+| `IsEquippedLeftHasKeyword(kwd)` | `IsEquippedHasKeyword` | same `Keyword`, `"Left hand": true` |
+| `IsActorBase("P.esp" \| 0xF)` | `IsActorBase` | `"Actor base": { "pluginName": …, "formID": … }` |
+| `IsWorn` / `IsWornHasKeyword` | `IsWorn` / `IsWornHasKeyword` | one Form / Keyword component; no hand flag |
+| `HasPerk` / `HasSpell` / `HasMagicEffect` / `IsInFaction` / `IsRace` / `IsClass` | same name | one Form component named for the thing (`"Perk"`, `"Spell"`, …) — confirm the exact argument name per §6 |
+| `IsInCombat()` / `IsChild()` / `IsInInterior()` / `IsPlayerTeammate()` | same name | no parameters |
+| Form B's `<Plugin.esp>/<FormID>/` folder pair | `IsActorBase` | auto-synthesized from the folder names; write it out explicitly when converting by hand |
+
+`NOT Fn(…)` becomes `"negated": true` on the converted condition. A DAR `0x0ABCDE` argument becomes
+the **local** hex string `"ABCDE"` in the `formID` — see §12.
+
+**Note on the in-game route:** the editor can convert a legacy submod to OAR format for you (it
+writes a `config.json`), and leaving a mod legacy is fine — it still loads and competes by priority.
+Neither helps when the conversion has to happen by hand and outside the game, which is what this
+section is for.
 
 ---
 
