@@ -26,11 +26,6 @@ saying it sets an expectation their install may contradict. Say what is known, a
   header says how many of its INIs matched and were expanded, so the header describes the listing under it. The cut
   notice no longer tells a caller who passed `filter=` to pass `filter=`. A blank or whitespace `filter=` is treated
   as no filter at every site, so it gives the overview instead of expanding every INI in the layer.
-- **`housecarl_apply` now refuses a FormLink pointed at a record of the wrong type.** Pre-flight checked that a
-  link value parsed as a FormID and nothing more, so setting an armor's `Race` to a keyword was accepted and wrote
-  a plugin that is valid on disk and wrong in game. The gate now resolves the FormID and compares that record's
-  type against the link's own target, naming the field, the type given and the types allowed. A field whose link
-  accepts any record, a null-clear, and a FormID no plugin in the order defines are not refused.
 - **`housecarl_apply` and `housecarl_create` now refuse a FormLink pointed at a record of the wrong type.**
   Pre-flight checked that a link value parsed as a FormID and nothing more, so setting an armor's `Race` to a
   keyword was accepted and wrote a plugin that is valid on disk and wrong in game. The gate now resolves the FormID
