@@ -177,9 +177,9 @@ which paths you skipped. If the donor's mod is switched off, every path only it 
 ```
 housecarl_place(assets = [
   { formid: "<the NEW FormID>", kind: "mesh",
-    source: "<the donor's FaceGen mesh path>", source_provider: "<the donor's mod folder>" },
+    source: "<the donor's FaceGen mesh path>", source_provider: "<the provider chosen below>" },
   { formid: "<the NEW FormID>", kind: "tint",
-    source: "<the donor's FaceGen tint path>", source_provider: "<the donor's mod folder>" }],
+    source: "<the donor's FaceGen tint path>", source_provider: "<the provider chosen below>" }],
   into = "<Step 1's patch>")
 ```
 
