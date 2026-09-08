@@ -19,12 +19,18 @@ namespace HousecarlMcpTests;
 /// carry: reverse lookups with a record hitting two targets at once, a defined-vs-overridden split for
 /// aggregate counts, a scoped-body-vs-winner value pair on the same record, and a link that no plugin
 /// defines. The shared world is frozen, so this one is its own.</para>
+///
+/// <para>A switched-OFF mod carries the same two-target weapon pair OUT of the load order, so the off-order
+/// file-scan lane answers the questions the in-order scan answers.</para>
 /// </summary>
 public sealed class BulkRecordsWorld : IDisposable
 {
     public string Root { get; }
     public string MasterName { get; }
     public string ReplName { get; }
+    /// <summary>A plugin in a switched-OFF mod, so it is on disk and OUT of the active order: a source= naming
+    /// it takes the off-order file-scan lane rather than the in-order scan.</summary>
+    public string OffName { get; }
 
     public LoadOrderService Svc { get; }
     public string? Epoch { get; }
@@ -43,6 +49,11 @@ public sealed class BulkRecordsWorld : IDisposable
     public FormKey W3 { get; }
     public FormKey Armor1 { get; }
     public FormKey Armor2 { get; }
+
+    /// <summary>Defined in the off-order file, carries KwA alone.</summary>
+    public FormKey OffW1 { get; }
+    /// <summary>Defined in the off-order file, carries BOTH keywords — the file-scan lane's own two-target row.</summary>
+    public FormKey OffW2 { get; }
 
     /// <summary>A keyword link on W1 that NOTHING defines — the unresolved-annotation pole.</summary>
     public FormKey Ghost { get; }
@@ -105,14 +116,34 @@ public sealed class BulkRecordsWorld : IDisposable
 
         var a2 = repl.Armors.AddNew(); a2.EditorID = "HcBulkArmor2"; Armor2 = a2.FormKey;
 
+        // The off-order file, shaped like the active order's reverse-lookup pair: one weapon on KwA alone and one
+        // on both keywords, so a two-target references= down the FILE-scan lane has something to un-merge.
+        var offKey = ModKey.FromNameAndExtension("HcBulkOff.esp");
+        OffName = offKey.FileName.String;
+        var off = new SkyrimMod(offKey, SkyrimRelease.SkyrimSE);
+        var o1 = off.Weapons.AddNew();
+        o1.EditorID = "HcBulkOffSword1";
+        o1.BasicStats = new WeaponBasicStats { Damage = 40, Weight = 1 };
+        o1.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(KwA) };
+        OffW1 = o1.FormKey;
+
+        var o2 = off.Weapons.AddNew();
+        o2.EditorID = "HcBulkOffSword2";
+        o2.BasicStats = new WeaponBasicStats { Damage = 50, Weight = 1 };
+        o2.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>>
+            { new FormLink<IKeywordGetter>(KwA), new FormLink<IKeywordGetter>(KwB) };
+        OffW2 = o2.FormKey;
+
         var instance = Path.Combine(Root, "inst");
         var mods = Path.Combine(instance, "mods");
         Directory.CreateDirectory(Path.Combine(mods, "BulkMasterMod"));
         Directory.CreateDirectory(Path.Combine(mods, "BulkReplMod"));
+        Directory.CreateDirectory(Path.Combine(mods, "BulkOffMod"));
         var masterFile = Path.Combine(mods, "BulkMasterMod", MasterName);
         var replFile = Path.Combine(mods, "BulkReplMod", ReplName);
         master.BeginWrite.ToPath(masterFile).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         repl.BeginWrite.ToPath(replFile).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
+        off.BeginWrite.ToPath(Path.Combine(mods, "BulkOffMod", OffName)).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
 
         var genDir = Path.Combine(Root, "corpus-gen");
         CorpusGenerator.GenerateAll(genDir, Path.Combine(Root, "corpus-ref"));
@@ -125,7 +156,8 @@ public sealed class BulkRecordsWorld : IDisposable
         Directory.CreateDirectory(prof);
         File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n" + ReplName + "\r\n");
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + MasterName + "\r\n*" + ReplName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+BulkReplMod\r\n+BulkMasterMod\r\n");
+        // BulkOffMod is switched OFF: its plugin is on disk, in no profile list, and out of the active order.
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n-BulkOffMod\r\n+BulkReplMod\r\n+BulkMasterMod\r\n");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "user.json")));
         Epoch = Svc.Stats().epoch;

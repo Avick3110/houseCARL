@@ -171,6 +171,18 @@ public sealed class RecordsScanProjectionTests : BulkRecordsTestBase
         Assert.Equal($"{Fid(W.KwA)}, {Fid(W.KwB)}", w3.GetProperty("matches").GetString());
     }
 
+    /// <summary>A source= naming a plugin OUTSIDE the load order is selected by the file scan, a second body lane
+    /// that reaches the same batch render on its own — so it hands down the un-merge separately, and every test
+    /// above passes with that half reverted.</summary>
+    [Fact]
+    public void TheOffOrderFileScansRowsCarryTheMatchesColumn()
+    {
+        var doc = Doc(RecordsTools.Records(Svc, types: Weap, source: Plugin(W.OffName), references: BothKeywords,
+                                           format: "json", project: Rows("Keywords")));
+        Assert.Equal($"{Fid(W.KwA)}, {Fid(W.KwB)}", BatchRow(doc, Fid(W.OffW2)).GetProperty("matches").GetString());
+        Assert.Equal(Fid(W.KwA), BatchRow(doc, Fid(W.OffW1)).GetProperty("matches").GetString());
+    }
+
     // ---- exact-window paging ----------------------------------------------------------------------
 
     [Fact]
