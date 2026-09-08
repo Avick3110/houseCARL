@@ -1,0 +1,131 @@
+{
+  "skill": "papyrus-reference",
+  "authored": "2026-09-08",
+  "convention": "dev/DECISIONS.md 2026-09-07, rewrite ruling 3: the eval file is evals/evals.json; every trigger eval carries a without-skill arm and runs from the packaged tree (dist/), never from .claude/skills/; the audit's with/without task on the live order is the output-quality arm.",
+  "arms": {
+    "trigger": {
+      "source_tree": "dist/housecarl/skills",
+      "note": "Both arms are run from the packaged tree. The with-skill arm installs the packaged skill; the without-skill arm runs the same query with this skill absent from the menu and records where it routes instead. A query that routes correctly in both arms is not evidence for this skill.",
+      "runs_per_query": 3,
+      "trigger_rate_threshold": 0.5,
+      "split": {"train": 0.6, "held_out": 0.4, "best_iteration_by": "held_out_score", "max_iterations": 5},
+      "model_tiers": ["haiku", "sonnet", "opus"],
+      "gates": [
+        {
+          "dimension": "coexistence",
+          "how": "the full menu of shipped skills, this one unflagged",
+          "failure_mode": "a neighbouring skill's description absorbs a signature-lookup query — papyrus-optimization is gone, so the live neighbours are mutagen-reference (record schema) and skse-plugin-authoring (C++ producer side)"
+        },
+        {
+          "dimension": "isolation",
+          "how": "this skill and NONE, no other skill on the menu",
+          "failure_mode": "the description over-fires and takes queries it declines in coexistence — a .psc question that is really a record edit, a compile-tooling question, or an MO2 install question"
+        }
+      ]
+    },
+    "output_quality": {
+      "task": "On the live MO2 order, author HC_AuditPersist.psc — a Quest script with a FormList property, an OnInit that builds the store, and a count function that walks the list through StorageUtil and JContainers and plants a JArray at a JDB path — then compile it with housecarl_compile_script.",
+      "provenance": "The task the 2026-09 audit ran with-skill on the 2.0.0-beta.1 install against ARR 2.0 (3,801 plugins). Unchanged here so the with-skill arm stays comparable to that record.",
+      "protocol": "Two clean-context runs, one with the skill and one without, same call cap, same load order. Every expectation is recorded as {text, passed, evidence} quoting the transcript; total_tokens and duration_ms are captured per arm.",
+      "beating_the_control": "At least one expectation passes with the skill and fails without it. A set whose assertions pass in both arms is reported as not differentiating rather than as a pass.",
+      "differentiation_note": "Expectations 1-3 are the parameter defaults the audit named as the payoff. They are graded, but they are NOT assumed to differentiate: housecarl_compile_script auto-discovers the enabled mods' own Papyrus source folders (PapyrusUtil, JContainers among them), so a control can read a default out of shipped .psc source. The corpus is the cheap and complete route to a default; the source tree is the expensive and partial one. Expectations 4-6 are the ones that carry the claim.",
+      "expectations": [
+        {
+          "id": "oq1",
+          "text": "StorageUtil.FormListAdd is written knowing allowDuplicate defaults to true, and the list is cleared before it is rebuilt.",
+          "carries_claim": false
+        },
+        {
+          "id": "oq2",
+          "text": "JArray.addForm returns nothing, so its result is not assigned.",
+          "carries_claim": false
+        },
+        {
+          "id": "oq3",
+          "text": "JDB.solveObjSetter is called with createMissingKeys explicitly True, because the default is false and the path has a missing intermediate key on first run.",
+          "carries_claim": false
+        },
+        {
+          "id": "oq4",
+          "text": "A base-class event (OnInit) is not claimed as corpus-sourced while the corpus carries no vanilla or skse row for it; the miss is reported as a corpus hole, never as absence from Papyrus.",
+          "carries_claim": true,
+          "why": "A control has no corpus, so it cannot make or check this claim; the honesty rule is skill content."
+        },
+        {
+          "id": "oq5",
+          "text": "The Tier-2 availability answer comes from housecarl_skse with findings='pairing', not from matching a requires_plugin DLL filename against the load order, and is reported as a verify flag rather than a runtime guarantee.",
+          "carries_claim": true,
+          "why": "The filename on this corpus is wrong on an AE install; only the skill routes the question to the tool."
+        },
+        {
+          "id": "oq6",
+          "text": "Every signature is resolved through the index at a line-exact block range, with no whole-file read of a reference file or of a mod's .psc source, and the signature-resolution phase costs fewer tokens than the control's.",
+          "carries_claim": true,
+          "why": "This is the route claim the skill actually makes, measured rather than asserted: total_tokens per arm and the read calls in the transcript."
+        }
+      ]
+    },
+    "corpus": {
+      "note": "Mechanical checks, run by a verification script against the packaged tree rather than by model judgement (D5.29). These are what would have caught both corpus defects the 2026-09 audit found.",
+      "checks": [
+        {
+          "id": "c1",
+          "assert": "For every row in references/index.jsonl, the line at line_start is a '### ' heading naming that row's name, and line_end is inside the same block.",
+          "expected": "pass for every row"
+        },
+        {
+          "id": "c2",
+          "assert": "The blocks for StorageUtil.FormListAdd, JArray.addForm and JDB.solveObjSetter each carry their parameter defaults (allowDuplicate true, addToIndex -1, createMissingKeys false).",
+          "expected": "pass"
+        },
+        {
+          "id": "c3",
+          "assert": "No index row for OnInit has source vanilla or skse, AND SKILL.md states the base-class coverage bound.",
+          "expected": "pass today, and it is a recorded bound, not a clean bill: when an upstream regeneration lands a vanilla or skse OnInit row, this check flips to requiring one and the bound comes out of the body in the same change."
+        },
+        {
+          "id": "c4",
+          "assert": "SKILL.md describes requires_plugin as indicative and does not instruct a match of a DLL filename against the active load order.",
+          "expected": "pass"
+        }
+      ]
+    }
+  },
+  "regrade_gate": {
+    "excludes": "D1.28 (release tagging belongs to item 30's walk, ruling 8).",
+    "zero_fails": ["D4.13", "D4.16", "D4.39", "D4.43", "D5.21", "D5.26"],
+    "partials_to_conform": ["D3.11", "D4.63", "D3.19", "D3.23", "D4.3", "D4.15", "D4.22", "D4.47", "D4.50", "D5.13", "D5.30", "D5.49", "D5.50", "D5.51", "D5.52", "D5.40", "D5.16", "D5.19", "D5.20", "D5.22", "D5.23", "D5.24", "D5.25", "D5.29", "D5.33"],
+    "records_not_failures": ["D2.55 — Codex's compressed-bundle ceiling is real but unpublished", "D5.53 — paths is a route no source makes an obligation", "D2.26 — the imperative/third-person split, satisfied both ways", "D4.66 — the aggregate files and the index size, recorded as a deliberate trade in references/corpus-notes.md"]
+  },
+  "evals": [
+    {"id": 1, "query": "add a GetItemCount check to this quest script so the stage only advances when the player has 3 dragon scales", "should_trigger": true},
+    {"id": 2, "query": "compile error: GetActorValuePercentage is not a function or does not exist — but other mods call it fine?", "should_trigger": true},
+    {"id": 3, "query": "what parameters does OnObjectEquipped actually pass? i need the base object inside the event", "should_trigger": true},
+    {"id": 4, "query": "writing an MCM with MCMHelper — what's the signature for SetModSettingFloat and when does it apply?", "should_trigger": true},
+    {"id": 5, "query": "does StorageUtil.SetIntValue take none as the form? building a save-persistent counter", "should_trigger": true},
+    {"id": 6, "query": "copy the teleport function from elsewhere in this psc and tweak it to use a different xmarker property", "should_trigger": true},
+    {"id": 7, "query": "type mismatch compiling my follower script, it won't cast ObjectReference to Actor on line 40", "should_trigger": true},
+    {"id": 8, "query": "which JContainers call reads a json file into a string array from papyrus?", "should_trigger": true},
+    {"id": 9, "query": "quick one — what does Utility.WaitMenuMode(0.5) return and does it block?", "should_trigger": true},
+    {"id": 10, "query": "this script is dumping stacks in my papyrus log, is it too heavy for my load order?", "should_trigger": false, "expected_route": "NONE — heaviness judgment, not signature lookup; papyrus-optimization was deleted whole on 2026-09-07 (ruling 6b) and no skill owns this now"},
+    {"id": 11, "query": "review this psc and tell me if the OnUpdate loop is going to lag my game", "should_trigger": false, "expected_route": "NONE — same deletion; still a near-miss this skill must decline"},
+    {"id": 12, "query": "write an SKSE plugin in C++ that exposes a native papyrus string-hashing function", "should_trigger": false, "expected_route": "skse-plugin-authoring — producer side, C++ not .psc"},
+    {"id": 13, "query": "what fields does the QUST record have and is Priority writable?", "should_trigger": false, "expected_route": "mutagen-reference — record schema, not function signatures"},
+    {"id": 14, "query": "attach this existing script to the magic effect record and fill in its properties", "should_trigger": false, "expected_route": "record-edit tools / NONE — record operation, no .psc is read or written"},
+    {"id": 15, "query": "wire a TIF result fragment onto this dialogue line so it advances the quest stage", "should_trigger": false, "expected_route": "dialogue-authoring"},
+    {"id": 16, "query": "how do i install SKSE and PapyrusUtil in MO2?", "should_trigger": false, "expected_route": "NONE / basics — names corpus members but is an install question"},
+    {"id": 17, "query": "decompile campfire's pex files and tell me how heavy its update loops are", "should_trigger": false, "expected_route": "NONE — the judgment asked is heaviness, and the skill that owned it was deleted; hard near-miss"},
+    {"id": 18, "query": "gate this dodge animation behind a perk check so only the player gets it", "should_trigger": false, "expected_route": "oar-authoring — animation condition, not a script"}
+  ],
+  "history": {
+    "note": "The set below this line is the record of the pre-rewrite runs, kept for provenance. It was scored with no without-skill arm and read the source tree rather than dist/, so it does not satisfy ruling 3 and is not a pass for the rewritten skill.",
+    "run_2026-07-28_294": {
+      "method": "Section-6.5 fan-out for issue #294: one fresh-context sonnet agent per query, each shown the full lettered menu of all 13 descriptions (under-test skill unflagged) plus NONE, asked which ONE to load; one opus adjudicator per skill scored from reasoning.",
+      "gate": {"recall_threshold": 0.8, "specificity_threshold": 0.5},
+      "recall": "9/9 = 1.00",
+      "specificity": "9/9 = 1.00",
+      "passed": true,
+      "caveat": "A contamination audit on 2026-07-28 (PR #295 review) found 11 of 281 judge rows leaking pre-compression description text from the agents' own environment, and some adjudicator notes confabulating verbatim quotes from it. Scores are pick-derived and were confirmed by a hardened re-run; quoted description text in the original notes is unreliable. The note's 'load-bearing, do not trim' conclusion about the clause 'even one copied from elsewhere in the same file' was retracted — that clause is not in the shipped description."
+    }
+  }
+}
