@@ -321,7 +321,8 @@ OAR reads **Dynamic Animation Replacer** layouts at runtime and converts each in
   in `AND` is simply a line that does not: inside an open group it closes the group and is its last
   member, and at top level it separates terms. Two line kinds yield no condition and are skipped
   **without** closing an open group — a line that is empty after trimming, and a line starting with
-  `;` — so a blank line or a comment inside an `OR` run widens the group by one. An unknown function
+  `;` — a skipped line neither joins the group nor closes it, so the group is exactly what it would
+  be with that line deleted. An unknown function
   name is not one of these: it yields an `InvalidCondition`, which does close the group. So: **an
   `OR`-group is a maximal run of lines ending in `OR`, plus the next line that yields a condition;
   the groups and the remaining lines are `AND`-ed.**
