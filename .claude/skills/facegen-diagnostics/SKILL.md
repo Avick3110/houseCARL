@@ -109,7 +109,8 @@ Resolving the NPC a user names:
    `XX######` — is read directly by `housecarl_records` and by `housecarl_nif_inspect` `npc=`, resolved
    against the current load order, and the response names the plugin it resolved to. Two traps remain: a
    console click selects the **placed reference**, not the base `NPC_`, so read it back and confirm the
-   name before acting on it; and `housecarl_apply` refuses the runtime form by design, so write with the
+   name before acting on it; and the write tools — `housecarl_place`, `housecarl_apply` and
+   `housecarl_forward` share one write door — refuse the runtime form by design, so write with the
    `XXXXXX:Plugin.esp` form the read printed.
 
 ## 5. Step 2 — the record axis
