@@ -42,12 +42,15 @@ public static class ModeledFieldIndex
 
     /// <summary>What the schema knows about <paramref name="fieldName"/> not resolving on
     /// <paramref name="ownerTypeName"/> (a catalog name — <c>Ingestible</c>, not <c>IIngestibleGetter</c>).
-    /// Null when the corpus is not built or will not parse: the caller then says only what it knows, never a
-    /// guessed verdict.</summary>
+    /// Null when the corpus is not built or will not parse, and null for an owner type the catalog does not carry:
+    /// the caller then says only what it knows, never a guessed verdict.</summary>
     public static Verdict? Diagnose(string ownerTypeName, string fieldName)
     {
         var path = CorpusRulebook.CorpusPath;
         if (Index() is not { } idx) return null;
+        // A read walk lands on plenty the catalog does not model — a FormLink, a string. There is no schema there
+        // to weigh the name against, so any verdict about such an owner names a schema that does not exist.
+        if (!idx.ByType.ContainsKey(ownerTypeName)) return null;
         return Verdicts.GetOrAdd((path, ownerTypeName, fieldName), key =>
         {
             Interlocked.Increment(ref VerdictComputations);

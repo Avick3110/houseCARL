@@ -53,6 +53,17 @@ public sealed class RecordsNoFieldNoteTests : RecordsTestBase
         Assert.DoesNotContain("not a mistyped name", r);
     }
 
+    /// <summary>The walk lands on values the catalog does not model at all — a FormLink is one — and the index can
+    /// only speak about types it carries. Off one of those the note stays bare: a verdict there would name a
+    /// schema that does not exist and tell the caller the name is right when the whole path is wrong.</summary>
+    [Fact]
+    public void AnOwnerTheCatalogDoesNotModelGetsTheBareNote()
+    {
+        var r = Spell("HalfCostPerk.Name");
+        Served(r, "(no field Name)");
+        Assert.DoesNotContain("mistyped name", r);
+    }
+
     /// <summary>The types the field IS modeled on are named, not just counted, so a caller can see the name is
     /// real. ArmorRating lives on exactly one type, which is the tightest form of that claim.</summary>
     [Fact]
