@@ -36,7 +36,8 @@ every launch, directly onto the in-memory record, so a KID mod is trace-free to 
 KID's target is **items** (object/base records). That's its lane in the distributor family:
 
 - keyword/form to an **item record** → **KID** (this skill)
-- spell/perk/item/keyword to an **NPC** → **SPID**
+- spell/perk/item/keyword to **NPCs** → **SPID**, best by group (faction, race, level, trait); for one
+  named NPC **SkyPatcher** is usually the better fit, though a single-NPC SPID line is valid
 - item into a **container** → **SkyPatcher** (its container patcher — `filterByContainers` with
   `addToContainers`)
 - editing a record's **own fields** (damage, value, an NPC's stats) → **SkyPatcher**
@@ -179,8 +180,9 @@ e.g., material or rarity tags from doubling up on the same item.
 | You want to… | Tool |
 |---|---|
 | add a keyword to **items** (weapon/armor/potion/…) | **KID** ← this skill |
-| give a spell/perk/item/keyword to **NPCs** | SPID |
+| give a spell/perk/item/keyword to **NPCs** | SPID (best by group; for one named NPC, usually SkyPatcher) |
 | put an item into a **container** | SkyPatcher (its container patcher) |
 | change a record's **own fields** (damage, value, NPC stats) | SkyPatcher |
 
-When unsure, ask **what receives the keyword**: an item record → KID; an NPC → SPID.
+When unsure, ask **what receives the keyword**: an item record → KID; NPCs → SPID, and one named NPC
+usually SkyPatcher.
