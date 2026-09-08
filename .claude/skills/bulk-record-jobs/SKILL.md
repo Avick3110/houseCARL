@@ -93,9 +93,10 @@ join it locally.
 
 A persisted result is trustworthy only after these three checks, made **in the file**:
 
-1. Line 1 is the manifest — a flat object keyed `housecarl_artifact`, `tool`, `query`, `identity`,
-   `row_schema`, `sort`, `row_count`, `total`, `epoch` — and it is the thing you read, not the chat
-   response's summary.
+1. Line 1 is the manifest — `housecarl_artifact`, `tool`, `query` (an object), `identity`,
+   `row_schema` (an array), `sort`, `row_count`, `total`, `type_counts` when the rows carried types,
+   `epoch`, `created`, and `notes` when the result owes a clause — and it is the thing you read, not
+   the chat response's summary. Read `notes`: the scoped-vs-winner clause lands there.
 2. `row_count` equals `total`. Short of it means the file holds a **window**, not the result.
 3. Every window carries the **same** `epoch`.
 
