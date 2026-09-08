@@ -117,7 +117,8 @@ if (-not $PluginTreeOnly) {
 # The Codex umbrella skill (the $housecarl entry point for Codex) ships at the PACKAGE ROOT, beside -
 # not inside - dist/housecarl/, so the Claude install (which copies the housecarl/ plugin tree
 # wholesale) never picks it up; only the setup utility's Codex path places it. Its skill dir is an
-# immediate child of a skills/ root (dist/codex/skills/housecarl), the shape Codex accepts.
+# immediate child of a skills/ root (dist/codex/skills/housecarl), the shape Codex accepts. The whole
+# plugin/codex tree ships - a loose file at its root lands beside skills/, not inside it.
 Step '5/12' 'Bundle skills (plugin tree + Codex umbrella)'
 New-Item -ItemType Directory -Path $SkillsDir -Force | Out-Null
 foreach ($s in $Skills) {
@@ -126,15 +127,20 @@ foreach ($s in $Skills) {
   Copy-Item $src (Join-Path $SkillsDir $s) -Recurse -Force
 }
 $CodexSrc = Join-Path $PluginSrc 'codex'
-$SkillRoots = @($SkillsDir)
+$SkillRoots = @($SkillsDir)   # skill-directory roots: the markdown pointer scan walks these
+$LeakRoots  = @($SkillsDir)   # excluded-file scan: wider, so a loose Codex package file is covered too
 if (Test-Path $CodexSrc) {
   New-Item -ItemType Directory -Path $CodexSkills -Force | Out-Null
-  Get-ChildItem $CodexSrc -Directory | ForEach-Object { Copy-Item $_.FullName $CodexSkills -Recurse -Force }
+  # the whole plugin/codex tree ships: every directory (hidden ones too) as a skill under skills/, and
+  # any loose file at the Codex package root, where a package-level Codex file belongs.
+  Get-ChildItem $CodexSrc -Directory -Force | ForEach-Object { Copy-Item $_.FullName $CodexSkills -Recurse -Force }
+  Get-ChildItem $CodexSrc -File -Force | ForEach-Object { Copy-Item $_.FullName $CodexRoot -Force }
   $SkillRoots += $CodexSkills
+  $LeakRoots  += $CodexRoot
 }
 # prune dev/QA meta from the copies (index.jsonl + the mutagen shards stay - load-bearing). The eval
 # file is evals/evals.json (dev/DECISIONS.md, 2026-09-07, ruling 3); the whole directory is stripped.
-foreach ($r in $SkillRoots) {
+foreach ($r in $LeakRoots) {
   Get-ChildItem $r -Directory -Recurse -Filter 'evals' | Remove-Item -Recurse -Force
   Get-ChildItem $r -File -Recurse -Filter '_CORPUS_STATUS.md' | Remove-Item -Force
 }
@@ -156,7 +162,7 @@ foreach ($f in @('.mcp.json','LICENSE','THIRD-PARTY-NOTICES.txt','README.md','CH
 # defect (skill pointers are written with forward slashes).
 Step '7/12' 'Leak-check skills (excluded files + markdown pointers)'
 $skillLeaks = @()
-foreach ($r in $SkillRoots) {
+foreach ($r in $LeakRoots) {
   $skillLeaks += Get-ChildItem $r -Recurse -Force -File -Filter '_CORPUS_STATUS.md'
   $skillLeaks += Get-ChildItem $r -Recurse -Force -Directory -Filter 'evals'
 }
