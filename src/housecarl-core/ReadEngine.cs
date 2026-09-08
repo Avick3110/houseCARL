@@ -441,7 +441,12 @@ public static class ReadEngine
     /// <summary>A "no such field" note that, when the owner is a collection, points the caller at bracket
     /// indexing — the common <c>.0</c>-vs-<c>[0]</c> confusion (the read analog of the write pre-flight's
     /// bracket hint in <c>CorpusRulebook</c>). Brackets are how you step into a list/dict element mid-path;
-    /// a bare dotted <c>.0</c> is parsed as a field name and dead-ends here.</summary>
+    /// a bare dotted <c>.0</c> is parsed as a field name and dead-ends here.
+    /// <para>Off a collection the note says WHICH of the two dead-end causes this is — the same pair the
+    /// <c>where=</c> lane's accounting names ("a mistyped path, or a field that doesn't exist on this record
+    /// type"), which the projection lane could only state as an either/or. The verdict comes from the generated
+    /// schema (<see cref="ModeledFieldIndex"/>), so it holds for every record type Mutagen models and for none it
+    /// does not.</para></summary>
     static string NoFieldNote(object owner, string segName, string? precedingField, string[]? trailing = null)
     {
         bool ownerIsCollection = owner is System.Collections.IDictionary
@@ -451,7 +456,23 @@ public static class ReadEngine
             var pf = precedingField ?? "<field>";
             return $"{NoFieldPrefix}'{segName}': '{pf}' is a list/dict — {ListHopRemedy(owner, segName, pf, trailing)})";
         }
-        return $"{NoFieldPrefix}{segName})";
+
+        var typeName = RecordNaming.StripGetterInterface(RecordNaming.StripOverlay(owner.GetType().Name));
+        // No corpus (not built / unparseable) ⇒ the bare note. Saying less is not saying something wrong.
+        if (ModeledFieldIndex.Diagnose(typeName, segName) is not { } v) return $"{NoFieldPrefix}{segName})";
+
+        if (v.OnOwner)
+            return $"{NoFieldPrefix}{segName}: {typeName} declares '{segName}' but the read walk cannot resolve it)";
+
+        if (v.ModeledOn.Count > 0)
+        {
+            var shown = string.Join(", ", v.ModeledOn.Take(3)) + (v.ModeledOn.Count > 3 ? ", …" : "");
+            return $"{NoFieldPrefix}{segName}: not a mistyped name — Mutagen models '{segName}' on " +
+                   $"{v.ModeledOn.Count:N0} other type(s) ({shown}), just not on {typeName})";
+        }
+
+        var near = v.Near is { } n ? $"; did you mean '{n}'?" : $"; check the name against {typeName}'s schema";
+        return $"{NoFieldPrefix}{segName}: a mistyped name — Mutagen models no field '{segName}' on any type{near})";
     }
 
     /// <summary>What to actually DO about a path that dotted THROUGH a list/dict — checked against the element
