@@ -221,7 +221,9 @@ hand-authored, are reachable from no row, and are read whole by name.
 ## Getting it wrong, and the rule instead
 
 - Grep the index case-insensitively with the compact token, `grep -i '"name":"Dispel"'` (a spaced
-  `"name": "Dispel"` and a miscased `"name":"dispel"` both match nothing and read as absence).
+  `"name": "Dispel"` matches nothing at any casing, and a case-*exact* grep for `"name":"dispel"`
+  matches nothing either — both read as absence; under `-i` the miscased pattern resolves, so a zero
+  from it is a real miss).
 - Look up by the unqualified `name`, and use `qualified` only to disambiguate, then `source` when
   `qualified` ties (the index's key is `Substring`, not `StringUtil.Substring`).
 - Trust the index's `file` field over any file a user names (if a lookup for `Foo` resolves to
