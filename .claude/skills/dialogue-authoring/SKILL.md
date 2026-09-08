@@ -24,11 +24,91 @@ Distribution is somebody else's lane: a form onto NPCs is `housecarl:spid-author
 items is `housecarl:kid-authoring`, a record's own fields with no ESP is `housecarl:skypatcher-authoring`.
 (On a Codex install those siblings appear under their bare folder names — `spid-authoring`, and so on.)
 
-## Adding one line to an existing topic — the fast path
+## Adding a line to an existing NPC — the default route: your own quest
 
-The commonest job, and it needs almost nothing below. **Point `parent` at the existing topic's
-FormID.** It resolves an existing record, not just a sibling created in the same call, so the topic
-and its bookkeeping already exist and you author one INFO:
+For a new line on an NPC who already has lines, **do not append into the vanilla topic.** Author your
+own start-game-enabled `QUST` at a priority above the incumbent dialogue quest's, give it its own DIAL
+topic of the same subtype, hang your INFO under that, and write the `.seq`. Nothing vanilla is
+touched, so nothing can be re-listed, reordered or broken, and the higher quest priority is what gets
+your topic reached at all: **which topic the game enters is decided across quests by priority**, before
+intra-topic order is even consulted. The append route puts your line at the bottom of a topic that is
+often ten plugins deep, where whether it is ever selected is not knowable from the data layer.
+
+Three cheap reads settle the design.
+
+1. **Find a real line of the kind you are writing.** `references=` is how you find an NPC's lines:
+   `housecarl_records(types=["INFO"], references=["<npc formid>"], project={"form":"fields",
+   "fields":["*parent.EditorID","*parent.SubtypeName","*parent.Quest","Responses[0].Text"]})`.
+   A `where=["Speaker->editorid = …"]` scan is a dead end — vanilla greetings carry a **null**
+   `Speaker`, and a null link reads back as unreadable, not as a match.
+2. **Read that exemplar whole** (`project={"form":"everything"}`) and take its field set: which
+   conditions gate it, and the spoken row's `Emotion`, `EmotionValue` and `Flags`. Carry all three
+   onto your row — a response left at `EmotionValue = 0` and `Flags = 0` diverges from every vanilla
+   line around it.
+3. **Read the incumbent quest** — the `*parent.Quest` from step 1 — and take its `Priority`. Yours
+   goes comfortably above it. Vanilla `DialogueWhiterun` is `Priority = 30`, so 65 clears it. Do not
+   guess the number; measure it.
+
+**Skyrim's activation greeting is the `HELO` subtype** — `Subtype = Hello`, `SubtypeName = HELO`.
+There is no `GREE` subtype; do not go looking for one. **A DIAL's `SNAM` marker (`SubtypeName`) is
+authoritative for its subtype, and the `Subtype` enum can disagree with it on a record read from a
+different form version** — the same topic read from `Skyrim.esm` and from a later-form-version override
+prints two different enum names for one unchanged marker (issue #660); trust `SubtypeName`.
+
+Then one create call. The quest, topic and line are three records in one all-or-nothing write, linked
+by `@<editorid>` same-call sibling references and by `parent`:
+
+```json
+housecarl_create(
+  patch="MyGreeting", readback=true,
+  records=[
+    { "record_type": "Quest", "editorid": "MyMod_BelethorGreetQuest",
+      "ops": [ { "field_path": "Name",     "value": "My Belethor Greeting" },
+               { "field_path": "Flags",    "value": "StartGameEnabled" },
+               { "field_path": "Priority", "value": "65" } ] },
+
+    { "record_type": "DialogTopic", "editorid": "MyMod_BelethorGreetTopic",
+      "ops": [ { "field_path": "Quest",    "value": "@MyMod_BelethorGreetQuest" },
+               { "field_path": "Subtype",  "value": "Hello" },
+               { "field_path": "Priority", "value": "50" },
+               { "field_path": "Category", "value": "Misc" } ] },
+
+    { "record_type": "DialogResponses", "editorid": "MyMod_BelethorGreetInfo",
+      "parent": "MyMod_BelethorGreetTopic",
+      "ops": [ { "field_path": "Responses", "op": "Add",
+                 "compose": { "type": "DialogResponse",
+                              "fields": { "Text": "Browse as you like.", "ResponseNumber": "1",
+                                          "Emotion": "Neutral", "EmotionValue": "50",
+                                          "Flags": "UseEmotionAnimation" } } } ] }
+  ])
+```
+
+Then **clone the gate** onto the new line from the vanilla exemplar you read in step 2 — never
+hand-synthesize the operator bytes (Recipe A in `references/write-side-recipes.md`). One call:
+
+```json
+housecarl_apply(into="<the filename the create call reported>", readback=true,
+                bundle=["Conditions"],
+                assignments=[{ "target": "<the new INFO>", "from": "02848F:Skyrim.esm" }])
+```
+
+Copy only the entries that belong: a vanilla greeting's gate is often a speaker check *plus* a cell
+check, and a line meant to play anywhere wants the speaker check alone.
+
+Then the `.seq`, which is not optional: `housecarl_write_seq(source="<patch>.esp")`. A
+start-game-enabled quest with no `.seq` never starts, and its dialogue never exists. Finish with the
+pre-enable sweep below, and note the `#615` limit under "Validate, then hand off" — the dialogue check
+cannot see a plugin that is not yet enabled.
+
+## The exception — appending to an existing vanilla topic
+
+Take this route only when the line genuinely belongs *inside* an existing topic: a reply under a
+player-choice topic you or the mod already own, a line in a topic that is yours or nearly
+uncontested, or an edit the user has asked for in those terms. It is the cheaper write and the
+riskier placement. **Point `parent` at the existing topic's FormID.** It resolves an existing record,
+not just a sibling created in the same call, so the topic and its bookkeeping already exist and you
+author one INFO — with its conditions cloned from a vanilla sibling INFO in the same topic, and the
+sibling's emotion fields carried:
 
 ```json
 housecarl_create(
@@ -39,8 +119,21 @@ housecarl_create(
                { "field_path": "Speaker", "value": "013BA1:Skyrim.esm" },
                { "field_path": "Responses", "op": "Add",
                  "compose": { "type": "DialogResponse",
-                              "fields": { "Text": "Browse as you like.", "ResponseNumber": "1" } } } ] }])
+                              "fields": { "Text": "Browse as you like.", "ResponseNumber": "1",
+                                          "Emotion": "Neutral", "EmotionValue": "50",
+                                          "Flags": "UseEmotionAnimation" } } } ] }])
 ```
+
+```json
+housecarl_apply(into="<the filename the create call reported>", readback=true,
+                bundle=["Conditions"],
+                assignments=[{ "target": "<the new INFO>", "from": "02848F:Skyrim.esm" }])
+```
+
+**The conditions are not optional here.** A line appended to a shared vanilla topic with no gate
+fires for every speaker that reaches the topic. Clone them from a sibling INFO in that same topic —
+the one you read in step 2 above — and drop only the entries you positively do not want, such as a
+cell check on a line meant to play anywhere.
 
 Then sweep the patch before it is enabled — this lane works off-order, the dialogue one does not
 (section "Validate, then hand off"). `patch=` is a *base* name, auto-suffixed if that stem is taken,
@@ -128,7 +221,8 @@ else** — every other subrecord the CK writes, houseCARL had already written.
 
 1. **Resolve the targets.** The speaker (an NPC or a quest alias — its voice type decides the voice
    folder), the quest the dialogue gates on, and whether you need a new branch or are attaching to an
-   existing topic. Read a real vanilla line of the kind you are writing first.
+   existing topic. Read a real vanilla line of the kind you are writing first — find it with
+   `housecarl_records(types=["INFO"], references=["<npc formid>"])`, not by scanning on `Speaker`.
 2. **Author the topic and its lines in one call** with `housecarl_create`. Declare the `DialogTopic`
    first, then each `DialogResponses` with `parent` naming the topic's editorid — that nests the line
    into the topic's `Responses`, and a line cannot stand alone:
@@ -200,6 +294,11 @@ where.
 
 ## Common mistakes, and the rule that replaces each
 
+- **Give a new line its own quest and topic; append into a vanilla topic only for a reason you can
+  state.** Priority across quests decides which topic is entered; order inside a contested topic is
+  not something the data layer can settle for you.
+- **Carry the exemplar's `Emotion`, `EmotionValue` and `Flags` onto the response row.** The defaults
+  are 0 and none, which no vanilla line uses.
 - **Set `PreviousDialog` on every line you re-list, and re-list nothing else.** Vanilla topics have
   empty PNAM and that is never a defect, so never "complete the chain" on a topic you wrote. Carrying
   lines forward "to keep the topic complete" appends each to the bottom and reorders the topic — the
