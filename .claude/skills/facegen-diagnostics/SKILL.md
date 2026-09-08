@@ -40,8 +40,11 @@ Each of these is out of lane, and the desync flow would mislead. Name the real o
   save-baked, a new game or ReSaver.
 - **Purple or bright-white face** → a missing *texture* file. A different lane entirely.
 - **Shiny or oily face, ash pile** → specular/ENB or script state. Not facegen.
-- **An `FFxxxxxx` base id, or SPID/SkyPatcher-distributed appearance** → houseCARL reads *plugin*
-  records, so the winner it sees is not the in-game face. Warn; route to the distributed head parts.
+- **An `FFxxxxxx` base id, or SPID-distributed appearance** → houseCARL reads *plugin* records, so the
+  winner it sees may not be the in-game face. There is no SPID overlay: warn, and route to the
+  distributed head parts. **SkyPatcher it can read** — `housecarl_records` with
+  `source={"overlay":"skypatcher","state":"post"}` returns the record after the layer replays, race and
+  skin included, so read that before declaring a blind spot.
 - **An NPC built from a RaceMenu `.jslot` preset with no facegen** → a preset is not facegen. Instruct
   Sculpt → Export Head, or Ctrl+F4. Once the `.nif` and `.dds` exist they can be placed.
 
