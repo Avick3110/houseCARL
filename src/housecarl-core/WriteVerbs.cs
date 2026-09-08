@@ -99,6 +99,16 @@ public static class WriteVerbs
     /// other site, <c>ApplyOp.op</c>, is position-independent: it appends after a full stop.</para></summary>
     public const string AllRecital = "Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge | CopyFrom";
 
+    /// <summary>The verb that copies a field from another version of a record, named once so the surfaces that
+    /// refuse it do not each spell it. <see cref="Transplant"/> is the same verb as a <see cref="VerbUse"/>.</summary>
+    public const string Transplanting = "CopyFrom";
+
+    /// <summary>The verbs a CREATE surface accepts — <see cref="All"/> minus the one it refuses by name, because a
+    /// record that does not exist yet has no other version to copy a field from. DERIVED from the two, never a third
+    /// hand-typed list, so a verb added to the vocabulary reaches this surface too.</summary>
+    public static readonly IReadOnlyList<string> OnCreate =
+        All.Where(v => !string.Equals(v, Transplanting, StringComparison.Ordinal)).ToArray();
+
     /// <summary>The verbs that work on <paramref name="shape"/>, each with the slot it consumes and the phrase a
     /// remedy prints for it. Indexed by shape — the two facts in <see cref="CollectionShape"/> are the whole input,
     /// so no site can reach a verb the shape does not support.</summary>
