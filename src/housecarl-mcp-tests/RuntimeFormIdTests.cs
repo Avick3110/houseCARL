@@ -62,6 +62,17 @@ public sealed class RuntimeFormIdTests
         Assert.Contains("'0A2C94:Skyrim.esm'", note);
     }
 
+    /// <summary>And it offers ONLY that form. The bare eight digits resolve against whatever order is loaded now,
+    /// which may be a different plugin than the one the caller named — a silently wrong record for the very token
+    /// being asked about.</summary>
+    [Fact]
+    public void TheHybridNoteDoesNotOfferTheBareRuntimeFormAsAnAlternative()
+    {
+        var note = RuntimeFormId.HybridNote("000A2C94:Skyrim.esm")!;
+        Assert.DoesNotContain("000A2C94'", note);
+        Assert.DoesNotContain("drop the plugin name", note);
+    }
+
     /// <summary>A light hybrid's local id comes off the ESL window, not the middle six digits.</summary>
     [Fact]
     public void ALightHybridNamesTheEslWindowLocalId()
