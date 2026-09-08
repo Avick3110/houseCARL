@@ -52,7 +52,7 @@ Read what your task needs, not everything.
    `housecarl_create` with `records=[{"record_type": "Keyword", "editorid": "MyCursedGear"}]` and
    `patch` naming the new plugin — and use the FormID the call reports back.
 
-2. **Identify the item type.** One of the 19 in `references/types.md`, written **exactly** as listed
+2. **Identify the item type.** One of the 19 listed in the types file, written **exactly** as given
    (`Magic Effect`, not `MagicEffect`). One line targets one type; repeat the line per type.
 
 3. **Choose the filters.** By name / archetype / actor value / nif path → a String filter; by record,
@@ -145,11 +145,11 @@ The user's own instructions outrank anything in this skill.
 - **Miscounting pipe positions.** Sections are positional; a chance written one pipe early lands in
   *traits* and is silently misread. Count the pipes and keep blank middles (`||`) when a later
   section is used.
-- **A wrong type string.** Use the exact name from `references/types.md` (`Soul Gem`, not
+- **A wrong type string.** Use the exact name the types file lists (`Soul Gem`, not
   `Soulgem`). A wrong type string matches nothing.
 - **Traits on a trait-less type.** Location, Misc Item, Key, Activator, Flora, Race and Talking
-  Activator parse no traits; filter these by name or form only, and see `references/types.md` for
-  what happens to a traits section written on one.
+  Activator parse no traits; filter these by name or form only, and see the types file for what
+  happens to a traits section written on one.
 - **Confusing the `E` trait with the `Enchantment` type.** `E` filters items that *carry* an
   enchantment; `Enchantment` is the ENCH record type itself.
 - **Forgetting `_KID` in the filename**, or adding `[Section]` headers. The substring is required,
@@ -165,7 +165,7 @@ The user's own instructions outrank anything in this skill.
   (`powerof3/Keyword-Item-Distributor`, v3.5.0) and the Nexus #55728 description, with forwarded
   enum values confirmed against `powerof3/CommonLibSSE`. Re-derive on a version bump.
 - **Lookup without authoring.** The same reference answers "what is the spell-type number for
-  Ability" or "which body slot is 33" — open `references/value-tables.md`; no line needs writing.
+  Ability" or "which body slot is 33" — open the value tables; no line needs writing.
 - **`ExclusiveGroup`.** A second key (`ExclusiveGroup = Name|kwd1,kwd2`) defines mutually-exclusive
   keywords so an item never receives two from the same group — source-documented, not on the Nexus
   page.
