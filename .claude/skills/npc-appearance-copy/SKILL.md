@@ -101,15 +101,23 @@ housecarl_apply(
   bundle      = [ ...the members the donor HAS... ],
   assignments = [{ target: "<the target FormID>", from: "<donor FormID>",
                    from_source: "<the plugin the appearance came from>" }],
-  ops         = [{ formid: "<target>", field_path: "<a member the donor LACKS>", op: "Remove" }],
+  ops         = [{ formid: "<target>", field_path: "<a nullable member the donor LACKS>", op: "Remove" },
+                 { formid: "<target>", field_path: "TintLayers", op: "ReplaceAll", composes: [] }],
   into        = "<Step 1's patch filename>")
 ```
 
-**Copy what the donor has, remove what it lacks.** Dropping the absent members and copying only the
+**Copy what the donor has, clear what it lacks.** Dropping the absent members and copying only the
 rest is the tempting fix and the wrong one: it leaves the *target's* own morphs and face parts
 underneath the donor's head parts, a face built from two people. A bundle only names what it copies,
 so identity and everything outside the list is untouched by construction, and the call is
-all-or-nothing — it lands whole or writes nothing.
+all-or-nothing — it lands whole or writes nothing. Naming a member the donor lacks in the bundle
+instead of clearing it fails that whole write: the zip copies each path with `CopyFrom`, which
+refuses an unset source rather than clearing it.
+
+**Clearing takes two verbs.** `Remove` clears the nullable members — `FaceMorph`, `FaceParts`,
+`TextureLighting`. `TintLayers` is a list of modeled elements, where a valueless `Remove` refuses
+instead of clearing; its whole-clear is `op: "ReplaceAll"` with `composes: []`. `Weight` and
+`Height` are not nullable, so a donor always carries them.
 
 `TextureLighting` earns its place: it is the QNAM colour, it defaults to a value that reads as dark
 skin, and a face copied without it renders the wrong skin tone while everything else looks right.
