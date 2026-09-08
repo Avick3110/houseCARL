@@ -1885,8 +1885,11 @@ public static class RecordsTools
     /// never rendered as 'identical'. max_chars is a CEILING here, the shape #603 gave the scan and batch renders:
     /// the truncation notice and the spill block are charged before the first record is laid, a delta line is
     /// written only where its own cut notice still fits beside it, and a record that would cross what is left is
-    /// taken back out whole and counted.</summary>
-    static string RenderRecordsDelta(IReadOnlyList<LoadOrderService.DeltaRow> rows, int total, int differing, int identical,
+    /// taken back out whole and counted.
+    /// Internal so a test can drive it against a hand-built <see cref="LoadOrderService.DeltaRow"/>, the same
+    /// reason <see cref="RenderRecordsTree"/> is: a row shape no fixture produces (an incomplete deep read with
+    /// enough delta lines to be cut) has no other way in.</summary>
+    internal static string RenderRecordsDelta(IReadOnlyList<LoadOrderService.DeltaRow> rows, int total, int differing, int identical,
                                      int noVerdict, int errors,
                                      string headerLine, OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated)
     {
@@ -1957,21 +1960,25 @@ public static class RecordsTools
                       .Append(d.NoVerdictCount == 1 ? " field that could not be read" : " fields that could not be read");
                 sb.Append(" — each value line: ").Append(s.LabelVersus(r.Plugin)).Append("'s value (reference = ")
                   .Append(r.LabelVersus(s.Plugin)).Append("):\n");
+                // A different loss from the cut, so the cut may not swallow it: INCOMPLETE says deltas were never
+                // COMPUTED (the deep read hit the cap, or a field could not be read), while the cut notice says
+                // computed lines did not fit. The note is reserved beside every line and written either way.
+                string incomplete = d.Complete ? ""
+                    : "  note: the comparison is INCOMPLETE — a field above could not be read (nothing at or under it was compared), or the deep read hit the cap (which suppresses list-content and one-sided-presence deltas for the whole record). Narrow with " + LeverNames.Records.Fields + " to compare those in full.\n";
                 foreach (var delta in d.Deltas)
                 {
                     // The line goes in only where its own cut notice still fits beside it, so the notice lands
                     // inside the budget rather than a character past the one that crossed.
                     string line = "    - " + delta + "\n";
-                    if (sb.Length + line.Length + deltaCut.Length > budget)
+                    if (sb.Length + line.Length + deltaCut.Length + incomplete.Length > budget)
                     {
-                        said = Said(sb, deltaCut, budget);
+                        said = Said(sb, deltaCut, budget - incomplete.Length);
                         mute = !said;
                         break;
                     }
                     sb.Append(line);
                 }
-                if (!said && !mute && !d.Complete)
-                    sb.Append("  note: the comparison is INCOMPLETE — a field above could not be read (nothing at or under it was compared), or the deep read hit the cap (which suppresses list-content and one-sided-presence deltas for the whole record). Narrow with ").Append(LeverNames.Records.Fields).Append(" to compare those in full.\n");
+                if (!mute) sb.Append(incomplete);
             }
             if (mute || !said)
             {
