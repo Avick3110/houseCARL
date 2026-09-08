@@ -162,7 +162,7 @@ Read the installed version before relying on a dated feature: `housecarl_skse` w
 manifest declares — name, author, version — without loading it. That is what the file declares, not
 what it does; treat it as the version, not as proof of behaviour.
 
-## Common mistakes
+## Common mistakes, and the rule that replaces each
 
 - **Count the pipes before you save.** The sections are positional; a chance written one pipe early
   lands in CountOrPackageIndex and silently changes meaning. Keep blank middle sections (`||`).

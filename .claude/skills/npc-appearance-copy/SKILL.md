@@ -227,7 +227,7 @@ Then re-read it, naming the folder again —
 `housecarl_nif_inspect(mesh_paths = ["<the placed mesh>"], sections = "paths", mod = "<that same folder>")`
 — and check that slot 6 names the copy's own tint.
 
-## Common mistakes
+## Common mistakes, and the rule that replaces each
 
 | Mistake | What it costs |
 |---|---|

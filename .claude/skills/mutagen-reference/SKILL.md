@@ -144,7 +144,7 @@ At the leaf, brackets are for `list` and `dict` elements only; mid-path, a gende
 
 **Condition (CTDA) form-link targets.** A form-link parameter on a `*ConditionData` arm — `GetEquipped.ItemOrList`, `GetStage.Quest`, `HasPerk.Perk` — is a `FormLinkOrIndex<T>` that this reference normalises to `FormLink<T>` in the displayed `t`, because such a target can hold either a real FormID or a numeric index. The schema therefore understates the type: when the form-versus-index nature matters, confirm it at the engine rather than from the displayed `t`.
 
-## Common mistakes
+## Common mistakes, and the rule that replaces each
 
 - **An absent type gets the warning above**, not a schema built from the nearest-looking record (inventing one is the failure this skill exists to prevent).
 - **A signature with several variants is disambiguated by data type** — a `GMST` grep returning four names needs the value in hand (first hit picks wrong three times in four).

@@ -198,7 +198,7 @@ That is the check for the reorder trap, and the one a reader most often looks fo
 Read the new records back (`readback=true` on the write), then tell the user what was written and
 where.
 
-## Common mistakes
+## Common mistakes, and the rule that replaces each
 
 - **Set `PreviousDialog` on every line you re-list, and re-list nothing else.** Vanilla topics have
   empty PNAM and that is never a defect, so never "complete the chain" on a topic you wrote. Carrying

@@ -145,7 +145,7 @@ The inverse job. Answer precisely, and say "I can't tell without X" rather than 
   missing so the condition reads INVALID; does the `.hkx` path mirror the original; is a `user.json`
   shadowing the `config.json` you are reading; is `disabled` set?
 
-## Common mistakes
+## Common mistakes, and the rule that replaces each
 
 - **Write the submod's top-level array as lowercase `conditions` and every nested child array as
   capital-C `Conditions`.** Swapping them produces a file that parses cleanly, loads cleanly, and

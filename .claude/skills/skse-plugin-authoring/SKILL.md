@@ -150,7 +150,7 @@ back.
 - Read `references/plugin-dissection.md` for job (c), beside `housecarl_skse` for a DLL already in
   the order: the five-lens read of an unfamiliar plugin and the DLL-name → mod attribution seam.
 
-## Common mistakes
+## Common mistakes, and the rule that replaces each
 
 - **Discriminate SE from AE at runtime in a dual build, and read every runtime-varying member
   through its accessor.** A dual SE+AE build defines `EXCLUSIVE_SKYRIM_FLAT` alone — FLAT means "not

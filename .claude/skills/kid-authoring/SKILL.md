@@ -149,7 +149,7 @@ deterministic backstop, which is why every token is looked up rather than writte
 
 The user's own instructions outrank anything in this skill.
 
-## Common mistakes
+## Common mistakes, and the rule that replaces each
 
 - **Miscounting pipe positions.** Sections are positional; a chance written one pipe early lands in
   *traits* and is silently misread. Count the pipes and keep blank middles (`||`) when a later
