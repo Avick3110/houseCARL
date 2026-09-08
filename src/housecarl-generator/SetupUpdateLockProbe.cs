@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using SetupProgram = HousecarlSetup.Program; // alias: the generator's own top-level Program shadows it otherwise
 
 namespace HousecarlGenerator;
@@ -13,8 +14,10 @@ namespace HousecarlGenerator;
 ///
 ///   T1 (control)  a clean first install (no destination exe yet) SUCCEEDS for Claude AND Codex — the
 ///                 pre-flight never false-blocks a fresh machine — and the Codex umbrella skill lands at
-///                 ~/.agents/skills/housecarl, so the packager path and the installer path must agree
-///                 (disagree on either side and the installer's Directory.Exists guard skips the copy).
+///                 ~/.agents/skills/housecarl. Both halves of that path pair are pinned: the fixture the
+///                 installer reads from is the package path READ OUT of scripts/build-plugin.ps1, so a
+///                 packager that moves the umbrella and an installer that does not turn this red instead
+///                 of letting the installer's Directory.Exists guard skip the copy in silence.
 ///   T2 (Claude)   with the installed server exe held open like a running session, the re-install refuses:
 ///                 ServerInUse, RefusedBeforeAnyCopy (the PRE-FLIGHT path, not the catch), a deleted sentinel
 ///                 file is STILL absent (no copy ran), and the held exe is byte-intact.
@@ -59,6 +62,11 @@ internal static class SetupUpdateLockProbe
         // The Codex umbrella's install destination: the packager path and the installer path must agree,
         // or InstallForCodex's Directory.Exists guard skips the copy and says nothing.
         string umbrella  = Path.Combine(home, ".agents", "skills", "housecarl", "SKILL.md");
+        // Where the PACKAGER puts it, read from the packaging script rather than restated here - restating
+        // it would pin the installer against this file's opinion, not against what actually ships.
+        var (codexPkgPath, codexPathWhy) = CodexPackagePath();
+        Check(codexPkgPath is not null, "packager's Codex umbrella path read from " + PackagingScript + ": " + codexPathWhy);
+        string[] codexSegs = (codexPkgPath ?? "codex/skills").Split('/');
 
         byte[] exeV1 = { 1, 1, 1, 1 };
         byte[] exeV2 = { 2, 2, 2, 2 }; // a different "version", so a copy that ran WOULD change the on-disk bytes
@@ -70,7 +78,7 @@ internal static class SetupUpdateLockProbe
             WriteFile(Path.Combine(src, "server", "housecarl-mcp.exe"), exeV1);
             WriteFile(Path.Combine(src, "server", "Mutagen.Bethesda.dll"), new byte[] { 9 }); // a sibling DLL (T4)
             WriteFile(Path.Combine(src, "skills", "demo-skill", "SKILL.md"), "demo");
-            WriteFile(Path.Combine(pkg, "codex", "skills", "housecarl", "SKILL.md"), "umbrella");
+            WriteFile(Path.Combine(new[] { pkg }.Concat(codexSegs).Append("housecarl").Append("SKILL.md").ToArray()), "umbrella");
 
             // ===================================================== T1: a clean first install succeeds
             Console.WriteLine("--- T1: a clean first install succeeds (pre-flight never false-blocks a fresh machine) ---");
@@ -78,7 +86,7 @@ internal static class SetupUpdateLockProbe
             Check(clean.Outcome == SetupProgram.InstallOutcome.Installed, "clean install (Both) => Installed");
             Check(File.Exists(claudeExe), "Claude server exe landed at ~/.claude/skills/housecarl/server");
             Check(File.Exists(codexExe),  "Codex server exe landed under the (test) data dir");
-            Check(File.Exists(umbrella),  "Codex umbrella skill landed at ~/.agents/skills/housecarl");
+            Check(File.Exists(umbrella),  $"Codex umbrella skill packed at {codexPkgPath ?? "codex/skills"}/housecarl landed at ~/.agents/skills/housecarl");
 
             // ===================================================== T2: locked Claude exe => pre-flight refuses, before any copy
             Console.WriteLine();
@@ -122,6 +130,26 @@ internal static class SetupUpdateLockProbe
             ? "================ ALL PASS ================"
             : $"================ {fail} CHECK(S) FAILED ================");
         return fail == 0 ? 0 : 1;
+    }
+
+    /// <summary>The script that assembles the package — the authority on where the Codex umbrella ships.</summary>
+    private const string PackagingScript = "scripts/build-plugin.ps1";
+
+    /// <summary>The Codex skills root the PACKAGER writes, relative to the package root, read out of
+    /// <see cref="PackagingScript"/>'s text ($CodexRoot / $CodexSkills, each a Join-Path of the one above it).
+    /// Read rather than run: the answer is two lines of the script, and running a packaging build to learn it
+    /// would cost minutes. Returns null with a reason when the script cannot be read or either assignment is
+    /// gone — the probe fails on that rather than certifying the path pair from its own restatement.</summary>
+    private static (string? Path, string Why) CodexPackagePath()
+    {
+        if (!File.Exists(PackagingScript))
+            return (null, $"not readable from '{Directory.GetCurrentDirectory()}' — run ci-all from the repo root");
+        string text = File.ReadAllText(PackagingScript);
+        var root  = Regex.Match(text, @"^\s*\$CodexRoot\s*=\s*Join-Path\s+\$PkgRoot\s+'([^']+)'", RegexOptions.Multiline);
+        var skills = Regex.Match(text, @"^\s*\$CodexSkills\s*=\s*Join-Path\s+\$CodexRoot\s+'([^']+)'", RegexOptions.Multiline);
+        if (!root.Success)   return (null, "no '$CodexRoot = Join-Path $PkgRoot ...' assignment found");
+        if (!skills.Success) return (null, "no '$CodexSkills = Join-Path $CodexRoot ...' assignment found");
+        return ($"{root.Groups[1].Value}/{skills.Groups[1].Value}", $"{root.Groups[1].Value}/{skills.Groups[1].Value}");
     }
 
     /// <summary>Open a file the way a running image holds it: readable + share-read, write DENIED — so the
