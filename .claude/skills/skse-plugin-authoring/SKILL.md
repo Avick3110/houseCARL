@@ -115,8 +115,8 @@ Float — so this **compiles and then silently truncates**. Declare `std::int32_
 for Int and `float` for Float, and do the widening in C++ before you return.
 
 ```cpp
-std::size_t CountRefs(RE::StaticFunctionTag*);   // WRONG: narrows to Int32 with no diagnostic
-std::int32_t CountRefs(RE::StaticFunctionTag*);  // right: the width the VM actually carries
+// std::size_t CountRefs(RE::StaticFunctionTag*);  // WRONG: narrows to Int32 with no diagnostic
+std::int32_t CountRefs(RE::StaticFunctionTag*);    // right: the width the VM actually carries
 ```
 ```papyrus
 Int Function CountRefs() global native
