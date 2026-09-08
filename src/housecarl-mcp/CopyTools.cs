@@ -31,7 +31,9 @@ public static class CopyTools
          "This tool copies RECORDS. The FILES that go with them — an NPC's FaceGen mesh and tint, say — are " +
          "placed with " + ToolNames.Place + "; once they are placed, " + ToolNames.Check + " over the patch " +
          "sweeps it off-order, before it is enabled, and the textures baked INSIDE a placed mesh are not copied " +
-         "by either tool and still resolve from the source mod, which stays a file dependency. " +
+         "by either tool and still resolve from the source mod, which stays a file dependency until you repoint " +
+         "them with " + ToolNames.NifSet + " set_path (texture_slot= the shape's slot — a head mesh's tint is " +
+         "slot 6 — and path= the copy's own texture). " +
          "Originals are never touched, and a refusal writes nothing.")]
     public static string Copy(
         LoadOrderService svc,
