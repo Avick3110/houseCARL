@@ -50,11 +50,14 @@ Every step below names the section it needs, so one section can be read on its o
 ## First step — orient before you touch a config
 
 1. **Locate the submod and see who wins the file.** Run `housecarl_asset_status` with
-   `under=["meshes/actors/*/animations/OpenAnimationReplacer/**/config.json",
-   "meshes/actors/*/animations/DynamicAnimationReplacer/**/_conditions.txt"]` — `*` matches within
-   one path segment, so the creature projects (`canine`, `draugr`, `dragon`, …) are swept as well as
-   `character`, and legacy DAR's marker file is `_conditions.txt`, not `config.json`. A DAR Form B
-   `<Plugin.esp>/<FormID>/` folder carries no marker file at all, so sweep
+   `under=["meshes/actors/character/animations/OpenAnimationReplacer/**/config.json",
+   "meshes/actors/character/animations/DynamicAnimationReplacer/**/_conditions.txt"]` — legacy DAR's
+   marker file is `_conditions.txt`, not `config.json`. Name a creature project explicitly when one
+   is in play, `canine`, `draugr` or `dragon` in place of `character`; do **not** write `*` in the
+   project segment, because a selector is enumerated from the literal directory in front of its first
+   wildcard, so `meshes/actors/*/…` walks every facegen, body and armor mesh under `meshes/actors`
+   before a row renders, and `limit=`/`offset=` do not bound that — they window the render. A DAR
+   Form B `<Plugin.esp>/<FormID>/` folder carries no marker file at all, so sweep
    `.../DynamicAnimationReplacer/**/*.hkx` too when an actor-base override is in play. The call
    resolves every file the VFS provides beneath each selector, names which mod wins each one, and
    reports loudly when an archive could not be read; page a large sweep with `limit=` and `offset=`,
