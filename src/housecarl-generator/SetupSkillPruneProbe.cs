@@ -53,6 +53,14 @@ internal static class SetupSkillPruneProbe
         string claudeSkills = Path.Combine(home, ".claude", "skills", "housecarl", "skills");
         string codexSkills  = Path.Combine(home, ".agents", "skills");
 
+        // Where the packager puts the umbrella, read out of scripts/build-plugin.ps1 — the same authority the
+        // setup-update-lock probe reads, so the fixture ships it where the installer looks for it.
+        var (codexPkgPath, codexPathWhy) = SetupUpdateLockProbe.CodexPackagePath();
+        Check(codexPkgPath is not null, "packager's Codex umbrella path read from scripts/build-plugin.ps1: " + codexPathWhy);
+        string umbrellaPkgDir = Path.Combine(new[] { pkg }
+            .Concat((codexPkgPath ?? "codex/skills").Split('/'))
+            .Append("housecarl").ToArray());
+
         try
         {
             // ---- a synthetic package shipping three skills ----
@@ -60,7 +68,7 @@ internal static class SetupSkillPruneProbe
             WriteFile(Path.Combine(src, "server", "housecarl-mcp.exe"), "exe");
             foreach (string s in new[] { "kept-one", "kept-two", "dropped-skill" })
                 WriteFile(Path.Combine(src, "skills", s, "SKILL.md"), s);
-            WriteFile(Path.Combine(pkg, "codex", "housecarl", "SKILL.md"), "umbrella");
+            WriteFile(Path.Combine(umbrellaPkgDir, "SKILL.md"), "umbrella");
 
             Console.WriteLine("--- T1: install the three-skill package, then re-install one that ships only two ---");
             var first = SetupProgram.TryInstall(SetupProgram.Target.Both, src, home, home);
@@ -156,7 +164,7 @@ internal static class SetupSkillPruneProbe
             // ---- T7: the umbrella is taken back when the package stops shipping it ----
             Console.WriteLine();
             Console.WriteLine("--- T7: a package that stops shipping the umbrella takes the installed one back ---");
-            Directory.Delete(Path.Combine(pkg, "codex", "housecarl"), recursive: true);
+            Directory.Delete(umbrellaPkgDir, recursive: true);
 
             string noUmbrellaSaid = Capture(() => SetupProgram.TryInstall(SetupProgram.Target.Both, src, home, home));
 

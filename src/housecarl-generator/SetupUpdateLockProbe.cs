@@ -140,7 +140,7 @@ internal static class SetupUpdateLockProbe
     /// Read rather than run: the answer is two lines of the script, and running a packaging build to learn it
     /// would cost minutes. Returns null with a reason when the script cannot be read or either assignment is
     /// gone — the probe fails on that rather than certifying the path pair from its own restatement.</summary>
-    private static (string? Path, string Why) CodexPackagePath()
+    internal static (string? Path, string Why) CodexPackagePath()
     {
         if (!File.Exists(PackagingScript))
             return (null, $"not readable from '{Directory.GetCurrentDirectory()}' — run ci-all from the repo root");
