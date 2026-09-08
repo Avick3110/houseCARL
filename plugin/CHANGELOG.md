@@ -172,6 +172,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
   every lookup still lands on its own block. The skill states that bound where it describes the fallback read,
   along with the two hand-authored files that no index row reaches.
 
+- **`facegen-diagnostics` leads with the mesh-versus-tint pair diff, and drives the 2.0 tools.** The flow now
+  opens by resolving the head `.nif` and the face `.dds` for one NPC in a single `housecarl_asset_status`
+  call and branching on the two winners; the record comparison it used to open with is the second step,
+  reached when the pair is clean. Five tool names the old body named do not exist on this server, and the
+  reads and writes it drives are `housecarl_records`, `housecarl_apply`, `housecarl_place` and
+  `housecarl_forward`. A console-printed FormID is no longer a dead end: the read tools take the runtime
+  form, though a console click still selects the placed reference rather than the base actor, and
+  `housecarl_apply` refuses the runtime form. The mesh-side repairs move to a second bundled reference,
+  the whole-order sweep is planned with `bulk-record-jobs`, and `housecarl_check` has no facegen finding
+  family — the body says so where the sweep is described.
+
 - **Setup now removes skill folders a previous install left behind, and says which ones.** It used to copy over
   an existing install without deleting anything, so a skill dropped from the package survived the upgrade and
   kept loading. `~/.claude/skills/housecarl/skills/` is houseCARL's own, so anything there that this package
