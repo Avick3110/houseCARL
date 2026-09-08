@@ -180,7 +180,7 @@
     {
       "id": 15,
       "prompt": "my game ctd's right when a dragon priest spawns, read the crash log and tell me why",
-      "expected_output": "NONE — this tree ships no crash-diagnosis skill, and none of the 11 covers the question",
+      "expected_output": "NONE — this tree ships no crash-diagnosis skill, and none of the 9 covers the question",
       "expectations": ["Does NOT route to this skill."],
       "should_trigger": false,
       "evidence": "Crash triage; no distribution artifact."
