@@ -1,0 +1,305 @@
+{
+  "skill": "skypatcher-authoring",
+  "authored": "2026-09-08",
+  "status": "AUTHORED, NOT YET RUN against the rewritten description. The shipped 26 cases carry their last measured verdicts (2026-07-28 revalidation, recall 14/14, specificity 12/12) as a baseline only; the six added cases have never been measured, and the description they measure changed in this rewrite. The suite must be run before the rewrite is graded.",
+  "run_from": "dist/housecarl/skills/skypatcher-authoring/ — the PACKAGED tree, not .claude/skills/. Running from dist/ is also the check that the flattened references/ and the deleted index.jsonl did not orphan a pointer.",
+  "promotion_gate": "The suite runs on a version promotion and on a package build, not only on a description change. The dead tool (housecarl_skypatcher_read) shipped because the suite ran on description changes alone.",
+  "arms": {
+    "trigger": "Which ONE skill a fresh-context agent loads for a query, measured with-skill and without-skill.",
+    "output_quality": "The audit's own authoring task on the live order, run as a pair: control (no skill in the catalogue) against with-skill."
+  },
+  "method": {
+    "cases": "32 — 17 should-trigger, 15 should-not. The shipped 26 (14/12) survive with their queries unchanged; 6 are added for the description's changed clauses (three distribution-shaped negatives for the new exclusion clause, three positives naming the newly front-loaded terms).",
+    "runs_per_query": 3,
+    "split": "60/40 train/held-out",
+    "without_skill_arm": "The same 32 queries against a menu that omits this skill, recording what the agent does unaided. It is the baseline the delta is taken against, and it is how a negative case is proved to be a near-miss rather than an unreachable prompt.",
+    "coexistence": "The shipped method — a neutral menu of realistic siblings, this skill not flagged as under test.",
+    "isolation": "Added: this skill alone in the menu, plus NONE. Each of the five gate dimensions (recall, specificity, near-miss handling, reasoning-vs-pick agreement, cross-model agreement) has a named failure mode recorded per run.",
+    "cross_model": "Sonnet judges plus an Opus adjudicator, as shipped, plus a Haiku pass; if Haiku is outside the deployment envelope, the method says so instead of running it. No Fable-model agents.",
+    "evidence": "evidence lives on each case, not in one aggregate note, so a confabulated adjudicator quote is localised rather than poisoning the whole run.",
+    "contamination_note": "2026-07-28 PR #295 review found adjudicator notes quoting text that existed only in pre-compression descriptions: judge rows leaked old description text from the agents' own environment skill listing. Treat any quoted description text in a historical note as unreliable where it does not appear in the shipped description. Scores are pick-derived. The hardened re-run confirmed every verdict for this skill."
+  },
+  "gate": {
+    "recall_threshold": 0.8,
+    "specificity_threshold": 0.5,
+    "last_measured": {
+      "run": "2026-07-28 revalidation (issue #294), against the PRE-rewrite description",
+      "recall": "14/14 = 1.00",
+      "specificity": "12/12 = 1.00",
+      "passed": true
+    }
+  },
+  "trigger_evals": [
+    {
+      "id": 1,
+      "prompt": "make a skypatcher ini that bumps the iron sword's damage to 15 and adds a sharpness keyword",
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring", "reasoning names authoring a SkyPatcher .ini"],
+      "should_trigger": true,
+      "evidence": "2026-07-28: picked, reasoning cited the authoring clause."
+    },
+    {
+      "id": 2,
+      "prompt": "i want to rebalance all the daedric armor in my load order with skypatcher, give it like +20 armor rating",
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring", "reasoning names rebalancing without an ESP"],
+      "should_trigger": true,
+      "evidence": "2026-07-28: picked."
+    },
+    {
+      "id": 3,
+      "prompt": "how do i filter NPCs by faction in skypatcher and bump their health",
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring", "reasoning names the filter grammar"],
+      "should_trigger": true,
+      "evidence": "2026-07-28: picked."
+    },
+    {
+      "id": 4,
+      "prompt": "need to add an entry to the bandit leveled loot list at runtime without making an esp",
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring without the word 'skypatcher' in the prompt"],
+      "should_trigger": true,
+      "evidence": "2026-07-28: picked. Implicit case — leveled-list edit, runtime, no ESP."
+    },
+    {
+      "id": 5,
+      "prompt": "what's the skypatcher operation to change a potion's effect magnitude",
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring", "reasoning names the operation lookup"],
+      "should_trigger": true,
+      "evidence": "2026-07-28: picked."
+    },
+    {
+      "id": 6,
+      "prompt": "write me a patch to disable that crate outside whiterun's gates, the JKs Skyrim one — skypatcher",
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring"],
+      "should_trigger": true,
+      "evidence": "2026-07-28: picked. The 'disable a placed reference' quote in the original adjudicator note was a stale-environment artifact; the hardened re-run still picked this skill on the shipped text."
+    },
+    {
+      "id": 7,
+      "prompt": "can skypatcher unlevel encounter zones? want bleak falls barrow set to min level 20",
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring"],
+      "should_trigger": true,
+      "evidence": "2026-07-28: picked. 'unlevel encounter zones' is a QUERY token the judge restated, not a description clause."
+    },
+    {
+      "id": 8,
+      "prompt": "my skypatcher armor.ini doesn't seem to do anything in game, can you check the syntax",
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring", "reasoning names the why-isn't-it-applying clause"],
+      "should_trigger": true,
+      "evidence": "2026-07-28: picked."
+    },
+    {
+      "id": 9,
+      "prompt": "rebalance every two-handed weapon's swing speed with a runtime ini patch, no plugin",
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring over a bulk-job skill"],
+      "should_trigger": true,
+      "evidence": "2026-07-28: picked, but only because 'runtime ini patch, no plugin' was stated. The nearest untested edge is the same prompt without that qualifier."
+    },
+    {
+      "id": 10,
+      "prompt": "which subfolder does a skypatcher spell patch go in, and what filters can i use for spells",
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring"],
+      "should_trigger": true,
+      "evidence": "2026-07-28: picked. 'which subfolder' is a QUERY token; the rewritten description now carries the subfolder term itself."
+    },
+    {
+      "id": 11,
+      "prompt": "distribute this fire cloak spell to all bandit NPCs with SPID",
+      "expected_output": "Route to the SPID skill, not this one.",
+      "expectations": ["does not pick skypatcher-authoring", "routes to the forms-onto-NPCs skill"],
+      "should_trigger": false,
+      "evidence": "2026-07-28: routed to the distribution skill."
+    },
+    {
+      "id": 12,
+      "prompt": "add the VendorItemJewelry keyword to all my rings using KID",
+      "expected_output": "Route to the KID skill, not this one.",
+      "expectations": ["does not pick skypatcher-authoring", "routes to the keywords-onto-items skill"],
+      "should_trigger": false,
+      "evidence": "2026-07-28: routed to the distribution skill."
+    },
+    {
+      "id": 13,
+      "prompt": "what fields does the WEAP record have in xedit and which ones are writable",
+      "expected_output": "Route to the record-schema reference skill.",
+      "expectations": ["does not pick skypatcher-authoring", "routes to mutagen-reference"],
+      "should_trigger": false,
+      "evidence": "2026-07-28: routed to mutagen-reference."
+    },
+    {
+      "id": 14,
+      "prompt": "my game ctd's when i equip the steel plate armor, read the crash log and tell me why",
+      "expected_output": "Route to crash diagnosis, not this one.",
+      "expectations": ["does not pick skypatcher-authoring"],
+      "should_trigger": false,
+      "evidence": "2026-07-28: routed elsewhere."
+    },
+    {
+      "id": 15,
+      "prompt": "which plugin in my lorerim load order is winning the override on the iron sword",
+      "expected_output": "Route to conflict resolution, not this one.",
+      "expectations": ["does not pick skypatcher-authoring"],
+      "should_trigger": false,
+      "evidence": "2026-07-28: routed elsewhere; re-confirmed in the hardened re-run."
+    },
+    {
+      "id": 16,
+      "prompt": "write a papyrus script that buffs the player's carry weight when they enter a city",
+      "expected_output": "Route to the Papyrus skill, not this one.",
+      "expectations": ["does not pick skypatcher-authoring"],
+      "should_trigger": false,
+      "evidence": "2026-07-28: routed to papyrus-reference."
+    },
+    {
+      "id": 17,
+      "prompt": "merge these two esps that both edit the same leveled lists into one patch plugin",
+      "expected_output": "Route to ESP patching, not this one.",
+      "expectations": ["does not pick skypatcher-authoring"],
+      "should_trigger": false,
+      "evidence": "2026-07-28: routed elsewhere."
+    },
+    {
+      "id": 18,
+      "prompt": "how do i add gold to a merchant's chest in the creation kit",
+      "expected_output": "Route to general modding help, not this one.",
+      "expectations": ["does not pick skypatcher-authoring"],
+      "should_trigger": false,
+      "evidence": "2026-07-28: routed elsewhere."
+    },
+    {
+      "id": 19,
+      "prompt": "explain how leveled lists work in skyrim, i'm new to modding",
+      "expected_output": "Route to general modding help, not this one.",
+      "expectations": ["does not pick skypatcher-authoring"],
+      "should_trigger": false,
+      "evidence": "2026-07-28: routed elsewhere."
+    },
+    {
+      "id": 20,
+      "prompt": "how do i install skypatcher and its requirements in MO2",
+      "expected_output": "Route to install help, not this one — the product name is a lexical lure.",
+      "expectations": ["does not pick skypatcher-authoring", "reasoning declines on scope, not on the keyword"],
+      "should_trigger": false,
+      "evidence": "2026-07-28: hardest near-miss. The judge named this skill, then rejected it on scope — authoring and interpreting INI syntax, not installation. Re-confirmed in the hardened re-run."
+    },
+    {
+      "id": 21,
+      "prompt": "go through this mod's skypatcher inis and tell me if they touch mjoll's outfit or stats",
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring", "reasoning names the audit/interpret half"],
+      "should_trigger": true,
+      "evidence": "2026-07-28: picked. Read-side case."
+    },
+    {
+      "id": 22,
+      "prompt": "what does this line actually do, and is the formid written right? filterByNpcs=HearthFires.esm|03005215:outfitDefault=MyMod.esp|0x801",
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring", "reasoning names the Plugin.esp|FormID addressing clause"],
+      "should_trigger": true,
+      "evidence": "2026-07-28: picked, citing the addressing clause. This is the exact addressing question a field session got wrong from memory."
+    },
+    {
+      "id": 23,
+      "prompt": "i installed a skypatcher rebalance mod off nexus but the damage changes don't show in game, figure out why from its ini",
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring", "reasoning names the why-isn't-it-applying clause"],
+      "should_trigger": true,
+      "evidence": "2026-07-28: picked."
+    },
+    {
+      "id": 24,
+      "prompt": "before i install this, can you review what its skypatcher patches actually change in my load order?",
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring", "distinguishes itself from conflict resolution"],
+      "should_trigger": true,
+      "evidence": "2026-07-28: picked, explicitly distinguished from conflict-resolution."
+    },
+    {
+      "id": 25,
+      "prompt": "what does this _DISTR.ini do, which npcs end up getting the outfit?",
+      "expected_output": "Route to the SPID skill — the artifact is SPID's file format.",
+      "expectations": ["does not pick skypatcher-authoring"],
+      "should_trigger": false,
+      "evidence": "2026-07-28: routed to the distribution skill. Read-shaped near-miss."
+    },
+    {
+      "id": 26,
+      "prompt": "read this papyrus script and tell me what it changes about npc health",
+      "expected_output": "Route to the Papyrus skill — the artifact is a .psc.",
+      "expectations": ["does not pick skypatcher-authoring"],
+      "should_trigger": false,
+      "evidence": "2026-07-28: routed to papyrus-reference; re-confirmed in the hardened re-run."
+    },
+    {
+      "id": 27,
+      "prompt": "distribute a keyword to every dagger in my load order",
+      "expected_output": "Route to the KID skill — keywords onto items is not a SkyPatcher job.",
+      "expectations": ["does not pick skypatcher-authoring", "routes to the keywords-onto-items skill"],
+      "should_trigger": false,
+      "evidence": "NEW 2026-09-08, never measured. Tests the description's 'keywords onto items is KID' exclusion clause against a prompt with no framework named."
+    },
+    {
+      "id": 28,
+      "prompt": "give every bandit a spell at runtime, no esp",
+      "expected_output": "Route to the SPID skill — forms onto NPCs is not a SkyPatcher job.",
+      "expectations": ["does not pick skypatcher-authoring", "routes to the forms-onto-NPCs skill"],
+      "should_trigger": false,
+      "evidence": "NEW 2026-09-08, never measured. The 'runtime, no esp' phrasing is the lure; the exclusion clause is what should decide it."
+    },
+    {
+      "id": 29,
+      "prompt": "put these items into a chest without an ESP",
+      "expected_output": "Route to the CID skill — items into containers is not a SkyPatcher job.",
+      "expectations": ["does not pick skypatcher-authoring", "routes to the items-into-containers skill"],
+      "should_trigger": false,
+      "evidence": "NEW 2026-09-08, never measured. Hardest of the three: SkyPatcher does patch CONT records, so the boundary is what RECEIVES the change."
+    },
+    {
+      "id": 30,
+      "prompt": "my skypatcher patch file is named after the plugin it edits and nothing is happening — is the name the problem?",
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring", "reasoning names the filename gate"],
+      "should_trigger": true,
+      "evidence": "NEW 2026-09-08, never measured. Measures the 'filename gate' term newly front-loaded into the description."
+    },
+    {
+      "id": 31,
+      "prompt": "does this ini still work on skypatcher 6.4.1 or has the grammar changed since?",
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring", "reasoning names the version floor"],
+      "should_trigger": true,
+      "evidence": "NEW 2026-09-08, never measured. Measures the '(SkyPatcher 6.4.1 grammar)' clause newly in the description."
+    },
+    {
+      "id": 32,
+      "prompt": "my patch targets weapons from about forty different plugins — which subfolder and what should i call the file?",
+      "expected_output": "Load skypatcher-authoring.",
+      "expectations": ["picks skypatcher-authoring", "reasoning names the per-type subfolder"],
+      "should_trigger": true,
+      "evidence": "NEW 2026-09-08, never measured. Measures the 'per-type subfolder' term newly front-loaded, on the audit's own ~40-plugin shape."
+    }
+  ],
+  "output_quality_eval": {
+    "prompt": "Double the damage of every iron-material weapon in the load order as a SkyPatcher INI. Do not put anything into the load order.",
+    "expected_output": "A relative-multiply weapon patch line, a stated destination under the weapon subfolder with a plain always-loading filename nested in a mod-specific folder, every token traceable to the bundled reference, and a target count proved by a houseCARL call and reported with its epoch.",
+    "setup": "The ARR 2.0 order (3801 plugins), 40-call cap, fresh context, both arms identical. Control: no skill in the catalogue. With-skill: told to load housecarl:skypatcher-authoring first. This is the audit's own task, run as a PAIR for the first time — the control the 2026-09 audit's veto skipped.",
+    "expectations": [
+      "RELATIVE, NOT ABSOLUTE. The composed line uses attackDamageMult=2, not attackDamage=<n>. The control's predicted failure is an absolute set, which flattens a whole tier ladder to one number.",
+      "SUBFOLDER. The stated destination is under SkyPatcher/weapon/, and the answer says why the wrong folder fails silently.",
+      "FILENAME SHAPE. A plain (always-loading) filename, nested in a mod-specific subfolder, with the reason: the targets span ~40 plugins, so the Plugin.esp.ini gate would be actively wrong, and a bare plugin-named INI collides with another mod at the same path.",
+      "NO INVENTED TOKEN. Every filter and operation in the output appears in references/weapon.md or references/grammar-core.md. filterByMaterial= appearing anywhere is an automatic fail.",
+      "PROVED, NOT ASSERTED. The target count comes from a housecarl_records call and is reported with its epoch, and EVERY houseCARL call named in the output exists on the 2.0 surface."
+    ],
+    "scoring": "The with-skill arm beats the control when it passes expectations the control fails. An expectation both arms pass is recorded as NOT ATTRIBUTABLE to the skill; if all five land there, the procedure half of this skill has no measured value and the next review decides whether it survives as a corpus alone.",
+    "recorded_per_arm": ["total_tokens", "duration_ms", "call count", "the calls named"],
+    "cost_baseline": "The audit's with-skill run took three calls to load the skill and its references and read grammar-core.md whole (~250 lines) for a one-line patch. After the reference split a one-line weapon patch should read the body's router table plus references/weapon.md (65 lines) and nothing else; per-record files range 26-113 lines, npc.md the outlier."
+  }
+}
