@@ -85,13 +85,17 @@ public sealed class FieldPredicateSet
     /// the read walk sees an ordinary field name.
     /// <paramref name="ParentHops"/> / <paramref name="LinkParentHops"/> are how many leading <c>*parent</c>
     /// containment steps that side opens with; the segments after them are stored bare, so once the hop lands on
-    /// the containing record everything downstream reads an ordinary path.</summary>
+    /// the containing record everything downstream reads an ordinary path.
+    /// <paramref name="RuntimeKey"/> is a bare runtime-FormID operand already resolved through the call's FormID
+    /// door, so a FormKey leaf compares against the record it addresses rather than against eight digits of text;
+    /// null for every other operand.</summary>
     sealed record Predicate(string Text, string[] PathSegments, string PathDisplay, Op Op, string Operand, double NumericOperand,
                             HashSet<FormKey>? FormIds = null, ArtifactDemand? Artifact = null,
                             string[]? LinkPath = null, string? LinkPathDisplay = null,
                             PseudoPath Pseudo = PseudoPath.None, IReadOnlyList<string>? RawMembers = null,
                             Fold[]? PathFolds = null, Fold[]? LinkFolds = null,
-                            int ParentHops = 0, int LinkParentHops = 0);
+                            int ParentHops = 0, int LinkParentHops = 0,
+                            FormKey? RuntimeKey = null);
 
     /// <summary>The identity pseudo-paths a predicate may name instead of a body leaf. <c>editorid</c> reads the
     /// record's EditorID (always available off the early EDID subrecord — never a reflection walk, and live even on
@@ -472,12 +476,31 @@ public sealed class FieldPredicateSet
         // and report a healthy scan with 0 matches — a silently wrong answer for the very token being asked about.
         if (HybridRefusal(raw, operand) is { } hybrid) return (null, hybrid);
 
+        // A BARE runtime FormID ('000A2C94' — the form the console and the logs print) falls the same way and is
+        // the likelier paste: no ':Plugin' tail for the FormKey attempt, hex letters for the numeric one, so it
+        // string-compares to a DEFINITE false on every record and the accounting says nothing at all. Resolve it
+        // HERE through the door Parse already holds — the one with the order's index tables — and carry the key
+        // alongside the operand, so a FormLink leaf compares as the FormKey it names while a numeric or text leaf
+        // keeps its own vocabulary. With no order in hand there is nothing to resolve against: refuse it by name.
+        FormKey? runtimeKey = null;
+        if ((op is Op.Eq or Op.Ne) && pseudo == PseudoPath.None && RuntimeFormId.TryParse(operand, out _))
+        {
+            if (parseFormId is null)
+                return (null, $"predicate '{raw}': '{operand}' is a RUNTIME FormID (the eight-digit form the game, the console and the logs " +
+                              $"print), and this call has no load order to resolve it against. Write the plugin form 'XXXXXX:Plugin.esp' instead.");
+            try { runtimeKey = parseFormId(operand); }
+            catch (Exception ex)
+            {
+                return (null, $"predicate '{raw}': '{operand}' is a RUNTIME FormID this load order cannot resolve — {ex.Message}");
+            }
+        }
+
         // 5. a numeric operator demands a numeric operand — fail fast at parse (before any scan).
         double num = 0;
         if (IsNumericOp(op) && !TryNum(operand, out num))
             return (null, $"predicate '{raw}': operator '{OpStr(op)}' needs a numeric value, got '{operand}'.");
 
-        return (new Predicate(text, segs, path, op, operand, num, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops), null);
+        return (new Predicate(text, segs, path, op, operand, num, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops, RuntimeKey: runtimeKey), null);
     }
 
     /// <summary>Split one side's segments into bare field names plus their fold tokens: a bracket key beginning
@@ -1182,7 +1205,12 @@ public sealed class FieldPredicateSet
                 // field (`= 16` matches "Forearms"), a name matches a number-rendered one, and order/spacing of a
                 // comma-combo stops mattering. Every other leaf keeps the token-vocabulary equality unchanged.
                 bool eq;
-                if (flags is { } feq && TryResolveBits(p.Operand, feq.EnumType, out var opBits))
+                // A bare runtime FormID operand resolved at parse: a FormKey leaf compares against the key it
+                // named, so the console/log form matches the record it addresses instead of string-comparing to a
+                // silent false. A non-FormKey leaf keeps its own vocabulary below.
+                if (p.RuntimeKey is { } rk && TryFormKey(token, out var tk))
+                    eq = tk == rk;
+                else if (flags is { } feq && TryResolveBits(p.Operand, feq.EnumType, out var opBits))
                     eq = feq.Bits == opBits;
                 else
                     eq = ValueEquals(token, p.Operand);
