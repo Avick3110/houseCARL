@@ -104,6 +104,7 @@ housecarl_apply(
   assignments = [{ target: "<the target FormID>", from: "<donor FormID>",
                    from_source: "<the plugin the appearance came from>" }],
   ops         = [{ formid: "<target>", field_path: "<a nullable member the donor LACKS>", op: "Remove" },
+                 # only when the donor carries no tint layers:
                  { formid: "<target>", field_path: "TintLayers", op: "ReplaceAll", composes: [] }],
   into        = "<Step 1's patch filename>")
 ```
