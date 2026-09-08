@@ -55,6 +55,9 @@ static class SkyPatcherWire
     {
         var sb = new StringBuilder();
         var folders = d.Scan.Folders;
+        // A filter matching nothing must never fall through to the unfiltered overview — that reads as the whole layer.
+        if (filter is { Length: > 0 } && !folders.Any(f => f.Files.Any(x => Matches(filter, f, x))))
+            return ZeroMatch(d, filter);
         int files = folders.Sum(f => f.Files.Count);
         int applied = folders.Sum(f => f.PatchingEnabled ? f.Files.Count(x => x.NotApplied is null) : 0);
         int lines = folders.Sum(f => f.Files.Sum(x => x.Lines.Count(l => l.Kind == SkyPatcherLineKind.Patch)));
@@ -72,8 +75,6 @@ static class SkyPatcherWire
           .Append(d.NoOps.Count).Append(" no-op write(s)\n");
         if (folders.Count == 0)
             sb.Append("\nno SkyPatcher INIs in the active order (no Data\\SKSE\\Plugins\\SkyPatcher content, or SkyPatcher itself is not installed).\n");
-
-        bool In(string? s) => filter is null || (s is not null && s.Contains(filter, StringComparison.OrdinalIgnoreCase));
 
         foreach (var f in folders)
         {
@@ -93,7 +94,7 @@ static class SkyPatcherWire
                 if (file.ShadowedProviders.Count > 0) sb.Append("  [!] shadows same-path copies from ").Append(string.Join(", ", file.ShadowedProviders));
                 sb.Append('\n');
                 // filter= match (folder, provider, or filename) expands the file to its patch lines.
-                bool expand = filter is not null && (In(f.Subfolder) || In(file.WinningProvider) || In(file.RelPath));
+                bool expand = filter is not null && Matches(filter, f, file);
                 if (expand)
                     for (int i = 0; i < file.Lines.Count; i++)
                     {
@@ -208,6 +209,37 @@ static class SkyPatcherWire
         }
         AppendCaveats(sb, d.ReadIncomplete, d.AssetWarnings);
         sb.Append("\n→ " + ToolNames.Records + " formids=['<FormID>'] source={\"overlay\": \"skypatcher\", \"state\": \"post\"} for one record's computed post-SkyPatcher state; filter='<folder/mod/file>' to expand files to their lines.");
+        return sb.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>The filter's match domain: the file's type folder, its providing mod, or its path/filename.</summary>
+    static bool Matches(string filter, SkyPatcherDiscovery.FolderScan folder, SkyPatcherDiscovery.IniFile file)
+    {
+        bool In(string? s) => s is not null && s.Contains(filter, StringComparison.OrdinalIgnoreCase);
+        return In(folder.Subfolder) || In(file.WinningProvider) || In(file.RelPath);
+    }
+
+    /// <summary>What a filter matching no INI returns: the count (zero), what the filter is matched against, and the
+    /// folders that are there. Never the overview — an unfiltered dump would read as the filter's own result.</summary>
+    static string ZeroMatch(SkyPatcherLayerData d, string filter)
+    {
+        var folders = d.Scan.Folders;
+        int files = folders.Sum(f => f.Files.Count);
+        var sb = new StringBuilder();
+        sb.Append("SkyPatcher layer — filter '").Append(filter).Append("' — 0 of ").Append(files)
+          .Append(" INI(s) match [profile '").Append(d.ProfileName).Append("']\n\n");
+        if (folders.Count == 0)
+            sb.Append("nothing matched: the active order has no SkyPatcher INIs at all (no Data\\SKSE\\Plugins\\SkyPatcher content, or SkyPatcher itself is not installed).\n");
+        else
+        {
+            sb.Append("nothing matched: no type folder, providing mod, or INI filename contains '").Append(filter).Append("'.")
+              .Append(PluginNameSuggest.DidYouMean(filter, folders.Select(f => f.Subfolder)
+                  .Concat(folders.SelectMany(f => f.Files).Select(x => x.WinningProvider).Where(p => p is not null)!)
+                  .Concat(folders.SelectMany(f => f.Files).Select(x => x.SortKey))))
+              .Append(" The type folder(s) present are: ").Append(string.Join(", ", folders.Select(f => f.Subfolder)))
+              .Append(". Omit filter= for the whole-layer overview.\n");
+        }
+        AppendCaveats(sb, d.ReadIncomplete, d.AssetWarnings);
         return sb.ToString().TrimEnd('\n');
     }
 

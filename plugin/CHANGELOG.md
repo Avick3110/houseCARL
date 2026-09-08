@@ -13,6 +13,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **`housecarl_skypatcher_layer` with a `filter=` that matches no INI now says so instead of returning the
+  whole-layer overview.** It answers with the filter, the match count (0 of N INIs), the type folders that are
+  present, and a nearest-name suggestion where there is one, so a filter typo can no longer read as the layer's
+  contents. A filter that matches at least one INI is unchanged — it still expands those files to their lines.
 - **`open-animation-replacer` now states how a DAR `_conditions.txt` chain binds, and that the DAR weapon-type
   numbers convert unchanged.** Both were marked unverified in its reference, and the skill told you to convert
   under one reading and say which. Both are now read off OAR's own source; the reference's §8 carries the rule,
