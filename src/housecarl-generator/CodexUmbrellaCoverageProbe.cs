@@ -19,7 +19,7 @@ namespace HousecarlGenerator;
 /// tool that does not exist. Same "green only if the checker has teeth" shape as the other guards: RED arms feed
 /// a synthetic violation and assert it fires; the allow-list is proven to actually suppress.
 ///
-///   INV1 — every housecarl_* name the umbrella writes is a live MCP tool.
+///   INV1 — every housecarl_* name the umbrella writes is a live MCP tool (or allow-listed).
 ///   INV2 — every bundled skill slug is referenced in the umbrella (or allow-listed).
 ///
 /// INV1 used to run the other way — every tool name had to appear in the router — and that is why CI stayed green
@@ -34,9 +34,10 @@ public static class CodexUmbrellaCoverageProbe
 {
     static int _pass, _fail;
 
-    // Deliberate omissions from the Codex umbrella router's SKILL routing (INV2). EMPTY by design — the router
-    // has a row per bundled skill. Add a slug here ONLY with a one-line reason when a skill is intentionally not
-    // routed; that keeps "not in the router" a conscious choice recorded here, never silent drift.
+    // Deliberate exceptions, for BOTH invariants. EMPTY by design. A skill slug here is a skill the router does
+    // not route (INV2); a housecarl_* identifier here is a name the router writes that is deliberately not a tool
+    // (INV1) — a manifest key like housecarl_artifact, a filename, a mod folder. Add either ONLY with a one-line
+    // reason, so an exception is a conscious choice recorded here rather than a guard edit or deleted prose.
     static readonly HashSet<string> Allow = new(StringComparer.Ordinal)
     {
         // (none)
@@ -88,7 +89,7 @@ public static class CodexUmbrellaCoverageProbe
                 falsePasses.Count == 0, falsePasses);
 
             // INV1 — every name the router writes resolves to a live tool.
-            var dead = DeadToolNames(umbrella, tools);
+            var dead = DeadToolNames(umbrella, tools, Allow);
             Check("INV1-GREEN every housecarl_* name the umbrella writes is a live MCP tool", dead.Count == 0,
                 dead.Select(t => $"the Codex umbrella names a tool that does not exist: {t} — fix {UmbrellaPath.Replace('\\', '/')} against the published surface").ToList());
 
@@ -98,12 +99,19 @@ public static class CodexUmbrellaCoverageProbe
                 missSkills.Select(s => $"skill not routed by the Codex umbrella: {s} — add it to {UmbrellaPath.Replace('\\', '/')} (or Allow with a reason)").ToList());
 
             // RED arms — the checker must catch a violation, or it is toothless.
-            var redTool = DeadToolNames("read the winner with `housecarl_read_record` first", tools);
+            var redTool = DeadToolNames("read the winner with `housecarl_read_record` first", tools, Empty());
             Check("INV1-RED  a retired tool name in the router is caught", redTool.Contains("housecarl_read_record"), redTool, redArm: true);
 
             // …and a live name must not be reported dead, or INV1 would fire on every honest router.
-            var liveTool = DeadToolNames("read the winner with `housecarl_records` first", tools);
+            var liveTool = DeadToolNames("read the winner with `housecarl_records` first", tools, Empty());
             Check("INV1-GREEN-SELF a live tool name is not reported dead", liveTool.Count == 0, liveTool, redArm: true);
+
+            // The allow-list suppresses on INV1 too, or a housecarl_* name that is deliberately NOT a tool — the
+            // bulk-job manifest key housecarl_artifact is one the router could legitimately quote — would leave
+            // deleting correct prose or editing this guard as the only ways out (PR #659 review).
+            var allowedTool = DeadToolNames("the manifest's first key is `housecarl_artifact`", tools,
+                new HashSet<string>(StringComparer.Ordinal) { "housecarl_artifact" });
+            Check("ALLOW-1   an allow-listed non-tool name is NOT reported dead", allowedTool.Count == 0, allowedTool, redArm: true);
 
             var redSkill = MissingRefs("router text that mentions no skills", new[] { "facegen-diagnostics" }, Empty());
             Check("INV2-RED  a missing skill reference is caught", redSkill.Contains("facegen-diagnostics"), redSkill, redArm: true);
@@ -132,7 +140,7 @@ public static class CodexUmbrellaCoverageProbe
             // The allow-list must actually suppress — else an Allow entry would be a lie.
             var allowed = MissingRefs("router text that mentions no tools", new[] { "housecarl_read_record" },
                 new HashSet<string>(StringComparer.Ordinal) { "housecarl_read_record" });
-            Check("ALLOW     an allow-listed name is NOT reported missing", allowed.Count == 0, allowed, redArm: true);
+            Check("ALLOW-2   an allow-listed name is NOT reported missing", allowed.Count == 0, allowed, redArm: true);
         }
         catch (Exception ex)
         {
@@ -180,12 +188,14 @@ public static class CodexUmbrellaCoverageProbe
         => required.Where(r => !allow.Contains(r) && !ReferencedAtBoundary(umbrella, r))
                    .OrderBy(r => r, StringComparer.Ordinal).ToList();
 
-    /// <summary>Every <c>housecarl_*</c> identifier the router writes that is NOT a reflected tool name — the
-    /// direction the old one-way check could not see. The sibling-skill form the router also writes is
-    /// <c>housecarl:&lt;skill&gt;</c>, which the underscore in this pattern excludes by construction.</summary>
-    static List<string> DeadToolNames(string umbrella, ISet<string> live)
+    /// <summary>Every <c>housecarl_*</c> identifier the router writes that is NOT a reflected tool name and NOT
+    /// allow-listed — the direction the old one-way check could not see. The sibling-skill form the router also
+    /// writes is <c>housecarl:&lt;skill&gt;</c>, which the underscore in this pattern excludes by construction.
+    /// The pattern matches any such identifier, tool-shaped or not, so the allow-list is the recorded exit for a
+    /// <c>housecarl_*</c> name that is deliberately something else.</summary>
+    static List<string> DeadToolNames(string umbrella, ISet<string> live, ISet<string> allow)
         => Regex.Matches(umbrella, "housecarl_[a-z0-9_]+").Select(m => m.Value).Distinct(StringComparer.Ordinal)
-                .Where(n => !live.Contains(n)).OrderBy(n => n, StringComparer.Ordinal).ToList();
+                .Where(n => !live.Contains(n) && !allow.Contains(n)).OrderBy(n => n, StringComparer.Ordinal).ToList();
 
     /// <summary>Does the text mention <paramref name="name"/> as a whole identifier — not as part of a LONGER
     /// required name? Both sides are checked (PR #311 round-2 review [low]: checking only the trailing side let a
