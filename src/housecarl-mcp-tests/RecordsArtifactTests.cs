@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using HousecarlCore;
+using Mutagen.Bethesda.Plugins;
 using System.Text.Json;
 using HousecarlMcp;
 using Xunit;
@@ -376,25 +377,36 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         }
     }
 
-    /// <summary>The fourth form, which needs its own cap: the reverse effect chain's carrier rows are cut inside a
-    /// SHARED render, in a buffer this loop never measures — so unless that render says it cut, the cut is
-    /// invisible and the response neither counts the seeds nor names an artifact. At a cap the complete answer
-    /// fits inside with 100 chars to spare, a cut there still says so and still spills the complete result.</summary>
+    /// <summary>The other side of the bound: a render whose complete output fits inside max_chars IS that output.
+    /// Every reserve the bounded pass holds back is room for a notice a complete render never writes, so charging
+    /// them against one that fits cut answers that fitted — and the cut then spilled, the spill block was charged
+    /// in turn, and the answer came back with no rows at all and a number far over what the whole thing took. The
+    /// caps are derived from each render's own width, so nothing here is pinned to this fixture's weight.</summary>
     [Fact]
-    public void AReverseEffectChainCutInsideTheSharedRenderIsCountedAndSpilled()
+    public void ARenderThatFitsItsCapIsNotCutByNoticesItNeverWrites()
     {
-        string Call(int cap) =>
-            RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
-                                 walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" },
-                                 project: Form("chain"), max_chars: cap);
-
-        using var d = OwnResults("held-back-effect-chain");
-        int cap = Call(0).Length + 100;   // room to spare for the whole answer: only the shared render cuts here
-        var r = Call(cap);
-
-        Assert.Contains("at max_chars=" + cap + "]", r);          // the seeds it never reached are counted
-        Assert.Contains("spilled: complete result", r);           // and the artifact holds what went
-        InsideItsCap(r, cap, "effect chain");
+        foreach (var (name, call) in new (string, Func<int, string>)[]
+        {
+            ("delta", cap => RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("delta"),
+                                                  versus: Je("\"" + W.MasterName + "\""), max_chars: cap)),
+            ("tree", cap => RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("tree"), max_chars: cap)),
+            ("chain", cap => RecordsTools.Records(Svc, types: new[] { "SPEL" }, walk: new RecordsTools.RecordsWalk(),
+                                                  project: Form("chain"), max_chars: cap)),
+            ("effect chain", cap => RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
+                                                         walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" },
+                                                         project: Form("chain"), max_chars: cap)),
+        })
+        {
+            using var d = OwnResults("fits-" + name);
+            int whole = call(0).Length;
+            foreach (int cap in new[] { whole, whole + 1, whole + 50, whole + 140 })
+            {
+                var r = call(cap);
+                Assert.Equal(whole, r.Length);                  // the complete render, not a cut one
+                Assert.DoesNotContain("spilled:", r);           // nothing was held back, so nothing spills
+                Assert.DoesNotContain("at max_chars=", r);      // and no notice claims a loss
+            }
+        }
     }
 
     /// <summary>The one arm left: a max_chars smaller than the spill block the response must carry — the block that
@@ -1008,5 +1020,37 @@ public sealed class RecordsArtifactResultsStoreTests : IDisposable
         var orphan = Aged("half-written.jsonl.tmp-deadbeef", ResultsStore.PruneAfterDays + 1);
         ResultsStore.Release(ResultsStore.NextPath(ToolNames.Records, "0123456789abcdef"));
         Assert.False(File.Exists(orphan));
+    }
+}
+
+/// <summary>The reverse effect chain's carrier rows are cut inside a SHARED render, in a buffer the seed loop
+/// never measures — so unless that render says it cut, the cut is invisible: nothing marks the response
+/// truncated, and the pipeline writes no artifact. Driven against a hand-built result rather than through the
+/// tool because reaching that cut through the tool needs a seed wider than the auto-spill block it would then
+/// have to carry (~1 KB, three absolute paths), and no fixture's MGEF has that many carriers.</summary>
+[Trait("tier", "unit")]
+public sealed class ReverseEffectChainSharedCutTests
+{
+    static string Render(int cap, out bool truncated)
+    {
+        var rows = Enumerable.Range(0, 8).Select(i =>
+            new EffectChainRow(FormKey.Factory($"00080{i}:HcRecMaster.esm"), "Spell", "HcRecSpell" + i,
+                               "HcRecMaster.esm", 0, 1, 5f, 0, 0)).ToArray();
+        var result = new EffectChainResult(FormKey.Factory("000805:HcRecMaster.esm"), "HcRecMgefFire", rows,
+                                           rows.Length, false, null, null);
+        return RecordsTools.RenderRecordsEffectChains(new[] { ("000805:HcRecMaster.esm", result) }, 1, rows.Length,
+                                                      rows.Length, 0, "records  form=chain", null, cap, null,
+                                                      out truncated);
+    }
+
+    /// <summary>One char under what the whole render takes, so the shared render is the only thing that can cut —
+    /// and the cut it makes is what marks the response truncated, which is what the pipeline spills on.</summary>
+    [Fact]
+    public void ACutInsideTheSharedRenderMarksTheResponseTruncated()
+    {
+        var r = Render(Render(100_000, out _).Length - 1, out bool truncated);
+
+        Assert.Contains("[truncated: rendered", r);
+        Assert.True(truncated);
     }
 }
