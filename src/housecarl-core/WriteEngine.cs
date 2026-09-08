@@ -2472,6 +2472,22 @@ public static class WriteEngine
     internal static object? BuildFromFieldConstructor(Type t, IReadOnlyDictionary<string, string>? fields) =>
         CtorArgsFromFields(t, fields) is { } ff ? Instantiate(ff.Ctor, ff.Args) : null;
 
+    /// <summary>The compose FIELDS a constructor carries, for a compose with no <c>ctor_args</c> — the names
+    /// <see cref="BuildStruct"/> passes to the constructor and then skips in its field pass. The pre-flight gate asks
+    /// this so it skips the same ones: a constructor-carried field is written by the constructor, so it is legal even
+    /// where the property itself has no setter. Empty for every other compose, which is exactly when BuildStruct
+    /// skips nothing.</summary>
+    internal static IReadOnlySet<string> CtorConsumedFields(string structTypeName, IReadOnlyDictionary<string, string>? fields)
+    {
+        try
+        {
+            return CtorArgsFromFields(ResolveStructType(structTypeName), fields)?.Consumed ?? NoConsumedFields;
+        }
+        catch { return NoConsumedFields; }                        // unknown type — ResolveStructType says so at apply
+    }
+
+    static readonly HashSet<string> NoConsumedFields = new(StringComparer.Ordinal);
+
     /// <summary>Recognition-only mirror of <see cref="Instantiate"/>'s ctor-args path — the write pre-flight gate's twin
     /// of the apply-time ctor build. Does this struct type have a constructor of the supplied arity, and does each
     /// supplied arg COERCE to its parameter type? Resolves the type the SAME way <see cref="BuildStruct"/> feeds

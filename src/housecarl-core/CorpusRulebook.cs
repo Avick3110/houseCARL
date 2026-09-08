@@ -1012,10 +1012,19 @@ public sealed class CorpusRulebook
         // before the per-field checks. Skipped when CtorArgs is null (the parameterless/fields-only compose path).
         if (spec.CtorArgs is { } ctorArgs && WriteEngine.TryRecognizeCtorArgs(spec.Type, ctorArgs) is { } ctorErr)
             return ctorErr;
+        // The fields BuildStruct hands to the constructor instead of setting — legal to name even when the property
+        // has no setter, and only on the no-ctor_args lane, which is exactly when BuildStruct skips them.
+        var ctorCarried = spec.CtorArgs is null
+            ? WriteEngine.CtorConsumedFields(spec.Type, spec.Fields)
+            : (IReadOnlySet<string>)new HashSet<string>();
         foreach (var f in spec.Fields ?? new())
         {
             var af = structSchema.Fields.FirstOrDefault(x => x.Name == f.Key);
             if (af is null) return FieldNotFound(structSchema, f.Key);
+            // A field the apply cannot set is refused HERE, not thrown mid-apply: BuildStruct's field pass rejects a
+            // read-only property, and a discriminator on an arm (Condition data's Function, an arm's AssociationKey)
+            // is the natural thing to copy out of a read and back into a compose.
+            if (!af.Writable && !ctorCarried.Contains(f.Key)) return WritabilityRejection(structSchema, af);
             // A '@editorid' same-call reference in a compose FIELD (the VMAD alias-fragment
             // Property.Object=@<the quest itself> shape) — legal on a singular FORMLINK field in CREATE context only,
             // mirroring the top-level singular-value gate exactly (formlink-only + declared-earlier-or-self); the
