@@ -36,8 +36,9 @@ what once wrote 26 broken conditions onto one gate. So read a known-good gate an
        { "target": "0A12C5:MyMod.esp", "from": "0B77E0:Skyrim.esm" } ])
    ```
 
-   Whether the copy merges into the target's existing entries or replaces them is the choice between
-   `op=Merge` and `op=ReplaceAll`. `target` and `from` must be the same record type — INFO to INFO.
+   The copy **replaces** the target's `Conditions` with the source's — `CopyFrom` is the only verb the
+   zip issues, and there is no merge variant. That is why step 2 says to read each target first.
+   `target` and `from` must be the same record type — INFO to INFO.
 
 Nothing is computed anywhere in this recipe, which is the whole point. Confirm the written rows
 against the source with the read-back before enabling the patch. A conditions-only edit does not
