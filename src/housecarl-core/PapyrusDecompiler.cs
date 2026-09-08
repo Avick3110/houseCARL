@@ -571,8 +571,9 @@ public sealed class PapyrusDecompiler
                         // is a guarded block over a reused condition temp, which the promotion path
                         // below owns. A real arm is straight-line, so a trailing JMP in the region
                         // means an if/else or a while, not an arm. Temps only: a real-var condition
-                        // is always a plain if.
-                        if (condName is not null && IsTemp(condName) && target < hi
+                        // is always a plain if, and a temp the promotion path already took is a named
+                        // local — writes to it are statements, which an arm can never carry.
+                        if (condName is not null && IsTemp(condName) && !Materialized.Contains(condName) && target < hi
                             && (ConsumesAsSource(_ins[target], condName)
                                 || (WritesDestIn(i + 1, target, condName)
                                     && (target - 1 <= i || _ins[target - 1].OpCode != InstructionOpcode.JMP)

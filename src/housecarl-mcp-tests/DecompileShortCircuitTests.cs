@@ -153,6 +153,31 @@ public class DecompileShortCircuitTests
         Assert.Contains("Sink(temp0)", res.Source);
     }
 
+    [Fact]
+    public void AConditionTempAlreadyPromotedToALocalIsNotAnArm()
+    {
+        // bool b = X() / DoThing() / if b / b = Y() / endif / Sink(b): the bare call at 1 flushes the
+        // pending temp into a named local, so from there on writes to it are real assignments — an arm
+        // over it could only ever produce a statement. It is a plain if and must read as one.
+        var f = Fn();
+        Local(f, "Bool", "::temp0");
+        Local(f, "None", "::NoneVar");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("X"), Id("self"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("DoThing"), Id("self"), Id("::NoneVar"), Int(0));
+        Ins(f, InstructionOpcode.JMPF, Id("::temp0"), Int(3));                        // -> 5, the join
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Y"), Id("self"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.NOP);
+        Ins(f, InstructionOpcode.NOP);
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Sink"), Id("self"), Id("::NoneVar"), Int(1), Id("::temp0"));
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_PromotedProbe", ("Promoted", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        Assert.Contains("if temp0", res.Source);
+        Assert.Contains("temp0 = Y()", res.Source);
+        Assert.Contains("Sink(temp0)", res.Source);
+    }
+
     // ---------------------------------------------------------------- in-memory pex builders
     static PexFile File(string objectName, params (string Name, PexObjectFunction Fn)[] fns)
     {
