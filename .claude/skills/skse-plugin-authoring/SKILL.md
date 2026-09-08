@@ -156,7 +156,9 @@ back.
   through its accessor.** A dual SE+AE build defines `EXCLUSIVE_SKYRIM_FLAT` alone — FLAT means "not
   VR", not "one non-VR runtime" — so `EXCLUSIVE_SKYRIM_SE` / `_AE` are undefined there and an `#if`
   on them drops the divergent code on both runtimes. Use `REL::Module::IsAE()` or
-  `REL::Relocate(seAndVr, ae)`; the macros gate only a single-runtime build. Direct member access, a
+  `REL::Relocate(seAndVr, ae)`; the macros gate only a single-runtime build. The probe reaches an offset,
+  not a layout: a differing size, vtable or base class (`BaseExtraList`) cannot be carried in a dual build
+  at all — read it through the generated accessor, or ship `se` and `ae`. Direct member access, a
   naive virtual call and an upcast each sit at a different offset or vtable slot per runtime; all of
   it compiles clean under a single-runtime test.
 - **Export the whole triad.** A portable plugin exports `SKSEPlugin_Version` (AE data path),
