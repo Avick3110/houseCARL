@@ -229,15 +229,15 @@ Then re-read it, naming the folder again —
 
 ## Common mistakes, and the rule that replaces each
 
-| Mistake | What it costs |
-|---|---|
-| Copying from a `Traits`-templated donor | Its appearance fields are empty, so the seeds clear the target's: a blank face, reported as a success |
-| Seeding `Race`, or omitting `exclude_types` because you expect a `Race` default | There is none: the walk enters the race and pulls the skeleton and sibling races |
-| Renaming the copied head parts | The mesh's baked shape names stop matching; the engine regenerates a vanilla head |
-| Omitting `TextureLighting` | Every field reads correct and the skin renders dark |
-| Dropping a bundle member the donor lacks instead of clearing it | The target keeps its own morphs under the donor's head parts — a face built from two people |
-| Stopping at the patch | The records exist, the FaceGen does not — a dark face you authored on purpose |
-| Stopping at the placement | The placed mesh still points at the donor's tint: correct until the donor is uninstalled |
+| Mistake | What it costs | The rule that replaces it |
+|---|---|---|
+| Copying from a `Traits`-templated donor | Its appearance fields are empty, so the seeds clear the target's: a blank face, reported as a success | Read `Configuration.TemplateFlags` first and copy from the record in `Template` |
+| Seeding `Race`, or omitting `exclude_types` because you expect a `Race` default | There is none: the walk enters the race and pulls the skeleton and sibling races | Pass `Race:refuse` yourself; bundle `Race` in Step 2, and only when the two races differ |
+| Renaming the copied head parts | The mesh's baked shape names stop matching; the engine regenerates a vanilla head | Leave the EditorIDs the copy writes alone |
+| Omitting `TextureLighting` | Every field reads correct and the skin renders dark | Carry Step 2's bundle whole, `TextureLighting` included |
+| Dropping a bundle member the donor lacks instead of clearing it | The target keeps its own morphs under the donor's head parts — a face built from two people | Copy what the donor has and clear what it lacks — `Remove`, or `ReplaceAll` with `composes: []` for `TintLayers` |
+| Stopping at the patch | The records exist, the FaceGen does not — a dark face you authored on purpose | The copy is four calls; Step 3 places the FaceGen pair |
+| Stopping at the placement | The placed mesh still points at the donor's tint: correct until the donor is uninstalled | Finish with Step 4 — repoint the tint inside the placed mesh, naming `mod=` |
 | Letting the FaceGen source default to the VFS winner | You place a replacer's face over the records of the donor you actually copied |
 | Reporting "copied" when the strip list is long | A clone with no factions, outfits, packages or scripts is not a working follower |
 
