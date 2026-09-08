@@ -13,6 +13,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **`mutagen-reference` and `papyrus-reference` now say in their frontmatter that their lookup works offline.**
+  Both carried only the shared compatibility sentence — the houseCARL MCP server and a configured Mod Organizer 2
+  instance — which read as gating the whole skill, including a schema or signature lookup that reads files bundled
+  with the skill and never touches the load order. Each now adds one sentence saying the lookup is offline and that
+  only what reads the live load order needs them. Which half of each skill is which is stated in that skill's own
+  body.
 - **The runtime-framework routing no longer names CID, and containers route to SkyPatcher.** The standing
   instructions and the SkyPatcher and SPID skills said items into containers belong to a Container Item
   Distributor; no such skill ships, and SkyPatcher's own container patcher does the job (`filterByContainers`
