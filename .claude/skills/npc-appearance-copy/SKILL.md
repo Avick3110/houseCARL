@@ -203,10 +203,13 @@ housecarl_nif_set(
   into         = "<that same folder>")
 ```
 
-**`mod=` is not optional here either**, and for a second reason: the placement's folder is not enabled
-yet — enabling it is the caller's last step — so nothing in the active order provides the placed mesh
-and a read without `mod=` refuses `ABSENT`. Writing back `into=` that same folder keeps the repointed
-mesh with the files it belongs to.
+**`mod=` is not optional here either**, and what it costs depends on the lane. On the `new_editorid=`
+lane nothing in the active order provides the clone's FaceGen path — the placement's folder is not
+enabled yet, enabling it is the caller's last step — so a read without `mod=` refuses `ABSENT`. On
+the `target=` lane it is worse: the placed path *is* the target's own FaceGen path, which the vanilla
+archives already provide, so the read silently takes the winner — the target's original head, whose
+shape names still match — edits that, and writes it over the mesh Step 3 placed. Writing back `into=`
+that same folder keeps the repointed mesh with the files it belongs to.
 
 Then re-read it, naming the folder again —
 `housecarl_nif_inspect(mesh_paths = ["<the placed mesh>"], sections = "paths", mod = "<that same folder>")`
