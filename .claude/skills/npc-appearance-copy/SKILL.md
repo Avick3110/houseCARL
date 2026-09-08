@@ -157,9 +157,10 @@ FormID rather than composing one:
 housecarl_nif_inspect(npc = ["<donor FormID>"], sections = "paths", mod = "<the donor's mod folder>")
 ```
 
-Paths here are **Data-relative with forward slashes** —
-`meshes/actors/character/facegendata/facegeom/<defining master>/00<6 hex>.nif`. Both tools take
-either slash and neither takes a drive-rooted path.
+Paths here are **Data-relative and printed with backslashes** —
+`meshes\actors\character\facegendata\facegeom\<defining master>\00<6 hex>.nif`. Both tools take
+either slash on input and neither takes a drive-rooted path. Write a path back into a mesh exactly as
+it was printed: Step 4 stores the string you pass verbatim.
 
 **`mod=` is not optional.** Without it the read resolves through the VFS and returns the *winner's*
 mesh, and on a contested FaceGen path the winner is exactly the mesh whose bytes are not the donor's.
