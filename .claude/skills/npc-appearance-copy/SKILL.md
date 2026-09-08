@@ -1,32 +1,53 @@
 ---
 name: npc-appearance-copy
 description: >-
-  Copy an NPC's face onto another NPC, or clone one as a standalone, via `housecarl_copy` — the seed field set, the Race exclusion, the tint/morph bundle, and the FaceGen mesh+tint carry. Use for a standalone follower, borrowing a face from an overhaul, or a copied NPC rendering dark. Load before the copy — the wrong seed set writes a blank face.
+  Copies one NPC's face onto another, or clones an NPC as a standalone, via housecarl_copy —
+  records, inline face values, and the FaceGen files, which are three separate calls. Use for a
+  standalone follower, for borrowing a face from an overhaul, or when a copy you just made renders
+  dark; a face that was already wrong before any copy is housecarl:facegen-diagnostics. Load before
+  the copy — the wrong field set writes a blank face, and the copy is not done when the patch is
+  written.
+compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 2 instance.
 ---
 
 # NPC Appearance Copy
 
 ## Overview
 
-Copying an NPC's appearance is three operations, not one, and they use three generic tools:
+Copying an NPC's appearance moves three different things, and each one takes its own call:
 
 | What moves | Tool | Why it is separate |
 |---|---|---|
-| The link-bearing appearance (head parts, hair colour, head texture, worn armor) and everything they pull in | `housecarl_copy` | These are *records*. They have to be duplicated under new FormIDs or the result masters the donor. |
-| The inline appearance (tints, morphs, skin lighting, weight) | `housecarl_apply`'s `bundle=`/`assignments=` copy zip | These are values on the record itself. Nothing to walk, nothing to duplicate. |
-| The baked FaceGen mesh + tint, and the textures they reference | `housecarl_place` | These are *files*, decided by the MO2 VFS, not by load order. |
+| The link-bearing appearance — head parts, hair colour, head texture, worn armor — and what they pull in | `housecarl_copy` | *Records*: duplicate them under new FormIDs or the result masters the donor |
+| The inline appearance — tints, morphs, skin lighting, weight | `housecarl_apply`'s `bundle=`/`assignments=` zip | Values on the record itself. Nothing to walk, nothing to duplicate |
+| The baked FaceGen mesh and tint | `housecarl_place` | *Files*, decided by MO2's virtual file system, not by load order |
 
-**The cost of that split, stated up front:** three calls means three refusal surfaces and a window where the plugin exists and its files do not. An NPC whose record copied but whose FaceGen did not is exactly the dark-face bug. The flow below is not finished at the patch — it is finished at the placement, and if the placement refuses you say so rather than reporting a successful copy.
+**A fourth call finishes it.** The placed mesh still names the donor's tint inside its own bytes, and
+`housecarl_nif_set` repoints it. Four calls is four refusal surfaces and a window in which the plugin
+exists and its files do not — a record that copied while its FaceGen did not is the dark-face bug.
+The flow is not finished at the patch, and not at the placement either: it is finished when the
+placed mesh points at the copy's own tint and you have re-read it. If a step refuses, say so instead
+of reporting a successful copy.
 
-Diagnosing a face that is *already* wrong is `facegen-diagnostics`. This skill is the authoring side.
+A face that was *already* wrong, before any copy of yours, is `housecarl:facegen-diagnostics`; this
+skill is the authoring side. A sibling carries the `housecarl:` prefix on a Claude Code plugin
+install and its bare folder name on Codex (`facegen-diagnostics`); the tool names are the same on
+both.
 
-## First step — is the donor's appearance actually on the donor?
+The four Race cases, and how to choose the provider a placement names:
+`references/race-and-provider-cases.md` — read it when the donor and the target are different
+races, when the copy refuses on `Race`, or when a placement has to name a provider and the donor's
+bytes are not the obvious ones.
 
-Read the donor NPC (`housecarl_records`) and look at `Configuration.TemplateFlags` before anything else.
+## Before the copy — is the face on the donor?
 
-If it includes `Traits`, the donor's own appearance fields are **empty** — the engine takes traits from the record in `Template`, and this NPC is a shell. Copying its fields would set the target's head parts and tints to nothing, which blanks the face. Follow `Template` and copy from *that* record instead.
+Read the donor with `housecarl_records` and look at `Configuration.TemplateFlags` first. If it lists
+`Traits`, the donor's own appearance fields are **empty**: the engine takes traits from the record in
+`Template`, and this NPC is a shell. Follow `Template` and copy from that record instead.
 
-`housecarl_copy` independently refuses a walk whose seeds resolve to nothing, so a missed template check fails loudly rather than writing a blank. The check is still worth doing first, because the refusal tells you the walk found nothing while this tells you *where the face actually lives*.
+This check is the guard, not a courtesy. `housecarl_copy` refuses a seed on its *shape* — decided on
+the declared type before anything is read. An unset value is not that case: a seed the source leaves
+unset **clears** the target's, so a missed template check writes the blank face and reports success.
 
 ## Step 1 — the record copy
 
@@ -39,152 +60,189 @@ housecarl_copy(
   patch         = "MyFollower")
 ```
 
-**The seed set is these four fields** because they are the appearance fields that are a record link or a list of record links. Everything else that makes up a face is inline data and rides Step 2. The list is safe to extend when you have a reason: the shape is judged on the field's *declared* type, so a field the donor happens to carry none of is still accepted, while a path that is not a field, or whose entries are structures rather than links (`Factions`, `Perks`, `Items`), is refused by name. Those belong in Step 2's zip, where you choose between merging into the target's entries and replacing them.
+**The seed set is those four fields** because they are the appearance fields that are a record link
+or a list of record links. Everything else in a face is inline data and rides Step 2. The list is
+safe to extend when you have a reason: the shape is judged on the field's *declared* type, so a field
+the donor happens to carry none of is still accepted, while a path that is not a field, or whose
+entries are structures rather than links (`Factions`, `Perks`, `Items`), is refused by name. Those
+belong in Step 2's zip, where `Merge` and `ReplaceAll` choose between merging into the target's
+entries and replacing them.
 
-**A seed the donor leaves unset clears the target's.** Deliberate, and the same rule as Step 2's partition: a copy that leaves the target's own head parts or worn armor sitting under the donor's face produces a face assembled from two records. The readback marks those fields `cleared` rather than reporting them copied.
+**A seed the donor leaves unset clears the target's.** Deliberate, and the same rule as Step 2's
+partition: a copy that leaves the target's own head parts or worn armor under the donor's face
+produces a face assembled from two records. The readback says `cleared` rather than copied.
 
-**`Race:refuse`** is there because a race is not an appearance subtree. Walking into one pulls the skeleton, the sibling races, the whole racial frame — so a race is either kept as an ordinary link or the copy stops and tells you. The exclusion only fires when the race is *inside the source universe*: defined in the donor plugin itself, or not resolving in your active load order.
+**`Race:refuse` is the default** because a race is not an appearance subtree — a walk into one pulls
+the skeleton and the sibling races. It only fires when the race is inside the source universe:
+defined in the donor plugin itself, or not resolving in your active load order. When donor and
+target are different races, or a copy refuses on `Race`, the four cases and what each costs are in
+the reference file the overview names.
 
-- **Race defined in the donor plugin, `target=` lane, donor ENABLED** → the donor's look depends on its own race and this copy cannot free it from that. Re-run with `Race:stop`, which prunes the walk and keeps the link; the readback then says plainly that those links still point into the source and the patch masters it. That is the truth, and it is a choice you can make.
-- **… donor DISABLED** → `Race:stop` is refused up front in this lane, and rightly: the pruned link is attached to your target and kept, so the patch would have to master a plugin the game does not load, which cannot be written at all. Enable the mod if you want the link kept, or use `Race:refuse` and take a different route. (The refusal is scoped to the lane that keeps the link — a clone strips it instead, and refuses on its own grounds, below.)
-- **Race defined in the donor plugin, `new_editorid=` lane** → `Race:stop` does **not** help here, and the tool will tell you so: an NPC's `Race` is a link the record model *requires*, so the clone's strip refuses on it whatever the exclusion says. Copy onto a record that already has its own race with `target=`, or use a donor whose race you can keep installed.
-- Race not resolving at all → the race mod is disabled or missing. Enable it; nothing here can invent it.
+**Destination.** `target=` copies the appearance onto an existing NPC; `new_editorid=` mints a
+standalone clone. A clone loses every link still pointing into the donor — factions, outfits,
+packages, script properties — each removal reported by name. That list is not noise: re-author those
+against your own or vanilla records, or the follower has no faction and no AI package.
 
-**Destination.** `target=` copies the appearance onto an existing NPC; `new_editorid=` mints a standalone clone. A clone loses every link that still pointed into the donor — factions, outfits, packages, script properties — and each removal is reported by name. That list is not noise: re-author those against your own or vanilla records, or the follower has no faction and no AI package. A link the record model *requires* cannot be stripped, so the clone lane refuses rather than writing an invented null; that is the case for `target=`.
+**EditorIDs are preserved on the copies, deliberately.** The engine matches the shape names baked
+into a FaceGen mesh to head parts *by name*. Rename a copied head part and the mesh stops matching
+the record, so the engine regenerates a vanilla head and drops the tint.
 
-**Reading the donor from an override.** When the appearance you want lives in an override patch rather than in the plugin that defines the NPC, name both, in order:
+## Step 2 — the inline face values
 
-```
-from_source = ["TheOverhaul.esp", "<the plugin in the donor's own FormID>"]
-```
+The bundle is `FaceMorph`, `FaceParts`, `TintLayers`, `TextureLighting`, `Weight`, `Height`. How
+much work this step does depends on which destination Step 1 used.
 
-First hit wins, so records the overhaul carries come from the overhaul and everything else falls through to the defining plugin. You never have to discover the second name — it is the plugin half of the `from=` FormID. The readback names which source produced each record, and beside each source the **MO2 mod folder it resolved from**:
+### The `target=` lane
 
-```
-sources (in order, first hit wins): TheOverhaul.esp (MO2 mod folder "AnOverhaul") -> Donor.esp (MO2 mod folder "TheDonorMod")
-the source record was read from TheOverhaul.esp (MO2 mod folder "AnOverhaul").
-```
-
-**Carry that folder to Step 3.** Which mod holds the FaceGen is not the plugin filename in its path and not necessarily the mod the record came from: the FaceGen sits beside the plugin that *defines* the NPC, which is the second arm when you read the look through an override. Take the folder the readback names for that arm — everything inside the double quotes, which is where the name ends even when it holds an apostrophe or a parenthesis — and pass it as `source_provider=`; nothing else on the surface knows which of two switched-off mods ships the file.
-
-A named **enabled** donor names its folder too — `Donor.esp (from the active load order, MO2 mod folder "TheDonorMod")` — because the placement needs that folder whether or not MO2 ticks the mod. Not every arm has one, and the sentence says which case it is: the bare **`winner`** pole is the whole order and has no single folder behind it; one that came out of **MO2's overwrite** or the **game's `Data` folder** is named as that layer, and that word is still what `source_provider=` takes; a source read from a file **outside all of them** — an absolute path you gave, or a plugin sitting loose in the mods root — says outright that it has no mod folder to pass on, and the FaceGen then has to come from a mod you name yourself. A mod folder whose own name is `Data` or `overwrite` is named and then withdrawn in the same sentence: those two names are reserved, a placement handed one reads the layer instead of the mod, and the fix is to rename the mod folder in MO2.
-
-**EditorIDs are preserved on the copies, deliberately.** The engine matches the shape names baked into a FaceGen mesh to head parts *by name*. Rename a copied head part and the mesh no longer matches the record, so the engine regenerates a vanilla head and drops the tint. There is no reason to rename them and a concrete cost if you do.
-
-## Step 2 — the inline appearance bundle
-
-The bundle is `FaceMorph`, `FaceParts`, `TintLayers`, `TextureLighting`, `Weight`, `Height` — but **read the donor first and split that list in two**, because a donor rarely carries all of it:
+Read the donor first and split those six in two, because a donor rarely carries all of them:
 
 ```
 housecarl_apply(
   bundle      = [ ...the members the donor HAS... ],
-  assignments = [{ target: "<the new/target FormID>", from: "<donor FormID>",
+  assignments = [{ target: "<the target FormID>", from: "<donor FormID>",
                    from_source: "<the plugin the appearance came from>" }],
-  ops         = [ { formid: "<target>", field_path: "<a member the donor LACKS>", op: "Remove" }, ... ],
+  ops         = [{ formid: "<target>", field_path: "<a member the donor LACKS>", op: "Remove" }],
   into        = "<Step 1's patch filename>")
 ```
 
-**Why the split, rather than just naming all six.** `CopyFrom` refuses an unset source — "nothing to copy; use Remove to clear the target" — and `housecarl_apply` is all-or-nothing, so one absent member refuses the whole call. The tempting fix is to drop the absent members from the bundle, and that is the wrong one: it leaves the *target's* own morphs and face parts in place underneath the donor's head parts, which is a face assembled from two different people. Clearing them is what makes the target's face the donor's face and nothing else. So: copy what the donor has, remove what it lacks.
+**Copy what the donor has, remove what it lacks.** Dropping the absent members and copying only the
+rest is the tempting fix and the wrong one: it leaves the *target's* own morphs and face parts
+underneath the donor's head parts, a face built from two people. A bundle only names what it copies,
+so identity and everything outside the list is untouched by construction, and the call is
+all-or-nothing — it lands whole or writes nothing.
 
-A bundle only names what it copies, so identity and everything outside the list are untouched by construction.
-
-**Name the clone here.** A clone minted with `new_editorid=` carries the **donor's** display `Name` — the EditorID is the record's, the in-game name is still the person you copied. Set it in this same call, or the follower answers to the donor's name in game:
-
-```
-ops = [{ formid: "<the new FormID>", field_path: "Name", op: "Set", value: "<the clone's name>" }]
-```
-
-`TextureLighting` earns its place: it is the QNAM colour, it defaults to a value that reads as dark skin, and a face copied without it renders with the wrong skin tone while every other field looks correct.
+`TextureLighting` earns its place: it is the QNAM colour, it defaults to a value that reads as dark
+skin, and a face copied without it renders the wrong skin tone while everything else looks right.
 
 Two fields are conditional, so they sit outside the bundle:
 
-- **`Race`** — add it to the bundle **only when the target's race differs from the donor's**. Copying an equal value is a no-op, and copying a different one is a real change: FaceGen is race-fitted, so a head baked for one race on another race's skeleton reads wrong even when the records agree.
-- **The `Female` bit** — when donor and target differ in sex, set that one bit rather than copying `Configuration.Flags`, which would drag Essential, Unique, Respawn and Protected across with it:
+- **`Race`** — bundle it **only when the target's race differs from the donor's**. FaceGen is
+  race-fitted, so a head baked for one race reads wrong on another's skeleton.
+- **The `Female` bit** — when donor and target differ in sex, set that one bit rather than copying
+  `Configuration.Flags`, which drags Essential, Unique, Respawn and Protected with it:
 
   ```
   ops = [{ formid: "<target>", field_path: "Configuration.Flags", op: "Add", value: "Female" }]
   ```
 
-  (`Remove` clears it.) Head parts and FaceGen are gender-fitted too, so a mismatch here is a visible one.
+  (`op: "Remove"` clears it.) Head parts and FaceGen are gender-fitted too.
 
-## Step 3 — the FaceGen pair and the textures
+### The `new_editorid=` lane
 
-The record copy's readback lists the asset paths its copied records reference — it is the only thing that knows what it copied. Add the textures embedded in the donor's FaceGen mesh, which the records do not name, by reading the mesh:
-
-```
-housecarl_nif_inspect(<donor's FaceGen mesh path>, sections = "paths", mod = "<the donor's mod>")
-```
-
-**`mod=` is not optional here.** Without it `nif_inspect` resolves the path through the VFS and reads the *winner's* mesh — and on a contested FaceGen path the winner is precisely the mesh whose bytes are not the donor's. Harvesting textures from the replacer's mesh and then placing the donor's is how you end up with a head that references textures it does not use. Name the donor for the read.
-
-`mod=` reaches the donor's mod **whether or not MO2 is loading it**, and reaches both its loose files and its own root archives — the same rule as `source_provider=` on the placement below. So a **switched-off** donor needs no switching on for this read. Name the mod exactly as the providers chain prints it, inside the double quotes: the kind that follows them (`loose` / `BSA`) is not part of the name. If the answer is still a refusal it names the mod and says where it looked; a refusal that says nothing supplies the path is not "the donor has no mesh" — check the spelling first.
-
-You can skip working the mesh path out at all: `nif_inspect npc = ["<donor FormID>"]` derives the FaceGen mesh from the FormKey itself.
-
-Merge the two lists, case-insensitively, and that is the set of files worth considering.
-
-The readback's asset block looks like this, and it is a list to act on rather than a result:
+Nearly nothing to do. `housecarl_copy` is a whole-record duplicate — every field carries by
+construction — so all six bundle members are already on the clone, and so is its sex. One op does
+real work: the clone carries the **donor's** display `Name` until you set it.
 
 ```
-asset paths the copied records reference (this call does NOT place them — check each with
-housecarl_asset_status, then place what you keep with housecarl_place; a path only the
-mod you read FROM provides reads as absent in asset_status if MO2 does not load that mod, and is
-still placed by naming it in source_provider=):
-  - textures\actors\character\...\hair.dds
+housecarl_apply(
+  ops  = [{ formid: "<the clone's FormID>", field_path: "Name", op: "Set", value: "<the name>" }],
+  into = "<Step 1's patch filename>")
 ```
 
-**Decide before you place.** Run `housecarl_asset_status` on each path and read the provider chain. Carry a path only if its bytes would **vanish with the donor** — if another enabled mod still supplies it, the file already resolves and copying it just adds a redundant override. Say which paths you skipped and why; a silent skip and a deliberate one look identical afterwards.
+## Step 3 — the FaceGen pair
 
-`asset_status` answers for the mods MO2 loads. If the donor's own mod is switched off, every path only it provides reads back **absent** there — which is the carry case, not the skip case. Do not read absent as "nothing to place".
+The record copy's readback lists the asset paths its copied records reference. Add the textures baked
+into the donor's mesh, which no record names, by reading the mesh — deriving its path from the
+FormID rather than composing one:
 
-**Place the pair under the new FormID:**
+```
+housecarl_nif_inspect(npc = ["<donor FormID>"], sections = "paths", mod = "<the donor's mod folder>")
+```
+
+Paths here are **Data-relative with forward slashes** —
+`meshes/actors/character/facegendata/facegeom/<defining master>/00<6 hex>.nif`. Both tools take
+either slash and neither takes a drive-rooted path.
+
+**`mod=` is not optional.** Without it the read resolves through the VFS and returns the *winner's*
+mesh, and on a contested FaceGen path the winner is exactly the mesh whose bytes are not the donor's.
+`mod=` reaches a mod MO2 is not loading, so a switched-off donor needs no switching on.
+
+**Decide before you place.** Merge the two path lists case-insensitively and hand every candidate to
+`housecarl_asset_status` in ONE call. Carry a path only if its bytes would vanish with the donor: if
+another enabled mod supplies it, the file already resolves and a copy is a redundant override. Say
+which paths you skipped. If the donor's mod is switched off, every path only it provides reads
+**absent** — the carry case, not the skip case.
 
 ```
 housecarl_place(assets = [
   { formid: "<the NEW FormID>", kind: "mesh",
-    source: "<the DONOR's FaceGen mesh path>", source_provider: "<the donor's mod>" },
+    source: "<the donor's FaceGen mesh path>", source_provider: "<the donor's mod folder>" },
   { formid: "<the NEW FormID>", kind: "tint",
-    source: "<the DONOR's FaceGen tint path>", source_provider: "<the donor's mod>" }],
+    source: "<the donor's FaceGen tint path>", source_provider: "<the donor's mod folder>" }],
   into = "<Step 1's patch>")
 ```
 
-The destination is computed from the new FormID and the source is the donor's own path, so source ≠ destination and the placement is a rename — which is exactly what a copied NPC needs, since its FaceGen filename tracks its FormID.
+**Two members, not one.** Omitting `kind=` places both FaceGen files, but that form reads the
+destination's own bytes: `assets[].formid` names the **destination**, while the files being read live
+under the *donor's* plugin and FormID, so each member carries its own `source=` — and a `formid`
+member with no `kind` whose `source=` is not a full `.bsa` path is refused. The destination comes
+from the new FormID, so the placement is a rename: a copy's FaceGen filenames track its own FormID.
 
-**The folder name comes from Step 1's readback, not from a guess.** The `<the donor's mod>` above is the MO2 mod folder the copy named for the arm whose plugin appears in the FaceGen path — `facegeom\<Plugin>.esp\`. With one source there is one folder; with two, it is the arm the path names, which is usually the second.
+**Which provider to name** is the one whose bytes match the record you copied — sometimes the VFS
+winner, which `source_provider` spells `*winner`. Decide it by reading, not from the plugin in the
+path: inspect each candidate with `housecarl_nif_inspect mod="<candidate>"` and keep the copy whose
+baked shape names match the copied head parts' EditorIDs. Name it as the readback prints it inside
+the double quotes; the `loose` / `BSA` kind after it is not part of the name. Never compose a
+mods-folder path by hand — nothing refuses one today, and that guard, issue #617, is not in this
+release.
 
-**Name the donor with `source_provider=`, do not take the VFS winner.** On a contested FaceGen path — a replacer out-sorting the base game's BSA — the winner and the donor are different bytes, and the winner's are the ones that can disagree with the head-part and tint records you just copied. The donor's are the ones the appearance you copied was baked from.
+## Step 4 — the tint path inside the mesh
 
-**Both files matter, and a miss is not cosmetic.** The mesh alone renders an untinted head; the tint alone renders the wrong head under the right colour; neither means the engine regenerates the face from the record and discards the tint — the dark-face bug. If a placement reports missing or failed, say the patch is written *without* its assets rather than reporting a successful copy.
+`housecarl_place` renames the file; it does not touch the bytes inside it. The head shape's `tex[6]`
+still names the **donor's** tint, so the copy reads its colour out of the donor's mod and renders
+fine for exactly as long as that mod stays installed.
 
-**A donor in a switched-off MO2 mod carries its assets too.** Name that mod in `source_provider=` and its copy is read off disk — loose first, then that mod folder's own archives — and the result says the source was not enabled. The mod does not have to be switched on for the placement, and switching it on is not a step. Still do not compose a path into the mods folder by hand: that is a guess wearing a path, it silently places the wrong bytes when the folder name is not what you assumed, and it cannot reach a file inside the donor's archives at all.
+```
+housecarl_nif_set(
+  mesh_path    = "<the placed mesh, Data-relative>",
+  op           = "set_path",
+  texture_slot = "6",
+  target       = "<the head shape's name, as nif_inspect prints it>",
+  path         = "<the copy's own tint path>",
+  into         = "<the mod folder the placement wrote>")
+```
 
-One thing does not widen: with `source_provider=` **omitted**, resolution still sees only the mods MO2 loads. A switched-off donor's file is reachable because you named it, never by houseCARL finding it.
+Then re-read it — `housecarl_nif_inspect(mesh_paths = ["<the placed mesh>"], sections = "paths")` —
+and check that slot 6 names the copy's own tint. Note that `into=` here takes an existing
+houseCARL-owned **mod folder** name, while the `into=` on the other three calls takes the patch
+plugin's filename.
 
 ## Common mistakes
 
 | Mistake | What it costs |
 |---|---|
-| Renaming the copied head parts | The mesh's baked shape names stop matching; the engine regenerates a vanilla head. |
-| Seeding `Race`, or dropping the `Race:refuse` exclusion | The walk pulls the skeleton and sibling races instead of a face. |
-| `Set`ting `Configuration.Flags` to match the donor | Silently carries Essential / Unique / Respawn / Protected across. |
-| Omitting `TextureLighting` | Every field reads correct and the skin renders dark. |
-| Dropping a bundle member the donor lacks instead of clearing it | The target keeps its own morphs under the donor's head parts — a face built from two people. |
-| Stopping at the patch | The records exist, the FaceGen does not — a dark face you authored on purpose. |
-| Letting the FaceGen source default to the VFS winner | You place a replacer's face over the records of the donor you actually copied. |
-| Reporting "copied" when the strip list is long | A standalone clone with no factions, outfits, packages or scripts is not a working follower. |
+| Copying from a `Traits`-templated donor | Its appearance fields are empty, so the seeds clear the target's: a blank face, reported as a success |
+| Renaming the copied head parts | The mesh's baked shape names stop matching; the engine regenerates a vanilla head |
+| Omitting `TextureLighting` | Every field reads correct and the skin renders dark |
+| Dropping a bundle member the donor lacks instead of clearing it | The target keeps its own morphs under the donor's head parts — a face built from two people |
+| Stopping at the patch | The records exist, the FaceGen does not — a dark face you authored on purpose |
+| Stopping at the placement | The placed mesh still points at the donor's tint: correct until the donor is uninstalled |
+| Letting the FaceGen source default to the VFS winner | You place a replacer's face over the records of the donor you actually copied |
+| Reporting "copied" when the strip list is long | A clone with no factions, outfits, packages or scripts is not a working follower |
 
-## Verification
+## Verification — what this session can check
 
-1. The copy's readback says **standalone: the source is NOT a master**. If it instead alarms that the source *is* among the masters, the operation did not do the one thing it exists to do — read the kept-link list and find out what still points at the donor.
-   **A donor read from base-game masters ONLY reads differently, and should:** the readback calls it an **appearance transplant, not a standalone-ization**. Nothing is being removed from an always-loaded master, so links to it are kept and mastered normally — that is the correct outcome, not a failed standalone.
-   **This turns on what you NAMED, not on where the donor's FormID lives.** The overhaul flow below — `from` a vanilla FormID, `from_source=['TheOverhaul.esp','Skyrim.esm']` — is copying away from `TheOverhaul.esp`, so it earns the ordinary **standalone** claim and you should expect that one. If you see the transplant note there, something bound has gone missing from the report.
+1. The copy's readback says **standalone: the source is NOT a master**. When every source named was
+   a base-game master it says **appearance transplant** instead, and that is the correct outcome
+   there, not a failure — nothing is being removed from an always-loaded master.
 2. The strip list has been dealt with, not just read.
 3. Both FaceGen placements landed.
-4. Enable and sort the new mod in MO2. Nothing houseCARL writes wins anything until it does — the read-backs describe the file, not the load order.
-5. Check in game: face, hair, **and lip-sync while speaking**. The lip-sync exercises morph data baked into the mesh, so a head that looks right standing still can still be the wrong file.
+4. The re-read of the placed mesh shows the **copy's own** tint in slot 6.
+5. `housecarl_check(plugins = ["<the patch>"])` comes back clean: it sweeps a patch that is not yet
+   enabled off-order, so this runs before anything is switched on.
+
+## Verification — what only the caller can do
+
+Two things are the caller's, and this session cannot do either. Say so rather than leaving them in a
+checklist that reads as unfinished work:
+
+1. Enable the new mod in MO2.
+2. Look at the result in game — face, hair, **and lip-sync while speaking**. Lip-sync exercises morph
+   data baked into the mesh, so a head that looks right standing still can still be the wrong file.
 
 ## Notes
 
-- `asset_status` takes `asset_paths` — one or many, resolved in order, results returned in the same order — so the decide-before-you-place pass is ONE call over every candidate path, not a call each.
-- The three calls accumulate into one patch when you pass `into=` the same filename, so the result stays one reviewable artifact even though it took three operations to build.
-- A record copied out of a generated plugin (a Synthesis or Reqtificator output, an NPC-merge result) is regenerated output, not authored content — copy the record from the mod that authored it, not from the generated plugin.
+- `housecarl_copy`, `housecarl_apply` and `housecarl_place` accumulate into one patch when you pass
+  `into=` the same plugin filename, so the result stays one reviewable artifact.
+- Read the donor before every step that copies from it. Each call names the fields it touched, and a
+  field it does not name is a field you have to account for yourself.
