@@ -138,7 +138,7 @@ public static class RecordsTools
             int limit = 500,
         [Description("TRANSPORT: skip the first N matches (exact windows: offset=0/500/1000…). Windows tile only WITHIN one epoch — if two pages' epochs differ the load order changed mid-pagination; re-run from offset=0, do not stitch the pages. offset= RE-SCANS the selection from the start rather than seeking into it, so every window pays the whole scan again and a deep window costs more than a shallow one — narrowing the scan terms beats paging far into one.")]
             int offset = 0,
-        [Description("TRANSPORT: character CEILING on the RENDER, and a hard one on the scan, batch, resolve, group_by and summary renders — the record block that would cross it is not written, and the truncation notice, the accounting line and the spilled: block are charged before the rows are laid. NOT yet hard on the comparison forms (delta, tree), the walk lane's chain and effect-chain renders, or info_order: those still test the ceiling before the row, so they can come back over it by the block that crossed. Never truncates the RESULT: an over-ceiling result SPILLS in full to a server-side JSONL artifact (line 1 = manifest with the query echo, the row schema, and the epoch) and the response names the file, so what the ceiling held back inline is in the file. 0 = the server default (~80k).")]
+        [Description("TRANSPORT: character CEILING on the RENDER, hard on every text render this tool has — the scan, batch, resolve, group_by and summary renders, the comparison forms (delta, tree), the walk lane's chain and effect-chain renders, and info_order. The record block, node or delta line that would cross it is not written, and the truncation notice, the accounting line and the spilled: block are charged before the rows are laid. The one answer that can still come back over it is a max_chars too small for what the response carries whatever the budget — its header, the notices it owes, its spilled: block — which says so and names the number that clears it. Never truncates the RESULT: an over-ceiling result SPILLS in full to a server-side JSONL artifact (line 1 = manifest with the query echo, the row schema, and the epoch) and the response names the file, so what the ceiling held back inline is in the file. 0 = the server default (~80k).")]
             int max_chars = 0,
         [Description("TRANSPORT: return the accounting block and counts only, no rows — the cheap census.")]
             bool counts_only = false,
@@ -1882,7 +1882,10 @@ public static class RecordsTools
 
     /// <summary>The delta form's text render: header counts, then per record the two pole lines, the stack-above
     /// fact stated neutrally rather than as advice, and the delta-line grammar — where a truncated deep read is
-    /// never rendered as 'identical'.</summary>
+    /// never rendered as 'identical'. max_chars is a CEILING here, the shape #603 gave the scan and batch renders:
+    /// the truncation notice and the spill block are charged before the first record is laid, a delta line is
+    /// written only where its own cut notice still fits beside it, and a record that would cross what is left is
+    /// taken back out whole and counted.</summary>
     static string RenderRecordsDelta(IReadOnlyList<LoadOrderService.DeltaRow> rows, int total, int differing, int identical,
                                      int noVerdict, int errors,
                                      string headerLine, OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated)
@@ -1901,22 +1904,28 @@ public static class RecordsTools
         if (epoch is not null) sb.Append(Wire.EpochInline(epoch));
         sb.Append('\n');
         int rendered = 0;
+        // The notice and the spill block close this response, so both are charged before the first record is laid —
+        // that is what makes max_chars a ceiling on the whole response rather than on everything above its tail.
+        string Notice(int r) =>
+            "... [rendered " + r + " of " + rows.Count + " rows at max_chars=" + cap + "]\n";
+        var spillText = Wire.SpillText(spill);
+        int budget = Math.Max(cap - spillText.Length - Notice(rows.Count).Length, 0);
+        string deltaCut = CutNotice("delta lines", cap);
         foreach (var row in rows)
         {
             if (manifestOnly) break;
-            if (sb.Length >= cap)
-            {
-                truncated = true;
-                sb.Append("... [rendered ").Append(rendered).Append(" of ").Append(rows.Count)
-                  .Append(" rows at max_chars=").Append(cap).Append("]\n");
-                break;
-            }
+            int mark = sb.Length;
+            // said: this record's own delta list stopped inside the budget and named what it held back, so the
+            // record stays and the render stops after it. mute: it stopped with no room to say so, and the whole
+            // record goes back out instead.
+            bool said = false, mute = false;
             sb.Append('\n').Append(row.Formid);
             if (row.Error is not null)
             {
                 sb.Append("  error=").Append(row.Error).Append('\n');
                 if (row.StackAbove is { Count: > 0 })
                     sb.Append("  stack above the subject (closer to winning, winner last): ").Append(string.Join(", ", row.StackAbove)).Append('\n');
+                if (Crossed(sb, mark, budget, Notice(rendered), ref truncated)) break;
                 rendered++;
                 continue;
             }
@@ -1950,26 +1959,62 @@ public static class RecordsTools
                   .Append(r.LabelVersus(s.Plugin)).Append("):\n");
                 foreach (var delta in d.Deltas)
                 {
-                    if (sb.Length >= cap)
+                    // The line goes in only where its own cut notice still fits beside it, so the notice lands
+                    // inside the budget rather than a character past the one that crossed.
+                    string line = "    - " + delta + "\n";
+                    if (sb.Length + line.Length + deltaCut.Length > budget)
                     {
-                        truncated = true;
-                        AppendCutNotice(sb, "delta lines", cap);
+                        said = Said(sb, deltaCut, budget);
+                        mute = !said;
                         break;
                     }
-                    sb.Append("    - ").Append(delta).Append('\n');
+                    sb.Append(line);
                 }
-                if (!d.Complete)
+                if (!said && !mute && !d.Complete)
                     sb.Append("  note: the comparison is INCOMPLETE — a field above could not be read (nothing at or under it was compared), or the deep read hit the cap (which suppresses list-content and one-sided-presence deltas for the whole record). Narrow with ").Append(LeverNames.Records.Fields).Append(" to compare those in full.\n");
             }
+            if (mute || !said)
+            {
+                if (Crossed(sb, mark, budget, Notice(rendered), ref truncated, force: mute)) break;
+                rendered++;
+                continue;
+            }
+            // The record was laid to the budget and says what it held back: it stays, and nothing more fits.
+            truncated = true;
             rendered++;
+            break;
         }
-        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
-        return sb.ToString().TrimEnd('\n');
+        sb.Append(spillText);
+        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+    }
+
+    /// <summary>Whole units only: a unit written from <paramref name="mark"/> that crossed <paramref name="budget"/>
+    /// — or that stopped early with no room to say so, <paramref name="force"/> — is taken back out entire and the
+    /// caller's notice put in its place. True means the render stops here.</summary>
+    static bool Crossed(StringBuilder sb, int mark, int budget, string notice, ref bool truncated, bool force = false)
+    {
+        if (!force && sb.Length <= budget) return false;
+        sb.Length = mark;
+        sb.Append(notice);
+        truncated = true;
+        return true;
+    }
+
+    /// <summary>A section that ran out of room says so INSIDE the budget or not at all: false means the notice
+    /// itself did not fit, and the row it belongs to is taken back out whole rather than ending in silence.</summary>
+    static bool Said(StringBuilder sb, string notice, int budget)
+    {
+        if (sb.Length + notice.Length > budget) return false;
+        sb.Append(notice);
+        return true;
     }
 
     /// <summary>The tree form's text render: per record the touching list in load order with the winner last,
     /// and each provider's delta against the reference. Same wording rules as the delta form — identical is
     /// never claimed over a truncated read, list contents compare by content, and reorders are flagged.
+    /// max_chars is a CEILING here, the same shape the delta render carries: the truncation notice and the spill
+    /// block are charged first, the declarer and node loops hold back their own cut notices, and a record that
+    /// would cross what is left is taken back out whole and counted.
     /// Internal so a test can drive it against a hand-built <see cref="LoadOrderService.TreeRow"/>, the same
     /// reason <see cref="AppendChildDeclarers"/> is: a node shape no fixture produces (an incomplete comparison
     /// on a record only one in-order plugin touches) has no other way in.</summary>
@@ -1987,74 +2032,114 @@ public static class RecordsTools
         sb.Append('\n');
         int rendered = 0;
         bool declarersLeadWritten = false;
+        string Notice(int r) =>
+            "... [rendered " + r + " of " + rows.Count + " rows at max_chars=" + cap + "]\n";
+        var spillText = Wire.SpillText(spill);
+        var room = RenderCap.For(cap, spillText.Length + Notice(rows.Count).Length);
+        int budget = room.Budget;
+        string nodesCut = CutNotice("nodes", cap);
         foreach (var row in rows)
         {
             if (manifestOnly) break;
-            if (sb.Length >= cap)
-            {
-                truncated = true;
-                sb.Append("... [rendered ").Append(rendered).Append(" of ").Append(rows.Count)
-                  .Append(" rows at max_chars=").Append(cap).Append("]\n");
-                break;
-            }
+            int mark = sb.Length;
+            bool leadMark = declarersLeadWritten;
+            // said: this row stopped inside the budget and named what it held back, so it stays and the render
+            // stops after it. mute: it stopped with no room to say so, and the whole row goes back out instead.
+            bool said = false, mute = false;
             sb.Append('\n').Append(row.Formid);
-            if (row.Error is not null) { sb.Append("  error=").Append(row.Error).Append('\n'); rendered++; continue; }
+            if (row.Error is not null)
+            {
+                sb.Append("  error=").Append(row.Error).Append('\n');
+                if (Crossed(sb, mark, budget, Notice(rendered), ref truncated)) break;
+                rendered++; continue;
+            }
             sb.Append("  ").Append(row.Type ?? "?").Append("  ").Append(row.EditorId ?? "<no editorid>").Append('\n');
             sb.Append("  ").Append(row.Touchers.Count).Append(" plugin(s) touch this record (load order, winner last):\n");
             for (int i = 0; i < row.Touchers.Count; i++)
                 sb.Append("    ").Append(i + 1).Append(". ").Append(row.Touchers[i])
                   .Append(i == row.Touchers.Count - 1 ? "  (winner)" : "").Append('\n');
-            if (AppendChildDeclarers(sb, row, cap, ref declarersLeadWritten, out bool declarersCut))
+            // The row ends at the block when the block was cut, or when it ran the budget out; a sole provider
+            // ends there too, having nothing to diff against.
+            bool ended = AppendChildDeclarers(sb, row, room, row.Nodes.Count > 1 ? nodesCut.Length : 0,
+                                              ref declarersLeadWritten, out bool declarersCut, out bool declarersMute);
+            if (ended)
             {
-                // The row ends here, but `truncated` claims the whole ANSWER is incomplete and drives the spill,
-                // so set it only when this row actually lost something: declarer lines dropped, or a diff the row
-                // never reached. A sole-provider row whose complete block merely ended past cap lost nothing.
-                if (declarersCut || row.Nodes.Count > 1) truncated = true;
+                mute = declarersMute;
+                // The row lost something when declarer lines were dropped, or when a diff it never reached is
+                // gone. A sole-provider row whose complete block merely ended at the budget lost nothing.
+                said = declarersCut;
                 // A multi-provider row loses its diff whether or not declarer lines were also dropped, and each
                 // notice claims one thing, so a cut row carries both notices.
-                if (row.Nodes.Count > 1) AppendCutNotice(sb, "nodes", cap);
-                rendered++; continue;
-            }
-            if (row.Nodes.Count <= 1) { rendered++; continue; }   // a sole provider has nothing to diff against
-            sb.Append("  diff (field deltas vs ").Append(row.ReferencePlugin)
-              .Append("; identical fields omitted; list contents compared by content, element reorders flagged):\n");
-            foreach (var n in row.Nodes)
-            {
-                if (n.IsReference) continue;
-                if (sb.Length >= cap)
+                if (!mute && row.Nodes.Count > 1)
                 {
-                    truncated = true;
-                    AppendCutNotice(sb, "nodes", cap);
-                    break;
+                    if (Said(sb, nodesCut, budget)) said = true;
+                    else mute = true;
                 }
-                sb.Append("    ").Append(n.Plugin).Append(n.IsWinner ? " (winner)" : "").Append(": ");
-                // The incompleteness note goes on EVERY incomplete node, not only the one with no deltas: an
-                // unreadable leaf always produces a delta line, so gating it on an empty delta list left the
-                // normal shape saying nothing about what was skipped.
-                if (n.Deltas.Count > 0)
-                    sb.Append(string.Join("; ", n.Deltas))
-                      .Append(n.Complete ? "" : " — the comparison is INCOMPLETE: a field could not be read (nothing at or under it was compared), or the deep read hit the cap (which suppresses list-content and one-sided-presence deltas for the whole record)")
-                      .Append('\n');
-                else if (!n.Complete)
-                    sb.Append("no differing fields in what was read, but the comparison is INCOMPLETE — the deep read was TRUNCATED at the cap, so this is not a clean 'identical'.\n");
-                else
-                    sb.Append(fieldsNarrow
-                        ? $"identical to {row.ReferencePlugin} across the fields read ({n.AgreedCount} leaf/leaves agree)\n"
-                        : $"identical to {row.ReferencePlugin} (whole record; {n.AgreedCount} leaf/leaves agree)\n");
             }
+            else if (row.Nodes.Count > 1)
+            {
+                // The diff heading carries its own cut notice's room: a heading with no room under it for either a
+                // node or the notice would end the row in silence.
+                string diffHead = "  diff (field deltas vs " + row.ReferencePlugin +
+                                  "; identical fields omitted; list contents compared by content, element reorders flagged):\n";
+                if (sb.Length + diffHead.Length + nodesCut.Length > budget)
+                {
+                    said = Said(sb, nodesCut, budget);
+                    mute = !said;
+                    goto measure;
+                }
+                sb.Append(diffHead);
+                foreach (var n in row.Nodes)
+                {
+                    if (n.IsReference) continue;
+                    // The incompleteness note goes on EVERY incomplete node, not only the one with no deltas: an
+                    // unreadable leaf always produces a delta line, so gating it on an empty delta list left the
+                    // normal shape saying nothing about what was skipped.
+                    string body = n.Deltas.Count > 0
+                        ? string.Join("; ", n.Deltas) +
+                          (n.Complete ? "" : " — the comparison is INCOMPLETE: a field could not be read (nothing at or under it was compared), or the deep read hit the cap (which suppresses list-content and one-sided-presence deltas for the whole record)") + "\n"
+                        : !n.Complete
+                            ? "no differing fields in what was read, but the comparison is INCOMPLETE — the deep read was TRUNCATED at the cap, so this is not a clean 'identical'.\n"
+                            : fieldsNarrow
+                                ? $"identical to {row.ReferencePlugin} across the fields read ({n.AgreedCount} leaf/leaves agree)\n"
+                                : $"identical to {row.ReferencePlugin} (whole record; {n.AgreedCount} leaf/leaves agree)\n";
+                    // Composed before it is priced: the node line and its own cut notice are measured together, so
+                    // the notice cannot land a character past the node that crossed.
+                    string line = "    " + n.Plugin + (n.IsWinner ? " (winner)" : "") + ": " + body;
+                    if (sb.Length + line.Length + nodesCut.Length > budget)
+                    {
+                        said = Said(sb, nodesCut, budget);
+                        mute = !said;
+                        break;
+                    }
+                    sb.Append(line);
+                }
+            }
+        measure:
+            if (mute || !said)
+            {
+                if (Crossed(sb, mark, budget, Notice(rendered), ref truncated, force: mute))
+                { declarersLeadWritten = leadMark; break; }
+                rendered++;
+                continue;
+            }
+            // The row was laid to the budget and says what it held back: it stays, and nothing more fits.
+            truncated = true;
             rendered++;
+            break;
         }
-        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
-        return sb.ToString().TrimEnd('\n');
+        sb.Append(spillText);
+        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 
     /// <summary>The records text lane's cut notice, composed in one place so its several call sites cannot
-    /// drift.</summary>
+    /// drift. Returned rather than written, so the room it takes can be held back before the line it follows is
+    /// laid — a notice appended past the budget is the defect this render family exists to prevent.</summary>
     /// <param name="what">What was cut — the notice claims this and nothing else, so a caller that cut something
     /// different names that instead.</param>
-    static void AppendCutNotice(StringBuilder sb, string what, int cap) =>
-        sb.Append("    ... [").Append(what).Append(" cut at max_chars=").Append(cap)
-          .Append(" — raise max_chars or narrow with ").Append(LeverNames.Records.Fields).Append("]\n");
+    static string CutNotice(string what, int cap) =>
+        "    ... [" + what + " cut at max_chars=" + cap + " — raise max_chars or narrow with " +
+        LeverNames.Records.Fields + "]\n";
 
     /// <summary>The tree's precise owned-child block: which providers declare children per child-bearing field,
     /// and the negative sentence when none do. Sits above the diff, not inside it; background in
@@ -2062,52 +2147,66 @@ public static class RecordsTools
     /// <see cref="LoadOrderService.TreeRow"/> wider than any fixture cell.</summary>
     /// <param name="leadWritten">Set once the framing line has been stated; every later row gets the short
     /// <see cref="ReadSentences.DeclarersHeader"/> instead of repeating it.</param>
-    /// <param name="blockCut">true only when declarer lines were actually dropped. false with a true return means
-    /// the block is complete and the row ends at <paramref name="cap"/> — the caller names what it loses.</param>
+    /// <param name="blockCut">true only when declarer lines were actually dropped AND the block said so. false with
+    /// a true return means the block is complete and the row ends at <paramref name="cap"/> — the caller names what
+    /// it loses.</param>
+    /// <param name="tailReserve">Room the CALLER still owes below this block — the nodes notice a multi-provider
+    /// row writes when the block ends its row — held back here so that notice lands inside the budget too.</param>
+    /// <param name="mute">true when the block stopped with no room to say it was cut: the caller takes the whole
+    /// row back out rather than ending it in silence.</param>
     /// <returns>true if the row ends here.</returns>
-    internal static bool AppendChildDeclarers(StringBuilder sb, LoadOrderService.TreeRow row, int cap,
-                                              ref bool leadWritten, out bool blockCut)
+    internal static bool AppendChildDeclarers(StringBuilder sb, LoadOrderService.TreeRow row, RenderCap cap,
+                                              int tailReserve, ref bool leadWritten, out bool blockCut, out bool mute)
     {
         blockCut = false;
+        mute = false;
         if (row.ChildDeclarers.Count == 0) return false;
         // The framing line has a known length, so reserve it rather than write it and regret it: a plain
         // sb.Length < cap check would put its whole length past cap with no way to take it back.
-        // JsonWire.RenderTree reserves the same sentence the same way.
+        // JsonWire.RenderTree reserves the same sentence the same way. The cut notice is reserved beside it for
+        // the same reason — it is written where the framing is not, so it must fit where the framing did not.
         string framing = leadWritten ? ReadSentences.DeclarersHeader : ReadSentences.DeclarersLead;
-        if (sb.Length + framing.Length + 3 >= cap)   // 3: the two-space indent and the newline around it
+        string cut = CutNotice("child declarers", cap.Cap);
+        int budget = Math.Max(cap.Budget - tailReserve, 0);
+        // 3: the two-space indent and the newline around it. The notice is reserved beside the framing as well —
+        // a block that starts with no room left to say it was cut can only end the row in silence.
+        if (sb.Length + framing.Length + 3 + cut.Length >= budget)
         {
-            blockCut = true;
-            AppendCutNotice(sb, "child declarers", cap);
+            blockCut = Said(sb, cut, budget);
+            mute = !blockCut;
             return true;
         }
         sb.Append("  ").Append(framing).Append('\n');
         leadWritten = true;
         foreach (var cd in row.ChildDeclarers)
         {
-            if (sb.Length >= cap)
-            {
-                blockCut = true;
-                AppendCutNotice(sb, "child declarers", cap);
-                return true;
-            }
-            sb.Append("    ").Append(cd.Field).Append(": ")
-              .Append(ReadSentences.DeclarersNote(cd.Shape, cd.Declaring, cd.Unreadable));
+            // The line is composed before it is priced: a check that measures only what is already written cuts
+            // where the notice has room but the line does not, or the other way round.
             // DeclarersNote elides past DeclarerNameCap in two clauses — a collection field's `declaring` names,
             // and `unreadable` on any shape — and both are followable only in json. One remedy per line even
             // when both fired, since it is the same pointer.
-            if ((cd.Shape == OwnedChildShape.Collection && cd.Declaring.Count > ReadSentences.DeclarerNameCap)
-                || cd.Unreadable.Count > ReadSentences.DeclarerNameCap)
-                sb.Append(ReadSentences.DeclarersOverflowRemedy);
-            sb.Append('\n');
+            bool overflowed = (cd.Shape == OwnedChildShape.Collection && cd.Declaring.Count > ReadSentences.DeclarerNameCap)
+                              || cd.Unreadable.Count > ReadSentences.DeclarerNameCap;
+            string line = "    " + cd.Field + ": " + ReadSentences.DeclarersNote(cd.Shape, cd.Declaring, cd.Unreadable)
+                          + (overflowed ? ReadSentences.DeclarersOverflowRemedy : "") + "\n";
+            if (sb.Length + line.Length + cut.Length > budget)
+            {
+                blockCut = Said(sb, cut, budget);
+                mute = !blockCut;
+                return true;
+            }
+            sb.Append(line);
         }
-        // Reached only when every declarer line was written, so the block was not cut — the last line simply
-        // ended past cap. Ending the row is right, but the notice is the caller's to write over what it loses.
-        return sb.Length >= cap;
+        // Every declarer line was written, and each was priced with the notice beside it — so the block is
+        // complete AND the room its notice would have taken is still there. The row goes on.
+        return false;
     }
 
     /// <summary>The chain form's text render: per seed the reached nodes in BFS order with what pulled each one
     /// in, recorded cycles, the cap-truncation note — what is listed is proved — and the NPC TemplateFlags
-    /// inheritance report where the walk followed a Template chain.</summary>
+    /// inheritance report where the walk followed a Template chain. max_chars is a CEILING, the same shape the
+    /// delta and tree renders carry: the notice and the spill block are charged first, the node loop holds back
+    /// its own cut notice, and a seed that would cross what is left is taken back out whole and counted.</summary>
     static string RenderRecordsChain(IReadOnlyList<LoadOrderService.WalkSeedResult> rows, int total, int reached,
                                      int errors, string headerLine, OrderStamp? epoch, int maxChars,
                                      SpillState? spill, out bool truncated)
@@ -2121,35 +2220,47 @@ public static class RecordsTools
         if (epoch is not null) sb.Append(Wire.EpochInline(epoch));
         sb.Append('\n');
         int rendered = 0;
+        string Notice(int r) =>
+            "... [rendered " + r + " of " + rows.Count + " seeds at max_chars=" + cap + "]\n";
+        string nodesCut = "    ... [nodes cut at max_chars=" + cap + " — raise max_chars, or to_file= for the complete walk]\n";
+        var spillText = Wire.SpillText(spill);
+        int budget = Math.Max(cap - spillText.Length - Notice(rows.Count).Length, 0);
         foreach (var row in rows)
         {
             if (manifestOnly) break;
-            if (sb.Length >= cap)
-            {
-                truncated = true;
-                sb.Append("... [rendered ").Append(rendered).Append(" of ").Append(rows.Count)
-                  .Append(" seeds at max_chars=").Append(cap).Append("]\n");
-                break;
-            }
+            int mark = sb.Length;
+            // said: this seed's node list stopped inside the budget and named what it held back, so the seed stays
+            // and the render stops after it. mute: it stopped with no room to say so, and the seed goes back out.
+            bool said = false, mute = false;
             sb.Append('\n').Append(row.Seed);
-            if (row.Error is not null) { sb.Append("  error=").Append(row.Error).Append('\n'); rendered++; continue; }
+            if (row.Error is not null)
+            {
+                sb.Append("  error=").Append(row.Error).Append('\n');
+                if (Crossed(sb, mark, budget, Notice(rendered), ref truncated)) break;
+                rendered++; continue;
+            }
             sb.Append("  ").Append(row.Type ?? "?").Append("  ").Append(row.EditorId ?? "<no editorid>").Append('\n');
             if (row.Nodes.Count == 0)
                 sb.Append("  no links to follow from this seed").Append(row.TruncationNote is null ? ".\n" : " before the cap.\n");
             foreach (var n in row.Nodes)
             {
-                if (sb.Length >= cap)
+                // Composed before it is priced, so the cut notice lands inside the budget rather than a character
+                // past the node that crossed it.
+                string line = "    d" + n.Depth + "  " + n.Key
+                              + (n.Type is not null ? "  " + n.Type + "  " + (n.EditorId ?? "<no editorid>") : "")
+                              + "  [" + n.Status + ']'
+                              + (n.Note is not null ? "  " + n.Note : "")
+                              + "  <- " + n.PulledBy + "\n";
+                if (sb.Length + line.Length + nodesCut.Length > budget)
                 {
-                    truncated = true;
-                    sb.Append("    ... [nodes cut at max_chars=").Append(cap).Append(" — raise max_chars, or to_file= for the complete walk]\n");
+                    said = Said(sb, nodesCut, budget);
+                    mute = !said;
                     break;
                 }
-                sb.Append("    d").Append(n.Depth).Append("  ").Append(n.Key);
-                if (n.Type is not null) sb.Append("  ").Append(n.Type).Append("  ").Append(n.EditorId ?? "<no editorid>");
-                sb.Append("  [").Append(n.Status).Append(']');
-                if (n.Note is not null) sb.Append("  ").Append(n.Note);
-                sb.Append("  <- ").Append(n.PulledBy).Append('\n');
+                sb.Append(line);
             }
+            // A seed cut mid-list ends there: what follows the nodes belongs to a seed the budget did not hold.
+            if (said || mute) goto measure;
             foreach (var c in row.Cycles)
                 sb.Append("  cycle: ").Append(c).Append('\n');
             if (row.TruncationNote is not null)
@@ -2168,15 +2279,26 @@ public static class RecordsTools
                     sb.Append('\n');
                 }
             }
+        measure:
+            if (mute || !said)
+            {
+                if (Crossed(sb, mark, budget, Notice(rendered), ref truncated, force: mute)) break;
+                rendered++;
+                continue;
+            }
+            // The seed was laid to the budget and says what it held back: it stays, and nothing more fits.
+            truncated = true;
             rendered++;
+            break;
         }
-        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
-        return sb.ToString().TrimEnd('\n');
+        sb.Append(spillText);
+        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 
     /// <summary>The reverse MGEF lane's text render: a header census over the complete seed list, each windowed
-    /// seed's carriers through the shared effect-chain render, the standard explicit cut and spill
-    /// marker.</summary>
+    /// seed's carriers through the shared effect-chain render, the standard explicit cut and spill marker.
+    /// max_chars is a CEILING: the notice and the spill block are charged first, the shared render is told what
+    /// this one has already spent, and a seed that would cross what is left is taken back out whole.</summary>
     static string RenderRecordsEffectChains(IReadOnlyList<(string Seed, EffectChainResult Result)> results,
                                             int totalSeeds, int carrierRows, int carrierTotal, int errors, string headerLine,
                                             OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated)
@@ -2192,27 +2314,31 @@ public static class RecordsTools
         if (epoch is not null) sb.Append(Wire.EpochInline(epoch));
         sb.Append('\n');
         int rendered = 0;
+        string Notice(int r) =>
+            "... [rendered " + r + " of " + results.Count + " seeds at max_chars=" + cap + "]\n";
+        var spillText = Wire.SpillText(spill);
+        var room = RenderCap.For(cap, spillText.Length + Notice(results.Count).Length);
         foreach (var (seed, result) in results)
         {
             if (manifestOnly) break;
-            if (sb.Length >= cap)
-            {
-                truncated = true;
-                sb.Append("... [rendered ").Append(rendered).Append(" of ").Append(results.Count)
-                  .Append(" seeds at max_chars=").Append(cap).Append("]\n");
-                break;
-            }
+            int mark = sb.Length;
             sb.Append('\n').Append("seed ").Append(seed).Append('\n');
-            sb.Append(Wire.RenderEffectChain(result, cap, "walk.max_nodes")).Append('\n');
+            // The shared render builds its own buffer, so it is told what this one has already spent — and it
+            // still quotes the caller's max_chars in its own cut notice.
+            sb.Append(Wire.RenderEffectChain(result, room, sb.Length + 1, "walk.max_nodes")).Append('\n');
+            if (Crossed(sb, mark, room.Budget, Notice(rendered), ref truncated)) break;
             rendered++;
         }
-        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
-        return sb.ToString().TrimEnd('\n');
+        sb.Append(spillText);
+        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 
     /// <summary>The info_order form's text render: per topic its identity, then the merged-order body from
     /// <see cref="DialogueWire.AppendInfoOrderView"/> — one shared render, so the MOVED annotations and the
-    /// confidence gates cannot drift from the dialogue surface's.</summary>
+    /// confidence gates cannot drift from the dialogue surface's. max_chars is a CEILING: the notice and the
+    /// spill block are charged first, the shared view is bounded by what is left rather than by the whole cap,
+    /// and a topic that still crossed is taken back out whole and counted — the view's own tail rides inside the
+    /// topic block, so there is no way to keep half of one and stay under the ceiling.</summary>
     static string RenderRecordsInfoOrder(IReadOnlyList<LoadOrderService.InfoOrderRow> rows, int total, int contested,
                                          int errors, string headerLine, OrderStamp? epoch, int maxChars,
                                          SpillState? spill, out bool truncated)
@@ -2226,33 +2352,36 @@ public static class RecordsTools
         if (epoch is not null) sb.Append(Wire.EpochInline(epoch));
         sb.Append('\n');
         int rendered = 0;
+        string Notice(int r) =>
+            "... [rendered " + r + " of " + rows.Count + " rows at max_chars=" + cap + "]\n";
+        var spillText = Wire.SpillText(spill);
+        int budget = Math.Max(cap - spillText.Length - Notice(rows.Count).Length, 0);
         foreach (var row in rows)
         {
             if (manifestOnly) break;
-            if (sb.Length >= cap)
-            {
-                truncated = true;
-                sb.Append("... [rendered ").Append(rendered).Append(" of ").Append(rows.Count)
-                  .Append(" rows at max_chars=").Append(cap).Append("]\n");
-                break;
-            }
+            int mark = sb.Length;
             sb.Append('\n').Append(row.Formid);
-            if (row.Error is not null) { sb.Append("  error=").Append(row.Error).Append('\n'); rendered++; continue; }
+            if (row.Error is not null)
+            {
+                sb.Append("  error=").Append(row.Error).Append('\n');
+                if (Crossed(sb, mark, budget, Notice(rendered), ref truncated)) break;
+                rendered++; continue;
+            }
             sb.Append("  ").Append(row.Type ?? "?").Append("  ").Append(row.EditorId ?? "<no editorid>")
               .Append("  winner=").Append(row.WinnerPlugin ?? "?").Append('\n');
             if (row.Order is null)
                 sb.Append("  [!] the merge could not be computed for this topic (its key did not resolve in the touching index).\n");
             else if (row.Order.Order.Count == 0 && row.Order.Complete)
                 sb.Append("  no INFO lines — every touching plugin's child list is empty.\n");
-            else if (!DialogueWire.AppendInfoOrderView(sb, row.Order, "", cap, indent: false))
-            {
-                truncated = true;
-                break;
-            }
+            else
+                // The shared view is bounded by what this render has left, not by the whole cap, and its own tail
+                // rides inside the topic block — so a topic that still crossed goes back out whole below.
+                DialogueWire.AppendInfoOrderView(sb, row.Order, "", budget, indent: false);
+            if (Crossed(sb, mark, budget, Notice(rendered), ref truncated)) break;
             rendered++;
         }
-        if (spill is not null) Artifacts.AppendSpillStateText(sb, spill);
-        return sb.ToString().TrimEnd('\n');
+        sb.Append(spillText);
+        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 
     /// <summary>The list-lane summary render: one identity-and-winner line per outcome, or its per-item error —

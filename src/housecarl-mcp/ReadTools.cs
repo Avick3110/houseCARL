@@ -487,9 +487,16 @@ static class Wire
     /// a default here is a lever name guessed on the caller's behalf, which is exactly the bug this parameter was
     /// added to fix — a new caller must state its own spelling.</param>
     public static string RenderEffectChain(EffectChainResult r, int maxChars, string carrierBound)
+        => RenderEffectChain(r, new RenderCap(Cap(maxChars), Cap(maxChars)), 0, carrierBound);
+
+    /// <summary>The bounded form: <paramref name="room"/> carries the caller's max_chars and the budget its own
+    /// tail has left, and <paramref name="used"/> is what the caller has already written — this render builds its
+    /// own buffer, so the two together are what the rows are measured against, while every notice still quotes the
+    /// max_chars the caller passed.</summary>
+    internal static string RenderEffectChain(EffectChainResult r, RenderCap room, int used, string carrierBound)
     {
         if (r.Error is not null) return "error: " + r.Error + Wire.EpochLine(r.Stamp);
-        int cap = Cap(maxChars);
+        int cap = room.Cap;
         var sb = new StringBuilder();
         sb.Append("chain for ").Append(r.Mgef).Append(" (").Append(r.MgefEditorId).Append(", MagicEffect): ")
           .Append(r.Total).Append(r.Total == 1 ? " carrier row" : " carrier rows");
@@ -509,6 +516,12 @@ static class Wire
 
         int rendered = 0;
         bool truncated = false;
+        // The cut notice is held back before the row it follows, so it lands inside the budget rather than a
+        // character past the row that crossed. Its widest spelling is the one that counts every row.
+        string Notice(int n) =>
+            "  ... [truncated: rendered " + n + " of " + r.Rows.Count + " rows before hitting max_chars=" + cap +
+            "; lower limit= or raise max_chars]\n";
+        int noticeRoom = Notice(r.Rows.Count).Length;
         // Group rows by carrier type, ordinal for stability, so a multi-type result reads grouped.
         foreach (var grp in r.Rows.GroupBy(x => x.Type).OrderBy(g => g.Key, StringComparer.Ordinal))
         {
@@ -516,20 +529,22 @@ static class Wire
             sb.Append(grp.Key).Append(" (").Append(grp.Count()).Append("):\n");
             foreach (var row in grp)
             {
-                if (sb.Length >= cap)
+                // Composed before it is priced, so the cut notice lands inside the budget rather than a character
+                // past the row that crossed it.
+                string line = "  " + row.Carrier
+                              + "  " + (row.EditorId ?? "<none>")
+                              + "  winner=" + row.Winner
+                              + "  mag=" + row.Magnitude.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                              + "  area=" + row.Area
+                              + "  dur=" + row.Duration
+                              + "  [effect " + (row.EffectIndex + 1) + "/" + row.EffectCount + "]\n";
+                if (used + sb.Length + line.Length + noticeRoom > room.Budget)
                 {
-                    sb.Append("  ... [truncated: rendered ").Append(rendered).Append(" of ").Append(r.Rows.Count)
-                      .Append(" rows before hitting max_chars=").Append(cap).Append("; lower limit= or raise max_chars]\n");
+                    sb.Append(Notice(rendered));
                     truncated = true;
                     break;
                 }
-                sb.Append("  ").Append(row.Carrier)
-                  .Append("  ").Append(row.EditorId ?? "<none>")
-                  .Append("  winner=").Append(row.Winner)
-                  .Append("  mag=").Append(row.Magnitude.ToString(System.Globalization.CultureInfo.InvariantCulture))
-                  .Append("  area=").Append(row.Area)
-                  .Append("  dur=").Append(row.Duration)
-                  .Append("  [effect ").Append(row.EffectIndex + 1).Append('/').Append(row.EffectCount).Append("]\n");
+                sb.Append(line);
                 rendered++;
             }
         }
