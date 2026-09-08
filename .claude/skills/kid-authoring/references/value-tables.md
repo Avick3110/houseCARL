@@ -5,6 +5,10 @@ Nexus #55728 description), **[source]** (KID C++), or **[lib]** (confirmed from 
 `powerof3/CommonLibSSE@dev`, the library KID compiles against — where KID forwards a number it doesn't
 itself enumerate). Every value here is from one of these — none are unverified recall.
 
+**Tables in this file:** Effect archetypes · Spell types `ST()` · Magic schools `<av>` · Skill actor
+values · Delivery `D()` · Casting type `CT()` · Soul sizes `SOUL()` / `GEM()` · Furniture types `T()`
+· Bench types `BT()` · Armor body slots · Defaults when a section is blank.
+
 ---
 
 ## Effect archetypes [desc + source]

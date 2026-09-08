@@ -17,6 +17,10 @@ vocabularies live beside this file:
 > Nexus description only · **[lib]** = confirmed from CommonLibSSE (`powerof3/CommonLibSSE@dev`), the
 > library KID compiles against · unmarked = confirmed by both.
 
+**Sections in this file:** 1. What KID is · 2. File discovery & parsing · 3. When distribution
+happens · 4. The distribution line · 5. The keyword (section 0) · 6. Chance (section 4) ·
+7. `ExclusiveGroup` · 8. Input forms & normalization · 9. Cross-tool routing.
+
 ---
 
 ## 1. What KID is
