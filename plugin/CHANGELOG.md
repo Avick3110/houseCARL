@@ -2736,6 +2736,11 @@ offset, paging meant slicing by `editorid_contains`. Now:
   four Race cases and that provider test move to `references/race-and-provider-cases.md`, the body is about a
   third shorter, and the trigger set moves to the published `evals/evals.json` shape with a without-skill arm.
 - **`oar-authoring` names tools that exist, finds the config the game actually loads, and states what it does not
+- **The OAR skill is now `/housecarl:open-animation-replacer`.** It shipped as `/housecarl:oar-authoring`, and
+  the old slash command no longer exists — retype it, and update anything that invokes it by name. A host that
+  lists skills by name alone showed the old one as "oar", which reads as the English word rather than the mod;
+  the name now says which tool it is without the description. What the skill teaches is unchanged.
+- **`open-animation-replacer` names tools that exist, finds the config the game actually loads, and states what it does not
   know about DAR.** Its one delegated step named `housecarl_read_record` and `housecarl_cross_plugin_query`, neither
   of which the server publishes any more; it now resolves a condition's form with `housecarl_records`
   (`formids=` or `types=` plus `where=`, projected `{"form":"identity"}`), and says what to do instead when the

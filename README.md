@@ -184,7 +184,7 @@ Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Code
   lines (INFO) in a new plugin, wire them to a branch and quest, attach result scripts, write the
   start-game-enabled `.seq`, and validate a whole topic's or quest's dialogue graph — encoding the
   counter-intuitive bookkeeping a byte-valid line skips (and so plays nothing in game).
-- **`oar-authoring`** — author or interpret Open Animation Replacer (OAR) configs: `config.json` /
+- **`open-animation-replacer`** — author or interpret Open Animation Replacer (OAR) configs: `config.json` /
   `user.json`, condition sets, submod priorities (OAR ignores load order — higher priority wins), the
   source-verified `IsEquippedType` enum, addon conditions (Math / RaySense / IED / …), and DAR legacy
   folders. File-based; uses houseCARL only to resolve the forms a condition references. (DrHeisen.)
@@ -216,5 +216,5 @@ pointers.
   for the bundled `papyrus-reference` skill. Thank you.
 - **Zzyxzz** (SkyPatcher) and **powerofthree** (SPID and KID) — whose public documentation the
   distributor-authoring grammar facts were drawn from.
-- **DrHeisen** — contributed the `oar-authoring` skill (Open Animation Replacer config authoring), along
+- **DrHeisen** — contributed the `open-animation-replacer` skill (Open Animation Replacer config authoring), along
   with two earlier community-contributed skills that have since been retired. Thank you.
