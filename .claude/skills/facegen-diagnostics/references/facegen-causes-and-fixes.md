@@ -11,7 +11,7 @@ case houseCARL cannot. The decision tree in `SKILL.md` is enough for most diagno
 - [3. Cause taxonomy A–X](#3-cause-taxonomy)
 - [4. Fix taxonomy A–I (with capability class)](#4-fix-taxonomy)
 - [5. Symptom → likely cause](#5-symptom--likely-cause)
-- [6. The two embedded `.nif` texture references — now READABLE and WRITABLE (`nif_inspect` + `nif_set`)](#6-embedded-nif-references)
+- [6. The embedded `.nif` texture references — where the mesh-side material lives](#6-embedded-nif-references)
 - [7. Edge cases and gotchas](#7-edge-cases-and-gotchas)
 - [8. Community tools reference](#8-community-tools)
 - [9. Residual uncertainty — what to route AROUND, not assert](#9-residual-uncertainty)
@@ -29,7 +29,7 @@ Face tint ("FaceTint"):  textures\actors\character\facegendata\facetint\<Definin
 
 The two trees diverge only at `meshes`↔`textures` and `facegeom`↔`facetint`; the `<DefiningMaster>\<file>`
 tail is identical. Paths are case-insensitive (the MO2 VFS already is). **The `.dds` stays opaque binary to
-houseCARL** (it reads no tint/skin pixels) — but the `.nif` no longer is: `housecarl_nif_inspect` reads its
+houseCARL** (it reads no tint/skin pixels). The `.nif` is not: `housecarl_nif_inspect` reads its
 **data values** (shape names, the embedded texture-set paths, NiAVObject flags, alpha, partitions, bones,
 node tree, header strings) and `housecarl_nif_set` **writes a whitelisted subset of them back** (texture-slot
 paths, header string refs — material / `.tri` / xml, shape/node names, flags, alpha, partitions, scale),
@@ -87,7 +87,7 @@ mod's loose facegen sits at the OLD names until renamed/regenerated; `place` mus
 
 Dark/grey/black face is a **desync between two independent precedence systems**:
 
-- **Plugin load order** decides which mod's **NPC record** wins — what `housecarl_read_record` returns.
+- **Plugin load order** decides which mod's **NPC record** wins — what `housecarl_records` returns.
 - **The MO2 VFS / asset order** decides which mod's **facegen FILE** wins — what `housecarl_asset_status`
   returns. **Loose always beats BSA**; among loose, MO2 mod priority (then the overwrite folder) decides;
   among BSAs, the BSA whose plugin loads later wins.
@@ -97,13 +97,13 @@ appearance source**, or no file resolves at the computed path. The engine then r
 the record and drops the preprocessed tint → untinted (dark/grey/black) head with a sharp neck seam
 against the correctly-tinted body. This is why **xEdit can show NO record conflict yet the face is dark** —
 the desync is between a record and a *file*, not between two records. Checking the file winner
-(`asset_status`) alongside the record winner (`read_record`) is houseCARL's structural advantage.
+(`asset_status`) alongside the record winner (`housecarl_records`) is houseCARL's structural advantage.
 
 Two trigger conditions both land in this same path, so "a file is present" is **necessary but not
 sufficient**: (i) no valid head mesh at the computed path; or (ii) a file IS present but its internal
 shape/head-part names don't match the winning record's head-parts list (mode ii — "Dawnguard vampires are
-notorious for this"). **`housecarl_nif_inspect` now reads those shape names and the embedded tint/skin paths**,
-so mode ii moves from blind to *checkable* — compare the mesh's baked names against the record's HeadParts.
+notorious for this"). **`housecarl_nif_inspect` reads those shape names and the embedded tint/skin paths**,
+so mode ii is *checkable* — compare the mesh's baked names against the record's HeadParts.
 A name/path *mismatch* is a confirmed mode-ii finding; a name/path *match* is necessary-not-sufficient (the
 geometry, the `.dds` pixels, and the render stay unseen), so it still routes to CK re-bake / the in-game check.
 
@@ -122,37 +122,35 @@ broken skin texture → a texture-path problem (Cause R).
 ## 3. Cause taxonomy
 
 Fix layers: **houseCARL-file** (`asset_status`/`place`) · **houseCARL-record**
-(`read_record`/`set_field`/`create_record`) · **houseCARL-nif** (`nif_inspect` reads the `.nif`'s data
+(`housecarl_records` / `housecarl_apply` / `housecarl_forward`) · **houseCARL-nif** (`nif_inspect` reads the `.nif`'s data
 values; `nif_set` writes the whitelisted ones — texture-slot paths, header string refs (material / `.tri` /
 xml), shape/node names, flags, alpha, partitions, scale — verified before landing) · **CK-instructed**
 (Ctrl+F4 bake — houseCARL cannot make geometry) · **nif-dds-instructed** (what's left for NifSkope / a
 texture tool: the `.dds` **pixels**) · **runtime-mod**.
-Note the split shifted with Wave 2: `nif_inspect` turned "houseCARL can't see it" into "houseCARL reads it",
-and `nif_set` now turns the embedded-value edits (texture path, material/`.tri`/xml ref, shape name,
-flags/alpha/partition) into "houseCARL fixes it at the data layer" — leaving only pixels and geometry
-instructed.
+The embedded-value edits — texture path, material/`.tri`/xml ref, shape name, flags/alpha/partition — are
+houseCARL's at the data layer; only pixels and geometry are instructed.
 
 | # | Cause | Mechanism | houseCARL tell | Fix class |
 |---|---|---|---|---|
-| **A** | **Record-winner vs file-winner desync** (dominant) | Load order picks record B; VFS picks mod A's facegen file → file built from a different mod's appearance than the winning record | `read_record` winner ≠ `asset_status` winner on the `.nif`/`.dds` pair | houseCARL-file and/or -record |
+| **A** | **Record-winner vs file-winner desync** (dominant) | Load order picks record B; VFS picks mod A's facegen file → file built from a different mod's appearance than the winning record | `housecarl_records` winner ≠ `asset_status` winner on the `.nif`/`.dds` pair | houseCARL-file and/or -record |
 | **B** | **Winner ships NO facegen** | Override changed appearance but author shipped only the plugin → record points at facegen that exists nowhere | record appearance changed (compare below) + `asset_status` = no winner at the path | CK-instructed; or houseCARL if a correct source exists |
-| **C** | **Non-appearance edit reverts head parts** | A later non-facegen plugin (USSEP-style) wins the record and reverts head parts toward vanilla while overhaul A's file still wins | `cross_plugin_query` shows the non-appearance plugin winning head parts; `asset_status` shows A's file still winning | houseCARL-record (often + -file) |
+| **C** | **Non-appearance edit reverts head parts** | A later non-facegen plugin (USSEP-style) wins the record and reverts head parts toward vanilla while overhaul A's file still wins | `housecarl_records` shows the non-appearance plugin winning head parts; `asset_status` shows A's file still winning | houseCARL-record (often + -file) |
 | **D** | **Facegen trapped in a losing/double BSA** | Correct facegen is in a BSA that loses the VFS race, or buried in a RAR-in-BSA the game can't read | `asset_status` shows a wrong loose/BSA copy winning, or the expected BSA losing | houseCARL-file (extract the entry to loose) |
 | **E** | **Stale loose facegen masks correct BSA** | A leftover loose file (old/disabled/uninstalled mod, leftover extraction, wrong priority) wins because **loose beats BSA even from a disabled mod** | `asset_status` shows a loose file winning over the expected BSA | houseCARL-file |
 | **F** | **ESL / compaction FormID renumber** | `Compact FormIDs for ESL` renumbers local IDs but does NOT rename facegen files → engine looks up the new id, finds nothing. (a) filename mismatch; (b) FaceTint path embedded in each `.nif` | universal dark face for the whole eslified mod; `asset_status` on the new path = no winner | (a) houseCARL-file; (b) houseCARL-nif (`set_path` slot 6) |
 | **G** | **Merge / renumber (zMerge, Merge Plugins)** | New defining master AND new local id → both folder and filename change; facegen not carried | dark face for merged NPCs; new computed path absent | houseCARL-file (+ houseCARL-nif if embedded path changed) |
-| **H** | **Head-part / hair / brow conflict or missing HDPT** | Record references an HDPT whose mesh is absent/replaced, or whose internal shape names don't match | partial dark/clipping; `read_record` head-parts list vs `nif_inspect` shape names; mesh winner ≠ expected | split: houseCARL-record / houseCARL-nif (`rename_shape`) / CK |
-| **I** | **Face-vs-body texture mismatch** (unique-bodies-by-race) | Head `.nif` hardcodes the vanilla skin path; a per-race body framework gives a unique body but the head still loads vanilla → head/body color mismatch. **NOT the dark-face bug.** | detect the *scenario*, and `nif_inspect` READS the `.nif` skin slots (0/1) so you see the wrong path; `nif_set set_path` at slot 0/1 now REWRITES it (the NPC Facegen Patcher edit) | houseCARL-nif (`set_path` slots 0/1) |
-| **J** | **Skin-tone / TextureLighting / HeadTexture record mismatch** | Winner's TintLayers / TextureLighting (QNAM) / HeadTexture / HairColor inconsistent with body race/skin | wrong-colored but correct-shaped head; `read_record` these fields vs intended source | houseCARL-record (pair with re-bake/FDF) |
-| **K** | **CK baked against the wrong load order/masters** | Facegen baked while the wrong override resolved (missing master) → right filename, wrong content | wrong (not dark) face; `read_record` shows the true winner to bake against | CK-instructed |
-| **L** | **Missing master / orphan override** | Override copied without its master (or master disabled) → record can't resolve | dark/missing actor, but `asset_status` shows the correct file winning; `read_record` masters | houseCARL-record (masters-by-construction) / report |
-| **M** | **Missing appearance dependency** (High Poly Head, KS Hairdos) | A required resource mod is disabled while the record still references it | headless/floating parts; `read_record` head-parts links unresolved, or asset absent | runtime-mod / report (install) |
+| **H** | **Head-part / hair / brow conflict or missing HDPT** | Record references an HDPT whose mesh is absent/replaced, or whose internal shape names don't match | partial dark/clipping; `housecarl_records` head-parts list vs `nif_inspect` shape names; mesh winner ≠ expected | split: houseCARL-record / houseCARL-nif (`rename_shape`) / CK |
+| **I** | **Face-vs-body texture mismatch** (unique-bodies-by-race) | Head `.nif` hardcodes the vanilla skin path; a per-race body framework gives a unique body but the head still loads vanilla → head/body color mismatch. **NOT the dark-face bug.** | detect the *scenario*, and `nif_inspect` READS the `.nif` skin slots (0/1) so you see the wrong path; `nif_set set_path` at slot 0/1 REWRITES it (the NPC Facegen Patcher edit) | houseCARL-nif (`set_path` slots 0/1) |
+| **J** | **Skin-tone / TextureLighting / HeadTexture record mismatch** | Winner's TintLayers / TextureLighting (QNAM) / HeadTexture / HairColor inconsistent with body race/skin | wrong-colored but correct-shaped head; `housecarl_records` these fields vs intended source | houseCARL-record (pair with re-bake/FDF) |
+| **K** | **CK baked against the wrong load order/masters** | Facegen baked while the wrong override resolved (missing master) → right filename, wrong content | wrong (not dark) face; `housecarl_records` shows the true winner to bake against | CK-instructed |
+| **L** | **Missing master / orphan override** | Override copied without its master (or master disabled) → record can't resolve | dark/missing actor, but `asset_status` shows the correct file winning; `housecarl_records` masters | houseCARL-record (masters-by-construction) / report |
+| **M** | **Missing appearance dependency** (High Poly Head, KS Hairdos) | A required resource mod is disabled while the record still references it | headless/floating parts; `housecarl_records` head-parts links unresolved, or asset absent | runtime-mod / report (install) |
 | **N** | **Custom/beast race, no baseline facegen ever baked** | Never exported facegen (or for the wrong race) | guaranteed black face; `asset_status` = no winner anywhere | CK-instructed |
 | **O** | **LE/Oldrim facegen `.nif` ported to SE without re-bake** | SE will not read Oldrim facegen `.nif` format | dark face for an LE-ported NPC mod; a file may win that the engine still can't use | CK-instructed |
 | **P** | **Texture-memory grey/black face** (rare) | Face/body textures too large/uncompressed (8k, non-BC `.dds`) → tint fails to apply though record+file match. **Tell: not permanent — save+reload temporarily clears it.** | `asset_status`/BSA listing flags oversized/uncompressed `.dds` | nif-dds-instructed (Cathedral Assets Optimizer / Ordenator) |
-| **Q** | **Weight/scale-induced brown face** (runtime) | In-game weight ≠ the weight the tint was baked at (commonly from `setnpcweight`/`setscale`, baked into the save) | plain brown face matching nothing; `read_record` Weight | runtime/console (re-issue `setnpcweight`); save-baked → ReSaver |
-| **R** | **Broken/missing skin-texture path** (distinct dark class) | A mod overwrote/renamed the skin `.dds` a head `.nif`/record points to. If the broken ref is INSIDE the `.nif`, `nif_inspect` READS which slot/path is broken and `nif_set set_path` REWRITES it to a valid `.dds`; if the `.dds` itself is missing, that's a file fix (or the pixels, which stay opaque) | black face; **FDF does NOT fix it**; `asset_status` on the texture path / `read_record` HeadTexture (TXST) / `nif_inspect` the in-`.nif` skin slots | houseCARL-nif (`set_path`) and/or houseCARL-file |
-| **S** | **Template + "Use Traits" actor** (exclusion, not a defect) | NPC inherits appearance from a template ActorBase → has NO facegen of its own; facegen lives under the **template's** FormKey | `read_record` Template set AND `Configuration.TemplateFlags` includes `Traits` → recompute against the template's FormKey | n/a — redirect diagnosis |
+| **Q** | **Weight/scale-induced brown face** (runtime) | In-game weight ≠ the weight the tint was baked at (commonly from `setnpcweight`/`setscale`, baked into the save) | plain brown face matching nothing; `housecarl_records` Weight | runtime/console (re-issue `setnpcweight`); save-baked → ReSaver |
+| **R** | **Broken/missing skin-texture path** (distinct dark class) | A mod overwrote/renamed the skin `.dds` a head `.nif`/record points to. If the broken ref is INSIDE the `.nif`, `nif_inspect` READS which slot/path is broken and `nif_set set_path` REWRITES it to a valid `.dds`; if the `.dds` itself is missing, that's a file fix (or the pixels, which stay opaque) | black face; **FDF does NOT fix it**; `asset_status` on the texture path / `housecarl_records` HeadTexture (TXST) / `nif_inspect` the in-`.nif` skin slots | houseCARL-nif (`set_path`) and/or houseCARL-file |
+| **S** | **Template + "Use Traits" actor** (exclusion, not a defect) | NPC inherits appearance from a template ActorBase → has NO facegen of its own; facegen lives under the **template's** FormKey | `housecarl_records` Template set AND `Configuration.TemplateFlags` includes `Traits` → recompute against the template's FormKey | n/a — redirect diagnosis |
 | **T** | **Runtime-distributed appearance (SPID/SkyPatcher) / `FFxxxxxx` NPCs** | Appearance applied at runtime, or on a dynamically-spawned actor → no pre-baked facegen; the plugin-winner record houseCARL sees ≠ the in-game face | recognize the scenario (SPID/SkyPatcher present; `FF` base id); houseCARL reads *plugin* records, can't see the distributed result | runtime-mod / report (not `place`) |
 | **U** | **RaceMenu/SKEE co-save state dropped — player-only grey** | SKEE skipped the actor's co-save → NiOverride sculpt/tint held only at runtime is dropped | **player** (+ a few RaceMenu-touched NPCs) grey, ordinary NPCs fine; appears after reload/update/crash | runtime-mod / report — houseCARL **no-op** |
 | **V** | **skee64.dll didn't load** (version mismatch / fatal error) | No runtime overlay/tint application runs (often after a Skyrim/Steam auto-update) | grey **player** face **plus all RaceMenu sliders/overlays gone game-wide** | runtime-mod / report — houseCARL **no-op** |
@@ -193,11 +191,11 @@ into a fresh enable+sort MO2 mod. **Place BOTH `.nif` and `.dds` as a pair, from
 > where the destination FormID or defining plugin differs from what's baked into the source `.nif`
 > (ESLify/compaction changed the FormID; re-homing changed the `<Plugin>` segment; a merge renumbers/
 > re-masters). The engine DOES honor the embedded path, so the placed `.nif`'s slot-6 FaceTint path must be
-> repointed at the destination — which **houseCARL now does itself** with `nif_set set_path texture_slot=6`
-> (verified), no longer a NifSkope escalation. A bulk run across many such NPCs is still faster in
+> repointed at the destination — **`nif_set set_path texture_slot=6`**, verified before landing, rather than a
+> NifSkope escalation. A bulk run across many such NPCs is still faster in
 > FaceGenEslify.
 
-Then re-run `asset_status` and tell the user to enable + sort, and run the in-game verification (SKILL.md
+Then re-run `asset_status` and tell the user to enable the new mod, and run the in-game verification (SKILL.md
 Step 5).
 
 ### Fix C — Forward NPC appearance into a winning override record — **houseCARL-record**
@@ -205,8 +203,9 @@ When a behavior/other plugin won the record while the intended appearance mod's 
 (Cause C/J; record side of A). The one-call way to re-assert the appearance mod's whole record is
 **`housecarl_forward_record`** — name the appearance plugin as the source and it copies that plugin's `NPC_`
 verbatim into a winning override (nested appearance fields included). For a *partial* appearance mask —
-forwarding only some of the face-determining fields onto a different base record — `read_record` the winner
-and the appearance source, then `create_record`/`set_field` to write an override copying just that subset.
+forwarding only some of the face-determining fields onto a different base record — `housecarl_records` the winner
+and the appearance source, then `housecarl_apply` with `bundle=`/`assignments=` to write an override carrying
+just that subset.
 
 > **The face-determining minimal set is houseCARL's OWN editorial set** (all real, writable NPC_ fields,
 > Mutagen spellings): **`HeadParts, FaceMorph, FaceParts, TintLayers, HairColor, HeadTexture,
@@ -222,11 +221,11 @@ causes a neck seam. For an existing-NPC override the defining master (and facege
 houseCARL cannot bake new geometry, so Fix C still needs a matching facegen file to exist somewhere.
 
 ### Fix D — Correct skin-tone via record edits — **houseCARL-record (+ houseCARL-nif for a baked path)**
-For head/body color mismatch that is a *record* problem (Cause J): `set_field` TextureLighting (QNAM
+For head/body color mismatch that is a *record* problem (Cause J): a `housecarl_apply` op on TextureLighting (QNAM
 Color), re-forward TintLayers/WornArmor/HeadTexture to a consistent source. If the mismatch is instead baked
 into the `.nif`'s **texture-slot** paths, `nif_inspect` READS which slot is wrong and `nif_set set_path`
 REWRITES it (verified) — the `.dds` **pixels** stay unreadable, and a **material**-path edit is still
-NifSkope, but a plain diffuse/normal/tint slot swap is now houseCARL-doable. Editing TintLayers/morph WITHOUT
+NifSkope, but a plain diffuse/normal/tint slot swap is houseCARL's. Editing TintLayers/morph WITHOUT
 regenerating facegen can itself reintroduce discoloration until Ctrl+F4 or FDF applies — pair record
 appearance edits with a re-bake/FDF.
 
@@ -234,10 +233,10 @@ appearance edits with a re-bake/FDF.
 For Cause F/G. (a) rename/place the `.nif`/`.dds` to the new (post-compaction) FormID — **houseCARL-file**
 (computable from the current FormKey); (b) rewrite the FaceTint `.dds` path embedded in each `.nif`'s
 `BSShaderTextureSet` slot 6 to the new FormID — `nif_inspect` READS that slot to *confirm it still points at
-the old FormID*, and `nif_set set_path texture_slot=6` REWRITES it (verified before landing). Both halves are
-now at the data layer.
+the old FormID*, and `nif_set set_path texture_slot=6` REWRITES it (verified before landing). Both halves sit
+at the data layer.
 **FaceGenEslify automates only the rename — its embedded-path edit is a MANUAL NifSkope step (its own
-README step 9); houseCARL now performs that manual step itself via `set_path`, so don't route the user to
+README step 9); houseCARL performs that manual step itself via `set_path`, so don't route the user to
 NifSkope for it.** (ESLifyEverything/ESLifier may automate both; unverified.) Or CK re-bake (Fix A) writes
 correct files for the new IDs. Best practice to state: **don't compact facegen-carrying plugins** unless
 running a fixer — and note that a bulk rename across many NPCs is still faster in a dedicated batch tool than
@@ -258,7 +257,7 @@ litmus). Recommend FDF as a safety net; still report and fix the underlying desy
 For Cause L. houseCARL writes **masters-by-construction**, so any override it authors carries correct
 masters — it structurally avoids the bug a hand-edited plugin causes. Diagnostically: a dark face where
 `asset_status` shows the **correct** file winning AND the record looks right points away from VFS desync
-toward a master/resolution problem — confirm via `read_record` before reaching for a file fix (Fix B will
+toward a master/resolution problem — confirm via `housecarl_records` before reaching for a file fix (Fix B will
 not cure a missing-master dark face).
 
 ### Fix H — Rewrite skin slots in the `.nif`; instruct texture compression — **houseCARL-nif (+ instructed)**
@@ -295,7 +294,7 @@ surfacing that limit IS the Q3-honest move.
 | **Brown face** matching nothing | Q (weight/scale, save-baked) | Re-issue `setnpcweight`; if save-baked, new game or ReSaver. Runtime, not a file fix. |
 | **Grey/black with matched record+file**, clears on save+reload | P (texture memory) | Oversized/uncompressed `.dds` → compress. (R = broken skin path — FDF will NOT fix R.) |
 | **Purple or bright-white face** | missing **texture file/path** | A referenced texture isn't found — a texture-asset problem, not facegen (dark face *has* a file, the wrong one). |
-| **Neck seam, face correctly colored but ≠ body** | I or J | I = `.nif` hardcodes vanilla skin — `nif_inspect` shows the slot-0/1 skin path and `nif_set set_path` rewrites it (the NPC Facegen Patcher edit, now at the data layer). J = record QNAM/TintLayers inconsistent (houseCARL-record). |
+| **Neck seam, face correctly colored but ≠ body** | I or J | I = `.nif` hardcodes vanilla skin — `nif_inspect` shows the slot-0/1 skin path and `nif_set set_path` rewrites it (the NPC Facegen Patcher edit, at the data layer). J = record QNAM/TintLayers inconsistent (houseCARL-record). |
 | **Headless / floating parts / missing geometry** | M or H | Required head-part/hair mod disabled, or a HDPT doesn't resolve — report/install, or forward correct HeadParts. |
 | **NPC built from a RaceMenu preset is grey** | W (sculpt in `.jslot`, never exported) | The preset alone is not facegen. Instruct Export Head / Ctrl+F4; then `place`. |
 | **NPC missing warpaint/makeup overlay** specifically | X (NiOverride runtime overlay) | Overlays are runtime SKEE state, not facegen tint — out of lane for the overlay portion. |
@@ -305,48 +304,25 @@ surfacing that limit IS the Q3-honest move.
 
 ---
 
-## 6. Embedded `.nif` texture references — now READABLE *and* WRITABLE
+## 6. Embedded `.nif` texture references
 
-The head `.nif`'s `BSShaderTextureSet` carries TWO logically distinct texture references in ONE block.
-**`housecarl_nif_inspect` READS both** (as `tex[<slot>] (<Name>): <path>` under `sections=paths` / `shapes`;
-the slot number it prints is the **binary** index), and **`housecarl_nif_set set_path` REWRITES either**
-(pass `texture_slot` + the new `path`; verified before it lands) — both the old "can read neither" and the
-"can read, can't write" boundaries are retired:
-
-> **The `(<Name>)` is derived, the number is addressable.** The name comes from the shape's SHADER — its type
-> plus its SLSF flags (`sections=shader`), not from the index, because slot 2 is glow *or* skin-subsurface *or*
-> soft-lighting and slot 7 backlight *or* specular depending on them. A slot the shader doesn't determine prints
-> bare (`tex[4]:`), and on a non-Skyrim layout no slot is named at all. Always pass `nif_set` the **number**.
-
-1. **The per-NPC FaceTint `.dds`** — **binary slot 6** (NifSkope slot 7, the subsurface/tint slot). This is
-   the FaceGenEslify target. `nif_inspect` prints it as `tex[6] (TintMask): …\facetint\<DefiningMaster>\<00…ID>.dds`
-   — e.g. the real Lucien read: `tex[6] (TintMask): textures\...\facetint\lucien.esp\00005900.dds` (the head's
-   shader type is `FaceTint`, which is what names the slot) — and `nif_set
-   op=set_path target=<shape> texture_slot=6 path=<new>` rewrites it.
-2. **The base SKIN texture set** — race/body diffuse (`tex[0]`), normal (`tex[1]`), etc. This is the NPC
-   Facegen Patcher target (it rewrites skin slots `fti-6, fti-5, fti-4, fti-3, fti+1` and deliberately
-   leaves the FaceTint slot untouched); `nif_set set_path texture_slot=0/1` rewrites the diffuse/normal slot.
-
-Consequence — the boundary moved from *read* all the way to *verified write*: **Cause I, Cause R's in-`.nif`
-form, and the FaceTint-path half of Fix E are now both DIAGNOSABLE *and* FIXABLE inside the file** — read the
-mesh, see which slot holds which path, name the exact mismatch (e.g. "slot 6 still points at the
-pre-compaction FormID"), then `set_path` it right. What houseCARL still cannot do is read the `.dds`'s
-**pixels** or vouch for the **render**. So the honest line is now: *"I read slot N — it pointed at X,
-wrong because Y — and rewrote it to Z; the write is verified at the data layer, so confirm the face in
-game."* Route by the slot you read: stale FaceTint (slot 6) → `set_path` slot 6 (was FaceGenEslify's manual
-NifSkope step); wrong skin diffuse/normal (slots 0/1) → `set_path` slot 0/1 (was NPC Facegen Patcher); a
-material / `.tri` / xml ref → `set_path` with NO `texture_slot`, `target=` the string as `sections=strings`
-prints it; general missing tint → FDF; a **bulk** cross-mod rename → still faster in the
-batch tool. You no longer guess the broken slot, and for a single mesh you no longer hand off the edit.
+The head `.nif` carries its own asset references — the per-NPC FaceTint `.dds` at binary texture slot 6,
+the base skin diffuse/normal at slots 0/1, and the header strings a material, `.tri` or physics-xml ref
+lives in. Reading them, repairing them with `housecarl_nif_set`, the two verification gates a write
+passes, and the history of why those repairs used to be a NifSkope step are all in this skill's other
+reference, `mesh-repairs.md`. Causes F(b), I and R below, and the FaceTint half of Fix E, are resolved
+there.
 
 ---
 
 ## 7. Edge cases and gotchas
 
-- **The front door is the first failure point.** Resolve via EditorID (best) or name (disambiguate). A
-  **console-clicked FormID is a RefID and/or a runtime-indexed base id** — houseCARL's FormID↔FormKey
-  bridge is unshipped, so the high byte (and the ESL `FExxx` slot) can't be mechanically resolved. Route to
-  name/EditorID, or confirm the 6-hex local as a hypothesis. Never trust the console high byte as identity.
+- **The front door is the first failure point.** Resolve via EditorID (best) or name (disambiguate).
+  `housecarl_records` and `housecarl_nif_inspect` `npc=` both READ the runtime form the console and the
+  logs print (`FExxxYYY` / `XX######`), resolved against the current load order, and the response names
+  the plugin it resolved to. The trap that remains is what a console click selects: the **placed
+  reference**, not the base `NPC_`. Read it back and confirm the name before acting, and write with the
+  `XXXXXX:Plugin.esp` form — `housecarl_apply` refuses the runtime form by design.
 - **No cross-folder fallback** (§1). Step 3 asks "what wins this exact path, and does it match the record?"
 - **"Rides the master's facegen" is the same keyed path, not a fallback** (§2).
 - **ESL/FE prefix:** filename never contains "FE"; compute from the current FormKey. Folder unchanged on
@@ -356,10 +332,10 @@ batch tool. You no longer guess the broken slot, and for a single mesh you no lo
 - **Male/female:** NO separate folder or filename rule — sex affects which head parts/tint the CK bakes.
   Risk: `asset_status` "file wins" ≠ "file is the right sex" — but `nif_inspect`'s **shape names** often give
   it away (a `Male…`/`Female…` baked part, e.g. `MaleMouthHumanoidDefault` in the real Lucien read), so a
-  wrong-sex facegen is now partly checkable at the data layer. Still not a render guarantee — confirm in-game.
+  wrong-sex facegen is partly checkable at the data layer. Still not a render guarantee — confirm in-game.
 - **`nif_inspect` reads the winner, or a named provider (`mod=`).** It resolves through the same VFS as
   `asset_status`, so you can read the copy the game uses OR a specific mod's copy and *compare their baked
-  shape names / tint paths* — "the winning file carries a different NPC's shapes than mod A's copy" is now a
+  shape names / tint paths* — "the winning file carries a different NPC's shapes than mod A's copy" is a
   data-layer finding, not a guess. It reads values, never pixels or geometry; the render check still stands.
 - **SPID/SkyPatcher-distributed appearance:** houseCARL reads *plugin* records, so the plugin-winner it
   sees may not be the in-game face. Warn; route to FDF or matching the distributed head parts. (DynDOLOD
@@ -388,7 +364,7 @@ batch tool. You no longer guess the broken slot, and for a single mesh you no lo
 
 ## 8. Community tools
 
-houseCARL drives the *file*, *record*, and (Wave 2) the whitelisted *`.nif`-value* halves itself — the
+houseCARL drives the *file*, *record* and whitelisted *`.nif`-value* halves itself — the
 per-mesh embedded texture-path / shape-name / flag / alpha / partition edits; the rest (bulk batch runs, the
 `.dds` pixels, geometry, RaceMenu state) it names and instructs.
 
@@ -399,9 +375,9 @@ per-mesh embedded texture-path / shape-name / flag / alpha / partition edits; th
 | **NPC Plugin Chooser** (GitHub Piranha91) | Per-NPC GUI patcher; copies chosen records AND forwards matching facegen; names the two winners explicitly — **LoadOrder winner** (plugin) vs **FaceGenOrder winner** (file) | Per-NPC choice across overlapping overhauls, doing both halves |
 | **facefixer** (Synthesis-Collective) | Synthesis/Mutagen; `DeepCopyIn`s a 14-field appearance mask (**no `Race`**) onto each load-order-winning NPC | Record-side appearance forward (assumes the matching facegen already wins). The list houseCARL Fix C is modeled on — but the editorial minimal set is houseCARL's own. |
 | **FacegenBaseline** (GitHub SteveTownsend) | Synthesis; for NPCs whose winner did NOT change HeadParts vs the master, forwards a baseline mod's appearance (records only, no files). Forward set DOES include `Race`. | Backfilling baseline appearance for NPCs a non-appearance edit reverted (Cause C). Its `HeadParts.SetEquals` gate is **necessary-not-sufficient** — see §9. |
-| **FaceGenEslify** (Nexus 46208) / ESLifyEverything / ESLifier | xEdit pre/post-compaction FormID dump + EXE that batch-**renames** facegen to the new compacted FormIDs. **Its embedded `.nif` FaceTint-path edit is a MANUAL NifSkope step (README step 9) — which houseCARL now performs itself via `nif_set set_path` slot 6.** | The **bulk** rename across a whole eslified mod (Cause F/G); for a handful of meshes, houseCARL does both the rename and the embedded-path rewrite at the data layer |
+| **FaceGenEslify** (Nexus 46208) / ESLifyEverything / ESLifier | xEdit pre/post-compaction FormID dump + EXE that batch-**renames** facegen to the new compacted FormIDs. **Its embedded `.nif` FaceTint-path edit is a MANUAL NifSkope step (README step 9); houseCARL performs it via `nif_set set_path` slot 6.** | The **bulk** rename across a whole eslified mod (Cause F/G); for a handful of meshes, houseCARL does both the rename and the embedded-path rewrite at the data layer |
 | **NPC Facegen Patcher** (Nexus 41008) | xEdit script; rewrites the **skin** texture slots inside head `.nif`s (leaves the FaceTint slot untouched) so face textures match race-specific body textures. "Not used to fix grey/black/brown face bugs." | The **bulk** face-vs-body fixup across many meshes (Cause I). For a single mesh, `nif_set set_path` slot 0/1 does the same edit at the data layer — NOT the desync dark-face bug either way |
-| **Dark Face Issue Reporter** (Nexus 42133) | xEdit script; enumerates every NPC from a chosen master, checks each record's HeadParts against the resolvable NIF, flags `DarkFaceIssue`; emits in-game `prid`/`moveto` batch files. Does NOT auto-fix. | Whole-mod / load-order batch diagnosis. The batch model the SKILL.md batch flow mirrors — now at BOTH layers: the VFS winner (`asset_status`) *and* the record-HeadParts-vs-baked-NIF-names check (`nif_inspect`), which is DFIR's core comparison done at the data layer. |
+| **Dark Face Issue Reporter** (Nexus 42133) | xEdit script; enumerates every NPC from a chosen master, checks each record's HeadParts against the resolvable NIF, flags `DarkFaceIssue`; emits in-game `prid`/`moveto` batch files. Does NOT auto-fix. | Whole-mod / load-order batch diagnosis. The same comparison at BOTH layers: the VFS winner (`asset_status`) *and* the record-HeadParts-vs-baked-NIF-names check (`nif_inspect`). A whole-order sweep is planned with `housecarl:bulk-record-jobs`. |
 | **RaceMenu / SKEE + fixers** (RaceMenu 19080; cosave Load Crash Fix 173617; OverlayFix 138586; CharGen Export SE 29954) | Runtime sculpt/tint/overlay via skee64.dll, persisted in the SKSE co-save; Export Head writes `.nif`/`.dds` to `Data\SKSE\Plugins\CharGen\` | The out-of-lane grey-face class (U–X). houseCARL no-op except placing an already-exported head. |
 
 ---
@@ -418,10 +394,10 @@ not predicting dark face from field deltas.
   morph/tint/HeadTexture but NOT HeadParts is misclassified as "no appearance change." So houseCARL's own
   Cause-B / Step-3 "did the winner change appearance" check must compare **`FaceMorph` / `TintLayers` /
   `HeadTexture`** in addition to `HeadParts`, not `HeadParts` alone.
-- **Mode ii is now NAME/PATH-detectable *and* repairable, but not render-verifiable.** `nif_inspect` reads
+- **Mode ii is NAME/PATH-detectable *and* repairable, but not render-verifiable.** `nif_inspect` reads
   the `.nif`'s baked shape names and embedded tint/skin paths, so a *mismatch* against the record's HeadParts
-  is a confirmed mode-ii finding — no longer a blind spot — and `nif_set` (`rename_shape` / `set_path` /
-  `set_flags` / `set_alpha`) now *repairs* the name/path/flag class it finds, verified before landing. The
+  is a confirmed mode-ii finding, and `nif_set` (`rename_shape` / `set_path` /
+  `set_flags` / `set_alpha`) *repairs* the name/path/flag class it finds, verified before landing. The
   residual is narrower but real: a name/path *match*, and even a *verified write*, is necessary-not-sufficient
   — the geometry, the `.dds` pixels, and the final render stay unseen — so "file wins AND names/paths match
   (or were just rewritten), still dark" is the case that forces the in-game handoff for the last mile. Report
@@ -431,5 +407,6 @@ not predicting dark face from field deltas.
   binary level — affects how absolute the "must re-bake LE ports" instruction should be.
 - **ESL facegen filename** is correct by construction (`FaceGenPath` renders the current FormKey's local
   id); an on-rig eyeball against a known ESPFE follower is a confidence-raiser, not a gate.
-- **Console-clicked-FormID resolution** is blocked until the runtime-FormID bridge ships — route around it
-  via name/EditorID.
+- **A console click identifies a placed reference, not the base actor.** The runtime form itself resolves
+  on the read tools; confirming that the record it resolved to is the NPC the user means is the caller's
+  step, and it is not skippable.
