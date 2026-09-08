@@ -11,6 +11,24 @@ Computer : GRAFCONTI-PC
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Global Functions | 1 | 32 |
+| Functions | 2 | 40 |
+| `FISSInterface` | 0 | 53 |
+| Functions | 26 | 66 |
+| `FISSScript` | 0 | 245 |
+| Properties | 2 | 258 |
+| Global Functions | 13 | 278 |
+| Functions | 14 | 428 |
+
+---
+
 ## Global Functions
 
 ### `getFISS() → FISSInterface`

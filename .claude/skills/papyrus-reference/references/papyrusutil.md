@@ -4,6 +4,48 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Global Functions | 5 | 49 |
+| `JsonUtil` | 0 | 118 |
+| Global Functions | 135 | 124 |
+| `MiscUtil` | 0 | 1739 |
+| Global Functions | 18 | 1745 |
+| `ObjectUtil` | 0 | 2003 |
+| `PapyrusUtil` | 0 | 2010 |
+| Global Functions | 3 | 2016 |
+| Return the total sum of all values stored in the given array | 4 | 2045 |
+| Returns the value clamped to the min or max when out of range | 7 | 2091 |
+| Returns the number of instances an array has an element equal to the given value | 11 | 2168 |
+| Get an array of values from ArrayValues1 that ARE NOT among the values of ArrayValues2. Duplicates are removed by default. | 0 | 2293 |
+| Setting CompareBoth = true will change the behavior to also include the reverse comparison of ArrayValues2 values that are not present in ArrayValues1. | 0 | 2294 |
+| Setting IncludeDupes = true will allow the resulting array to include duplicate entries of the same value if they were also duplicated in the input arrays. | 7 | 2295 |
+| Get an array of values that are present in both ArrayValues1 and ArrayValues2. | 11 | 2384 |
+| Returns two arrays combined into one, optionally also removing any duplicate occurrences of a value. | 9 | 2500 |
+| Append a value to the end of the given array and return the new array. | 0 | 2608 |
+| NOTE: The array has to be recreated each time you call this. For the sake of memory usage and performance, DO NOT use these to build up an array through a loop, | 0 | 2609 |
+| in such a situation it is significantly faster to create the full length array first and then fill it. Best to limit to only the occasional need. | 10 | 2610 |
+| Removes all duplicate elements from the given array and returns the shortened array with only a single instance of all element values. | 5 | 2722 |
+| Removes all elements from the given array matching the provided value and returns the shortened array. | 14 | 2774 |
+| Returns the given value signed if bool is true, unsigned if false, regardless if value started out signed or not. | 4 | 2940 |
+| Returns a sub section of an array indicated by a starting and ending index. | 0 | 2989 |
+| The default argument "int EndIndex = -1" clamps the to the end of the array. Equivalent of setting EndIndex = (ArrayValues.Length - 1) | 6 | 2990 |
+| Sorts a given array's elements alphanumerically. Sorted in ascending order by default. | 3 | 3065 |
+| Opposite of StringSplit() | 1 | 3100 |
+| Similar to SKSE's native StringUtil.Split() except results are whitespace trimmed. So comma, separated,list,can, be, spaced,or,not. | 2 | 3113 |
+| Similar to the clamp functions, only values wrap around to the other side of range instead. | 0 | 3138 |
+| Mostly useful for traversing around array values by wrapping the index from end to end without having to check for it being out of range first. | 0 | 3139 |
+| i.e.: Form var = myFormArray[WrapInt(i, (myFormArray.Length - 1))] | 0 | 3140 |
+| `StorageUtil` | 0 | 3153 |
+| Global Functions | 282 | 3159 |
+
+---
+
 ## Global Functions
 
 ### `AddPackageOverride(targetActor, targetPackage, priority, flags)`

@@ -4,6 +4,38 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Global Functions | 31 | 39 |
+| `SPE_Actor` | 0 | 398 |
+| Global Functions | 13 | 404 |
+| `SPE_Cell` | 0 | 608 |
+| Global Functions | 2 | 614 |
+| `SPE_Events` | 0 | 641 |
+| Events | 1 | 647 |
+| Global Functions | 6 | 663 |
+| `SPE_Form` | 0 | 736 |
+| Global Functions | 4 | 742 |
+| `SPE_GlobalVariable` | 0 | 801 |
+| Global Functions | 1 | 807 |
+| `SPE_Interface` | 0 | 824 |
+| Global Functions | 5 | 830 |
+| `SPE_Location` | 0 | 882 |
+| Global Functions | 1 | 888 |
+| `SPE_ObjectRef` | 0 | 905 |
+| Global Functions | 9 | 911 |
+| `SPE_Quest` | 0 | 1030 |
+| Global Functions | 1 | 1036 |
+| `SPE_Utility` | 0 | 1053 |
+| Global Functions | 28 | 1059 |
+
+---
+
 ## Global Functions
 
 ### `ConsoleGetAbsPos(akRef) → String`

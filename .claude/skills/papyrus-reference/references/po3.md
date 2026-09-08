@@ -5,6 +5,30 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| `FootstepSet` | 0 | 32 |
+| `LightingTemplate` | 0 | 39 |
+| `MaterialObject` | 0 | 46 |
+| `PO3_Events_Alias` | 0 | 53 |
+| Events | 37 | 59 |
+| Global Functions | 71 | 468 |
+| `PO3_Events_AME` | 0 | 1209 |
+| Events | 37 | 1215 |
+| Global Functions | 71 | 1624 |
+| `PO3_Events_Form` | 0 | 2365 |
+| Events | 37 | 2371 |
+| Global Functions | 71 | 2780 |
+| `PO3_SKSEFunctions` | 0 | 3521 |
+| Global Functions | 369 | 3527 |
+
+---
+
 ## `FootstepSet`
 
 **Source:** `po3` (powerofthree's Papyrus Extender) • **Extends:** `Form` • **Flags:** Hidden

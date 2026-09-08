@@ -4,6 +4,26 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Global Functions | 10 | 27 |
+| `CustomSkills_ActiveMagicEffectExt` | 0 | 146 |
+| Events | 2 | 152 |
+| Global Functions | 4 | 181 |
+| `CustomSkills_AliasExt` | 0 | 236 |
+| Events | 2 | 242 |
+| Global Functions | 4 | 271 |
+| `CustomSkills_FormExt` | 0 | 326 |
+| Events | 2 | 332 |
+| Global Functions | 4 | 361 |
+
+---
+
 ## Global Functions
 
 ### `AdvanceSkill(asSkillId, afMagnitude)`

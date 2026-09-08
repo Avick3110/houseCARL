@@ -4,6 +4,19 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Properties | 7 | 20 |
+| Global Functions | 1 | 80 |
+| Functions | 9 | 94 |
+
+---
+
 ## Properties
 
 ### `Type_Brows: Int`

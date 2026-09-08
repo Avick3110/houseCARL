@@ -4,6 +4,18 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Global Functions | 1 | 19 |
+| Functions | 11 | 36 |
+
+---
+
 ## Global Functions
 
 ### `GetMaskForSlot(slot) → Int`

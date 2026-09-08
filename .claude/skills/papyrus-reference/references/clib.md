@@ -4,6 +4,24 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Global Functions | 9 | 25 |
+| `cGetCell` | 0 | 169 |
+| Global Functions | 7 | 175 |
+| `clib` | 0 | 264 |
+| Global Functions | 397 | 272 |
+| Functions | 3 | 6157 |
+| `clibArrays` | 0 | 6190 |
+| Global Functions | 99 | 6196 |
+
+---
+
 ## Global Functions
 
 ### `cArrayCreateActor(indices, filler, usePapUtil, outputTrace, useConsoleUtil) → Actor[]`

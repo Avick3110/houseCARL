@@ -4,6 +4,18 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Events | 6 | 19 |
+| Global Functions | 7 | 86 |
+
+---
+
 ## Events
 
 ### `OnCurrencyRevert(a_kOldCurrency)`
