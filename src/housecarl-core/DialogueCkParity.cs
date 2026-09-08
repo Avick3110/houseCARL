@@ -36,7 +36,7 @@ namespace HousecarlCore;
 //    • QUST (Quest)          NextAliasID (ANAM)    → next-alias-ID counter: max(existing alias ID)+1, else 0
 //    • QUST QuestObjective   Flags      (FNAM)     → 0 (no flags), materialised per objective
 //    • QUST QuestAlias       Flags      (FNAM)     → 0 (no flags), materialised per alias
-//    • QUST QuestAlias       VoiceTypes (VTCK)     → null-link (0x00000000), materialised per alias
+//    • QUST QuestAlias       VoiceTypes (VTCK)     → null-link (0x00000000), materialised per REFERENCE alias only
 //
 //  IN-GAME-BEHAVIOUR TIER. The same omitted-subrecord asymmetry, but the consequence is neither a CK-editor crash
 //  nor a byte-only mismatch the game shrugs off: the RUNNING GAME behaves wrong.
@@ -352,7 +352,7 @@ public static class DialogueCkParity
     }
 
     /// <summary>QUST (Quest) CK-parity defaults — the NextAliasID (ANAM) counter, each objective's Flags (FNAM), and
-    /// each alias's Flags (FNAM) + VoiceTypes (VTCK), all nullable and omitted by Mutagen when unset; a CK-authored
+    /// each alias's Flags (FNAM) + each REFERENCE alias's VoiceTypes (VTCK), all nullable and omitted by Mutagen when unset; a CK-authored
     /// Quest carries every one. NON-OVERRIDE throughout.
     ///
     /// NextAliasID (ANAM): the next alias ID the CK would hand out. For a FRESHLY-created quest (no deletion history)
