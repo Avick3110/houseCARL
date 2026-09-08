@@ -47,6 +47,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   before anything is written, naming the field to add and listing the type's constructors — as is the same value put
   in a nested `sets` entry, which runs against the already-built value and so cannot reach the constructor.
 
+- **A compose that names a field it cannot write is refused before anything is written.** A read-only field named in
+  a compose's `fields` — a condition arm's `Function`, an archetype's `AssociationKey`, and the discriminator of any
+  arm that fixes one — passed pre-flight and then threw mid-apply, reported as an internal inconsistency. It is now
+  refused up front, in the same words a Set on that field gets: the value is fixed by which arm was named, so drop
+  the field or name a different arm. A field the type's constructor carries is still accepted, because that is the
+  one the constructor writes.
+
 - **A SkyPatcher INI can be checked before it is placed in a mod.** `housecarl_records`'s overlay pole takes a
   draft file: `source={"overlay": "skypatcher", "state": "post", "ini": "<absolute path to a draft .ini>",
   "subfolder": "weapon"}` reads the record as the game would see it once that draft is placed — the live layer
