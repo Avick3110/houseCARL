@@ -34,9 +34,11 @@ does not buy: the higher quest priority is what gets your topic reached at all �
 game enters is decided across quests by priority**, before intra-topic order is even consulted — so
 whenever your line's gate passes, the engine enters *your* topic and the vanilla greetings do not
 play for that activation. That is preemption, not damage: the vanilla records are untouched and the
-old lines return the moment your gate fails. Gate the line so it passes only when you mean it to; a
-gate that passes on every activation replaces the NPC's whole greeting pool. The append route puts your line at the bottom of a topic that is
-often ten plugins deep, where whether it is ever selected is not knowable from the data layer.
+old lines return the moment your gate fails. So gate the line so it passes only *sometimes* — a gate
+that passes on every activation replaces the NPC's whole greeting pool. The worked gate below is a
+speaker check plus a `GetRandomPercent` row for exactly that reason. The append route instead puts your
+line at the bottom of a topic that is often ten plugins deep, where whether it is ever selected is not
+knowable from the data layer.
 
 Three cheap reads settle the design.
 
@@ -90,7 +92,22 @@ housecarl_create(
                  "compose": { "type": "DialogResponse",
                               "fields": { "Text": "Browse as you like.", "ResponseNumber": "1",
                                           "Emotion": "Neutral", "EmotionValue": "50",
-                                          "Flags": "UseEmotionAnimation" } } } ] }
+                                          "Flags": "UseEmotionAnimation" } } },
+
+               { "field_path": "Conditions", "op": "Add",
+                 "compose": { "type": "ConditionFloat",
+                              "fields": { "ComparisonValue": "1", "CompareOperator": "EqualTo" },
+                              "sets": [ { "path": "Data",
+                                          "compose": { "type": "GetIsIDConditionData",
+                                                       "fields": { "Object": "013BA1:Skyrim.esm",
+                                                                   "RunOnType": "Subject" } } } ] } },
+
+               { "field_path": "Conditions", "op": "Add",
+                 "compose": { "type": "ConditionFloat",
+                              "fields": { "ComparisonValue": "25", "CompareOperator": "LessThan" },
+                              "sets": [ { "path": "Data",
+                                          "compose": { "type": "GetRandomPercentConditionData",
+                                                       "fields": { "RunOnType": "Subject" } } } ] } } ] }
   ])
 ```
 
@@ -104,8 +121,33 @@ step 3 — 65, above `DialogueWhiterun`'s 30 — and it is what gets your topic 
 number you measured, and putting your measured number there leaves the quest at its default and the
 topic unreachable.
 
-Then **clone the gate** onto the new line from the vanilla exemplar you read in step 2 — never
-hand-synthesize the operator bytes (Recipe A in `references/write-side-recipes.md`). One call:
+**The gate is composed in that same create call, as typed rows.** A condition is a `ConditionFloat`
+carrying a `CompareOperator` and a `ComparisonValue`, with a nested `Data` compose naming the function
+arm and its parameters; the server encodes the bytes, so nothing is hand-computed. The two rows above
+are the whole design decision:
+
+- `GetIsID(Belethor) = 1` — the speaker check, carried from the exemplar you read in step 2. Without it
+  the line plays for whoever reaches the topic.
+- `GetRandomPercent < 25` — a row that passes only *sometimes*. This is the row that keeps the vanilla
+  greetings in rotation: a gate that passes on every activation replaces the NPC's whole greeting pool,
+  because your higher-priority topic is reached first every time. Three rows in four your line does not
+  pass, the engine falls through to Belethor's topic, and his six lines play as before.
+
+A chance row is not the only way to pass only sometimes. A `GetStage` or `GetStageDone` check against
+your own quest gates the line to a point in your story, and a once-only line is the same shape: a
+result script sets your quest's stage, and a `GetStage < N` row stops the line firing again. What every
+one of these has in common is that they read *your* quest, which exists — see the clone caveat below
+for the rows that cannot come across. `references/condition-functions.md` has the function table.
+
+Then the `.seq`, which is not optional:
+`housecarl_write_seq(source="<the filename the create call reported>")` — the reported filename, never
+the stem you passed, or the `.seq` lands on an older plugin of that name and your quest gets none. A
+start-game-enabled quest with no `.seq` never starts, and its dialogue never exists.
+
+### The option — cloning a vanilla gate instead of composing one
+
+Where the exemplar's gate already *is* the gate you want — several rows, or one you cannot otherwise
+verify — copy it wholesale rather than retyping it (Recipe A in `references/write-side-recipes.md`):
 
 ```json
 housecarl_apply(into="<the filename the create call reported>", readback=true,
@@ -113,15 +155,26 @@ housecarl_apply(into="<the filename the create call reported>", readback=true,
                 assignments=[{ "target": "<the new INFO>", "from": "02848F:Skyrim.esm" }])
 ```
 
-Copy only the entries that belong: a vanilla greeting's gate is often a speaker check *plus* a cell
-check, and a line meant to play anywhere wants the speaker check alone.
+Two caveats, and both of them bite on this route specifically.
 
-Then the `.seq`, which is not optional:
-`housecarl_write_seq(source="<the filename the create call reported>")` — the reported filename, never
-the stem you passed, or the `.seq` lands on an older plugin of that name and your quest gets none. A
-start-game-enabled quest with no `.seq` never starts, and its dialogue never exists. Finish with the
-pre-enable sweep below, and note the `#615` limit under "Validate, then hand off" — the dialogue check
-cannot see a plugin that is not yet enabled.
+**The copy replaces, it does not merge.** You get every row the exemplar carries — a vanilla greeting's
+gate is often a speaker check *plus* a cell check, and a line meant to play anywhere does not want the
+cell check. Read the result back, find the index of each row that does not belong, and drop it:
+
+```json
+housecarl_apply(ops=[{ "formid": "<the new INFO>", "field_path": "Conditions",
+                       "op": "Remove", "key": "0" }])
+```
+
+`key` is the list index, so drop the highest index first when there is more than one — removing index 0
+renumbers everything after it. Read back again and say which rows you kept and which you dropped.
+
+**A row scoped to a quest alias cannot come along.** `RunOnType = QuestAlias` resolves its index against
+the *owning* quest, and so does `GetIsAliasRef` — and your new quest has no aliases at all. Cloned
+across the quest boundary such a row is dead: the line either never plays, or, if the dead row was the
+only speaker check, plays for everyone, with a byte-perfect readback and no check that can catch it.
+Drop those rows, or compose the gate inline instead. The append route below does not have this failure
+mode, because the INFO stays under the exemplar's own quest.
 
 ## The exception — appending to an existing vanilla topic
 
@@ -155,8 +208,17 @@ housecarl_apply(into="<the filename the create call reported>", readback=true,
 
 **The conditions are not optional here.** A line appended to a shared vanilla topic with no gate
 fires for every speaker that reaches the topic. Clone them from a sibling INFO in that same topic —
-the one you read in step 2 above — and drop only the entries you positively do not want, such as a
-cell check on a line meant to play anywhere.
+the one you read in step 2 above — or compose them inline in the create call as the default route
+does. The clone replaces rather than merges, so dropping an entry you do not want, such as a cell
+check on a line meant to play anywhere, is a second call against the row's index:
+
+```json
+housecarl_apply(ops=[{ "formid": "<the new INFO>", "field_path": "Conditions",
+                       "op": "Remove", "key": "0" }])
+```
+
+Highest index first if there is more than one, and read back. Alias-scoped rows are safe here — the
+INFO stays under the exemplar's own quest — which is the one thing this route has over the default.
 
 Then sweep the patch before it is enabled — this lane works off-order, the dialogue one does not
 (section "Validate, then hand off"). `patch=` is a *base* name, auto-suffixed if that stem is taken,
@@ -332,9 +394,10 @@ where.
   user rather than letting a green result speak for itself.
 - **Derive the voice folder from the plugin that defines the INFO.** For a new plugin that is yours;
   for an override it is the original's folder, where the audio lives. The winner is the wrong answer.
-- **Clone a verified condition gate; never compute the operator bytes.** A condition is a polymorphic
-  struct, and hand-synthesizing its encoded operator once wrote 26 broken conditions onto one gate.
-  Read a known-good gate back and copy it — the mechanics are in `references/write-side-recipes.md`.
+- **Compose a condition as typed rows, or clone a verified gate; never retype an encoded operator.** A
+  `ConditionFloat` with a nested `Data` compose is the shape, and the server encodes the bytes. Clone
+  the whole gate instead when the exemplar already carries the rows you want — the mechanics are in
+  `references/write-side-recipes.md` — and read either back before enabling.
 
 ## `references/`
 

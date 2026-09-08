@@ -229,5 +229,7 @@ its parameter, the `Subject` Run On is harmless here (the result doesn't depend 
 row whose function *does* depend on the Run On — `GetItemCount` on `Subject` counts the **NPC's** items, on
 `Target` the **player's** — there the Run On is the whole meaning.
 
-To **write** conditions, never hand-synthesize the encoded operator/comparison bytes — read a verified gate
-back and copy it with the `housecarl_apply` copy zip (Recipe A in `references/write-side-recipes.md`).
+To **write** conditions, compose the row as a typed `ConditionFloat` with a nested `Data` compose naming the
+function arm — the server encodes the operator and comparison bytes, so nothing here is retyped as an
+encoded value. Where a verified gate already sits on a record, copying it with the `housecarl_apply` copy
+zip is the other route (Recipe A in `references/write-side-recipes.md`).
