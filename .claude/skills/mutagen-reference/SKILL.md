@@ -138,7 +138,7 @@ A field's `c` decides **how it is named in `housecarl_apply`'s `field_path`** an
 | `polymorphic` as a **list element** | step into the element and name the field on its concrete arm — `VirtualMachineAdapter.Scripts[0].Properties[0].Object` | the `list` verbs | Each element is a concrete arm of the modeled base, resolved at apply time. `Add` one with `compose:{type:'<arm>', …}` |
 | `polymorphic` as a **standalone field** | descend by name — `Configuration.Level.Level`, never a bracket | `Set` carrying a `compose` arm, or descend and `Set` a sub-field of the live arm | `compose:{type:'<arm>', sets:[…]}` chooses which arm sits there; the legal arms are the field's own `arms`, or the referenced base's |
 
-Brackets are for `list` and `dict` elements only. When you compose an element, set its required sub-arm in the same `compose` — a `Condition` carries its `Data` arm. Taking one field's value from a plugin you name rather than from the load-order winner is `op='CopyFrom'` with `from_source`; copying a whole record is `housecarl_forward`, then `housecarl_apply` with `into` the same patch. New records are `housecarl_create`, and the read that precedes any of this is `housecarl_records`.
+At the leaf, brackets are for `list` and `dict` elements only; mid-path, a gendered substruct also takes `[0]` / `[1]` as the alias for `.Male` / `.Female` (`WorldModel[0].Model.File`), which is how a read renders it. When you compose an element, set its required sub-arm in the same `compose` — a `Condition` carries its `Data` arm. Taking one field's value from a plugin you name rather than from the load-order winner is `op='CopyFrom'` with `from_source`; copying a whole record is `housecarl_forward`, then `housecarl_apply` with `into` the same patch. New records are `housecarl_create`, and the read that precedes any of this is `housecarl_records`.
 
 **Condition (CTDA) form-link targets.** A form-link parameter on a `*ConditionData` arm — `GetEquipped.ItemOrList`, `GetStage.Quest`, `HasPerk.Perk` — is a `FormLinkOrIndex<T>` that this reference normalises to `FormLink<T>` in the displayed `t`, because such a target can hold either a real FormID or a numeric index. The schema therefore understates the type: when the form-versus-index nature matters, confirm it at the engine rather than from the displayed `t`.
 
@@ -150,7 +150,7 @@ Brackets are for `list` and `dict` elements only. When you compose an element, s
 - **A `ref`, `arms` or `target` is a pointer, so resolve it** — grep the index for that name and block-read it too (quoting the pointer answers a different question).
 - **`w:false` is the real schema**: some fields are read-only in the library, computed or without a mutable accessor (reading that as a bug sends the user chasing nothing).
 - **A field's own `w` governs that field**, not the block's `writable/total`, which is the type's summary count.
-- **A `substruct` is descended by name, a standalone `polymorphic` field is set by `compose`** (a bracket on either is refused).
+- **A `substruct` is descended by name, a standalone `polymorphic` field is set by `compose`** (a bracket at the leaf is refused on either; mid-path a gendered substruct takes `[0]`/`[1]`).
 - **A condition parameter's displayed `FormLink<T>` is a normalisation** of `FormLinkOrIndex<T>` (reading it as a plain link understates what the field accepts).
 
 ## Notes
