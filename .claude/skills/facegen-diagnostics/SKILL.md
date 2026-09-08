@@ -69,6 +69,10 @@ Then branch on the two winners:
 | One present, one absent | The hard fault, and the one that accounts for nearly every finding on a big order | §6 — place the missing half from the source that has the other; if it exists nowhere, Ctrl+F4 |
 | Neither present | Nothing to place | §5 — does this NPC own a face at all; if it does, Ctrl+F4 |
 
+A file winning at the path is necessary, not sufficient. When the pair is same-source and §5 finds the
+record clean too, read the winning mesh itself with `housecarl_nif_inspect`: a baked shape name or an
+embedded FaceTint path that disagrees with the record is a mesh-side fault, repaired per §11.
+
 Two shortcuts: `housecarl_asset_status` `under=` resolves every file the order provides beneath a folder,
 so one call over `meshes/actors/character/facegendata/facegeom/Skyrim.esm` answers for a whole master's
 facegen set with no path list; and `housecarl_nif_inspect` `npc=` derives the geom path from the FormID
@@ -94,8 +98,10 @@ Resolving the NPC a user names:
 1. **Prefer EditorID, then display name.** `housecarl_records` with `types=["NPC_"]` and
    `where=["editorid contains Lydia"]`. More than one hit ("Guard", "Bandit") → list the candidates and
    let the user pick. Never auto-pick the first.
-2. **An xEdit-style FormID** the user read somewhere: drop the high byte (it is that person's
-   load-order index), keep the 6-hex local, and let houseCARL attach the defining master.
+2. **An xEdit-style FormID** the user read somewhere: the high byte is *that person's* load-order
+   index, not yours, so the 6-hex local under it is a hypothesis, not an address — no parameter takes a
+   bare local id without its plugin. Find the record by EditorID or name as in step 1, then confirm the
+   local id matches before acting on it.
 3. **A runtime FormID** — the form the game, console, Papyrus and crash logs print, `FExxxYYY` or
    `XX######` — is read directly by `housecarl_records` and by `housecarl_nif_inspect` `npc=`, resolved
    against the current load order, and the response names the plugin it resolved to. Two traps remain: a
@@ -122,9 +128,10 @@ housecarl_records(formids=["013BBF:Skyrim.esm"], versus="previous_provider",
   TextureLighting   000000          <- 3C2E28
 ```
 
-Unchanged means the NPC rides the master's facegen at the same keyed path — benign, so confirm the
-master's file resolves. Changed, with no facegen anywhere, means there is nothing correct to place and
-the fix is a Creation Kit bake.
+`versus="previous_provider"` is **refused** when the subject defines the record — an uncontested NPC has
+no pole beneath it — and that refusal *is* the "no plugin changed this" answer, not an error. Unchanged,
+or refused that way, means the NPC rides the master's facegen at the same keyed path — benign, so confirm the master's file resolves. Changed, with
+no facegen anywhere, means there is nothing correct to place and the fix is a Creation Kit bake.
 
 **Does this NPC own a face at all?** An NPC whose `Template` is set and whose template flags include
 `Traits` inherits its appearance and has **no facegen of its own** — recompute the path against the
@@ -150,7 +157,6 @@ housecarl_place(assets=[{"formid":"013BBF:Skyrim.esm"}],
 ```
 ```
 placed 2 files into "Facegen Fix"  (meshes\…\00013BBF.nif, textures\…\00013BBF.dds)  source: Bijin NPCs (loose)
-ENABLE this mod in MO2 — the placed copies do not win on write.
 ```
 
 `source_provider=` names whose copy to read for the whole set — `"*winner"`, a mod folder (reached even
@@ -188,7 +194,7 @@ match the record, a wrong skin slot — are `housecarl_nif_set` territory and li
 
 | Check | Who runs it | What it settles | What it still cannot prove |
 |---|---|---|---|
-| Re-resolve the pair with `housecarl_asset_status` | houseCARL | The placed copy is the winner, and the tool names the winner to rank above | Provenance only — a green status survives wrong content, a geometry/tint split, and the save cache |
+| Re-resolve the pair with `housecarl_asset_status` | houseCARL | Whether the placed copy now wins, and who still beats it if it does not | Provenance only — a green status survives wrong content, a geometry/tint split, and the save cache |
 | The `setnpcweight` probe | the caller, in game | Reloads the actor's 3D head, defeating the save cache | Temporary: it reverts on a cell change. A probe, not the fix |
 | The face with FDF **disabled** | the caller, in game | A correct fix renders right without Face Discoloration Fix | If it looks right only with FDF, FDF is masking a desync you have not fixed |
 | A new game, or a save where the NPC never loaded | the caller | Whether the residue is baked into the save | Nothing further — this is the authoritative check |
