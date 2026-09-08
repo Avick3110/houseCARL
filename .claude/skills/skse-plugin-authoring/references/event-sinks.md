@@ -7,8 +7,8 @@ game" spine you hang most plugin behavior off.
 
 This reference covers the C++ / CommonLibSSE-NG side only. Where an event forwards into a Papyrus
 registration (a `.psc` `RegisterForModEvent` handler and its argument list), the Papyrus signature is
-owned by houseCARL's `papyrus-reference` skill — this doc names the C++ call and the shared event-name
-string and stops there. The plugin declaration, the SKSE messaging lifecycle, and `SKSE::Init` live in
+a lookup in `housecarl:papyrus-reference`, which covers functions that already exist — this doc names
+the C++ call and the shared event-name string and stops there. The plugin declaration, the SKSE messaging lifecycle, and `SKSE::Init` live in
 `plugin-skeleton.md`; setting up the toolchain is `toolchain-setup.md`.
 
 ## Contents
@@ -140,7 +140,7 @@ cell." Payloads are heterogeneous: some carry a strong `NiPointer<TESObjectREFR>
 some carry a bare `FormID` you must resolve with `RE::TESForm::LookupByID<T>(id)`, some carry an
 `ObjectRefHandle`. **"Fires on" is derived from the event name** — the exact firing conditions are not
 proven from the corpus (see [Not yet verified in-game](#not-yet-verified-in-game)), and the Papyrus `OnX`
-counterparts are `papyrus-reference`'s surface, not asserted here.
+counterparts are looked up in `housecarl:papyrus-reference`, not asserted here.
 
 | Event (sizeof) | Payload (type → name @ offset) | Fires on (name-derived) |
 |---|---|---|
@@ -238,7 +238,7 @@ against them any time after that — no `kDataLoaded` wait needed.
 **Raising a Papyrus-visible mod event from C++** is the send direction of the mod-event channel: construct
 a `SKSE::ModCallbackEvent` and `SendEvent` it on `GetModCallbackEventSource()`; SKSE's own handler is a
 sink there and forwards to every Papyrus `RegisterForModEvent` registration. The `.psc` handler signature
-for that event name is `papyrus-reference`'s surface — this is the C++ mechanism only.
+for that event name is a `housecarl:papyrus-reference` lookup — this is the C++ mechanism only.
 
 **The story/stat events** (`ActorKill`, `BooksRead`, `CriticalHit`, `LevelIncrease`, `SkillIncrease`,
 `ShoutAttack`, `SpellsLearned`, `LocationDiscovery`, and others) are all fully modeled, each with a static

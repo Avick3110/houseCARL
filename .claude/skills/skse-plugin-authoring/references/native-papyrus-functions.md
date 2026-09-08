@@ -27,14 +27,16 @@ it the moment a `.psc` needs to do something vanilla Papyrus + SKSE can't alread
 
 A native function is **one thing declared in two places**: a C++ function you register, and a matching
 `.psc` declaration a script author compiles against. This file owns the **C++ side** and the *pairing
-contract* between the two. It does **not** own the `.psc` surface.
+contract* between the two.
 
-The reason the split is strict: native registration is keyed purely by two strings, `(className, fnName)`,
-at bind time — nothing in the C++ headers defines or validates the matching `.psc` declaration (the
-`native`/`global` keywords, the parameter names, default values, how a latent function looks script-side).
-Those are Papyrus syntax, and Papyrus syntax is owned by houseCARL's **papyrus-reference** skill. When you
-need the authoritative shape of the `.psc` line, consult that skill; never derive a `.psc` signature from a
-C++ header and present it as fact. The consumer `.psc` then compiles via `housecarl_compile_script`.
+**Both halves of a native you are inventing are written in this skill.** The declaration grammar — the
+`native`/`global` keywords, the parameter and return spelling, what a latent function looks like
+script-side — is in the skill body, beside the C++ registration; `housecarl:papyrus-reference` looks up
+functions that already exist and cannot answer for one that does not. What stays true either way is that
+nothing in the C++ headers defines or validates the `.psc` line: registration is keyed purely by two
+strings, `(className, fnName)`, at bind time, so never derive a `.psc` signature from a C++ header and
+present it as fact — write it from the grammar and check it against the pairing rule below. The consumer
+`.psc` then compiles via `housecarl_compile_script`.
 
 What this file *does* state about the `.psc` side is only the **pairing rule** — the four things that must
 line up for the two halves to connect:
@@ -133,7 +135,7 @@ What the C++ signature declares is what registers. An illegal signature fails **
 runtime — so if it builds, the marshalling is legal. There are three shapes, distinguished by the **first
 C++ parameter** (the "base"), which *is* the Papyrus `self`:
 
-| Form | C++ callback shape | `.psc` side (papyrus-reference owns exact syntax) |
+| Form | C++ callback shape | `.psc` side (declaration grammar: the skill body) |
 |---|---|---|
 | **Short static** | `R Fn(RE::StaticFunctionTag*, Args...)` | `global native` |
 | **Short method** | `R Fn(FormOrAliasOrEffectPtr, Args...)` registered under that class's name | instance `native` on an existing class |
@@ -158,7 +160,7 @@ macro. Prefer the long form for anything that validates its arguments.
 **What registration derives from the signature, and what it doesn't.** The constructor builds the VM-facing
 descriptor from the C++ signature alone — each parameter's and the return's Papyrus type. But **parameter
 names are synthesized `param1..paramN`**; your real C++ parameter names never reach the VM. The
-human-readable names come from the `.psc` — again, papyrus-reference's lane. A ctor comment notes native
+human-readable names come from the `.psc` declaration you write. A ctor comment notes native
 functions support **at most 11 parameters** (skse64's older templates stopped at 10).
 
 **VR is not a factor for basic registration.** In an NG multi-runtime build, the registration-relevant
@@ -457,7 +459,7 @@ src/Papyrus/Manager.cpp               # Papyrus::Bind — the ONE dispatcher, ca
 src/Papyrus/ObjectTypes.cpp           # new script object types — bound FIRST
 src/Papyrus/Functions/<Domain>.cpp    # one file per Papyrus domain, local Bind(VM&)
 include/Papyrus/...                   # header mirror of the src tree
-Papyrus/Source/scripts/*.psc          # one .psc per registered class (papyrus-reference's lane)
+Papyrus/Source/scripts/*.psc          # one .psc per registered class
 Papyrus/Scripts/*.pex                 # compiled scripts (via housecarl_compile_script)
 ```
 
@@ -496,8 +498,8 @@ single-DLL plugin folds those into runtime checks instead** (see `multi-runtime.
 **Script-side home — own a new `Hidden` class.** Two models exist: extend a vanilla class (SKSE-internal
 only — it merges vanilla + modified `.psc` per class, which two mods can't both do), or **own new `Hidden`
 script class(es)** and take target objects as explicit parameters of global functions. The second is the
-default for any third-party plugin. The exact `.psc` syntax for those classes is papyrus-reference's lane;
-`housecarl_compile_script` compiles them.
+default for any third-party plugin. Write those classes' `.psc` declarations from the grammar in the skill
+body; `housecarl_compile_script` compiles them.
 
 ---
 
