@@ -298,6 +298,9 @@ internal static class DialogueSweepRender
         // The marker is authoritative when the two disagree — the engine buckets by SNAM and the numeric subtype goes
         // stale on pre-Dragonborn topics. Emitted always so a consumer never has to infer it from the issues text.
         w.WriteBoolean("subtype_stale", t.SubtypeDisagreesWithMarker);
+        // The marker-derived name beside the flag, so JSON carries the same verdict the text render spells out and no
+        // consumer re-implements the marker→name table. "" when the marker is blank or unmodeled.
+        w.WriteString("subtype_from_marker", t.SubtypeFromMarker);
         WriteIssues(w, "issues", t.Issues);
         w.WriteStartArray("silent_lines");
         foreach (var l in t.VoiceLines)

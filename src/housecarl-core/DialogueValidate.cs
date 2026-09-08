@@ -74,6 +74,11 @@ public sealed record TopicValidation(
     /// render must label the pair rather than show the number bare. See
     /// <see cref="DialogueSubtype.MarkerDisagreesWithSubtype"/> for why the number goes stale.</summary>
     public bool SubtypeDisagreesWithMarker { get; init; }
+
+    /// <summary>The subtype name the SNAM marker itself names — the honest label when <see cref="Subtype"/> is stale.
+    /// "" when the marker is blank or not one <see cref="DialogueSubtype"/> models, so a consumer never has to
+    /// re-implement the marker→name table to read past a disagreement.</summary>
+    public string SubtypeFromMarker { get; init; } = "";
 }
 
 /// <summary>The SEQ staleness/coverage lint result for a QUEST-input validation; null for a non-SGE quest or a DIAL
@@ -463,19 +468,22 @@ public static class DialogueValidate
         //         not a confirmed crash → Warning. Don't cry "guaranteed CTD" over working content.
         //     The blank test is DialogueSubtype's, shared with the create-path auto-fill so they can't drift, and the
         //     expected marker is named so the fix is a copy-paste rather than a bare "invalid".
+        // Ownership of the record the check actually reads, shared by every SNAM finding below.
+        bool isOverride = !string.Equals(topic.FormKey.ModKey.FileName.String, winnerPlugin, StringComparison.OrdinalIgnoreCase);
+        // A base-game master's own winning record is content the modder neither wrote nor can act on.
+        bool modAuthored = !ErrorCheck.IsBaseMaster(winnerPlugin);
         if (DialogueSubtype.IsBlankMarker(topic.SubtypeName))
         {
             var expected = DialogueSubtype.MarkerFor((int)topic.Subtype);
-            bool isOverride = !string.Equals(topic.FormKey.ModKey.FileName.String, winnerPlugin, StringComparison.OrdinalIgnoreCase);
-            // The recommended marker is DERIVED from the numeric Subtype, which is unreliable on a topic authored
+            // Both arms recommend a marker DERIVED from the numeric Subtype, which is unreliable on a topic authored
             // before the Dragonborn-era CK renumbered the enum (see DialogueSubtype.MarkerDisagreesWithSubtype). With
             // SNAM blank there is nothing to cross-check it against, so the advice says where it came from and points
             // at the base record's marker rather than asserting a number-derived tag is right.
-            var derived = $" That marker is derived from the numeric Subtype, which is stale on topics authored before "
-                        + "the Dragonborn-era Creation Kit renumbered the subtype enum — check the base record's SNAM before writing it.";
-            var fix = expected is not null
-                ? $"Set it to {expected} (the marker for Subtype={topic.Subtype}); houseCARL's create tools now auto-fill it, or {ToolNames.Apply} on SubtypeName with value={expected}.{derived}"
-                : $"Set it to the correct 4-char marker for Subtype={topic.Subtype} via {ToolNames.Apply} on SubtypeName.";
+            const string derived = " That comes from the numeric Subtype, which is stale on topics authored before the "
+                + "Dragonborn-era Creation Kit renumbered the subtype enum — check the base record's SNAM before writing it.";
+            var fix = (expected is not null
+                ? $"Set it to {expected} (the marker for Subtype={topic.Subtype}); houseCARL's create tools now auto-fill it, or {ToolNames.Apply} on SubtypeName with value={expected}."
+                : $"Set it to the correct 4-char marker for Subtype={topic.Subtype} via {ToolNames.Apply} on SubtypeName.") + derived;
             issues.Add(isOverride
                 ? new(DialogueIssueSeverity.Warning,
                     $"DialogTopic.SubtypeName (the SNAM subtype marker) is empty (0000) on this OVERRIDE of {topic.FormKey.ModKey.FileName} — "
@@ -492,7 +500,11 @@ public static class DialogueValidate
         //     so a topic authored before that stores a number six lower than the modern enum and every reader (Mutagen,
         //     xEdit, houseCARL) labels it six entries too early. No field distinguishes the two numberings, so this is
         //     reported, never "fixed" — rewriting DATA\Subtype here would be a guess at what the author meant.
-        else if (DialogueSubtype.MarkerDisagreesWithSubtype(topic))
+        //     Scoped to a record a mod defines or overrides (Aaron's ruling): a base master's own topic read through
+        //     the order carries Bethesda's stale number, which the modder cannot act on and which would fill a
+        //     whole-quest check with the same warning. There the verdict still rides the render's "(stale)" /
+        //     "(authoritative)" labels and the JSON's subtype_stale / subtype_from_marker fields.
+        else if (modAuthored && DialogueSubtype.MarkerDisagreesWithSubtype(topic))
         {
             var fromMarker = DialogueSubtype.NameForMarker(topic.SubtypeName);
             issues.Add(new(DialogueIssueSeverity.Warning,
@@ -502,6 +514,19 @@ public static class DialogueValidate
                 + "numeric subtype enum when the Dragonborn-era Creation Kit inserted six FlyingMount* values at index 20, so a "
                 + "topic authored before that stores a number six lower than the modern table and every reader labels it too early. "
                 + $"Treat this topic's subtype as {(string.IsNullOrEmpty(fromMarker) ? topic.SubtypeName.Type : fromMarker)}, not {topic.Subtype}."));
+        }
+
+        // --- A non-blank marker this table does not model: not a disagreement (there is nothing to compare) and not
+        //     blank, so it would otherwise pass both checks in silence while the engine buckets the topic to a tag no
+        //     dialogue handler reads. Same ownership gate as the disagreement above.
+        else if (modAuthored && DialogueSubtype.IndexForMarker(topic.SubtypeName) is null)
+        {
+            issues.Add(new(DialogueIssueSeverity.Warning,
+                $"DialogTopic.SubtypeName (the SNAM subtype marker) is {topic.SubtypeName.Type}, which is not a marker houseCARL "
+                + "models — the game buckets topics by this 4-char tag, so an invented or mis-cased one (the tags are fixed case: "
+                + "HELO, not helo) puts the topic in a bucket no dialogue handler reads and it never plays. Set it to the marker for "
+                + $"the intended subtype (Subtype reads {topic.Subtype}) via {ToolNames.Apply} on SubtypeName — or, if {topic.SubtypeName.Type} "
+                + "is a real marker, report it: houseCARL's table is missing a row."));
         }
 
         // Static condition lints need the owning quest's reference-alias IDs — resolved ONCE here off the load-order
@@ -602,6 +627,7 @@ public static class DialogueValidate
             issues, voiceLines, voiceUndet, scriptFindings)
         {
             SubtypeDisagreesWithMarker = DialogueSubtype.MarkerDisagreesWithSubtype(topic),
+            SubtypeFromMarker = DialogueSubtype.NameForMarker(topic.SubtypeName) ?? "",
         };
     }
 
