@@ -2504,10 +2504,10 @@ public static class RecordsTools
         {
             if (manifestOnly) break;
             int mark = sb.Length;
-            if (o.Error is not null) sb.Append(o.FormKey).Append("  error=").Append(o.Error).Append('\n');
+            if (o.Error is not null) sb.Append(FormIdToken.Of(o.FormKey)).Append("  error=").Append(o.Error).Append('\n');
             else
             {
-                sb.Append(o.FormKey);
+                sb.Append(FormIdToken.Of(o.FormKey));
                 Wire.AppendRuntime(sb, o.RuntimeFormId, o.RuntimeFormIdNote);
                 sb.Append("  ").Append(o.Record!.Type)
                   .Append("  ").Append(o.Record.EditorId ?? "<no editorid>")

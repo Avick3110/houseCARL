@@ -32,7 +32,7 @@ internal static class DialogueWire
                                      bool includeInfoOrder = true)
     {
         string pad = indent ? "  " : "";
-        sb.Append(pad).Append("topic ").Append(Edid(t.TopicEditorId)).Append(" (").Append(t.Topic).Append(')')
+        sb.Append(pad).Append("topic ").Append(Edid(t.TopicEditorId)).Append(" (").Append(FormIdToken.Of(t.Topic)).Append(')')
           .Append(" — winner ").Append(t.WinnerPlugin).Append('\n');
         sb.Append(pad).Append("  ").Append(t.InfoCount).Append(t.InfoCount == 1 ? " INFO record" : " INFO records");
         if (t.ConditionedInfoCount > 0) sb.Append("; ").Append(t.ConditionedInfoCount).Append(" carry conditions (CTDA)");
@@ -158,7 +158,7 @@ internal static class DialogueWire
         foreach (var e in listAll ? io.Order : moved)
         {
             if (sb.Length >= cap) { sb.Append(pad).Append("    ... [truncated at max_chars]\n"); return false; }
-            sb.Append(pad).Append("    #").Append(e.Index + 1).Append("  ").Append(e.Info);
+            sb.Append(pad).Append("    #").Append(e.Index + 1).Append("  ").Append(FormIdToken.Of(e.Info));
             if (e.Deleted) sb.Append("  (deleted)");
             if (e.Moved) sb.Append("  MOVED from #").Append(e.OriginIndex!.Value + 1);
             // Gated on BaselineTrusted: with a shifted baseline the definer's own lines have no OriginIndex, and
@@ -183,7 +183,7 @@ internal static class DialogueWire
             sb.Append(pad).Append("  [!] ").Append(io.Complete ? "" : "as far as could be read, ").Append(moved.Count)
               .Append(moved.Count == 1 ? " line sits" : " lines sit")
               .Append(" at a different position than this topic's defining plugin laid down — the biggest shift is ")
-              .Append(w.Info).Append(" #").Append(w.OriginIndex!.Value + 1).Append(" -> #").Append(w.Index + 1)
+              .Append(FormIdToken.Of(w.Info)).Append(" #").Append(w.OriginIndex!.Value + 1).Append(" -> #").Append(w.Index + 1)
               .Append(", moved there by ").Append(w.PlacedBy)
               .Append(". Re-listing a line appends it to the BOTTOM unless the plugin also carries that line's PNAM. Nothing is dropped — but a line the game now reaches later can be pre-empted by any earlier line whose conditions also pass, so the wrong line answers.\n");
         }
@@ -218,7 +218,7 @@ internal static class DialogueWire
         foreach (var l in silent)
         {
             if (sb.Length >= cap) { sb.Append(pad).Append("    ... [truncated at max_chars]\n"); return; }
-            sb.Append(pad).Append("    [!] WILL BE SILENT  ").Append(l.Info).Append(" resp ").Append(l.ResponseNumber)
+            sb.Append(pad).Append("    [!] WILL BE SILENT  ").Append(FormIdToken.Of(l.Info)).Append(" resp ").Append(l.ResponseNumber)
               .Append(" — no .fuz at ").Append(l.FuzPath).Append("  (place the audio here)");
             if (!l.LipPresent) sb.Append("; .lip also absent");
             sb.Append('\n');
@@ -246,14 +246,14 @@ internal static class DialogueWire
         foreach (var f in bad)
         {
             if (sb.Length >= cap) { sb.Append(pad).Append("    ... [truncated at max_chars]\n"); return; }
-            sb.Append(pad).Append("    [!] WILL NOT FIRE  ").Append(f.Info).Append("  — ").Append(f.Detail);
+            sb.Append(pad).Append("    [!] WILL NOT FIRE  ").Append(FormIdToken.Of(f.Info)).Append("  — ").Append(f.Detail);
             if (f.MissingPex.Count > 0) sb.Append("  (missing: ").Append(string.Join(", ", f.MissingPex)).Append(')');
             sb.Append('\n');
         }
         foreach (var f in undet)
         {
             if (sb.Length >= cap) { sb.Append(pad).Append("    ... [truncated at max_chars]\n"); return; }
-            sb.Append(pad).Append("    [?] ").Append(f.Info).Append("  — ").Append(f.Detail).Append('\n');
+            sb.Append(pad).Append("    [?] ").Append(FormIdToken.Of(f.Info)).Append("  — ").Append(f.Detail).Append('\n');
         }
     }
 

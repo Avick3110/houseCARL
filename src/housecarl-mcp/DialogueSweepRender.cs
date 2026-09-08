@@ -285,7 +285,7 @@ internal static class DialogueSweepRender
     static void WriteTopicRow(Utf8JsonWriter w, TopicValidation t)
     {
         w.WriteStartObject();
-        w.WriteString("topic", t.Topic.ToString());
+        w.WriteString("topic", FormIdToken.Of(t.Topic));
         w.WriteString("editor_id", t.TopicEditorId);
         w.WriteString("winner_plugin", t.WinnerPlugin);
         w.WriteNumber("info_count", t.InfoCount);
@@ -307,7 +307,7 @@ internal static class DialogueSweepRender
         {
             if (l.FuzPresent) continue;
             w.WriteStartObject();
-            w.WriteString("info", l.Info.ToString());
+            w.WriteString("info", FormIdToken.Of(l.Info));
             w.WriteNumber("response", l.ResponseNumber);
             w.WriteString("fuz_path", l.FuzPath);
             w.WriteBoolean("lip_present", l.LipPresent);
@@ -319,7 +319,7 @@ internal static class DialogueSweepRender
         {
             if (f.Status == ScriptBindingStatus.BoundAndCompiled) continue;
             w.WriteStartObject();
-            w.WriteString("info", f.Info.ToString());
+            w.WriteString("info", FormIdToken.Of(f.Info));
             w.WriteString("status", f.Status.ToString());
             w.WriteString("detail", f.Detail);
             w.WriteEndObject();

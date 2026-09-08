@@ -232,7 +232,7 @@ static class JsonWire
         {
             if (Over(w, ms, cap)) { truncated = true; break; }
             w.WriteStartObject();
-            w.WriteString("formid", r.Target.ToString());
+            w.WriteString("formid", FormIdToken.Of(r.Target));
             if (r.Error is not null) w.WriteString("error", r.Error);
             else
             {
@@ -403,7 +403,7 @@ static class JsonWire
         int room = (int)Math.Max(0, cap - ms.Length) / ChildUnionMemberBytes;
         int listed = Math.Min(u.Members.Count, Math.Min(ChildUnionMemberCap, room));
         w.WriteStartArray("members");
-        for (int i = 0; i < listed; i++) w.WriteStringValue(u.Members[i].ToString());
+        for (int i = 0; i < listed; i++) w.WriteStringValue(FormIdToken.Of(u.Members[i]));
         w.WriteEndArray();
         if (u.Members.Count > listed) w.WriteNumber("members_omitted", u.Members.Count - listed);
         w.WriteEndObject();
@@ -990,7 +990,7 @@ static class JsonWire
                     w.Flush();
                     if (ms.Length >= cap) { truncated = true; break; }
                     w.WriteStartObject();
-                    w.WriteString("formid", row.Carrier.ToString());
+                    w.WriteString("formid", FormIdToken.Of(row.Carrier));
                     w.WriteString("type", row.Type);
                     WriteNullable(w, "editorid", row.EditorId);
                     w.WriteString("winner", row.Winner);
@@ -1054,7 +1054,7 @@ static class JsonWire
             }
             w.WriteStartObject();
             w.WriteNumber("position", e.Index + 1);
-            w.WriteString("info", e.Info.ToString());
+            w.WriteString("info", FormIdToken.Of(e.Info));
             w.WriteString("placed_by", e.PlacedBy);
             if (e.Deleted) w.WriteBoolean("deleted", true);
             if (e.Moved) { w.WriteBoolean("moved", true); w.WriteNumber("origin_position", e.OriginIndex!.Value + 1); }
@@ -1619,10 +1619,10 @@ static class JsonWire
     static void WriteDanglingEntry(Utf8JsonWriter w, DanglingRef d)
     {
         w.WriteStartObject();
-        w.WriteString("source", d.Source.ToString());
+        w.WriteString("source", FormIdToken.Of(d.Source));
         w.WriteString("source_type", d.SourceType);
         WriteNullable(w, "source_editorid", d.SourceEditorId);
-        w.WriteString("target", d.Target.ToString());
+        w.WriteString("target", FormIdToken.Of(d.Target));
         w.WriteEndObject();
     }
 
@@ -2139,7 +2139,7 @@ static class JsonWire
             w.WriteEndObject();
             return;
         }
-        w.WriteString("formid", rec.Record.ToString());
+        w.WriteString("formid", FormIdToken.Of(rec.Record));
         w.WriteString("type", rec.RecordType);
         WriteNullable(w, "editorid", rec.EditorId);
         w.WriteString("plugin", rec.Plugin);
@@ -2443,7 +2443,7 @@ static class JsonWire
             {
                 if (Over(w, ms, cap)) { truncated = true; break; }
                 w.WriteStartObject();
-                w.WriteString("formid", op.Target.ToString());
+                w.WriteString("formid", FormIdToken.Of(op.Target));
                 w.WriteString("record_type", op.RecordType);
                 w.WriteString("label", op.Label);
                 w.WriteBoolean("applied", op.Applied);
@@ -2716,7 +2716,7 @@ static class JsonWire
             {
                 if (Over(w, ms, cap)) { truncated = true; break; }
                 w.WriteStartObject();
-                w.WriteString("formid", r.Target.ToString());
+                w.WriteString("formid", FormIdToken.Of(r.Target));
                 w.WriteString("record_type", r.RecordType);
                 WriteNullable(w, "editorid", r.EditorId);
                 w.WriteEndObject();
@@ -2797,7 +2797,7 @@ static class JsonWire
             {
                 if (Over(w, ms, cap)) { truncated = true; break; }
                 w.WriteStartObject();
-                w.WriteString("formid", f.Target.ToString());
+                w.WriteString("formid", FormIdToken.Of(f.Target));
                 w.WriteString("record_type", f.RecordType);
                 WriteNullable(w, "editorid", f.EditorId);
                 w.WriteString("source", f.FromPlugin);
@@ -3080,7 +3080,7 @@ static class JsonWire
         {
             if (Over(w, ms, cap)) { truncated = true; blockCut = true; break; }
             w.WriteStartObject();
-            w.WriteString("info", l.Info.ToString());
+            w.WriteString("info", FormIdToken.Of(l.Info));
             WriteNullable(w, "topic_editorid", l.TopicEditorId);
             w.WriteNumber("response", l.ResponseNumber);
             w.WriteBoolean("fuz_present", l.FuzPresent);
@@ -3101,7 +3101,7 @@ static class JsonWire
         {
             if (Over(w, ms, cap)) { truncated = true; blockCut = true; break; }
             w.WriteStartObject();
-            w.WriteString("info", u.Info.ToString());
+            w.WriteString("info", FormIdToken.Of(u.Info));
             WriteNullable(w, "topic_editorid", u.TopicEditorId);
             w.WriteString("reason", u.Reason);
             w.WriteEndObject();
@@ -3159,7 +3159,7 @@ static class JsonWire
         {
             if (Over(w, ms, cap)) { truncated = true; blockCut = true; break; }
             w.WriteStartObject();
-            w.WriteString("info", f.Info.ToString());
+            w.WriteString("info", FormIdToken.Of(f.Info));
             WriteNullable(w, "topic_editorid", f.TopicEditorId);
             w.WriteString("status", f.Status.ToString());
             w.WriteString("detail", f.Detail);
@@ -3188,7 +3188,7 @@ static class JsonWire
         {
             if (Over(w, ms, cap)) { truncated = true; blockCut = true; break; }
             w.WriteStartObject();
-            w.WriteString("cell", c.Cell.ToString());
+            w.WriteString("cell", FormIdToken.Of(c.Cell));
             w.WriteString("editorid", c.EditorId);
             w.WriteBoolean("interior", c.Interior);
             WriteStringArray(w, "must_provide", c.MustProvide);
