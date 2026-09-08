@@ -152,7 +152,7 @@ file's filter list, the primary filter in the table above wins and the example i
 article typo. A token the corpus marks unverified against the DLL, or names without a grammar, is a
 warn case, not a use case.
 
-## Common mistakes
+## Common mistakes, and the rule that replaces each
 
 - **Wrong subfolder.** A weapon patch under `npc/` is read by the wrong patcher and does nothing.
   Take the subfolder from the table.
