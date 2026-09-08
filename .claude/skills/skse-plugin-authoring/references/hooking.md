@@ -463,7 +463,7 @@ but the verified-*write* wrapper is `ng`-only (po3-dev's `safe_write` is void-on
 any verify teaching to `ng`). The `[[deprecated]]` on the plain form is **opt-in**: it and
 the runtime `AUDIT:` warning are gated behind `REL_AUDIT_UNVERIFIED_PATCHES`, a migration
 switch you add to *find* unverified patches then remove (`Relocation.h:204-207`,
-`VERIFICATION_MIGRATION.md:44-77`) — in a default build the plain form compiles silently. So
+`docs/VERIFICATION_MIGRATION.md:44-77`) — in a default build the plain form compiles silently. So
 the library *offers* verification and *flags* the unverified form under an audit build; it
 does not deprecate it by default.
 

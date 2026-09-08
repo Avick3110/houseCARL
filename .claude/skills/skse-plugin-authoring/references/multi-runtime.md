@@ -17,7 +17,7 @@ the `.psc` surface; never state a Papyrus signature as though it were derived fr
 the C++/Papyrus line is crossed, say so and hand off.
 
 Provenance is cited as `path:line` against the pinned NG corpus (`alandtse/CommonLibVR` @ `8c048b3`, its
-bundled `CLAUDE.md`, the CommonLibSSE-NG wiki, and real plugins OAR / SPID / po3 Papyrus Extender), so a
+bundled `ng/CLAUDE.md`, the CommonLibSSE-NG wiki, and real plugins OAR / SPID / po3 Papyrus Extender), so a
 surprising claim traces back to source.
 
 ## Contents
@@ -43,7 +43,7 @@ index* per runtime.
 > it ABI-incompatible with AE/SE. A naive virtual function call, therefore, cannot work across all runtimes
 > without the plugin being recompiled specifically for VR." — `REL/Relocation.h:979-983`
 
-NG's design goal is a single DLL that works across all supported runtimes (`CLAUDE.md:7`), achieved by
+NG's design goal is a single DLL that works across all supported runtimes (`ng/CLAUDE.md:7`), achieved by
 **never baking a runtime-specific layout into cross-runtime code**. Layout-critical facts (a struct's size,
 a base class, whether a virtual exists at all) are chosen at *compile time* per build preset; offset, slot,
 and feature facts the one DLL must vary are chosen at *load time* via cheap runtime probes that constant-fold
@@ -52,7 +52,7 @@ to nothing in single-runtime builds.
 The trap you must internalize before anything else: a bug written against one layout **compiles clean under
 a single-runtime test preset** and only bites once VR joins the target set. The multi-runtime build — NG
 calls its preset `all`, and its live code path `SKYRIM_CROSS_VR` — is the one that must be green
-(`CLAUDE.md:510-514`). Testing only `se` hides the entire class of bug this reference exists to prevent.
+(`ng/CLAUDE.md:510-514`). Testing only `se` hides the entire class of bug this reference exists to prevent.
 
 ## The footgun catalog
 
@@ -78,10 +78,10 @@ memory / CTD on VR" is the one that ships and crashes a player.
 | 14 | Reaching for `EXCLUSIVE_SKYRIM_FLAT` where SE and AE actually differ | Compiles clean, silently wrong in one of SE/AE | Gate with `EXCLUSIVE_SKYRIM_SE` / `EXCLUSIVE_SKYRIM_AE` when SE ≠ AE — FLAT only means "not VR" |
 | 15 | Mis-ordering the `Relocate` / `RELOCATION_ID` two-arg form | Wrong id/offset on one runtime | 2-arg = `(SE-and-VR shared, AE)`; 3-arg = `(SE, AE, VR)` |
 
-Sources for the rows above: `CLAUDE.md:432-448,480`, `Actor.h:776-778` (#1); `oar/src/Offsets.h:17` (#2);
-`CLAUDE.md:251`, `Common.h:159,186` (#3); `CLAUDE.md:217-241`, `Relocation.h:934-940` (#4);
-`CLAUDE.md:388-404,476-478` (#5); `Common.h:287-334` (#6); `Relocation.h:1000-1003` (#7);
-`oar/src/Conditions.cpp:814` (#8); `CLAUDE.md:253-296` (#9); Lineage section (#10, #11); `ID.h:589-592`
+Sources for the rows above: `ng/CLAUDE.md:432-448,480`, `Actor.h:776-778` (#1); `oar/src/Offsets.h:17` (#2);
+`ng/CLAUDE.md:251`, `Common.h:159,186` (#3); `ng/CLAUDE.md:217-241`, `Relocation.h:934-940` (#4);
+`ng/CLAUDE.md:388-404,476-478` (#5); `Common.h:287-334` (#6); `Relocation.h:1000-1003` (#7);
+`oar/src/Conditions.cpp:814` (#8); `ng/CLAUDE.md:253-296` (#9); Lineage section (#10, #11); `ID.h:589-592`
 (#12); wiki §12,21,185-193 (#13); `Common.h:3-30` (#14); wiki §84,94 (#15).
 
 Three deserve a worked look because copy-paste gets them wrong most often.
@@ -144,7 +144,7 @@ silent-load-failure trap.
 ## Compile-time vs runtime — the decision rule
 
 This is the single most important author judgment, and it decides which of the tools below you reach for
-(`CLAUDE.md:374-377,217-224,419-426`).
+(`ng/CLAUDE.md:374-377,217-224,419-426`).
 
 **Use a preprocessor `#if` (baked per build) when the difference is layout-critical** — it *must* be fixed
 at compile time because it changes the C++ type's shape:
@@ -193,7 +193,7 @@ error is the guardrail.** From `RE/A/Actor.h:776-778`:
 *Demonstrates: the fields exist only in single-runtime builds — the `all` build forces you through the
 accessor.* `PlayerCharacter` mirrors this (`PlayerCharacter.h:999-1003`). NG's own guide states the rule
 and names the error: *"'is not a member of [class]' → Cause: accessing RUNTIME_DATA members directly in
-multi-runtime builds → Solution: Use GetRuntimeData() accessor"* (`CLAUDE.md:480-482`).
+multi-runtime builds → Solution: Use GetRuntimeData() accessor"* (`ng/CLAUDE.md:480-482`).
 
 So `actor->currentProcess` compiles on an `se` preset and dies only in `all` — a single-preset test hides
 the bug. **Author rule: always go through the accessor, even in a single-runtime build, so the plugin stays
@@ -251,19 +251,19 @@ The recurring three-way skeleton is:
 #if defined(EXCLUSIVE_SKYRIM_VR)
     // VR-only shape
 #elif !defined(ENABLE_SKYRIM_VR)
-    // SE/AE-only shape  — use this, NOT a bare #else (CLAUDE.md:296), or it won't compile across all presets
+    // SE/AE-only shape  — use this, NOT a bare #else (ng/CLAUDE.md:296), or it won't compile across all presets
 #else
     // multi-runtime shape
 #endif
 ```
 
 Use `!defined(ENABLE_SKYRIM_VR)` for the SE/AE arm, never a bare `#else` — the bare form fails to compile
-across every preset (`CLAUDE.md:296`, footgun #9's fine print).
+across every preset (`ng/CLAUDE.md:296`, footgun #9's fine print).
 
 ### Pattern 1 — runtime-exclusive virtual functions
 
 **When:** the class has the **same base class** across runtimes but a virtual exists in only one runtime —
-typically a VR-only slot inserted mid-vtable (`CLAUDE.md:163-251`). VR gets a real `virtual`; the
+typically a VR-only slot inserted mid-vtable (`ng/CLAUDE.md:163-251`). VR gets a real `virtual`; the
 multi-runtime build gets a non-virtual placeholder that keeps the C++ vtable identical to SE/AE while
 `RelocateVirtual` does the real dispatch:
 
@@ -306,13 +306,13 @@ VR:    Begin(01) -> End(02) -> Unk_03(03) -> Update(04) -> GetRotation(05)
 
 `TESCameraState.cpp:19-47` proves it: `Update(0x03,0x04)`, `GetRotation(0x04,0x05)`, and so on. Derived
 classes repeat the whole thing — this is the compounding shift the footgun catalog's Actor example walks in
-detail. As `CLAUDE.md:226` puts it: *"Every derived class that overrides functions after a runtime-exclusive
+detail. As `ng/CLAUDE.md:226` puts it: *"Every derived class that overrides functions after a runtime-exclusive
 function MUST implement RelocateVirtual for those functions."*
 
 ### Pattern 2 — runtime-exclusive inheritance
 
 **When:** the class inherits **completely different, incompatible base classes** per runtime
-(`CLAUDE.md:253-301`). Inherit the VR base under VR, the SE/AE base under `!defined(ENABLE_SKYRIM_VR)`, and a
+(`ng/CLAUDE.md:253-301`). Inherit the VR base under VR, the SE/AE base under `!defined(ENABLE_SKYRIM_VR)`, and a
 single most-compatible common base in multi-runtime; then expose `As<Base>()` upcasts that **return
 `nullptr` for the wrong runtime** and otherwise `RelocateMember` to the base's data. The live exemplar is
 `RE::ButtonEvent` (`:12-20,75-81`):
@@ -347,7 +347,7 @@ The same shape covers `HUDMenu : WorldSpaceMenu` (VR) vs `IMenu` (SE/AE), also i
 ### Pattern 3 — chained-inheritance access
 
 **When:** you need a base class's members but reach it through an inheritance *chain that differs per
-runtime* (`CLAUDE.md:303-354`). `ButtonEvent` again — VR walks `ButtonEvent → VRWandEvent → IDEvent`, SE/AE
+runtime* (`ng/CLAUDE.md:303-354`). `ButtonEvent` again — VR walks `ButtonEvent → VRWandEvent → IDEvent`, SE/AE
 casts directly, and multi-runtime has no `IDEvent` edge at all so it relocates (`ButtonEvent.h:88-101`):
 
 ```cpp
@@ -437,7 +437,7 @@ CMake presets set only the `ENABLE_*` trio; `Common.h` derives the rest. The fiv
 
 ### FLAT is "not VR", not "single non-VR runtime" (footgun #14)
 
-The NG `CLAUDE.md` quick-reference table for these defines is a friendly summary that is **lossy in a way
+The `ng/CLAUDE.md` quick-reference table for these defines is a friendly summary that is **lossy in a way
 that produces wrong code** — it omits `EXCLUSIVE_SKYRIM_SE` / `EXCLUSIVE_SKYRIM_AE` and implies a single-SE
 build gets *only* FLAT. It doesn't: `Common.h:12-20` proves single-SE defines both SE and FLAT. Where the
 table and `Common.h` disagree, **`Common.h` wins** — compiled code over hand-written agent notes.
@@ -479,7 +479,7 @@ is frozen: the NG wiki is CharmedBaryon-era prose, useful as documentation, but 
 
 ## Not yet verified in-game
 
-Everything above is grounded in NG's primary source (headers, `.cpp` bodies, the bundled `CLAUDE.md`), and
+Everything above is grounded in NG's primary source (headers, `.cpp` bodies, the bundled `ng/CLAUDE.md`), and
 the `STATIC_ASSERT_SIZE` / `STATIC_ASSERT_OFFSET` backstop proves layout *consistency* per preset at compile
 time. What static source **cannot** prove is that a given offset/slot pair resolves the right member or
 function in a *running* game. Treat these as open until a build-and-load test on each runtime confirms them
