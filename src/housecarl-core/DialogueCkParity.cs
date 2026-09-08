@@ -58,6 +58,14 @@ namespace HousecarlCore;
 //  struct this fills. Materialising Flags to all-zero does NOT set Goodbye — a conversation-ending line still
 //  needs Flags.Flags = Goodbye set explicitly (that's an authoring choice, not a CK-parity default). The
 //  dialogue-authoring skill carries that semantic.
+//
+//  QUST QuestFormVersion (DNAM byte 3) is NOT a parity field and must not be added here (measured for #661).
+//  Mutagen defaults it to 255 (0xFF), which is what a new QUST written here carries — and 255 is what the CK
+//  itself writes on a NEW quest: 793 of the 817 quests DEFINED IN six CK-authored mods carry 255, and
+//  LegacyoftheDragonborn/Wyrmstooth/ccbgssse003-zombies are 366 for 366. Vanilla Skyrim.esm writes 0, not 65
+//  (1,697 of 1,811; the other 114 carry uninitialised junk — 25, 101, 108, 111, 204). 65 shows up mostly where
+//  the CK RE-SAVES an existing quest (USSEP: 517 of the 653 it touches). xEdit declares the byte
+//  wbInteger('Form Version', itU8, nil, cpIgnore) — cpIgnore, excluded from conflict detection outright.
 // ======================================================================
 
 /// <summary>One CK-parity field that was default-populated on create: a human-readable <see cref="Label"/> (the
