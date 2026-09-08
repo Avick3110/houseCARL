@@ -388,7 +388,12 @@ public static class SksePluginReader
 
         bool Walk(int dirRva, int dirSize, int stride, int nameOff, bool delay)
         {
-            if (dirSize == 0 || dirRva == 0) return true;              // directory genuinely absent → nothing to add
+            if (dirRva == 0) return true;                              // directory genuinely absent → nothing to add
+            // A declared RVA with a zero Size is NOT absence: there is a table there, and this walk's only bound on it
+            // is that Size (see the limit below). Returning true would walk nothing and still report success — a whole
+            // directory of imports dropped behind a complete-looking "imports (N): …", the same silent partial the
+            // unresolvable-name case below refuses. Answer UNKNOWN instead, like every other failure here.
+            if (dirSize == 0) return false;
             try
             {
                 var block = pe.GetSectionData(dirRva);
