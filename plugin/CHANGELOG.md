@@ -55,7 +55,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `Emotion`/`EmotionValue`/`Flags`; the append example previously wrote neither. The skill also says how to
   find that vanilla sibling (`references=[<npc formid>]`, not a `Speaker` scan), that the activation greeting
   is the `HELO` subtype with no `GREE`, and that a topic's `SNAM` marker is authoritative for its subtype
-  where the `Subtype` enum disagrees across form versions.
+  where the numeric `Subtype` disagrees — the stale decode being the master's own pre-Dragonborn copy, which
+  is the read the skill's own first steps send you to.
 - **`open-animation-replacer` now states how a DAR `_conditions.txt` chain binds, and that the DAR weapon-type
   numbers convert unchanged.** Both were marked unverified in its reference, and the skill told you to convert
   under one reading and say which. Both are now read off OAR's own source; the reference's §8 carries the rule,
