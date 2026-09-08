@@ -74,13 +74,11 @@ It can:
 - Look up **record schemas** (every type Mutagen models) and **Papyrus / SKSE signatures**, author
   **SkyPatcher**, **SPID**, and **KID** distributor files, **author Skyrim dialogue** and **Open Animation
   Replacer configs**, **author SKSE plugins in C++** (CommonLibSSE-NG),
-  **diagnose the dark / grey / black-face NPC bug**, **copy an NPC appearance**,
-  and **plan bulk record-jobs** — through 11 bundled,
+  and **diagnose the dark / grey / black-face NPC bug** — through 9 bundled,
   namespaced skills (`/housecarl:mutagen-reference`, `/housecarl:papyrus-reference`,
   `/housecarl:skypatcher-authoring`, `/housecarl:spid-authoring`, `/housecarl:kid-authoring`,
   `/housecarl:dialogue-authoring`, `/housecarl:facegen-diagnostics`,
-  `/housecarl:open-animation-replacer`, `/housecarl:skse-plugin-authoring`,
-  `/housecarl:npc-appearance-copy`, `/housecarl:bulk-record-jobs`).
+  `/housecarl:open-animation-replacer`, `/housecarl:skse-plugin-authoring`).
 
 Coverage is **reflection-driven**: the set of record types houseCARL understands *is* the set Mutagen
 models, by construction — not a hand-maintained subset.
