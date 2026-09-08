@@ -911,6 +911,35 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
 
     string TreeRender(FormKey fk, int cap) => TreeRender(fk, cap, out _);
 
+    /// <summary>Two rows through the same render, so what a cut row costs the rows BELOW it can be read.</summary>
+    string TreeRender(FormKey[] fks, int cap)
+    {
+        var rows = Svc.TreeBatch(fks.Select(OwnedChildWorld.Fid).ToArray(), LoadOrderService.PoleSpec.Winner,
+                                 null, null, out _, out _, out var refusal, out _);
+        Assert.Null(refusal);
+        return RecordsTools.RenderRecordsTree(rows, rows.Count, 0, 0, false, TreeHeader, null, cap, null, out _)
+                           .Replace("\r\n", "\n");
+    }
+
+    /// <summary>A row kept and cut ends the render, so the rows under it never render — and the render says how
+    /// many, in the accounting line its budget charged for before the first row was laid. At 900 CellF is cut and
+    /// CellC never reached, so the line is owed; at 1906, the first cap CellC's own row fits inside, there is
+    /// nothing left to count and no line is written over a complete set of rows.</summary>
+    [Fact]
+    public void ARowKeptAndCutCountsTheRowsTheRenderNeverReached()
+    {
+        var pair = new[] { _w.CellF, _w.CellC };
+
+        var cut = TreeRender(pair, 900);
+        Assert.Contains("[child declarers cut at max_chars=900", cut);
+        Assert.DoesNotContain(OwnedChildWorld.Fid(_w.CellC), cut);
+        Assert.Contains("... [rendered 1 of 2 rows at max_chars=900]", cut);
+
+        var whole = TreeRender(pair, 1906);
+        Assert.Contains(OwnedChildWorld.Fid(_w.CellC), whole);
+        Assert.DoesNotContain(" rows at max_chars=", whole);
+    }
+
     /// <summary>Whatever the cap, the tree render answers inside it — the ceiling holds across the whole band
     /// where a row is cut, not only at the caps the tests above pin.</summary>
     [Fact]

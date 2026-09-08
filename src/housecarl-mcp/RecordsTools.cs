@@ -1980,8 +1980,8 @@ public static class RecordsTools
                 continue;
             }
             // The record was laid to the budget and says what it held back: it stays, and nothing more fits.
-            truncated = true;
             rendered++;
+            Stopped(sb, Notice(rendered), rendered, rows.Count, ref truncated);
             break;
         }
         sb.Append(spillText);
@@ -1998,6 +1998,15 @@ public static class RecordsTools
         sb.Append(notice);
         truncated = true;
         return true;
+    }
+
+    /// <summary>The end a unit that said what it held back gets: it stays, the render stops after it, and the units
+    /// it never reached are counted in <paramref name="notice"/> — written in the room charged for it before the
+    /// first unit was laid. A unit that was the last one left nothing to count, so the line is not written.</summary>
+    static void Stopped(StringBuilder sb, string notice, int rendered, int total, ref bool truncated)
+    {
+        truncated = true;
+        if (rendered < total) sb.Append(notice);
     }
 
     /// <summary>A section that ran out of room says so INSIDE the budget or not at all: false means the notice
@@ -2124,8 +2133,8 @@ public static class RecordsTools
                 continue;
             }
             // The row was laid to the budget and says what it held back: it stays, and nothing more fits.
-            truncated = true;
             rendered++;
+            Stopped(sb, Notice(rendered), rendered, rows.Count, ref truncated);
             break;
         }
         sb.Append(spillText);
@@ -2287,8 +2296,8 @@ public static class RecordsTools
                 continue;
             }
             // The seed was laid to the budget and says what it held back: it stays, and nothing more fits.
-            truncated = true;
             rendered++;
+            Stopped(sb, Notice(rendered), rendered, rows.Count, ref truncated);
             break;
         }
         sb.Append(spillText);
