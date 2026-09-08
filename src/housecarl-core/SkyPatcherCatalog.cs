@@ -14,8 +14,9 @@ namespace HousecarlCore;
 /// reference and never invented. A key that resolves to no entry is reported as
 /// <see cref="SkyPatcherKeyRole.Unknown"/>, never silently assumed.</para>
 ///
-/// <para>Loaded once from the embedded <c>skypatcher-catalog.json</c>; the record dimension (subfolder /
-/// sig / primaryFilter) is cross-checked in CI against the reference <c>index.jsonl</c>. Field-path
+/// <para>Loaded once from the embedded <c>skypatcher-catalog.json</c>; the record dimension (name / sig /
+/// subfolder / primaryFilter) is cross-checked in CI against the router table in the
+/// <c>skypatcher-authoring</c> skill's <c>SKILL.md</c>. Field-path
 /// mapping onto Mutagen records belongs to the overlay engine: the catalog classifies keys, it does not
 /// resolve values.</para>
 /// </summary>
