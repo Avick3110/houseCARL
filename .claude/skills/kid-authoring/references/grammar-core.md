@@ -52,7 +52,8 @@ keyword**.
 - KID scans Skyrim's `Data\` folder for **every `.ini` whose name contains the substring `_KID`**
   (e.g. `MyMod_KID.ini`, `AllGearKID.ini`). **[source]** (`get_configs(R"(Data\)", "_KID")`)
 - Files are loaded in **alphabetical order, A → Z**, each read **top to bottom**. **[source]**
-- Files live **flat in `Data\`** — *not* under `SKSE\Plugins\` (where SkyPatcher puts theirs).
+- Files live **flat in `Data\`** — *not* under `SKSE\Plugins\` (SkyPatcher puts theirs in
+  `SKSE\Plugins\SkyPatcher\<type folder>\`).
   Shipped inside a mod managed by a mod manager, but resolved from `Data\` at runtime.
 - Parsed through **CSimpleIniA** (`SetUnicode`, `SetMultiKey`). **[source]** Consequences:
   - **Comments:** standard INI line comments with **`;`** (CSimpleIniA's default).
