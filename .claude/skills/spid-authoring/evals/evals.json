@@ -2,7 +2,7 @@
   "skill": "spid-authoring",
   "source_tree": "dist/housecarl/skills/spid-authoring",
   "note": "Every arm reads the PACKAGED tree, never .claude/skills/. The packager strips evals/ and references/_CORPUS_STATUS.md, so a run against the source tree measures a skill that never ships.",
-  "method": "Trigger arm: an independent fan-out of fresh-context agents, one per query per run, each shown a neutral menu of skill descriptions (this skill among realistic siblings, not flagged as under test) plus one query, asked which ONE skill to load (or NONE) and why. Verdicts are adjudicated from each agent's reasoning and its pick. Menu: the 14 skills this tree actually ships, each shown with its own description and none flagged as under test — biped-slot-reference, bulk-record-jobs, dialogue-authoring, facegen-diagnostics, kid-authoring, mutagen-reference, npc-appearance-copy, oar-authoring, papyrus-optimization, papyrus-reference, skse-plugin-authoring, skypatcher-authoring, spid-authoring [under test], tool-output-awareness — plus NONE. The 2026-06-11 and 2026-07-28 runs used a nine-letter menu containing CID, crash-diagnostics, conflict-resolution and modding-basics, none of which ship; a should-not query whose only honest destination is one of those must be scored against NONE, not against a skill the install does not offer.",
+  "method": "Trigger arm: an independent fan-out of fresh-context agents, one per query per run, each shown a neutral menu of skill descriptions (this skill among realistic siblings, not flagged as under test) plus one query, asked which ONE skill to load (or NONE) and why. Verdicts are adjudicated from each agent's reasoning and its pick. Menu: the 11 skills this tree actually ships (the $Skills list in scripts/build-plugin.ps1), each shown with its own description and none flagged as under test — bulk-record-jobs, dialogue-authoring, facegen-diagnostics, kid-authoring, mutagen-reference, npc-appearance-copy, oar-authoring, papyrus-reference, skse-plugin-authoring, skypatcher-authoring, spid-authoring [under test] — plus NONE. biped-slot-reference, papyrus-optimization and tool-output-awareness are deleted and are not on the menu. The 2026-06-11 and 2026-07-28 runs used a nine-letter menu containing CID, crash-diagnostics, conflict-resolution and modding-basics, none of which ship; a should-not query whose only honest destination is one of those must be scored against NONE, not against a skill the install does not offer.",
   "arms": [
     {
       "id": "with-skill",
@@ -16,7 +16,7 @@
   "configurations": [
     {
       "id": "coexistence",
-      "description": "The shipped 14-skill menu above — the deployment shape, with the near-neighbour distributor skills (KID, SkyPatcher) present and no destination on offer that the install does not carry.",
+      "description": "The shipped 11-skill menu above — the deployment shape, with the near-neighbour distributor skills (KID, SkyPatcher) present and no destination on offer that the install does not carry.",
       "failure_mode_recall": "A should-trigger query is claimed by a neighbour (KID, SkyPatcher, CID) because the boundary clause reads as a scope the neighbour also satisfies.",
       "failure_mode_specificity": "A should-not query is pulled in because the description owns the literal token 'SPID' and states no exclusion for the question's shape."
     },
@@ -180,7 +180,7 @@
     {
       "id": 15,
       "prompt": "my game ctd's right when a dragon priest spawns, read the crash log and tell me why",
-      "expected_output": "NONE — this tree ships no crash-diagnosis skill, and none of the 14 covers the question",
+      "expected_output": "NONE — this tree ships no crash-diagnosis skill, and none of the 11 covers the question",
       "expectations": ["Does NOT route to this skill."],
       "should_trigger": false,
       "evidence": "Crash triage; no distribution artifact."
