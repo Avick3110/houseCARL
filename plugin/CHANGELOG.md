@@ -78,6 +78,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   value" for all five.** A null field and the other arm of a union are not read faults, and a link that is set but
   points at a disabled plugin or a missing master is not unset: its remedy is to enable the plugin, not to widen
   the scope. The counts are now named separately.
+- **A FormID token now spells its plugin the way the file is spelled on disk, in every read.** A link's plugin
+  used to be spelled from the master list of whatever plugin held the link, and a token you passed in was echoed
+  as you typed it, so the same record could come back as `Skyrim.esm` in one read and `skyrim.esm` in another and
+  a join of two outputs missed those rows. Every token, and the `defined_in` grouping key, now prints the load
+  order's own spelling; a plugin the active order does not carry keeps the spelling it arrived with.
 - **`open-animation-replacer` now states how a DAR `_conditions.txt` chain binds, and that the DAR weapon-type
   numbers convert unchanged.** Both were marked unverified in its reference, and the skill told you to convert
   under one reading and say which. Both are now read off OAR's own source; the reference's §8 carries the rule,

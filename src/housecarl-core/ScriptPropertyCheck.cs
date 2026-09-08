@@ -396,7 +396,7 @@ public static class ScriptPropertyCheck
     /// lanes, so an off-order file's unreadable adapter reads exactly as an indexed one's.</summary>
     static string RecordFault(string? soFar, FormKey fk, Exception ex)
         => (soFar is null ? "" : soFar + "; ")
-         + $"a record's script adapter could not be read ({fk} — {ex.GetType().Name}: {ex.Message})";
+         + $"a record's script adapter could not be read ({FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message})";
 
     /// <summary>Every script attachment on the record: the adapter's own <see cref="IAVirtualMachineAdapterGetter.Scripts"/>
     /// PLUS, for a QUEST, each alias's scripts (<see cref="IQuestAdapterGetter.Aliases"/> →

@@ -151,20 +151,20 @@ public static class OwnedChildLifecycle
             if (slot.Shape == OwnedChildShape.Singular)
             {
                 if (!slot.Property.CanWrite)
-                    return $"'{slot.Describe()}' holds {slot.Child.FormKey} but is not settable, so the child cannot " +
+                    return $"'{slot.Describe()}' holds {FormIdToken.Of(slot.Child.FormKey)} but is not settable, so the child cannot " +
                            "be detached from its parent — surfaced, not swallowed (Q3).";
                 slot.Property.SetValue(slot.Parent, null);
                 return null;
             }
             if (slot.Container is null)
-                return $"'{slot.Describe()}' holds {slot.Child.FormKey} in no list this engine can drop it from — " +
+                return $"'{slot.Describe()}' holds {FormIdToken.Of(slot.Child.FormKey)} in no list this engine can drop it from — " +
                        "surfaced, not swallowed (Q3).";
             slot.Container.Remove(slot.Child);
             return null;
         }
         catch (Exception ex)
         {
-            return $"detaching {slot.Child.FormKey} from '{slot.Describe()}' threw ({ex.GetType().Name}: " +
+            return $"detaching {FormIdToken.Of(slot.Child.FormKey)} from '{slot.Describe()}' threw ({ex.GetType().Name}: " +
                    $"{ex.Message}) — surfaced, not swallowed (Q3).";
         }
     }

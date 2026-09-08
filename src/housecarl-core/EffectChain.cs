@@ -139,7 +139,7 @@ public static class EffectChain
                 catch (Exception ex)
                 {
                     unscannable++;
-                    if (samples.Count < 3) samples.Add($"{fk} — {ex.GetType().Name}: {ex.Message}");
+                    if (samples.Count < 3) samples.Add($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}");
                 }
             }
         }

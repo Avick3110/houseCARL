@@ -169,7 +169,7 @@ internal static class Artifacts
                 if (o.Error is not null)
                     writer.WriteRow((w, _) =>
                     {
-                        w.WriteStartObject(); w.WriteString("formid", fk.ToString()); w.WriteString("error", o.Error);
+                        w.WriteStartObject(); w.WriteString("formid", FormIdToken.Of(fk)); w.WriteString("error", o.Error);
                         if (matches is not null) w.WriteString("matches", matches);
                         w.WriteEndObject();
                     });
@@ -261,7 +261,7 @@ internal static class Artifacts
             if (o.Error is not null)
                 writer.WriteRow((w, _) =>
                 {
-                    w.WriteStartObject(); w.WriteString("formid", o.FormKey.ToString()); w.WriteString("error", o.Error);
+                    w.WriteStartObject(); w.WriteString("formid", FormIdToken.Of(o.FormKey)); w.WriteString("error", o.Error);
                     if (hit is not null) w.WriteString("matches", hit);
                     w.WriteEndObject();
                 });

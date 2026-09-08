@@ -113,7 +113,7 @@ public static class ReverseWalkBatch
         // Seeds first, then each hop in order: the selection reads in walk order, and the render says the seeds
         // are in it.
         var selection = new List<string>(seedKeys.Count);
-        foreach (var k in seedKeys) selection.Add(k.ToString());
+        foreach (var k in seedKeys) selection.Add(FormIdToken.Of(k));
         foreach (var hop in hops)
             foreach (var k in hop.Reached) selection.Add(k.ToString());
 
