@@ -437,8 +437,8 @@ public static class WritePatchBuilder
         epoch = view.Stamp;                                               // stamped on every outcome from here down
         var linkTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var e in edits) HarvestLinkTokens(e.Value, e.Values, e.Entries, e.Struct, e.Structs, linkTokens);
-        var (linkTypes, linkRefusal) = LinkTypeLookup(view, session, linkTokens);
-        if (linkRefusal is not null) return PatchOutcome.Fail(linkRefusal);
+        var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens);
+        var linkRulebook = rulebook.WithLinkTargets(linkTypes);
         var resolved = new List<(PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label, IMajorRecordGetter? srcBody)>(edits.Count);
         var problems = new List<string>();
         // Records the extended patch DEFINES (FormKey in the patch's own master space — created by a prior into=
@@ -529,7 +529,7 @@ public static class WritePatchBuilder
                 Key = e.Key, Value = e.Value, Values = e.Values, Entries = e.Entries, Struct = e.Struct, Structs = e.Structs,
             };
             var label = Label(req);
-            if (rulebook.Validate(req, null, linkTypes) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
+            if (linkRulebook.Validate(req) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
             resolved.Add((e, body, winnerPlugin, patchLocal, req, label, srcBody));
         }
         if (problems.Count > 0)
@@ -608,7 +608,7 @@ public static class WritePatchBuilder
             return new PatchOutcome(true, null, outPath, extend, wouldMasters, ops, 0)
             {
                 DryRun = true, ReadBack = dryBack,
-                Note = mastersBefore is null ? null : MasterGrowWouldNote(fileName, mastersBefore, wouldMasters),
+                Note = JoinNotes(linkNote, mastersBefore is null ? null : MasterGrowWouldNote(fileName, mastersBefore, wouldMasters)),
             };
         }
 
@@ -643,8 +643,13 @@ public static class WritePatchBuilder
         finally { (back as IDisposable)?.Dispose(); }
 
         return new PatchOutcome(true, null, outPath, extend, masters, ops, bytes)
-            { ReadBack = readBack, Note = mastersBefore is null ? null : MasterGrowNote(fileName, mastersBefore, masters) };
+            { ReadBack = readBack, Note = JoinNotes(linkNote, mastersBefore is null ? null : MasterGrowNote(fileName, mastersBefore, masters)) };
     }
+
+    /// <summary>Two honesty notes on one outcome, in one string — either may be null, and two nulls stay null so an
+    /// outcome with nothing to add carries no note.</summary>
+    static string? JoinNotes(string? a, string? b) =>
+        a is null ? b : b is null ? a : a + " " + b;
 
     /// <summary>The "source plugin doesn't carry the record to copy" refusal, worded for the lane that hit it: a
     /// SAME-record copy names the target; a cross-record copy names the SOURCE record and the target it was being
@@ -684,9 +689,11 @@ public static class WritePatchBuilder
     /// list into Skyrim.esm is 200 full enumerations). Answers off the call's ONE captured view, so the type a link
     /// is checked against is the same build every other decision in the write reads. Null for a token that does not
     /// parse, that the order does not carry, or that the harvest did not offer — pre-flight then does not type-check
-    /// that link rather than refusing on a guess. A plugin that cannot be opened is the returned refusal, not a
-    /// throw: the write names it and stops.</summary>
-    static (CorpusRulebook.LinkTargetLookup lookup, string? refusal) LinkTypeLookup(
+    /// that link rather than refusing on a guess. A plugin that cannot be OPENED is skipped on the same terms, and
+    /// said so in the returned note: the check is an extra, so a link it cannot read goes unchecked exactly as an
+    /// unresolvable FormID does, never a refusal of a write that was legal before this gate existed. Only the open is
+    /// caught; a fault from the walk below is a different problem and is left to the caller.</summary>
+    static (CorpusRulebook.LinkTargetLookup lookup, string? note) LinkTypeLookup(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, IReadOnlyCollection<string> tokens)
     {
         var keyOf = new Dictionary<string, FormKey>(StringComparer.OrdinalIgnoreCase);
@@ -700,19 +707,24 @@ public static class WritePatchBuilder
             set.Add(fk);
         }
         var types = new Dictionary<FormKey, Type>();
+        List<string>? skipped = null;
         foreach (var (plugin, keys) in byPlugin)
         {
             var sink = new Dictionary<FormKey, IMajorRecordGetter>();
+            // The exception carries the right sentence for its own fault (held open vs. changed under the index), so
+            // the note quotes it rather than guessing at a remedy.
             try { view.CollectRecords(session, plugin, keys, null, sink); }
-            catch (Exception ex)
+            catch (PluginUnreadableException ex)
             {
-                return (_ => null,
-                    $"cannot check this write's FormLink targets: '{plugin}' defines {keys.Count} of them and could not be " +
-                    $"read ({WriteEngine.Describe(ex)}) — close whatever holds it open and re-run. NOTHING was written.");
+                (skipped ??= new List<string>()).Add(
+                    $"{keys.Count} FormID value(s) in this write resolve to '{plugin}', whose link targets were NOT " +
+                    $"type-checked: {ex.Message}");
+                continue;
             }
             foreach (var kv in sink) types[kv.Key] = kv.Value.GetType();
         }
-        return (token => keyOf.TryGetValue(token, out var fk) && types.TryGetValue(fk, out var t) ? t : null, null);
+        return (token => keyOf.TryGetValue(token, out var fk) && types.TryGetValue(fk, out var t) ? t : null,
+                skipped is null ? null : string.Join(" ", skipped));
     }
 
     /// <summary>Every value slot a pre-flight link check can read, harvested into one token set — the singular value,
@@ -890,8 +902,8 @@ public static class WritePatchBuilder
 
         var linkTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var e in edits) HarvestLinkTokens(e.Value, e.Values, e.Entries, e.Struct, e.Structs, linkTokens);
-        var (linkTypes, linkRefusal) = LinkTypeLookup(view, session, linkTokens);
-        if (linkRefusal is not null) return PatchOutcome.Fail(linkRefusal);
+        var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens);
+        var linkRulebook = rulebook.WithLinkTargets(linkTypes);
         var resolved = new List<(PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label, IMajorRecordGetter? srcBody, bool selfSource)>(edits.Count);
         var problems = new List<string>();
         foreach (var e in edits)
@@ -911,7 +923,7 @@ public static class WritePatchBuilder
                 Key = e.Key, Value = e.Value, Values = e.Values, Entries = e.Entries, Struct = e.Struct, Structs = e.Structs,
             };
             var label = Label(req);
-            if (rulebook.Validate(req, null, linkTypes) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
+            if (linkRulebook.Validate(req) is { } reject) { problems.Add($"{recType} {e.Target} [{label}]: {reject}"); continue; }
 
             // CopyFrom SOURCE resolution — the same contract Apply enforces, on this lane too: the lane axis is
             // uniform, so every write verb must compose with in_place. Without this a CopyFrom op reaches ApplyVerb,
@@ -1067,7 +1079,7 @@ public static class WritePatchBuilder
             return new PatchOutcome(true, null, targetPath, false, wouldMasters, ops, 0)
             {
                 DryRun = true, InPlace = true, ReadBack = dryBack,
-                Note = MasterGrowWouldNote(fileName, mastersBefore, wouldMasters),
+                Note = JoinNotes(linkNote, MasterGrowWouldNote(fileName, mastersBefore, wouldMasters)),
             };
         }
 
@@ -1136,7 +1148,7 @@ public static class WritePatchBuilder
         finally { (back as IDisposable)?.Dispose(); }
 
         return new PatchOutcome(true, null, targetPath, false, masters, reported, bytes)
-            { ReadBack = readBack, InPlace = true, Note = MasterGrowNote(fileName, mastersBefore, masters) };
+            { ReadBack = readBack, InPlace = true, Note = JoinNotes(linkNote, MasterGrowNote(fileName, mastersBefore, masters)) };
     }
 
     /// <summary>The explicit re-sort note when an in-place write GREW the target's master header: Skyrim loads a
@@ -2911,8 +2923,8 @@ public static class WritePatchBuilder
         // so it resolves to nothing and is not type-checked; a literal FormID beside it is.
         var linkTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var s in specs) foreach (var req in s.Edits) HarvestLinkTokens(req, linkTokens);
-        var (linkTypes, linkRefusal) = LinkTypeLookup(view, session, linkTokens);
-        if (linkRefusal is not null) return CreateOutcome.Fail(linkRefusal);
+        var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens);
+        var linkRulebook = rulebook.WithLinkTargets(linkTypes);
 
         // --- Phase 0: open the destination FIRST — moved AHEAD of pre-flight so a FormKey parent can resolve from it (a
         //     parent created in a PRIOR into= call, or — in place — a parent the target itself owns). CreateFromBinary reads
@@ -3255,7 +3267,7 @@ public static class WritePatchBuilder
                 // siblingEditorIds = priorEditorIds: a "@editorid" FormLink value is accepted iff that editorid was
                 // declared in an EARLIER spec of THIS call OR is the record itself (resolved to its real FormKey in
                 // Phase 3); else rejected loud.
-                if (rulebook.Validate(req, priorEditorIds, linkTypes) is { } reject) problems.Add($"{s.RecordType} '{s.EditorId}' [{Label(req)}]: {reject}");
+                if (linkRulebook.Validate(req, priorEditorIds) is { } reject) problems.Add($"{s.RecordType} '{s.EditorId}' [{Label(req)}]: {reject}");
         }
         if (problems.Count > 0)
             return CreateOutcome.Fail(
@@ -3486,7 +3498,7 @@ public static class WritePatchBuilder
         return new CreateOutcome(true, null, outPath, extend, created, masters, bytes)
         {
             ReadBack = readBack, InPlace = inPlace,
-            Note = mastersBefore is null ? null : MasterGrowNote(fileName, mastersBefore, masters),
+            Note = JoinNotes(linkNote, mastersBefore is null ? null : MasterGrowNote(fileName, mastersBefore, masters)),
         };
     }
 
