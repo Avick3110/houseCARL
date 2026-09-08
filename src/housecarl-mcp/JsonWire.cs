@@ -343,6 +343,10 @@ static class JsonWire
         w.WriteString("path", f.Path);
         if (f.HasValue) w.WriteString("value", f.Token);   // round-trip parity: identical token to the text render
         else if (f.Cells is null) WriteNullable(w, "note", f.Note);
+        // The FormID a no-value summary note SPELLED, beside the prose that spells it: the note is prose, so a
+        // consumer reading an element line at depth 2 reaches the reference the same way it reaches a leaf's
+        // 'value' — and feeds it straight back through formids= — instead of regexing the note.
+        if (f.NoteRef is { } noteRef && f.Cells is null) w.WriteString("note_ref", noteRef);
         if (f.Display is not null) w.WriteString("display", f.Display);
         if (f.Link is { } link)
         {

@@ -41,8 +41,9 @@ namespace HousecarlCore;
 /// <param name="NoteRef">The form reference this line's <paramref name="Note"/> RENDERS, when the line carries no
 /// round-trip <paramref name="Token"/> — a container element's summary identity (<c>[Effect]
 /// BaseEffect=033975:Skyrim.esm</c>). Carried structurally for the same reason <paramref name="Present"/> is: the
-/// note is prose, and resolve_names must reach the FormID a line shows without parsing it. Null on every line
-/// whose note renders no form reference.</param>
+/// note is prose, and neither resolve_names nor a consumer may parse it to reach the FormID the line shows — the
+/// json lane emits it as a <c>note_ref</c> sibling of the note. Null on every line whose note renders no form
+/// reference.</param>
 public sealed record FieldValue(string Path, bool HasValue, string? Token, string? Note, string? Display = null, ResolvedRef? Link = null,
                                 bool Present = true, int? Count = null, bool Readable = true,
                                 IReadOnlyList<FieldValue>? Cells = null, string? NoteRef = null);
