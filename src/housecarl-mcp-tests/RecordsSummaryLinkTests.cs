@@ -37,15 +37,28 @@ public sealed class RecordsSummaryLinkTests : RecordsTestBase
         Assert.DoesNotContain("HcRecMgefFire", r);
     }
 
+    JsonElement JsonEffectZero(bool names = true) =>
+        Je(Spell(names, format: "json")).GetProperty("records")[0].GetProperty("fields")
+          .EnumerateArray().Single(f => f.GetProperty("path").GetString() == "Effects[0]");
+
     [Fact]
     public void TheJsonSummaryLineCarriesTheIdentityAsALinkSiblingOfItsNote()
     {
-        var field = Je(Spell(names: true, format: "json")).GetProperty("records")[0].GetProperty("fields")
-                     .EnumerateArray().Single(f => f.GetProperty("path").GetString() == "Effects[0]");
+        var field = JsonEffectZero();
         // The note is prose and stays prose; the identity is structure beside it.
         Assert.Equal($"[Effect] BaseEffect={Fid(W.MgefA)}", field.GetProperty("note").GetString());
         var link = field.GetProperty("link");
         Assert.True(link.GetProperty("resolved").GetBoolean());
         Assert.Equal("HcRecMgefFire", link.GetProperty("editorid").GetString());
+    }
+
+    [Fact]
+    public void TheJsonSummaryLineCarriesTheFormIdItRenderedBesideTheProse()
+    {
+        // The FormID inside the note is the answer to "which record is this element", and a consumer reads it
+        // back through the same formids= door — so it rides as structure, not only inside the prose. It is the
+        // line's own shape, not the annotation's: it is there whether or not resolve_names was asked for.
+        Assert.Equal(Fid(W.MgefA), JsonEffectZero().GetProperty("note_ref").GetString());
+        Assert.Equal(Fid(W.MgefA), JsonEffectZero(names: false).GetProperty("note_ref").GetString());
     }
 }

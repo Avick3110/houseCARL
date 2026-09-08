@@ -2522,7 +2522,9 @@ offset, paging meant slicing by `editorid_contains`. Now:
   shows a FormID — `Effects[0] = [Effect] BaseEffect=033975:Skyrim.esm`. `resolve_names=true` annotated only a
   field's round-trip value, so the FormID on that line was left bare and the editorid was reachable only by
   re-reading at `depth=3`. It is now annotated wherever the read shows it, in the same parenthetical and the same
-  `link` sibling in json, and the summary text itself is unchanged. The element's OWN FormID — an owned child
+  `link` sibling in json, and the summary text itself is unchanged. The json summary line also carries the FormID
+  it rendered as a `note_ref` sibling of its `note`, so a consumer reads it back through `formids=` without
+  parsing the prose. The element's OWN FormID — an owned child
   record's, which the summary already spells with its editorid — is not annotated with itself. An element with two
   or more FormLink fields still renders as a bare `[Type]` and so shows no FormID to annotate, for the reason it
   already gives.
