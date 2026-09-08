@@ -1089,6 +1089,14 @@ public static class WriteEngine
                 var existing = matches[0];
                 if (!CanCreateType(typeName, out var reason)) throw new InvalidOperationException(reason);
                 var formKey = existing.FormKey;
+                // The destination group is resolved FIRST, because UpsertWouldReplace answers false for a group that
+                // does not resolve as well as for a type that does not match, and reporting the first as the second
+                // sends the caller to their editorid over an engine fault. CanCreateType above walks the same two
+                // enumerations, so this cannot fire while they agree.
+                var isArm = TryResolveAbstractGroupArm(patchMod, typeName, out var armGroup, out var armType);
+                object? group = null; Type? tMajor = null;
+                if (!isArm && !TryResolveFlatGroup(patchMod, typeName, out group, out tMajor))
+                    throw new InvalidOperationException($"upsert: no flat group found for type '{typeName}'.");
                 // The cross-type guard compares the existing record's CONCRETE type to the one being created — for an
                 // abstract-group ARM too (re-running a GlobalFloat create over a stored GlobalInt of the same editorid
                 // IS a cross-type collision — different concrete records).
@@ -1098,15 +1106,13 @@ public static class WriteEngine
                         "an EditorID collision across record types is a real authoring error, surfaced not swallowed (Q3).");
 
                 // An arm re-adds through Add(T), not the abstract-base InvokeAddNewWithFormKey (which can't close AddNew<T>).
-                if (TryResolveAbstractGroupArm(patchMod, typeName, out var armGroup, out var armType))
+                if (isArm)
                 {
                     InvokeRemove(armGroup!, formKey);
                     var freshArm = AddConcreteArmToGroup(armGroup!, armType!, formKey, editorId);
                     return (freshArm, true);
                 }
 
-                if (!TryResolveFlatGroup(patchMod, typeName, out var group, out var tMajor))
-                    throw new InvalidOperationException($"upsert: no flat group found for type '{typeName}'.");
                 InvokeRemove(group!, formKey);
                 var fresh = InvokeAddNewWithFormKey(group!, tMajor!, formKey);
                 fresh.EditorID = editorId;
@@ -1120,7 +1126,10 @@ public static class WriteEngine
     /// EditorID with a fresh <paramref name="typeName"/>, or refuse the collision? False for each of the three it
     /// refuses instead — a carried OVERRIDE, duplicate residue, a cross-TYPE name — none of which any overwrite can
     /// resolve. The in-place create pre-flight asks this before it offers to overwrite, so what it offers and what the
-    /// upsert does cannot drift.</summary>
+    /// upsert does cannot drift.
+    /// <para>It is also false when NO group resolves for <paramref name="typeName"/> at all, which is not a collision
+    /// and has its own message: both callers settle that question first — the upsert by resolving the group before it
+    /// asks, the pre-flight by running <see cref="CanCreateType"/> before it asks.</para></summary>
     public static bool UpsertWouldReplace(SkyrimMod patchMod, string typeName, IReadOnlyList<IMajorRecord> matches)
         => matches.Count == 1
            && matches[0].FormKey.ModKey == patchMod.ModKey
