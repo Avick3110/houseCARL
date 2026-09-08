@@ -1316,10 +1316,25 @@ public sealed class FieldPredicateSet
             }
             else if (_noValue[k] * 2 > _scanned)
                 (notes ??= new()).Add(
-                    $"note: '{path}' had no readable value on {_noValue[k]:N0} of {_scanned:N0} scanned record(s) " +
-                    $"(absent or not a field on those types) — counted as non-matches there, not errors.");
+                    $"note: '{path}' had no value on {_noValue[k]:N0} of {_scanned:N0} scanned record(s) — " +
+                    NoValueBreakdown(k) + " — counted as non-matches there, not errors.");
         }
         return notes is null ? null : string.Join("\n", notes);
+    }
+
+    /// <summary>Why a predicate read no value, named per CAUSE from the counters the scan already kept — a null,
+    /// a field the record's type does not carry (the other arm of a union), a container, and a real read fault are
+    /// four different answers, and one word for all four ("unreadable") claims a read failure that did not happen.
+    /// The classes are counted in code as the scan runs, never re-derived from a rendered note.</summary>
+    string NoValueBreakdown(int k)
+    {
+        long unset = _noValue[k] - _noField[k] - _container[k] - _unreadable[k];
+        var parts = new List<string>();
+        if (unset > 0) parts.Add($"unset — null or absent ({unset:N0})");
+        if (_noField[k] > 0) parts.Add($"not a field on the record read ({_noField[k]:N0})");
+        if (_container[k] > 0) parts.Add($"a container/list, not a scalar ({_container[k]:N0})");
+        if (_unreadable[k] > 0) parts.Add($"a read fault — Mutagen could not parse the field ({_unreadable[k]:N0})");
+        return parts.Count == 0 ? "no value" : string.Join(", ", parts);
     }
 
     static string OpStr(Op op) => op switch

@@ -426,8 +426,11 @@ public static class ValuePredicateProbe
             var note = set.AccountingNote();
             Check("soft note: matched only the weapons (3)", matched.Count == 3);
             Check("soft note: SOFT (>half no-value), not the loud 'no value on any' note",
-                  note is not null && note.Contains("had no readable value on", StringComparison.Ordinal)
+                  note is not null && note.Contains("had no value on", StringComparison.Ordinal)
                   && !note.Contains("yielded no readable value", StringComparison.Ordinal));
+            Check("soft note: names the cause — not a field on those records, not a read fault",
+                  note is not null && note.Contains("not a field on the record read", StringComparison.Ordinal)
+                  && !note.Contains("read fault", StringComparison.Ordinal));
             Console.WriteLine($"     note: {Trunc(note)}");
         }
 
