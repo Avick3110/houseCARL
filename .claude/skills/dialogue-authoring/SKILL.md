@@ -43,10 +43,11 @@ housecarl_create(
 ```
 
 Then sweep the patch before it is enabled — this lane works off-order, the dialogue one does not
-(section "Validate, then hand off"):
+(section "Validate, then hand off"). `patch=` is a *base* name, auto-suffixed if that stem is taken,
+so sweep the filename the create call reports back, never the stem you passed:
 
 ```json
-housecarl_check(plugins=["MyGreeting.esp"], findings=["errors","scripts"])
+housecarl_check(plugins=["<the filename the create call reported>"], findings=["errors","scripts"])
 ```
 
 Set **no `PreviousDialog`** and re-list nothing: adding a line moves nothing already in the topic.
@@ -108,10 +109,10 @@ halves, and they are not the same job:
   exactly what a well-behaved patch like USSEP does when it re-lists six lines and moves none.
 
 **Removing a line is not done by omitting it,** and `housecarl_remove` usually is not the tool.
-Omission is a no-op. On the default lane `housecarl_remove` drops *your patch's* override, reverting
-the line to the underlying winner, so it plays as before; it genuinely removes an INFO only for a
-record your own plugin created, or with `in_place="<plugin>.esp"` plus `acknowledge=true` on the
-first such write. The lever that is verifiable from the data layer is **conditioning the line out** —
+Omission is a no-op. `housecarl_remove` has no default lane — every call names exactly one. With
+`into="<your patch>.esp"` it drops *your patch's* override, reverting the line to the underlying
+winner, so it plays as before; it genuinely removes an INFO only for a record your own plugin
+created, or with `in_place="<plugin>.esp"` plus `acknowledge=true` on the first such write. The lever that is verifiable from the data layer is **conditioning the line out** —
 `housecarl_apply` an entry onto `Conditions` that cannot pass, then read it back. The other lever is
 marking the INFO deleted (`housecarl_apply` on `IsDeleted`); treat that as **inferred, not measured**
 — prefer conditioning-out, and if you use it, verify in game.
@@ -154,8 +155,9 @@ else** — every other subrecord the CK writes, houseCARL had already written.
    `DialogResponses` is the INFO record.
 3. **Make it reachable.** A `Custom` topic with no entry point is byte-valid and never entered — only
    generic subtypes are matched without one. Author a `DialogBranch` whose `StartingTopic` names the
-   topic. Each new record's FormID is reported back, and that FormID plus a second call on the same
-   lane (`into="<this patch>.esp"`) is how one new record is made to point at another.
+   topic. Each new record's FormID is reported back, and that FormID plus a second `housecarl_apply`
+   call on the same lane (`into="<this patch>.esp"`) is how one new record is made to point at
+   another — `housecarl_apply`, because the record now exists and this sets a field on it.
 4. **Author the conditions deliberately.** A line with no conditions fires whenever its topic is
    reached; gate it with `GetStage` and a speaker check. A well-formed but *wrong* condition is the
    single most common cause of permanently silent dialogue, and no tool can catch it — houseCARL can

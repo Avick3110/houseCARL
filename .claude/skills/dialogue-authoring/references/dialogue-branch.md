@@ -59,8 +59,8 @@ automatically; `Custom` is not). It becomes reachable only by being a branch's `
 game — the most common "I added a topic and nothing happens" cause. When you author a new player-choice
 menu, author the DLBR with `Category = Player` and `Flags = TopLevel` for an ordinary side-by-side
 option, and point its `StartingTopic` at the topic's FormID — the create call reports each new record's
-FormID, and a second call on the same lane (`into="<this patch>.esp"`) is how one new record is made to
-point at another. (See the `SKILL.md` reachability note.)
+FormID, and a second `housecarl_apply` call on the same lane (`into="<this patch>.esp"`) is how one new
+record is made to point at another. (See the `SKILL.md` reachability note.)
 
 ## Quick decode
 
