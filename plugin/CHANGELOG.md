@@ -63,8 +63,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
   inside itself stays, with the cut named where the caller can see it; where there is no room even to say a
   section was cut, the whole record goes back out rather than ending in silence. Those reserves are room for
   notices a complete render never writes, so they are charged only where the whole render does not fit: an
-  answer that fits inside the `max_chars` you passed comes back complete, uncut and unspilled. The
-  `max_chars=` parameter now states the ceiling over the whole tool. As everywhere else, the result is
+  answer that fits inside the `max_chars` you passed comes back complete, uncut and unspilled. A `counts_only`
+  census is held to the ceiling as well: it carries the header's source and selection statements whatever the
+  budget, so at a `max_chars` it cannot fit in it names the number that clears it instead of coming back over
+  the cap saying nothing. The `max_chars=` parameter now states the ceiling over the whole tool. As everywhere else, the result is
   untouched: what the ceiling holds back inline is complete in the artifact the response names.
 
 - **A SkyPatcher INI can be checked before it is placed in a mod.** `housecarl_records`'s overlay pole takes a

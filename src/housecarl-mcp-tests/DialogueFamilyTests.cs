@@ -98,6 +98,20 @@ public sealed class DialogueFamilyTests
         Assert.Contains("spilled: complete result", r);
     }
 
+    /// <summary>The info_order census is a text render too: at a max_chars it cannot fit in it says so and names
+    /// the number that clears it, rather than answering over the cap in silence.</summary>
+    [Fact]
+    public void AnInfoOrderCensusTooBigForItsCapSaysSoAndNamesTheNumberThatClearsIt()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Topic) },
+                                     project: new RecordsTools.RecordsProject { form = "info_order" },
+                                     counts_only: true, max_chars: 50);
+
+        Assert.True(r.Length > 50, "the census fits 50 chars, so it cannot show the overrun arm");
+        Assert.Contains("over the max_chars=50 it was given", r);
+        Assert.Equal(r.Length, int.Parse(Regex.Match(r, @"raise max_chars to at least (\d+)").Groups[1].Value));
+    }
+
     /// <summary>And the other side: a render whose complete output fits inside max_chars IS that output. The
     /// reserves the bounded pass holds back are room for notices a complete render never writes, so charging them
     /// against one that fits cut an answer that fitted — which then spilled and came back short.</summary>

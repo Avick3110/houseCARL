@@ -138,7 +138,7 @@ public static class RecordsTools
             int limit = 500,
         [Description("TRANSPORT: skip the first N matches (exact windows: offset=0/500/1000…). Windows tile only WITHIN one epoch — if two pages' epochs differ the load order changed mid-pagination; re-run from offset=0, do not stitch the pages. offset= RE-SCANS the selection from the start rather than seeking into it, so every window pays the whole scan again and a deep window costs more than a shallow one — narrowing the scan terms beats paging far into one.")]
             int offset = 0,
-        [Description("TRANSPORT: character CEILING on the RENDER, hard on every text render this tool has — the scan, batch, resolve, group_by and summary renders, the comparison forms (delta, tree), the walk lane's chain and effect-chain renders, and info_order. The record block, node or delta line that would cross it is not written, and the truncation notice, the accounting line and the spilled: block are charged before the rows are laid — charged only where the whole render does not fit, so an answer that fits inside the max_chars you passed comes back complete, uncut and unspilled. The one answer that can still come back over it is a max_chars too small for what the response carries whatever the budget — its header, the notices it owes, its spilled: block — which says so and names the number that clears it. Never truncates the RESULT: an over-ceiling result SPILLS in full to a server-side JSONL artifact (line 1 = manifest with the query echo, the row schema, and the epoch) and the response names the file, so what the ceiling held back inline is in the file. 0 = the server default (~80k).")]
+        [Description("TRANSPORT: character CEILING on the RENDER, hard on every text render this tool has — the scan, batch, resolve, group_by and summary renders, the comparison forms (delta, tree), the walk lane's chain and effect-chain renders, info_order, and every form's counts_only census. The record block, node or delta line that would cross it is not written, and the truncation notice, the accounting line and the spilled: block are charged before the rows are laid — charged only where the whole render does not fit, so an answer that fits inside the max_chars you passed comes back complete, uncut and unspilled. The one answer that can still come back over it is a max_chars too small for what the response carries whatever the budget — its header, the notices it owes, its spilled: block — which says so and names the number that clears it. Never truncates the RESULT: an over-ceiling result SPILLS in full to a server-side JSONL artifact (line 1 = manifest with the query echo, the row schema, and the epoch) and the response names the file, so what the ceiling held back inline is in the file. 0 = the server default (~80k).")]
             int max_chars = 0,
         [Description("TRANSPORT: return the accounting block and counts only, no rows — the cheap census.")]
             bool counts_only = false,
@@ -455,6 +455,10 @@ public static class RecordsTools
             envelope.Add(new("source", statement));
             headerLine += $"  source={statement}";
         }
+        // A census is a text render too, so it is held to the same ceiling: it carries the header's source and
+        // selection statements whatever the budget, so a max_chars smaller than those says so and names the
+        // number that clears it instead of answering over the ceiling in silence.
+        string Census(string body) => RenderCap.Settle(body, max_chars > 0 ? max_chars : Wire.DefaultMaxChars);
         // Every warning the SkyPatcher replay produced — a key it does not know, an op it cannot map, a filter it
         // cannot evaluate, a parse note — named beside the answer, each already carrying its own file and line. A
         // draft INI's lines carry the draft's path, so a bad draft line reads where a bad live line does.
@@ -572,7 +576,7 @@ public static class RecordsTools
                     // The census honors counts_only on every list form, this one included.
                     int okI = rows.Count(r => r.Error is null);
                     return json ? JsonWire.RenderCounts(envelope, rows.Count, okI, rows.Count - okI, epoch)
-                                : $"{headerLine}\ncount={rows.Count} ok={okI} errors={rows.Count - okI}" + Wire.EpochLine(epoch);
+                                : Census($"{headerLine}\ncount={rows.Count} ok={okI} errors={rows.Count - okI}" + Wire.EpochLine(epoch));
                 }
                 var winRows = Windowed(rows);
                 SpillState? spill = null;
@@ -686,7 +690,7 @@ public static class RecordsTools
                 int ok = outcomes.Count(o => o.Error is null), err = outcomes.Count - outcomes.Count(o => o.Error is null);
                 return json
                     ? JsonWire.RenderCounts(envelope, outcomes.Count, ok, err, epoch2)
-                    : $"{headerLine}\ncount={outcomes.Count} ok={ok} errors={err}" + Wire.EpochLine(epoch2);
+                    : Census($"{headerLine}\ncount={outcomes.Count} ok={ok} errors={err}" + Wire.EpochLine(epoch2));
             }
 
             var winOutcomes = Windowed(outcomes);   // render window; census/aggregate/artifacts stay complete
@@ -885,7 +889,7 @@ public static class RecordsTools
                 if (counts_only)
                     return json
                         ? JsonWire.RenderNamedCounts(envelope, revCounts, epochR)
-                        : $"{headerLine}\nseeds={results.Count} carrier_rows={carrierRows} carrier_total={carrierTotal} capped_seeds={cappedSeeds} errors={seedErrs2}" + Wire.EpochLine(epochR);
+                        : Census($"{headerLine}\nseeds={results.Count} carrier_rows={carrierRows} carrier_total={carrierTotal} capped_seeds={cappedSeeds} errors={seedErrs2}" + Wire.EpochLine(epochR));
                 var winResults = Windowed(results);
                 SpillState? revSpill = null;
                 if (wantFile)
@@ -926,7 +930,7 @@ public static class RecordsTools
                 if (counts_only)
                     return json
                         ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("seeds", rows.Count), KvI("reached", reached), KvI("errors", errs) }, wEpoch)
-                        : $"{headerLine}\nseeds={rows.Count} reached={reached} errors={errs}" + Wire.EpochLine(wEpoch);
+                        : Census($"{headerLine}\nseeds={rows.Count} reached={reached} errors={errs}" + Wire.EpochLine(wEpoch));
                 var winRows = Windowed(rows);
                 SpillState? spill = null;
                 if (wantFile)
@@ -1048,7 +1052,7 @@ public static class RecordsTools
             if (counts_only)
                 return json
                     ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs) }, epoch)
-                    : $"{headerLine}\ncount={rows.Count} differing={differing} identical={identical} no_verdict={noVerdict} errors={errs}" + Wire.EpochLine(epoch);
+                    : Census($"{headerLine}\ncount={rows.Count} differing={differing} identical={identical} no_verdict={noVerdict} errors={errs}" + Wire.EpochLine(epoch));
             var winRows = Windowed(rows);
             SpillState? spill = null;
             if (wantFile)
@@ -1090,7 +1094,7 @@ public static class RecordsTools
             if (counts_only)
                 return json
                     ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }, epoch)
-                    : $"{headerLine}\ncount={rows.Count} contested={contested} errors={errs}" + Wire.EpochLine(epoch);
+                    : Census($"{headerLine}\ncount={rows.Count} contested={contested} errors={errs}" + Wire.EpochLine(epoch));
             var winRows = Windowed(rows);
             SpillState? spill = null;
             if (wantFile)
@@ -1125,7 +1129,7 @@ public static class RecordsTools
             if (counts_only)
                 return json
                     ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) }, epoch)
-                    : $"{headerLine}\ncount={rows.Count} contested={contested} errors={errs}" + Wire.EpochLine(epoch);
+                    : Census($"{headerLine}\ncount={rows.Count} contested={contested} errors={errs}" + Wire.EpochLine(epoch));
             var winRows = Windowed(rows);
             SpillState? spill = null;
             if (wantFile)
