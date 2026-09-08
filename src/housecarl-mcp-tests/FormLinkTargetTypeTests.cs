@@ -16,6 +16,17 @@ public sealed class FormLinkTargetTypeTests : RecordsTestBase
 {
     public FormLinkTargetTypeTests(RecordsFixture f) : base(f) { }
 
+    /// <summary>The create lane's own version of "the shared world must stay unwritten": CreateRecordsBatch has no
+    /// dry_run, so a refused create is only clean if it wrote no patch. Removes the mod folder first if a regression
+    /// left one, so one broken gate fails its own test instead of cascading into every later test in the
+    /// collection.</summary>
+    void AssertNoPatchWritten(string patchStem)
+    {
+        var left = Directory.EnumerateDirectories(W.ModsDir, "houseCARL - " + patchStem + "*").ToList();
+        foreach (var dir in left) Directory.Delete(dir, recursive: true);
+        Assert.Empty(left);
+    }
+
     string Apply(string formid, string path, string op, string value) => ApplyTools.Apply(Svc,
         ops: Je($@"[{{""formid"":""{formid}"",""field_path"":""{path}"",""op"":""{op}"",""value"":""{value}""}}]"),
         dry_run: true);
@@ -105,6 +116,7 @@ public sealed class FormLinkTargetTypeTests : RecordsTestBase
         Assert.Contains("'Race'", o.Error);
         Assert.Contains("is a Spell", o.Error);
         Assert.Contains("links to Race", o.Error);
+        AssertNoPatchWritten("HcLinkTypeCreatePatch");
     }
 
     /// <summary>A create's ReplaceAll may mix same-call '@editorid' siblings with literal FormIDs. The sibling has no
@@ -134,5 +146,6 @@ public sealed class FormLinkTargetTypeTests : RecordsTestBase
         Assert.False(o.Success);
         Assert.Contains("is a Spell", o.Error);
         Assert.Contains("links to Keyword", o.Error);
+        AssertNoPatchWritten("HcLinkTypeSiblingPatch");
     }
 }
