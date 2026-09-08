@@ -4,6 +4,10 @@ Quick-reference enumerations the prose files (`grammar-core.md`, `form-types.md`
 at. Each table is reproduced from the verbatim article unless marked **[source]** (from the MIT-source
 cross-check, `powerof3/Spell-Perk-Item-Distributor`).
 
+**Sections.** Skill indices · Trait letter codes · Package List Types · Distributable form types →
+record signatures · Filterable forms → NPC properties · Distribution order · Default values ·
+FormID / EditorID syntax.
+
 ---
 
 ## Skill indices (Level Filters → Skill / Skill Weight)

@@ -14,6 +14,11 @@ per-line tail fields (Count/Index and Chance). The two domain vocabularies live 
 > (`powerof3/Spell-Perk-Item-Distributor`). Where a fact comes from source rather than the
 > article, it's marked **[source]**.
 
+**Sections.** 1 What SPID is · 2 File discovery & load order · 3 When distribution happens, and in
+what order · 4 The distribution line · 5 Input normalization · 6 Referencing a form
+(`FormOrEditorID`) · 7 How filters combine · 8 Type inferring (`Form`) · 9 `CountOrPackageIndex` ·
+10 `Chance` · 11 Note on templated NPCs.
+
 ---
 
 ## 1. What SPID is
@@ -155,6 +160,11 @@ The required first field identifies the form to distribute. Two ways to write it
 
 - **EditorID** — the text identifier from the Creation Kit / xEdit (e.g. `ElvenMace`, `ImperialBow`,
   `NordRace`). **Preferred** — it's stable across mod merging, ESL conversion, and FormID compaction.
+  **It is not stable against a winning override that renames the record**, which is ordinary on a
+  heavily overhauled order (an overhaul renaming a vanilla perk is the common case). SPID resolves
+  the EditorID it is given against the record the order actually carries, so a line naming the
+  pre-overhaul EditorID resolves to nothing and distributes nothing, silently. Read the winner's
+  EditorID before writing the name; where the winner has renamed the record, use the FormID.
 - **FormID** — hex with the source plugin as a **tilde suffix**: `0x12345~MyPlugin.esp`.
   *(Divergence to remember: SPID/KID/CID use suffix-tilde `0x123~Plugin.esp`; SkyPatcher uses
   prefix-pipe `Plugin.esp|0x123`. See the routing skill.)*
