@@ -43,11 +43,14 @@ path against a real record or that skill before composing a write.
    `Subtype` (Hello / Goodbye / …).
 2. **Which line fires within a topic:** the INFO's **`Conditions`** decide which lines are *eligible* —
    primarily `GetStage` (quest progress), `GetIsID` / alias checks (who is speaking), etc. (Real example:
-   a DA03 line gated by `GetStage(DA03) ∈ [100,155)` AND `GetIsID(Barbas)`.) **Then ORDER settles it:** the
-   game walks the topic top to bottom and plays the **first** eligible line, so when two lines both pass,
-   position decides — not specificity. Within one plugin that order is its `Responses` list; across plugins
-   it is the merge described under *Resolution model* below. This is why a line can stop playing without any
-   field of it changing.
+   a DA03 line gated by `GetStage(DA03) ∈ [100,155)` AND `GetIsID(Barbas)`.) **Then ORDER settles it, in a
+   topic whose lines are told apart by their conditions:** the game walks that topic top to bottom and plays
+   the **first** eligible line, so when two lines both pass, position decides — not specificity. Within one
+   plugin that order is its `Responses` list; across plugins it is the merge described under *Resolution
+   model* below. This is why a line can stop playing without any field of it changing. **The rule stops at
+   the generic greeting subtypes:** Belethor's six vanilla `Hello` lines carry no `Random` flag and
+   demonstrably cycle in game, and how the engine picks among eligible generic greetings is not something
+   this skill or houseCARL can tell you — so never call a bottom-appended `Hello` line starved.
 3. **Topic → next topic:** **`INFO.LinkTo`** is the real conversation chain (proven: DA03Greet → LinkTo →
    DA03ConvincePlayer). This — not PNAM — is how one topic leads to the next.
 4. **Quest tie:** ownership (the `Quest` field on DLVW / DLBR / DIAL) **plus** conditions reading the
@@ -67,9 +70,10 @@ difference between a line that plays and one that is silently dead.
   — and put the post-completion dialogue on an **always-running** quest, gated on that signal.
 - **A monologue is multiple `Responses` rows in ONE Info, not multiple Infos.** The INFO bullet above notes
   one INFO can hold several `DialogResponse` rows; that *is* the multi-line-speech idiom — the rows play
-  sequentially and automatically. Do **not** split a speech across sibling Infos: by the flow model, only
-  the **first valid Info** in a topic plays (selected top-down by `Conditions`), so everything after the
-  first is dropped. Multiple Infos in one topic are for stage/condition *variants*, not consecutive lines.
+  sequentially and automatically. Do **not** split a speech across sibling Infos: by the flow model **one**
+  Info answers a topic, never a run of them — in a conditioned topic it is the first eligible one, top-down
+  — so everything after it is dropped. Multiple Infos in one topic are for stage/condition *variants*, not
+  consecutive lines.
 - **CK conditions cannot express `(A AND B) OR (C AND D)`.** There are no parentheses; OR only joins
   adjacent condition rows. To gate a line on a real sum-of-products, **duplicate the whole Info — one per
   AND-clause** — and copy the response text into each (CK will not share it). This is why you will sometimes
@@ -117,8 +121,9 @@ not. Every plugin that touches a topic contributes its own child list and the ga
 another plugin adds, and the winning override does not re-list, **still plays**. (Measured on a live load
 order: a topic whose winning record lists *one* line plays *eight*.)
 
-What actually changes is **order** — and order decides which line answers, because the game walks the topic
-top to bottom and plays the **first** line whose `Conditions` pass. The merge rule:
+What actually changes is **order** — and in a topic whose lines are told apart by their conditions, order
+decides which line answers, because the game walks that topic top to bottom and plays the **first** line
+whose `Conditions` pass. (Not the generic greetings: see *What drives the flow* above.) The merge rule:
 
 - lines are placed per plugin, in load order;
 - **re-listing a line MOVES it** — it is evicted from where it was and **appended to the bottom**, unless
