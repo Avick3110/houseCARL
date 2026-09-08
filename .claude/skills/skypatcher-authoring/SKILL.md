@@ -45,13 +45,13 @@ file is authoritative; do not carry one across from another type. Read one recor
 | Cell (CELL) | `cell` | `filterByCells` | `references/cell.md` |
 | Location (LCTN) | `location` | `filterByLocations` | `references/location.md` |
 | Encounter Zone (ECZN) | `encounterzone` | `filterByEncounterZones` | `references/encounter-zone.md` |
-| Placed Reference (REFR) | `reference` | `filterByRefs` | `references/placed-reference.md` |
+| Reference (REFR) | `reference` | `filterByRefs` | `references/placed-reference.md` |
 | Faction (FACT) | `faction` | `filterByFactions` | `references/faction.md` |
 | Movement Type (MOVT) | `movementType` | `filterByMovementTypes` | `references/movement-type.md` |
 | Projectile (PROJ) | `projectile` | `filterByProjectiles` | `references/projectile.md` |
 | Race (RACE) | `race` | `filterByRaces` | `references/race.md` |
-| Race Hook (RACE, attack data) | `raceHook` | `filterByRaces` | `references/race-hook.md` |
-| Object Modification (OMOD) | *(undocumented)* | *(undocumented)* | `references/object-modification.md` |
+| Race Hook (RACE) | `raceHook` | `filterByRaces` | `references/race-hook.md` |
+| Object Modification (OMOD) | `objectModification` *(unconfirmed)* | *(undocumented)* | `references/object-modification.md` |
 
 Read `references/grammar-core.md` only when the record file leaves a syntax question open — the
 shared patch-string structure, the addressing rules and the operation conventions live there.
