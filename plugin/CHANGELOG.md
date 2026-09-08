@@ -37,7 +37,6 @@ saying it sets an expectation their install may contradict. Say what is known, a
   tools accept, and every description, are unchanged; a member whose legal values no table holds is left as it was
   rather than given a set invented for the schema. A verb member also accepts an explicit `null` — the server reads
   that as "none given" and uses `Set` — so `null` is in the published set beside the names.
-
 - **An SKSE DLL whose import directory declares an address but no size now reads as UNKNOWN, not as a short
   import list.** The peek walks a DLL's import and delay-import directories bounded by the size the PE header
   declares for each. A directory with a non-zero address and a zero size read as "no such directory": its whole
