@@ -11,9 +11,10 @@ namespace HousecarlMcpTests;
 ///
 /// <para>Its length is MEASURED here and written to the test output, because the fold ledger states a length and a
 /// stated length nobody measures is a guess. There is no client cut to hold it under — the cut is on tool
-/// descriptions — so the number is recorded rather than bounded. Measured 3,131 characters: the ledger's 2,875 plus
+/// descriptions — so the number is recorded rather than bounded. Measured 3,173 characters: the ledger's 2,875 plus
 /// 121 for the write-into-an-existing-mod clause and 137 for the generator-input exception, both from review, less 2
-/// for the CID clause dropped from the routing sentence.</para>
+/// for the CID clause dropped from the routing sentence, plus 42 for the SPID form list restored to that sentence on
+/// review of PR #649.</para>
 ///
 /// <para>The three cross-skill facts folded in are held by their lead phrase and held to ONE occurrence: the point of
 /// folding them here was that they are stated once, in the one place a session always sees.</para>
