@@ -15,8 +15,8 @@
       "arms": ["with_skill", "without_skill"],
       "without_skill_arm": "The same query, the same menu with this skill's entry removed, in a fresh context. A positive row that is answered correctly without the skill is evidence the skill is not earning that row; a negative row that goes wrong only in the with-skill arm is a false-trigger cost.",
       "split": {"train": 0.6, "held_out": 0.4},
-      "held_out_ids": [6, 9, 10, 13, 17, 18, 19, 20],
-      "held_out_ids_note": "The only record of the split — 8 of 20, matching split.held_out. Rows carry no held_out flag of their own; a second copy is the one that drifts.",
+      "held_out_ids": [8, 9, 10, 13, 17, 18, 19, 20],
+      "held_out_ids_note": "The only record of the split — 8 of 20, matching split.held_out, 3 positives and 5 negatives. Rows carry no held_out flag of their own; a second copy is the one that drifts. Row 6 is deliberately not here: the description was fitted to it (see its note), so held-out membership would count a trained row toward the generalization score. Row 8 takes the slot — a positive this rewrite aimed no edit at. REWRITE.md:483-486 held row 6 out on the ground that it was 'not used to tune the text'; that ground did not survive, so the row moves rather than the claim.",
       "models": ["haiku", "sonnet", "opus"],
       "deployment_envelope": "If a model is skipped, the record states which models the result holds for rather than generalizing.",
       "contexts": ["isolation", "coexistence"],
@@ -33,7 +33,7 @@
       {"id": 3, "should_trigger": true, "query": "my SKSE dll builds and runs fine on SE but CTDs on AE only. pretty sure it's a struct member offset thing. how do people handle this"},
       {"id": 4, "should_trigger": true, "query": "can you scaffold a CommonLibSSE-NG project for me — vcpkg + cmake, targeting 1.6.1170, just a hello-world that logs on load"},
       {"id": 5, "should_trigger": true, "query": "I want to hook the game so my code runs whenever an actor takes a hit. trampoline or vtable hook? and how do I not break the original call"},
-      {"id": 6, "should_trigger": true, "query": "here's the github for an open-source combat overhaul's SKSE dll. can you read the source and tell me what it actually patches in the engine", "note": "The only miss of the 2026-07-28 revalidation, and the row the description's 'reading someone else's SKSE DLL source' clause was written for. The description was therefore fitted to this row: a pass here checks that the named fix landed, and is not evidence of generalization. Rows 9 and 10 are the held-out positives that drove no edit, so they carry the generalization claim."},
+      {"id": 6, "should_trigger": true, "query": "here's the github for an open-source combat overhaul's SKSE dll. can you read the source and tell me what it actually patches in the engine", "note": "The only miss of the 2026-07-28 revalidation, and the row the description's 'reading someone else's SKSE DLL source' clause was written for. The description was therefore fitted to this row: a pass here checks that the named fix landed, and is not evidence of generalization. It sits in the train split for exactly that reason. Rows 8, 9 and 10 are the held-out positives that drove no edit, so they carry the generalization claim."},
       {"id": 7, "should_trigger": true, "query": "my plugin needs to remember a set of formIDs across save/load. how do the skse co-save serialization callbacks work"},
       {"id": 8, "should_trigger": true, "query": "writing a BSTEventSink for TESDeathEvent — when exactly should I register it so I don't miss deaths early in the load?"},
       {"id": 9, "should_trigger": true, "query": "how do I ship one skse dll that works on skyrim SE, AE and VR instead of maintaining three separate builds"},
@@ -57,7 +57,7 @@
     "task": "Author a complete SKSE plugin source tree for a new native Papyrus function targeting SE (1.5.97) and AE (1.6.1170) against CommonLibSSE-NG, on the live ARR 2.0 order.",
     "protocol": "Run twice in fresh contexts with a 40-call cap: once with the skill loaded from the packaged tree, once without it. Same task text, same model, same order.",
     "arms": {
-      "with_skill": {"status": "exists", "evidence": "dev/skill-validation/audit-2026-09/skse-plugin-authoring/with-skill/ (deliverable HC_AuditNative/)"},
+      "with_skill": {"status": "stale — re-run required", "evidence": "dev/skill-validation/audit-2026-09/skse-plugin-authoring/with-skill/ (deliverable HC_AuditNative/), run against the pre-rewrite skill", "why_stale": "The stored deliverable was produced from the body as it stood before the 2026-09 rewrite, so it carries none of the content P4 (the SKSE::Init log truncation) and P6 (the narrowing return type) test. Scoring it against a fresh control would measure the old skill while claiming to measure the new one. Both arms are re-run together, from the packaged tree, at the rewrite commit."},
       "without_skill": {"status": "missing — this is the control the 2026-09 eval graded as absent, and running it is what turns the skill's value from self-report into a measurement"}
     },
     "predictions": [
