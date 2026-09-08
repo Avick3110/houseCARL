@@ -638,11 +638,11 @@ public static class WriteEngine
     /// walk — the independent yardstick <see cref="RestoreChildGroup"/> checks the reflected re-attach against. Count
     /// only: the names cost a string per descendant, which on a worldspace is six figures, so they are materialized
     /// by <see cref="ChildNamesOf"/> on the refusal paths and on capture (ten, for the message) alone.</summary>
-    static int ChildCountOf(IMajorRecordGetter record) =>
+    internal static int ChildCountOf(IMajorRecordGetter record) =>
         record is IMajorRecordGetterEnumerable e ? e.EnumerateMajorRecords().Count() : 0;
 
     /// <summary>Up to <paramref name="max"/> child records of <paramref name="record"/>, named for a message.</summary>
-    static List<string> ChildNamesOf(IMajorRecordGetter record, int max) =>
+    internal static List<string> ChildNamesOf(IMajorRecordGetter record, int max) =>
         record is IMajorRecordGetterEnumerable e
             ? e.EnumerateMajorRecords().Take(max).Select(r => r.EditorID ?? r.FormKey.ToString()).ToList()
             : new List<string>();

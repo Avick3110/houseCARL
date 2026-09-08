@@ -2939,9 +2939,17 @@ public static class WritePatchBuilder
                 .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
             return carriedByEdid.TryGetValue(editorId, out var recs) ? recs : Array.Empty<IMajorRecord>();
         }
-        // What the caller can do about one. An overwrite is offered ONLY where the upsert would honour it: the three
-        // collisions it refuses instead are not resolvable by overwriting anything, and naming replace= there would
-        // send the caller into a second refusal.
+        // A replace the upsert would honour AND that takes nothing down with the record. The upsert's replace arm drops
+        // the record from its group and re-adds it fresh, and the record's OWN CHILD GROUP goes with the drop — the
+        // INFOs under a DialogTopic, the cells under a Worldspace. Under into= the same call re-creates those children,
+        // which is what keeps a re-run idempotent; in place they are the user's own and nothing puts them back, so the
+        // collision refuses instead of offering an overwrite that eats them.
+        bool ReplaceKeepsEverything(string wantType, IReadOnlyList<IMajorRecord> clash)
+            => WriteEngine.UpsertWouldReplace(patchMod, wantType, clash) && WriteEngine.ChildCountOf(clash[0]) == 0;
+
+        // What the caller can do about one. An overwrite is offered ONLY where the upsert would honour it and nothing
+        // is lost by it: the collisions it refuses instead are not resolvable by overwriting anything, and naming
+        // replace= there would send the caller into a second refusal or into a silent loss.
         string ClashReason(string wantType, IReadOnlyList<IMajorRecord> clash)
         {
             if (clash.FirstOrDefault(r => r.FormKey.ModKey != patchMod.ModKey) is { } foreign)
@@ -2953,11 +2961,17 @@ public static class WritePatchBuilder
                      + $"either copy, so which survives is your call: remove the extra(s) with {ToolNames.Remove}, then re-run.";
             var one = clash[0];
             var itsType = RecordNaming.StripOverlay(one.GetType().Name);
-            return WriteEngine.UpsertWouldReplace(patchMod, wantType, clash)
-                ? $"{fileName} already defines {itsType} {one.FormKey.ID:X6} with that editorid. "
-                  + "Pass replace=true to overwrite it, or pick another editorid."
-                : $"{fileName} already defines {itsType} {one.FormKey.ID:X6} with that editorid — an editorid collision "
-                  + $"across record types, which no overwrite resolves: a {itsType} cannot be re-created as a {wantType}. Pick another editorid.";
+            if (!WriteEngine.UpsertWouldReplace(patchMod, wantType, clash))
+                return $"{fileName} already defines {itsType} {one.FormKey.ID:X6} with that editorid — an editorid collision "
+                     + $"across record types, which no overwrite resolves: a {itsType} cannot be re-created as a {wantType}. Pick another editorid.";
+            var kids = WriteEngine.ChildCountOf(one);
+            if (kids > 0)
+                return $"{fileName} already defines {itsType} {one.FormKey.ID:X6} with that editorid, and {kids} record(s) "
+                     + $"live under it ({string.Join(", ", WriteEngine.ChildNamesOf(one, 5))}{(kids > 5 ? ", …" : "")}) — re-creating "
+                     + $"it drops the record and its children together, and no overwrite puts them back. Edit it with "
+                     + $"{ToolNames.Apply}, or pick another editorid.";
+            return $"{fileName} already defines {itsType} {one.FormKey.ID:X6} with that editorid. "
+                 + "Pass replace=true to overwrite it, or pick another editorid.";
         }
         var cellKinds = new CellCreate[specs.Count];   // cell-create routing per spec (None / Exterior / Interior)
         var singularClaims = new HashSet<(string Parent, string Slot)>();   // one create per singular slot per call
@@ -2984,9 +2998,9 @@ public static class WritePatchBuilder
                 // spec at its own FormID and discard everything else it held. That is right under into=, where the
                 // artifact is houseCARL's own and a re-run should be idempotent; on a file houseCARL does not own the
                 // name is far likelier one the caller did not know was taken. Refused before anything is written;
-                // replace= opts back in, but only over a collision the upsert would actually overwrite.
+                // replace= opts back in, but only over a collision the upsert would overwrite cleanly.
                 else if (inPlace && CarriedUnder(s.EditorId) is { Count: > 0 } clash
-                         && !(replaceExisting && WriteEngine.UpsertWouldReplace(patchMod, s.RecordType, clash)))
+                         && !(replaceExisting && ReplaceKeepsEverything(s.RecordType, clash)))
                 {
                     problems.Add($"{s.RecordType} '{s.EditorId}': " + ClashReason(s.RecordType, clash));
                     continue;
