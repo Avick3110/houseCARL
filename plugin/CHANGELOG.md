@@ -141,8 +141,7 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `papyrus-optimization` leaves nothing behind — its script-cost review was no better than the review you get
   without it. `tool-output-awareness`'s rule — never copy a record or asset path a generated tool re-derives —
   and its list of the plugins that produce them move into the server's own instructions, which every session
-  reads (a separate change in this release); the same fact for a copied NPC is now stated in
-  `npc-appearance-copy`.
+  reads (a separate change in this release), so it now holds for a copied NPC without any skill being loaded.
 
 - **`papyrus-reference` no longer gates an SKSE-plugin function on a DLL filename, and its corpus reads
   cleanly.** The index's `requires_plugin` is now stated as an indicative hint: the filename it carries differs
@@ -2686,6 +2685,20 @@ offset, paging meant slicing by `editorid_contains`. Now:
   7.3, and `housecarl_skse` with `findings='inventory'` reads what the installed SPID DLL declares as its
   version. The EditorID caveat is new too — an EditorID is stable across merging, ESL conversion and FormID
   compaction, but not against a winning override that renames the record, which resolves to nothing silently.
+- **`npc-appearance-copy` ends at a mesh that points at its own tint, and stops claiming a guard it does not
+  have.** The flow was three calls and finished at the placement; it is four now, because `housecarl_place`
+  renames the FaceGen file without touching the bytes inside it, so the placed head still names the *donor's*
+  tint in texture slot 6 and renders correctly for exactly as long as the donor stays installed. Step 4 writes
+  that repoint with `housecarl_nif_set` (`op="set_path"`, `texture_slot="6"`) and re-reads the mesh, and the
+  verification list — now split into what the session can check and what only the caller can do — fails when the
+  repoint has not happened. Three corrections: `housecarl_copy` does not refuse a copy from a
+  `Traits`-templated donor, because a seed the source leaves unset **clears** the target's, which makes the
+  `Configuration.TemplateFlags` read the only thing standing between you and a blank face reported as a
+  success; the clone lane's `Race` refusal fires on a race that would have to be stripped, not on every race;
+  and the provider a placement names is the one whose bytes match the record you copied, decided by inspecting
+  each candidate, which for an NPC defined in `Skyrim.esm` is not the folder the FaceGen path points at. The
+  four Race cases and that provider test move to `references/race-and-provider-cases.md`, the body is about a
+  third shorter, and the trigger set moves to the published `evals/evals.json` shape with a without-skill arm.
 
 ## 1.9.0 — 2026-07-17
 
