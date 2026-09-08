@@ -290,9 +290,9 @@
     "total_tokens",
     "duration_ms"
    ],
-   "prior_evidence": "The 2026-09 gate ran this task on the live 3,801-plugin order with a 40-call cap, once with no skill and once with the old skill, and the skill LOST: the control reached the own-quest route unaided in 10 calls, while the old skill's fast path put the with-skill run into a ten-deep contested topic in 18 calls and shipped a response row at EmotionValue 0 / Flags 0. The verdict is dev/skill-validation/gate-2026-09/dialogue-authoring/VERDICT.md. E1-E7 are what the rewrite must now add over the CONTROL, not only over the previous with-skill run -- the control already passed the substance of E1, E2 and E7 with no skill at all, so the skill's evidence has to come from reaching the same design in fewer calls and from E3-E6, which the control did not all get."
+   "prior_evidence": "The 2026-09 gate ran this task on the live 3,801-plugin order with a 40-call cap, once with no skill and once with the old skill, and the skill LOST: the control reached the own-quest route unaided in 10 calls, while the old skill's fast path put the with-skill run into a ten-deep contested topic in 18 calls and shipped a response row at EmotionValue 0 / Flags 0. The verdict is dev/skill-validation/gate-2026-09/dialogue-authoring/VERDICT.md. The bar is the CONTROL, not only the previous with-skill run: the control already reached the substance of E1, E2 and E7 with no skill at all, so E3-E6, E8 and E9 are what the rewrite must add over it, plus reaching the same design in fewer calls."
   }
  ],
- "known_gap": "A dialogue check that can see an off-order plugin is issue #615 and is not in 2.0. E4 therefore tests that the run names the gap and uses the off-order errors/scripts sweep, not that the dialogue family covers the new plugin.",
+ "known_gap": "A dialogue check that can see an off-order plugin is issue #615 and is not in 2.0. E8 therefore tests that the run names the gap and uses the off-order errors/scripts sweep, not that the dialogue family covers the new plugin.",
  "carry_forward": "Not yet run. This file specifies the suite the rewrite must pass; results are written back here when it runs against a package build."
 }
