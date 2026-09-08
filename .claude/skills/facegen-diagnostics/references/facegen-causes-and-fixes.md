@@ -196,13 +196,14 @@ into a fresh enable+sort MO2 mod. **Place BOTH `.nif` and `.dds` as a pair, from
 > FaceGenEslify.
 
 Then re-run `asset_status` and tell the user to enable the new mod, and run the in-game verification (SKILL.md
-Step 5).
+§7, Step 4).
 
 ### Fix C — Forward NPC appearance into a winning override record — **houseCARL-record**
 When a behavior/other plugin won the record while the intended appearance mod's facegen files are present
 (Cause C/J; record side of A). The one-call way to re-assert the appearance mod's whole record is
-**`housecarl_forward_record`** — name the appearance plugin as the source and it copies that plugin's `NPC_`
-verbatim into a winning override (nested appearance fields included). For a *partial* appearance mask —
+**`housecarl_forward`** — `formids=` the NPC, `source=` the appearance plugin, and `into=` the patch you are
+building (or `patch=` for a fresh one); it copies that plugin's `NPC_` verbatim into a winning override
+(nested appearance fields included). For a *partial* appearance mask —
 forwarding only some of the face-determining fields onto a different base record — `housecarl_records` the winner
 and the appearance source, then `housecarl_apply` with `bundle=`/`assignments=` to write an override carrying
 just that subset.
@@ -323,7 +324,7 @@ there.
   the plugin it resolved to. The trap that remains is what a console click selects: the **placed
   reference**, not the base `NPC_`. Read it back and confirm the name before acting, and write with the
   `XXXXXX:Plugin.esp` form — `housecarl_apply` refuses the runtime form by design.
-- **No cross-folder fallback** (§1). Step 3 asks "what wins this exact path, and does it match the record?"
+- **No cross-folder fallback** (§1). SKILL.md §3 (Step 1) asks "what wins this exact path", SKILL.md §5 (Step 2) "does it match the record?"
 - **"Rides the master's facegen" is the same keyed path, not a fallback** (§2).
 - **ESL/FE prefix:** filename never contains "FE"; compute from the current FormKey. Folder unchanged on
   eslification. A freshly-eslified mod's loose facegen sits at the OLD names until renamed.
