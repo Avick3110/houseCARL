@@ -125,7 +125,10 @@ and the replay warned on none of your lines.
 Once the INI is installed, three reads prove it landed.
 
 - `housecarl_skypatcher_layer` with `filter=` the type folder or the INI filename, for the
-  file-level verdict — whether the file is read at all, where it sorts, and what it conflicts with.
+  file-level verdict — whether the file is read at all, where it sorts, what it conflicts with, and
+  which of its ITM findings (an intra-file dead write, a cross-INI duplicate, a no-op write) name
+  your file. The first two are authoring slips to fix at the source, and a dead write hides from the
+  delta below, which shows only the value that survived it.
 - `housecarl_records` with `formids=` a target, `source={"overlay": "skypatcher", "state": "post"}`,
   `versus={"overlay": "skypatcher", "state": "pre"}` and `project={"form": "delta"}`, for the
   before → after on that record, with the replay's warnings for the placed file's lines beside it.
