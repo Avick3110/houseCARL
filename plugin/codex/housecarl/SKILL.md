@@ -17,9 +17,8 @@ compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 
 
 **In:** a live Mod Organizer 2 instance, read through the houseCARL MCP server. **The work:** read the
 record at its true load-order winner, check the schema, then write. **Out:** a patch plugin the user
-reviews and enables in MO2. This file does two things and defers the rest — it routes a job to the skill
-that owns its grammar, and it gives the read order every write depends on. What a tool takes is in that
-tool's own description.
+reviews and enables in MO2. This file routes a job to the skill that owns its grammar, and gives the read
+order every write depends on. What a tool takes is in that tool's own description.
 
 The user's instructions take precedence over guidelines provided in a skill.
 
@@ -40,38 +39,40 @@ The user's instructions take precedence over guidelines provided in a skill.
 | A catalogue, audit, conflict survey or link graph over many records | `housecarl:bulk-record-jobs` | before the first call |
 
 MCP tools are written bare on both hosts (`housecarl_records`); a sibling is written `housecarl:<skill>`, the
-Claude Code invocation — on Codex it is the bare folder name (`facegen-diagnostics`), installed beside this one.
+Claude Code form — on Codex it is the bare folder name (`facegen-diagnostics`) installed beside this one.
 
 ## Read before you write
 
 1. **Confirm context when it matters.** `housecarl_load_order_status` says what is active;
-   `housecarl_set_mo2_instance` when the user names a different MO2 instance folder.
+   `housecarl_set_mo2_instance` when the user names another MO2 instance folder.
 2. **Read the winner and the schema.** `housecarl:mutagen-reference` for the field path and its legal
-   values — if it has no entry for a type, say so rather than guessing; `housecarl_records` for the record
-   as the order resolves it, `project={"form":"tree"}` for every provider when the winner is contested.
+   values — no entry for a type means say so, never guess; `housecarl_records` for the record
+   as the order resolves it, `project={"form":"tree"}` for every provider when contested.
 3. **Write with one verb.** `housecarl_apply` edits fields (`ops=`), `housecarl_create` mints records
    (`records=`), `housecarl_remove` drops them (`formids=`), `housecarl_forward` carries another plugin's
-   record as an override. Every list is set-valued — one op is a set of one — there is no single/bulk pair.
-4. **Read the written record back**, and say what happened when it did not take.
+   record as an override. Every list is set-valued — one op is a set of one; no single/bulk pair.
+4. **Read the written record back**, and say what happened if it did not take.
 
 ```
 housecarl_apply(ops=[{"formid": "012EB7:Skyrim.esm", "field_path": "BasicStats.Damage", "value": 12}], patch="SwordFix", readback=true)
 ```
 ```
 wrote SwordFix.esp (new patch; 1284 bytes)
-full read-back — the ENTIRE record(s) as written, re-read from the patch file (NOT load-order truth):
+mod folder: SwordFix  — enable + sort it in MO2 to use the patch
+full read-back — … NOT load-order truth; the patch wins nothing until enabled + sorted in MO2:
   Weapon 012EB7:Skyrim.esm  editorid=IronSword
     BasicStats.Damage = 12
     ...
 ```
 
-Report the patch name back — it is auto-suffixed when taken. A refused call wrote nothing.
+Report the patch name and mod folder back — the name is auto-suffixed when taken. A refused call wrote
+nothing — except in place, where the file may already have changed.
 
 ## Lanes and FormIDs
 
 A FormID is `XXXXXX:Plugin.esp` — six hex digits, then the defining master's filename. The runtime form a log
 or the console prints is read-only: `housecarl_records` takes it, every write refuses it and names the
-`XXXXXX:Plugin.esp` form to use. SkyPatcher, SPID and KID write their own syntax.
+`XXXXXX:Plugin.esp` form. SkyPatcher, SPID and KID write their own syntax.
 
 `housecarl_apply`, `housecarl_create` and `housecarl_forward` take three lanes: `patch=` a new plugin, `into=`
 an existing houseCARL patch, `in_place=` the file it names. `housecarl_remove` edits only what exists: `into=`
@@ -79,13 +80,13 @@ or `in_place=`, no `patch=`. In place is consent-gated per plugin by `acknowledg
 
 ## Where this does not apply
 
-Another game; installing or configuring MO2; gameplay advice with no record, file or INI in it. Two reaches the
-surface does not have today, both filed: `housecarl_check` with `findings=["dialogue"]` resolves against the
-active order, so a plugin not yet enabled cannot be dialogue-checked (#615); and a hand-composed raw mods-folder
-path is not refused in one sentence by `housecarl_place` or `housecarl_nif_inspect` (#617) — pass the mod
-folder a read-back named instead.
+Another game; installing or configuring MO2; gameplay advice with no record, file or INI. Two reaches the
+surface lacks today, both filed: `housecarl_check` with `findings=["dialogue"]` resolves against the active
+order, so a plugin not yet enabled cannot be dialogue-checked (#615); and a hand-composed raw mods-folder path
+is not refused in one sentence by `housecarl_place` or `housecarl_nif_inspect` (#617) — pass the mod folder a
+read-back named.
 
 ## The sidecar
 
-Codex reads `agents/openai.yaml` beside this file for the display name and invocation policy; nothing in
-this body depends on it.
+Codex reads `agents/openai.yaml` beside this file for the display name and invocation policy; nothing here
+depends on it.
