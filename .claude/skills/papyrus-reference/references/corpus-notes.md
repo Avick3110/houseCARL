@@ -25,8 +25,10 @@ body's promises do not hold in.
 1. **Copy the hand-authored files back.** `silent-biters.md` and this file are outside the generated
    set and are lost by a clean regeneration.
 2. **Drop function-less script files.** A generated file that carries no entry is reachable from
-   neither the body nor the index; all it can ever produce is a dead read. 32 such vanilla stubs
-   were dropped on 2026-09-08.
+   neither the body nor the index; all a lookup can ever produce from it is a dead read. 32 such
+   vanilla stubs were dropped on 2026-09-08. Each was three lines, and the middle one carried the
+   class's `extends` edge, so the drop costs that edge for the 21 names with no `skse/` counterpart
+   — see the coverage bound below.
 3. **Emit a `## Contents` table** at the head of every generated file **over 100 lines** — the
    stricter of the two thresholds the platform guidance and the checklist name, so it clears both.
    The table lists each `##` section with its entry count and its post-insertion line number, and
@@ -64,9 +66,20 @@ list that file above.
   the index per source would move the cost into deciding which shard to grep, which is the question
   the lookup is asking.
 
-## Known coverage bound
+## Known coverage bounds
 
-Base-class events on `Form.psc` are under-covered upstream: there is no vanilla or skse row for
+**The `extends` edge of 21 dropped classes.** Pass 2's 32 stubs each carried one
+`**Source:** ... • **Extends:** ...` line. Eleven of the names keep that edge on an `skse/` file;
+the other 21 now appear in no file in the corpus at all — `Action`, `Activator`,
+`AssociationType`, `Class`, `Container`, `Door`, `EncounterZone`, `Explosion`, `Furniture`,
+`Hazard`, `Idle`, `ImpactDataSet`, `Key`, `LocationRefType`, `MiscObject`, `Projectile`, `Static`,
+`TalkingActivator`, `VoiceType`, `WordOfPower`, `WorldSpace`. SKILL.md resolves an unqualified call
+up the calling script's `extends` chain, so for a script extending one of those the corpus no
+longer records the parent. The drop still stands — a dead lookup is a dead lookup — but this is the
+loss it cost. Closing it means keeping the header line for a stub instead of dropping the file,
+which is a change to pass 2.
+
+**Base-class events on `Form.psc`.** Under-covered upstream: there is no vanilla or skse row for
 `OnInit`, only script-specific ones. SKILL.md states this as a bound so a miss there is reported as
 a corpus hole rather than answered as "absent from Papyrus". Closing it needs either an upstream
 release that carries those rows or a hand-authored supplement per the section above; whichever
