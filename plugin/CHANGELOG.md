@@ -2553,6 +2553,14 @@ offset, paging meant slicing by `editorid_contains`. Now:
   record's, which the summary already spells with its editorid — is not annotated with itself. An element with two
   or more FormLink fields still renders as a bare `[Type]` and so shows no FormID to annotate, for the reason it
   already gives.
+- **A `project.fields` path that names no field says which kind of miss it is.** A field the record type does not
+  model and a mistyped name both read as `(no field X)`, and they need opposite next moves. The note now says
+  which, from the generated schema: a name Mutagen models on other types is told so, with how many and the first
+  few of them, and that it is just not on this type — so `VirtualMachineAdapter` on a Spell reads as a Mutagen
+  coverage limit rather than a spelling to fix. A name no modeled type carries is called mistyped and offered the
+  nearest field on the record, including the exact spelling where only the case differs. Where the corpus is not
+  built the note stays the bare `(no field X)` it was. The `where=` lane's own accounting for the same dead-end is
+  unchanged.
 
 ## 1.9.0 — 2026-07-17
 
