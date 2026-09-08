@@ -88,7 +88,7 @@ Read what your task needs, not everything.
 
 7. **Place the file** at `Data\<name>_KID.ini`. The `_KID` substring is **mandatory** — a file
    without it is never read — and the file sits flat in `Data\`, not under `Data\SKSE\Plugins\`
-   where SPID's and SkyPatcher's INIs live. KID INIs have **no `[Section]` headers**; every line
+   where SkyPatcher's INIs live. KID INIs have **no `[Section]` headers**; every line
    sits at the top level, and `;` starts a comment. (Backslashed paths here are the game's own
    literals; every path into this skill's own files is forward-slashed.)
 
@@ -154,7 +154,7 @@ The user's own instructions outrank anything in this skill.
   enchantment; `Enchantment` is the ENCH record type itself.
 - **Forgetting `_KID` in the filename**, or adding `[Section]` headers. The substring is required,
   and KID reads only the unnamed root section.
-- **Putting the file under `Data\SKSE\Plugins\`.** That is where SPID and SkyPatcher read from; KID
+- **Putting the file under `Data\SKSE\Plugins\`.** That is where SkyPatcher reads from; KID
   reads `Data\` flat, so a correctly-named file in the wrong folder is never found.
 - **Inventing a trait or value.** Look the per-type trait list and the value tables up — a casting
   type or body slot that does not exist silently no-ops.
