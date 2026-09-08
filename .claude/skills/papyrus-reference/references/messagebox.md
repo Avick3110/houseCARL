@@ -11,7 +11,7 @@ this table is for a fallback read, not the lookup path.
 
 | Section | Entries | Line |
 |---|---|---|
-| Global Functions | 23 | 18 |
+| Global Functions | 8 | 18 |
 
 ---
 
