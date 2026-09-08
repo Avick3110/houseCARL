@@ -66,7 +66,7 @@ full read-back — … NOT load-order truth; the patch wins nothing until enable
 ```
 
 Report the patch name and mod folder back — the name is auto-suffixed when taken. A refused call wrote
-nothing — except in place, where the file may already have changed.
+nothing; a failed in-place write says so in its message.
 
 ## Lanes and FormIDs
 
