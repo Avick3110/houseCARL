@@ -71,7 +71,9 @@ housecarl_records(types=["NPC_"], format="json",
 ```
 
 The row schema is the artifact's own, not the fields you asked for: the requested paths sit **under
-`fields`** on each row, never as top-level columns — `row.fields["EditorID"]`, not `row.EditorID`.
+`fields`** on each row, never as top-level columns — and `fields` is an **array** of `{path, value}`
+leaves, not an object keyed by path. Take the element whose `path` is `"EditorID"` and read its
+`value`; `row.EditorID` and `row.fields["EditorID"]` are both empty on every row.
 
 Run scripts against the file; never read a multi-MB artifact into context. If you page instead,
 `offset=` **re-scans** the selection from the start, so every window pays the whole scan again and a
