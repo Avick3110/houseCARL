@@ -155,3 +155,41 @@ public sealed class ConstructorArgComposeWriteTests
         finally { Directory.Delete(dir, recursive: true); }
     }
 }
+
+/// <summary>
+/// WHICH constructor the fields lane picks, and whether the apply invokes that one. The chooser matches parameters
+/// by name; an apply that re-derived the constructor from the argument COUNT would agree with it only while no
+/// candidate type has two constructors of the same arity — and then build a different overload than the gate
+/// validated. Synthetic types, because the shape is about constructor overloads and not about any record.
+/// </summary>
+[Trait("tier", "unit")]
+public sealed class ConstructorSelectionTests
+{
+    // Two one-argument constructors, declared in both orders across the two types, so the test does not depend on
+    // the order reflection happens to report constructors in: whichever order that is, one of these picks wrong
+    // under arity-alone selection.
+    public sealed class IntFirst
+    {
+        public string Chosen { get; }
+        public IntFirst(int alpha) => Chosen = "alpha";
+        public IntFirst(string beta) => Chosen = "beta";
+    }
+
+    public sealed class StringFirst
+    {
+        public string Chosen { get; }
+        public StringFirst(string beta) => Chosen = "beta";
+        public StringFirst(int alpha) => Chosen = "alpha";
+    }
+
+    /// <summary>The constructor a field NAMES is the one invoked, not another of the same arity.</summary>
+    [Theory]
+    [InlineData(typeof(IntFirst))]
+    [InlineData(typeof(StringFirst))]
+    public void TheConstructorTheFieldsNameIsTheOneInvoked(Type type)
+    {
+        var built = WriteEngine.BuildFromFieldConstructor(type, new Dictionary<string, string> { ["Beta"] = "hello" });
+
+        Assert.Equal("beta", type.GetProperty("Chosen")!.GetValue(built));
+    }
+}
