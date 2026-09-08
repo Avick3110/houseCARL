@@ -29,10 +29,10 @@ using those macros will not compile. Hand-write `SKSEPlugin_Load` and call `SKSE
 live idiom every exemplar uses. (The metadata half — `SKSEPluginInfo(...)` / `PluginDeclaration` — *is*
 real; only the declarative *loader* is absent. Full skeleton is `plugin-skeleton.md`.)
 
-**The Papyrus boundary.** houseCARL's `papyrus-reference` skill owns the `.psc` surface; this reference
-restates no Papyrus signature as authoritative. Where the line is crossed it defers: `RegistrationSet`
-persists the **C++ side** of a script's `RegisterFor*` subscription but the `.psc` mod-event **names** are
-`papyrus-reference`'s; the Papyrus `GetFormFromFile(localID, plugin)` global is the `.psc` analogue of the
+**The Papyrus boundary.** A `.psc` signature for a function that already exists is a
+`housecarl:papyrus-reference` lookup; this reference restates no Papyrus signature as authoritative.
+`RegistrationSet` persists the **C++ side** of a script's `RegisterFor*` subscription, and the `.psc`
+mod-event **names** are that lookup's; the Papyrus `GetFormFromFile(localID, plugin)` global is the `.psc` analogue of the
 C++ `LookupForm` below, named for the boundary only. The event-sink surface (`BSTEventSink`) that
 *discovers* the work marshalled here is `event-sinks.md`; the trampoline/hook thunks that also run off-thread
 are `hooking.md`.
@@ -271,7 +271,8 @@ actorKill{ "OnActorKilled"sv };` (po3, `include/Serialization/EventHolder.h:70`)
 its serialization **is the re-resolve round-trip you'd otherwise hand-write** — on load it reads each raw
 VMHandle, calls `ResolveHandle`, and **drops any handle that fails to resolve**
 (`alandtse-ng/src/SKSE/RegistrationSet.cpp:179-197`); the `Map`/`Unique` variants also re-resolve their
-FormID filter/target. The `.psc`-side mod-event names and argument lists belong to `papyrus-reference`.
+FormID filter/target. The `.psc`-side mod-event names and argument lists of existing handlers are a
+`housecarl:papyrus-reference` lookup.
 
 Two rules keep state clean across the save boundary:
 

@@ -11,9 +11,9 @@ divergence"); this reference teaches the `ng` shapes and flags the others so you
 you switch.
 
 Where a plugin registers Papyrus native functions, this reference names the C++-side registration call
-and stops. The `.psc` signature surface — what a Papyrus function's parameters and return type are — is
-owned by houseCARL's `papyrus-reference` skill; do not treat any Papyrus signature quoted here as
-authoritative. Setting up native functions in depth is `native-papyrus-functions.md`.
+and stops. A Papyrus signature for a function that already exists is a `housecarl:papyrus-reference`
+lookup; a native you are inventing is declared from the grammar in the skill body. Do not treat any
+Papyrus signature quoted here as authoritative. Native functions in depth: `native-papyrus-functions.md`.
 
 ## Contents
 
@@ -142,7 +142,7 @@ wrong handle; before Init, the interface accessors return null.
 |---|---|
 | `GetPluginHandle()` / `GetReleaseIndex()` | this plugin's handle; the SKSE build's release index |
 | `GetMessagingInterface()` | `RegisterListener(cb)` (defaults sender `"SKSE"`), `RegisterListener(sender, cb)`, `Dispatch(...)`, `GetEventDispatcher(...)` — the lifecycle-message and plugin-to-plugin channel (§5) |
-| `GetPapyrusInterface()` | `Register(fn…)` of native-registration callbacks; runs the callback immediately if the VM already exists, else queues it — so it works from Load or later. `.psc` side is `papyrus-reference`; C++ side is `native-papyrus-functions.md` |
+| `GetPapyrusInterface()` | `Register(fn…)` of native-registration callbacks; runs the callback immediately if the VM already exists, else queues it — so it works from Load or later. `.psc` side: existing functions are a `housecarl:papyrus-reference` lookup, a new native is declared in the skill body; C++ side is `native-papyrus-functions.md` |
 | `GetSerializationInterface()` | the co-save API: `SetUniqueID`, the Save/Load/Revert/FormDelete callbacks, record read/write, and `ResolveFormID` / `ResolveHandle` for remapping after a load-order change. Depth: `threading-and-persistence.md` |
 | `GetTaskInterface()` | `AddTask` / `AddUITask` — marshal work back to a game thread. Depth: `threading-and-persistence.md` |
 | `GetTrampolineInterface()` / `AllocTrampoline(size)` / `GetTrampoline()` | SKSE's shared branch/local pools for hooks. Depth: `hooking.md` |

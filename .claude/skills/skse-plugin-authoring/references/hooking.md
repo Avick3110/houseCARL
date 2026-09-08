@@ -8,8 +8,8 @@ getting the address layer wrong takes the whole DLL down on the next game update
 
 This is the C++ memory-patching layer — it says nothing about the `.psc` Papyrus surface. A
 hooked C++ thunk signature and a vtable slot are not Papyrus function signatures; never treat
-one as the other, and when you need a Papyrus signature that is `papyrus-reference`'s job, not
-this file's.
+one as the other; a Papyrus signature for a function that already exists is a
+`housecarl:papyrus-reference` lookup, not this file's job.
 
 The CommonLib lineage this targets is **alandtse/CommonLibVR branch `ng`** — the
 charter-locked library. Where a mechanism differs across lineages (powerof3's `dev` fork has

@@ -30,8 +30,8 @@ into those repos to trace a surprising claim to source — treat them as pins, n
 
 > **The `.psc` surface is not yours to declare.** Where a plugin registers native Papyrus functions, you
 > learn from C++ only that the functions *exist* and where their native bodies live. The authoritative
-> `.psc`-side signatures belong to houseCARL's `papyrus-reference` skill — never lift a Papyrus declaration
-> out of a C++ header and state it as canonical.
+> `.psc`-side signatures of functions that already exist are a `housecarl:papyrus-reference` lookup —
+> never lift a Papyrus declaration out of a C++ header and state it as canonical.
 
 ---
 
@@ -260,8 +260,9 @@ papyrus->Register(Papyrus::Bind);
 these are the subject of `native-papyrus-functions.md`.
 
 **Boundary (repeat):** from C++ you learn only that the functions exist and where their native bodies live.
-The canonical `.psc` declarations are owned by `papyrus-reference`. Do not reproduce a Papyrus signature from
-a C++ header and present it as authoritative.
+The canonical `.psc` declarations of functions that already exist are looked up in
+`housecarl:papyrus-reference`. Do not reproduce a Papyrus signature from a C++ header and present it as
+authoritative.
 
 ---
 
