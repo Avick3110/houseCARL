@@ -1,4 +1,5 @@
 using System.Text;
+using HousecarlCore;
 using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcp;
@@ -272,7 +273,7 @@ static class Wire
             sb.Append('\n');
             // The scan render's exact line, so a reverse lookup un-merges the same way whichever form answered it.
             if (matches is { } mt && i < mt.Count && mt[i] is { } hit)
-                sb.Append("  ").Append(o.FormKey).Append("  matches=").Append(hit).Append('\n');
+                sb.Append("  ").Append(FormIdToken.Of(o.FormKey)).Append("  matches=").Append(hit).Append('\n');
             if (o.Error is not null) sb.Append("error: ").Append(o.Error).Append('\n');
             else AppendRecordBlock(sb, o, new RenderCap(cap, budget), notes, lv);
             // Whole records only, and the clause this record earned goes back with it: the clauses already earned are
@@ -400,7 +401,7 @@ static class Wire
             else
             {
                 var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, fk);   // lazy fill for conflicts-only, pinned to the scan's build
-                sb.Append("  ").Append(m.FormKey);
+                sb.Append("  ").Append(FormIdToken.Of(m.FormKey));
                 if (m.Error is not null) sb.Append("  error=").Append(m.Error).Append('\n');
                 else
                 {
@@ -503,7 +504,7 @@ static class Wire
         if (r.Error is not null) return "error: " + r.Error + Wire.EpochLine(r.Stamp);
         int cap = room.Cap;
         var sb = new StringBuilder();
-        sb.Append("chain for ").Append(r.Mgef).Append(" (").Append(r.MgefEditorId).Append(", MagicEffect): ")
+        sb.Append("chain for ").Append(FormIdToken.Of(r.Mgef)).Append(" (").Append(r.MgefEditorId).Append(", MagicEffect): ")
           .Append(r.Total).Append(r.Total == 1 ? " carrier row" : " carrier rows");
         if (r.Capped) sb.Append(" (showing first ").Append(r.Rows.Count).Append("; raise ").Append(carrierBound).Append(" or narrow to see more)");
         if (r.Stamp is not null) sb.Append(Wire.EpochInline(r.Stamp));
@@ -536,7 +537,7 @@ static class Wire
             {
                 // Composed before it is priced, so the cut notice lands inside the budget rather than a character
                 // past the row that crossed it.
-                string line = "  " + row.Carrier
+                string line = "  " + FormIdToken.Of(row.Carrier)
                               + "  " + (row.EditorId ?? "<none>")
                               + "  winner=" + row.Winner
                               + "  mag=" + row.Magnitude.ToString(System.Globalization.CultureInfo.InvariantCulture)
@@ -1050,7 +1051,7 @@ static class Wire
 
         var sb = new StringBuilder();
         sb.Append('\n').Append(rec.Unbound.Count > 0 ? "[UNBOUND] " : "[CHECK] ")
-          .Append(rec.Record).Append(" (").Append(rec.RecordType);
+          .Append(FormIdToken.Of(rec.Record)).Append(" (").Append(rec.RecordType);
         if (!string.IsNullOrEmpty(rec.EditorId)) sb.Append(" '").Append(rec.EditorId).Append('\'');
         sb.Append(") in ").Append(rec.Plugin).Append('\n');
 

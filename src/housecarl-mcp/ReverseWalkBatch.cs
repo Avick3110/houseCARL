@@ -115,7 +115,7 @@ public static class ReverseWalkBatch
         var selection = new List<string>(seedKeys.Count);
         foreach (var k in seedKeys) selection.Add(FormIdToken.Of(k));
         foreach (var hop in hops)
-            foreach (var k in hop.Reached) selection.Add(k.ToString());
+            foreach (var k in hop.Reached) selection.Add(FormIdToken.Of(k));
 
         return new Result(hops, selection, seedKeys.Count, capped,
                           new DropCensus(noLink.Count, unreadable, noLiveBody, noWinner), built.Note, stamp, null);

@@ -365,7 +365,7 @@ internal static class Artifacts
                 {
                     w.WriteStartObject();
                     w.WriteString("seed", seed);
-                    w.WriteString("formid", row.Carrier.ToString());
+                    w.WriteString("formid", FormIdToken.Of(row.Carrier));
                     w.WriteString("type", row.Type);
                     if (row.EditorId is not null) w.WriteString("editorid", row.EditorId);
                     w.WriteString("winner", row.Winner);

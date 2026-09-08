@@ -149,7 +149,7 @@ public static class WriteTools
                 break;
             }
             var op = o.Ops[i];
-            sb.Append("  ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
+            sb.Append("  ").Append(op.RecordType).Append(' ').Append(FormIdToken.Of(op.Target)).Append("  ").Append(op.Label)
               .Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append(ApplyNote(op)).Append('\n');
         }
         // The .fuz/.lip and result-script checks run on CREATE of dialogue lines, not on edits to existing ones, so an
@@ -212,7 +212,7 @@ public static class WriteTools
                 break;
             }
             var op = o.Ops[i];
-            sb.Append("  ").Append(op.RecordType).Append(' ').Append(op.Target).Append("  ").Append(op.Label)
+            sb.Append("  ").Append(op.RecordType).Append(' ').Append(FormIdToken.Of(op.Target)).Append("  ").Append(op.Label)
               .Append(op.After is not null ? "  -> would become " + op.After : "  -> would apply").Append(ApplyNote(op)).Append('\n');
         }
         if (fullDump && o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars, dryRun: true);
@@ -246,7 +246,7 @@ public static class WriteTools
                 return;
             }
             var r = rb[i];
-            if (r.Error is not null) { sb.Append("  ").Append(r.Target).Append("  error: ").Append(r.Error).Append('\n'); continue; }
+            if (r.Error is not null) { sb.Append("  ").Append(FormIdToken.Of(r.Target)).Append("  error: ").Append(r.Error).Append('\n'); continue; }
             var rec = r.Record!;
             sb.Append("  ").Append(rec.Type).Append(' ').Append(rec.FormKey).Append("  editorid=").Append(rec.EditorId ?? "<none>").Append('\n');
             foreach (var f in rec.Fields)
@@ -287,7 +287,7 @@ public static class WriteTools
             var r = rb[i];
             // A re-read that failed is a real inconsistency — surface it LOUD and NAMED (the whole reason the in-place
             // verify is forced on), never counted as clean.
-            if (r.Error is not null) { sb.Append("  ✗ ").Append(r.Target).Append(" — ").Append(r.Error).Append('\n'); continue; }
+            if (r.Error is not null) { sb.Append("  ✗ ").Append(FormIdToken.Of(r.Target)).Append(" — ").Append(r.Error).Append('\n'); continue; }
             var rec = r.Record!;
             sb.Append("  ✓ ").Append(rec.Type).Append(' ').Append(rec.FormKey)
               .Append(" — re-read clean (").Append(rec.Fields.Count).Append(" field(s))");
@@ -362,7 +362,7 @@ public static class WriteTools
                 break;
             }
             var r = o.Removed[i];
-            sb.Append("  - ").Append(r.RecordType).Append(' ').Append(r.Target).Append("  ")
+            sb.Append("  - ").Append(r.RecordType).Append(' ').Append(FormIdToken.Of(r.Target)).Append("  ")
               .Append(r.EditorId ?? "<no editorid>").Append('\n');
         }
         sb.Append(WriteSentences.Masters(o.Masters));
@@ -435,7 +435,7 @@ public static class WriteTools
                 break;
             }
             var f = o.Forwarded[fi];
-            sb.Append("  ").Append(f.RecordType).Append(' ').Append(f.Target).Append("  ").Append(f.EditorId ?? "<no editorid>")
+            sb.Append("  ").Append(f.RecordType).Append(' ').Append(FormIdToken.Of(f.Target)).Append("  ").Append(f.EditorId ?? "<no editorid>")
               .Append(o.DryRun ? "  — would be copied from " : "  — copied from ").Append(f.FromPlugin);
             // The sentence has to match what the replace does: the FIELDS are replaced and everything nested under the
             // record is carried across, so this must not read as a clean revert. The count is stated rather than
@@ -693,7 +693,7 @@ public static class WriteTools
         {
             sb.Append("cross-donor conflicts (").Append(o.Conflicts.Count).Append(") — each resolved to the LOAD-ORDER WINNER (the losing version is NOT in the merge; any un-relisted nested children were grafted):\n");
             foreach (var c in o.Conflicts.Take(25))
-                sb.Append("  ").Append(c.RecordType).Append(' ').Append(c.Key).Append("  ").Append(c.WinnerDonor).Append(" won over ").Append(c.LoserDonor).Append('\n');
+                sb.Append("  ").Append(c.RecordType).Append(' ').Append(FormIdToken.Of(c.Key)).Append("  ").Append(c.WinnerDonor).Append(" won over ").Append(c.LoserDonor).Append('\n');
             if (o.Conflicts.Count > 25) sb.Append("  … (+").Append(o.Conflicts.Count - 25).Append(" more)\n");
         }
 
@@ -911,7 +911,7 @@ public static class WriteTools
             }
             var c = o.Created[ci];
             listed++;
-            sb.Append("  ").Append(c.RecordType).Append(' ').Append(c.FormKey).Append("  ").Append(c.EditorId);
+            sb.Append("  ").Append(c.RecordType).Append(' ').Append(FormIdToken.Of(c.FormKey)).Append("  ").Append(c.EditorId);
             // "this patch" belongs to the artifact lanes; in place the file is the caller's own plugin, and naming it a
             // patch would misread as houseCARL's.
             if (c.ReplacedExisting) sb.Append("  [REPLACED: ").Append(o.InPlace ? file : "this patch")
@@ -1012,7 +1012,7 @@ public static class WriteTools
         foreach (var l in report.Lines)
         {
             if (sb.Length >= cap) { AppendVoiceTrunc(sb, rendered, total, cap); return; }
-            var who = string.IsNullOrEmpty(l.TopicEditorId) ? l.Info.ToString() : $"{l.TopicEditorId} ({l.Info})";
+            var who = string.IsNullOrEmpty(l.TopicEditorId) ? FormIdToken.Of(l.Info) : $"{l.TopicEditorId} ({FormIdToken.Of(l.Info)})";
             if (l.FuzPresent)
             {
                 sb.Append("  OK   ").Append(who).Append(" resp ").Append(l.ResponseNumber)
@@ -1034,7 +1034,7 @@ public static class WriteTools
         foreach (var u in report.Undetermined)
         {
             if (sb.Length >= cap) { AppendVoiceTrunc(sb, rendered, total, cap); return; }
-            var who = string.IsNullOrEmpty(u.TopicEditorId) ? u.Info.ToString() : $"{u.TopicEditorId} ({u.Info})";
+            var who = string.IsNullOrEmpty(u.TopicEditorId) ? FormIdToken.Of(u.Info) : $"{u.TopicEditorId} ({FormIdToken.Of(u.Info)})";
             sb.Append("  [?] ").Append(who).Append("  — ").Append(u.Reason).Append('\n');
             rendered++;
         }
@@ -1068,7 +1068,7 @@ public static class WriteTools
         foreach (var c in report.Cells)
         {
             if (sb.Length >= cap) { cut = true; break; }
-            sb.Append("  ").Append(c.Interior ? "INTERIOR " : "EXTERIOR ").Append(c.EditorId).Append(" (").Append(c.Cell).Append("):\n");
+            sb.Append("  ").Append(c.Interior ? "INTERIOR " : "EXTERIOR ").Append(c.EditorId).Append(" (").Append(FormIdToken.Of(c.Cell)).Append("):\n");
             foreach (var m in c.MustProvide)
             {
                 if (sb.Length >= cap) { cut = true; break; }
@@ -1112,7 +1112,7 @@ public static class WriteTools
                   .Append(" line(s) at max_chars=").Append(cap).Append("; ").Append(WriteSentences.Twins.ReportBlockCut).Append("]\n");
                 return;
             }
-            var who = string.IsNullOrEmpty(f.TopicEditorId) ? f.Info.ToString() : $"{f.TopicEditorId} ({f.Info})";
+            var who = string.IsNullOrEmpty(f.TopicEditorId) ? FormIdToken.Of(f.Info) : $"{f.TopicEditorId} ({FormIdToken.Of(f.Info)})";
             switch (f.Status)
             {
                 case ScriptBindingStatus.BoundAndCompiled:
