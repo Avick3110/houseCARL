@@ -144,6 +144,16 @@ Then the `.seq`, which is not optional:
 the stem you passed, or the `.seq` lands on an older plugin of that name and your quest gets none. A
 start-game-enabled quest with no `.seq` never starts, and its dialogue never exists.
 
+Then sweep the patch before it is enabled — this lane works off-order, the dialogue one does not
+(section "Validate, then hand off"), and `patch=` is a base name, auto-suffixed if that stem is taken:
+
+```json
+housecarl_check(plugins=["<the filename the create call reported>"], findings=["errors","scripts"])
+```
+
+Note the `#615` limit under "Validate, then hand off" when you report: the dialogue check cannot see a
+plugin that is not yet enabled.
+
 ### The option — cloning a vanilla gate instead of composing one
 
 Where the exemplar's gate already *is* the gate you want — several rows, or one you cannot otherwise
