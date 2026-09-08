@@ -6,8 +6,10 @@ donor's bytes are not the obvious ones.
 
 ## The four Race cases
 
-`exclude_types = ["Race:refuse"]` is the standing default: a race is not an appearance subtree, and a
-walk into one pulls the skeleton and the sibling races instead of a face. The exclusion only fires
+`exclude_types = ["Race:refuse"]` is the standing choice an appearance copy passes, not a default the
+tool supplies: `exclude_types` has none, and a call that omits it walks with no exclusions at all.
+Pass it because a race is not an appearance subtree, and a walk into one pulls the skeleton and the
+sibling races instead of a face. The exclusion only fires
 when the race is **inside the source universe** — defined in the donor plugin itself, or not
 resolving in your active load order. Which case you are in decides what is available.
 

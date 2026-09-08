@@ -72,8 +72,10 @@ entries and replacing them.
 partition: a copy that leaves the target's own head parts or worn armor under the donor's face
 produces a face assembled from two records. The readback says `cleared` rather than copied.
 
-**`Race:refuse` is the default** because a race is not an appearance subtree — a walk into one pulls
-the skeleton and the sibling races. It only fires when the race is inside the source universe:
+**`Race:refuse` is the standing choice, and it is yours to pass** — the tool applies no exclusion you
+do not name, so a call that omits `exclude_types` walks with none. Pass it because a race is not an
+appearance subtree: a walk into one pulls the skeleton and the sibling races. It only fires when the
+race is inside the source universe:
 defined in the donor plugin itself, or not resolving in your active load order. When donor and
 target are different races, or a copy refuses on `Race`, the four cases and what each costs are in
 the reference file the overview names.
@@ -229,6 +231,7 @@ Then re-read it, naming the folder again —
 | Mistake | What it costs |
 |---|---|
 | Copying from a `Traits`-templated donor | Its appearance fields are empty, so the seeds clear the target's: a blank face, reported as a success |
+| Seeding `Race`, or omitting `exclude_types` because you expect a `Race` default | There is none: the walk enters the race and pulls the skeleton and sibling races |
 | Renaming the copied head parts | The mesh's baked shape names stop matching; the engine regenerates a vanilla head |
 | Omitting `TextureLighting` | Every field reads correct and the skin renders dark |
 | Dropping a bundle member the donor lacks instead of clearing it | The target keeps its own morphs under the donor's head parts — a face built from two people |
