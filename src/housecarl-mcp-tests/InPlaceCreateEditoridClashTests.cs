@@ -26,6 +26,7 @@ public sealed class InPlaceCreateEditoridClashTests : IDisposable
     const string TakenEditorId = "HcClashFaction";
     const string KeywordEditorId = "HcClashUserKeyword";   // a Keyword, so a Faction create under it is CROSS-TYPE
     const string DupeEditorId = "HcClashDupe";             // two Factions share it — duplicate editorid residue
+    const string TopicEditorId = "HcClashTopic";           // a DialogTopic with INFOs under it — children a replace drops
 
     readonly string _root, _userPath, _priorCorpusPath;
     readonly LoadOrderService _svc;
@@ -51,6 +52,11 @@ public sealed class InPlaceCreateEditoridClashTests : IDisposable
         var userKw = user.Keywords.AddNew(); userKw.EditorID = KeywordEditorId;
         var dupeA = user.Factions.AddNew(); dupeA.EditorID = DupeEditorId;
         var dupeB = user.Factions.AddNew(); dupeB.EditorID = DupeEditorId;
+        // A topic with two lines under it. A replace drops the record from its group and re-adds it fresh, and the
+        // child group goes with the drop — these are the records that would go missing from the user's own file.
+        var topic = user.DialogTopics.AddNew(); topic.EditorID = TopicEditorId;
+        topic.Responses.Add(new DialogResponses(user.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcClashLine0" });
+        topic.Responses.Add(new DialogResponses(user.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = "HcClashLine1" });
 
         var instance = Path.Combine(_root, "inst");
         var mods = Path.Combine(instance, "mods");
@@ -81,6 +87,9 @@ public sealed class InPlaceCreateEditoridClashTests : IDisposable
 
     static string Spec(string editorId, string name) =>
         $@"{{""record_type"":""Faction"",""editorid"":""{editorId}"",""ops"":[{{""field_path"":""Name"",""value"":""{name}""}}]}}";
+
+    static string TopicSpec(string editorId, string name) =>
+        $@"[{{""record_type"":""DialogTopic"",""editorid"":""{editorId}"",""ops"":[{{""field_path"":""Name"",""value"":""{name}""}}]}}]";
 
     string Hash() => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(_userPath)));
 
@@ -141,6 +150,20 @@ public sealed class InPlaceCreateEditoridClashTests : IDisposable
         Assert.Contains("error:", r);
         Assert.Contains("housecarl_remove", r);
         Assert.DoesNotContain("replace=", r);
+    }
+
+    /// <summary>The record the editorid names owns child records. An overwrite removes it from its group and re-adds
+    /// it fresh, and the children go with the removal — the INFOs under a DialogTopic, in the user's own file, with
+    /// nothing to put them back. So replace= is not offered here, and does not go through when passed.</summary>
+    [Fact]
+    public void AClashOverARecordThatOwnsChildrenIsRefusedEvenWithReplace()
+    {
+        var before = Hash();
+        var r = CreateTools.Create(_svc, records: Je(TopicSpec(TopicEditorId, "Rebuilt")),
+            in_place: UserName, acknowledge: true, replace: true);
+        Assert.Contains("error:", r);
+        Assert.Contains("HcClashLine0", r);        // the child that would have gone missing, named before the write
+        Assert.Equal(before, Hash());
     }
 
     // ---- replace= opts back in --------------------------------------------------------------------
