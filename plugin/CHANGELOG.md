@@ -126,9 +126,16 @@ saying it sets an expectation their install may contradict. Say what is known, a
   where it makes the call. The skill also names `housecarl_compile_script` as the check behind "never invent a
   signature", carries the eight silent-biter rules in its body behind the conditions that should send you to
   them, and says outright that base-class events on `Form.psc` are missing from the corpus, so a miss there is
-  reported as a hole rather than as an absence from Papyrus. In the corpus itself, 32 vanilla files that carried
-  no entry are gone, and every reference file over 100 lines gained a `## Contents` table, with the index's line
-  ranges re-derived so every lookup still lands on its own block.
+  reported as a hole rather than as an absence from Papyrus. The tier itself is now read off a row's `source`
+  rather than off the presence of `requires_plugin`, because several SKSE-plugin sources carry that key on no
+  row and reading its absence as vanilla reported a third-party function as always installed. The lookup greps
+  the index case-insensitively — Papyrus is case-insensitive, so a call site's `Debug.notification` missed the
+  corpus's `Notification` and read as absence — and breaks a `qualified` tie on `source`, preferring the SKSE
+  row and saying so when the two declarations differ on whether a parameter is required. In the corpus itself,
+  32 vanilla files that carried no entry are gone, and every reference file over 100 lines gained a
+  `## Contents` table listing only headings that head a section, with the index's line ranges re-derived so
+  every lookup still lands on its own block. The skill states that bound where it describes the fallback read,
+  along with the two hand-authored files that no index row reaches.
 
 - **Setup now removes skill folders a previous install left behind, and says which ones.** It used to copy over
   an existing install without deleting anything, so a skill dropped from the package survived the upgrade and
