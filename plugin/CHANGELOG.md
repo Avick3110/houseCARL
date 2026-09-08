@@ -81,10 +81,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `housecarl_records`, `housecarl_apply`, `housecarl_forward` or `housecarl_check` call; the ten 1.x tool
   names it named are gone, as are `winner_fields=`, `group_by=` as a top-level argument, `plugin_a=`/`plugin_b=`
   and the rest of the retired spellings. The big-enumeration advice is reversed to match what the tool does:
-  `max_chars` is a ceiling on the render and an over-ceiling result spills in full to a JSONL artifact, so the
-  move is a small `max_chars` rather than a large one, `to_file=` is the explicit spelling of that same lane,
-  and `offset=` re-scans the selection rather than seeking into it — each bound is on the parameter that owns
-  it. The body is a third of its former length: the catalogue and link-graph recipes, the crafting-station
+  `max_chars` is a ceiling on the render and an over-ceiling result spills to a JSONL artifact, so the move is
+  a small `max_chars` rather than a large one; what spills is the window `limit=` allowed, and `to_file=` is
+  what captures the complete result; and `offset=` re-scans the selection rather than seeking into it — each
+  bound is on the parameter that owns it. The body is a third of its former length: the catalogue and link-graph recipes, the crafting-station
   conventions and the patch rebuild moved into `references/` files the body names with the condition for
   reading each.
 
