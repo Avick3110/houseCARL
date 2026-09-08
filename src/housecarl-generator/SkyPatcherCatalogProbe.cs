@@ -13,9 +13,10 @@ namespace HousecarlGenerator;
 //  filter (with connective) and a known operation correctly, flags an
 //  unknown key as Unknown (bundled-or-warn), preserves the OMOD gap, and
 //  cross-checks the record dimension (name/sig/subfolder/primaryFilter)
-//  against the skypatcher-authoring reference's index.jsonl — the drift
-//  guard for when the skill reference updates. In-process; the catalog is
-//  an embedded resource, the index is read from the repo (CWD-relative).
+//  against the skypatcher-authoring skill's own router table in SKILL.md —
+//  the drift guard for when the skill reference updates. In-process; the
+//  catalog is an embedded resource, the table is read from the repo
+//  (CWD-relative).
 // ======================================================================
 public static class SkyPatcherCatalogProbe
 {
@@ -125,12 +126,10 @@ public static class SkyPatcherCatalogProbe
         failures += CheckHard(cat, "setRandomVisualStyle");
         failures += CheckHard(cat, "mgefsToAdd");
 
-        // 7. cross-check the record dimension against the reference's own index.jsonl — the catalog's
+        // 7. cross-check the record dimension against the skill body's own router table — the catalog's
         //    provenance. This is the drift guard: when the skypatcher-authoring reference updates, a
         //    record added/renamed/re-filtered there must fail HERE until the catalog is re-transcribed.
-        //    (LVLI: the catalog deliberately carries the dual primary filter 'filterByLLs / filterByLLNPCs'
-        //    where the index carries one — compared component-wise.)
-        failures += CrossCheckIndex(cat);
+        failures += CrossCheckRouterTable(cat);
 
         Console.WriteLine(failures == 0
             ? "[skypatcher-catalog-guard] PASS — the closed SkyPatcher catalog holds."
@@ -139,63 +138,79 @@ public static class SkyPatcherCatalogProbe
     }
 
     /// <summary>Compare recordType/sig/primaryFilter per subfolder against the skypatcher-authoring
-    /// reference's index.jsonl (read from CWD like the other repo-file guards — run from the repo root),
-    /// plus exact count parity both ways. A missing index file is a loud FAIL, not a skip.</summary>
-    static int CrossCheckIndex(SkyPatcherCatalog cat)
+    /// skill's own router table in SKILL.md (read from CWD like the other repo-file guards — run from
+    /// the repo root), plus exact count parity both ways. A missing skill body is a loud FAIL, not a
+    /// skip. The table replaced references/index.jsonl, which the skill rewrite deleted.</summary>
+    static int CrossCheckRouterTable(SkyPatcherCatalog cat)
     {
         int failures = 0;
-        var path = Path.Combine(".claude", "skills", "skypatcher-authoring", "references", "index.jsonl");
+        var path = Path.Combine(".claude", "skills", "skypatcher-authoring", "SKILL.md");
         if (!File.Exists(path))
-            return Check($"reference index.jsonl exists at {path}", false, "wrong CWD? run from the repo root");
+            return Check($"skill body exists at {path}", false, "wrong CWD? run from the repo root");
 
-        // Each line is guarded to a NAMED fail — the guard's whole purpose is the reference-update
-        // event, which is exactly when a line can change shape; a raw exception would skip every
+        // Each row is guarded to a NAMED fail — the guard's whole purpose is the reference-update
+        // event, which is exactly when a row can change shape; a raw exception would skip every
         // remaining cross-check and name nothing (the PluginValidateProbe treatment).
-        var entries = new List<(string Name, string Sig, string Subfolder, string PrimaryFilter)>();
+        var entries = new List<(string Name, string[] Sigs, string Subfolder, string[] PrimaryFilters)>();
+        bool inTable = false;
         int lineNo = 0;
         foreach (var line in File.ReadAllLines(path))
         {
             lineNo++;
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            try
+            if (!inTable) { inTable = line.StartsWith("| Record type", StringComparison.Ordinal); continue; }
+            if (!line.StartsWith("|", StringComparison.Ordinal)) break;      // past the table
+            if (line.StartsWith("|---", StringComparison.Ordinal)) continue; // the separator row
+
+            var cells = line.Trim().Trim('|').Split('|').Select(c => c.Trim()).ToArray();
+            if (cells.Length != 4)
             {
-                using var doc = System.Text.Json.JsonDocument.Parse(line);
-                var e = doc.RootElement;
-                entries.Add((ReqStr(e, "name"), ReqStr(e, "sig"), ReqStr(e, "subfolder"), ReqStr(e, "primaryFilter")));
+                failures += Check($"router row {lineNo} has four columns", false, line.Trim());
+                continue;
             }
-            catch (Exception ex)
+            int open = cells[0].IndexOf(" (", StringComparison.Ordinal);
+            if (open < 0 || !cells[0].EndsWith(")", StringComparison.Ordinal))
             {
-                failures += Check($"index.jsonl line {lineNo} parses (name/sig/subfolder/primaryFilter)", false, ex.Message);
+                failures += Check($"router row {lineNo} names the xEdit signature", false, cells[0]);
+                continue;
             }
+            var sigs = cells[0].Substring(open + 2, cells[0].Length - open - 3)
+                               .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var subfolder = Backticked(cells[1]).FirstOrDefault() ?? "";
+            entries.Add((cells[0].Substring(0, open).Trim(), sigs, subfolder, Backticked(cells[2])));
         }
 
-        failures += Check($"catalog count == index count ({cat.Records.Count} vs {entries.Count})",
+        failures += Check($"catalog count == router row count ({cat.Records.Count} vs {entries.Count})",
             cat.Records.Count == entries.Count);
 
-        var indexSubfolders = new HashSet<string>(entries.Select(e => e.Subfolder), StringComparer.OrdinalIgnoreCase);
+        var rowSubfolders = new HashSet<string>(entries.Select(e => e.Subfolder), StringComparer.OrdinalIgnoreCase);
         foreach (var r in cat.Records)
-            if (!indexSubfolders.Contains(r.Subfolder))
-                failures += Check($"catalog subfolder '{r.Subfolder}' exists in the index", false);
+            if (!rowSubfolders.Contains(r.Subfolder))
+                failures += Check($"catalog subfolder '{r.Subfolder}' has a router row", false);
 
         foreach (var e in entries)
         {
             var r = cat.ForSubfolder(e.Subfolder);
-            if (r is null) { failures += Check($"index subfolder '{e.Subfolder}' exists in the catalog", false); continue; }
-            failures += Check($"{e.Subfolder}: recordType matches index name", r.RecordType == e.Name, $"cat='{r.RecordType}' idx='{e.Name}'");
-            failures += Check($"{e.Subfolder}: sig matches index", r.Sig == e.Sig, $"cat='{r.Sig}' idx='{e.Sig}'");
-            // Component-wise: every index primaryFilter must appear among the catalog's ' / '-separated parts
-            // (and an empty index pf — the OMOD gap — requires an empty catalog pf).
+            if (r is null) { failures += Check($"router subfolder '{e.Subfolder}' exists in the catalog", false); continue; }
+            failures += Check($"{e.Subfolder}: recordType matches the router row", r.RecordType == e.Name, $"cat='{r.RecordType}' row='{e.Name}'");
+            failures += Check($"{e.Subfolder}: sig is among the router row's", e.Sigs.Contains(r.Sig, StringComparer.Ordinal),
+                $"cat='{r.Sig}' row='{string.Join(" / ", e.Sigs)}'");
+            // Component-wise: every router primaryFilter must appear among the catalog's ' / '-separated
+            // parts (and an empty router pf — the OMOD gap — requires an empty catalog pf).
             var parts = r.PrimaryFilter.Split(" / ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            bool pfOk = e.PrimaryFilter.Length == 0 ? r.PrimaryFilter.Length == 0 : parts.Contains(e.PrimaryFilter, StringComparer.Ordinal);
-            failures += Check($"{e.Subfolder}: primaryFilter covers the index's", pfOk, $"cat='{r.PrimaryFilter}' idx='{e.PrimaryFilter}'");
+            bool pfOk = e.PrimaryFilters.Length == 0
+                ? r.PrimaryFilter.Length == 0
+                : e.PrimaryFilters.All(p => parts.Contains(p, StringComparer.Ordinal));
+            failures += Check($"{e.Subfolder}: primaryFilter covers the router row's", pfOk,
+                $"cat='{r.PrimaryFilter}' row='{string.Join(" / ", e.PrimaryFilters)}'");
         }
         return failures;
     }
 
-    static string ReqStr(System.Text.Json.JsonElement e, string prop)
-        => e.TryGetProperty(prop, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String
-            ? v.GetString() ?? ""
-            : throw new InvalidOperationException($"missing/non-string '{prop}'");
+    /// <summary>The `backticked` tokens of one table cell, in order — a cell's own prose and markers are dropped.</summary>
+    static string[] Backticked(string cell)
+        => System.Text.RegularExpressions.Regex.Matches(cell, "`([^`]+)`")
+               .Select(m => m.Groups[1].Value.Trim())
+               .ToArray();
 
     /// <summary>EVERY record carrying the op must be HARD, not just the first hit — per-record
     /// tractability variance is real in this catalog (alternateTexturesToAdd is HARD on some records,
