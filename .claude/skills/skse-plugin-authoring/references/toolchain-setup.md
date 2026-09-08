@@ -228,8 +228,9 @@ target_compile_options(${PROJECT_NAME} PRIVATE /Zc:preprocessor)           # req
 target_precompile_headers(${PROJECT_NAME} PRIVATE PCH.h)                   # required (above)
 ```
 
-Your `vcpkg.json` must carry `spdlog`, `fmt`, `directxtk`, `directxmath`, `rapidcsv` (rapidcsv because VR
-defaults on) and `xbyak` (the trampoline's assembler) — **and a `builtin-baseline`**, the commit sha of the
+Your `vcpkg.json` must carry the dependency set from **Consumer obligations** above — here `spdlog`, `fmt`,
+`directxtk`, `directxmath`, `rapidcsv` (rapidcsv because VR defaults on), plus `xbyak` on the field note
+there rather than as a requirement — **and a `builtin-baseline`**, the commit sha of the
 vcpkg checkout the manifest pins its package versions to (`git -C %VCPKG_ROOT% rev-parse HEAD`). The field
 is only *required* once the manifest uses versioning — a `version>=` constraint, an `overrides` block, or a
 registry — and a manifest that omits it and uses none of those resolves against the ports in the current
