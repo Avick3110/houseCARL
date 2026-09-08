@@ -59,4 +59,80 @@ public sealed class FormLinkTargetTypeTests : RecordsTestBase
     [Fact]
     public void ANullClearIsNotTypeChecked()
         => Served(Apply(Fid(W.Armor), "Race", "Set", "Null"), "Set Race");
+
+    /// <summary>A composed struct's own FormLink field is a link slot like any other — an Effect built with a
+    /// BaseEffect that is not a magic effect is refused at the compose, not at a leaf.</summary>
+    [Fact]
+    public void AComposedStructFieldLinkToTheWrongRecordTypeIsRefused()
+    {
+        var r = ApplyTools.Apply(Svc,
+            ops: Je($@"[{{""formid"":""{Fid(W.SpellA)}"",""field_path"":""Effects"",""op"":""Add"",""compose"":
+                {{""type"":""Effect"",""fields"":{{""BaseEffect"":""{Fid(W.SpellB)}""}}}}}}]"),
+            dry_run: true);
+
+        Refused(r, "'BaseEffect'", "is a Spell", "links to MagicEffect");
+    }
+
+    /// <summary>Removing a link is exempt: a list may already carry a wrong-typed FormID (another mod wrote it), and
+    /// the Remove that repairs it must not be refused for naming the very type it is taking out. The call still
+    /// fails — this armor has no Keywords at all — but on the LIST, never on the value's type.</summary>
+    [Fact]
+    public void RemovingALinkByValueIsNotTypeChecked()
+    {
+        var r = Apply(Fid(W.Armor), "Keywords", "Remove", Fid(W.SpellA));
+
+        Refused(r, "nothing to remove");
+        Assert.DoesNotContain("links to Keyword", r);
+    }
+
+    /// <summary>The create lane runs the same gate: a brand-new record whose link names the wrong type is refused
+    /// before anything is allocated.</summary>
+    [Fact]
+    public void ACreatedRecordsLinkToTheWrongRecordTypeIsRefused()
+    {
+        var o = Svc.CreateRecordsBatch(
+            new[]
+            {
+                new CreateOp
+                {
+                    RecordType = "Armor", Editorid = "HcLinkTypeArmor",
+                    Operations = new[] { new BulkOp { FieldPath = "Race", Verb = "Set", Value = Fid(W.SpellA) } },
+                },
+            },
+            "HcLinkTypeCreatePatch", null);
+
+        Assert.False(o.Success);
+        Assert.Contains("'Race'", o.Error);
+        Assert.Contains("is a Spell", o.Error);
+        Assert.Contains("links to Race", o.Error);
+    }
+
+    /// <summary>A create's ReplaceAll may mix same-call '@editorid' siblings with literal FormIDs. The sibling has no
+    /// record yet, so it is not type-checked; the literal beside it is.</summary>
+    [Fact]
+    public void ALiteralBesideASameCallSiblingIsTypeChecked()
+    {
+        var o = Svc.CreateRecordsBatch(
+            new[]
+            {
+                new CreateOp { RecordType = "Keyword", Editorid = "HcLinkTypeKw" },
+                new CreateOp
+                {
+                    RecordType = "Armor", Editorid = "HcLinkTypeArmor2",
+                    Operations = new[]
+                    {
+                        new BulkOp
+                        {
+                            FieldPath = "Keywords", Verb = "ReplaceAll",
+                            Values = new[] { "@HcLinkTypeKw", Fid(W.SpellA) },
+                        },
+                    },
+                },
+            },
+            "HcLinkTypeSiblingPatch", null);
+
+        Assert.False(o.Success);
+        Assert.Contains("is a Spell", o.Error);
+        Assert.Contains("links to Keyword", o.Error);
+    }
 }
