@@ -2601,8 +2601,9 @@ offset, paging meant slicing by `editorid_contains`. Now:
   not; the declaration grammar and three worked cases — a global native, a latent function, and a return type that
   compiles and then silently truncates — are written in the skill beside the C++ registration. Its nine reference
   pointers are written `references/<file>.md` rather than as bare filenames, so they open as written from an
-  installed plugin; the multi-runtime reference gains an "SE+AE only" route for a target with no VR in it, and the
-  toolchain reference gains `vcpkg.json`'s `builtin-baseline`, whose absence errors where classic mode is off.
+  installed plugin; the multi-runtime reference gains an "SE+AE only" route for a target with no VR in it, which
+  says to tell SE from AE at runtime because a dual build defines neither `EXCLUSIVE_SKYRIM_SE` nor `_AE`; and the
+  toolchain reference gains `vcpkg.json`'s `builtin-baseline`, under the condition the reference states.
 
 ## 1.9.0 — 2026-07-17
 
