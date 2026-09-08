@@ -124,6 +124,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
   wrong record type's filter are marked as such where they sit. The description states the SkyPatcher version
   the grammar is derived from and that distribution — forms onto NPCs, keywords onto items, items into
   containers — is a different framework's job.
+- **The `dialogue-authoring` skill is rebuilt against the 2.0 tools.** Every call it teaches is one that
+  exists: `housecarl_create`, `housecarl_apply`, `housecarl_records`, `housecarl_check`, `housecarl_remove`.
+  The commonest job — one line into an existing topic — is now the first thing it says and takes two calls,
+  because `parent` resolves an existing topic's FormID. Three facts it had wrong or missing are corrected:
+  the first-condition-wins rule holds for a topic whose lines are told apart by their conditions and is
+  scoped away from generic greetings, where how the engine picks is stated as unknown; the merged INFO order
+  is read with `housecarl_records project={"form":"info_order"}`, not from a check; and `Speaker` must be set
+  in the create call for the `.fuz` path to be computed. The dialogue check needs the plugin enabled first
+  (issue #615), so the skill names the off-order `errors`/`scripts` sweep as the pre-enable substitute rather
+  than claiming coverage it does not have. The player-topic semantics and the write-side recipes move to
+  `references/`, and the body is half its former size.
 - **Three skills are removed: `biped-slot-reference`, `papyrus-optimization` and `tool-output-awareness`.**
   Eleven skills ship now. `biped-slot-reference` said slot N is `FirstPersonFlags` bit N−30; the server's own
   output already decodes a `BodyTemplate.FirstPersonFlags` value into its slot numbers, so that fact stays.
