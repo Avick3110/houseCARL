@@ -77,6 +77,16 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `housecarl:mutagen-reference` for it, corrects the filter and trait section numbers in its grammar
   reference (filters are section 2, traits section 3), and drops a reference pointer that the packager
   deleted from every shipped copy.
+- **The `bulk-record-jobs` skill is rebuilt against the 2.0 tool surface.** Every call it plans is now a
+  `housecarl_records`, `housecarl_apply`, `housecarl_forward` or `housecarl_check` call; the ten 1.x tool
+  names it named are gone, as are `winner_fields=`, `group_by=` as a top-level argument, `plugin_a=`/`plugin_b=`
+  and the rest of the retired spellings. The big-enumeration advice is reversed to match what the tool does:
+  `max_chars` is a ceiling on the render and an over-ceiling result spills in full to a JSONL artifact, so the
+  move is a small `max_chars` rather than a large one, `to_file=` is the explicit spelling of that same lane,
+  and `offset=` re-scans the selection rather than seeking into it — each bound is on the parameter that owns
+  it. The body is a third of its former length: the catalogue and link-graph recipes, the crafting-station
+  conventions and the patch rebuild moved into `references/` files the body names with the condition for
+  reading each.
 
 - **The `mutagen-reference` skill is rebuilt against the 2.0 tool surface.** It named four tools that no longer
   exist — `housecarl_set_field`, `housecarl_bulk_apply`, `housecarl_create_record` and `housecarl_read_record` —
