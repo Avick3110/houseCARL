@@ -5,8 +5,8 @@ the shape of a distribution line, how the keyword is named, and the two tail fie
 vocabularies live beside this file:
 
 - **`types.md`** — the 19 item types you can add keywords to (the `type` section).
-- **`filters.md`** — the String / Form filters that choose *which items* get the keyword (section 3).
-- **`traits.md`** — the per-type trait filters that narrow further (section 4).
+- **`filters.md`** — the String / Form filters that choose *which items* get the keyword (section 2).
+- **`traits.md`** — the per-type trait filters that narrow further (section 3).
 - **`value-tables.md`** — the flat enums (archetypes, spell types, schools, soul/furniture/bench
   sizes, body slots, delivery/casting values) the prose files reference.
 
