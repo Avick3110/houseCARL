@@ -1,72 +1,95 @@
 ---
 name: mutagen-reference
 description: >-
-  Look up the schema of any Skyrim record type — fields, types, writability, legal enum values — from the bundled by-construction reference. Use before reading, editing, or patching any record (ARMO, WEAP, MGEF, NPC_, …) and for any "what fields does X have" or xEdit-signature question. A type absent from the reference is a real coverage gap to surface, never something to guess.
+  Looks up the schema of any Skyrim record type — fields, types, cardinality, writability, and an enum field's legal values — from the by-construction reference bundled with this skill. Use before reading, editing, or patching any record (ARMO, WEAP, MGEF, NPC_, …) and for any "what fields does X have" or xEdit-signature question. Schema only, never instance values — the shape of a type, not what one record in one plugin holds. A type absent from the reference is a real library-coverage gap to surface, never something to guess.
+compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 2 instance.
 ---
 
 # Mutagen Reference
 
 ## Overview
 
-This skill provides offline lookup of **record-type schemas** for Skyrim plugins: for any record type, the fields it has, each field's type and cardinality, whether each field is writable, the legal values of an enum field, and the arms a polymorphic field can take. It is a **reference-lookup skill**: it carries no procedure, write action, or routing — just a single lookup, *what is the shape of this record type?* (`papyrus-reference` is the sibling that does the same for Papyrus function signatures.)
+This skill answers one question, offline: **what is the shape of this record type?** For any Skyrim record type it gives the fields, each field's type and cardinality, whether each field is writable, an enum field's legal values, and the arms a polymorphic field can take. It carries that lookup and the reading view of what a field's shape lets you write — and nothing else: it does not read instance values, and it does not route a job to another skill. **Schema, not instance:** "what fields does ARMO have and which are editable" is this skill; "what is the armor rating of *this* steel armor in *this* plugin" is a record read laid against this schema. The sibling doing the same for Papyrus function signatures is `housecarl:papyrus-reference` — on a Codex install, the bare folder name `papyrus-reference`.
 
-The reference is generated **by construction** by reflecting over the game's record library (Mutagen) and ships in this skill's `references/` tree — so the set of record types it knows *is* the set the library models, not a hand-maintained subset. That property is what makes the bundled-or-warn fallback trustworthy (below).
+The reference is generated **by construction**, by reflecting over the game's record library, and ships in this skill's `references/` tree. So the set of types it knows *is* the set the library models, not a hand-maintained subset — which is what makes the bundled-or-warn path below trustworthy.
 
-It serves **both reading and writing**. Consult the schema to understand a record you're about to read (what fields exist), and — equally — to *compose a legal change* before a write: is the field writable? what type must the value be? what enum values or polymorphic arms are legal? **Schema, not instance:** "what fields does ARMO have and which are editable" is this skill; "what is the armor rating of *this* steel armor in *this* plugin" is a record read laid against this schema, not a schema lookup.
+## First step — the index, then one line
 
-## First step
+Grep `references/index.jsonl` for the full quoted token — the `name` or `sig` key with its value and both closing quotes — and it gives you the shard and the 1-indexed line to read. It is the only file read without a line number.
 
-When you need the shape of a record type — to answer a question about it, or to compose a read or write — open the index at `references/index.jsonl`. It is JSONL (one entry per line) and maps every type's **name** and **xEdit signature** to the shard file and line where its schema block lives. The index is grep-friendly: a `"name":"Armor"` or `"sig":"ARMO"` scan narrows in one step.
+Where a line lands, and when to open each shard:
 
-Do **not** bulk-load the index or a shard. Grep the index for the one matching line, then read the single schema line it points to — each block is exactly one line, so the read is one line. Both reads are tiny; whole-loading defeats the token economics and, worse, invites answering from a stale memory of the file instead of ground truth (see "Always fetch fresh").
+- Record types resolve into `references/records.jsonl`; read the single line the index named and nothing else.
+- A field whose `ref` names a sub-struct resolves into `references/structs.jsonl` — grep the index for that name and block-read it the same way.
+- An enum field's legal values live once on its own entry in `references/enums.jsonl`; fetch it only when you need the spelling.
+- A polymorphic field's permitted arms are on its base's entry in `references/polymorphic.jsonl`.
+- Read the concrete arm you are composing from `references/arms.jsonl` rather than guessing its fields.
+
+Every one of them is generated; never hand-edit a shard. Do **not** bulk-load the index or a shard. Grep the index for the one matching line, then read the single line it points at — each block is exactly one line, so the read is one line.
 
 ## Lookup procedure
 
-1. **Identify the record type.** From the user's words or the task: a type name (`Armor`, `MagicEffect`), an xEdit signature (`ARMO`, `MGEF`), or a record you're reading or patching. Modders usually think in signatures; the library names types in full words — and the two often differ (`ALCH` is `Ingestible`, `ENCH` is `ObjectEffect`, `CLFM` is `ColorRecord`). The index carries both, so either resolves.
+1. **Identify the record type.** From the user's words or the task: a type name (`Armor`, `MagicEffect`), an xEdit signature (`ARMO`, `MGEF`), or the record you are about to read or patch. Modders think in signatures; the library names types in full words, and the two often differ (`ALCH` is `Ingestible`, `ENCH` is `ObjectEffect`, `CLFM` is `ColorRecord`). The index carries both, so either resolves.
 
-2. **Grep `references/index.jsonl`.** Match the **full quoted token** — `"name":"<Type>"` or `"sig":"<SIG>"`, closing quote included — so the hit is exact and field-scoped. A partial or fuzzy hit (a 3-letter `"sig":"WEA"` brushing `WEAP`, or a substring landing inside another entry) is **not** a match: re-check the spelling and route it to "Bundled-or-warn", never substitute the nearest record. Three result shapes:
-   - **Single exact match** — take its `file` and `line`, read that one line (step 3).
-   - **Several matches for one signature** — the library splits some signatures into typed variants: `GMST` → `GameSettingBool / Float / Int / String`, `GLOB` → `GlobalFloat / Int / Short / Unknown`. Pick the variant whose data type matches the value in hand (a float game setting → `GameSettingFloat`); read more than one block if you must to disambiguate.
-   - **No match** — go to "Bundled-or-warn". Do not invent a schema, and do not substitute the nearest-looking record.
+2. **Grep the index on the full quoted token** — `"name":"<Type>"` or `"sig":"<SIG>"`, closing quote included — so the hit is exact and field-scoped. A partial hit (a 3-letter `"sig":"WEA"` brushing `WEAP`, or a substring landing inside another entry) is not a match: re-check the spelling, then route it to "Bundled-or-warn". Three result shapes:
+   - **One exact match** — take its `file` and `line`, and go to step 3.
+   - **Several matches for one signature** — the library splits some signatures into typed variants (`GMST` into `GameSettingBool` / `Float` / `Int` / `String`; `GLOB` into `GlobalFloat` / `Int` / `Short` / `Unknown`). Pick the variant whose data type matches the value in hand, reading more than one block if you must to disambiguate.
+   - **No match** — go to "Bundled-or-warn". Never substitute the nearest-looking record.
 
-3. **Block-read the schema.** Read exactly the line the index named (`offset` = `line`, `limit` = 1) from the shard. That one line is the whole schema for the type. Do **not** read the rest of the shard.
+3. **Block-read the schema.** Read exactly the line the index named (`offset` = `line`, `limit` = 1). That one line is the whole schema for the type; do not read the rest of the shard.
 
-4. **Resolve references on demand.** A field that points at another modeled type carries a `ref` (the substruct, enum, or owned child record it points to), `arms` (a polymorphic field's permitted types), or `target` (the record a FormLink points at). To learn that referenced type's own shape — an enum's legal values, a substruct's fields, an arm's shape — grep the index for *its* name and block-read it the same way. This is how enums resolve: a field reads `"c":"enum","ref":"ActorValue"`, and the legal `ActorValue` names live once on the `ActorValue` entry in `enums.jsonl`, fetched only when you need them.
+4. **Resolve `ref` / `arms` / `target` on demand.** A field pointing at another modeled type carries `ref` (the sub-struct, enum, or owned child record), `arms` (a polymorphic field's permitted types), or `target` (the record a FormLink points at). To learn that type's own shape, grep the index for its name and block-read it the same way. That is how an enum resolves: a field reads `"c":"enum","ref":"ActorValue"`, and the legal names live once on the `ActorValue` entry.
 
-**Worked example.** *"Can I set the armor rating on armor?"* → grep the index for `"sig":"ARMO"` → `records.jsonl` line 9 → block-read → `ArmorRating` is `{"c":"scalar","w":true,"t":"float"}` → yes: writable, a float.
+## Worked examples
 
-## Always fetch fresh — never answer a schema question from memory
+**Can I set the armor rating on armor?**
 
-Every lookup reads the entry fresh. Do not answer "what fields does X have" or "is Y writable" from a schema you think you remember from earlier in the session. Two reasons, both load-bearing:
+```
+grep '"sig":"ARMO"' references/index.jsonl  ->  records.jsonl line 9
+read records.jsonl line 9, one line         ->  {"n":"ArmorRating","t":"float","c":"scalar","w":true}
+answer: yes — writable, a float. The block also reports "writable":"32/32".
+```
 
-- A schema half-remembered is a schema mis-stated, and a confidently wrong field name or writability flag is exactly the silent-wrong-answer failure this project exists to prevent. The file is ground truth; your memory of it is not.
-- Long sessions get compacted. A schema you "saw" earlier may have been summarized to a stub, and reconstructing it from that stub invents fields and line numbers. Re-grep, re-read.
-- This applies to *presence* as much as content: never assert from memory that a type exists or is absent. The "no schema for X" warning below must follow a fresh grep that just missed — not a recollection that X wasn't there earlier.
+**Is an armor light or heavy?** There is no armor-type field on ARMO; the axis is a leaf on a sub-struct, and only the second hop gives the spelling.
 
-The reads are cheap by design — one index line plus one block line. There is no economy worth buying with a guess.
+```
+records.jsonl line 9        ->  {"n":"BodyTemplate","c":"substruct","ref":"BodyTemplate","null":true}
+index -> structs.jsonl 20   ->  BodyTemplate.ArmorType is {"c":"enum","ref":"ArmorType"}
+index -> enums.jsonl 18     ->  values: ["LightArmor","HeavyArmor","Clothing"]
+answer: BodyTemplate.ArmorType, one of those three spellings.
+```
+
+**Which GMST holds a float?** A `sig` grep that returns typed variants is disambiguated by data type, not by first match.
+
+```
+grep '"sig":"GMST"' references/index.jsonl  ->  four hits, records.jsonl lines 44-47
+read line 45                                ->  GameSettingFloat, whose Data field is the float
+answer: GameSettingFloat.
+```
+
+## Always fetch fresh
+
+Answer every schema question from a read taken now, never from a schema you remember from earlier in the session. Two reasons: a half-remembered schema is a mis-stated one, and a confidently wrong field name or writability flag is exactly the silent wrong answer this project exists to prevent; and long sessions get compacted, so a schema you "saw" earlier may survive only as a stub that invents fields and line numbers when it is reconstructed. This covers *presence* as much as content — the "no schema for X" warning below follows a fresh grep that just missed, never a recollection that X was not there. The reads are one index line plus one block line; there is no economy worth buying with a guess.
 
 ## Bundled-or-warn — never invent a schema
 
-The reference covers exactly the record types the game's record library models. By construction the generator walks the whole library, so coverage *is* the library's coverage — which means a type being **absent** from the index means one specific thing: **the library doesn't model it.** That is the known, documented gap between the library and xEdit, not a houseCARL bug, and not license to guess.
+Coverage *is* the library's coverage, by construction. So a type absent from the index means one thing: the library does not model it — the documented library-versus-xEdit gap, not a houseCARL bug, and not licence to guess.
 
-When the index has no match for a requested record type or signature:
+When the index has no match for a requested type or signature, emit the warning in this shape:
 
-1. **Emit an explicit warning.** Use this shape:
+```
+No schema for record type `XXXX` — the bundled reference doesn't include it.
+The reference is generated from the whole record library by construction, so an
+absent type means the library doesn't model it — the documented library-vs-xEdit
+coverage gap, not a houseCARL bug. I won't invent a schema.
 
-   ```
-   No schema for record type `XXXX` — the bundled reference doesn't include it.
-   The reference is generated from the full record library by construction, so an
-   absent type means the pinned Mutagen version (see this skill's Notes) doesn't
-   model it — the documented library-vs-xEdit coverage gap, not a houseCARL bug.
-   I won't invent a schema.
+To proceed:
+- Double-check the type name / signature spelling (the index carries both forms)
+- Confirming in xEdit that the type exists there but not in the library confirms the known gap
+- For a write, stop here: composing against a guessed schema risks a malformed record
+```
 
-   To proceed:
-   - Double-check the type name / signature spelling (the index carries both forms)
-   - If you can confirm in xEdit that the type exists there but not in the library, that confirms the known gap
-   - For a write, stop here: composing against a guessed schema risks a malformed record
-   ```
-
-2. **Never invent fields, types, writability, or enum values.** A guessed schema can produce a record that looks valid and corrupts on load, or send the user chasing a "bug" that is really an authoring error. A clear non-answer beats a confident wrong one — and here the non-answer is *informative*: it pinpoints a real coverage boundary.
+Stopping before the write is the point, and it is not the only guard: the server's own write pre-flight is the enforcement. It refuses an unknown field, an illegal verb or a bad enum value by name — naming the legal values verbatim — so a guess never reaches a plugin. This lookup is the cheaper path to the same answer: one grep and one line, against a refusal per attempt.
 
 ## The index and schema shapes
 
@@ -78,22 +101,21 @@ When the index has no match for a requested record type or signature:
 ```
 
 - `name` — the library's type name; the primary lookup key.
-- `sig` — the xEdit 4-char signature (records only: `ARMO`, `MGEF`). One signature can map to several names (the typed-variant case above).
+- `sig` — the xEdit 4-char signature (records only). One signature can map to several names, the typed-variant case above.
 - `kind` — `record` / `header` / `struct` / `arm` / `polymorphic-base` / `enum`.
 - `file` + `line` — the shard and 1-indexed line of the schema block; block-read it directly.
 
-Schema blocks live in per-kind shards (`records.jsonl`, `structs.jsonl`, `arms.jsonl`, `polymorphic.jsonl`, `enums.jsonl`), one compact JSON object per line. A record / struct block:
+A record or struct block is one compact JSON object on its own line:
 
 ```json
-{"name":"Armor","kind":"record","sig":"ARMO","getter":"...IArmorGetter","mutable":"...IArmor","writable":"32/32","fields":[{"n":"ArmorRating","t":"float","c":"scalar","w":true},{"n":"Keywords","t":"List<FormLink<IKeywordGetter>>","c":"list","w":true,"target":"IKeywordGetter"},{"n":"MajorFlags","t":"MajorFlag","c":"enum","w":true,"ref":"MajorFlag"}]}
+{"name":"Armor","kind":"record","sig":"ARMO","getter":"...IArmorGetter","mutable":"...IArmor","writable":"32/32","fields":[{"n":"ArmorRating","t":"float","c":"scalar","w":true},{"n":"Keywords","t":"List<FormLink<IKeywordGetter>>","c":"list","w":true,"target":"IKeywordGetter"},{"n":"BodyTemplate","t":"IBodyTemplateGetter","c":"substruct","w":true,"ref":"BodyTemplate","null":true}]}
 ```
 
 Field keys are terse to stay light:
 
-- `n` name · `t` type (display) · `c` cardinality (`scalar` / `enum` / `formlink` / `list` / `dict` / `substruct` / `polymorphic` / `value`) · `w` writable (`true`/`false`).
-- Sparse keys, present only when they apply: `ref` (the substruct or enum this field points to — grep the index for it), `arms` (a polymorphic field's permitted types), `elem` / `elemRef` / `elemArms` (a list/dict element's type, modeled-type ref, or polymorphic arms), `key` (a dict's key type), `target` (the record a FormLink points at), `null` (the field is nullable), `id` (a record-identity field — `FormKey`/`ModKey`, not free-edit content).
-
-Each block also carries provenance keys you can ignore for a lookup: `getter` / `mutable` (the type's interface names) and, on an arm, `base` (its polymorphic parent).
+- `n` name · `t` type (display) · `c` cardinality (`scalar` / `enum` / `formlink` / `list` / `dict` / `substruct` / `polymorphic` / `value`) · `w` writable.
+- Sparse keys, present only when they apply: `ref` (the sub-struct or enum this field points to), `arms` (a polymorphic field's permitted types), `elem` / `elemRef` / `elemArms` (a list or dict element's type, modeled-type ref, or arms), `key` (a dict's key type), `target` (the record a FormLink points at), `null` (nullable), `id` (a record-identity field such as `FormKey` — not free-edit content).
+- Provenance keys a lookup can ignore: `getter` / `mutable`, and on an arm `base`.
 
 An enum block carries its legal values:
 
@@ -101,42 +123,37 @@ An enum block carries its legal values:
 {"name":"ActorValue","kind":"enum","values":["Aggression","Confidence", "...", "None"]}
 ```
 
-A type's `writable` is its `writable/total` field count; a field's own `w` is what governs whether you can set *that* field.
+A block's `writable` is the type's `writable/total` field count — a summary. A field's own `w` is what governs whether you can set that field.
 
 ## Addressing a field & what you can write
 
-The schema tells you a field's `c` (cardinality) and `w` (writable). That same `c` determines **how you name the field in a houseCARL write tool's path** and **which verbs the write tool accepts** — so once you've read the schema, you can compose a legal `housecarl_set_field` / `housecarl_bulk_apply` / `housecarl_create_record` edit without guessing. This table maps each cardinality to its path-form + legal verbs (it mirrors the write tools' own pre-flight rules — that enforcement is the source of truth, this is the reading view of it):
+A field's `c` decides **how it is named in `housecarl_apply`'s `field_path`** and **which `op` verbs it accepts**; its `w` decides whether it may be written at all. The write pre-flight is the source of truth for both; this is the reading view of it, so an edit composes before the first call instead of by trial. One op is a set of one, and the bulk lane is the same array read from a manifest, so a single edit and a thousand compose identically.
 
-| `c` (cardinality) | How to address it in the path | Verb(s) the write tool accepts | Notes |
+| `c` | How to address it in `field_path` | Verbs | Notes |
 |---|---|---|---|
-| `scalar` / `enum` / `formlink` / `value` | the **dotted name**, e.g. `ArmorRating`, `BasicStats.Damage`, `MajorFlags` | `Set` (the default) | The value is coerced to the field's `t`: a number, an enum name (one of the referenced enum's `values`), or a FormID `XXXXXX:Plugin.esp` for a `formlink`. To **clear** a nullable field, use `Remove`. |
-| `substruct` | **descend by name** to the sub-field you want — `WorldModel.Male.Model.File`, not `WorldModel` | `Set` on the **leaf** sub-field | A direct `Set` on the substruct *itself* is refused — navigate into it and set a sub-field. The schema's `ref` names the substruct's own type; grep + block-read it to learn its fields. If that `ref` resolves to a `"kind":"record"` entry, the field holds an **owned child record**, not a link to one (`Cell.Landscape` → `Landscape`, `Worldspace.TopCell` → `Cell`). Every write *at* the field — `Set` by value or `compose`, `composes`, `Remove`, `CopyFrom` — is refused: a record is not built, cleared, or copied as a part of its parent. Edit it by addressing **the child record by its own FormID**. A path *through* the parent reaches a sub-field only when the record being written already carries the child — which a patch's fresh override of a parent never does, since an override copy leaves the parent's children behind. Giving a parent a child it lacks, or deleting one, is an open gap (#350). |
-| `list` | **`[N]` mid-path** to step into an element (`Effects[0].Data.Magnitude`); at the **leaf**, target the list field itself and use verb + `key` (the index) — **not** a leaf bracket | `Add`, `Remove`, `SetAtIndex`, `InsertAtIndex`, `ReplaceAll` (not `Set`) | To **add a modeled element** (a leveled-list entry, an effect), `Add` with `compose:{type:'<ElementType>', ...}`. For a coercible-element list (e.g. a list of FormLinks), `Add`/`ReplaceAll` take plain value(s). The three that place one element differ in WHERE it goes and in what `key` may be: `Add` appends and takes no `key`; `SetAtIndex` overwrites the element at `key`, so `key` has to address an element that already exists (`0`..`count-1`); `InsertAtIndex` inserts a new one AT `key` and shifts the rest right, addressing a *gap* between elements, of which there is one more than there are elements (`0`..`count`, where `count` appends). Reach for `InsertAtIndex` when the position matters — a CTDA `Or` flag chains a row to the row after it, so a new arm of an existing OR-group has to land inside the run, which an `Add` at the end cannot do. |
-| `dict` | **`[key]`** to step into an element mid-path; at the leaf use verb + `key` | `Set` (with `key`), `Add`, `Remove`, `Merge`, `ReplaceAll` | `Merge` / `ReplaceAll` take an `entries` key→value map. The `key` schema key gives the dict's key type. |
-| `polymorphic` **as a list element** | step into the element (`Scripts[0].Properties[0].Object`) and address the field on the element's concrete arm | element-level verbs (above) | The library models the list as the polymorphic **base**, but each real element is a concrete arm. A field that lives on an arm (`ScriptObjectProperty.Object`) is still addressable by name; the write tool resolves which arm at apply time. To `Add` an element, `compose:{type:'<concrete arm>', ...}` (e.g. `'ScriptObjectProperty'`). |
-| `polymorphic` **as a standalone field** | **descend by name** (`Configuration.Level.Level`), and to **set the arm itself** use a `compose:{type:'<arm>', ...}` on a `Set` of the polymorphic field | `Set` carrying a `compose` arm; or descend and `Set` a sub-field of the live arm | See the standalone-polymorphic note below — **never** index a standalone polymorphic field with a bracket. |
+| `scalar` / `enum` / `formlink` / `value` | the dotted name — `ArmorRating`, `BasicStats.Damage` | `Set`; `Remove` to clear a nullable field | The value is coerced to the field's `t`: a number, an enum name from the referenced enum's `values`, or `XXXXXX:Plugin.esp` for a `formlink` |
+| `substruct` | descend to the leaf — `WorldModel.Male.Model.File`, not `WorldModel` | `Set` on the leaf | A write *at* the substruct itself is refused. Where the `ref` resolves to a `"kind":"record"` entry the field holds an **owned child record** (`Cell.Landscape`, `Worldspace.TopCell`): edit that child by its own FormID. A path *through* a parent reaches a sub-field only when the record being written already carries the child — a fresh override does not |
+| `list` | `[N]` mid-path (`Effects[0].Data.Magnitude`); at the leaf, name the list itself and pass the index as `key` | `Add`, `Remove`, `SetAtIndex`, `InsertAtIndex`, `ReplaceAll` — not `Set` | Add a modeled element with `compose:{type:'<ElementType>', …}`; a coercible-element list takes plain values. `Add` appends and takes no `key`; `SetAtIndex` overwrites at `key` (`0`..`count-1`); `InsertAtIndex` inserts at a gap (`0`..`count`) and shifts the rest right, which is what a CTDA `Or` chain needs |
+| `dict` | `[key]` mid-path; at the leaf, the verb with `key` | `Set` (with `key`), `Add`, `Remove`, `Merge`, `ReplaceAll` | `Merge` and `ReplaceAll` take an `entries` key-to-value map; the block's `key` gives the key type |
+| `polymorphic` as a **list element** | step into the element and name the field on its concrete arm — `Scripts[0].Properties[0].Object` | the `list` verbs | Each element is a concrete arm of the modeled base, resolved at apply time. `Add` one with `compose:{type:'<arm>', …}` |
+| `polymorphic` as a **standalone field** | descend by name — `Configuration.Level.Level`, never a bracket | `Set` carrying a `compose` arm, or descend and `Set` a sub-field of the live arm | `compose:{type:'<arm>', sets:[…]}` chooses which arm sits there; the legal arms are the field's own `arms`, or the referenced base's |
 
-**Standalone polymorphic fields (`NpcConfiguration.Level`, `ConditionFloat.Data`, …).** You can now both *descend* one (`Configuration.Level.Level` resolves the sub-field across the base's arms) and *set its arm* with a nested `compose`: a `Set` whose `compose:{type:'<arm name>', sets:[...]}` selects which arm sits there (e.g. composing a `Condition`'s `Data` as `compose:{type:'GetActorValueConditionData', sets:[...]}`). The legal arms are the field's `arms` (or the referenced polymorphic-base's `arms`) — block-read them from `arms.jsonl` rather than guessing; **this reference does not inline an arm list per type** (coverage is by construction, so the arm set lives once on each base/field). A standalone polymorphic field is **never** addressed with a bracket (`Data[...]` is wrong) — brackets are for `list`/`dict` elements only.
+Brackets are for `list` and `dict` elements only. Taking one field's value from a plugin you name rather than from the load-order winner is `op='CopyFrom'` with `from_source`; copying a whole record is `housecarl_forward`, then `housecarl_apply` with `into` the same patch. New records are `housecarl_create`, and the read that precedes any of this is `housecarl_records`.
 
-Two honesty boundaries the write tool enforces, worth stating when you compose against this schema:
-
-- **The arm is resolved at apply time, not from the schema.** The static schema can't know which arm currently sits at a polymorphic field, so a path like `Configuration.Level.Level` is accepted whenever *some* arm declares `Level` — and if the live arm is a different one, the write **fails loud and writes nothing**, never silently. (When a name lives on several arms with disagreeing shapes, the tool refuses up front and names the conflict rather than guessing.)
-- **A composed record missing a required arm fails loud.** If you `compose` or `Add` a modeled element and leave a required polymorphic sub-field unset (a `Condition` composed without its `Data` arm, a leveled-list entry missing required data), the write is refused at serialize time with a **named** error and **nothing is written** — all-or-nothing, never a half-written patch. So when you compose an element, set its required sub-arm in the same `compose`.
-
-**Condition (CTDA) form-link targets are `FormLinkOrIndex`, shown here as `FormLink<T>`.** A form-link parameter on a `*ConditionData` arm — `GetEquipped.ItemOrList`, `GetGlobalValue.Global`, `GetIsID.Object`, `GetStage.Quest`, `HasPerk.Perk`, and the rest — is really a Mutagen `FormLinkOrIndex<T>`, but this reference (and `housecarl_read_record`) **normalize it to `FormLink<T>`** in the displayed `t`/`c`, because a condition target can hold *either* a real FormID *or* a numeric quest-alias / package-data index. So the schema **understates** the type: do not read `FormLink<IItemOrListGetter>` on a condition param as a plain link. When you compose one, give it a **FormID `XXXXXX:Plugin.esp`** (form mode) **or** `alias N` / `packdata N` / a bare integer (index mode); houseCARL routes it through the parent-aware setter and sets the arm's `UseAliases`/`UsePackageData` mode for you, so **both** the flat `compose.fields` shorthand and the nested `compose.sets` path accept it and produce the identical write. The reference can't expose the `FormLinkOrIndex` distinction (it's a by-construction normalization of the underlying type) — when the form-vs-index nature matters, confirm it at the engine, not from the displayed `t`.
+**Condition (CTDA) form-link targets.** A form-link parameter on a `*ConditionData` arm — `GetEquipped.ItemOrList`, `GetStage.Quest`, `HasPerk.Perk` — is a `FormLinkOrIndex<T>` that this reference normalises to `FormLink<T>` in the displayed `t`, because such a target can hold either a real FormID or a numeric index. The schema therefore understates the type: when the form-versus-index nature matters, confirm it at the engine rather than from the displayed `t`.
 
 ## Common mistakes
 
-- **Answering a schema question from memory.** Re-grep and re-read every time. A remembered schema is the silent-wrong-answer trap (see "Always fetch fresh").
-- **Inventing a schema for an absent type.** The bundled-or-warn path is the correct response — an absent type is a real library-coverage boundary, not a prompt to guess.
-- **Picking the first hit when a signature has several variants.** A `sig` grep that returns `GameSettingBool/Float/Int/String` needs disambiguation by the data type, not first-match.
-- **Reading a whole shard instead of the one line.** Every index entry gives an exact `line`; a whole-shard read pulls in hundreds of unrelated types. Only widen the read if a block looks malformed (a generation bug worth reporting).
-- **Treating a `ref` / `arms` / `target` as the answer.** Those are *pointers*. To learn the referenced enum's legal values or the substruct's fields, grep the index for that name and block-read it too.
-- **Reading `w:false` as "broken".** Some fields are genuinely read-only in the library (computed, or no mutable accessor). That is the real schema, not a gap — compose writes only against `w:true` fields.
-- **Bracketing the wrong cardinality.** `[N]`/`[key]` step into a `list`/`dict` element only — a `substruct` is descended **by name** and a standalone `polymorphic` field is set by `compose` (see "Addressing a field"). A bracket on a substruct or a standalone polymorphic field is refused.
-- **Reading a condition param's displayed `FormLink<T>` as a plain link.** On a `*ConditionData` arm it's a normalized `FormLinkOrIndex<T>` — it also accepts an `alias N` / `packdata N` index, and houseCARL composes it through the parent-aware setter from either the `compose.fields` shorthand or the `compose.sets` path (see the condition-target note under "Addressing a field").
+- **An absent type gets the warning above**, not a schema built from the nearest-looking record (inventing one is the failure this skill exists to prevent).
+- **A signature with several variants is disambiguated by data type** — a `GMST` grep returning four names needs the value in hand (first hit picks wrong three times in four).
+- **Read the one line the index named**; widen only if a block looks malformed, which is a generation bug worth reporting (a whole-shard read pulls in hundreds of unrelated types).
+- **A `ref`, `arms` or `target` is a pointer, so resolve it** — grep the index for that name and block-read it too (quoting the pointer answers a different question).
+- **`w:false` is the real schema**: some fields are read-only in the library, computed or without a mutable accessor (reading that as a bug sends the user chasing nothing).
+- **A field's own `w` governs that field**, not the block's `writable/total`, which is the type's summary count.
+- **A `substruct` is descended by name, a standalone `polymorphic` field is set by `compose`** (a bracket on either is refused).
+- **A condition parameter's displayed `FormLink<T>` is a normalisation** of `FormLinkOrIndex<T>` (reading it as a plain link understates what the field accepts).
 
 ## Notes
 
-- **Provenance.** The `references/` tree is generated **by construction** by reflecting over `Mutagen.Bethesda.Skyrim` (0.54.4) — the same walk that produces houseCARL's write-surface rulebook, so the skill's read view and houseCARL's write tools can't disagree about field names or types. It refreshes by regenerating from the library on a version bump.
-- **Coverage is the library's coverage.** Every record type, sub-struct, polymorphic arm, and enum the library models is here, at full depth. The only thing *not* here is what the library itself doesn't model (the documented xEdit-delta), which the bundled-or-warn path surfaces explicitly rather than papering over.
+- **Provenance.** The `references/` tree is generated by construction, by reflecting over the game's record library — the same walk that produces houseCARL's write-surface rulebook, so this read view and the write tools cannot disagree about field names or types. It regenerates from the library on a version bump.
+- **Coverage is the library's coverage.** Every record type, sub-struct, polymorphic arm and enum the library models is here, at full depth. What is not here is what the library does not model — the documented xEdit delta, which bundled-or-warn surfaces rather than papers over.
