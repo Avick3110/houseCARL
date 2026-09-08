@@ -33,8 +33,11 @@ namespace HousecarlGenerator;
 ///          (JS) YAML parser: it reliably catches the colon-space class (RED-proven below), but the residual risk
 ///          is a false-NEGATIVE (YamlDotNet accepts what the real loader would drop). For the 11 bundled skills
 ///          the CI `claude plugin validate --strict` step closes that residual; for the Codex umbrella skill it
-///          does not, and this is the only check. (RED: the literal colon-space description that dropped
-///          dialogue-authoring; a frontmatter missing `description`; a file with no fence at all.)
+///          does not, and this is the only check. The description is also measured against the loader's
+///          MAX_DESCRIPTION_LENGTH: past it the tail of the trigger surface is truncated away silently, which
+///          the Codex umbrella shipped for a release with nothing red to say so. (RED: the literal colon-space
+///          description that dropped dialogue-authoring; a frontmatter missing `description`; a file with no
+///          fence at all; a description one character past the ceiling.)
 ///   INV2 — THE PLUGIN MANIFEST PARSES + CARRIES name/version. plugin.json is valid JSON with a non-empty
 ///          string name + version (the single source of truth the build stamps). (RED: a manifest missing
 ///          version.)
@@ -44,6 +47,10 @@ namespace HousecarlGenerator;
 public static class PluginValidateProbe
 {
     static int _pass, _fail;
+
+    /// <summary>The loader's MAX_DESCRIPTION_LENGTH. Past it the description is truncated, so the tail of the
+    /// trigger surface goes missing without any error.</summary>
+    const int MaxDescription = 1024;
 
     [CiProbe("plugin-validate-guard")]
     public static int RunGuard(string[] args)
@@ -85,6 +92,9 @@ public static class PluginValidateProbe
             RedSkill("INV1-RED  a file with no --- fence is caught",
                 "# Heading\nbody, no frontmatter\n",
                 s => s.Contains("frontmatter", StringComparison.OrdinalIgnoreCase));
+            RedSkill("INV1-RED  a description past the character ceiling is caught",
+                $"---\nname: x\ndescription: {new string('x', MaxDescription + 1)}\n---\n",
+                s => s.Contains("ceiling", StringComparison.OrdinalIgnoreCase));
 
             // ---------- INV2 — the plugin manifest parses + has name/version ----------
             var manifestPath = Path.Combine("plugin", ".claude-plugin", "plugin.json");
@@ -151,6 +161,12 @@ public static class PluginValidateProbe
             if (val is null || string.IsNullOrWhiteSpace(val.ToString()))
                 v.Add($"frontmatter missing a non-empty '{key}'");
         }
+        // The other end of the same field: a description PAST the loader's MAX_DESCRIPTION_LENGTH is the second
+        // defect this frontmatter shipped that CI could not see (PR #659 review — the Codex umbrella breached it
+        // by ~250 characters and was fixed by hand). Measured on the parsed string, so the folded YAML block a
+        // long description is written as counts the way the loader counts it.
+        if (map.TryGetValue("description", out var d) && d?.ToString() is { } text && text.Length > MaxDescription)
+            v.Add($"description is {text.Length} characters, past the {MaxDescription}-character ceiling — trim it");
         return v;
     }
 
