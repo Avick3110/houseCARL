@@ -29,7 +29,10 @@ public static class CopyTools
          "OUTPUT — patch= names a NEW plugin (folder-per-patch); into= extends an existing houseCARL patch " +
          "instead.\n\n" +
          "This tool copies RECORDS. The FILES that go with them — an NPC's FaceGen mesh and tint, say — are " +
-         "placed with " + ToolNames.Place + ". Originals are never touched, and a refusal writes nothing.")]
+         "placed with " + ToolNames.Place + "; once they are placed, " + ToolNames.Check + " over the patch " +
+         "sweeps it off-order, before it is enabled, and the textures baked INSIDE a placed mesh are not copied " +
+         "by either tool and still resolve from the source mod, which stays a file dependency. " +
+         "Originals are never touched, and a refusal writes nothing.")]
     public static string Copy(
         LoadOrderService svc,
         [Description("The record to copy, 'XXXXXX:Plugin.esp' (e.g. '000D62:Vivace.esp').")]
@@ -42,7 +45,7 @@ public static class CopyTools
             string[]? exclude_types = null,
         [Description("DESTINATION: copy onto this EXISTING record, 'XXXXXX:Plugin.esp' — an active record, or one in the patch itself when you pass into=; the seed fields are set on it pointing at the internalized copies. Pass this OR new_editorid.")]
             string? target = null,
-        [Description("DESTINATION: mint a CLONE of the source record with this EditorID. Every link on the clone still pointing into the source is STRIPPED and reported by name — including when clearing one takes a WHOLE property with it (a script adapter, say), which the report says out loud. A link the record model REQUIRES cannot be stripped, so that refuses loud rather than writing an invented null or silently mastering the source. Pass this OR target.")]
+        [Description("DESTINATION: mint a CLONE of the source record with this EditorID. Every link on the clone still pointing into the source is STRIPPED and reported by name — including when clearing one takes a WHOLE property with it (a script adapter, say), which the report says out loud. A link the record model REQUIRES cannot be stripped, so that refuses loud rather than writing an invented null or silently mastering the source. The clone is a whole-record duplicate, so an NPC's INLINE face values — tint layers, face morphs and parts, TextureLighting, hair colour, weight — carry by construction: no separate write of them is owed, and seeding them would only re-set what is already there. Pass this OR target.")]
             string? new_editorid = null,
         [Description("Optional. Base name for the NEW patch plugin + mod folder; auto-suffixed if taken — except when '<name>.esp' already exists somewhere your order is not loading it (another mod folder, the overwrite folder, or game Data), which is refused rather than suffixed, naming that place and the file.")]
             string? patch = null,
