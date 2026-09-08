@@ -28,8 +28,11 @@ public static class ModeledFieldIndex
     /// <summary>One slot, keyed by the corpus path it was built from. <c>CorpusRulebook.CorpusPath</c> is a
     /// process-global the probes and test worlds repoint at their own generated corpus, so a flat cache would
     /// answer from the previous world's schema; a slot per path grows without bound across a probe run. One
-    /// slot, rebuilt when the path changes, is both correct and bounded.</summary>
-    static (string Path, Dictionary<string, string[]> ByField, Dictionary<string, string[]> ByType)? _cache;
+    /// slot, rebuilt when the path changes, is both correct and bounded.
+    /// <para>Published as ONE immutable reference so a reader takes the two dictionaries and the path they were
+    /// built from together, and reads them without the gate — the build is the only thing that has to serialise.</para></summary>
+    sealed record Snapshot(string Path, Dictionary<string, string[]> ByField, Dictionary<string, string[]> ByType);
+    static volatile Snapshot? _cache;
     static readonly object Gate = new();
 
     /// <summary>Memoised per (corpus path, owner type, field name): a scan hits the same dead-end once per scanned
@@ -46,19 +49,24 @@ public static class ModeledFieldIndex
     /// the caller then says only what it knows, never a guessed verdict.</summary>
     public static Verdict? Diagnose(string ownerTypeName, string fieldName)
     {
-        var path = CorpusRulebook.CorpusPath;
         if (Index() is not { } idx) return null;
         // A read walk lands on plenty the catalog does not model — a FormLink, a string. There is no schema there
         // to weigh the name against, so any verdict about such an owner names a schema that does not exist.
         if (!idx.ByType.ContainsKey(ownerTypeName)) return null;
-        return Verdicts.GetOrAdd((path, ownerTypeName, fieldName), key =>
+        // The path comes from the snapshot, never a second read of the settable global: a repoint between the two
+        // reads would file a verdict under a corpus it was not computed from.
+        var key = (idx.Path, ownerTypeName, fieldName);
+        // The memo answers before anything is allocated — a scan dead-ends on every record it crosses.
+        if (Verdicts.TryGetValue(key, out var memo)) return memo;
+        return Verdicts.GetOrAdd(key, _ =>
         {
             Interlocked.Increment(ref VerdictComputations);
-            var (_, owner, field) = key;
-            var on = idx.ByField.TryGetValue(field, out var types) ? types : Array.Empty<string>();
-            bool onOwner = on.Contains(owner, StringComparer.Ordinal);
-            var others = onOwner ? on.Where(t => !string.Equals(t, owner, StringComparison.Ordinal)).ToArray() : on;
-            var (near, caseSlip) = onOwner ? default : NearestOn(idx.ByType, owner, field);
+            var on = idx.ByField.TryGetValue(fieldName, out var types) ? types : Array.Empty<string>();
+            bool onOwner = on.Contains(ownerTypeName, StringComparer.Ordinal);
+            var others = onOwner
+                ? on.Where(t => !string.Equals(t, ownerTypeName, StringComparison.Ordinal)).ToArray()
+                : on;
+            var (near, caseSlip) = onOwner ? default : NearestOn(idx.ByType, ownerTypeName, fieldName);
             return new Verdict(onOwner, others, near, caseSlip);
         });
     }
@@ -76,12 +84,14 @@ public static class ModeledFieldIndex
         return near.Count > 0 ? (near[0], false) : default;
     }
 
-    static (Dictionary<string, string[]> ByField, Dictionary<string, string[]> ByType)? Index()
+    static Snapshot? Index()
     {
         var path = CorpusRulebook.CorpusPath;
+        // The built snapshot never changes, so the standing one answers without the gate; only a rebuild takes it.
+        if (_cache is { } cur && cur.Path == path) return cur;
         lock (Gate)
         {
-            if (_cache is { } c && c.Path == path) return (c.ByField, c.ByType);
+            if (_cache is { } c && c.Path == path) return c;
             Corpus corpus;
             try { corpus = CorpusRulebook.LoadCorpus(path); }
             catch { return null; }   // corpus not built / unparseable — say nothing rather than guess
@@ -98,9 +108,10 @@ public static class ModeledFieldIndex
                 }
             }
             var built = byField.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray(), StringComparer.Ordinal);
-            _cache = (path, built, byType);
-            Verdicts.Clear();
-            return (built, byType);
+            var snap = new Snapshot(path, built, byType);
+            _cache = snap;
+            Verdicts.Clear();   // verdicts carry their corpus in the key; dropping the old one's keeps the memo bounded
+            return snap;
         }
     }
 }
