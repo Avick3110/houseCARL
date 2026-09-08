@@ -13,6 +13,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **An SKSE DLL whose import directory declares an address but no size now reads as UNKNOWN, not as a short
+  import list.** The peek walks a DLL's import and delay-import directories bounded by the size the PE header
+  declares for each. A directory with a non-zero address and a zero size read as "no such directory": its whole
+  table was skipped and the walk still reported success, so what remained rendered as the complete
+  `imports (N): …` and the debug-CRT verdict over that list returned a clean bill of health for a build the
+  loader would refuse. It is now a parse failure like every other one in that walk, and says
+  `imports: UNKNOWN`. A directory with no address at all is still genuine absence and still walks to an answer.
 - **A SkyPatcher INI can be checked before it is placed in a mod.** `housecarl_records`'s overlay pole takes a
   draft file: `source={"overlay": "skypatcher", "state": "post", "ini": "<absolute path to a draft .ini>",
   "subfolder": "weapon"}` reads the record as the game would see it once that draft is placed — the live layer
