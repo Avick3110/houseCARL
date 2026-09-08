@@ -238,7 +238,7 @@ public static class ClosureCopy
                     if (el is IFormLinkGetter elLink)
                     {
                         if (elLink.FormKeyNullable is { } lk && !lk.IsNull && isBound(lk))
-                        { list.RemoveAt(i); stripped.Add(new StripEntry($"{prop.Name}[{i}]", lk.ToString())); }
+                        { list.RemoveAt(i); stripped.Add(new StripEntry($"{prop.Name}[{i}]", FormIdToken.Of(lk))); }
                     }
                     else if (el is IFormLinkContainerGetter elc)
                     {

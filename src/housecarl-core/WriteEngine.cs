@@ -1084,7 +1084,7 @@ public static class WriteEngine
                 if (matches.Count > 1)
                     throw new InvalidOperationException(
                         $"create refused: this patch carries {matches.Count} records with editorid '{editorId}' " +
-                        $"({string.Join(", ", matches.Select(m => m.FormKey))}) — duplicate residue from re-running creates on a pre-fix houseCARL. " +
+                        $"({string.Join(", ", matches.Select(m => FormIdToken.Of(m.FormKey)))}) — duplicate residue from re-running creates on a pre-fix houseCARL. " +
                         "External references may point at either copy, so which survives is your call: remove the extra(s) with " + ToolNames.Remove + ", then re-run.");
                 var existing = matches[0];
                 if (!CanCreateType(typeName, out var reason)) throw new InvalidOperationException(reason);
@@ -1102,7 +1102,7 @@ public static class WriteEngine
                 // IS a cross-type collision — different concrete records).
                 if (!UpsertWouldReplace(patchMod, typeName, matches))
                     throw new InvalidOperationException(
-                        $"upsert refused: existing record '{editorId}' ({formKey}) is a {existing.GetType().Name}, not a {typeName} — " +
+                        $"upsert refused: existing record '{editorId}' ({FormIdToken.Of(formKey)}) is a {existing.GetType().Name}, not a {typeName} — " +
                         "an EditorID collision across record types is a real authoring error, surfaced not swallowed (Q3).");
 
                 // An arm re-adds through Add(T), not the abstract-base InvokeAddNewWithFormKey (which can't close AddNew<T>).
@@ -1157,7 +1157,7 @@ public static class WriteEngine
             var result = instance.Invoke(group, new object[] { formKey });
             if (result is false)
                 throw new InvalidOperationException(
-                    $"Remove({formKey}) reported nothing removed — the matched record vanished between match and replace " +
+                    $"Remove({FormIdToken.Of(formKey)}) reported nothing removed — the matched record vanished between match and replace " +
                     "(engine inconsistency, surfaced not swallowed).");
             return;
         }
@@ -2101,7 +2101,7 @@ public static class WriteEngine
             // a directly-assignable immutable reference (string, MemorySlice…) — safe to share while the source overlay lives
             if (pt.IsInstanceOfType(srcVal)) { prop.SetValue(parent, srcVal); return; }
             // a settable FormLink slot (rare) — build the matching concrete from the source key
-            if (srcVal is IFormLinkGetter sfl && TryFormLink(FormIdToken.Of(sfl.FormKey), Nullable.GetUnderlyingType(pt) ?? pt, out var mk)
+            if (srcVal is IFormLinkGetter sfl && TryFormLink(sfl.FormKey.ToString(), Nullable.GetUnderlyingType(pt) ?? pt, out var mk)
                 && mk is not null && pt.IsInstanceOfType(mk)) { prop.SetValue(parent, mk); return; }
             throw new ExpectedApplyRejectionException(
                 $"CopyFrom cannot assign a {Pretty(srcVal.GetType())} into settable '{prop.Name}' ({Pretty(pt)}) — a field kind CopyFrom doesn't transplant yet (a clean refusal, not a silent skip).");

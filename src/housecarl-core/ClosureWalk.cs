@@ -360,7 +360,7 @@ public static class ClosureWalk
                 hit.ArmIndex, hit.Arm.Spelling,
                 ChainTo(key), pulledBy, depth));
 
-            var label = $"{typeName} {key} ({hit.Body.EditorID ?? "<no editorid>"})";
+            var label = $"{typeName} {FormIdToken.Of(key)} ({hit.Body.EditorID ?? "<no editorid>"})";
             labels[key] = label;
             var outgoing = new List<FormKey>();
             edges[key] = outgoing;

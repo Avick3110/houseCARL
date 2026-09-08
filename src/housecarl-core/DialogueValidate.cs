@@ -466,7 +466,7 @@ public static class DialogueValidate
                 "DialogTopic.Quest is unset — this topic is not owned by a quest. Most dialogue topics are; an unowned topic may never present its lines in game. Verify this is intentional."));
         else if (BadRef(questFk.Value, "a quest (QUST)", b => b is IQuestGetter) is { } qwhy)
             issues.Add(new(DialogueIssueSeverity.Problem,
-                $"DialogTopic.Quest points at {questFk.Value}, which {qwhy} — the owning quest is unresolved."));
+                $"DialogTopic.Quest points at {FormIdToken.Of(questFk.Value)}, which {qwhy} — the owning quest is unresolved."));
 
         // --- Branch wiring: optional (many topics have none), but if set it must resolve to a real DLBR.
         var branchFk = NonNull(topic.Branch.FormKeyNullable);
@@ -675,7 +675,7 @@ public static class DialogueValidate
             var pnam = NonNull(info.PreviousDialog.FormKeyNullable);
             if (pnam is not null && BadRef(pnam.Value, "a dialogue line (INFO)", b => b is IDialogResponsesGetter) is { } pwhy)
                 issues.Add(new(DialogueIssueSeverity.Problem,
-                    $"INFO {FormIdToken.Of(info.FormKey)} has a previous-link (PNAM -> {pnam.Value}) that {pwhy}."));
+                    $"INFO {FormIdToken.Of(info.FormKey)} has a previous-link (PNAM -> {FormIdToken.Of(pnam.Value)}) that {pwhy}."));
 
             // LinkTo: the REAL conversation chain — this line hands off to the next topic(s). A set link to a missing
             // DialogTopic is a broken chain; an empty LinkTo is a normal terminal line (never flagged).
@@ -684,7 +684,7 @@ public static class DialogueValidate
                 var lk = link.FormKey;
                 if (!lk.IsNull && BadRef(lk, "a dialogue topic (DIAL)", b => b is IDialogTopicGetter) is { } lwhy)
                     issues.Add(new(DialogueIssueSeverity.Problem,
-                        $"INFO {FormIdToken.Of(info.FormKey)} links (LinkTo) to {lk}, which {lwhy} — the conversation chain is broken."));
+                        $"INFO {FormIdToken.Of(info.FormKey)} links (LinkTo) to {FormIdToken.Of(lk)}, which {lwhy} — the conversation chain is broken."));
             }
 
             if (info.Conditions.Count > 0)
@@ -894,7 +894,7 @@ public static class DialogueValidate
                         $"INFO {FormIdToken.Of(info.FormKey)} condition #{n} ({fn}) is set to Run On a specific reference, but no reference is set — it evaluates against nothing, so the gate never behaves as intended."));
                 else if (!inOrder(refKey) && !EngineImplicit.IsImplicit(refKey))
                     issues.Add(new(DialogueIssueSeverity.Warning,
-                        $"INFO {FormIdToken.Of(info.FormKey)} condition #{n} ({fn}) Run On reference {refKey} is not in the active load order — the gate evaluates against nothing."));
+                        $"INFO {FormIdToken.Of(info.FormKey)} condition #{n} ({fn}) Run On reference {FormIdToken.Of(refKey)} is not in the active load order — the gate evaluates against nothing."));
             }
 
             // 2. Dead alias index — only when the owning quest's alias set is known; else skip, never guess.
@@ -931,7 +931,7 @@ public static class DialogueValidate
                     : floiIsForm && WriteEngine.IsFormLinkOrIndex(p.PropertyType) ? WriteEngine.ReadFloiFormKey(v) : null;
                 if (paramFk is { } pk && !inOrder(pk) && !EngineImplicit.IsImplicit(pk))
                     issues.Add(new(DialogueIssueSeverity.Warning,
-                        $"INFO {FormIdToken.Of(info.FormKey)} condition #{n} ({fn}) references {pk}, which is not in the active load order — a deleted/disabled form or a wrong FormID, so the condition can't evaluate as intended."));
+                        $"INFO {FormIdToken.Of(info.FormKey)} condition #{n} ({fn}) references {FormIdToken.Of(pk)}, which is not in the active load order — a deleted/disabled form or a wrong FormID, so the condition can't evaluate as intended."));
             }
 
             // 4. Dangling global comparison value — a ConditionGlobal compared against a GLOB not in the order. The
@@ -947,7 +947,7 @@ public static class DialogueValidate
             if (data is IGetIsIDConditionDataGetter gid && floiIsForm && WriteEngine.ReadFloiFormKey(gid.Object) is { } objFk
                 && inOrder(objFk) && resolve(objFk) is IPlacedGetter)
                 issues.Add(new(DialogueIssueSeverity.Warning,
-                    $"INFO {FormIdToken.Of(info.FormKey)} condition #{n} (GetIsID) points at the placed reference {objFk}, but GetIsID compares the run-on actor's BASE form — pass the base NPC_/object, not a placed instance."));
+                    $"INFO {FormIdToken.Of(info.FormKey)} condition #{n} (GetIsID) points at the placed reference {FormIdToken.Of(objFk)}, but GetIsID compares the run-on actor's BASE form — pass the base NPC_/object, not a placed instance."));
         }
     }
 
@@ -959,5 +959,5 @@ public static class DialogueValidate
     /// owning quest — never a bare "invalid".</summary>
     static DialogueIssue AliasIssue(FormKey infoFk, int n, string fn, int idx, string verb, string aliasKind, string ownerQuestLabel) =>
         new(DialogueIssueSeverity.Warning,
-            $"INFO {infoFk} condition #{n} ({fn}) {verb} {ownerQuestLabel}'s {aliasKind} #{idx}, but that quest defines no alias with that ID — the gate evaluates against nothing.");
+            $"INFO {FormIdToken.Of(infoFk)} condition #{n} ({fn}) {verb} {ownerQuestLabel}'s {aliasKind} #{idx}, but that quest defines no alias with that ID — the gate evaluates against nothing.");
 }

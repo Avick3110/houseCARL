@@ -138,10 +138,10 @@ public sealed class ContainmentIndex
                           $"from these properties only: {ChildBearingSurface()}");
         var winner = view.ResolveWinner(pk.Value);
         if (winner is null)
-            return (null, $"the containing record {pk.Value} is not in the active load order");
+            return (null, $"the containing record {FormIdToken.Of(pk.Value)} is not in the active load order");
         var body = view.GetRecord(session, winner.Value.WinnerPlugin, pk.Value);
         return body is null
-            ? (null, $"the containing record {pk.Value} would not fetch from its winner '{winner.Value.WinnerPlugin}'")
+            ? (null, $"the containing record {FormIdToken.Of(pk.Value)} would not fetch from its winner '{winner.Value.WinnerPlugin}'")
             : (body, null);
     };
 
