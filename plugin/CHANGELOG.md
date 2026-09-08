@@ -32,6 +32,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   and compares that record's type against the link's own target, naming the field, the type given and the types
   allowed. A field whose link accepts any record, a null-clear, a FormID no plugin in the order defines, and
   removing a link already in a list are not refused.
+- **A dialogue topic whose numeric `Subtype` contradicts its SNAM marker is now flagged, and the marker is named
+  as the authoritative one.** The engine buckets topics by SNAM; the numeric subtype is stale on topics authored
+  before the Dragonborn-era Creation Kit inserted six `FlyingMount*` values into the enum, so a vanilla `HELO`
+  topic can read as `RechargeExit`. The dialogue check now warns on the disagreement, the text and JSON renders
+  label the pair (`subtype=… (stale)`, `subtype_marker=… (authoritative)`, `subtype_stale`), and the blank-marker
+  advice says its recommended marker is derived from that unreliable field. Nothing is rewritten: no field on the
+  record distinguishes the two numberings.
 
 - **`open-animation-replacer` now states how a DAR `_conditions.txt` chain binds, and that the DAR weapon-type
   numbers convert unchanged.** Both were marked unverified in its reference, and the skill told you to convert
