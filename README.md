@@ -83,11 +83,10 @@ models — by construction, not a hand-maintained subset.
   compatibility patch installed on purpose isn't misread as out of date; trace a file to its mod by MD5
   hash; and a raw GraphQL backstop reaches any field the curated tools don't surface yet. All keyless and
   read-only: it finds and informs; downloading stays your mod manager's "Mod Manager Download" handoff.
-- **Look things up and author distributor files** through 11 bundled, namespaced skills:
+- **Look things up and author distributor files** through 9 bundled, namespaced skills:
   record schemas (every type Mutagen models), Papyrus / SKSE signatures, SkyPatcher / SPID / KID
   distributor grammars, Skyrim dialogue authoring, Open Animation Replacer config authoring, SKSE plugin
-  (C++/CommonLibSSE-NG) authoring, dark-face NPC diagnosis, NPC appearance copying, and bulk record-job
-  planning.
+  (C++/CommonLibSSE-NG) authoring, and dark-face NPC diagnosis.
 
 ## Requirements
 
@@ -178,8 +177,6 @@ Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Code
   wins the NPC record against which mod or BSA wins the facegen file, then place the correct facegen as a
   winning override or forward the matching appearance into a new plugin, instructing the CK / NifSkope /
   RaceMenu steps houseCARL can't perform.
-- **`npc-appearance-copy`** — copy an NPC's face onto another NPC or into a standalone clone: the seed
-  field set, the tint and morph bundle, and the FaceGen mesh and tint files that have to travel with it.
 - **`dialogue-authoring`** — author or audit Skyrim dialogue at the data layer: create topics (DIAL) and
   lines (INFO) in a new plugin, wire them to a branch and quest, attach result scripts, write the
   start-game-enabled `.seq`, and validate a whole topic's or quest's dialogue graph — encoding the
@@ -194,12 +191,6 @@ Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Code
   native Papyrus functions from C++, target SE + AE + VR from one DLL, or read an open-source plugin's source
   to explain what it does. Distinct from ESP/record work and from `.psc` Papyrus (owned by `papyrus-reference`);
   its runtime claims still await an in-game validation pass.
-- **`bulk-record-jobs`** — plan a "many records → one structured deliverable" job (a catalogue, a link or
-  recipe graph, a conflict survey, a patch rebuild, a fan-out extraction) onto the bulk primitives — scoped
-  queries, `project={"form": "aggregate"}`, `housecarl_records`' identity and delta forms, batch writes — instead of per-record
-  loops, with the game-generic Creation-Kit conventions those jobs need and one canonical deliverable schema
-  so a fleet of subagents doesn't invent a different output shape each. Game-generic only — a specific mod's
-  own conventions stay in that mod's skill.
 
 ## License
 

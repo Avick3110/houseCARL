@@ -9,7 +9,7 @@ namespace HousecarlGenerator;
 /// REGRESSION GUARD (standing CI instrument, self-contained) — CODEX UMBRELLA COVERAGE.
 ///
 /// The Codex packaging ships ONE umbrella routing skill (plugin/codex/housecarl/SKILL.md) that routes a job to
-/// the sibling skill that owns its grammar. Unlike the 11 Claude Code skills — each its own trigger — the
+/// the sibling skill that owns its grammar. Unlike the 9 Claude Code skills — each its own trigger — the
 /// umbrella is Codex's single hand-maintained router, so nothing forced it to track the skill surface.
 ///
 /// This guard makes that drift impossible by construction. It reads the REAL .claude/skills/* folders and asserts
@@ -130,8 +130,8 @@ public static class CodexUmbrellaCoverageProbe
             // SUFFIX-RED — the other half of the boundary, on a SYNTHETIC pair. GUARD-SELF above is an invariant
             // over the REAL name set, and today that set collides only by prefix, so it cannot prove the leading
             // check has teeth until the day such a pair actually lands — which is one day too late. This arm names
-            // the reviewer's own scenario (PR #311 round-2 [low]): a future skill slug `record-jobs` alongside the
-            // existing `bulk-record-jobs`, with the router mentioning only the latter. Trailing-side-only matching
+            // the reviewer's own scenario (PR #311 round-2 [low]): a skill slug `record-jobs` alongside a
+            // `bulk-record-jobs`, with the router mentioning only the latter. Trailing-side-only matching
             // reports the shorter one as ROUTED when it is not.
             var redSuffix = MissingRefs("- `bulk-record-jobs` (catalogues, audits, link graphs)", new[] { "record-jobs" }, Empty());
             Check("SUFFIX-RED a name mentioned only as another name's SUFFIX is still reported missing",
