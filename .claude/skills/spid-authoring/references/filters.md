@@ -172,7 +172,7 @@ This section owns the question; the skill body points here rather than restating
 **A Level Filter narrows by the NPC's own level. It does not narrow the line to auto-levelled NPCs.**
 On the ordinary on-load path SPID runs the **whole** entry list — level-filtered entries included —
 against every non-player, non-deleted NPC that loads, and compares the range to that NPC's own
-level. So a line reading `|20` reaches every matching NPC at level 20 or above, fixed-level actors
+level. So a line reading `|||20` reaches every matching NPC at level 20 or above, fixed-level actors
 included.
 
 **The separate pass is a re-distribution, not the distribution.** SPID keeps a second, smaller list
