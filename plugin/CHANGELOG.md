@@ -68,7 +68,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **A bare runtime FormID as a `where=` value — `where="ObjectEffect = 000A2C94"`, the form the console and the
   logs print — now resolves through the call's own load order and compares as the record it addresses.** It
   string-compared to a definite non-match on every record before, so the scan looked healthy and reported 0
-  matches. A call with no load order to resolve it against refuses it by name instead.
+  matches. A call with no load order to resolve it against refuses it by name instead. An entry inside a membership
+  list — `where="Race in [000A2C94]"` — resolves the same way, so a list may mix the two FormID forms.
 - **`format='json'` now states that a record's fields are an ordered LIST of `{path, value}`, not a map keyed by
   path.** The order is the answer's own and a path repeats under a quantified step, which a map could not hold; a
   field that read no value carries `{path, note}` instead. Key a consumer on the position, or join on `'dense'`.

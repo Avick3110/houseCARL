@@ -142,6 +142,23 @@ public sealed class RuntimeFormIdTests
         Assert.Contains("XXXXXX:Plugin.esp", err);
     }
 
+    /// <summary>Same door one over: a BARE runtime FormID inside a non-formid membership list resolves at parse
+    /// and the FormKey leaf tests against the record it names, rather than string-comparing to a silent miss.</summary>
+    [Fact]
+    public void ABareRuntimeFormIdInAMembershipListComparesAsAFormKey()
+    {
+        var mod = new SkyrimMod(new ModKey("HcRtList", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var race = mod.Races.AddNew();
+        var npc = mod.Npcs.AddNew();
+        npc.EditorID = "HcRtListNpc";
+        npc.Race.SetTo(race.FormKey);
+
+        var (set, err) = FieldPredicateSet.Parse(new[] { "Race in [000A2C94]" }, _ => race.FormKey);
+        Assert.Null(err);
+        Assert.True(set!.Matches(npc));
+        Assert.Null(set.AccountingNote());
+    }
+
     /// <summary>The resolved key rides ALONGSIDE the operand, so a leaf that is not a FormKey keeps its own
     /// comparison: an eight-digit number on a numeric field still compares as a number.</summary>
     [Fact]

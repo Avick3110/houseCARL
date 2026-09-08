@@ -88,14 +88,17 @@ public sealed class FieldPredicateSet
     /// the containing record everything downstream reads an ordinary path.
     /// <paramref name="RuntimeKey"/> is a bare runtime-FormID operand already resolved through the call's FormID
     /// door, so a FormKey leaf compares against the record it addresses rather than against eight digits of text;
-    /// null for every other operand.</summary>
+    /// null for every other operand.
+    /// <paramref name="RuntimeKeys"/> is the same resolution for the bare runtime-FormID entries of a membership
+    /// list — the keys those entries name, tested first against a FormKey leaf; the other entries keep their own
+    /// comparison.</summary>
     sealed record Predicate(string Text, string[] PathSegments, string PathDisplay, Op Op, string Operand, double NumericOperand,
                             HashSet<FormKey>? FormIds = null, ArtifactDemand? Artifact = null,
                             string[]? LinkPath = null, string? LinkPathDisplay = null,
                             PseudoPath Pseudo = PseudoPath.None, IReadOnlyList<string>? RawMembers = null,
                             Fold[]? PathFolds = null, Fold[]? LinkFolds = null,
                             int ParentHops = 0, int LinkParentHops = 0,
-                            FormKey? RuntimeKey = null);
+                            FormKey? RuntimeKey = null, HashSet<FormKey>? RuntimeKeys = null);
 
     /// <summary>The identity pseudo-paths a predicate may name instead of a body leaf. <c>editorid</c> reads the
     /// record's EditorID (always available off the early EDID subrecord — never a reflection walk, and live even on
@@ -464,9 +467,9 @@ public sealed class FieldPredicateSet
                 if (lerr is not null) return (null, lerr);
                 return (new Predicate(text, segs, path, op, operand, 0, set, artifact, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops), null);
             }
-            var (members, mset, martifact, merr) = ParseValueList(text, operand);
+            var (members, mset, martifact, mruntime, merr) = ParseValueList(text, operand, parseFormId, resolveRuntime: pseudo == PseudoPath.None);
             if (merr is not null) return (null, merr);
-            return (new Predicate(text, segs, path, op, operand, 0, mset, martifact, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, RawMembers: members, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops), null);
+            return (new Predicate(text, segs, path, op, operand, 0, mset, martifact, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, RawMembers: members, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops, RuntimeKeys: mruntime), null);
         }
         if (pseudo == PseudoPath.FormId)
             return (null, $"predicate '{raw}': 'formid' takes the membership ops only — \"formid in <list>\" / \"formid not in <list>\" (a single record is \"formid in [XXXXXX:Plugin.esp]\").");
@@ -552,8 +555,12 @@ public sealed class FieldPredicateSet
     /// When every entry parses as a FormKey the pre-parsed set rides along for the fast identity-canonical test
     /// (a FormLink leaf against a big artifact list must not be O(n) per record). An @file target may be a plain
     /// token list or a result artifact (identity column = formids — useful against a FormLink leaf), with the
-    /// artifact's epoch demand carried exactly like the formid form.</summary>
-    static (IReadOnlyList<string>? Members, HashSet<FormKey>? Keys, ArtifactDemand? Artifact, string? Error) ParseValueList(string raw, string operand)
+    /// artifact's epoch demand carried exactly like the formid form.
+    /// <para>A BARE runtime FormID entry ('000A2C94') is resolved HERE through the call's own FormID door and rides
+    /// back in <c>Runtime</c>, so it compares as the record it addresses instead of string-comparing to a silent
+    /// miss on every record; with no order in hand it is refused by name. <paramref name="resolveRuntime"/> is off
+    /// on an identity path, where eight hex digits are a legal text value rather than an address.</para></summary>
+    static (IReadOnlyList<string>? Members, HashSet<FormKey>? Keys, ArtifactDemand? Artifact, HashSet<FormKey>? Runtime, string? Error) ParseValueList(string raw, string operand, Func<string?, FormKey>? parseFormId, bool resolveRuntime)
     {
         string content;
         ArtifactDemand? artifact = null;
@@ -561,17 +568,17 @@ public sealed class FieldPredicateSet
         {
             var path = operand.Substring(1).Trim().Trim('"', '\'');
             if (path.Length == 0)
-                return (null, null, null, $"predicate '{raw}': '@' names a value-list file but no path follows it.");
+                return (null, null, null, null, $"predicate '{raw}': '@' names a value-list file but no path follows it.");
             if (!Path.IsPathRooted(path))
-                return (null, null, null, $"predicate '{raw}': value-list file '{path}' must be an ABSOLUTE path — the server resolves relative paths against its OWN working directory, not yours.");
+                return (null, null, null, null, $"predicate '{raw}': value-list file '{path}' must be an ABSOLUTE path — the server resolves relative paths against its OWN working directory, not yours.");
             try { content = File.ReadAllText(path); }
-            catch (Exception ex) { return (null, null, null, $"predicate '{raw}': could not read value-list file '{path}' — {ex.GetType().Name}: {ex.Message}"); }
+            catch (Exception ex) { return (null, null, null, null, $"predicate '{raw}': could not read value-list file '{path}' — {ex.GetType().Name}: {ex.Message}"); }
             if (ResultArtifact.LooksLikeArtifact(content))
             {
                 var (manifest, tokens, aerr) = ResultArtifact.ReadIdentity(path, content);
-                if (aerr is not null) return (null, null, null, $"predicate '{raw}': {aerr}");
+                if (aerr is not null) return (null, null, null, null, $"predicate '{raw}': {aerr}");
                 if (!manifest!.Identity!.Equals("formid", StringComparison.OrdinalIgnoreCase))
-                    return (null, null, null, $"predicate '{raw}': artifact '{path}' (from {manifest.Tool}) carries '{manifest.Identity}' identities, not FormIDs — nothing in it to test a value against.");
+                    return (null, null, null, null, $"predicate '{raw}': artifact '{path}' (from {manifest.Tool}) carries '{manifest.Identity}' identities, not FormIDs — nothing in it to test a value against.");
                 artifact = new ArtifactDemand(path, manifest.Epoch);
                 content = string.Join("\n", tokens!);
             }
@@ -579,17 +586,33 @@ public sealed class FieldPredicateSet
         else content = operand;
 
         var members = new List<string>();
+        HashSet<FormKey>? runtime = null;
         foreach (var t in content.Split(ListSeparators, StringSplitOptions.RemoveEmptyEntries))
         {
             var tok = t.Trim('[', ']', '"', '\'', ' ', '\t');
             if (tok.Length == 0) continue;
             // Same door as the scalar operand: a hybrid entry would compare as a plain string and quietly match
             // nothing.
-            if (HybridRefusal(raw, tok) is { } hybrid) return (null, null, null, hybrid);
+            if (HybridRefusal(raw, tok) is { } hybrid) return (null, null, null, null, hybrid);
+            // And the same door for a BARE runtime FormID entry, which is the likelier paste: no ':Plugin' tail for
+            // the FormKey attempt, hex letters for the numeric one, so it string-compares to a miss on every record
+            // with nothing said. Resolve it through the order the call already holds and carry the key beside the
+            // entry; with no order in hand there is nothing to resolve against, so refuse it by name.
+            if (resolveRuntime && RuntimeFormId.TryParse(tok, out _))
+            {
+                if (parseFormId is null)
+                    return (null, null, null, null, $"predicate '{raw}': list entry '{tok}' is a RUNTIME FormID (the eight-digit form the game, the console and the logs " +
+                                                    $"print), and this call has no load order to resolve it against. Write the plugin form 'XXXXXX:Plugin.esp' instead.");
+                try { (runtime ??= new HashSet<FormKey>()).Add(parseFormId(tok)); }
+                catch (Exception ex)
+                {
+                    return (null, null, null, null, $"predicate '{raw}': list entry '{tok}' is a RUNTIME FormID this load order cannot resolve — {ex.Message}");
+                }
+            }
             members.Add(tok);
         }
         if (members.Count == 0)
-            return (null, null, null, $"predicate '{raw}': the value list is empty — give at least one entry.");
+            return (null, null, null, null, $"predicate '{raw}': the value list is empty — give at least one entry.");
 
         HashSet<FormKey>? keys = null;
         var all = new HashSet<FormKey>();
@@ -599,7 +622,7 @@ public sealed class FieldPredicateSet
             all.Add(fk);
         }
         if (all is { Count: > 0 }) keys = all;
-        return (members, keys, artifact, null);
+        return (members, keys, artifact, runtime, null);
     }
 
     /// <summary>Parse an <c>in</c>/<c>not in</c> operand into its FormKey set. Two forms: <c>@&lt;path&gt;</c> reads a
@@ -1030,7 +1053,11 @@ public sealed class FieldPredicateSet
         if (p.Op is Op.In or Op.NotIn)
         {
             bool member;
-            if (p.FormIds is not null && TryFormKey(leaf.Token, out var lfk))
+            // A bare runtime FormID entry resolved at parse: a FormKey leaf compares against the key it named.
+            // Tested first and separately from the pre-parsed set, so a list mixing the two forms keeps both.
+            if (p.RuntimeKeys is { } rks && TryFormKey(leaf.Token, out var rfk) && rks.Contains(rfk))
+                member = true;
+            else if (p.FormIds is not null && TryFormKey(leaf.Token, out var lfk))
                 member = p.FormIds.Contains(lfk);
             else
                 member = p.RawMembers!.Any(m => ValueEquals(leaf.Token, m));
