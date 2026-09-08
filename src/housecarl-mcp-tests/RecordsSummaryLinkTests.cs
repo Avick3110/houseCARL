@@ -30,6 +30,17 @@ public sealed class RecordsSummaryLinkTests : RecordsTestBase
     }
 
     [Fact]
+    public void ADeeperReadNamesTheSummaryAndItsLeafBecauseBothShowTheFormId()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) },
+            project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects" }, depth = 3, resolve_names = true });
+        // depth=3 prints the element's own leaf under its summary, and the fields lane spells the FormID on both.
+        // The name follows the FormID, so it is on both too — the repetition is the read's, not the annotation's.
+        Assert.Contains($"Effects[0] = [Effect] BaseEffect={Fid(W.MgefA)}   (→ HcRecMgefFire)", r);
+        Assert.Contains($"Effects[0].BaseEffect = {Fid(W.MgefA)}   (→ HcRecMgefFire)", r);
+    }
+
+    [Fact]
     public void WithoutResolveNamesTheSummaryStandsAlone()
     {
         var r = Spell(names: false);

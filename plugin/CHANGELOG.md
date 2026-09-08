@@ -2524,7 +2524,11 @@ offset, paging meant slicing by `editorid_contains`. Now:
   re-reading at `depth=3`. It is now annotated wherever the read shows it, in the same parenthetical and the same
   `link` sibling in json, and the summary text itself is unchanged. The json summary line also carries the FormID
   it rendered as a `note_ref` sibling of its `note`, so a consumer reads it back through `formids=` without
-  parsing the prose. The element's OWN FormID — an owned child
+  parsing the prose. At `depth=3` the element's own leaf is printed under the summary and both lines show the same
+  FormID, so both carry the name: the annotation repeats exactly where the read repeats the FormID. The `rows` form
+  is where it does not — a row that carries the element's sub-fields trims the element cell back to its bare
+  `[Type]`, and the name goes out with the FormID the trim took, leaving it on the sub-field cell that still shows
+  it. The element's OWN FormID — an owned child
   record's, which the summary already spells with its editorid — is not annotated with itself. An element with two
   or more FormLink fields still renders as a bare `[Type]` and so shows no FormID to annotate, for the reason it
   already gives.
