@@ -47,7 +47,13 @@ public static class RuntimeFormId
     /// (<c>000A2C94:Skyrim.esm</c>), which is neither notation. It names the six-digit plugin form to write
     /// instead, so the caller is not left to work out which half to drop; null for anything that is not a hybrid.
     /// A light token's local id comes off the ESL window, so <c>FE012800:X.esl</c> names <c>000800:X.esl</c>, not
-    /// the middle six digits.</summary>
+    /// the middle six digits.
+    ///
+    /// <para>It offers the six-digit form ONLY. The bare eight digits would also parse, but they resolve against
+    /// whatever order is loaded now — a different plugin than the one the caller named, if the index moved since
+    /// the paste — and this class is pure text with no index tables to tell the two apart. A door holding the
+    /// order may offer the runtime form on top of this sentence, once it has checked the resolved plugin is the
+    /// named one.</para></summary>
     public static string? HybridNote(string? text)
     {
         var s = text?.Trim();
@@ -59,8 +65,7 @@ public static class RuntimeFormId
         uint local = FormIdRange.LocalObjectId(v);
         return $"'{s}' mixes the two FormID forms: eight digits is the RUNTIME form the game, the console and the " +
                $"logs print — its leading digits are the load-order index, not part of the record's id — and a " +
-               $"plugin-qualified FormID takes SIX. Write '{local:X6}:{plugin}', or drop the plugin name and pass " +
-               $"the runtime form '{Format(v)}' on its own.";
+               $"plugin-qualified FormID takes SIX. Write '{local:X6}:{plugin}'.";
     }
 
     /// <summary>Is this token addressed to the light block (the shared <c>FE</c> index)?</summary>
