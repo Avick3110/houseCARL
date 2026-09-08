@@ -23,7 +23,7 @@
    },
    {
     "name": "coexistence",
-    "menu": "dialogue-authoring among the other eleven skills plus NONE",
+    "menu": "dialogue-authoring among the other ten skills plus NONE -- eleven skills ship, so ten are the others",
     "failure_mode_it_catches": "under-trigger and boundary leakage -- a sibling absorbs a dialogue query, or dialogue-authoring absorbs a sibling's"
    }
   ]
@@ -184,9 +184,9 @@
    "id": "T14",
    "prompt": "my quest journal book renders as [...] instead of the text I wrote",
    "should_trigger": false,
-   "expected_output": "dialogue-authoring is NOT loaded; the query routes to the dynamic book-entry skill.",
+   "expected_output": "dialogue-authoring is NOT loaded; no skill in the tree under test owns the dynamic book-entry technique, so the expected pick is NONE.",
    "expectations": [
-    "with-skill arm: the pick is not dialogue-authoring on at least 2 of 3 runs",
+    "with-skill arm: the pick is NONE on at least 2 of 3 runs, and is never dialogue-authoring",
     "with-skill arm: the reasoning names the book carrier rather than a dialogue line",
     "without-skill arm: removing dialogue-authoring does not change where this query lands"
    ],
