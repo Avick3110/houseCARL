@@ -273,6 +273,109 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     string[] SummaryIds => W.SpellBodies.Select(b => RecordsWorld.Fid(b.FormKey))
         .Concat(W.WeaponBodies.Select(b => RecordsWorld.Fid(b.FormKey))).ToArray();
 
+    // ---- and on the five renders #546 left out: delta, tree, chain, the reverse effect chain (#604) --------
+    //
+    // Each of these tested the ceiling BEFORE the block it was about to write, so the record, node or carrier row
+    // that crossed went in whole and the notice and the spilled: block on top of it.
+
+    /// <summary>The bound, both arms: the response is inside its cap, or it is the one arm a bounded render may
+    /// still exceed it on — a max_chars too small for what the response carries whatever the budget, its spill
+    /// block included — and it says so, naming the number that clears it in one step.</summary>
+    static void InsideItsCap(string r, int cap, string what)
+    {
+        if (r.Length <= cap) return;
+        Assert.True(r.Contains($"over the max_chars={cap} it was given", StringComparison.Ordinal),
+                    $"the {what} returned {r.Length} chars at max_chars={cap} and did not say so");
+        var needed = int.Parse(Regex.Match(r, @"raise max_chars to at least (\d+)").Groups[1].Value);
+        Assert.Equal(r.Length, needed);
+    }
+
+    [Theory]
+    [InlineData(1_200)]
+    [InlineData(2_000)]
+    [InlineData(4_000)]
+    [InlineData(20_000)]
+    public void ADeltaRenderIsNeverWiderThanItsCap(int cap)
+    {
+        using var d = OwnResults("delta-ceiling-" + cap);
+        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("delta"),
+                                     versus: Je("\"" + W.MasterName + "\""), max_chars: cap);
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        InsideItsCap(r, cap, "delta");
+    }
+
+    [Theory]
+    [InlineData(1_200)]
+    [InlineData(2_000)]
+    [InlineData(4_000)]
+    [InlineData(20_000)]
+    public void ATreeRenderIsNeverWiderThanItsCap(int cap)
+    {
+        using var d = OwnResults("tree-ceiling-" + cap);
+        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("tree"), max_chars: cap);
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        InsideItsCap(r, cap, "tree");
+    }
+
+    [Theory]
+    [InlineData(1_200)]
+    [InlineData(2_000)]
+    [InlineData(4_000)]
+    [InlineData(20_000)]
+    public void AChainRenderIsNeverWiderThanItsCap(int cap)
+    {
+        using var d = OwnResults("chain-ceiling-" + cap);
+        var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, walk: new RecordsTools.RecordsWalk(),
+                                     project: Form("chain"), max_chars: cap);
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        InsideItsCap(r, cap, "chain");
+    }
+
+    [Theory]
+    [InlineData(400)]
+    [InlineData(700)]
+    [InlineData(1_200)]
+    [InlineData(4_000)]
+    public void AReverseEffectChainRenderIsNeverWiderThanItsCap(int cap)
+    {
+        using var d = OwnResults("effect-chain-ceiling-" + cap);
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" },
+                                     project: Form("chain"), max_chars: cap);
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        InsideItsCap(r, cap, "effect chain");
+    }
+
+    /// <summary>At a cap the render cannot hold — 100 short of what it takes uncapped, so it is derived rather
+    /// than pinned to a number that would only hold on the machine it was written on — each of the three forms
+    /// says what it held back in the caller's own max_chars, spills the complete result to its artifact, and
+    /// stays inside the ceiling or names the overrun the fixed part causes.</summary>
+    [Fact]
+    public void EachOfTheseRendersSaysWhatItsCapHeldBackAndStaysInsideIt()
+    {
+        foreach (var (name, call) in new (string, Func<int, string>)[]
+        {
+            ("delta", cap => RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("delta"),
+                                                  versus: Je("\"" + W.MasterName + "\""), max_chars: cap)),
+            ("tree", cap => RecordsTools.Records(Svc, types: new[] { "WEAP" }, project: Form("tree"), max_chars: cap)),
+            ("chain", cap => RecordsTools.Records(Svc, types: new[] { "SPEL" }, walk: new RecordsTools.RecordsWalk(),
+                                                  project: Form("chain"), max_chars: cap)),
+        })
+        {
+            using var d = OwnResults("held-back-" + name);
+            int cap = call(0).Length - 100;   // the whole render spills nothing; 100 short of it cannot hold
+            var r = call(cap);
+
+            Assert.Contains("at max_chars=" + cap + "]", r);          // the notice quotes what the caller passed
+            Assert.Contains("spilled: complete result", r);           // and the artifact still holds it all
+            InsideItsCap(r, cap, name);
+        }
+    }
+
     /// <summary>The one arm left: a max_chars smaller than the spill block the response must carry — the block that
     /// names the artifact holding the complete result — says so and names the cap that clears it, rather than
     /// answering over the ceiling in silence.</summary>

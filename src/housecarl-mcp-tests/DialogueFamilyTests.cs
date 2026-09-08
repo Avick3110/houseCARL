@@ -57,6 +57,47 @@ public sealed class DialogueFamilyTests
         Assert.DoesNotContain("dropped in game", r);
     }
 
+    // ---- max_chars is a CEILING on the info_order render too (#604) ------------------------------------
+
+    /// <summary>A topic filled well past its cap comes back inside it: the truncation notice and the spilled:
+    /// block are charged before the first topic is laid, and a topic that would cross what is left is taken back
+    /// out whole and counted. The one arm that may still exceed the cap — a max_chars too small for what the
+    /// response carries whatever the budget, its spill block included — says so and names the number that clears
+    /// it, which is what the second branch below asserts.</summary>
+    [Theory]
+    [InlineData(400)]
+    [InlineData(700)]
+    [InlineData(1_600)]
+    [InlineData(2_400)]
+    [InlineData(8_000)]
+    public void AnInfoOrderRenderIsNeverWiderThanItsCap(int cap)
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Topic) },
+                                     project: new RecordsTools.RecordsProject { form = "info_order" },
+                                     max_chars: cap);
+
+        if (r.Length <= cap) return;
+        Assert.Contains($"over the max_chars={cap} it was given", r);
+        var needed = int.Parse(Regex.Match(r, @"raise max_chars to at least (\d+)").Groups[1].Value);
+        Assert.Equal(r.Length, needed);
+    }
+
+    /// <summary>And what the cap held back is counted, not dropped in silence. The cap is derived rather than
+    /// pinned: 100 short of what the render takes uncapped is a cap it cannot hold, whatever this fixture's
+    /// topic happens to weigh.</summary>
+    [Fact]
+    public void AnInfoOrderCutByItsCapSaysHowManyTopicsItHeldBack()
+    {
+        string At(int cap) => RecordsTools.Records(Svc, formids: new[] { Fid(W.Topic) },
+                                                   project: new RecordsTools.RecordsProject { form = "info_order" },
+                                                   max_chars: cap);
+        int cap = At(0).Length - 100;
+        var r = At(cap);
+
+        Assert.Matches(@"\[rendered \d+ of 1 rows at max_chars=" + cap + @"\]", r);
+        Assert.Contains("spilled: complete result", r);
+    }
+
     // ---- fact D2 --------------------------------------------------------------------------------------
     // The PNAM-zero caveat stays absent.
 
