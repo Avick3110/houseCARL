@@ -127,6 +127,32 @@ public class DecompileShortCircuitTests
         Assert.DoesNotContain("short-circuit", Assert.Single(res.Failures));
     }
 
+    [Fact]
+    public void AnIfElseWhoseThenBlockWritesTheConditionTempStaysAnIfElse()
+    {
+        // if a / b = X() / else / DoSomething() / endif / Sink(b) with b sharing the condition's temp
+        // slot: the then-block writes the temp without reading it and the temp is read after the join,
+        // but the block ends with the then-block's JMP to the join. A short-circuit arm is
+        // straight-line, so this is an if/else and must read as one.
+        var f = Fn(("Bool", "a"));
+        Local(f, "Bool", "::temp0");
+        Local(f, "None", "::NoneVar");
+        Ins(f, InstructionOpcode.CAST, Id("::temp0"), Id("a"));
+        Ins(f, InstructionOpcode.JMPF, Id("::temp0"), Int(3));                        // -> 4, the else
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("X"), Id("self"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.JMP, Int(3));                                         // -> 6, the join
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("DoSomething"), Id("self"), Id("::NoneVar"), Int(0));
+        Ins(f, InstructionOpcode.NOP);
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Sink"), Id("self"), Id("::NoneVar"), Int(1), Id("::temp0"));
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_IfElseProbe", ("Branch", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        Assert.Contains("if a", res.Source);
+        Assert.Contains("else", res.Source);
+        Assert.Contains("Sink(temp0)", res.Source);
+    }
+
     // ---------------------------------------------------------------- in-memory pex builders
     static PexFile File(string objectName, params (string Name, PexObjectFunction Fn)[] fns)
     {

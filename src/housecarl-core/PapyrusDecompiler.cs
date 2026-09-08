@@ -569,10 +569,13 @@ public sealed class PapyrusDecompiler
                         // arm that writes the temp whose value is read before being rewritten at or
                         // after the join. An arm that READS the temp first is not an arm at all: it
                         // is a guarded block over a reused condition temp, which the promotion path
-                        // below owns. Temps only: a real-var condition is always a plain if.
+                        // below owns. A real arm is straight-line, so a trailing JMP in the region
+                        // means an if/else or a while, not an arm. Temps only: a real-var condition
+                        // is always a plain if.
                         if (condName is not null && IsTemp(condName) && target < hi
                             && (ConsumesAsSource(_ins[target], condName)
                                 || (WritesDestIn(i + 1, target, condName)
+                                    && (target - 1 <= i || _ins[target - 1].OpCode != InstructionOpcode.JMP)
                                     && !ReadsBeforeWrite(i + 1, target, condName)
                                     && ReadsBeforeWrite(target, hi, condName))))
                         {
