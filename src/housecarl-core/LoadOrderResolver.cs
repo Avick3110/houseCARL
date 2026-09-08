@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
@@ -870,10 +870,14 @@ public sealed class LoadOrderResolver : IDisposable
 
         /// <summary>The one FormID door: parse a caller's token into a FormKey. An eight-hex token with no colon is a
         /// RUNTIME FormID (<c>FExxxYYY</c> or <c>XX######</c>, with or without <c>0x</c>) and is resolved against this
-        /// build's runtime address tables; anything else is the <c>XXXXXX:Plugin.esp</c> form and is unchanged. Throws
+        /// build's runtime address tables; anything else is the <c>XXXXXX:Plugin.esp</c> form and is unchanged. A
+        /// HYBRID of the two (eight digits AND a plugin name) is refused by <see cref="RuntimeFormId.HybridNote"/>,
+        /// which names the six-digit form to use. Throws
         /// one plain sentence either way, which every door already renders as its own "bad FormID" refusal.</summary>
         public FormKey ParseFormId(string? raw)
-            => RuntimeFormId.TryParse(raw, out uint v) ? _r.RuntimeToFormKey(_s, v) : FormKey.Factory((raw ?? "").Trim());
+            => RuntimeFormId.HybridNote(raw) is { } hybrid ? throw new FormatException(hybrid)
+             : RuntimeFormId.TryParse(raw, out uint v) ? _r.RuntimeToFormKey(_s, v)
+             : FormKey.Factory((raw ?? "").Trim());
 
         /// <summary>The runtime FormID this record prints as in the game, the console and the logs — or, when there
         /// is no unambiguous one, the sentence saying why. Rendered beside the <c>XXXXXX:Plugin.esp</c> form so a
