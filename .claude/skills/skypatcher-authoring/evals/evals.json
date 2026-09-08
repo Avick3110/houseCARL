@@ -258,9 +258,9 @@
       "id": 29,
       "prompt": "put these items into a chest without an ESP",
       "expected_output": "Route to the CID skill — items into containers is not a SkyPatcher job.",
-      "expectations": ["does not pick skypatcher-authoring", "routes to the items-into-containers skill"],
+      "expectations": ["does not pick skypatcher-authoring"],
       "should_trigger": false,
-      "evidence": "NEW 2026-09-08, never measured. Hardest of the three: SkyPatcher does patch CONT records, so the boundary is what RECEIVES the change."
+      "evidence": "NEW 2026-09-08, never measured. Hardest of the three: SkyPatcher does patch CONT records, so the boundary is what RECEIVES the change. No CID skill ships, unlike cases 27 and 28 whose KID and SPID targets do, so this case grades on the decline alone — a routing expectation here would be unsatisfiable."
     },
     {
       "id": 30,
