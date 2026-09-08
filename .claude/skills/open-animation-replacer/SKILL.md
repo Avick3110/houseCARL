@@ -187,12 +187,17 @@ the situation you care about. That pair is the stop condition.
 ## Worked example — overriding a mod's conditions via `user.json`
 
 A mod's archery moveset should apply only after the player earns a specific perk, without editing the
-mod. The original `…/Bow Rapid Combo V3/Base/config.json` is `IsActorBase player` plus
-`IsEquippedType 7` at priority `9901000`. Put a `user.json` at the matching submod path in the
-dedicated overrides mod, holding the complete original config plus one condition:
+mod. The original `…/Bow Rapid Combo V3/Base/config.json` carries `name`, `priority` `9901000` and
+`keepRandomResultsOnLoop`, with `IsActorBase player` plus `IsEquippedType 7` as its conditions. Put a
+`user.json` at the matching submod path in the dedicated overrides mod, holding **every key the
+original carries** plus the one new condition — a shadow drops what it omits, so read the original
+first and carry across whatever it has, `overrideAnimationsFolder` and `replacementAnimDatas`
+included, or the shadowed submod wins its slot and replaces nothing:
 
 ```json
-{ "priority": 9901000,
+{ "name": "Base",
+  "priority": 9901000,
+  "keepRandomResultsOnLoop": true,
   "conditions": [
     { "condition": "IsActorBase", "requiredVersion": "1.0.0.0",
       "Actor base": { "pluginName": "Skyrim.esm", "formID": "7" } },
