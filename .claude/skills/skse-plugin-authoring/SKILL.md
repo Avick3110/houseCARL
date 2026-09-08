@@ -152,11 +152,13 @@ back.
 
 ## Common mistakes
 
-- **Gate with `EXCLUSIVE_SKYRIM_SE` / `_AE` where SE and AE differ, and read every runtime-varying
-  member through its accessor.** A dual SE+AE build defines `EXCLUSIVE_SKYRIM_FLAT` alone — FLAT
-  means "not VR", not "one non-VR runtime" — so assuming it defines `_SE` and `_AE` is exactly
-  backwards. Direct member access, a naive virtual call and an upcast each sit at a different offset
-  or vtable slot per runtime; all of it compiles clean under a single-runtime test.
+- **Discriminate SE from AE at runtime in a dual build, and read every runtime-varying member
+  through its accessor.** A dual SE+AE build defines `EXCLUSIVE_SKYRIM_FLAT` alone — FLAT means "not
+  VR", not "one non-VR runtime" — so `EXCLUSIVE_SKYRIM_SE` / `_AE` are undefined there and an `#if`
+  on them drops the divergent code on both runtimes. Use `REL::Module::IsAE()` or
+  `REL::Relocate(seAndVr, ae)`; the macros gate only a single-runtime build. Direct member access, a
+  naive virtual call and an upcast each sit at a different offset or vtable slot per runtime; all of
+  it compiles clean under a single-runtime test.
 - **Export the whole triad.** A portable plugin exports `SKSEPlugin_Version` (AE data path),
   `SKSEPlugin_Query` (SE/VR function path) and `SKSEPlugin_Load`. Drop `Query` and VR never sees the
   plugin — silently skipped, no error dialog.
