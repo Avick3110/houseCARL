@@ -27,7 +27,9 @@ machine call the houseCARL MCP server, and a lookup never has to wait on one.
 
 This covers the **API surface**. Reading a modlist's actual `.psc` source is a file job (ask
 `housecarl_asset_status` which mod or BSA wins a `Scripts\...` path first, then read it with your
-own file tool); compiling is `housecarl_compile_script`.
+own file tool — or, when the winner is inside an archive, which is where most framework scripts
+ship, `housecarl_bsa_extract` with `archive=` and `dest=` first and read the extracted path);
+compiling is `housecarl_compile_script`.
 
 The corpus is the cheap route to a signature, not the only one and not the proof. The deterministic
 check is the compile: `housecarl_compile_script` binds every call against the real sources on the
