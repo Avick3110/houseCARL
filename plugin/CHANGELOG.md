@@ -103,7 +103,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
   that record.** A create whose editorid collides used to rebuild the existing record fresh at its own FormID from
   the call's spec, discarding everything else it held — and reported it afterwards, once the record was already gone.
   In place the file is one you own and the name is likelier one you did not know was taken, so the whole call is now
-  refused before anything is written, naming each colliding record, its FormID, and its type. Pass `replace=true` to
+  refused before anything is written, naming each colliding record, its FormID, and its type. An interior cell is held
+  to the same check, which its own duplicate guard was not: that one saw only other cells, and only an exact-case name. Pass `replace=true` to
   get the rebuild anyway — over a collision an overwrite can settle; a name the target holds on a record of another
   type, on two records at once, on an override it carries, or on a record with child records under it (a dialogue
   topic's lines, a worldspace's cells, which a rebuild would take with it) is refused either way, and the refusal says

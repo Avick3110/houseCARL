@@ -2962,8 +2962,13 @@ public static class WritePatchBuilder
             var one = clash[0];
             var itsType = RecordNaming.StripOverlay(one.GetType().Name);
             if (!WriteEngine.UpsertWouldReplace(patchMod, wantType, clash))
-                return $"{fileName} already defines {itsType} {one.FormKey.ID:X6} with that editorid — an editorid collision "
-                     + $"across record types, which no overwrite resolves: a {itsType} cannot be re-created as a {wantType}. Pick another editorid.";
+                return string.Equals(itsType, wantType, StringComparison.OrdinalIgnoreCase)
+                    // Same type, and still not replaceable: the cell route, which files by coordinates rather than
+                    // upserting, so there is no overwrite to offer.
+                    ? $"{fileName} already defines {itsType} {one.FormKey.ID:X6} with that editorid, and a create never "
+                      + $"overwrites a {itsType}. Edit it with {ToolNames.Apply}, or pick another editorid."
+                    : $"{fileName} already defines {itsType} {one.FormKey.ID:X6} with that editorid — an editorid collision "
+                      + $"across record types, which no overwrite resolves: a {itsType} cannot be re-created as a {wantType}. Pick another editorid.";
             var kids = WriteEngine.ChildCountOf(one);
             if (kids > 0)
                 return $"{fileName} already defines {itsType} {one.FormKey.ID:X6} with that editorid, and {kids} record(s) "
@@ -2999,8 +3004,11 @@ public static class WritePatchBuilder
                 // artifact is houseCARL's own and a re-run should be idempotent; on a file houseCARL does not own the
                 // name is far likelier one the caller did not know was taken. Refused before anything is written;
                 // replace= opts back in, but only over a collision the upsert would overwrite cleanly.
-                else if (inPlace && CarriedUnder(s.EditorId) is { Count: > 0 } clash
-                         && !(replaceExisting && ReplaceKeepsEverything(s.RecordType, clash)))
+                // The CELL route above falls through to here too: it files by coordinates and never upserts, so its own
+                // duplicate check sees only Cells and only an exact-case name, and a cell went in under an editorid the
+                // target already held for something else. Same question, one place to ask it.
+                if (inPlace && CarriedUnder(s.EditorId) is { Count: > 0 } clash
+                    && !(replaceExisting && ReplaceKeepsEverything(s.RecordType, clash)))
                 {
                     problems.Add($"{s.RecordType} '{s.EditorId}': " + ClashReason(s.RecordType, clash));
                     continue;

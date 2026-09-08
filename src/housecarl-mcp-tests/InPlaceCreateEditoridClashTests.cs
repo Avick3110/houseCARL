@@ -91,6 +91,9 @@ public sealed class InPlaceCreateEditoridClashTests : IDisposable
     static string TopicSpec(string editorId, string name) =>
         $@"[{{""record_type"":""DialogTopic"",""editorid"":""{editorId}"",""ops"":[{{""field_path"":""Name"",""value"":""{name}""}}]}}]";
 
+    static string CellSpec(string editorId) =>
+        $@"[{{""record_type"":""Cell"",""editorid"":""{editorId}"",""ops"":[{{""field_path"":""Name"",""value"":""A room""}}]}}]";
+
     string Hash() => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(_userPath)));
 
     /// <summary>The faction's Name as the WRITTEN file carries it, or null when the record is gone.</summary>
@@ -164,6 +167,35 @@ public sealed class InPlaceCreateEditoridClashTests : IDisposable
         Assert.Contains("error:", r);
         Assert.Contains("HcClashLine0", r);        // the child that would have gone missing, named before the write
         Assert.Equal(before, Hash());
+    }
+
+    // ---- the cell route ---------------------------------------------------------------------------
+
+    /// <summary>A parentless Cell create takes its own branch and never reaches the flat create's type gate, so the
+    /// collision check has to sit ahead of it: the cell route's own duplicate check only looks at Cells, and a Cell
+    /// written under an editorid the target holds for a Keyword went in with no refusal at all.</summary>
+    [Fact]
+    public void AnInPlaceCellCreateOverATakenEditoridIsRefused()
+    {
+        var before = Hash();
+        var r = CreateTools.Create(_svc, records: Je(CellSpec(KeywordEditorId)), in_place: UserName, acknowledge: true);
+        Assert.Contains("error:", r);
+        Assert.Contains("Keyword", r);
+        Assert.Equal(before, Hash());
+    }
+
+    /// <summary>Editorids are matched case-insensitively everywhere else; the cell route's own check compared them
+    /// exactly, so a second cell under the same name in another case went in beside the first.</summary>
+    [Fact]
+    public void AnInPlaceCellCreateOverACellNamedInAnotherCaseIsRefused()
+    {
+        var first = CreateTools.Create(_svc, records: Je(CellSpec("HcClashCell")), in_place: UserName, acknowledge: true);
+        Assert.DoesNotContain("error:", first);
+        var afterFirst = Hash();
+
+        var again = CreateTools.Create(_svc, records: Je(CellSpec("hcclashcell")), in_place: UserName, acknowledge: true);
+        Assert.Contains("error:", again);
+        Assert.Equal(afterFirst, Hash());
     }
 
     // ---- replace= opts back in --------------------------------------------------------------------
