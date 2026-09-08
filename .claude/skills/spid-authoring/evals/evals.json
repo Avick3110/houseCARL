@@ -290,6 +290,15 @@
       "should_trigger": false,
       "new_in": "2026-09-08 rewrite",
       "evidence": "Exercises the new description's 'a keyword onto item records is KID' clause on a prompt that names no framework and shares SPID's runtime/no-ESP framing. Without the clause the shared framing is the only signal."
+    },
+    {
+      "id": 29,
+      "prompt": "write a SPID line that gives Balgruuf a fire cloak spell",
+      "expected_output": "housecarl:spid-authoring",
+      "expectations": ["Routes to this skill.", "Reasoning treats one named NPC as a SPID line, not as a SkyPatcher exclusion."],
+      "should_trigger": true,
+      "new_in": "2026-09-08 review of PR #649",
+      "evidence": "Added as an unbiased MEASUREMENT of the group/individual split, which cases 1-28 never reach — every one of them is a group prompt or a named-framework audit. Aaron's call is that SkyPatcher is the better fit for one NPC but SPID can still name one (references/filters.md §1 and §2), so a decline here is the failure to catch: it would mean the description's SkyPatcher clause reads as a boundary rather than the preference the body states. If this row declines, the fix is in the description, not in the row."
     }
   ],
   "output_quality": {

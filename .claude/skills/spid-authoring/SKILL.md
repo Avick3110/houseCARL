@@ -6,8 +6,9 @@ description: >-
   7.3.0 grammar. Load it before composing or judging any SPID line: a misread filter silently
   changes who is targeted, and an unparseable one is skipped with no error. Use when writing or
   auditing a `_DISTR.ini`, targeting NPCs by faction, race, level or trait, or asking why a line
-  isn't distributing. Not this skill: a keyword onto item records is KID, a record's own fields and
-  an individual NPC's edits are SkyPatcher.
+  isn't distributing, including a line that names one NPC. Not this skill: a keyword onto item
+  records is KID, and a record's own fields are SkyPatcher, which is also usually the better fit for
+  one named NPC — a preference, not a boundary.
 compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 2 instance.
 ---
 
