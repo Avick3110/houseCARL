@@ -130,7 +130,7 @@
     {"id": 15, "query": "wire a TIF result fragment onto this dialogue line so it advances the quest stage", "should_trigger": false, "expected_route": "dialogue-authoring"},
     {"id": 16, "query": "how do i install SKSE and PapyrusUtil in MO2?", "should_trigger": false, "expected_route": "NONE / basics — names corpus members but is an install question"},
     {"id": 17, "query": "decompile campfire's pex files and tell me how heavy its update loops are", "should_trigger": false, "expected_route": "NONE — the judgment asked is heaviness, and the skill that owned it was deleted; hard near-miss"},
-    {"id": 18, "query": "gate this dodge animation behind a perk check so only the player gets it", "should_trigger": false, "expected_route": "oar-authoring — animation condition, not a script"}
+    {"id": 18, "query": "gate this dodge animation behind a perk check so only the player gets it", "should_trigger": false, "expected_route": "open-animation-replacer — animation condition, not a script"}
   ],
   "history": {
     "note": "The set below this line is the record of the pre-rewrite runs, kept for provenance. It was scored with no without-skill arm and read the source tree rather than dist/, so it does not satisfy ruling 3 and is not a pass for the rewritten skill.",
