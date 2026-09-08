@@ -28,13 +28,16 @@ public static class SkyPatcherTools
          "and NO-OP WRITES (true ITM — the replay shows the SET writes the value the record already has). " +
          "Entries whose applicability " +
          "also hangs on other filters are flagged conditional rather than guessed. Pass filter= a type folder, mod, " +
-         "or filename substring to list only the matching files, expanded to their patch lines. For ONE record's computed " +
+         "or filename substring to narrow to the type folders that hold a match — each still listed in full apply order, " +
+         "so the files sorting before and after a match stay visible, with the matching files expanded to their patch " +
+         "lines. For ONE record's computed " +
          "post-SkyPatcher state use " + ToolNames.Records + " formids=[\"<FormID>\"] source={\"overlay\": \"skypatcher\", \"state\": \"post\"} — source= is a version pole, not a selection, so the read needs formids= (or a scan scope). " +
          "Read-only.")]
     public static string SkyPatcherLayer(
         LoadOrderService svc,
         [Description("Optional. A type-folder (e.g. 'weapon'), providing-mod, or INI filename substring (case-insensitive). " +
-            "Lists only the matching files, expanded to their individual patch lines. Omit for the whole-layer overview.")]
+            "Lists only the type folders holding a match, each in full apply order so the files sorting around a match " +
+            "stay visible, with the matching files expanded to their individual patch lines. Omit for the whole-layer overview.")]
             string? filter = null,
         [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.SkypatcherLayer, () =>
@@ -58,7 +61,7 @@ static class SkyPatcherWire
         filter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();   // a blank filter is no filter, never a match-everything
         // A filter matching nothing must never fall through to the unfiltered overview — that reads as the whole layer.
         if (filter is { } zero && !folders.Any(f => f.Files.Any(x => Matches(zero, f, x))))
-            return ZeroMatch(d, zero);
+            return ZeroMatch(d, zero, cap);
         int files = folders.Sum(f => f.Files.Count);
         int applied = folders.Sum(f => f.PatchingEnabled ? f.Files.Count(x => x.NotApplied is null) : 0);
         int lines = folders.Sum(f => f.Files.Sum(x => x.Lines.Count(l => l.Kind == SkyPatcherLineKind.Patch)));
@@ -76,11 +79,15 @@ static class SkyPatcherWire
           .Append(d.NoOps.Count).Append(" no-op write(s)\n");
         if (folders.Count == 0)
             sb.Append("\nno SkyPatcher INIs in the active order (no Data\\SKSE\\Plugins\\SkyPatcher content, or SkyPatcher itself is not installed).\n");
-        // filter= selects as well as expands: only matching files are listed, so a late-sorting match is never cut by the cap.
+        // filter= selects at the FOLDER level: a folder with no match is skipped, so a late-sorting match is never cut by
+        // the cap, and a matching folder still lists every file in apply order so the neighbours around a match stay visible.
         if (filter is { } hdr)
             sb.Append("filter '").Append(hdr).Append("' — ")
               .Append(folders.Sum(f => f.Files.Count(x => Matches(hdr, f, x)))).Append(" of ").Append(files)
-              .Append(" INI(s) match; only those are listed below (the counts above are the whole layer).\n");
+              .Append(" INI(s) match, in ").Append(folders.Count(f => f.Files.Any(x => Matches(hdr, f, x))))
+              .Append(" of ").Append(folders.Count)
+              .Append(" type folder(s); only those folders are listed below, each in full apply order with the matching " +
+                      "files expanded to their lines (the counts above are the whole layer).\n");
 
         foreach (var f in folders)
         {
@@ -93,15 +100,17 @@ static class SkyPatcherWire
                 break;
             }
             int fLines = f.Files.Sum(x => x.Lines.Count(l => l.Kind == SkyPatcherLineKind.Patch));
-            sb.Append("\n").Append(f.Subfolder).Append(": ").Append(f.Files.Count).Append(" INI(s), ").Append(fLines).Append(" patch line(s)");
+            int fMatched = filter is { } fq ? f.Files.Count(x => Matches(fq, f, x)) : f.Files.Count;
+            sb.Append("\n").Append(f.Subfolder).Append(": ").Append(f.Files.Count).Append(" INI(s)");
+            if (fMatched != f.Files.Count) sb.Append(" (").Append(fMatched).Append(" matching, expanded)");   // the header must describe the listing under it
+            sb.Append(", ").Append(fLines).Append(" patch line(s)");
             if (!f.PatchingEnabled) sb.Append("  [!] toggled OFF in SkyPatcher.ini — the DLL skips this whole folder");
             if (f.Catalog is null) sb.Append("  [!] not a documented SkyPatcher record type — content listed, not interpreted");
             sb.Append('\n');
             foreach (var file in f.Files)
             {
-                // filter= match (folder, provider, or filename) selects the file and expands it to its patch lines.
+                // Every file of a selected folder is listed — a match's neighbours are where it sorts; only a match expands.
                 bool expand = filter is { } q && Matches(q, f, file);
-                if (filter is not null && !expand) continue;
                 if (sb.Length >= cap) { sb.Append("  ... [cut at max_chars]\n"); break; }
                 int n = file.Lines.Count(l => l.Kind == SkyPatcherLineKind.Patch);
                 sb.Append("  - ").Append(file.SortKey).Append("  (").Append(n).Append(" line(s)) ← ").Append(file.WinningProvider ?? "(no provider)");
@@ -222,7 +231,7 @@ static class SkyPatcherWire
             sb.Append("[!] ").Append(note).Append('\n');
         }
         AppendCaveats(sb, d.ReadIncomplete, d.AssetWarnings);
-        sb.Append("\n→ " + ToolNames.Records + " formids=['<FormID>'] source={\"overlay\": \"skypatcher\", \"state\": \"post\"} for one record's computed post-SkyPatcher state; filter='<folder/mod/file>' to list just those files, expanded to their lines.");
+        sb.Append("\n→ " + ToolNames.Records + " formids=['<FormID>'] source={\"overlay\": \"skypatcher\", \"state\": \"post\"} for one record's computed post-SkyPatcher state; filter='<folder/mod/file>' for just the type folders holding a match, each listed in full apply order with the matching files expanded to their lines.");
         return sb.ToString().TrimEnd('\n');
     }
 
@@ -235,7 +244,7 @@ static class SkyPatcherWire
 
     /// <summary>What a filter matching no INI returns: the count (zero), what the filter is matched against, and the
     /// folders that are there. Never the overview — an unfiltered dump would read as the filter's own result.</summary>
-    static string ZeroMatch(SkyPatcherLayerData d, string filter)
+    static string ZeroMatch(SkyPatcherLayerData d, string filter, int cap)
     {
         var folders = d.Scan.Folders;
         int files = folders.Sum(f => f.Files.Count);
@@ -256,9 +265,16 @@ static class SkyPatcherWire
               .Append(". Omit filter= for the whole-layer overview.\n");
         }
         // The scan notes (shadowed copies, undocumented subfolders) are often why the filter matched nothing.
-        foreach (var note in d.NoOpNotes) sb.Append("[!] ").Append(note).Append('\n');
-        foreach (var note in d.Scan.Notes) sb.Append("[!] ").Append(note).Append('\n');
-        AppendCaveats(sb, d.ReadIncomplete, d.AssetWarnings);
+        int notes = d.NoOpNotes.Count + d.Scan.Notes.Count, shownNotes = 0;
+        foreach (var note in d.NoOpNotes.Concat(d.Scan.Notes))
+        {
+            if (sb.Length >= cap) break;
+            sb.Append("[!] ").Append(note).Append('\n');
+            shownNotes++;
+        }
+        if (shownNotes < notes)
+            sb.Append("... [showing ").Append(shownNotes).Append(" of ").Append(notes).Append(" note(s); raise max_chars]\n");
+        AppendCaveats(sb, d.ReadIncomplete, d.AssetWarnings);   // always rendered, as in the filtered and unfiltered renders
         return sb.ToString().TrimEnd('\n');
     }
 
