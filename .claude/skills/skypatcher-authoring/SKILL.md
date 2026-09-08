@@ -1,7 +1,7 @@
 ---
 name: skypatcher-authoring
 description: >-
-  Authors and interprets SkyPatcher INI patches — runtime, no-ESP edits that filter Bethesda records and set, add or remove those records' own fields (SkyPatcher 6.4.1 grammar). Load before any SkyPatcher line — the `Plugin.esp|FormID` addressing, the per-type subfolder and the filename gate are non-obvious, and a wrong token fails silently. Use when writing or auditing a SkyPatcher `.ini`, rebalancing weapons, armor, NPCs or leveled lists without an ESP, or asking why a patch line isn't applying. Not for distribution — distribution to NPCs by group (faction, race, class) is SPID, keywords onto item records is KID.
+  Authors and interprets SkyPatcher INI patches — runtime, no-ESP edits that filter Bethesda records and set, add or remove those records' own fields (SkyPatcher 6.4.1 grammar). Load before any SkyPatcher line — the `Plugin.esp|FormID` addressing, the per-type subfolder and the filename gate are non-obvious, and a wrong token fails silently. Use when writing or auditing a SkyPatcher `.ini`, rebalancing weapons, armor, NPCs or leveled lists without an ESP, putting items into a container or chest, or asking why a patch line isn't applying. Not for distribution — distribution to NPCs by group (faction, race, class) is SPID, keywords onto item records is KID.
 compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 2 instance.
 ---
 
