@@ -230,8 +230,9 @@ The folder name is the priority. Map each function to its OAR condition — the 
 local hex `"2F2F4"`.
 
 DAR has no parenthesis grouping, but the binding is settled: **`OR` binds tighter than `AND`**, so a
-chain is an `AND` of `OR`-groups, and an `OR`-group is a run of lines ending in `OR` plus the single
-line after it (§8, from OAR's `Parsing.cpp`). Here that leaves the `NOT IsInCombat()` guard as a
+chain is an `AND` of `OR`-groups, and an `OR`-group is a run of lines ending in `OR` plus the next
+line that yields a condition — a blank line or a `;` comment is skipped without closing the group
+(§8, from OAR's `Parsing.cpp`). Here that leaves the `NOT IsInCombat()` guard as a
 top-level term and pairs the two `IsEquippedRight` lines into one `OR`:
 
 ```json

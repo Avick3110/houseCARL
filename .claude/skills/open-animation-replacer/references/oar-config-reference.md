@@ -310,15 +310,21 @@ OAR reads **Dynamic Animation Replacer** layouts at runtime and converts each in
   one logical chain (DAR has **no parentheses grouping** — a real limitation OAR's nested
   `AND`/`OR` fixes). Missing `_conditions.txt` ⇒ the folder is skipped with a warning.
 - **In a mixed chain, `OR` binds tighter than `AND`.** A chain is an `AND` of `OR`-groups, not a flat
-  left-to-right sequence. Source: `Parsing.cpp`, `ConditionsTxtFile::GetConditions` (read
-  2026-09-08). The file's conditions go into one top-level set that OAR evaluates with `EvaluateAll`
-  — every entry must pass, an implicit `AND`. When a line ends in `OR`, the parser opens a nested
-  `ORCondition` and recurses into it; the recursion takes that line and each following one, and
-  closes on the first line that does **not** end in `OR`, which is itself the last member of the
-  group. An `ORCondition` evaluates with `EvaluateAny` (`Conditions.cpp`,
-  `ORCondition::EvaluateImpl`), so the group passes if any one member does. A trailing `AND` is only
-  a separator; the parser does not otherwise act on it. So: **an `OR`-group is a maximal run of lines
-  ending in `OR`, plus the single line after it; the groups and the remaining lines are `AND`-ed.**
+  left-to-right sequence. Source: `Parsing.cpp`, `ConditionsTxtFile::GetConditions`, and
+  `Conditions.cpp`, `CreateConditionFromString` (read 2026-09-08). The file's conditions go into one
+  top-level set that OAR evaluates with `EvaluateAll` — every entry must pass, an implicit `AND`.
+  When a line ends in `OR`, the parser opens a nested `ORCondition` and recurses into it; the
+  recursion takes that line and each following one, and closes on the first line that **yields a
+  condition** without ending in `OR` — that line is itself the last member of the group. An
+  `ORCondition` evaluates with `EvaluateAny` (`Conditions.cpp`, `ORCondition::EvaluateImpl`), so the
+  group passes if any one member does. The parser tests only for a trailing `OR`, so a line ending
+  in `AND` is simply a line that does not: inside an open group it closes the group and is its last
+  member, and at top level it separates terms. Two line kinds yield no condition and are skipped
+  **without** closing an open group — a line that is empty after trimming, and a line starting with
+  `;` — so a blank line or a comment inside an `OR` run widens the group by one. An unknown function
+  name is not one of these: it yields an `InvalidCondition`, which does close the group. So: **an
+  `OR`-group is a maximal run of lines ending in `OR`, plus the next line that yields a condition;
+  the groups and the remaining lines are `AND`-ed.**
 - Common functions: `IsActorBase`, `IsPlayerTeammate`, `IsEquippedRight`, `IsEquippedLeft`,
   `IsEquippedRightType`, `IsEquippedLeftType`, `IsEquippedRightHasKeyword`,
   `IsEquippedLeftHasKeyword`, `IsEquippedShout`, `IsWorn`, `IsWornHasKeyword`, `IsInFaction`,
