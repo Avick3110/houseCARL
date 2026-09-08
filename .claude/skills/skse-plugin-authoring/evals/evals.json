@@ -16,10 +16,14 @@
       "without_skill_arm": "The same query, the same menu with this skill's entry removed, in a fresh context. A positive row that is answered correctly without the skill is evidence the skill is not earning that row; a negative row that goes wrong only in the with-skill arm is a false-trigger cost.",
       "split": {"train": 0.6, "held_out": 0.4},
       "held_out_ids": [6, 9, 10, 13, 17, 18, 19, 20],
+      "held_out_ids_note": "The only record of the split — 8 of 20, matching split.held_out. Rows carry no held_out flag of their own; a second copy is the one that drifts.",
       "models": ["haiku", "sonnet", "opus"],
       "deployment_envelope": "If a model is skipped, the record states which models the result holds for rather than generalizing.",
       "contexts": ["isolation", "coexistence"],
-      "coexistence_note": "The coexistence set must include a query that exercises what used to be the papyrus-reference handoff — a new native's .psc declaration — because that is this skill's real coexistence risk now that it owns both halves.",
+      "coexistence_note": "The coexistence set must include a query that exercises what used to be the papyrus-reference handoff — a new native's .psc declaration — because that is this skill's real coexistence risk now that it owns both halves. It is the row below rather than a 21st entry in evals, which stays at 10 positives and 10 negatives.",
+      "coexistence_set": [
+        {"id": "C1", "query": "i'm adding a native to my SKSE dll — what does the .psc declaration for it look like on the script side?", "expected": "skse-plugin-authoring", "wrong_pick": "papyrus-reference", "why": "The half this skill newly owns. papyrus-reference is a lookup corpus for functions that exist, so it can only warn; a pick of it is the pre-rewrite failure reproducing."}
+      ],
       "row_record": "Every row records passed (bool) and evidence (a quoted phrase from the agent's reasoning), never a bare label."
     },
     "gate": {"recall_threshold": 0.8, "specificity_threshold": 0.5},
@@ -29,7 +33,7 @@
       {"id": 3, "should_trigger": true, "query": "my SKSE dll builds and runs fine on SE but CTDs on AE only. pretty sure it's a struct member offset thing. how do people handle this"},
       {"id": 4, "should_trigger": true, "query": "can you scaffold a CommonLibSSE-NG project for me — vcpkg + cmake, targeting 1.6.1170, just a hello-world that logs on load"},
       {"id": 5, "should_trigger": true, "query": "I want to hook the game so my code runs whenever an actor takes a hit. trampoline or vtable hook? and how do I not break the original call"},
-      {"id": 6, "should_trigger": true, "held_out": true, "query": "here's the github for an open-source combat overhaul's SKSE dll. can you read the source and tell me what it actually patches in the engine", "note": "The only miss of the 2026-07-28 revalidation, and the row the description's 'reading someone else's SKSE DLL source' clause was added for. Held out — it is not used to tune the description text."},
+      {"id": 6, "should_trigger": true, "query": "here's the github for an open-source combat overhaul's SKSE dll. can you read the source and tell me what it actually patches in the engine", "note": "The only miss of the 2026-07-28 revalidation, and the row the description's 'reading someone else's SKSE DLL source' clause was written for. The description was therefore fitted to this row: a pass here checks that the named fix landed, and is not evidence of generalization. Rows 9 and 10 are the held-out positives that drove no edit, so they carry the generalization claim."},
       {"id": 7, "should_trigger": true, "query": "my plugin needs to remember a set of formIDs across save/load. how do the skse co-save serialization callbacks work"},
       {"id": 8, "should_trigger": true, "query": "writing a BSTEventSink for TESDeathEvent — when exactly should I register it so I don't miss deaths early in the load?"},
       {"id": 9, "should_trigger": true, "query": "how do I ship one skse dll that works on skyrim SE, AE and VR instead of maintaining three separate builds"},
