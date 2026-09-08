@@ -100,19 +100,23 @@ whether the INI may be installed into the live setup or only written to a workin
 
 ## Check before you install
 
-Prove the target set and every address before a line is written — houseCARL reads the records the
-patch will hit even though it cannot replay a drafted INI.
+Prove the target set, every address, and the draft file itself before anything is placed in a mod.
 
-- The set: `housecarl_records` with `types=`, `plugins=` and `where=` for the intended filter, plus
-  `counts_only=true` for the cheap census. Record the count and the epoch stamp beside it.
+- The set: `housecarl_records` with `types=`, `plugins=` and `where=` for the set the filter means to
+  hit, plus `counts_only=true` for the cheap census. Record the count and the epoch stamp beside it.
 - Each address: `housecarl_records` with `formids=["012EB7:Skyrim.esm"]` and
   `project={"form": "identity"}` — a FormID that resolves to nothing here resolves to nothing in
   game, silently.
+- The draft: `housecarl_records` with `formids=` a target and `source={"overlay": "skypatcher",
+  "state": "post", "ini": "<absolute path to the draft .ini>", "subfolder": "weapon"}` reads the
+  record as the game would see it once that draft is placed — the live layer plus the draft, sorted
+  into its type folder by filename. Pass that same pole as `versus=` against the plain post pole with
+  `project={"form": "delta"}` for the draft's own effect and nothing else. Warnings the replay
+  produces for a draft line — an unknown key, an op with no field mapping, a filter it cannot
+  evaluate — render beside the answer under the draft's path.
 
-Stop when the count is what you meant, every address resolves, and no token in the line is absent
-from the record file. What this cannot do is replay the drafted file through SkyPatcher's own
-parser: every reader on the surface reads the *installed* layer. That offline draft check is issue
-**#613**; until it lands, the checks above are the plan-validate and the checks below are the proof.
+Stop when the count is what you meant, every address resolves, the delta is the change you intended,
+and the replay warned on none of your lines.
 
 ## Check after you install
 
@@ -122,7 +126,7 @@ Once the INI is installed, three reads prove it landed.
   file-level verdict — whether the file is read at all, where it sorts, and what it conflicts with.
 - `housecarl_records` with `formids=` a target, `source={"overlay": "skypatcher", "state": "post"}`,
   `versus={"overlay": "skypatcher", "state": "pre"}` and `project={"form": "delta"}`, for the
-  before → after on that record. An unparsed line shows up here as *no change*, not as a warning.
+  before → after on that record, with the replay's warnings for the placed file's lines beside it.
 - `housecarl_skse` with `findings='config'` and `filter=` the INI filename, which resolves every
   `Plugin.esp|FormID` the file contains to OK, PLUGIN MISSING, DANGLING or UNPARSEABLE — the machine
   check for a truncated or wrong FormID.
@@ -130,9 +134,10 @@ Once the INI is installed, three reads prove it landed.
 ## Never invent a token
 
 Every filter, operation and value comes from the bundled reference. If a token is not there, say so
-rather than writing a plausible-sounding one: SkyPatcher skips a line it cannot parse and skips a
-FormID it cannot resolve, both silently and with no log line, so a fabricated token costs a
-debugging session and produces nothing to debug. Object Modification (OMOD) is enabled in SkyPatcher
+rather than writing a plausible-sounding one: in game SkyPatcher skips a line it cannot parse and
+skips a FormID it cannot resolve, both silently and with no log line, so a fabricated token costs a
+debugging session and produces nothing to debug. The replay warns where the game does not, which is
+a net under a mistake, not a licence to guess. Object Modification (OMOD) is enabled in SkyPatcher
 but has no documented grammar — hand the user the gap and the leads in its row above, never a guess.
 
 Two soft spots in the corpus, and how to read them. Where a worked example disagrees with its own
