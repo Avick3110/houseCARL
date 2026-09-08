@@ -13,6 +13,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **`open-animation-replacer` now states how a DAR `_conditions.txt` chain binds, and that the DAR weapon-type
+  numbers convert unchanged.** Both were marked unverified in its reference and the skill told you to convert
+  under one reading and say which. Read off OAR's own source: `OR` binds tighter than `AND`, so a chain is an
+  `AND` of `OR`-groups, and `IsEquippedRightType`/`IsEquippedLeftType` are hidden factories for the same
+  `IsEquippedType` condition, so `n` converts to `n`. The reference's §8 carries the source files and the date
+  they were read. In the same pass the nine skills' mistakes section is headed "Common mistakes, and the rule
+  that replaces each", and `facegen-diagnostics` picks up the compatibility sentence every other skill carries.
 - **`mutagen-reference` and `papyrus-reference` now say in their frontmatter that their lookup works offline.**
   Both carried only the shared compatibility sentence — the houseCARL MCP server and a configured Mod Organizer 2
   instance — which read as gating the whole skill, including a schema or signature lookup that reads files bundled
