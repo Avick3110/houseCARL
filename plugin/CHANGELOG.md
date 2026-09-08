@@ -13,6 +13,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **The runtime-framework routing no longer names CID, and containers route to SkyPatcher.** The standing
+  instructions and the SkyPatcher and SPID skills said items into containers belong to a Container Item
+  Distributor; no such skill ships, and SkyPatcher's own container patcher does the job (`filterByContainers`
+  with `addToContainers`, in the skill's `references/container.md`). The routing now reads: distribution to
+  NPCs by group — faction, race, class — is SPID; a keyword onto item records is KID; a record's own fields,
+  and an individual NPC's edits, are SkyPatcher.
 - **An SKSE DLL whose import directory declares an address but no size now reads as UNKNOWN, not as a short
   import list.** The peek walks a DLL's import and delay-import directories bounded by the size the PE header
   declares for each. A directory with a non-zero address and a zero size read as "no such directory": its whole
