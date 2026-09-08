@@ -474,8 +474,13 @@ public static class ReadEngine
         if (v.ModeledOn.Count > 0)
         {
             var shown = string.Join(", ", v.ModeledOn.Take(3)) + (v.ModeledOn.Count > 3 ? ", …" : "");
-            return $"{NoFieldPrefix}{segName}: not a mistyped name — Mutagen models '{segName}' on " +
-                   $"{v.ModeledOn.Count:N0} other type(s) ({shown}), just not on {typeName})";
+            // A name modeled elsewhere can still be THIS record's typo — 'Effect' at a Spell that spells it
+            // 'Effects' — so the owner's own near field outranks the claim, and "not a mistyped name" is kept
+            // for the case the owner offers nothing closer.
+            var lead = v.Near is null ? "not a mistyped name — Mutagen models" : "Mutagen models";
+            var alt = v.Near is { } nm ? $"; did you mean '{nm}'?" : "";
+            return $"{NoFieldPrefix}{segName}: {lead} '{segName}' on " +
+                   $"{v.ModeledOn.Count:N0} other type(s) ({shown}), just not on {typeName}{alt})";
         }
 
         var near = v.Near is { } n ? $"; did you mean '{n}'?" : $"; check the name against {typeName}'s schema";
