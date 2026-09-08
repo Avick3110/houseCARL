@@ -184,7 +184,7 @@ reached in the first place.
 
 **Why it matters in numbers.** On a heavily overhauled order the two populations are nowhere near
 each other — a census of one live load order (`housecarl_records`, `counts_only=true`) found 17 of
-24,782 bandit-faction NPCs on a PC level multiplier, against 4,024 matching the line's own level
+24,782 bandit-faction NPCs on a PC level multiplier, against 4,040 matching the line's own level
 bound; that same order carries 963 PC-level-mult NPC records in total, across every faction.
 Reading the filter as "auto-levelled NPCs only" understates the reach by a factor of hundreds there.
 Those counts read each record's own local data, so a templated NPC whose stats are inherited is not
