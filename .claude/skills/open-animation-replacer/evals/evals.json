@@ -9,7 +9,7 @@
       "output_quality": "The audit's own DAR-to-OAR task on the live order, run as a pair: control (no housecarl:* skill in the catalogue) against with-skill. Eval id 25."
     },
     "method": {
-      "cases": "24 trigger cases - 12 should-trigger, 12 should-not - plus 1 output-quality case. The shipped 20 (10/10) survive with their queries unchanged; 4 are added for the description's changed clauses (2 positives naming the front-loaded terms, 2 near-miss negatives for the new exclusion clause).",
+      "cases": "24 trigger cases - 12 should-trigger, 12 should-not - plus 1 output-quality case. The 24 trigger cases are the ones carrying should_trigger; eval 25 carries arm='output_quality' and no should_trigger, so a runner splitting on should_trigger never scores it as a which-skill pick and recall is computed over 12. The shipped 20 (10/10) survive with their queries unchanged; 4 are added for the description's changed clauses (2 positives naming the front-loaded terms, 2 near-miss negatives for the new exclusion clause).",
       "runs_per_query": 3,
       "trigger_rate_threshold": 0.5,
       "split": "60/40 train/held-out; best iteration chosen by held-out score; at most 5 iterations.",
@@ -252,7 +252,6 @@
         "The AND/OR precedence question is named, not silently resolved. A run that emits one config without saying which binding it assumed FAILS; a run that names the ambiguity, states which reading it implemented and what the other would mean, PASSES.",
         "The competing-submod scan is enumerated with housecarl_asset_status and an under= glob rather than a raw filesystem walk, and the answer names the VFS winner per config."
       ],
-      "should_trigger": true,
       "arm": "output_quality",
       "conditions": "ARR 2.0 order (3,801 plugins), 40-call cap, fresh context, no other housecarl:* skill in the catalogue. Identical task in both arms.",
       "pass_rule": "Beating the control = the with-skill arm passes all five and the control fails at least one of the first four. If the control passes all five, that is reported to Aaron as evidence about whether this skill earns its catalogue entry, not explained away.",
