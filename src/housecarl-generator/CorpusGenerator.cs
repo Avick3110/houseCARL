@@ -779,7 +779,7 @@ public static class CorpusGenerator
         // is the closed IFooGetter<Bar>, where Assembly.GetType can only ever hand back the open definition.
         var gi = ifaces.FirstOrDefault(i => i.Name == probe)
             ?? concrete.Assembly.GetType($"{concrete.Namespace}.{probe}")
-            ?? ifaces.FirstOrDefault(i => i.Name.Split('`')[0].EndsWith("Getter") && Normalize(i.Name) == Normalize(concrete.Name));
+            ?? OwnNamedGetterAmong(concrete, ifaces);
         // An OPEN generic class implements the CONSTRUCTED IFooGetter<T> over its own type parameter, and that
         // type's FullName and AssemblyQualifiedName are both null. Every consumer keyed on the full name would
         // degrade silently rather than fail: ExtractType would write GetterInterface as the bare
@@ -789,6 +789,26 @@ public static class CorpusGenerator
         return concrete.IsGenericTypeDefinition && gi is { IsGenericType: true, IsGenericTypeDefinition: false }
             ? gi.GetGenericTypeDefinition()
             : gi;
+    }
+
+    /// <summary>
+    /// The own-named getter interface among <paramref name="ifaces"/>, matched on the NORMALIZED name. Last
+    /// resort, for a class whose own name already ends in "Getter" (FormLinkGetter`1), whose probe name is
+    /// therefore the impossible IFormLinkGetterGetter`1.
+    ///
+    /// The ARITY MATCH is preferred over a plain first-match because <see cref="Type.GetInterfaces"/> ordering
+    /// is unspecified. FormLinkGetter`1 and AssetLinkGetter`1 each implement BOTH IFooGetter`1 and the
+    /// zero-argument IFooGetter, and <see cref="Normalize"/> collapses the two to one key; taking whichever the
+    /// runtime happens to list first would read a generic class's schema off a zero-argument interface as soon
+    /// as a recompile reorders that list.
+    /// </summary>
+    internal static Type? OwnNamedGetterAmong(Type concrete, IEnumerable<Type> ifaces)
+    {
+        static int Arity(Type t) => t.IsGenericType ? t.GetGenericArguments().Length : 0;
+        var matches = ifaces
+            .Where(i => i.Name.Split('`')[0].EndsWith("Getter") && Normalize(i.Name) == Normalize(concrete.Name))
+            .ToArray();
+        return matches.FirstOrDefault(i => Arity(i) == Arity(concrete)) ?? matches.FirstOrDefault();
     }
 
     /// <summary>The mutable twin of a getter interface (strip the "Getter" suffix).</summary>

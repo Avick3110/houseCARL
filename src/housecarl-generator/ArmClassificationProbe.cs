@@ -53,8 +53,9 @@ namespace HousecarlGenerator;
 ///       probe name straight off Type.Name, so every generic modeled type asked for the impossible
 ///       "IFoo`1Getter" and answered "no getter interface" — a hand-shaped hole in a by-construction coverage
 ///       claim. E pins the arity fix: a generic type resolves, a CLOSED one resolves the CLOSED interface
-///       rather than the open definition, and an OPEN one resolves the DEFINITION (the form that has a
-///       FullName for IsList to match). The other half of #424 — whether a class that implements a getter
+///       rather than the open definition, an OPEN one resolves the DEFINITION (the form that has a FullName
+///       for IsList to match), and the normalized fallback picks the arity match whatever order
+///       GetInterfaces() lists its candidates in. The other half of #424 — whether a class that implements a getter
 ///       interface named after ANOTHER type should resolve — was answered no, because that shape is exactly
 ///       Mutagen's read-only projections and is what ClassifyArm reads. That boundary needs no check of its
 ///       own: widening it turns B4 red (its exhibit would resolve IGenderedItemGetter&lt;bool&gt;) and D0b red
@@ -276,6 +277,26 @@ public static class ArmClassificationProbe
         Check("E3. a closed generic resolves the CLOSED interface, not the open definition",
             genderedClosed == typeof(Mutagen.Bethesda.Plugins.Records.IGenderedItemGetter<bool>),
             $"got {genderedClosed?.FullName ?? "null"}");
+
+        // The normalized fallback is the one path that can see TWO own-named candidates: FormLinkGetter`1 and
+        // AssetLinkGetter`1 implement both IFooGetter`1 and the zero-argument IFooGetter, which Normalize
+        // collapses to one key. GetInterfaces() ordering is unspecified, so the answer is asserted over the
+        // list in BOTH directions — the arity match must win either way, or a Mutagen recompile that reorders
+        // the list reads a generic class's schema off a zero-argument interface.
+        var bothWays = new[]
+        {
+            typeof(Mutagen.Bethesda.Plugins.FormLinkGetter<>),
+            typeof(Mutagen.Bethesda.Plugins.Assets.AssetLinkGetter<>),
+        };
+        var orderDependent = bothWays.Where(t =>
+        {
+            var forward = CorpusGenerator.OwnNamedGetterAmong(t, t.GetInterfaces());
+            var reversed = CorpusGenerator.OwnNamedGetterAmong(t, t.GetInterfaces().Reverse());
+            return forward != reversed || forward is not { IsGenericType: true };
+        }).Select(t => t.Name).ToArray();
+        Check("E4. the normalized fallback prefers the arity match, whatever order GetInterfaces() lists",
+            orderDependent.Length == 0,
+            $"order-dependent: {string.Join(", ", orderDependent)}");
 
         Console.WriteLine();
         Console.WriteLine(failures == 0
