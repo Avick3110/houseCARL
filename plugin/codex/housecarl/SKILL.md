@@ -54,7 +54,7 @@ Claude Code form — on Codex it is the bare folder name (`facegen-diagnostics`)
 4. **Read the written record back**, and say what happened if it did not take.
 
 ```
-housecarl_apply(ops=[{"formid": "012EB7:Skyrim.esm", "field_path": "BasicStats.Damage", "value": 12}], patch="SwordFix", readback=true)
+housecarl_apply(ops=[{"formid": "012EB7:Skyrim.esm", "field_path": "BasicStats.Damage", "value": "12"}], patch="SwordFix", readback=true)
 ```
 ```
 wrote SwordFix.esp (new patch; 1284 bytes)
