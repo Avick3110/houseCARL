@@ -37,6 +37,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   two-target lookup could be un-merged back into per-target answers under one form and not under another. All of
   them now carry it, on text, on json, and in a `to_file=` artifact's rows. A single-target `references=` still
   adds no column, for the reason it never did: there is nothing to un-merge.
+- **A polymorphic arm whose value is built by its constructor can now be composed from scratch.** Mutagen models a
+  MagicEffect's plain `MagicEffectArchetype` with one constructor, `MagicEffectArchetype(TypeEnum)`, and no
+  parameterless one, so `compose={"type": "MagicEffectArchetype", "fields": {"Type": "Script"}}` was accepted by
+  pre-flight and then threw at apply — a Script-archetype effect could be had only by forwarding one that already
+  existed. A compose now builds such a type from its own `fields`: a field naming a constructor parameter (matched
+  without regard to case, so `Type` supplies the `type` parameter) is passed to the constructor and not set again
+  afterwards. `ctor_args` still supplies the same values positionally. A compose that names none of them is refused
+  before anything is written, naming the field to add and listing the type's constructors — as is the same value put
+  in a nested `sets` entry, which runs against the already-built value and so cannot reach the constructor.
 
 - **A SkyPatcher INI can be checked before it is placed in a mod.** `housecarl_records`'s overlay pole takes a
   draft file: `source={"overlay": "skypatcher", "state": "post", "ini": "<absolute path to a draft .ini>",
