@@ -374,14 +374,63 @@ public sealed class DialogueFamilyTests
         Assert.DoesNotContain("the MARKER is authoritative", block);
     }
 
-    /// <summary>…and the same vanilla topic DOES warn once a plugin overrides it, carrying the stale number forward.</summary>
+    /// <summary>…and an override that copies that pair forward UNCHANGED stays quiet too: the override changed
+    /// neither field, so the stale number is still Bethesda's statement and still nothing the modder can act on.
+    /// The labels are ungated, so the render still says which field to believe.</summary>
     [Fact]
-    public void AnOverrideCarryingAStaleSubtypeForwardIsWarnedAbout()
+    public void AnOverrideInheritingAStaleSubtypeIsNotWarnedAbout()
     {
         var block = SeedBlock(CheckDialogue(Svc, W.VanillaStaleOverriddenTopic), Fid(W.VanillaStaleOverriddenTopic));
 
+        Assert.Contains("subtype=RechargeExit (stale)", block);
+        Assert.Contains("subtype_marker=HELO (authoritative)", block);
+        Assert.DoesNotContain("the MARKER is authoritative", block);
+    }
+
+    /// <summary>Force-loaded content is not the modder's either: a Creation Club plugin (in loadorder.txt, absent
+    /// from plugins.txt) authoring the contradicting pair itself is still passed over, because the gate is the
+    /// implicit group the load-order status shows, not the five base masters.</summary>
+    [Fact]
+    public void ACreationClubOverrideAuthoringTheMismatchIsNotWarnedAbout()
+    {
+        var block = SeedBlock(CheckDialogue(Svc, W.CcOverriddenTopic), Fid(W.CcOverriddenTopic));
+
+        Assert.Contains("subtype=Custom (stale)", block);
+        Assert.DoesNotContain("the MARKER is authoritative", block);
+    }
+
+    /// <summary>A gap the Dragonborn renumbering cannot explain is two fields edited apart, not an old file: the
+    /// warning says the Subtype edit does nothing in game and names the sync, rather than framing an authoring
+    /// error as benign vintage.</summary>
+    [Fact]
+    public void AMismatchWithoutTheRenumberingSignatureSaysTheSubtypeEditIsANoOp()
+    {
+        var block = SeedBlock(CheckDialogue(Svc, W.EditedApartSubtypeTopic), Fid(W.EditedApartSubtypeTopic));
+
         Assert.Contains("the MARKER is authoritative", block);
-        Assert.Contains("Treat this topic's subtype as Hello, not RechargeExit", block);
+        Assert.Contains("do NOT carry the Dragonborn-era renumbering signature", block);
+        Assert.Contains("in-game no-op", block);
+        Assert.Contains("sync SNAM to CUST", block);
+        Assert.DoesNotContain("not necessarily broken", block);
+    }
+
+    /// <summary>The one modeled row Mutagen's enum leaves unnamed (index 3, FVDL) is named by its MARKER, in the
+    /// prose and in the JSON — never handed back as an empty string.</summary>
+    [Fact]
+    public void TheMarkerNamesItselfWhereMutagensEnumHasNoNameForIt()
+    {
+        var result = Svc.CheckDialogue(new[] { Fid(W.FvdlMarkerTopic) }, 1000);
+        Assert.Null(result.Error);
+        Assert.Contains("buckets as FVDL", SeedBlock(
+            Wire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000), Fid(W.FvdlMarkerTopic)));
+
+        var json = JsonDocument.Parse(JsonWire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000));
+        var row = json.RootElement.GetProperty("families")
+                      .GetProperty(SweepFamilySelection.Token(SweepFamily.Dialogue))
+                      .GetProperty("seeds").EnumerateArray()
+                      .SelectMany(s => s.GetProperty("topics").EnumerateArray())
+                      .Single(t => t.GetProperty("topic").GetString() == W.FvdlMarkerTopic.ToString());
+        Assert.Equal("FVDL", row.GetProperty("subtype_from_marker").GetString());
     }
 
     /// <summary>A non-blank marker the table does not model is neither blank nor a disagreement — it must still be
