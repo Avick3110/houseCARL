@@ -16,9 +16,10 @@ field path or arm name against `housecarl:mutagen-reference` before composing a 
 
 ## Contents
 
-- **The shape of a condition (CTDA)** — the two arms, the operator, the comparison value.
+- **The shape of a condition (CTDA)** — the two arms, the operator, the comparison value, and how rows
+  group under the `OR` flag.
 - **Run On** — Subject vs Target and the rest, and why it is the commonest silent error.
-- **The `OR` flag** — how rows group, and what it cannot express.
+- **Reading a function's parameters** — what each parameter slot holds, and how to fill one.
 - **Dialogue / quest condition functions** — the curated table.
 - **CTDA conditions vs Papyrus-only functions** — the `Is…` / `Get…` trap.
 - **Decoding a condition you read back** — a worked example.
@@ -229,4 +230,4 @@ row whose function *does* depend on the Run On — `GetItemCount` on `Subject` c
 `Target` the **player's** — there the Run On is the whole meaning.
 
 To **write** conditions, never hand-synthesize the encoded operator/comparison bytes — read a verified gate
-back and replay its rows verbatim (the `bulk_apply` clone recipe in `SKILL.md`).
+back and copy it with the `housecarl_apply` copy zip (Recipe A in `references/write-side-recipes.md`).
