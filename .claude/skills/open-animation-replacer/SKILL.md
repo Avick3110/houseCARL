@@ -50,10 +50,15 @@ Every step below names the section it needs, so one section can be read on its o
 ## First step — orient before you touch a config
 
 1. **Locate the submod and see who wins the file.** Run `housecarl_asset_status` with
-   `under=["meshes/actors/character/animations/OpenAnimationReplacer/**/config.json"]`, and the same
-   selector under `DynamicAnimationReplacer/**` for legacy folders. It resolves every config the VFS
-   provides beneath the selector, names which mod wins each one, and reports loudly when an archive
-   could not be read; page a large sweep with `limit=` and `offset=`, cap it with `max_chars=`.
+   `under=["meshes/actors/*/animations/OpenAnimationReplacer/**/config.json",
+   "meshes/actors/*/animations/DynamicAnimationReplacer/**/_conditions.txt"]` — `*` matches within
+   one path segment, so the creature projects (`canine`, `draugr`, `dragon`, …) are swept as well as
+   `character`, and legacy DAR's marker file is `_conditions.txt`, not `config.json`. A DAR Form B
+   `<Plugin.esp>/<FormID>/` folder carries no marker file at all, so sweep
+   `.../DynamicAnimationReplacer/**/*.hkx` too when an actor-base override is in play. The call
+   resolves every file the VFS provides beneath each selector, names which mod wins each one, and
+   reports loudly when an archive could not be read; page a large sweep with `limit=` and `offset=`,
+   cap it with `max_chars=`.
    Without the houseCARL server, fall back to Glob over those paths — and say you did, because the
    fallback cannot name the VFS winner. Folder layout and the `<project>` names:
    `references/oar-config-reference.md` §1.
@@ -66,11 +71,13 @@ Every step below names the section it needs, so one section can be read on its o
    `references/oar-config-reference.md` §7.
 4. **Resolve the forms a condition names.** A perk, keyword, race, faction or magic effect needs
    `{ "pluginName": …, "formID": … }` or `{ "editorID": … }`, where `formID` is the record's
-   **local** id in its defining plugin. Read it with `housecarl_records` and
-   `project={"form":"identity"}`: `formids=["XXXXXX:Plugin.esp"]` when you have the FormID (the
+   **local** id in its defining plugin. Read it with `housecarl_records`:
+   `formids=["XXXXXX:Plugin.esp"]` with `project={"form":"identity"}` when you have the FormID (the
    runtime spelling a console, Papyrus or crash log prints is accepted too, and the response names
    the plugin it resolved to); `types=["PERK"]` (or `KYWD`, `RACE`, `FACT`, `MGEF`) with
-   `where=["editorid startswith REQ_"]` when you only know the EditorID — a body scan must be bounded
+   `where=["editorid startswith REQ_"]` when you only know the EditorID — that is a scan, so leave
+   `project=` off and read the default summary rows, which already carry each match's identity; the
+   identity form labels a `formids=` list and is refused on a scan, and a body scan must be bounded
    by `types=` or `plugins=`. Without the server, read the form from the mod's own plugin or its
    Nexus page, and say you did. FormID form and the embedded-null gotcha:
    `references/oar-config-reference.md` §12.
@@ -220,6 +227,7 @@ covering the whole chain:
 
 ```json
 { "name": "Woodcutter axe attacks (from DAR 2000030002)",
+  "description": "Converted from DAR 2000030002. The NOT IsInCombat guard is read as covering the whole chain; the other reading would have applied it to the first equipped-form term only.",
   "priority": 2000030002,
   "conditions": [
     { "condition": "IsInCombat", "requiredVersion": "1.0.0.0", "negated": true },
@@ -233,7 +241,12 @@ covering the whole chain:
 
 The other reading — `AND` binding tighter than `OR` — puts the guard inside an `AND` with only the
 *first* equipped-form term, and wraps the whole in the `OR`: that fires the animation in combat for
-every weapon but the first. Record which you wrote in the submod's `description`.
+every weapon but the first. Record which you wrote in the submod's `description`, as above.
+
+The config is only half the folder. Carry the legacy folder's `.hkx` files across to the new submod
+at their mirrored `<project>/<original.hkx>` paths, or point `overrideAnimationsFolder` at the legacy
+folder — a config alone parses, loads and wins its priority slot while replacing nothing, and that
+failure shows up in game, not in Detected Problems.
 
 ## Notes and provenance
 
