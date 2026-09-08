@@ -42,7 +42,7 @@
     {
       "dimension": "isolation",
       "covered_by": "the cases below plus the output-quality task, isolated configuration",
-      "failure_mode": "The flow dead-ends where the body cedes — a whole-order sweep, an NPC_ field spelling, or a face copy — because housecarl:bulk-record-jobs, housecarl:mutagen-reference or housecarl:npc-appearance-copy is absent, instead of the cede degrading to a plain instruction the agent can still follow."
+      "failure_mode": "The flow dead-ends where the body cedes — a whole-order sweep, or an NPC_ field spelling — because housecarl:bulk-record-jobs or housecarl:mutagen-reference is absent, instead of the cede degrading to a plain instruction the agent can still follow. The copy cede is not covered here: snt-copy-face-boundary grades the answer, not another skill's presence, so no case exercises it with this skill loaded."
     },
     {
       "dimension": "coexistence",
@@ -183,7 +183,7 @@
       "files": [],
       "expectations": [
         "The facegen-diagnostics skill is NOT loaded.",
-        "The copy is handled by housecarl:npc-appearance-copy rather than by a diagnosis flow.",
+        "The copy is treated as an authoring job — which fields to seed and what the copy still owes — rather than as a diagnosis flow over the load order.",
         "The answer still checks that the copied NPC's facegen files were carried, not only the record fields."
       ]
     },
