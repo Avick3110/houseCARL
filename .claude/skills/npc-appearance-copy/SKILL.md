@@ -247,7 +247,9 @@ checklist that reads as unfinished work:
 
 ## Notes
 
-- `housecarl_copy`, `housecarl_apply` and `housecarl_place` accumulate into one patch when you pass
-  `into=` the same plugin filename, so the result stays one reviewable artifact.
+- All four calls accumulate into one artifact when you pass `into=` the same patch plugin's filename:
+  `housecarl_nif_set` and `housecarl_place` find the houseCARL-owned folder by the plugin it holds,
+  so the filename reaches the folder on those two as well as on `housecarl_copy` and
+  `housecarl_apply`.
 - Read the donor before every step that copies from it. Each call names the fields it touched, and a
   field it does not name is a field you have to account for yourself.
