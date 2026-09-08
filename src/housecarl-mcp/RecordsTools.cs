@@ -138,7 +138,7 @@ public static class RecordsTools
             int limit = 500,
         [Description("TRANSPORT: skip the first N matches (exact windows: offset=0/500/1000…). Windows tile only WITHIN one epoch — if two pages' epochs differ the load order changed mid-pagination; re-run from offset=0, do not stitch the pages. offset= RE-SCANS the selection from the start rather than seeking into it, so every window pays the whole scan again and a deep window costs more than a shallow one — narrowing the scan terms beats paging far into one.")]
             int offset = 0,
-        [Description("TRANSPORT: character CEILING on the RENDER, hard on every text render this tool has — the scan, batch, resolve, group_by and summary renders, the comparison forms (delta, tree), the walk lane's chain and effect-chain renders, and info_order. The record block, node or delta line that would cross it is not written, and the truncation notice, the accounting line and the spilled: block are charged before the rows are laid. The one answer that can still come back over it is a max_chars too small for what the response carries whatever the budget — its header, the notices it owes, its spilled: block — which says so and names the number that clears it. Never truncates the RESULT: an over-ceiling result SPILLS in full to a server-side JSONL artifact (line 1 = manifest with the query echo, the row schema, and the epoch) and the response names the file, so what the ceiling held back inline is in the file. 0 = the server default (~80k).")]
+        [Description("TRANSPORT: character CEILING on the RENDER, hard on every text render this tool has — the scan, batch, resolve, group_by and summary renders, the comparison forms (delta, tree), the walk lane's chain and effect-chain renders, and info_order. The record block, node or delta line that would cross it is not written, and the truncation notice, the accounting line and the spilled: block are charged before the rows are laid — charged only where the whole render does not fit, so an answer that fits inside the max_chars you passed comes back complete, uncut and unspilled. The one answer that can still come back over it is a max_chars too small for what the response carries whatever the budget — its header, the notices it owes, its spilled: block — which says so and names the number that clears it. Never truncates the RESULT: an over-ceiling result SPILLS in full to a server-side JSONL artifact (line 1 = manifest with the query echo, the row schema, and the epoch) and the response names the file, so what the ceiling held back inline is in the file. 0 = the server default (~80k).")]
             int max_chars = 0,
         [Description("TRANSPORT: return the accounting block and counts only, no rows — the cheap census.")]
             bool counts_only = false,
@@ -1891,10 +1891,17 @@ public static class RecordsTools
     /// enough delta lines to be cut) has no other way in.</summary>
     internal static string RenderRecordsDelta(IReadOnlyList<LoadOrderService.DeltaRow> rows, int total, int differing, int identical,
                                      int noVerdict, int errors,
-                                     string headerLine, OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated)
+                                     string headerLine, OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated,
+                                     bool unreserved = false)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        if (!unreserved)
+        {
+            var whole = RenderRecordsDelta(rows, total, differing, identical, noVerdict, errors, headerLine, epoch,
+                                           maxChars, spill, out _, unreserved: true);
+            if (whole.Length <= cap) return whole;
+        }
         bool manifestOnly = spill?.ManifestOnly ?? false;
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
@@ -1912,7 +1919,7 @@ public static class RecordsTools
         string Notice(int r) =>
             "... [rendered " + r + " of " + rows.Count + " rows at max_chars=" + cap + "]\n";
         var spillText = Wire.SpillText(spill);
-        int budget = Math.Max(cap - spillText.Length - Notice(rows.Count).Length, 0);
+        int budget = unreserved ? Unbounded : Math.Max(cap - spillText.Length - Notice(rows.Count).Length, 0);
         string deltaCut = CutNotice("delta lines", cap);
         foreach (var row in rows)
         {
@@ -1995,6 +2002,14 @@ public static class RecordsTools
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 
+    /// <summary>The budget of the unreserved pass every bounded render here makes first: no unit can cross it, so
+    /// that pass lays the COMPLETE render, and a complete render that fits max_chars is the answer. The reserves
+    /// the bounded pass holds back — the accounting line, each list's cut notice — are room for notices a complete
+    /// render never writes, so charging them against one that fits cuts an answer that fitted, spills it, and (the
+    /// spill block being charged in turn) comes back with no rows at all, naming a number far over what the whole
+    /// answer took. They are charged only once the whole thing is known not to fit at this cap.</summary>
+    const int Unbounded = int.MaxValue / 2;
+
     /// <summary>Whole units only: a unit written from <paramref name="mark"/> that crossed <paramref name="budget"/>
     /// — or that stopped early with no room to say so, <paramref name="force"/> — is taken back out entire and the
     /// caller's notice put in its place. True means the render stops here.</summary>
@@ -2036,10 +2051,16 @@ public static class RecordsTools
     /// on a record only one in-order plugin touches) has no other way in.</summary>
     internal static string RenderRecordsTree(IReadOnlyList<LoadOrderService.TreeRow> rows, int total, int contested, int errors,
                                     bool fieldsNarrow, string headerLine, OrderStamp? epoch, int maxChars,
-                                    SpillState? spill, out bool truncated)
+                                    SpillState? spill, out bool truncated, bool unreserved = false)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        if (!unreserved)
+        {
+            var whole = RenderRecordsTree(rows, total, contested, errors, fieldsNarrow, headerLine, epoch, maxChars,
+                                          spill, out _, unreserved: true);
+            if (whole.Length <= cap) return whole;
+        }
         bool manifestOnly = spill?.ManifestOnly ?? false;
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
@@ -2051,7 +2072,8 @@ public static class RecordsTools
         string Notice(int r) =>
             "... [rendered " + r + " of " + rows.Count + " rows at max_chars=" + cap + "]\n";
         var spillText = Wire.SpillText(spill);
-        var room = RenderCap.For(cap, spillText.Length + Notice(rows.Count).Length);
+        var room = unreserved ? new RenderCap(cap, Unbounded)
+                              : RenderCap.For(cap, spillText.Length + Notice(rows.Count).Length);
         int budget = room.Budget;
         string nodesCut = CutNotice("nodes", cap);
         foreach (var row in rows)
@@ -2228,10 +2250,16 @@ public static class RecordsTools
     /// with nodes enough for max_chars to cut) has no other way in.</summary>
     internal static string RenderRecordsChain(IReadOnlyList<LoadOrderService.WalkSeedResult> rows, int total, int reached,
                                      int errors, string headerLine, OrderStamp? epoch, int maxChars,
-                                     SpillState? spill, out bool truncated)
+                                     SpillState? spill, out bool truncated, bool unreserved = false)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        if (!unreserved)
+        {
+            var whole = RenderRecordsChain(rows, total, reached, errors, headerLine, epoch, maxChars, spill, out _,
+                                           unreserved: true);
+            if (whole.Length <= cap) return whole;
+        }
         bool manifestOnly = spill?.ManifestOnly ?? false;
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
@@ -2243,7 +2271,7 @@ public static class RecordsTools
             "... [rendered " + r + " of " + rows.Count + " seeds at max_chars=" + cap + "]\n";
         string nodesCut = "    ... [nodes cut at max_chars=" + cap + " — raise max_chars, or to_file= for the complete walk]\n";
         var spillText = Wire.SpillText(spill);
-        int budget = Math.Max(cap - spillText.Length - Notice(rows.Count).Length, 0);
+        int budget = unreserved ? Unbounded : Math.Max(cap - spillText.Length - Notice(rows.Count).Length, 0);
         foreach (var row in rows)
         {
             if (manifestOnly) break;
@@ -2330,13 +2358,23 @@ public static class RecordsTools
     /// seed's carriers through the shared effect-chain render, the standard explicit cut and spill marker.
     /// max_chars is a CEILING: the notice and the spill block are charged first, the shared render is told what
     /// this one has already spent, and a seed that would cross what is left is taken back out whole. A seed the
-    /// shared render cut inside its own buffer reports that back — nothing here can measure it.</summary>
-    static string RenderRecordsEffectChains(IReadOnlyList<(string Seed, EffectChainResult Result)> results,
+    /// shared render cut inside its own buffer reports that back — nothing here can measure it.
+    /// Internal so a test can drive it against a hand-built <see cref="EffectChainResult"/>, the same reason
+    /// <see cref="RenderRecordsTree"/> is: reaching a cut INSIDE the shared render through the tool needs a seed
+    /// whose carriers are wider than the auto-spill block, and no fixture has one.</summary>
+    internal static string RenderRecordsEffectChains(IReadOnlyList<(string Seed, EffectChainResult Result)> results,
                                             int totalSeeds, int carrierRows, int carrierTotal, int errors, string headerLine,
-                                            OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated)
+                                            OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated,
+                                            bool unreserved = false)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        if (!unreserved)
+        {
+            var whole = RenderRecordsEffectChains(results, totalSeeds, carrierRows, carrierTotal, errors, headerLine,
+                                                  epoch, maxChars, spill, out _, unreserved: true);
+            if (whole.Length <= cap) return whole;
+        }
         bool manifestOnly = spill?.ManifestOnly ?? false;
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
@@ -2349,7 +2387,8 @@ public static class RecordsTools
         string Notice(int r) =>
             "... [rendered " + r + " of " + results.Count + " seeds at max_chars=" + cap + "]\n";
         var spillText = Wire.SpillText(spill);
-        var room = RenderCap.For(cap, spillText.Length + Notice(results.Count).Length);
+        var room = unreserved ? new RenderCap(cap, Unbounded)
+                              : RenderCap.For(cap, spillText.Length + Notice(results.Count).Length);
         foreach (var (seed, result) in results)
         {
             if (manifestOnly) break;
@@ -2378,10 +2417,16 @@ public static class RecordsTools
     /// topic block, so there is no way to keep half of one and stay under the ceiling.</summary>
     static string RenderRecordsInfoOrder(IReadOnlyList<LoadOrderService.InfoOrderRow> rows, int total, int contested,
                                          int errors, string headerLine, OrderStamp? epoch, int maxChars,
-                                         SpillState? spill, out bool truncated)
+                                         SpillState? spill, out bool truncated, bool unreserved = false)
     {
         truncated = false;
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
+        if (!unreserved)
+        {
+            var whole = RenderRecordsInfoOrder(rows, total, contested, errors, headerLine, epoch, maxChars, spill,
+                                               out _, unreserved: true);
+            if (whole.Length <= cap) return whole;
+        }
         bool manifestOnly = spill?.ManifestOnly ?? false;
         var sb = new StringBuilder();
         sb.Append(headerLine).Append('\n');
@@ -2392,7 +2437,7 @@ public static class RecordsTools
         string Notice(int r) =>
             "... [rendered " + r + " of " + rows.Count + " rows at max_chars=" + cap + "]\n";
         var spillText = Wire.SpillText(spill);
-        int budget = Math.Max(cap - spillText.Length - Notice(rows.Count).Length, 0);
+        int budget = unreserved ? Unbounded : Math.Max(cap - spillText.Length - Notice(rows.Count).Length, 0);
         foreach (var row in rows)
         {
             if (manifestOnly) break;

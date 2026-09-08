@@ -923,8 +923,8 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
 
     /// <summary>A row kept and cut ends the render, so the rows under it never render — and the render says how
     /// many, in the accounting line its budget charged for before the first row was laid. At 900 CellF is cut and
-    /// CellC never reached, so the line is owed; at 1906, the first cap CellC's own row fits inside, there is
-    /// nothing left to count and no line is written over a complete set of rows.</summary>
+    /// CellC never reached, so the line is owed; at 1906, the first cap CellC's row is reached at all, it is the
+    /// last row and is itself the one cut, so nothing is left to count and no line is written.</summary>
     [Fact]
     public void ARowKeptAndCutCountsTheRowsTheRenderNeverReached()
     {
@@ -1161,25 +1161,27 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     public void ATextRowsDeclarersBlockTailAloneCanTripMaxChars_AndTheResponseIsMarkedTruncated() =>
         Assert.Contains("spilled: complete result", Tree(_w.CellF, maxChars: 830));
 
-    /// <summary>888 is the last cap the whole row does not fit inside, so the block is cut and says so; 889 is the
-    /// first it does, where nothing is cut and nothing claims the answer is short.</summary>
+    /// <summary>748 is the whole row's own width and the first cap it fits inside, where nothing is cut and
+    /// nothing claims the answer is short; 747 is the last cap it does not fit, so the block is cut and says so.
+    /// The pair sits at the render's width because a render that fits its cap owes no notices, so none are
+    /// charged against it.</summary>
     [Fact]
     public void ARowThatFitsWholeIsNotMarkedTruncated()
     {
-        var r = TreeRender(_w.CellC, 889, out bool truncated);
+        var r = TreeRender(_w.CellC, 748, out bool truncated);
         Assert.False(truncated);
         Assert.DoesNotContain("[child declarers cut", r);
         Assert.Contains("Temporary: ", r);          // the block ran to its last field
-        Assert.True(r.Length <= 889, $"the tree returned {r.Length} chars at max_chars=889");
+        Assert.True(r.Length <= 748, $"the tree returned {r.Length} chars at max_chars=748");
     }
 
     [Fact]
     public void ARowOneCharacterTooWideIsCutAndSaysSo()
     {
-        var r = TreeRender(_w.CellC, 888, out bool truncated);
+        var r = TreeRender(_w.CellC, 747, out bool truncated);
         Assert.True(truncated);
-        Assert.Contains("[child declarers cut at max_chars=888", r);
-        Assert.True(r.Length <= 888, $"the tree returned {r.Length} chars at max_chars=888");
+        Assert.Contains("[child declarers cut at max_chars=747", r);
+        Assert.True(r.Length <= 747, $"the tree returned {r.Length} chars at max_chars=747");
     }
 
     /// <summary>When the block is cut on a multi-provider row the row stops there: no "diff (field deltas…):"
@@ -1224,15 +1226,15 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.Contains("[nodes cut at max_chars=800", r);
     }
 
-    /// <summary>The SOLE-provider control for the same cut branch: CellC at 800 drops declarer lines, so the
+    /// <summary>The SOLE-provider control for the same cut branch: CellC at 700 drops declarer lines, so the
     /// declarers notice fires — and there is no diff to lose, so the nodes notice must NOT — which pins each
     /// notice to the row's actual loss rather than to the branch it came back through.</summary>
     [Fact]
     public void ASoleProviderRowCutMidBlockSaysTheDeclarersWereCutAndNamesNoDiff()
     {
-        var r = TreeRender(_w.CellC, 800);
-        Assert.Contains("[child declarers cut at max_chars=800", r);
-        Assert.Contains("NavigationMeshes: ", r);        // the block got some of its four field lines out…
+        var r = TreeRender(_w.CellC, 700);
+        Assert.Contains("[child declarers cut at max_chars=700", r);
+        Assert.Contains("Landscape: ", r);               // the block got one of its four field lines out…
         Assert.DoesNotContain("Temporary: ", r);         // …and was cut before the rest,
         Assert.DoesNotContain("[nodes cut", r);          // with no diff to lose.
     }

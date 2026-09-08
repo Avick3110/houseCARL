@@ -98,6 +98,26 @@ public sealed class DialogueFamilyTests
         Assert.Contains("spilled: complete result", r);
     }
 
+    /// <summary>And the other side: a render whose complete output fits inside max_chars IS that output. The
+    /// reserves the bounded pass holds back are room for notices a complete render never writes, so charging them
+    /// against one that fits cut an answer that fitted — which then spilled and came back short.</summary>
+    [Fact]
+    public void AnInfoOrderRenderThatFitsItsCapIsNotCutByNoticesItNeverWrites()
+    {
+        string At(int cap) => RecordsTools.Records(Svc, formids: new[] { Fid(W.Topic) },
+                                                   project: new RecordsTools.RecordsProject { form = "info_order" },
+                                                   max_chars: cap);
+        int whole = At(0).Length;
+
+        foreach (int cap in new[] { whole, whole + 1, whole + 50, whole + 140 })
+        {
+            var r = At(cap);
+            Assert.Equal(whole, r.Length);
+            Assert.DoesNotContain("spilled:", r);
+            Assert.DoesNotContain("at max_chars=", r);
+        }
+    }
+
     // ---- fact D2 --------------------------------------------------------------------------------------
     // The PNAM-zero caveat stays absent.
 
