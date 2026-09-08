@@ -2,7 +2,7 @@
   "skill": "spid-authoring",
   "source_tree": "dist/housecarl/skills/spid-authoring",
   "note": "Every arm reads the PACKAGED tree, never .claude/skills/. The packager strips evals/ and references/_CORPUS_STATUS.md, so a run against the source tree measures a skill that never ships.",
-  "method": "Trigger arm: an independent fan-out of fresh-context agents, one per query per run, each shown a neutral menu of skill descriptions (this skill among realistic siblings, not flagged as under test) plus one query, asked which ONE skill to load (or NONE) and why. Verdicts are adjudicated from each agent's reasoning and its pick. Menu: A=SkyPatcher edit-record-fields, B=KID keywords-to-items, C=SPID distribute-to-NPCs [under test], D=CID items-to-containers, E=mutagen-reference record-schema, F=crash-diagnostics, G=conflict-resolution, H=papyrus-reference, I=modding-basics.",
+  "method": "Trigger arm: an independent fan-out of fresh-context agents, one per query per run, each shown a neutral menu of skill descriptions (this skill among realistic siblings, not flagged as under test) plus one query, asked which ONE skill to load (or NONE) and why. Verdicts are adjudicated from each agent's reasoning and its pick. Menu: the 14 skills this tree actually ships, each shown with its own description and none flagged as under test — biped-slot-reference, bulk-record-jobs, dialogue-authoring, facegen-diagnostics, kid-authoring, mutagen-reference, npc-appearance-copy, oar-authoring, papyrus-optimization, papyrus-reference, skse-plugin-authoring, skypatcher-authoring, spid-authoring [under test], tool-output-awareness — plus NONE. The 2026-06-11 and 2026-07-28 runs used a nine-letter menu containing CID, crash-diagnostics, conflict-resolution and modding-basics, none of which ship; a should-not query whose only honest destination is one of those must be scored against NONE, not against a skill the install does not offer.",
   "arms": [
     {
       "id": "with-skill",
@@ -16,7 +16,7 @@
   "configurations": [
     {
       "id": "coexistence",
-      "description": "The nine-skill menu above — the deployment shape, with the three near-neighbour distributor skills present.",
+      "description": "The shipped 14-skill menu above — the deployment shape, with the near-neighbour distributor skills (KID, SkyPatcher) present and no destination on offer that the install does not carry.",
       "failure_mode_recall": "A should-trigger query is claimed by a neighbour (KID, SkyPatcher, CID) because the boundary clause reads as a scope the neighbour also satisfies.",
       "failure_mode_specificity": "A should-not query is pulled in because the description owns the literal token 'SPID' and states no exclusion for the question's shape."
     },
@@ -44,6 +44,26 @@
     "A SPID version promotion — the corpus is derived for 7.3.0 and the suite has never been measured against another version.",
     "Corpus drift: any edit to references/ that changes what a filter, form type or trait means. This is the mechanism that let 7.3.0 documentation ship unmeasured against a 7.0.0 install."
   ],
+  "superseded_results": {
+    "note": "The results below were measured against the PRE-rewrite description and are superseded by the 2026-09-08 rewrite, which fires rerun_triggers[0]. They are kept here, not deleted, so the shipped description's history is readable from the file that replaced their own. The full prior file is evals/eval_set.json at commit 358c5717^.",
+    "2026-06-11-read-triggers": {
+      "recall": "14/14 = 1.00",
+      "specificity": "12/12 = 1.00",
+      "passed": true,
+      "description_measured": "The read-framed description ('Author or interpret ...'), 397 characters.",
+      "method": "Fan-out of 26 fresh-context agents, one per query, on a nine-letter menu (see method note above — four of its options do not ship). Raw run record: dev/skill-validation/2026-06-11-read-triggers/ (private).",
+      "notes": "All 14 should-trigger picked this skill, including the four read-side cases the older write-framed description missed; all 12 should-not routed elsewhere."
+    },
+    "2026-07-28-revalidation-294": {
+      "recall": "13/14 = 0.93",
+      "specificity": "11/12 = 0.92",
+      "passed": true,
+      "description_measured": "The issue #294 compression of all 13 descriptions to the 200-400 character target.",
+      "method": "One Sonnet agent per query on the full 13-description menu, one Opus adjudicator per skill. No record of this run survives outside this block and the prior file.",
+      "notes": "The one recall miss overlapped SkyPatcher's 'change NPC factions' claim; the one specificity miss was a SPID-as-topic conceptual question, which is the same shape rows 19 and 27 now measure.",
+      "contamination_audit": "The PR #295 review found adjudicator notes quoting text that exists only in the PRE-compression descriptions. Forensics: judges were shown the new menu, but 11 of 281 judge rows leaked old description text from the agents' own environment skill listing, and some adjudicator notes confabulated verbatim quotes from that stale environment. All contaminated rows were re-judged with a hardened prompt; 15/15 held their verdicts except one row on another skill. For this skill, q11 and q16 re-judged hardened: unchanged. Treat quoted description text in the run's notes as unreliable; the scores are pick-derived and were confirmed by the hardened re-run."
+    }
+  },
   "evals": [
     {
       "id": 1,
@@ -144,7 +164,7 @@
     {
       "id": 13,
       "prompt": "add 5 gold and a healing potion to every merchant chest in my load order",
-      "expected_output": "none of the distributor authoring skills (CID has no skill)",
+      "expected_output": "NONE — no distributor skill covers containers, and this tree ships no CID skill",
       "expectations": ["Does NOT route to this skill."],
       "should_trigger": false,
       "evidence": "Container target; the description names CID and this tree ships no CID skill."
@@ -160,7 +180,7 @@
     {
       "id": 15,
       "prompt": "my game ctd's right when a dragon priest spawns, read the crash log and tell me why",
-      "expected_output": "a crash-diagnosis skill, not this one",
+      "expected_output": "NONE — this tree ships no crash-diagnosis skill, and none of the 14 covers the question",
       "expectations": ["Does NOT route to this skill."],
       "should_trigger": false,
       "evidence": "Crash triage; no distribution artifact."
@@ -168,7 +188,7 @@
     {
       "id": 16,
       "prompt": "which plugin is winning the conflict on the steel plate armor record in my lorerim order",
-      "expected_output": "a conflict-resolution skill, not this one",
+      "expected_output": "NONE, or housecarl:bulk-record-jobs — this tree ships no conflict-resolution skill",
       "expectations": ["Does NOT route to this skill."],
       "should_trigger": false,
       "evidence": "Load-order winner question on an item record."
@@ -184,7 +204,7 @@
     {
       "id": 18,
       "prompt": "how do i install SPID and its requirements in my MO2 setup",
-      "expected_output": "a modding-basics skill, not this one",
+      "expected_output": "NONE — this tree ships no modding-basics skill, so the only correct pick is NONE",
       "expectations": ["Does NOT route to this skill."],
       "should_trigger": false,
       "evidence": "Hard near-miss — names SPID but is an install question, not authoring or interpreting a line."
@@ -192,7 +212,7 @@
     {
       "id": 19,
       "prompt": "i'm brand new to skyrim modding, can you explain what SPID even is and whether i need it",
-      "expected_output": "a modding-basics skill, not this one",
+      "expected_output": "NONE — this tree ships no modding-basics skill, so the only correct pick is NONE",
       "expectations": ["Does NOT route to this skill."],
       "should_trigger": false,
       "evidence": "Hard near-miss — names SPID but is conceptual/newcomer. The recorded diagnosis is that the description owns the literal token 'SPID' and states no scope boundary excluding conceptual or beginner questions. The rewritten description adds a target boundary against sibling frameworks, which does not address this shape; this row is a measurement of that gap, not a predicted pass."
@@ -256,7 +276,7 @@
     {
       "id": 27,
       "prompt": "what even is spell perk item distributor and is it something a new modlist needs",
-      "expected_output": "a modding-basics skill, not this one",
+      "expected_output": "NONE — this tree ships no modding-basics skill, so the only correct pick is NONE",
       "expectations": ["Does NOT route to this skill."],
       "should_trigger": false,
       "new_in": "2026-09-08 rewrite",
