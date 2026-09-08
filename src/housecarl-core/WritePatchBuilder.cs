@@ -435,7 +435,10 @@ public static class WritePatchBuilder
         //     session, never an arbitrary un-enabled plugin, so no winner-confusion hazard arises. ---
         var view = resolver.Capture();
         epoch = view.Stamp;                                               // stamped on every outcome from here down
-        var linkTypes = LinkTypeLookup(view, session);
+        var linkTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in edits) HarvestLinkTokens(e.Value, e.Values, e.Entries, e.Struct, e.Structs, linkTokens);
+        var (linkTypes, linkRefusal) = LinkTypeLookup(view, session, linkTokens);
+        if (linkRefusal is not null) return PatchOutcome.Fail(linkRefusal);
         var resolved = new List<(PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label, IMajorRecordGetter? srcBody)>(edits.Count);
         var problems = new List<string>();
         // Records the extended patch DEFINES (FormKey in the patch's own master space — created by a prior into=
@@ -676,21 +679,65 @@ public static class WritePatchBuilder
     }
 
     /// <summary>The pre-flight's link-TARGET resolver: a FormLink value in, the runtime type of the record it points
-    /// at out. Answers off the call's ONE captured view, so the type a link is checked against is the same build
-    /// every other decision in the write reads, and memoizes per call because one list edit can name a FormID many
-    /// times. Null for a token that does not parse or that the order does not carry — pre-flight then does not
-    /// type-check that link rather than refusing on a guess.</summary>
-    static CorpusRulebook.LinkTargetLookup LinkTypeLookup(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session)
+    /// at out. Every token the call could ask about is resolved UP FRONT, grouped by winner plugin, so a plugin is
+    /// walked ONCE however many links name it — a per-token seek would walk it once per link (a 200-entry leveled
+    /// list into Skyrim.esm is 200 full enumerations). Answers off the call's ONE captured view, so the type a link
+    /// is checked against is the same build every other decision in the write reads. Null for a token that does not
+    /// parse, that the order does not carry, or that the harvest did not offer — pre-flight then does not type-check
+    /// that link rather than refusing on a guess. A plugin that cannot be opened is the returned refusal, not a
+    /// throw: the write names it and stops.</summary>
+    static (CorpusRulebook.LinkTargetLookup lookup, string? refusal) LinkTypeLookup(
+        LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, IReadOnlyCollection<string> tokens)
     {
-        var memo = new Dictionary<string, Type?>(StringComparer.OrdinalIgnoreCase);
-        return token =>
+        var keyOf = new Dictionary<string, FormKey>(StringComparer.OrdinalIgnoreCase);
+        var byPlugin = new Dictionary<string, HashSet<FormKey>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in tokens)
         {
-            if (memo.TryGetValue(token, out var hit)) return hit;
-            Type? type = null;
-            if (FormKey.TryFactory(token, out var fk) && view.ResolveWinner(fk) is { } w)
-                type = view.GetRecord(session, w.WinnerPlugin, fk)?.GetType();
-            return memo[token] = type;
-        };
+            if (!FormKey.TryFactory(t, out var fk) || fk == FormKey.Null) continue;
+            keyOf[t] = fk;
+            if (view.ResolveWinner(fk) is not { } w) continue;
+            if (!byPlugin.TryGetValue(w.WinnerPlugin, out var set)) byPlugin[w.WinnerPlugin] = set = new HashSet<FormKey>();
+            set.Add(fk);
+        }
+        var types = new Dictionary<FormKey, Type>();
+        foreach (var (plugin, keys) in byPlugin)
+        {
+            var sink = new Dictionary<FormKey, IMajorRecordGetter>();
+            try { view.CollectRecords(session, plugin, keys, null, sink); }
+            catch (Exception ex)
+            {
+                return (_ => null,
+                    $"cannot check this write's FormLink targets: '{plugin}' defines {keys.Count} of them and could not be " +
+                    $"read ({WriteEngine.Describe(ex)}) — close whatever holds it open and re-run. NOTHING was written.");
+            }
+            foreach (var kv in sink) types[kv.Key] = kv.Value.GetType();
+        }
+        return (token => keyOf.TryGetValue(token, out var fk) && types.TryGetValue(fk, out var t) ? t : null, null);
+    }
+
+    /// <summary>Every value slot a pre-flight link check can read, harvested into one token set — the singular value,
+    /// a ReplaceAll's contents, a dict's entry values, and a composed struct's own fields and nested writes. The SAME
+    /// slots the rulebook's formlink sweeps read, so what it asks about is what was prefetched. Over-collecting costs
+    /// nothing (the plugin is walked once either way); a slot missed here leaves that one link unchecked, which is
+    /// the behaviour before the gate existed, never a wrong refusal.</summary>
+    static void HarvestLinkTokens(string? value, IReadOnlyList<string>? values, Dictionary<string, string>? entries,
+                                  StructSpec? one, IEnumerable<StructSpec>? many, HashSet<string> into)
+    {
+        if (value is not null) into.Add(value);
+        foreach (var v in values ?? Array.Empty<string>()) if (v is not null) into.Add(v);
+        if (entries is not null) foreach (var kv in entries) if (kv.Value is not null) into.Add(kv.Value);
+        if (one is not null) HarvestStructTokens(one, into);
+        foreach (var s in many ?? Array.Empty<StructSpec>()) HarvestStructTokens(s, into);
+    }
+
+    static void HarvestLinkTokens(WriteRequest req, HashSet<string> into)
+        => HarvestLinkTokens(req.Value, req.Values, req.Entries, req.Struct, req.Structs, into);
+
+    static void HarvestStructTokens(StructSpec spec, HashSet<string> into)
+    {
+        if (spec.Fields is not null) foreach (var kv in spec.Fields) if (kv.Value is not null) into.Add(kv.Value);
+        foreach (var a in spec.CtorArgs ?? Array.Empty<string>()) if (a is not null) into.Add(a);
+        foreach (var r in spec.Sets ?? new()) HarvestLinkTokens(r, into);
     }
 
     /// <summary>Does this edit's CopyFrom source need the OFF-ORDER on-disk locate — i.e. is it a CopyFrom naming a
@@ -841,7 +888,10 @@ public static class WritePatchBuilder
                 $"cannot edit '{targetName}' in place: it was EXCLUDED from this session ({excluded}) — houseCARL won't " +
                 "re-serialize a plugin it can't fully parse (that would risk dropping the record it couldn't read, Q3). The file is UNTOUCHED.");
 
-        var linkTypes = LinkTypeLookup(view, session);
+        var linkTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in edits) HarvestLinkTokens(e.Value, e.Values, e.Entries, e.Struct, e.Structs, linkTokens);
+        var (linkTypes, linkRefusal) = LinkTypeLookup(view, session, linkTokens);
+        if (linkRefusal is not null) return PatchOutcome.Fail(linkRefusal);
         var resolved = new List<(PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label, IMajorRecordGetter? srcBody, bool selfSource)>(edits.Count);
         var problems = new List<string>();
         foreach (var e in edits)
@@ -2856,6 +2906,14 @@ public static class WritePatchBuilder
         var view = resolver.Capture();
         epoch = view.Stamp;                                               // stamped on every outcome from here down
 
+        // The link-TARGET types this call's edits name, resolved once — the same gate the two apply lanes run, on the
+        // lane that authors brand-new records. A '@editorid' sibling ref points at a record that does not exist yet,
+        // so it resolves to nothing and is not type-checked; a literal FormID beside it is.
+        var linkTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in specs) foreach (var req in s.Edits) HarvestLinkTokens(req, linkTokens);
+        var (linkTypes, linkRefusal) = LinkTypeLookup(view, session, linkTokens);
+        if (linkRefusal is not null) return CreateOutcome.Fail(linkRefusal);
+
         // --- Phase 0: open the destination FIRST — moved AHEAD of pre-flight so a FormKey parent can resolve from it (a
         //     parent created in a PRIOR into= call, or — in place — a parent the target itself owns). CreateFromBinary reads
         //     the file fully into memory and holds NO handle at rest (the active-patch self-lock invariant is untouched —
@@ -3197,7 +3255,7 @@ public static class WritePatchBuilder
                 // siblingEditorIds = priorEditorIds: a "@editorid" FormLink value is accepted iff that editorid was
                 // declared in an EARLIER spec of THIS call OR is the record itself (resolved to its real FormKey in
                 // Phase 3); else rejected loud.
-                if (rulebook.Validate(req, priorEditorIds) is { } reject) problems.Add($"{s.RecordType} '{s.EditorId}' [{Label(req)}]: {reject}");
+                if (rulebook.Validate(req, priorEditorIds, linkTypes) is { } reject) problems.Add($"{s.RecordType} '{s.EditorId}' [{Label(req)}]: {reject}");
         }
         if (problems.Count > 0)
             return CreateOutcome.Fail(
