@@ -199,13 +199,18 @@ housecarl_nif_set(
   texture_slot = "6",
   target       = "<the head shape's name, as nif_inspect prints it>",
   path         = "<the copy's own tint path>",
-  into         = "<the mod folder the placement wrote>")
+  mod          = "<the mod folder the placement wrote>",
+  into         = "<that same folder>")
 ```
 
-Then re-read it — `housecarl_nif_inspect(mesh_paths = ["<the placed mesh>"], sections = "paths")` —
-and check that slot 6 names the copy's own tint. Note that `into=` here takes an existing
-houseCARL-owned **mod folder** name, while the `into=` on the other three calls takes the patch
-plugin's filename.
+**`mod=` is not optional here either**, and for a second reason: the placement's folder is not enabled
+yet — enabling it is the caller's last step — so nothing in the active order provides the placed mesh
+and a read without `mod=` refuses `ABSENT`. Writing back `into=` that same folder keeps the repointed
+mesh with the files it belongs to.
+
+Then re-read it, naming the folder again —
+`housecarl_nif_inspect(mesh_paths = ["<the placed mesh>"], sections = "paths", mod = "<that same folder>")`
+— and check that slot 6 names the copy's own tint.
 
 ## Common mistakes
 
