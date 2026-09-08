@@ -229,13 +229,14 @@ The folder name is the priority. Map each function to its OAR condition — the 
 `<Plugin.esp>/<FormID>/` folder pair → the auto-synthesized `IsActorBase`. `0x02F2F4` becomes the
 local hex `"2F2F4"`.
 
-DAR has no parenthesis grouping and **no source states how `AND` and `OR` bind** (§8 says so, and
-says why). Implement one reading, say which, and say what the other would mean. The guard read as
-covering the whole chain:
+DAR has no parenthesis grouping, but the binding is settled: **`OR` binds tighter than `AND`**, so a
+chain is an `AND` of `OR`-groups, and an `OR`-group is a run of lines ending in `OR` plus the single
+line after it (§8, from OAR's `Parsing.cpp`). Here that leaves the `NOT IsInCombat()` guard as a
+top-level term and pairs the two `IsEquippedRight` lines into one `OR`:
 
 ```json
 { "name": "Woodcutter axe attacks (from DAR 2000030002)",
-  "description": "Converted from DAR 2000030002. The NOT IsInCombat guard is read as covering the whole chain; the other reading would have applied it to the first equipped-form term only.",
+  "description": "Converted from DAR 2000030002. The NOT IsInCombat guard is a top-level AND term; the two IsEquippedRight lines are one OR group.",
   "priority": 2000030002,
   "conditions": [
     { "condition": "IsInCombat", "requiredVersion": "1.0.0.0", "negated": true },
@@ -247,9 +248,9 @@ covering the whole chain:
           "Form": { "pluginName": "Woodaxeweapons.esp", "formID": "5909" }, "Left hand": false } ] } ] }
 ```
 
-The other reading — `AND` binding tighter than `OR` — puts the guard inside an `AND` with only the
-*first* equipped-form term, and wraps the whole in the `OR`: that fires the animation in combat for
-every weapon but the first. Record which you wrote in the submod's `description`, as above.
+Read the chain flat instead — the guard `AND`-ed with the first equipped-form term and the whole
+wrapped in the `OR` — and the animation fires in combat for every weapon but the first. That is the
+error the binding rule prevents, not a second legitimate reading.
 
 The config is only half the folder. Carry the legacy folder's `.hkx` files across to the new submod
 at their mirrored `<project>/<original.hkx>` paths, or point `overrideAnimationsFolder` at the legacy
@@ -268,5 +269,6 @@ failure shows up in game, not in Detected Problems.
   context — name it in the task that spawns the subagent, or the subagent works without it.
 - **Provenance.** OAR 3.0.0, the DLL shipped in Open Animation Replacer (Nexus 92109); the reference
   is generated from `ersh1/OpenAnimationReplacer`, branch `main`. To refresh: re-read that branch's
-  `src/Parsing.cpp`, `src/Conditions.h`, `src/Conditions.cpp` and `src/BaseConditions.h`, update
+  `src/Parsing.cpp`, `src/Conditions.h`, `src/Conditions.cpp`, `src/BaseConditions.h` and
+  `src/OpenAnimationReplacer.cpp`, update
   `references/oar-config-reference.md` section by section, and change its header's version line.
