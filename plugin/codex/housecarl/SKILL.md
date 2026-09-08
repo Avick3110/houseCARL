@@ -1,85 +1,89 @@
 ---
 name: housecarl
-description: Work with Skyrim Special Edition load-order records and assets through the houseCARL MCP server — set or switch the MO2 instance, inspect active or disabled plugins and conflict trees, read records, query across plugins, author reviewable patch ESPs, create or remove records, edit leveled lists and composed structs, diff and resolve, edit NIF meshes and facegen, author dialogue, audit the SkyPatcher and SKSE runtime layers, compact or merge plugins, drive Papyrus compile/decompile and BSA archives, and look mods up on Nexus. Also the router for the bundled Skyrim helper skills (mutagen-reference, papyrus-reference, skypatcher-authoring, spid-authoring, kid-authoring, dialogue-authoring, facegen-diagnostics, open-animation-replacer, skse-plugin-authoring, bulk-record-jobs, npc-appearance-copy). Use whenever the user mentions houseCARL, an MO2 modlist, plugins, load order, conflicts, ESP patches, overrides, a record type (ARMO/WEAP/NPC_/LVLI/MGEF/…), leveled lists, keywords, facegen or dark faces, dialogue, SKSE plugins, Papyrus, BSA archives, Nexus, or a no-ESP runtime distribution — even when the task looks like a single edit, load this first to pick the right tool and read before you write.
+description: >-
+  Use whenever a task touches a Mod Organizer 2 modlist, load order, plugins,
+  conflicts, ESP patches or overrides, a record type (ARMO, WEAP, NPC_, LVLI,
+  MGEF), leveled lists, dark faces or facegen, dialogue, NIF meshes, SkyPatcher,
+  SPID or KID lines, SKSE plugins, Papyrus, or BSA archives. Routes Skyrim
+  Special Edition data-layer work through the houseCARL MCP server — a live MO2
+  instance read at the true load-order winner, written into reviewable patch
+  plugins — and names the specialist skill that owns each grammar. Not for
+  another game, for installing MO2, or for gameplay advice with no data-layer
+  step.
+compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 2 instance.
 ---
 
 # houseCARL
 
-Use this skill for data-layer Skyrim Special Edition modding through the configured houseCARL MCP server. houseCARL reads a Mod Organizer 2 instance, resolves the true load-order winner, and writes changes into reviewable patch plugins; original source mods are never edited. Beyond the record read/write core it reaches the whole data layer — assets and NIF meshes, the SkyPatcher and SKSE runtime layers, dialogue, plugin operations, Papyrus compile/decompile, BSA archives, and keyless Nexus lookups — plus the 11 focused helper skills below for the specialist grammars and workflows.
+**In:** a live Mod Organizer 2 instance, read through the houseCARL MCP server. **The work:** read the
+record at its true load-order winner, check the schema, then write. **Out:** a patch plugin the user
+reviews and enables in MO2. This file does two things and defers the rest — it routes a job to the skill
+that owns its grammar, and it gives the read order every write depends on. What a tool takes is in that
+tool's own description.
 
-## Core workflow (read before you write)
+The user's instructions take precedence over guidelines provided in a skill.
 
-1. Confirm context when it matters:
-   - `housecarl_load_order_status` for profile/plugin status, or to check whether a mod or plugin is active.
-   - `housecarl_set_mo2_instance` when the user gives a new MO2 instance folder.
-2. Read before any record write:
-   - `mutagen-reference` to verify field names, writability, enum values, and composed-struct shapes.
-   - `housecarl_read_record` or `housecarl_batch_record_detail` to inspect the current winner. Add `conflict_tree=true` for contested records or when winner provenance matters.
-   - `housecarl_cross_plugin_query` to locate records or references across the load order (page big results with `offset=`).
-3. Pick the narrowest write tool:
-   - `housecarl_set_field` for a single scalar or simple-collection edit.
-   - `housecarl_bulk_apply` for several edits in one patch, dict merges, leveled-list entries, effects, or other composed structs.
-   - `housecarl_create_record` (or `housecarl_bulk_create` for many at once) for a new top-level record — it needs an EditorID.
-   - `housecarl_remove_record` only to drop a record or override from a houseCARL-owned patch — never from a source mod.
-4. Name the patch on the **first** write that creates one with `patch=<name>` (not `housecarl_remove_record`, whose `patch=` names one that already exists) — omit it and houseCARL names it `Patch`. Either way the name is auto-suffixed if it is already taken, so read the patch name back off the response. After that, accumulate related edits into it with `into=<patch filename>`.
-5. Prefer runtime, no-ESP INI systems when they fit the user's intent — `skypatcher-authoring`, `spid-authoring`, `kid-authoring` (see the helper skills below).
+## Which skill owns the job
 
-## The full tool surface
+| The user is asking about | Load | When |
+|---|---|---|
+| A dark, grey or black NPC face; a face wrong after compacting or merging | `housecarl:facegen-diagnostics` | before judging the fix |
+| Copying one NPC's face onto another, or cloning a standalone follower | `housecarl:npc-appearance-copy` | before the copy |
+| What fields a record type has, or a legal enum value | `housecarl:mutagen-reference` | before the write |
+| A no-ESP edit to a record's own fields, or to one NPC | `housecarl:skypatcher-authoring` | before the INI line |
+| Spells, perks, items, outfits or factions onto NPCs by group | `housecarl:spid-authoring` | before the `_DISTR.ini` line |
+| Keywords onto item records | `housecarl:kid-authoring` | before the `_KID.ini` line |
+| Adding, wiring or auditing dialogue topics and lines | `housecarl:dialogue-authoring` | before the DIAL/INFO write |
+| Gating animations by weapon, keyword, perk or race | `housecarl:open-animation-replacer` | before the condition |
+| A Papyrus or SKSE function signature, or a `.psc` edit | `housecarl:papyrus-reference` | before the script edit |
+| Writing or building a native SKSE plugin DLL in C++ | `housecarl:skse-plugin-authoring` | before the first C++ |
+| A catalogue, audit, conflict survey or link graph over many records | `housecarl:bulk-record-jobs` | before the first call |
 
-Beyond the core workflow, reach for the right group. Depth for the specialist areas lives in the helper skills (next section) — load the skill before composing in that area.
+MCP tools are written bare on both hosts (`housecarl_records`); a sibling is written `housecarl:<skill>`, the
+Claude Code invocation — on Codex it is the bare folder name (`facegen-diagnostics`), installed beside this one.
 
-**Read / query / resolve**
-- `housecarl_records` — the consolidated 2.0 read surface (SELECT × SOURCE × PROJECT in one call): record lists or scans, any plugin's version wherever it lives (active or on disk), form-scoped `project=` shapes. The 1.x read tools below keep working through the 2.0 build.
-- `housecarl_read_record`, `housecarl_batch_record_detail` — read one or many records at the true winner (`conflict_tree=true` for provenance).
-- `housecarl_read_plugin_file` — read a plugin directly, even one that is disabled or not active.
-- `housecarl_cross_plugin_query` — query and filter records or references across the whole order; page with `offset=`, count with `group_by=`.
-- `housecarl_resolve` — resolve a list of FormIDs to identity; `housecarl_diff_record` — diff two plugins' versions of a record.
-- `housecarl_effect_chain` — trace a magic effect to every spell / enchantment / potion / scroll / ingredient that carries it.
-- `housecarl_load_order_status` — enabled/disabled mods & plugins; `housecarl_check_errors` — dangling refs, missing masters, broken links.
-- `housecarl_check` — the merged derived-findings sweep: `findings=` picks the family (`errors` — dangling refs, missing masters, parse failures, the default; `scripts` — unbound VMAD script properties; `dialogue` — the dialogue graph over the topics and quests `seeds=` names) or a class inside one, in one call.
+## Read before you write
 
-**Runtime layers (what xEdit can't see)**
-- `housecarl_skypatcher_read` — a record's true state after the SkyPatcher INI layer replays; `housecarl_skypatcher_layer` — the INIs, apply order, conflicts.
-- `housecarl_skse` — the SKSE layer, one family per call via `findings=`: `inventory` (SKSE-plugin DLLs, configs, provider/metadata — the default), `pairing` (native Papyrus declarations vs the DLLs implementing them), `config` (config references vs the load order).
+1. **Confirm context when it matters.** `housecarl_load_order_status` says what is active;
+   `housecarl_set_mo2_instance` when the user names a different MO2 instance folder.
+2. **Read the winner and the schema.** `housecarl:mutagen-reference` for the field path and its legal
+   values — if it has no entry for a type, say so rather than guessing; `housecarl_records` for the record
+   as the order resolves it, `project={"form":"tree"}` for every provider when the winner is contested.
+3. **Write with one verb.** `housecarl_apply` edits fields (`ops=`), `housecarl_create` mints records
+   (`records=`), `housecarl_remove` drops them (`formids=`), `housecarl_forward` carries another plugin's
+   record as an override. Every list is set-valued — one op is a set of one — there is no single/bulk pair.
+4. **Read the written record back**, and say what happened when it did not take.
 
-**Write / author**
-- `housecarl_apply` — the consolidated 2.0 field-write surface (one or many edits × the lane × the read-back in one call): `ops=` for field edits, `bundle=`+`assignments=` to copy a field bundle from one record onto another, and one lane spelling — a new patch, `into=` an existing one, or `in_place="X.esp"` naming the file you intend to overwrite. The 1.x write tools below keep working through the 2.0 build.
-- `housecarl_create` — the consolidated 2.0 authoring surface: `records=[{record_type, editorid, ops}]`, one record being a set of one, and a nested unit (a topic AND its lines, a cell AND its refs) authored in one call by parenting a spec on an earlier sibling's editorid. Same lane spelling as `apply`.
-- `housecarl_remove` — drop whole records; `formids=` is set-valued, so many drop in one re-serialize. The lane is `into=` a houseCARL patch or `in_place="X.esp"` (a removal edits an artifact that already exists, so there is no `patch=`).
-- `housecarl_copy` — copy a record together with the records it depends on (its link closure) into a patch under new FormIDs, so the result no longer masters the plugin you copied from: `seed_paths=` names the link-bearing fields the walk starts from, `from_source=` is an ordered list of sources tried first-hit-wins (`winner`, or plugin filenames — active or disabled), and the destination is either `target=` (an existing record) or `new_editorid=` (a clone, with every remaining link into the source stripped and named). For a source that resolved into an MO2 mod folder the readback names that folder — the name to pass `housecarl_place` as `source_provider=` when you carry that record's files; a source with no such folder (the `winner` pole, overwrite, the game's `Data` folder, a file outside all of them) says so instead.
-- `housecarl_forward` — copy a specific plugin's whole record as an override: `source=` names whose version (any plugin — active, or one that is only on disk in a DISABLED mod; a master reverts to vanilla), and the response names the winner it will out-rank plus, for an off-order source, which copy on disk it read.
-- `housecarl_set_field`, `housecarl_bulk_apply`, `housecarl_create_record`, `housecarl_bulk_create`, `housecarl_create_plugin` (header-only trigger plugin), `housecarl_remove_record`, `housecarl_forward_record` (copy-as-override, or revert to another plugin's version), `housecarl_validate_scripts` (unbound script properties).
+```
+housecarl_apply(ops=[{"formid": "013BA3:Skyrim.esm", "field_path": "BasicStats.Damage", "value": 12}], patch="SwordFix", readback=true)
+```
+```
+wrote SwordFix.esp   1 record, 1 op   epoch=7f3a1c
+  013BA3:Skyrim.esm  IronSword  BasicStats.Damage  10 -> 12
+```
 
-**Dialogue** — `housecarl_validate_dialogue`, `housecarl_write_seq` (the start-game-enabled quest `.seq`; `source=` takes the plugin's filename or an absolute path; `output_dir=` lands it in the mod's own `SEQ\` after an in-place edit). Depth: `dialogue-authoring`.
+The read-back is the written FILE, not load-order truth. Report the patch name back — it is auto-suffixed
+when taken — and tell the user to enable it. A refused call wrote nothing: fix the path and send it again.
 
-**Assets / NIF / facegen** — `housecarl_asset_status` (which mod/BSA wins a Data-relative path), `housecarl_place` (make a chosen copy win MO2's VFS), `housecarl_nif_inspect` / `housecarl_nif_set` (read/write mesh data values). Depth: `facegen-diagnostics`.
+## Lanes and FormIDs
 
-**Plugin operations** — `housecarl_compact_plugin` (ESL-renumber, carries FormID-keyed facegen/voice along), `housecarl_merge_plugins`. A standalone NPC appearance is two calls — `housecarl_copy` for the records, `housecarl_place` for the FaceGen, with the mod folder the copy names as `source_provider=`; depth: `npc-appearance-copy`.
+A FormID is `XXXXXX:Plugin.esp` — six hex digits, then the filename of the master that defines the record.
+The runtime form a log or the console prints is taken too, wherever a parameter holds nothing but FormIDs.
+SkyPatcher, SPID and KID each write their own syntax; their skills say so.
 
-**Papyrus / SKSE code** — `housecarl_compile_script` (`.psc` → `.pex`), `housecarl_decompile_script` (`.pex` → `.psc`). Depth: `papyrus-reference`, `skse-plugin-authoring`.
+Every write tool has the same three lanes: `patch=` writes a new plugin, `into=` extends an existing houseCARL
+patch, `in_place=` overwrites the file it names. In place is consent-gated at the server, per plugin, by
+`acknowledge=` — it refuses rather than asking this skill to police it.
 
-**BSA archives** — `housecarl_bsa_list`, `housecarl_bsa_extract`, `housecarl_bsa_repack`.
+## Where this does not apply
 
-**Nexus (keyless, no browser)** — `housecarl_nexus_search`, `housecarl_nexus_mod`, `housecarl_nexus_check_updates`, `housecarl_nexus_identify`, `housecarl_nexus_graphql`. For a whole-order update check, start with `housecarl_update_status` (MO2's local update cache, no network), then confirm with `housecarl_nexus_check_updates`.
+Another game; installing or configuring MO2; gameplay advice with no record, file or INI in it. Two reaches the
+surface does not have today, both filed: `housecarl_check` with `findings=["dialogue"]` resolves against the
+active order, so a plugin not yet enabled cannot be dialogue-checked (#615); and a hand-composed raw mods-folder
+path is not refused in one sentence by `housecarl_place` or `housecarl_nif_inspect` (#617) — pass the mod
+folder a read-back named instead.
 
-**Setup** — `housecarl_set_mo2_instance`, `housecarl_set_tool_path` (point houseCARL at an external tool: the Papyrus compiler, BSArch, or the crash / Papyrus log folders).
+## The sidecar
 
-## Bundled helper skills
-
-Load the specialist skill before composing in its domain:
-
-- **Reference** — `mutagen-reference` (record schemas), `papyrus-reference` (Papyrus / SKSE function signatures).
-- **Runtime distribution grammars** — `skypatcher-authoring` (record edits), `spid-authoring` (spells / perks / items / factions / outfits → NPCs), `kid-authoring` (keywords → items).
-- **Content authoring / investigation** — `dialogue-authoring`, `facegen-diagnostics` (the dark-face NPC bug), `npc-appearance-copy` (copy a face onto another NPC or into a standalone clone), `open-animation-replacer` (Open Animation Replacer), `skse-plugin-authoring` (C++ SKSE plugin DLLs).
-- **Bulk planning** — `bulk-record-jobs` (catalogues, audits, link graphs, conflict surveys, fan-out extraction — many records into one structured deliverable).
-
-## FormID notes
-
-houseCARL tools use `XXXXXX:Plugin.esp` FormIDs — six hex digits, then the filename of the master that defines the record. SkyPatcher, SPID, and KID each use their own FormID syntax; consult their skills before writing INI lines.
-
-## Safety notes
-
-- houseCARL patches are reviewable output mods. Tell the user which patch was created or extended.
-- Don't invent schemas or field paths. If `mutagen-reference` has no entry for a type, say so directly rather than guessing.
-- Don't reach for record edits when the user explicitly wants a no-ESP / runtime distribution file — use SkyPatcher, SPID, or KID instead.
-- Never edit a source mod in place unless the user has explicitly opted into the in-place lane.
+Codex reads `agents/openai.yaml` beside this file for the display name and invocation policy; nothing in
+this body depends on it.
