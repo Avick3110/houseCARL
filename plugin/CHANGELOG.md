@@ -64,6 +64,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **A FormID that mixes the two forms — eight runtime digits with a plugin name, `000A2C94:Skyrim.esm` — is now
   refused with the six-digit form to use (`0A2C94:Skyrim.esm`).** The refusal also names the runtime form on its
   own, so either half can be dropped; it read "Malformed FormKey string" before and said neither.
+- **`format='json'` now states that a record's fields are an ordered LIST of `{path, value}`, not a map keyed by
+  path.** The order is the answer's own and a path repeats under a quantified step, which a map could not hold; a
+  field that read no value carries `{path, note}` instead. Key a consumer on the position, or join on `'dense'`.
 - **A `where=` path that reads no value now says why per cause — unset, not a field on the record read, a
   container, or a read fault — instead of one "no readable value" for all four.** A null field and the other arm
   of a union are not read faults, and the counts are now named separately.
