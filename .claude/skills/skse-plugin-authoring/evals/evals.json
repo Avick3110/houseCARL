@@ -1,0 +1,108 @@
+{
+  "skill_name": "skse-plugin-authoring",
+  "schema": "houseCARL skill evals, 2026-09 convention (rewrite ruling 3): one file, evals.json; every trigger eval carries a without-skill arm; every run executes from the packaged tree.",
+  "run_from": "dist/housecarl/skills/skse-plugin-authoring/",
+  "never_run_from": ".claude/skills/ (the source tree ships a different set of files: evals/ and dev-side ledgers are pruned at package time, so a source-tree run does not measure what a user loads)",
+  "rerun_rule": "Run the full suite (both arms of both sets) before promoting a version or building a release package. Not 'only if the description text changes' — that narrow rule let nine unresolvable reference paths ship through every release since the last description change.",
+  "capability_statement_anonymized": "A specialized capability for authoring, building, and auditing NATIVE SKSE PLUGIN DLLs for Skyrim — C++ code compiled against the CommonLibSSE(-NG) library into a .dll that loads under SKSE. In scope: writing a new SKSE plugin from scratch (plugin lifecycle, event sinks that react to game events, code hooks/trampolines that patch the running game), inventing a brand-new native Papyrus function — BOTH its C++ registration and its .psc declaration, setting up the C++ build toolchain (MSVC/CMake/vcpkg) for such a project, making one DLL run across Skyrim SE/AE/VR (Address Library, multi-runtime discipline), and reading someone else's open-source SKSE plugin source to explain what its compiled DLL does. OUT OF SCOPE: editing record data in .esp/.esm files (armor/weapon/NPC/dialogue records), merging or ESL-flagging .esp plugins, writing ordinary .psc Papyrus scripts against functions that already exist, authoring distributor config files (SPID/KID/SkyPatcher .ini), diagnosing a user's game crash from a crash log, and end-user SKSE installation.",
+
+  "trigger_set": {
+    "purpose": "Does the description route the right requests here and keep the wrong ones out?",
+    "method": {
+      "shape": "Anonymized fresh-agent relevance fan-out: one fresh-context agent per query per run, each shown the lettered menu of all shipped skill descriptions (this skill unflagged) plus NONE, asked which ONE to load. Adjudicated on the agent's reasoning, not on the verdict token.",
+      "runs_per_query": 3,
+      "trigger_rate_threshold": 0.5,
+      "arms": ["with_skill", "without_skill"],
+      "without_skill_arm": "The same query, the same menu with this skill's entry removed, in a fresh context. A positive row that is answered correctly without the skill is evidence the skill is not earning that row; a negative row that goes wrong only in the with-skill arm is a false-trigger cost.",
+      "split": {"train": 0.6, "held_out": 0.4},
+      "held_out_ids": [6, 9, 10, 13, 17, 18, 19, 20],
+      "models": ["haiku", "sonnet", "opus"],
+      "deployment_envelope": "If a model is skipped, the record states which models the result holds for rather than generalizing.",
+      "contexts": ["isolation", "coexistence"],
+      "coexistence_note": "The coexistence set must include a query that exercises what used to be the papyrus-reference handoff — a new native's .psc declaration — because that is this skill's real coexistence risk now that it owns both halves.",
+      "row_record": "Every row records passed (bool) and evidence (a quoted phrase from the agent's reasoning), never a bare label."
+    },
+    "gate": {"recall_threshold": 0.8, "specificity_threshold": 0.5},
+    "evals": [
+      {"id": 1, "should_trigger": true, "query": "i wanna make an skse plugin that plays a sound whenever the player picks up a septim. no idea where to start on the c++ side, help?"},
+      {"id": 2, "should_trigger": true, "query": "I need to expose a function to papyrus from a DLL — something like MyUtil.GetActorTemperature(akActor) my quest script can call, vanilla papyrus can't do it. how do I register it?"},
+      {"id": 3, "should_trigger": true, "query": "my SKSE dll builds and runs fine on SE but CTDs on AE only. pretty sure it's a struct member offset thing. how do people handle this"},
+      {"id": 4, "should_trigger": true, "query": "can you scaffold a CommonLibSSE-NG project for me — vcpkg + cmake, targeting 1.6.1170, just a hello-world that logs on load"},
+      {"id": 5, "should_trigger": true, "query": "I want to hook the game so my code runs whenever an actor takes a hit. trampoline or vtable hook? and how do I not break the original call"},
+      {"id": 6, "should_trigger": true, "held_out": true, "query": "here's the github for an open-source combat overhaul's SKSE dll. can you read the source and tell me what it actually patches in the engine", "note": "The only miss of the 2026-07-28 revalidation, and the row the description's 'reading someone else's SKSE DLL source' clause was added for. Held out — it is not used to tune the description text."},
+      {"id": 7, "should_trigger": true, "query": "my plugin needs to remember a set of formIDs across save/load. how do the skse co-save serialization callbacks work"},
+      {"id": 8, "should_trigger": true, "query": "writing a BSTEventSink for TESDeathEvent — when exactly should I register it so I don't miss deaths early in the load?"},
+      {"id": 9, "should_trigger": true, "query": "how do I ship one skse dll that works on skyrim SE, AE and VR instead of maintaining three separate builds"},
+      {"id": 10, "should_trigger": true, "query": "my compiled plugin just isn't showing up in the skse log at all — no error, it's like it doesn't exist. the build succeeded. what makes skse skip a dll"},
+      {"id": 11, "should_trigger": false, "query": "add the MagicDisallowEnchanting keyword to every daedric weapon in my load order"},
+      {"id": 12, "should_trigger": false, "query": "write me a papyrus script that starts MyQuest when the player first walks into Whiterun"},
+      {"id": 13, "should_trigger": false, "near_miss": "crash-diagnostics adjacency", "query": "my game keeps crashing to desktop. i've got the crash log from Crash Logger SSE right here, can you figure out which mod is doing it"},
+      {"id": 14, "should_trigger": false, "query": "create an esp that makes iron swords do 20 damage instead of 7"},
+      {"id": 15, "should_trigger": false, "query": "i've got two esp plugins that both edit the same leveled lists, can you merge them into one patch"},
+      {"id": 16, "should_trigger": false, "query": "write a SPID _DISTR.ini to give all bandits a fire cloak ability"},
+      {"id": 17, "should_trigger": false, "near_miss": "papyrus-compile adjacency", "query": "my papyrus script won't compile — it says GetActorValue is not a function or the number of arguments is wrong"},
+      {"id": 18, "should_trigger": false, "query": "can you install SKSE for me and check that it's actually working with my skyrim version"},
+      {"id": 19, "should_trigger": false, "near_miss": "audit adjacency", "query": "what does USSEP actually change about the Whiterun guards? i want to know before i patch over it"},
+      {"id": 20, "should_trigger": false, "near_miss": "ESL/plugin-word adjacency", "query": "convert my armor mod's esp to be ESL-flagged so it doesn't eat a load order slot"}
+    ],
+    "status": "not yet run against the rewritten description"
+  },
+
+  "output_quality_set": {
+    "purpose": "Does loading the skill produce a better artifact, and at what cost?",
+    "task": "Author a complete SKSE plugin source tree for a new native Papyrus function targeting SE (1.5.97) and AE (1.6.1170) against CommonLibSSE-NG, on the live ARR 2.0 order.",
+    "protocol": "Run twice in fresh contexts with a 40-call cap: once with the skill loaded from the packaged tree, once without it. Same task text, same model, same order.",
+    "arms": {
+      "with_skill": {"status": "exists", "evidence": "dev/skill-validation/audit-2026-09/skse-plugin-authoring/with-skill/ (deliverable HC_AuditNative/)"},
+      "without_skill": {"status": "missing — this is the control the 2026-09 eval graded as absent, and running it is what turns the skill's value from self-report into a measurement"}
+    },
+    "predictions": [
+      {"id": "P1", "expectation": "The control pins the frozen CharmedBaryon fork — a commonlibsse-ng vcpkg dependency plus a registry entry — rather than the alandtse ng git submodule."},
+      {"id": "P2", "expectation": "The control omits /Zc:preprocessor, or the force-included PCH carrying the game headers, and debugs the resulting error backwards."},
+      {"id": "P3", "expectation": "The control assumes a dual SE+AE build defines EXCLUSIVE_SKYRIM_SE and EXCLUSIVE_SKYRIM_AE rather than EXCLUSIVE_SKYRIM_FLAT alone."},
+      {"id": "P4", "expectation": "The control writes SKSE::Init(a_skse) after setting up logging and loses every pre-Init log line."},
+      {"id": "P5", "expectation": "The control emits both a hand-written SKSEPluginInfo block and add_commonlibsse_plugin, giving duplicate exports."},
+      {"id": "P6", "expectation": "The control returns size_t, int64 or double from the native and takes the silent truncation."}
+    ],
+    "pass_condition": "At least one expectation passes with the skill and fails without it. The skill loses any prediction the control gets right unaided.",
+    "mechanical_assertions": [
+      "the project configures",
+      "the DLL builds",
+      "skse64.log names the plugin"
+    ],
+    "cost": {
+      "record_per_arm": ["total_tokens", "duration_ms"],
+      "why": "Cost is part of the verdict on a skill carrying 266 KB of references — the with-skill audit spent about half its reading volume on material the job did not touch."
+    },
+    "status": "not yet run"
+  },
+
+  "history": {
+    "run_2026-07-03": {
+      "model": "claude-opus-4-8",
+      "method": "anonymized fresh-agent relevance fan-out (20 agents, one per query; judged on reasoning)",
+      "recall": "10/10 (100%) — gate >=80% PASS",
+      "specificity": "10/10 (100%) — gate >=50% PASS",
+      "misclassifications": "none",
+      "notes": "Hard near-misses all correctly excluded: crash-log (#13), USSEP 'what does this plugin do' (#19), papyrus-script-compile (#17). Hard positives all correctly included: expose-function-to-Papyrus (#2), SE-vs-AE CTD (#3)."
+    },
+    "revalidation_2026-07-28_294": {
+      "method": "Revalidation for issue #294 (all 13 descriptions compressed to the amended 200-400 char target): fan-out with one fresh-context sonnet agent per query, each shown the full lettered menu of the 13 new descriptions plus NONE; one opus adjudicator per skill scored from reasoning.",
+      "gate": {"recall_threshold": 0.8, "specificity_threshold": 0.5},
+      "recall": "9/10 = 0.90",
+      "specificity": "10/10 = 1.00",
+      "passed": true,
+      "misses": [
+        {
+          "id": 6,
+          "query": "here's the github for an open-source combat overhaul's SKSE dll. can you read the source and tell me what it actually patches in the engine",
+          "should_trigger": true,
+          "pick": "N",
+          "diagnosis": "The description's verbs read as first-party production work — \"Author, build, or audit ... Use for writing or building an SKSE plugin\" — so the agent scoped \"audit\" to auditing one's own plugin and concluded reading a third party's DLL source was uncovered; the body's \"or read one\" never reaches the trigger surface."
+        }
+      ],
+      "adjudicator_notes": "Recall 9/10 (0.90 >= 0.80), specificity 10/10 (1.00 >= 0.50) — PASS. No reasoning-vs-token overrides needed: every pick token matched its stated reasoning, including row 6, where the agent explicitly reasoned this skill out of scope rather than mis-typing. Specificity was clean with no near-misses, and the .esp/.psc disambiguation clause appears to be doing that work (rows 12, 14, 17, 20 all routed to data-layer or Papyrus entries without SKSE confusion). Only actionable fix: surface read/reverse-engineer coverage in the trigger sentence (e.g. \"reading or auditing someone else's SKSE DLL source\"), since the body claims it and the description did not. That fix is applied in the 2026-09 rewrite.",
+      "contamination_audit_2026-07-28": "PR #295 review follow-up: the independent review found adjudicator notes quoting text that exists only in the pre-compression descriptions. Forensics on the run journal established: (a) judges were shown the new menu; (b) 11 of 281 judge rows leaked old description text from the agents' own environment skill listing into their reasoning; (c) some adjudicator notes confabulated 'verbatim quotes' from that same stale environment. All contaminated rows were re-judged with a hardened prompt: 15/15 confirmed their original verdicts, except dialogue-authoring q19, whose recorded miss was itself a contamination artifact and is overturned. Treat quoted description text in the run-1 notes as unreliable where it does not appear in the shipped description; scores are pick-derived and were confirmed by the hardened re-run."
+    }
+  }
+}
