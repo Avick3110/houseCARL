@@ -32,8 +32,8 @@ every game launch — think of it as a *virtual plugin that applies last in the 
 any SPID-based mod safe to install or uninstall at any time, leaving no trace.
 
 Because distribution targets NPCs (not records on disk), SPID is the tool for "give X to this group of
-NPCs," not for editing a record's own fields — that's SkyPatcher's job. See the routing skill for the
-cross-tool decision.
+NPCs," not for editing a record's own fields — that's SkyPatcher's job, and its own skill
+(`housecarl:skypatcher-authoring`); a keyword onto item records is `housecarl:kid-authoring`.
 
 ---
 
@@ -167,7 +167,7 @@ The required first field identifies the form to distribute. Two ways to write it
   EditorID before writing the name; where the winner has renamed the record, use the FormID.
 - **FormID** — hex with the source plugin as a **tilde suffix**: `0x12345~MyPlugin.esp`.
   *(Divergence to remember: SPID/KID/CID use suffix-tilde `0x123~Plugin.esp`; SkyPatcher uses
-  prefix-pipe `Plugin.esp|0x123`. See the routing skill.)*
+  prefix-pipe `Plugin.esp|0x123` — `housecarl:skypatcher-authoring`.)*
 
 The form must be one of the supported types in `form-types.md`. The same EditorID/FormID syntax is used
 not just here but anywhere a form is named — including inside Form Filters (§ `filters.md`).
