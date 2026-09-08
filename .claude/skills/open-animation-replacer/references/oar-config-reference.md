@@ -361,8 +361,12 @@ built-in roster (§6) and the value-component shapes (§4); the hand flag is §4
 | `IsInCombat()` / `IsChild()` / `IsInInterior()` / `IsPlayerTeammate()` | same name | no parameters |
 | Form B's `<Plugin.esp>/<FormID>/` folder pair | `IsActorBase` | auto-synthesized from the folder names; write it out explicitly when converting by hand |
 
-`NOT Fn(…)` becomes `"negated": true` on the converted condition. A DAR `0x0ABCDE` argument becomes
-the **local** hex string `"ABCDE"` in the `formID` — see §12.
+`NOT Fn(…)` becomes `"negated": true` on the converted condition. A DAR argument is ALREADY the local
+id within the plugin named beside it — that is what the `"Plugin.esp" | 0xFormID` pair means, so
+there is nothing to strip: `0x02F2F4` becomes `"2F2F4"`, dropping only the `0x` and the leading
+zeros. §12's load-order-byte rule is for a RUNTIME FormID, not for a DAR argument; apply it here and
+you drop a real byte of the id, and the condition points at a record that still resolves and is
+simply never true.
 
 **Note on the in-game route:** the editor can convert a legacy submod to OAR format for you (it
 writes a `config.json`), and leaving a mod legacy is fine — it still loads and competes by priority.
