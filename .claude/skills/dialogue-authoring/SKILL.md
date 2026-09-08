@@ -1,413 +1,250 @@
 ---
 name: dialogue-authoring
 description: >-
-  Author or interpret Skyrim dialogue records via houseCARL — DIAL topics, INFO lines, branches, quest wiring, TIF result scripts, the .seq file, .fuz checks, dialogue-graph validation. Use when adding, writing, or auditing dialogue, or fixing lines that never play or fire. Load before composing or judging any DIAL/INFO — a byte-valid insert that skips the Creation-Kit bookkeeping plays nothing.
+  Authors and interprets Skyrim dialogue records through houseCARL — DIAL topics, INFO lines,
+  dialogue branches, quest wiring, TIF result scripts, the .seq file, .fuz voice checks and
+  dialogue-graph validation. Use when adding, writing or auditing dialogue, or when a line never
+  plays or never fires. Not for distributing a form to NPCs (SPID), a keyword to items (KID), or
+  editing a record's own fields (SkyPatcher). Load before composing or judging any DIAL or INFO —
+  a byte-valid insert that skips the Creation Kit's bookkeeping plays nothing in game.
+compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 2 instance.
 ---
 
 # Dialogue Authoring
 
 ## Overview
 
-Authoring dialogue means creating `DialogTopic` (DIAL) and `DialogResponses` (INFO) records — by default in
-a new plugin (originals untouched), or, with the write tools' in-place lane, straight into an existing
-plugin — and doing the bookkeeping that makes them actually play. The load-bearing
-truth: **a byte-valid INFO that passes xEdit but skips the Creation Kit's bookkeeping plays nothing in
-game** — the exact silent-failure class houseCARL refuses (Q3). This skill drives houseCARL's tools through
-the five jobs and then validates the result; the dialogue *policy* lives here, the mechanism lives in the
-tools.
+This skill owns Skyrim's dialogue records: `DialogTopic` (DIAL), `DialogResponses` (INFO), the
+`DialogBranch` that lets a topic be entered, the result script a line runs, its voice file, and the
+`.seq` that makes a start-game-enabled quest exist at all. The load-bearing truth is that **a
+byte-valid INFO that passes xEdit but skips the Creation Kit's bookkeeping plays nothing in game** —
+so the job is never "write the record", it is "write the record and the five things around it".
 
-**What houseCARL CAN do:**
-- Create topics and lines, including a topic AND all its lines in ONE call with sibling cross-links
-  (`housecarl_bulk_create`), or one nested line under an existing topic (`housecarl_create_record`).
-- Compose a line's contents — conditions, spoken responses, prompt, speaker, `LinkTo` chain, the result-
-  script `VirtualMachineAdapter` — all as ordinary field writes (confirm field paths with
-  `mutagen-reference`).
-- Compile a result (TIF) script `.psc` → `.pex` (`housecarl_compile_script`).
-- Write the start-game-enabled-quest `.seq` (`housecarl_write_seq`).
-- Check each voiced line for its `.fuz` on disk and report a **WILL BE SILENT** line (built into create;
-  re-checked by `housecarl_validate_dialogue`).
-- Validate a topic's or quest's whole dialogue graph and read the load-order-winning records
-  (`housecarl_validate_dialogue`, `housecarl_read_record`, `housecarl_cross_plugin_query`).
+Distribution is somebody else's lane: a form onto NPCs is `housecarl:spid-authoring`, a keyword onto
+items is `housecarl:kid-authoring`, a record's own fields with no ESP is `housecarl:skypatcher-authoring`.
+(On a Codex install those siblings appear under their bare folder names — `spid-authoring`, and so on.)
 
-**What houseCARL CANNOT do — say it, never paper over it:**
-- **Evaluate `Conditions` (CTDA).** Conditions decide *when* a line fires. houseCARL **can** statically catch a
-  meaningful subset of **malformed** conditions — `housecarl_validate_dialogue` flags a dangling form reference,
-  a dead quest-alias index, an unset Run On reference, and a `GetIsID` pointed at a placed instance (it recognizes
-  the engine-implicit `PlayerRef` `000014`/`Player` `000007` forms, so a standard player-state gate — `HasSpell` or
-  an actor-value check Run On `PlayerRef` — validates clean, not false-flagged as missing) — and it can
-  read a condition back and **decode** it (the function, its parameters, its Run On scope —
-  [`references/condition-functions.md`](references/condition-functions.md)) so you can check it by eye. What it
-  **cannot** do is **evaluate** whether a *well-formed* condition passes — only the running game can. So a
-  well-formed but *wrong* condition (the wrong stage number, the wrong Run On for the intent) still silently
-  stops a line forever — that remains the single most common silent-dead-dialogue cause and on the author to get
-  right.
-- **Record voice audio or verify lip-sync.** Voice presence is an on-disk file check; the audio content and
-  voice *acting* are out of scope.
-- **Promise "this will play" from a clean structural pass.** A green validate means the wiring resolves —
-  not that the conditions are correct, the audio exists, or the conversation reads well.
+## Adding one line to an existing topic — the fast path
 
-The Skyrim-specific knowledge lives in the `references/` files — read the one your task touches:
-- [`references/dialogue-flow-model.md`](references/dialogue-flow-model.md) — how DLVW/DLBR/DIAL/INFO connect
-  and what drives the flow (conditions, LinkTo, quest stage, PNAM, and the cross-plugin line MERGE that
-  decides order). **Read this before authoring or auditing anything.**
-- [`references/condition-functions.md`](references/condition-functions.md) — how to **decode** a condition
-  (CTDA): function + params + Run On (Subject vs Target), the operators and the `OR` flag, a curated table of
-  the dialogue/quest condition functions, and CTDA-vs-Papyrus-only. Read before reading or composing any
-  `Conditions`.
-- [`references/dialogue-branch.md`](references/dialogue-branch.md) — the DLBR entry point: its fields and the
-  `TopLevel`/`Blocking`/`Exclusive` flags (one of which can silently lock an NPC out of all dialogue).
-- [`references/quest-objectives-tab.md`](references/quest-objectives-tab.md) — stages vs objectives vs log
-  entries, and why a line gates on the stage while the journal is driven by objectives.
-- [`references/seq-file-format.md`](references/seq-file-format.md) — why a start-game-enabled quest needs a
-  `.seq` and what the file is.
-- [`references/voice-file-naming.md`](references/voice-file-naming.md) — the `.fuz`/`.lip` path template and
-  the override folder trap.
+The commonest job, and it needs almost nothing below. **Point `parent` at the existing topic's
+FormID.** It resolves an existing record, not just a sibling created in the same call, so the topic
+and its bookkeeping already exist and you author one INFO:
 
-The condition / branch / quest references are **hand-curated** (sourced from the CK wiki + Mutagen's record
-model, not the by-construction generator), so they carry a staleness duty — provenance and the re-check
-checklist live in the corpus status note in the skill's source tree (dev-side; not shipped in the plugin).
+```json
+housecarl_create(
+  patch="MyGreeting", readback=true,
+  records=[{ "record_type": "DialogResponses", "editorid": "MyMod_BelethorHelloNew",
+             "parent": "02707A:Skyrim.esm",
+             "ops": [
+               { "field_path": "Speaker", "value": "013BA1:Skyrim.esm" },
+               { "field_path": "Responses", "op": "Add",
+                 "compose": { "type": "DialogResponse",
+                              "fields": { "Text": "Browse as you like.", "ResponseNumber": "1" } } } ] }])
+```
 
-## Read the flow model first
+Then sweep the patch before it is enabled — this lane works off-order, the dialogue one does not
+(section "Validate, then hand off"):
 
-Before composing or judging a line, internalise four counter-intuitive facts from the flow model — getting
-any of them wrong produces dialogue that looks right and plays wrong:
+```json
+housecarl_check(plugins=["MyGreeting.esp"], findings=["errors","scripts"])
+```
 
-- **Conditions decide which lines are ELIGIBLE; ORDER decides which eligible line plays.** The game walks
-  the topic top to bottom and plays the FIRST line whose `Conditions` pass (usually `GetStage` + a speaker
-  check). So when two lines both pass, position — not specificity — settles it, and a line that moved can
-  be pre-empted by a broader one ahead of it.
-- **`PreviousDialog` (PNAM) is ~unused in vanilla — but it is the position anchor.** It is empty across
-  effectively all vanilla content, so never read a missing PNAM as a bug; only a SET-but-dangling PNAM is a
-  defect. It earns its keep when you RE-LIST an existing line: a re-listed line carrying no PNAM is appended
-  to the BOTTOM of the merged topic, and its PNAM is what puts it back after its predecessor.
-- **`LinkTo` is the real conversation chain** (topic → next topic), not PNAM.
-- **Lines MERGE across plugins; a conflict changes ORDER, not membership.** The winning topic's `Responses`
-  is NOT the whole in-game line set — a line another plugin adds still plays even if your override doesn't
-  list it. Re-listing a line moves it to the bottom. See the editing section below.
+Set **no `PreviousDialog`** and re-list nothing: adding a line moves nothing already in the topic.
+Set `Speaker` **in the create call** if you want houseCARL to print the expected `.fuz` path — with
+no speaker the voice type comes from the quest alias at runtime and cannot be computed, and setting
+it afterwards does not backfill, because voice and result-script coverage are checked on create.
 
-## Player-topic semantics — where each piece of text goes
-
-A player-choice topic can be byte-perfect — every subrecord present, `housecarl_validate_dialogue` green —
-and still play absurdly, because these rules govern *what the player sees and hears*, which no data-layer
-check can evaluate. They cost a shipped dialogue mod a full rework; internalise them before composing a
-conversation, then reason each line through by hand.
-
-- **In a player topic, the two text fields swap speakers.** `INFO.Prompt` is the **player's** menu line
-  (the button they click); `INFO.Responses` is the **NPC's** reply to it — *not* player-spoken text. Put the
-  prompt text into `Responses` and the NPC parrots the player's own words back.
-- **`LinkTo` sets which player options appear NEXT, not what the NPC says.** The linked topic's `Name`
-  becomes the next menu button. Wiring an NPC reply as a `LinkTo` target produces a clickable option
-  literally labelled with that topic's name ("Wench reply"). The NPC's reply belongs in the current INFO's
-  `Responses` (one INFO can hold several `DialogResponse` rows — that *is* the multi-line-speech idiom);
-  `LinkTo` is only for the *player's* follow-up choices.
-- **A conversation ender needs `Flags.Flags = Goodbye` on the INFO.** Without it the menu reopens after
-  every reply and the player can never leave the exchange. The create tools materialize the `Flags` struct
-  for CK-parity (job 1c) but leave `Goodbye` **unset** — it's an authoring semantic, not a default; set it
-  on the INFO that ends the exchange.
-- **Keep an INFO's `Conditions` mutually exclusive across the topic, so intra-topic order never matters.**
-  Only the first condition-passing INFO in a topic plays; when two INFOs can both pass, which one wins falls
-  back to file group order — a fragile thing to lean on. Exclusive conditions make the outcome
-  order-independent, and it's *why* pure houseCARL output needs no CK ordering pass (see "Do you need to
-  open the Creation Kit?" below).
-
-**Branching an NPC's reply on a single click.** A single player click evaluates every candidate INFO's
-`Conditions` *once*, when the option is chosen — so an INFO's result-script fragment cannot roll a random or
-branching outcome and *then* have sibling INFOs condition on it (their conditions were already tested). The
-clean pattern, proven in a shipped mod: **pre-roll the outcome before the click.** Register the deciding
-actor's script for the `Dialogue Menu` open (`RegisterForMenu("Dialogue Menu")`), write the result into
-globals as the menu opens, then let one topic hold every outcome INFO, condition-disambiguated on those
-globals — each a complete exchange. The click just selects the INFO the pre-roll already satisfied.
+The write reports a **lean host**: the parent topic is hosted from the plugin that *defines* it, and
+names whichever plugin currently wins it. That is information, not a defect — the new child is
+carried whichever way you sort. Do not "fix" it by forwarding the winning parent in; that drags that
+plugin's re-listed INFO children into your patch and re-opens the reorder trap. One call settles
+whether it matters at all: `housecarl_records(formids=["<topic>"], source="<winner>.esp",
+versus="<definer>.esm", project={"form":"delta"})` — differences confined to `FormVersion` and the
+child list mean the lean host costs nothing.
 
 ## The five jobs a silent INFO insert skips
 
 | # | Job | How | Gotcha |
 |---|-----|-----|--------|
-| 1 | Wire topic ↔ branch ↔ quest | set `DialogTopic.Quest`/`Subtype`/`Category`; author a `DialogBranch` whose `StartingTopic` points at the topic (its entry point) | a `Custom` topic with no inbound branch or `LinkTo` is byte-valid but **never entered**; `Subtype`/`Category` enum values via `mutagen-reference` |
-| 1b | SNAM subtype marker | just set `Subtype` — `housecarl_bulk_create`/`housecarl_create_record` **auto-fill** the `SubtypeName` (SNAM) marker from it (Custom→`CUST`, Hello→`HELO`, Goodbye→`GBYE`…) and report it | the game buckets topics by this 4-char marker, so a **new** topic with a `Subtype` but a **blank** marker (0000) is a **load CTD**; only set `SubtypeName` by hand to override, or when editing a topic outside the create path (then `housecarl_validate_dialogue` flags a blank one) |
-| 1c | CK-parity subrecords | the create tools **auto-fill** the nullable subrecords the CK always writes but Mutagen omits, and report each — **crash-fixers:** INFO `FavorLevel` (CNAM)→`None` + `Flags` (ENAM)→empty, DLVW `DNAM`→`00` / `ENAM`→`00000000`; **byte-parity:** DLBR `Category` (TNAM)→`Player`, DIAL `Priority` (PNAM)→`50`, QUST `NextAliasID` (ANAM) + each objective's `Flags` (FNAM)→`0` | an INFO with no CNAM/ENAM **crashes the Creation Kit** when its topic is opened (the game tolerates it); a bare DLVW crashes the CK **Dialogue Views** editor. All are **non-override** — an explicit value always wins (incl. `Priority=0`, or `Category=Command` for a bribe/intimidate branch). `Branch` (BNAM) can't be auto-derived, so it stays yours — set it to the owning `DialogBranch`; `housecarl_validate_dialogue` **warns** a `Custom` topic with no BNAM (the same CK-views crash). `Goodbye` enders still need `Flags.Flags=Goodbye` set by hand |
-| 2 | Order / chain the lines | `Responses` list order + `Conditions`; `LinkTo` for topic→topic | set `PreviousDialog` ONLY for a real forced sequence |
-| 3 | Result (TIF) scripts | compose the line's `VirtualMachineAdapter` binding, then `housecarl_compile_script` | create-time teeth check the binding + `.pex` presence |
-| 4 | SEQ for start-game-enabled quests | set the quest's Start-Game-Enabled flag, then `housecarl_write_seq` | ticking the flag alone does nothing |
-| 5 | Voice | provide the `.fuz`/`.lip`; heed the WILL BE SILENT note | the folder is the **defining** plugin, not the conflict winner |
+| 1 | Wire topic ↔ branch ↔ quest | set `DialogTopic.Quest` / `Subtype` / `Category`; author a `DialogBranch` whose `StartingTopic` points at the topic | a `Custom` topic with no inbound branch and no inbound `LinkTo` is byte-valid and **never entered** |
+| 1b | The SNAM subtype marker | set `Subtype` on the topic and let the create path derive the marker | a new topic with a `Subtype` but a **blank** marker is a **load CTD**; set `SubtypeName` by hand only to override, or when editing a topic outside the create path |
+| 1c | CK-parity subrecords | let `housecarl_create` fill them; it reports each field it filled | an INFO with no CNAM/ENAM **crashes the Creation Kit** when its topic is opened (the game tolerates it); a bare DLVW crashes the CK's Dialogue Views editor. `Branch` (BNAM) cannot be derived — set it yourself, and `Goodbye` enders still need `Flags.Flags = Goodbye` |
+| 2 | Order and chain the lines | the `Responses` list order plus each INFO's `Conditions`; `LinkTo` for topic → topic | `PreviousDialog` is for a real forced sequence, or a line you re-list — never a chain across a topic you wrote |
+| 3 | Result (TIF) scripts | compose the line's `VirtualMachineAdapter` binding, then `housecarl_compile_script` | the create reports a binding that is unwired or uncompiled |
+| 4 | The `.seq` for a start-game-enabled quest | set the quest's flag, then `housecarl_write_seq` | ticking the flag alone does nothing: the quest, and all its dialogue, never starts |
+| 5 | Voice | provide the `.fuz` / `.lip` yourself | the folder is the **defining** plugin, never the conflict winner |
 
-Jobs 1–2 are ordinary field writes you supply; the engine never guesses the right quest or condition for
-you. Jobs 3–5 compose existing houseCARL tools. The orchestration — which jobs apply, in what order — is
-this skill's job.
+Jobs 1–2 are field writes you supply; nothing guesses the right quest or condition for you. Jobs 3–5
+compose existing tools. Deciding which apply, and in what order, is this skill's work.
 
-## Workflow — author a conversation
+## Order, and the reorder trap
 
-1. **Resolve the targets.** Identify the speaker (an NPC or a quest alias — its voice type matters for the
-   voice check), the quest the dialogue is gated on, and whether you need a new branch or are attaching to
-   an existing topic. Read existing records with `housecarl_read_record` / `housecarl_cross_plugin_query`
-   and confirm every field path with `mutagen-reference` before composing.
+**Lines are not dropped by a dialogue conflict.** Every plugin that touches a topic contributes its
+lines and the game merges them, so a line you do not re-list still plays. What a conflict changes is
+**order**. "Lines vanished" almost always means a line is still there but now sits behind a broader
+one that also passes.
 
-2. **Author the topic and its lines in one call** with `housecarl_bulk_create` — declare the `DialogTopic`
-   first, then each `DialogResponses` with `parent` naming the topic's editorid (that nests the line into
-   the topic's `Responses`, so a line cannot stand alone). A worked example — a player-choice topic with two
-   lines, the second chaining on to another topic:
+**Where position decides, and where it does not.** In a topic whose lines are disambiguated by their
+`Conditions`, the eligible set is what matters and order settles a tie: the game walks the topic and
+plays the first line whose conditions pass. That rule does **not** extend to generic greeting
+subtypes. Belethor's six vanilla `Hello` lines carry no `Random` flag and demonstrably cycle in game;
+houseCARL says the same from the other side, treating an empty previous-link as normal because
+vanilla selects among a topic's lines by their conditions rather than a chain, and keeping the merged
+order out of its findings entirely. **How the engine picks among eligible generic greetings is not
+something this skill or houseCARL can tell you**, and which *topic* is reached at all is decided
+across topics by quest priority. So do not tell a user a bottom-appended `Hello` line is starved; say
+what is known and what is not.
+
+**The trap is the reverse of how it looks: re-listing a line moves it to the bottom** unless the
+re-listing plugin also carries that line's `PreviousDialog` (PNAM). "Carry forward every line to be
+safe" reorders the whole topic into your override's order and *causes* the bug. The rule is two
+halves, and they are not the same job:
+
+- **Adding a line** — list only your new line. Nothing else moves. Give it a PNAM only if it must sit
+  at a particular spot rather than last.
+- **Changing an existing line** — an override of an existing INFO *is* a re-list structurally, so
+  editing one line's text moves it to the bottom unless you **carry its PNAM**. Treat that as the
+  default. Vanilla lines carry none, so there is nothing to inherit and you must supply it — which is
+  exactly what a well-behaved patch like USSEP does when it re-lists six lines and moves none.
+
+**Removing a line is not done by omitting it,** and `housecarl_remove` usually is not the tool.
+Omission is a no-op. On the default lane `housecarl_remove` drops *your patch's* override, reverting
+the line to the underlying winner, so it plays as before; it genuinely removes an INFO only for a
+record your own plugin created, or with `in_place="<plugin>.esp"` plus `acknowledge=true` on the
+first such write. The lever that is verifiable from the data layer is **conditioning the line out** —
+`housecarl_apply` an entry onto `Conditions` that cannot pass, then read it back. The other lever is
+marking the INFO deleted (`housecarl_apply` on `IsDeleted`); treat that as **inferred, not measured**
+— prefer conditioning-out, and if you use it, verify in game.
+
+**The in-place lane sidesteps the trap entirely.** Where the topic lives in a plugin you own,
+`in_place="<plugin>.esp"` edits the original records, so nothing is re-listed and nothing moves.
+
+**You do not need the Creation Kit for any of this.** A byte-diff of pure houseCARL output against
+the same plugin after a CK open-and-save came to **+90 bytes = 9 INFO `PNAM` subrecords and nothing
+else** — every other subrecord the CK writes, houseCARL had already written.
+
+## Workflow — author a new conversation
+
+1. **Resolve the targets.** The speaker (an NPC or a quest alias — its voice type decides the voice
+   folder), the quest the dialogue gates on, and whether you need a new branch or are attaching to an
+   existing topic. Read a real vanilla line of the kind you are writing first.
+2. **Author the topic and its lines in one call** with `housecarl_create`. Declare the `DialogTopic`
+   first, then each `DialogResponses` with `parent` naming the topic's editorid — that nests the line
+   into the topic's `Responses`, and a line cannot stand alone:
 
    ```json
    records=[
      { "record_type": "DialogTopic", "editorid": "MyMod_AskRing",
-       "operations": [
-         { "field_path": "Quest",   "value": "001A2B:MyMod.esp" },
-         { "field_path": "Subtype", "value": "Custom" },
-         { "field_path": "Name",    "value": "Tell me about the ring." } ] },
+       "ops": [ { "field_path": "Quest",   "value": "001A2B:MyMod.esp" },
+                { "field_path": "Subtype", "value": "Custom" },
+                { "field_path": "Name",    "value": "Tell me about the ring." } ] },
 
      { "record_type": "DialogResponses", "editorid": "MyMod_AskRing_L1", "parent": "MyMod_AskRing",
-       "operations": [
-         { "field_path": "Prompt",    "value": "Tell me about the ring." },
-         { "field_path": "Speaker",   "value": "0008F2:MyMod.esp" },
-         { "field_path": "Responses", "verb": "Add",
-           "compose": { "type": "DialogResponse",
-                        "fields": { "Text": "It is older than this city.", "ResponseNumber": "1" } } } ] },
-
-     { "record_type": "DialogResponses", "editorid": "MyMod_AskRing_L2", "parent": "MyMod_AskRing",
-       "operations": [
-         { "field_path": "Speaker",   "value": "0008F2:MyMod.esp" },
-         { "field_path": "Responses", "verb": "Add",
-           "compose": { "type": "DialogResponse",
-                        "fields": { "Text": "Take it, and be careful.", "ResponseNumber": "1" } } },
-         { "field_path": "LinkTo",    "verb": "Add", "value": "00C3D4:MyMod.esp" } ] }
+       "ops": [ { "field_path": "Prompt",  "value": "Tell me about the ring." },
+                { "field_path": "Speaker", "value": "0008F2:MyMod.esp" },
+                { "field_path": "Responses", "op": "Add",
+                  "compose": { "type": "DialogResponse",
+                               "fields": { "Text": "It is older than this city.",
+                                           "ResponseNumber": "1" } } } ] }
    ]
    ```
 
-   Three points about the shape, each checked against the write surface:
-   - **`parent`** nests a line into its topic's `Responses` — how the one-shot says "this line belongs to
-     that topic."
-   - **A spoken row is a composed struct:** `verb:"Add"` with `compose:{ "type":"DialogResponse", "fields":{…} }`.
-     The `type` is required and the values sit under `fields` as **strings** (coerced server-side), so
-     `"ResponseNumber":"1"`, not `1`. (`DialogResponse`, singular, is the spoken-row struct; `DialogResponses`
-     is the INFO record.)
-   - **Same-call links use `@editorid`.** A record created in the same call has no FormKey yet, so reference it
-     as `@editorid` — valid **only** as a `Set` value on a **singular** FormLink (`Topic`, `PreviousDialog`,
-     `Branch`). E.g. to force L2 after L1 (the rare deliberate-sequence case — see the flow model) add
-     `{ "field_path":"PreviousDialog", "value":"@MyMod_AskRing_L1" }` to L2. A **list** FormLink like `LinkTo`,
-     and any existing or external record, takes a `XXXXXX:Plugin.esp` FormID instead — as the cross-topic
-     `LinkTo` above does.
+   A spoken row is a composed struct: `op:"Add"` with `compose:{ "type":"DialogResponse", "fields":{…} }`,
+   values as strings (`"ResponseNumber":"1"`, not `1`). `DialogResponse` singular is the spoken row;
+   `DialogResponses` is the INFO record.
+3. **Make it reachable.** A `Custom` topic with no entry point is byte-valid and never entered — only
+   generic subtypes are matched without one. Author a `DialogBranch` whose `StartingTopic` names the
+   topic. Each new record's FormID is reported back, and that FormID plus a second call on the same
+   lane (`into="<this patch>.esp"`) is how one new record is made to point at another.
+4. **Author the conditions deliberately.** A line with no conditions fires whenever its topic is
+   reached; gate it with `GetStage` and a speaker check. A well-formed but *wrong* condition is the
+   single most common cause of permanently silent dialogue, and no tool can catch it — houseCARL can
+   decode a condition and flag a malformed one, but only the running game can evaluate one.
+5. **Result scripts, if the line does something.** Compose the `VirtualMachineAdapter` binding, author
+   the `.psc`, compile it with `housecarl_compile_script`.
+6. **Voice.** Provide the audio. On an override the folder is the INFO's *defining* plugin, not the
+   winner.
+7. **The `.seq`, if the quest starts at game start.** Set the flag, then run `housecarl_write_seq`
+   against the plugin. After an in-place edit the `.esp` sits in the mod's own folder, so pass
+   `output_dir=` that folder and the `.seq` lands beside it.
 
-   The call is **all-or-nothing**: if any spec is malformed, nothing is written.
+**Player-choice topics have their own semantics, and they are easy to get backwards** — `Prompt` is
+the *player's* button, `Responses` is the *NPC's* reply to it, and `LinkTo` sets the player's next
+options rather than anything the NPC says. Read `references/player-topics.md` before composing a menu.
 
-   **Reachability — this example is not yet enterable.** `MyMod_AskRing` is a `Custom` topic with no entry
-   point, so as written it is byte-valid but the game never reaches it (only generic subtypes like Hello /
-   Goodbye are matched without one — see the flow model). A new player-choice menu needs a `DialogBranch`
-   (DLBR) whose `StartingTopic` points at the topic; author it in the **same** call, declared *after* the
-   topic, with `StartingTopic` set to `@MyMod_AskRing`. The reverse `DialogTopic.Branch → DLBR` back-link
-   can't be set in the same call (`@editorid` resolves only *earlier* siblings) — set it with a follow-up
-   `into=` edit if you want it, though `Branch` is usually left unset. (Adding a line to an *existing* topic
-   needs none of this — its entry point already exists.)
+## Validate, then hand off
 
-3. **Author the conditions deliberately** — the validator can check them for *malformedness* but never
-   *evaluate* whether a well-formed one passes. A line with no
-   conditions fires whenever its topic is reached; gate it with `GetStage` (quest progress) and a speaker
-   check (`GetIsID`/alias) as the flow model describes. Compose each `Condition` per `mutagen-reference`
-   (it is a polymorphic list); [`references/condition-functions.md`](references/condition-functions.md) has
-   the function param shapes and the Run On (Subject vs Target) scoping. Wrong conditions are the #1
-   silent-dead-dialogue cause — there is no tool that will catch them, so reason them through.
+`housecarl_check(findings=["dialogue"], seeds=["<DIAL or QUST FormID>"])` walks the graph: the topic
+is wired to a quest, the branch resolves, the `LinkTo` chain and every previous-link resolve, each
+voiced line's `.fuz` is on disk, each result script is bound and compiled, and a start-game-enabled
+quest's `.seq` is present and current. A DIAL seed checks one topic; a QUST seed checks every topic
+that quest owns. It refuses to claim more: it cannot evaluate a well-formed condition and does not
+check lip-sync or audio, so a clean pass is never "this will play".
 
-4. **Result scripts, if the line does something.** Compose the line's `VirtualMachineAdapter` script binding
-   (the `TIF_`-style fragment), author the `.psc`, and compile it with `housecarl_compile_script` (never
-   hand-roll `PapyrusCompiler.exe` — the tool sets the import paths and quotes spaced paths). The create-
-   time check flags a line whose result script isn't bound + compiled (**WILL NOT FIRE**). Use
-   `papyrus-reference` for function signatures.
+**It cannot see the plugin you just wrote.** The dialogue family is seeded, a seed must resolve in the
+active load order, and no plugin scope narrows it — so before the mod is enabled the coverage you can
+actually get is `housecarl_check(plugins=["<patch>.esp"], findings=["errors","scripts"])`, which does
+sweep off-order. Run that first, then have the user enable the mod and seed the dialogue check
+afterwards. Issue **#615** is the gap.
 
-5. **Voice.** For each voiced line, houseCARL computes the expected `.fuz` path and reports **WILL BE
-   SILENT** if it's absent. Provide the audio yourself (acting is out of scope). On an override, remember
-   the folder is the INFO's *defining* plugin, not the winner — see the voice reference.
+The effective merged INFO order — which line moved and which plugin moved it — is not a finding at
+all. It is a projection: `housecarl_records(formids=["<topic>"], project={"form":"info_order"})`.
+That is the check for the reorder trap, and the one a reader most often looks for in the wrong place.
 
-6. **SEQ, if the quest starts at game start.** Set the quest's Start-Game-Enabled flag, then run
-   `housecarl_write_seq` against the plugin. Without it the quest — and all its dialogue — silently never
-   starts. (A plugin with no such quests needs no `.seq`; the tool reports that.) If a later **in-place** edit
-   or removal prunes a master, the on-disk FormIDs shift and the existing `.seq` goes stale — houseCARL flags
-   this in the write's read-back note so you re-run `housecarl_write_seq` (it flags, never silently rewrites).
-   After an **in-place** edit the `.esp` is in the mod's own folder — pass `output_dir=` that mod folder so the
-   `.seq` lands beside it rather than in a separate houseCARL mod you then have to enable. Re-running against a
-   lane-named destination is free: a byte-identical `.seq` is left alone (reported `unchanged`). See
-   `references/seq-file-format.md`.
-
-7. **Validate, then verify.** Run `housecarl_validate_dialogue` on the topic (a DIAL FormID) or the whole
-   quest (a QUST FormID). It checks what it can — quest/branch wiring, `LinkTo` and PNAM resolve, voice
-   present, scripts bound, and every `<Global=X>` text-replacement tag backed by a global in the quest's
-   `TextDisplayGlobals` (an unbacked tag renders as `[...]` in game — a silent failure it now warns on) — and
-   **prints a standing-limits footer for what it cannot** (the CTDA conditions,
-   lip-sync, the audit scope, and the line-order blind spot). Treat the footer as real: a clean pass is not "this will play."
-   Read the new records back (`full_readback` on the create call) before telling the user to enable + sort
-   the patch in MO2.
-
-## Do you need to open the Creation Kit? No.
-
-A dialogue plugin authored entirely through houseCARL plays without ever opening the CK — measured, not
-asserted. A byte-diff of pure-houseCARL output against the *same* plugin after a CK open+save came to **+90
-bytes = 9 INFO `PNAM` subrecords and nothing else** — the CK's intra-topic order bookkeeping. No TNAM,
-TIFC, SNAM/BNAM/DNAM/ENAM/CNAM, or re-layout changed: houseCARL's CK-parity auto-fills (job 1c) already
-wrote every subrecord the CK would. The reference mod ran from pure houseCARL output across multiple
-in-game sessions *before* any CK save existed.
-
-The one thing a CK save adds — the PNAM chains — only matters for a topic that depends on **first-valid-wins
-ordering among overlapping conditions**, and the fix is at authoring time, not in the CK: keep the topic's
-INFO `Conditions` mutually exclusive (above), or set `PreviousDialog` (PNAM) chains yourself —
-houseCARL's `@editorid` sibling links set a forced intra-topic sequence in one call. So the CK is never
-*required*; reach for it only if you specifically want the editor's flowchart view, knowing houseCARL has
-already written the bytes.
-
-## Editing an existing topic — the reorder trap
-
-Lines are **not dropped** by a dialogue conflict. Every plugin that touches a topic contributes its lines
-and the game merges them, so a line you don't re-list still plays. What a conflict changes is **order** —
-and order is what decides which line answers, since the game walks the topic top to bottom and plays the
-first line whose conditions pass. "Lines vanished" almost always means a line is still there but now sits
-behind a broader line that also passes, so it is never reached.
-
-The trap is the reverse of how it looks: **re-listing a line moves it to the bottom**, unless you also carry
-that line's `PreviousDialog` (PNAM). So "carry forward every line to be safe" — the advice this section used
-to give, and still common in the wild — reorders the whole topic into your override's order and *causes* the
-bug.
-
-The rule, in two halves, because they are **not** the same job:
-
-- **Adding a line** — list only your new line. Nothing else moves. If it must sit at a particular spot
-  rather than last, set its PNAM to the line it should follow.
-- **Changing an existing line** — an override of an existing INFO *is* a re-list, structurally: it has to
-  sit in your plugin's copy of the topic. So editing one line's text moves that line to the bottom unless
-  you **carry its PNAM**. Treat that as the default, not a special case: **when you change an existing
-  line, set its `PreviousDialog` to whatever line preceded it**, or accept that it moves. Vanilla lines
-  carry no PNAM (empty in 2,757/2,757 topics surveyed), so there is nothing to inherit — you must supply
-  it. This is precisely what a well-behaved patch like USSEP does: it re-lists six lines of a topic and
-  moves none of them, because each carries its PNAM.
-
-**Removing a line is not done by omitting it, and `housecarl_remove_record` usually isn't the tool.** Omission
-is a no-op — the line still plays. And `remove_record` is a literal drop-from-plugin, *not* a flag-as-deleted,
-so what it does depends on whose record you point it at:
-
-- **A third party's line, via an override in your patch (the default lane)** — it deletes the override *your
-  patch* carries, reverting the line to the underlying winner, so it plays exactly as before. Here the tool
-  named "remove" undoes your own work; use one of the levers below instead.
-- **A line your own plugin created, or the original record in the in-place lane** (`in_place=true`) — it
-  genuinely removes that INFO, which is right and is the tool you want.
-
-The lever that is verifiable from the data layer is **conditioning the line out** — give it a `Conditions`
-entry that cannot pass (`housecarl_set_field` on `Conditions`). The line remains, is never selected, and you
-can confirm the change by reading the record back.
-
-The other lever is marking that INFO **deleted** in your override (`housecarl_set_field` on `IsDeleted` —
-writable per the schema; *not* `remove_record`). Treat this as **inferred, not measured**: houseCARL's own
-handling is consistent with a deleted line not playing — the validator skips deleted INFOs and the effective
-order keeps the slot flagged — but this skill has no measurement proving the engine ignores it, and deleted
-records carry their own well-known hazards in Skyrim modding. Prefer conditioning-out where it works; if you
-do use the deleted flag, verify in game rather than trusting this paragraph.
-
-`housecarl_validate_dialogue` prints the topic's effective merged order and flags any line whose position
-moved, naming the plugin that moved it — that is the check for this.
-
-**The in-place lane sidesteps the trap entirely.** If the topic lives in a plugin you own (or are willing to
-edit directly), the write tools' in-place lane (`target=<plugin>`, `in_place=true`, `acknowledge=`) edits the
-original DIAL/INFO records instead of authoring an override — so nothing is re-listed and nothing moves. The
-override lane above (the default, originals untouched) is still the right choice for patching a *third-party*
-plugin you don't want to rewrite.
-
-> Corrected 2026-07-27 (#275) — this section previously taught the "DIAL wins wholesale" dropped-line model.
-
-## Write-side recipes — clone a condition gate, write a CK-refused subtype
-
-Three repeatedly-needed edits to *existing* dialogue ride the write tools you already have —
-`housecarl_bulk_apply` and `housecarl_set_field` — each with one sharp edge worth stating once.
-
-**Recipe A — clone a verified condition gate onto N empty Infos. NEVER hand-synthesize the operator bytes.**
-A `Condition` (CTDA) is a polymorphic struct — a `ConditionFloat` carrying a `CompareOperator`, a
-`ComparisonValue`, and a polymorphic `Data` (the function + its params). *Computing* that encoded
-operator/comparison by hand is exactly what once wrote 26 broken conditions onto one gate. So don't — **read
-a known-good gate back and replay its rows verbatim**:
-
-1. Build the gate once (in CK, or on one Info you've validated) and read it back with `housecarl_read_record`
-   (`Conditions`, deep). That array is your source of truth — every field below is **copied, nothing computed**.
-2. For each target Info, **read it first and skip any that already carry `Conditions`** — there is no
-   idempotent verb, so the read-then-skip is yours to do, and it is what makes a re-run safe.
-3. Replay each source row as a composed `Add` into the target's `Conditions`. One `Add` per row; the
-   polymorphic element composes by its concrete arm, with `Data` composed by *its* arm:
-
-   ```json
-   operations=[
-     { "formid": "0A12C4:MyMod.esp", "field_path": "Conditions", "verb": "Add",
-       "compose": { "type": "ConditionFloat",
-                    "fields": { "CompareOperator": "GreaterThanOrEqualTo", "ComparisonValue": "20" },
-                    "sets": [ { "path": "Data",
-                                "compose": { "type": "GetStageConditionData",
-                                             "fields": { "Quest": "001234:MyMod.esp", "RunOnType": "Subject" } } } ] }
-     }
-     // ...one more Add per source row — arm type, CompareOperator, ComparisonValue, the Data arm + its
-     //    params copied verbatim from the read-back; confirm arm/field names via mutagen-reference...
-   ]
-   ```
-
-   Pass `full_readback=true` and confirm the written rows match the source before enabling the patch.
-   (Conditions-only edits do **not** need a `.seq` regen.)
-
-**Recipe B — write an INFO subtype CK's dropdown refuses to offer.** CK's player-dialogue subtype dropdown
-only lists subtypes already present in the branch, so you cannot pick e.g. `ForceGreet` there. The subtype
-lives on the **topic, not the line** — it is `DialogTopic.Subtype` (the DIAL); `DialogResponses` (the INFO)
-has no `Subtype` field. Copy the exact value from a known-good ForceGreet topic and write it with
-`housecarl_set_field`:
-
-   ```json
-   housecarl_set_field( formid="0B77E0:MyMod.esp", field_path="Subtype", value="ForceGreet" )
-   ```
-
-   (`ForceGreet` is the Mutagen spelling of xEdit's `PFGT` subtype — confirm the enum value in
-   `mutagen-reference`.) The write is non-destructive: it lands in a reviewable patch; read it back before
-   enabling + sorting in MO2.
-
-**Recipe C — un-bind a result-script fragment from an INFO.** Clearing a fragment binding is a supported
-`Remove` now — no `remove_record` + recreate. `Remove` the whole result-script adapter:
-
-   ```json
-   housecarl_set_field( formid="0A12C4:MyMod.esp", field_path="VirtualMachineAdapter", verb="Remove" )
-   ```
-
-   That nulls the entire `VirtualMachineAdapter` (all scripts + fragments) on the INFO. To drop only the
-   fragment binding while keeping any attached scripts, `Remove` the fragment field itself
-   (`field_path="VirtualMachineAdapter.ScriptFragments"`). Both are nullable-field clears the write engine
-   allows by construction (the adapter is a nullable substruct, `ScriptFragments` a nullable polymorphic
-   field); an explicit non-nullable/required field would refuse a `Remove` instead. Read back to confirm the
-   binding is gone before enabling the patch.
+Read the new records back (`readback=true` on the write), then tell the user what was written and
+where.
 
 ## Common mistakes
 
-- **Building a PNAM chain across a topic you authored, or flagging a missing one.** Vanilla topics have
-  empty PNAM and that is never a defect, so don't "complete the chain" on a topic you wrote yourself —
-  order it with the `Responses` list. **The exception is re-listing:** when your override carries a line
-  another plugin already had, set that line's `PreviousDialog` or it moves to the bottom of the merged
-  topic. Not a chain across the topic — one anchor on each line you re-list.
-- **Forgetting the SEQ.** A Start-Game-Enabled quest with no `.seq` never starts, and neither does its
-  dialogue. Ticking the flag is half the job — write the `.seq`.
-- **Reading a clean validate as "it'll play."** A green validate catches *malformed* conditions but never
-  proves a *well-formed* one is *correct* — a wrong `GetStage` value passes validation and is silent in game.
-  Always carry the standing-limits footer to the user.
-- **Computing the voice folder from the conflict winner.** It is the plugin that *defines* the INFO. For a
-  new plugin that's yours (clean); for an override it's the original's folder, where the audio lives.
-- **Putting the player's line in `Responses`, or an NPC reply behind `LinkTo`.** In a player topic `Prompt`
-  is the player's menu button and `Responses` is the NPC's reply; `LinkTo` sets the *next player options*,
-  not what the NPC says. Getting this backwards is byte-valid and plays absurdly — see the player-topic
-  semantics section.
-- **Re-listing lines you didn't change**, to "keep the topic complete" — it appends each one to the bottom
-  and reorders the topic, which is the actual cause of the conflict it was meant to avoid (the reorder trap
-  above).
-- **Hand-synthesizing CTDA operator/comparison bytes** instead of cloning a verified `Conditions` array
-  verbatim — computing the encoded operator once wrote 26 broken conditions. Read a good gate back with
-  `housecarl_read_record` and replay its rows (the write-side recipe above).
-- **Hand-rolling the Papyrus compile** instead of `housecarl_compile_script` — hand-rolled calls mangle
-  spaced paths and can hit originals; the tool quotes them and lands a reviewable `.pex`.
-- **Reaching for this skill when the user means distribution or a field edit.** Distributing a form to NPCs
-  is `spid-authoring`; a keyword onto items is `kid-authoring`; editing a record's own fields is
-  `skypatcher-authoring`. This skill authors the dialogue records.
+- **Set `PreviousDialog` on every line you re-list, and re-list nothing else.** Vanilla topics have
+  empty PNAM and that is never a defect, so never "complete the chain" on a topic you wrote. Carrying
+  lines forward "to keep the topic complete" appends each to the bottom and reorders the topic — the
+  exact conflict it was meant to avoid.
+- **Write the `.seq` whenever a quest is start-game-enabled.** Ticking the flag is half the job.
+- **Report a clean check as "the wiring resolves", never as "it will play".** A wrong `GetStage`
+  value is well-formed, passes every check, and is silent in game forever. Carry that limit to the
+  user rather than letting a green result speak for itself.
+- **Derive the voice folder from the plugin that defines the INFO.** For a new plugin that is yours;
+  for an override it is the original's folder, where the audio lives. The winner is the wrong answer.
+- **Clone a verified condition gate; never compute the operator bytes.** A condition is a polymorphic
+  struct, and hand-synthesizing its encoded operator once wrote 26 broken conditions onto one gate.
+  Read a known-good gate back and copy it — the mechanics are in `references/write-side-recipes.md`.
 
-## Notes
+## `references/`
 
-- **Field names and enums via `mutagen-reference`.** `DialogTopic.Subtype`/`Category` are enums and
-  `Conditions`/`Responses` are composed lists — confirm spellings and legal values there, don't guess.
-- **Quest scaffolding rides along.** A flat `QUST` and its stages/aliases/objectives are createable today
-  with `housecarl_create_record`/`housecarl_bulk_create`; this skill is the dialogue layer that wires onto
-  it. Set the quest up first, then author the topics that reference it.
-- **Result-script review.** For the TIF fragment's Papyrus, `papyrus-reference` has the signatures — a
-  result script that stack-dumps is its own silent failure.
-- **Out of lane.** Exterior-cell-keyed placement and runtime-spawned (`FFxxxxxx`) speakers are separate
-  capabilities, not dialogue authoring — name the limit rather than guessing a path.
+- `references/dialogue-flow-model.md` — how the records connect and what actually drives the flow:
+  conditions, `LinkTo`, quest stage, PNAM, and the cross-plugin merge that decides order. **Read it
+  before authoring or auditing anything**, and before trusting any claim about which line plays.
+- `references/condition-functions.md` — decoding a condition you read back: function, parameters, Run
+  On, operators, the `OR` flag. Read it before reading or composing any `Conditions`.
+- `references/player-topics.md` — player-choice topics: which text the player sees, which the NPC
+  speaks, the ender flag, and how to branch an NPC's reply on one click. Read it before composing a
+  player menu; a line that is byte-perfect here still plays absurdly if these are backwards.
+- `references/write-side-recipes.md` — repeatedly-needed edits to *existing* dialogue: cloning a
+  verified condition gate onto many lines, writing a subtype the CK will not offer, un-binding a
+  result script. Read it when the job is an edit rather than an authoring pass.
+- `references/dialogue-branch.md` — the DLBR entry point, its fields and the three flags. Read it when
+  a `Custom` topic needs an entry point, or when an NPC has gone silent across the board.
+- `references/quest-objectives-tab.md` — stages, objectives and log entries, and which of the three a
+  line actually gates on. Read it when the dialogue is right and the journal is wrong.
+- `references/seq-file-format.md` — what a `.seq` is and why a start-game-enabled quest is dormant
+  without one. Read it when job 4 applies.
+- `references/voice-file-naming.md` — the `.fuz` / `.lip` path template and the override-folder trap.
+  Read it before deriving a voice path by hand, or when a line is silent in game.
+
+The condition, branch and quest references are hand-curated from the Creation Kit wiki and Mutagen's
+record model, not generator output — confirm a spelling against `housecarl:mutagen-reference` or a
+real record before relying on it.
+
+## Notes and out of lane
+
+- **Read an exemplar before reaching for a schema.** One `project={"form":"everything"}` read of a
+  real vanilla line of the kind you are writing gives every field name, every enum value and the exact
+  condition shape in one call. Where there is no exemplar — a field nothing nearby carries, an enum
+  you need the full legal set for — `housecarl:mutagen-reference` has it. Do not guess either way.
+  For the Papyrus in a TIF fragment, `housecarl:papyrus-reference` has the function signatures.
+- **Quest scaffolding rides along.** A flat `QUST` with its stages, aliases and objectives is
+  createable with `housecarl_create`; this skill is the dialogue layer that wires onto it. Set the
+  quest up first, then author the topics that reference it.
+- **Out of lane.** Exterior-cell-keyed placement and runtime-spawned (`FFxxxxxx`) speakers are
+  separate capabilities, not dialogue authoring — name the limit rather than guessing a path.
