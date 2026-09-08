@@ -6,8 +6,8 @@ description: >-
   7.3.0 grammar. Load it before composing or judging any SPID line: a misread filter silently
   changes who is targeted, and an unparseable one is skipped with no error. Use when writing or
   auditing a `_DISTR.ini`, targeting NPCs by faction, race, level or trait, or asking why a line
-  isn't distributing. Not this skill: a keyword onto item records is KID, items into containers is
-  CID, a record's own fields is SkyPatcher.
+  isn't distributing. Not this skill: a keyword onto item records is KID, a record's own fields and
+  an individual NPC's edits are SkyPatcher.
 compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 2 instance.
 ---
 
@@ -22,10 +22,10 @@ from scratch each launch, so a SPID mod is trace-free to add or remove. This ski
 reads SPID lines, taking every form type, filter, modifier and value from `references/` — look a
 token up, never invent one, because a wrong token fails silently.
 
-**Scope.** SPID's target is NPCs. A keyword onto *item records* is `housecarl:kid-authoring`; a
-record's *own fields* are `housecarl:skypatcher-authoring`; items into *containers* is CID, which has
-no skill here. Siblings carry the `housecarl:` prefix on a Claude Code plugin install; a Codex flat
-install sees the bare folder name (`kid-authoring`).
+**Scope.** SPID's target is NPCs *by group* — faction, race, class. A keyword onto *item records* is
+`housecarl:kid-authoring`; a record's *own fields*, and an *individual* NPC's edits, are
+`housecarl:skypatcher-authoring`. Siblings carry the `housecarl:` prefix on a Claude Code plugin
+install; a Codex flat install sees the bare folder name (`kid-authoring`).
 
 ## First step — open the grammar reference
 

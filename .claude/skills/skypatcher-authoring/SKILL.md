@@ -1,7 +1,7 @@
 ---
 name: skypatcher-authoring
 description: >-
-  Authors and interprets SkyPatcher INI patches — runtime, no-ESP edits that filter Bethesda records and set, add or remove those records' own fields (SkyPatcher 6.4.1 grammar). Load before any SkyPatcher line — the `Plugin.esp|FormID` addressing, the per-type subfolder and the filename gate are non-obvious, and a wrong token fails silently. Use when writing or auditing a SkyPatcher `.ini`, rebalancing weapons, armor, NPCs or leveled lists without an ESP, or asking why a patch line isn't applying. Not for distribution — forms onto NPCs is SPID, keywords onto items is KID, items into containers is CID.
+  Authors and interprets SkyPatcher INI patches — runtime, no-ESP edits that filter Bethesda records and set, add or remove those records' own fields (SkyPatcher 6.4.1 grammar). Load before any SkyPatcher line — the `Plugin.esp|FormID` addressing, the per-type subfolder and the filename gate are non-obvious, and a wrong token fails silently. Use when writing or auditing a SkyPatcher `.ini`, rebalancing weapons, armor, NPCs or leveled lists without an ESP, or asking why a patch line isn't applying. Not for distribution — distribution to NPCs by group (faction, race, class) is SPID, keywords onto item records is KID.
 compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 2 instance.
 ---
 
@@ -9,10 +9,11 @@ compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 
 
 SkyPatcher is an SKSE plugin that edits Bethesda records at runtime from plain-text INI files — no
 ESP or ESL is produced for the edit itself. This skill composes and reads those patch strings and
-places the file where SkyPatcher will read it. SkyPatcher edits a record's own fields; it does not
-distribute. Two neighbouring jobs are someone else's: what fields a record has at the Mutagen/xEdit
-level, with their types and writability, is `housecarl:mutagen-reference`; putting forms onto NPCs
-or keywords onto items is `housecarl:spid-authoring` / `housecarl:kid-authoring`. On a Codex flat
+places the file where SkyPatcher will read it. SkyPatcher edits a record's own fields, an individual
+NPC's included; it does not distribute. Two neighbouring jobs are someone else's: what fields a
+record has at the Mutagen/xEdit level, with their types and writability, is
+`housecarl:mutagen-reference`; distribution to NPCs by group — faction, race, class — or a keyword
+onto item records is `housecarl:spid-authoring` / `housecarl:kid-authoring`. On a Codex flat
 install these siblings are the bare folder names — `mutagen-reference`, `spid-authoring`,
 `kid-authoring`.
 
