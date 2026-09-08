@@ -162,11 +162,15 @@ static class RowProjection
     static string Cell(FieldValue f, string rowKey, bool trimToType)
     {
         var val = f.HasValue ? f.Token : f.Note;
+        bool trimmed = false;
         if (trimToType && !f.HasValue && val is { Length: > 0 } n && n[0] == '['
             && n.IndexOf(']') is var close && close > 0 && close < n.Length - 1)
-            val = n[..(close + 1)];
+            { val = n[..(close + 1)]; trimmed = true; }
         if (f.Display is not null) val += $" ({f.Display})";
-        if (f.Link is not null) val += $" ({Wire.LinkText(f.Link)})";
+        // The trim took away the FormID the summary named, so its resolve_names identity goes with it: it would
+        // name a reference this cell no longer shows, and the sub-field cell that still shows it carries the
+        // same identity a cell along. json is untrimmed and keeps both.
+        if (f.Link is not null && !trimmed) val += $" ({Wire.LinkText(f.Link)})";
         if (f.Path.Length == rowKey.Length) return val ?? "";
         return $"{f.Path[rowKey.Length..].TrimStart('.')}={val}";
     }
