@@ -50,13 +50,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **`dialogue-authoring` now makes a new line's own quest the default route, and appending into a vanilla
   topic the exception.** A new line on an existing NPC gets its own start-game-enabled quest at a priority
   measured above the incumbent dialogue quest's, its own topic, and the `.seq` — no vanilla record is
-  touched. Appending into an existing topic keeps its own section with the case for taking it, and both
-  worked examples now carry the conditions cloned from a vanilla sibling and the exemplar's
-  `Emotion`/`EmotionValue`/`Flags`; the append example previously wrote neither. The skill also says how to
-  find that vanilla sibling (`references=[<npc formid>]`, not a `Speaker` scan), that the activation greeting
-  is the `HELO` subtype with no `GREE`, and that a topic's `SNAM` marker is authoritative for its subtype
-  where the numeric `Subtype` disagrees — the stale decode being the master's own pre-Dragonborn copy, which
-  is the read the skill's own first steps send you to.
+  touched, and the new topic preempts the vanilla lines whenever its gate passes rather than replacing them.
+  Appending into an existing topic keeps its own section with the case for taking it, and both worked
+  examples now carry the exemplar's `Emotion`/`EmotionValue`/`Flags`; the append example previously wrote
+  neither. The default route composes its gate in the create call as typed `ConditionFloat` rows — a speaker
+  check plus a row that passes only sometimes, so the vanilla greetings stay in rotation — and cloning a
+  vanilla gate with the `housecarl_apply` copy zip is the option, with the wholesale-copy and alias-scoped-row
+  caveats and the `op:"Remove"` call that drops a row that does not belong. The skill also says how to find
+  the vanilla exemplar (`references=[<npc formid>]`, not a `Speaker` scan), that the activation greeting is
+  the `HELO` subtype with no `GREE`, that a topic's `SNAM` marker is authoritative for its subtype on any
+  copy where the numeric `Subtype` disagrees, and which of the two `Priority` fields carries the number you
+  measured.
 - **`open-animation-replacer` now states how a DAR `_conditions.txt` chain binds, and that the DAR weapon-type
   numbers convert unchanged.** Both were marked unverified in its reference, and the skill told you to convert
   under one reading and say which. Both are now read off OAR's own source; the reference's §8 carries the rule,
