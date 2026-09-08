@@ -1,6 +1,6 @@
 ---
 name: facegen-diagnostics
-compatibility: Requires the houseCARL MCP server and a configured MO2 instance.
+compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 2 instance.
 description: >-
   Diagnoses and repairs the dark / grey / black-face NPC bug in Skyrim SE by diffing which mod wins the head .nif against which wins the face .dds for the same NPC, then the record winner behind them. Use for any discolored face, neck seam, "fine in xEdit but wrong in game", NPCs gone dark after an ESL-compaction or merge, or any FaceGen / facegeom / facetint mention. Not a purple or white face (a missing texture) and not player-only grey (RaceMenu/SKEE); copying a face onto another NPC is housecarl:npc-appearance-copy. Load before judging any face bug — the mesh-versus-tint pair decides the fix.
 ---
