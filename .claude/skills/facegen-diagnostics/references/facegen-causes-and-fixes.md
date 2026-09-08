@@ -178,7 +178,7 @@ over the procedure, never claim to do it.**
 When a correct copy exists somewhere (mod or BSA) but loses VFS precedence (Cause D/E, and the file side of
 A/C/F/G). `asset_status` the two paths to see the current winner, then `place` to
 extract the correct entry (single-entry in-process BSA extract) and write it as a winning loose override
-into a fresh enable+sort MO2 mod. **Place BOTH `.nif` and `.dds` as a pair, from the SAME source mod.**
+into a fresh MO2 mod the user then enables. **Place BOTH `.nif` and `.dds` as a pair, from the SAME source mod.**
 
 > **Same-FormKey forward is SAFE by construction — do not over-refuse.** The `.nif` embeds the FaceTint
 > `.dds` path as a pure function of `(defining-master, local FormID)`. A same-FormKey, same-defining-master
@@ -311,8 +311,8 @@ The head `.nif` carries its own asset references — the per-NPC FaceTint `.dds`
 the base skin diffuse/normal at slots 0/1, and the header strings a material, `.tri` or physics-xml ref
 lives in. Reading them, repairing them with `housecarl_nif_set`, the two verification gates a write
 passes, and the history of why those repairs used to be a NifSkope step are all in this skill's other
-reference, `mesh-repairs.md`. Causes F(b), I and R below, and the FaceTint half of Fix E, are resolved
-there.
+reference, `mesh-repairs.md`. Causes F(b), I and R in §3, and the FaceTint half of Fix E in §4, are
+resolved there.
 
 ---
 
