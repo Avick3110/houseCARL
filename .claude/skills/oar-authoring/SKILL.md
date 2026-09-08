@@ -1,139 +1,185 @@
 ---
 name: oar-authoring
 description: >-
-  Author or interpret Open Animation Replacer (OAR) configs — config.json / user.json conditions, submod priorities, DAR _conditions.txt conversion. Use when gating animations by weapon, keyword, perk, or race, editing or auditing an OAR config, or asking why an animation isn't playing or which submod wins. Load first — OAR picks winners by priority, not load order, and a wrong token no-ops.
+  Authors and interprets Open Animation Replacer (OAR) configs against the OAR 3.0.0 schema — config.json / user.json conditions, submod priorities, DAR _conditions.txt conversion. Load before composing or judging any condition, priority or DAR folder — OAR picks winners by priority, not load order, and a wrong token no-ops. Use when gating animations by weapon, keyword, perk, or race, editing or auditing an OAR config, or asking why an animation isn't playing or which submod wins. Not for .hkx or Nemesis/FNIS behaviour files, and not for record edits — those are SkyPatcher or SPID INIs.
+compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 2 instance.
 ---
 
 # OAR Authoring
 
 ## What this skill does
 
-Open Animation Replacer (OAR) replaces Skyrim animations **at runtime based on conditions**. An
-animation mod ships one or more *replacer mods*, each holding *submods*; every submod is one
-`config.json` with a `priority` integer, a set of `conditions`, and the `.hkx` files it can swap in.
-When a base animation plays on an actor, OAR finds the highest-priority submod whose conditions are
-true for that actor and plays its animation instead. OAR is the successor to Dynamic Animation
-Replacer (DAR) and **reads DAR's legacy folders directly**, so a load order mixes both.
+Open Animation Replacer (OAR) replaces animations **at runtime, by condition**. A submod is one
+`config.json` carrying a `priority` integer, a `conditions` array, and the `.hkx` files it swaps in.
+OAR also reads Dynamic Animation Replacer's legacy folders directly, so a load order mixes both and
+they compete in one priority space. Authoring means writing `config.json` / `user.json`, condition
+sets, priorities, and converting a legacy DAR `_conditions.txt`; interpreting means answering "what
+does this do", "which submod wins", or "why isn't this animation playing".
 
-Authoring here means: writing or editing `config.json`/`user.json`, building condition sets, setting
-priorities, overriding an existing mod's conditions via `user.json`, and reading legacy DAR
-`_conditions.txt`. Interpreting means answering "what does this do", "which submod wins", or "why
-isn't this animation playing".
+**Not this skill.** `.hkx` animation assets, and Nemesis / FNIS / Pandora behaviour files — OAR is
+runtime and needs no behaviour regeneration for its own replacements. A change that belongs in a
+record goes to `housecarl:skypatcher-authoring` (item, NPC and leveled-list properties) or
+`housecarl:spid-authoring` (spells, perks, items and keywords onto NPCs).
 
-The exhaustive lookup tables — full config schema, the ~120 built-in conditions, the authoritative
-`IsEquippedType` enum, value-component shapes, the DAR grammar — live in
-`references/oar-config-reference.md`. Pull a value from there; do not reconstruct it from memory or a
-web search — a web search usually surfaces the vanilla `GetEquippedItemType` enum, which OAR's
-`IsEquippedType` deliberately differs from.
+The full schema, the ~120-condition roster and the DAR grammar are in
+`references/oar-config-reference.md`; pull a value from there rather than from memory or a web
+search — a web search surfaces the vanilla `GetEquippedItemType` enum, which OAR's `IsEquippedType`
+deliberately differs from.
+
+## Where the lookup tables are
+
+One file ships beside this one: `references/oar-config-reference.md` — exhaustive, source-verified,
+opening with its own table of contents. Load the one section you need.
+
+| Need | Section |
+|---|---|
+| Folder layout and the `<project>` names | §1 |
+| Mod-level and submod-level `config.json` schema | §2, §3 |
+| Condition object schema and the value-component shapes | §4 |
+| The authoritative `IsEquippedType` enum | §5 |
+| The ~120 built-in condition roster | §6 |
+| Which conditions come from which addon DLL | §7 |
+| The DAR grammar, both folder forms, the function mapping, the `AND`/`OR` binding note | §8 |
+| `user.json` shadow semantics | §9 |
+| Priority and winner resolution | §10 |
+| The global `OpenAnimationReplacer.ini` | §11 |
+| FormID form and the embedded-null gotcha | §12 |
+
+Every step below names the section it needs, so one section can be read on its own.
 
 ## First step — orient before you touch a config
 
-OAR is file-based, not record-based, so houseCARL's record tools don't see it. Work the files
-directly (Read / Glob / Grep / Write), and reach for houseCARL only to **resolve the forms** a
-condition needs.
-
-1. **Locate the submod.** OAR configs live at
-   `…/meshes/actors/<project>/animations/OpenAnimationReplacer/<ModName>/<SubModName>/config.json`.
-   Legacy DAR lives under `…/animations/DynamicAnimationReplacer/…`. Glob for both.
-2. **Read what's already there.** Read the submod `config.json` (and any `user.json` beside it —
-   `user.json` wins). Read the parent `<ModName>/config.json` for `conditionPresets`.
-3. **Note required addons.** If a condition name isn't a built-in (check the roster in the
-   reference), it comes from an addon DLL (Math/RaySense/IED/Detection/Dialogue). Confirm that DLL is
-   installed, or the condition is dead.
-4. **Resolve forms with houseCARL.** A condition that references a perk, keyword, race, faction, or
-   magic effect needs `{ "pluginName": …, "formID": <local hex> }` or `{ "editorID": … }`. Use
-   `housecarl_read_record` / `housecarl_cross_plugin_query` to get the defining plugin + local
-   FormID (strip the load-order byte) or the EditorID.
+1. **Locate the submod and see who wins the file.** Run `housecarl_asset_status` with
+   `under=["meshes/actors/character/animations/OpenAnimationReplacer/**/config.json"]`, and the same
+   selector under `DynamicAnimationReplacer/**` for legacy folders. It resolves every config the VFS
+   provides beneath the selector, names which mod wins each one, and reports loudly when an archive
+   could not be read; page a large sweep with `limit=` and `offset=`, cap it with `max_chars=`.
+   Without the houseCARL server, fall back to Glob over those paths — and say you did, because the
+   fallback cannot name the VFS winner. Folder layout and the `<project>` names:
+   `references/oar-config-reference.md` §1.
+2. **Read what is already there.** The submod `config.json`, any `user.json` beside it (`user.json`
+   wins — it fully shadows the `config.json`), and the parent `<ModName>/config.json` for its
+   `conditionPresets`. `user.json` shadow semantics: `references/oar-config-reference.md` §9.
+3. **Note required addons.** A condition name absent from the built-in roster comes from an addon DLL
+   (Math / RaySense / IED / Detection / Dialogue). Confirm it is installed under `…/SKSE/Plugins/`,
+   or the line is a dead no-op. Which conditions come from which addon DLL:
+   `references/oar-config-reference.md` §7.
+4. **Resolve the forms a condition names.** A perk, keyword, race, faction or magic effect needs
+   `{ "pluginName": …, "formID": … }` or `{ "editorID": … }`, where `formID` is the record's
+   **local** id in its defining plugin. Read it with `housecarl_records` and
+   `project={"form":"identity"}`: `formids=["XXXXXX:Plugin.esp"]` when you have the FormID (the
+   runtime spelling a console, Papyrus or crash log prints is accepted too, and the response names
+   the plugin it resolved to); `types=["PERK"]` (or `KYWD`, `RACE`, `FACT`, `MGEF`) with
+   `where=["editorid startswith REQ_"]` when you only know the EditorID — a body scan must be bounded
+   by `types=` or `plugins=`. Without the server, read the form from the mod's own plugin or its
+   Nexus page, and say you did. FormID form and the embedded-null gotcha:
+   `references/oar-config-reference.md` §12.
 
 ## The mental model — how OAR picks a winner
 
-Internalize this before authoring; most "it doesn't work" reports trace back to it:
+Internalize this before authoring; most "it doesn't work" reports trace back to it.
 
 - Winners are decided **per original animation**, by sorting every targeting submod by `priority`
-  **descending**. **Plugin/ESP load order is ignored entirely.**
-- At runtime OAR walks that sorted list and takes the **first submod whose `conditions` are true**.
-  If none pass, the base-game animation plays.
-- **Higher priority wins.** Equal priorities are ambiguous (no tiebreak) — keep them unique. Authors
-  spread large integers (`9007010`, `83030317`) to slot cleanly between other mods.
+  **descending**. **Plugin/ESP load order is ignored entirely** — it is never the lever.
+- A legacy DAR `_CustomConditions/<n>/` folder's **name is its priority**, in the **same global
+  priority space** as native OAR integers. `2000030002` and `9007010` are compared directly.
+- At runtime OAR walks that sorted list and takes the **first submod whose `conditions` pass**. If
+  none pass, the base-game animation plays.
+- **Higher priority wins.** Equal priorities are ambiguous — there is no tiebreak — so keep them
+  unique. Authors spread large integers (`9007010`, `83030317`) to slot between other mods.
 
-So to make animation X beat animation Y, X's submod needs a **higher priority** *and* conditions
-that pass in the situation you care about. Load order is never the lever.
+To make animation X beat animation Y, X's submod needs a **higher priority** *and* conditions that
+pass in the situation you care about. Priority and winner resolution:
+`references/oar-config-reference.md` §10.
 
 ## Authoring workflow
 
-1. **Pick the target + project.** The submod's `.hkx` files must mirror the original animation's
-   path; that path-match is what binds the submod to a base animation. `<project>` is `character`
-   for humanoids. A submod with no `.hkx` is using `overrideAnimationsFolder` or is conditions-only
-   — that's normal.
+1. **Pick the target and the project.** The submod's `.hkx` files must mirror the original
+   animation's path; that path match is what binds the submod to a base animation. `<project>` is
+   `character` for humanoids. A submod with no `.hkx` is using `overrideAnimationsFolder` or is
+   conditions-only — that is normal.
 2. **Choose a unique priority.** Higher beats lower. To override an existing mod, read its submod
-   priority and go above it.
-3. **Build the condition set.** Each entry is `{ "condition": "<Name>", "requiredVersion": "1.0.0.0",
-   …params }`. Add `"negated": true` to invert. Combine with `AND` / `OR` / `XOR` — and note the
-   nested child array is capital-C **`Conditions`**, while the submod's top-level array is lowercase
-   **`conditions`**. Get param shapes (Form, Keyword, Numeric, Bool, Comparison, Multi) from the
-   reference. For weapon gating, use `IsEquippedType` with the authoritative enum (battleaxe = 6,
-   warhammer = 10 — they differ).
-4. **Pick the file: `config.json` vs `user.json`.** If you're shipping/owning the mod, write
-   `config.json`. If you're **overriding someone else's mod without editing it**, write a
-   `user.json` beside their `config.json` — OAR uses `user.json` instead of `config.json` for that
-   submod (a full-document shadow, not a field merge, so include the *complete* config you want). In
-   a modlist, keep all `user.json` overrides in one dedicated MO2 mod that loads after the originals;
-   USVFS overlays them and they win, leaving originals untouched. (A modlist typically keeps these
-   in one dedicated overrides mod that loads after the originals.)
-5. **Add variants / blend / loop behavior only if needed.** `replacementAnimDatas` drives random
-   variants (`weight`, `playOnce`, `variantMode`); `interruptible`, `replaceOnLoop` (default true),
+   priority and go above it. Include legacy DAR folder names in the comparison.
+3. **Build the condition set.** Each entry is
+   `{ "condition": "<Name>", "requiredVersion": "1.0.0.0", …params }`; add `"negated": true` to
+   invert. Combine with `AND` / `OR` / `XOR`. **The submod's top-level array is lowercase
+   `conditions`; the child array inside `AND`/`OR`/`XOR`/`PRESET`/`PLAYER`/`TARGET`/`MOUNT` is
+   capital-C `Conditions`.** Condition object schema and the value-component shapes (Form, Keyword,
+   Numeric, Bool, Text, Comparison, NiPoint3, Multi): `references/oar-config-reference.md` §4; the
+   built-in roster is §6. The authoritative `IsEquippedType` enum is §5 — battleaxe 6, warhammer 10;
+   do not use the vanilla enum.
+4. **Pick the file — `config.json` or `user.json`.** Shipping or owning the mod: write
+   `config.json`. Overriding someone else's mod without editing it: write a `user.json` beside their
+   `config.json`. It is a **full-document shadow, not a field merge**, so it must hold the complete
+   config you want. In a modlist, keep every `user.json` override in one dedicated MO2 mod that loads
+   after the originals — USVFS overlays them there and they win, leaving the originals untouched.
+   `user.json` shadow semantics: `references/oar-config-reference.md` §9.
+5. **Add variants, blend or loop behaviour only if needed.** `replacementAnimDatas` drives random
+   variants (`weight`, `playOnce`, `variantMode`); `interruptible`, `replaceOnLoop` (default true)
    and the `blendTime*` fields tune transitions. Prefer `replaceOnLoop` over the deprecated
    `keepRandomResultsOnLoop`.
-6. **If you used an addon condition, state the dependency.** `MathStatement` needs the Math plugin;
-   `IED_*` needs IED Conditions; raycast conditions need RaySense; etc. Without the DLL the line
-   becomes an INVALID no-op.
+6. **State any addon dependency you took on.** `MathStatement` needs the Math plugin, `IED_*` needs
+   IED Conditions, raycast conditions need RaySense.
 
 ## Reading / interpreting an existing config
 
-The inverse job — answer precisely, and say "I can't tell without X" rather than guess:
+The inverse job. Answer precisely, and say "I can't tell without X" rather than guess.
 
-- **"What does this submod do?"** Translate each condition using the reference (resolve enum values
-  and `editorID`/FormID forms), then state the priority and what it competes against.
-- **"Which submod wins?"** Compare priorities of every submod targeting that animation; the highest
-  with passing conditions wins. If you can't see all competing mods, say so.
-- **"Why isn't it playing?"** Walk the checklist: is a higher-priority submod winning? Do the
-  conditions actually pass in that situation (weapon hand, enum value, missing perk)? Is a required
-  addon missing (condition shows INVALID)? Does the `.hkx` path mirror the original? Is `user.json`
-  shadowing the `config.json` you're reading? Is `disabled` set?
+- **"What does this submod do?"** Translate each condition using the reference — resolve enum values
+  and the `editorID` / FormID forms — then state the priority and what it competes against.
+- **"Which submod wins?"** Compare the priorities of every submod targeting that animation, legacy
+  DAR folders included; the highest one whose conditions pass wins. If you cannot see every competing
+  submod, say so and name what you would need to see.
+- **"Why isn't it playing?"** Walk the list: is a higher-priority submod winning; do the conditions
+  actually pass in that situation (weapon hand, enum value, missing perk); is a required addon DLL
+  missing so the condition reads INVALID; does the `.hkx` path mirror the original; is a `user.json`
+  shadowing the `config.json` you are reading; is `disabled` set?
 
 ## Common mistakes
 
-- **Lowercase `conditions` vs capital `Conditions`.** Submod top level is `conditions`; the child
-  array inside `AND`/`OR`/`XOR`/`PRESET`/`PLAYER`/`TARGET`/`MOUNT` is `Conditions`. Swapping them
-  yields an empty child set that silently passes/fails wrong.
-- **Confusing OAR's `IsEquippedType` with the vanilla equipped-type enum.** Skyrim's vanilla
-  `GetEquippedItemType` (what most web searches surface) says 9=spell / 10=shield / 11=torch; OAR
-  deliberately differs — 9=crossbow, 10=warhammer, 11=shield, spells=12–16, torch=18. Use the
-  reference table, not the vanilla enum.
-- **Battleaxe vs warhammer.** Both are engine `kTwoHandAxe`; OAR splits by keyword (6 vs 10). A
-  moveset meant for both must test `6` OR `10`.
-- **Editing load order to fix a winner.** Pointless — OAR only reads `priority`. Change the integer.
-- **Partial `user.json`.** It fully shadows `config.json`; a half-written `user.json` drops whatever
-  it omits. Write the complete config (or let the in-game editor generate it).
-- **Using an addon condition without its DLL.** The line degrades to INVALID and never fires.
-- **Assuming a no-`.hkx` submod is broken.** It's usually `overrideAnimationsFolder` or
-  conditions-only.
+- **Write the submod's top-level array as lowercase `conditions` and every nested child array as
+  capital-C `Conditions`.** Swapping them produces a file that parses cleanly, loads cleanly, and
+  silently evaluates an empty child set — the error you never find by inspection.
+- **Take `IsEquippedType` values from the reference, never from a web search.** Skyrim's vanilla
+  `GetEquippedItemType` is what a search surfaces and OAR deliberately differs from it. The
+  authoritative table is `references/oar-config-reference.md` §5.
+- **Test battleaxe and warhammer as two separate values.** Both are engine `kTwoHandAxe`; OAR splits
+  them, so a moveset meant for both needs the two values OR-ed.
+- **Change the `priority` integer to change a winner.** Editing MO2 or plugin order does nothing —
+  OAR reads only `priority`.
+- **Write a complete `user.json`.** It fully shadows `config.json`, so anything omitted is dropped,
+  not inherited. Let the in-game editor generate one if you want a guaranteed-complete starting point.
+- **Confirm an addon condition's DLL is installed before you use its condition.** Without it the line
+  degrades to INVALID and never fires.
+- **Treat a submod with no `.hkx` as normal.** It is usually `overrideAnimationsFolder` or a
+  conditions-only host, not a broken install.
 
 ## Verification
 
-- Re-scan: OAR parses configs on game load (and the in-game editor can reload a mod live).
-- The editor's **Detected Problems** panel flags INVALID conditions (missing addon, bad form) and
-  duplicate priorities — the fastest correctness check.
-- Confirm the winner by listing priorities of all submods that target the same original animation.
-- Confirm any addon condition's DLL is present under `…/SKSE/Plugins/`.
+Check offline first, then in game.
 
-## Real example — overriding a mod's conditions via `user.json`
+1. **Enumerate the competition.** Re-run the `housecarl_asset_status` `under=` sweep over the OAR and
+   DAR trees: every competing `config.json` and the mod that wins each file. That is both the winner
+   input and the check that you edited the copy the game actually loads.
+2. **List the priorities.** For the original animation you target, list every submod that targets it
+   with its priority, legacy DAR folder names included; confirm yours sits where you intended and
+   that no two are equal.
+3. **Re-read your own file.** Top-level array `conditions`, every nested array `Conditions`, every
+   `formID` a local id in the plugin its `pluginName` names.
+4. **Enforce in game.** OAR parses configs on game load and the in-game editor reloads a mod live.
+   The editor's **Detected Problems** panel is the enforcement: it flags INVALID conditions (missing
+   addon, unresolvable form) and duplicate priorities. Everything above is guidance; this panel
+   decides.
 
-You want a mod's archery moveset to apply only after the player earns a specific perk, without
-editing the mod. The original `…/Bow Rapid Combo V3/Base/config.json` is `[IsActorBase player,
-IsEquippedType 7 (bow)]` at priority `9901000`. Put a `user.json` at the matching submod path — in a
-separate, dedicated overrides mod that loads after the original — copying that and **adds one
-condition**:
+Loop steps 1-4 until Detected Problems is empty and the priority list shows your submod winning in
+the situation you care about. That pair is the stop condition.
+
+## Worked example — overriding a mod's conditions via `user.json`
+
+A mod's archery moveset should apply only after the player earns a specific perk, without editing the
+mod. The original `…/Bow Rapid Combo V3/Base/config.json` is `IsActorBase player` plus
+`IsEquippedType 7` at priority `9901000`. Put a `user.json` at the matching submod path in the
+dedicated overrides mod, holding the complete original config plus one condition:
 
 ```json
 { "priority": 9901000,
@@ -146,16 +192,60 @@ condition**:
       "Perk": { "pluginName": "<the perk-adding mod>.esp", "formID": "<local hex>" } } ] }
 ```
 
-USVFS overlays the `user.json` beside the original `config.json`; OAR uses the `user.json` and the
-moveset now only applies once the player has that perk. Resolve the `HasPerk` form (defining plugin +
-local FormID) with houseCARL.
+Resolve the `HasPerk` form with `housecarl_records` as in step 4 above. OAR now uses the `user.json`
+for that submod and the moveset applies only once the player has the perk; the original mod is
+untouched, so it can be updated without losing the override.
 
-## Notes
+## Worked example — converting a DAR `_conditions.txt`
 
-- **DAR back-compat:** OAR converts legacy `_CustomConditions/<priority>/` (with `_conditions.txt`)
-  and `<Plugin.esp>/<FormID>/` actor folders into in-memory submods that compete in the same
-  priority space. The DAR grammar and the auto-synthesized `IsActorBase` form are in the reference.
-- **The in-game editor is the live source of truth** for which conditions exist in a given install
-  (core + whatever addons are present) and writes valid `config.json`/`user.json` for you.
-- **houseCARL can't introspect OAR configs** (it reads ESP records, not animation files) — read the
-  files directly; use houseCARL only to resolve the forms/keywords/perks a condition references.
+Legacy folder `…/DynamicAnimationReplacer/_CustomConditions/2000030002/` holds:
+
+```
+NOT IsInCombat() AND
+IsEquippedRight("Skyrim.esm" | 0x02F2F4) OR
+IsEquippedRight("Woodaxeweapons.esp" | 0x005909)
+```
+
+The folder name is the priority. Map each function to its OAR condition — the full table is
+`references/oar-config-reference.md` §8: `IsEquippedRight` → `IsEquipped` with `"Left hand": false`,
+`IsEquippedLeft` → the same with `true`; `IsEquippedRightType` / `IsEquippedLeftType` →
+`IsEquippedType` with `Type` and the hand flag; `IsEquippedRightHasKeyword` /
+`IsEquippedLeftHasKeyword` → `IsEquippedHasKeyword` with the hand flag; a Form B
+`<Plugin.esp>/<FormID>/` folder pair → the auto-synthesized `IsActorBase`. `0x02F2F4` becomes the
+local hex `"2F2F4"`.
+
+DAR has no parenthesis grouping and **no source states how `AND` and `OR` bind** (§8 says so, and
+says why). Implement one reading, say which, and say what the other would mean. The guard read as
+covering the whole chain:
+
+```json
+{ "name": "Woodcutter axe attacks (from DAR 2000030002)",
+  "priority": 2000030002,
+  "conditions": [
+    { "condition": "IsInCombat", "requiredVersion": "1.0.0.0", "negated": true },
+    { "condition": "OR", "requiredVersion": "1.0.0.0",
+      "Conditions": [
+        { "condition": "IsEquipped", "requiredVersion": "1.0.0.0",
+          "Form": { "pluginName": "Skyrim.esm", "formID": "2F2F4" }, "Left hand": false },
+        { "condition": "IsEquipped", "requiredVersion": "1.0.0.0",
+          "Form": { "pluginName": "Woodaxeweapons.esp", "formID": "5909" }, "Left hand": false } ] } ] }
+```
+
+The other reading — `AND` binding tighter than `OR` — puts the guard inside an `AND` with only the
+*first* equipped-form term, and wraps the whole in the `OR`: that fires the animation in combat for
+every weapon but the first. Record which you wrote in the submod's `description`.
+
+## Notes and provenance
+
+- **DAR back-compat.** OAR converts both legacy folder forms into in-memory submods competing in the
+  same priority space; leaving a mod legacy is fine.
+- **The in-game editor is the live source of truth** for which conditions a given install has, and it
+  writes valid `config.json` / `user.json` for you.
+- **houseCARL cannot introspect OAR configs** — it reads records, not animation files. Read the
+  configs directly; houseCARL does the two things above, the locate sweep and the form resolution.
+- **This skill is not inherited.** A subagent asked to do OAR work needs it loaded in its own
+  context — name it in the task that spawns the subagent, or the subagent works without it.
+- **Provenance.** OAR 3.0.0, the DLL shipped in Open Animation Replacer (Nexus 92109); the reference
+  is generated from `ersh1/OpenAnimationReplacer`, branch `main`. To refresh: re-read that branch's
+  `src/Parsing.cpp`, `src/Conditions.h`, `src/Conditions.cpp` and `src/BaseConditions.h`, update
+  `references/oar-config-reference.md` section by section, and change its header's version line.
