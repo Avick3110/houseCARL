@@ -155,9 +155,11 @@ else** — every other subrecord the CK writes, houseCARL had already written.
    `DialogResponses` is the INFO record.
 3. **Make it reachable.** A `Custom` topic with no entry point is byte-valid and never entered — only
    generic subtypes are matched without one. Author a `DialogBranch` whose `StartingTopic` names the
-   topic. Each new record's FormID is reported back, and that FormID plus a second `housecarl_apply`
-   call on the same lane (`into="<this patch>.esp"`) is how one new record is made to point at
-   another — `housecarl_apply`, because the record now exists and this sets a field on it.
+   topic, in the **same** `housecarl_create` call and declared *after* it: `"value": "@<the topic's
+   editorid>"` on a FormLink field is a same-call sibling reference, and the create path substitutes
+   the FormID it allocated. Across two calls instead, each new FormID is reported back and a second
+   `housecarl_apply` on the same lane (`into="<this patch>.esp"`) sets the link — `housecarl_apply`,
+   because the record exists by then and this sets a field on it.
 4. **Author the conditions deliberately.** A line with no conditions fires whenever its topic is
    reached; gate it with `GetStage` and a speaker check. A well-formed but *wrong* condition is the
    single most common cause of permanently silent dialogue, and no tool can catch it — houseCARL can

@@ -87,8 +87,10 @@ vanilla content**: a census found 2,757 / 2,757 multi-INFO `Skyrim.esm` topics h
 PNAM. Vanilla orders the lines within a topic by the `Responses` list + their `Conditions`, never by a
 PNAM chain.
 
-PNAM is only meaningful when an **author deliberately** chains forced lines (set it to the FormID the
-create call reported for the preceding line, in a second `housecarl_apply` call on the same lane).
+PNAM is only meaningful when an **author deliberately** chains forced lines (set it to `"@<the
+preceding line's editorid>"` in the same `housecarl_create` call, which the create path substitutes
+with that line's allocated FormID; across two calls, to the FormID the create reported, in a second
+`housecarl_apply` call on the same lane).
 Consequences for
 authoring and auditing:
 
