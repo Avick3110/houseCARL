@@ -2735,6 +2735,19 @@ offset, paging meant slicing by `editorid_contains`. Now:
   each candidate, which for an NPC defined in `Skyrim.esm` is not the folder the FaceGen path points at. The
   four Race cases and that provider test move to `references/race-and-provider-cases.md`, the body is about a
   third shorter, and the trigger set moves to the published `evals/evals.json` shape with a without-skill arm.
+- **`oar-authoring` names tools that exist, finds the config the game actually loads, and states what it does not
+  know about DAR.** Its one delegated step named `housecarl_read_record` and `housecarl_cross_plugin_query`, neither
+  of which the server publishes any more; it now resolves a condition's form with `housecarl_records`
+  (`formids=` or `types=` plus `where=`, projected `{"form":"identity"}`), and says what to do instead when the
+  server is not there. Locating a submod was Glob and Grep, which cannot say which mod wins a file: the first step
+  and the verification step now sweep the OAR and DAR trees with `housecarl_asset_status` `under=`, which names the
+  winning source per `config.json`. The reference gains the two things the DAR half was missing — a
+  DAR-function → OAR-condition table, so `IsEquippedRight` → `IsEquipped` plus `"Left hand": false` is written down
+  rather than inferred, and an explicit statement that **how `AND` and `OR` bind in a mixed `_conditions.txt` chain
+  is unsettled**: convert under one reading, say which in the submod's `description`, and say what the other would
+  have meant. A second worked example converts a real DAR folder end to end. The trigger set moves to the published
+  `evals/evals.json` shape with a without-skill arm; the unreferenced `references/index.jsonl` is gone, and every
+  file the skill ships is named in its body.
 
 ## 1.9.0 — 2026-07-17
 
