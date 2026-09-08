@@ -1,136 +1,171 @@
 ---
 name: kid-authoring
 description: >-
-  Author or interpret KID (Keyword Item Distributor) `_KID.ini` files — runtime, no-ESP distribution of keywords onto items. Use when writing or auditing a `_KID.ini`, tagging items by name / archetype / equip-slot / stat filters, or asking why a KID line isn't applying. Keywords on NPCs are SPID, not KID. Load before any KID line — a misread token silently changes what gets tagged.
+  Authors and interprets Keyword Item Distributor (KID) `_KID.ini` files — runtime, no-ESP
+  distribution of keywords onto item records, on the KID v3.5.0 grammar. Use when writing or
+  auditing a `_KID.ini`, tagging items by name, archetype, equip-slot or stat filters, or asking
+  why a KID line isn't applying; load it before composing any KID line, because a misread token
+  silently changes what gets tagged. Keywords onto NPCs are SPID, not KID.
+compatibility: Requires the houseCARL MCP server and a configured Mod Organizer 2 instance.
 ---
 
 # KID Authoring
 
 ## Overview
 
-KID (Keyword Item Distributor, by powerofthree) is an SKSE plugin that **adds keywords to items** —
-weapons, armor, ammo, magic effects, potions, scrolls, books, soul gems, spells, enchantments, and
-more (19 item types) — **at game startup**, driven by plain-text `_KID.ini` files. It writes nothing
-to plugins or saves; it re-applies its keywords from scratch on each launch, so a KID mod is trace-free
-to add or remove. This skill composes correct KID lines and places the file, drawing every type,
-filter, trait, value, and example from the bundled grammar reference in `references/`.
+KID (Keyword Item Distributor, by powerofthree) is an SKSE plugin that **adds keywords to item
+records** — weapons, armor, ammo, magic effects, potions, scrolls, books, soul gems, spells,
+enchantments and more (19 item types) — **at game startup**, driven by plain-text `_KID.ini` files.
+It writes nothing to plugins and nothing to saves, and re-applies its keywords from scratch on each
+launch, so a KID mod is trace-free to add or remove.
 
-It is a **procedural** skill with a **reference-lookup** core — the look-it-up-never-invent discipline
-that `papyrus-reference`, `mutagen-reference`, and the sibling `spid-authoring` / `skypatcher-authoring`
-use, because a fabricated KID token fails silently (see "Bundled-or-warn").
+This skill **composes** a correct line from the bundled v3.5.0 grammar, **grounds** it against the
+live load order so its reach is measured before the file ships, and **places** the file where KID
+will read it. Every type, filter, trait and value comes from `references/`, never from memory — a
+fabricated token fails silently.
 
-**Scope boundary — the deciding question is what receives the keyword:**
-- a keyword onto an **item record** (weapon/armor/potion/…) → **KID** (this skill).
-- a spell/perk/item/keyword onto an **NPC** → `spid-authoring`. (SPID also distributes *keywords*, but
-  to NPCs — if the target is an NPC, it's SPID, not KID.)
-- an item into a **container** → CID.
-- changing a record's **own fields** (a weapon's damage, an NPC's stats) → `skypatcher-authoring`.
-  SkyPatcher can also add keywords *as part of* editing a record; reach for KID when adding keywords by
-  item-filter is the whole job.
+## This skill's lane
 
-## First step — open the grammar reference
+KID's lane is **a keyword onto an item record**. A keyword onto an NPC is SPID: load
+`housecarl:spid-authoring` for that job instead. Sibling skills are written `housecarl:<name>`, the
+Claude Code plugin form; a Codex install sees the same skill under its bare folder name
+(`spid-authoring`). MCP tool names are bare — `housecarl_records` — on every host.
 
-KID has one uniform line grammar, so there's no per-type resolution to do up front — open the reference
-and read the parts your task touches:
+## Which file answers which question
 
-1. **`references/grammar-core.md`** — read first. The 5-section line, file discovery (`_KID.ini` in
-   `Data\`), startup timing, the keyword id (incl. dynamic creation), chance, and the `ExclusiveGroup`
-   feature. Almost every task needs it.
-2. **`references/types.md`** — the 19 item types, their xEdit signatures, and which carry traits. Pick
-   the one type your line targets.
-3. **`references/filters.md`** — section 2: String filters (name / archetype / actor value / nif path)
-   and Form/EditorID filters, plus the `+` / `-` / `*` / match modifiers and evaluation order. This is
-   where "which items" lives.
-4. **`references/traits.md`** — section 3: the per-type trait grammar (Armor `AR()`, Weapon animation
-   types, Magic Effect `D()`/`CT()`/school, Soul Gem `SOUL()`/`GEM()`, …). Only the 12 trait-bearing
-   types have these.
-5. **`references/value-tables.md`** — flat lookups: effect archetypes, spell types, schools,
-   delivery/casting numbers, soul/furniture/bench sizes, body slots, resistances, actor values.
-6. **`references/index.jsonl`** — a grep-friendly router (one JSON entry per line) mapping a topic,
-   type, filter, trait, or value to its file. Grep it to jump straight to the right section.
+Read `references/grammar-core.md` first — it holds the five-section line, how KID finds and parses
+the file, and what happens to a line it cannot read. When you need the exact type string, or whether
+that type takes traits at all, read `references/types.md`. When the question is *which* items, read
+`references/filters.md`. When the narrowing is a property of the item rather than its name — armor
+rating, animation type, soul size, effect school — read `references/traits.md`. When you need a
+number for a named thing — a spell type, a school, a body slot — read `references/value-tables.md`.
+To jump straight to a section rather than read a file, grep `references/index.jsonl`.
 
-Read grammar-core plus the one or two topic files your task needs — don't bulk-load everything.
+Read what your task needs, not everything.
 
-## Workflow — compose a KID line
+## Workflow — compose, ground, place
 
-1. **Identify the keyword** — what tag is being added. Reference it by **EditorID** (e.g.
-   `WeapMaterialDwarven`) or **FormID** `0x12345~Plugin.esp`. If the EditorID doesn't resolve, KID
-   *creates the keyword at runtime* — so a custom tag like `MyCursedGear` is valid and KID makes it
-   (`grammar-core.md` §5).
+1. **Identify the keyword.** Reference it by EditorID (`WeapMaterialDwarven`) or FormID
+   (`0x12345~Plugin.esp`). An EditorID resolving to nothing is not an error: KID **creates the
+   keyword at runtime**, so a custom tag like `MyCursedGear` is valid. A runtime keyword has no
+   persistent FormID, so when other tooling must point at the tag, author the record instead —
+   `housecarl_create` with `records=[{"record_type": "Keyword", "editorid": "MyCursedGear"}]` and
+   `patch` naming the new plugin — and use the FormID the call reports back.
 
-2. **Identify the item type** — *what* gets the keyword. One of the 19 in `types.md` (`Weapon`,
-   `Armor`, `Magic Effect`, `Potion`, `Book`, `Soul Gem`, …). Write the type string **exactly** as
-   listed. One line targets one type — repeat the line per type to cover several.
+2. **Identify the item type.** One of the 19 in `references/types.md`, written **exactly** as listed
+   (`Magic Effect`, not `MagicEffect`). One line targets one type; repeat the line per type.
 
-3. **Choose the filters** (`filters.md`) — *which* items of that type:
-   - by **name / archetype / actor value / nif path** → a **String** filter.
-   - by **specific record / plugin / associated form** (e.g. a weapon's enchantment) → a **Form**
-     filter (`0x123~Mod.esp`, an EditorID, or a plugin name for all of a mod's items).
-   - apply modifiers: `+` requires all, `-` excludes, `*` wildcard-substring (strings only), bare =
-     match-any. Evaluate Requirements → Exclusions → Matches → Wildcards.
+3. **Choose the filters.** By name / archetype / actor value / nif path → a String filter; by record,
+   plugin or associated form → a Form filter. Modifiers: `+` requires all, `-` excludes, `*`
+   wildcard-substring (strings only), bare = match-any; KID evaluates requirements → exclusions →
+   matches → wildcards.
 
-4. **Add traits if needed** (`traits.md`) — narrow by type-specific properties (`E`/`-E` enchanted,
-   `AR(10/50)` armor rating, `OneHandSword`, `20(0/25)` novice destruction, `BLACK` soul gem, …). Only
-   the 12 trait-bearing types accept these.
+4. **Add traits if the narrowing is a property of the item.** Only the 12 trait-bearing types accept
+   them. Which record field a KID trait tests is the schema's answer, not KID's: resolve the field
+   with `housecarl:mutagen-reference` before composing the filter.
 
-5. **Compose the line** (`grammar-core.md` §4):
+5. **Compose the line, and count the pipes.**
    ```
    Keyword = KeywordOrFormID | Type | filters | traits | chance
    ```
-   - **Count the pipes** — sections are positional. `Keyword = MyKwd|Book|NONE|S,20` puts `S,20` in
-     *traits*; `Keyword = MyKwd|Armor|||50` puts `50` in *chance* with empty filters and traits.
-     Leave an unused middle section blank or `NONE`; drop a trailing unused section.
-   - Set **chance** (0–100, default 100) only if you want less than guaranteed.
+   Sections are positional. `Keyword = MyKwd|Book|NONE|S,20` puts `S,20` in *traits*;
+   `Keyword = MyKwd|Armor|||50` puts `50` in *chance*. Leave an unused middle section blank or
+   `NONE`; a trailing unused section can be dropped. Set `chance` (0–100, default 100) only when you
+   want less than guaranteed.
 
-6. **Place the file** at `Data\<name>_KID.ini` — the **`_KID` substring in the filename is mandatory**
-   (a file without it is never read), and KID INIs have **no `[Section]` headers** — every line sits at
-   the top level. Comment with `;`.
+6. **Ground the line.** Measure the reach before the file ships, and report the number with the call
+   that produced it rather than as a claim. The census is `housecarl_records` with `types=["WEAP"]`,
+   `where=["Data.AnimationType = OneHandDagger"]` and `counts_only=true`. To let the user eyeball
+   the set, drop `counts_only` and pass `project` with form `identity` plus a `limit`; for a set too
+   large to render inline, pass `to_file` an absolute `.jsonl` path and re-enter it later as
+   `formids=["@<that absolute path>"]`. Leave `source` omitted, or pass `"winner"` — the load-order
+   winner is the record KID acts on. To show what a name filter would have caught instead, run the
+   same scan with `where=["editorid contains Dagger"]`, noting that KID's own String filter matches
+   the item's **display name**, not its EditorID, so that scan illustrates rather than repeats the
+   predicate. **This grounds one type-plus-trait predicate, not the whole line:** nothing on the 2.0
+   surface replays KID's evaluation order or `chance` — that is issue **#614**, not in 2.0, so say
+   so rather than implying the whole line was proved.
 
-7. **Confirm**: the type matches the record kind; the filter reads the way the user intended; the pipe
-   positions are right; trait tokens are valid for that type; and the filename contains `_KID`.
+7. **Place the file** at `Data\<name>_KID.ini`. The `_KID` substring is **mandatory** — a file
+   without it is never read — and the file sits flat in `Data\`, not under `Data\SKSE\Plugins\`
+   where SPID's and SkyPatcher's INIs live. KID INIs have **no `[Section]` headers**; every line
+   sits at the top level, and `;` starts a comment. (Backslashed paths here are the game's own
+   literals; every path into this skill's own files is forward-slashed.)
 
-## Bundled-or-warn — never invent KID grammar
+8. **Confirm, then stop.** Check that the type matches the record kind, the pipe positions are right,
+   the trait tokens are legal for that type, and the filename contains `_KID`. **The stop condition
+   is step 6's count:** if the census is zero, or is a number the user did not expect, do not ship
+   the line — say what it reached and re-cut the filter. After the next launch the deterministic
+   backstop is `po3_KeywordItemDistributor.log` in `Documents\My Games\Skyrim Special Edition\SKSE\`
+   — read it and check each line matched. No houseCARL tool reads that log; open it as a file.
 
-The reference documents KID **v3.5.0**, the full published grammar. If a type, filter, trait, value, or
-behavior isn't in it, **say so — don't fabricate a plausible token.** KID failures are silent: an
-unparseable line or unknown token is logged to `po3_KeywordItemDistributor.log` and skipped, so a
-guessed token yields a `_KID.ini` that quietly adds nothing — and nothing in-game points at the cause.
-A clear "that isn't in the KID reference" beats a confident wrong line that costs a debugging session.
-If the user is on a KID newer than v3.5.0 and asks about a feature not in the reference, surface that
-the reference may be behind and offer to re-derive from the current KID source/description.
+## Worked lines, end to end
+
+**Tag every dagger in the load order.** The trait, not the name, is the filter:
+
+```ini
+Keyword = HC_AuditDaggerTag|Weapon|NONE|OneHandDagger
+```
+
+Grounded on a 3,801-plugin order this reaches 786 WEAP records across 54 plugins. A `*Dagger` name
+filter is wrong in **both** directions on the same order: it misses `REQ_Artifact_Keening`,
+`REQ_Artifact_MehrunesRazor`, `REQ_Artifact_Nettlebane`, `BSKHatchet`, `zzzCrbAkaviriKodachi` and
+`BPUFXelzazKukri`, and it catches `DummyDagger`, `CWDummyDaggerSons`, `CWDummyDaggerImperial` (all
+`OneHandSword`), `DBMTWR_RiftenDaggerDummy` (`HandToHand`) and `zzzGHCrSkavenDaggers`
+(`TwoHandSword`).
+
+**Tag one mod's armor above rating 20**, filters and traits both used:
+
+```ini
+Keyword = MyLightSetTag|Armor|MyArmorMod.esp|AR(20/100)
+```
+
+**Tag every soul gem that is black, and nothing else** — empty filters held with `NONE`:
+
+```ini
+Keyword = MyBlackGemTag|Soul Gem|NONE|BLACK
+```
+
+## Never invent KID grammar
+
+The bundled reference documents **KID v3.5.0**. If a type, filter, trait, value or behaviour is not
+in it, say so — do not fabricate a plausible token. The pin runs **both** ways: an install older than
+v3.5.0 may lack a feature the reference describes, and a newer one may add features it lacks; either
+way, offer to re-derive from the current KID source rather than guessing.
+
+KID's failures are silent. A malformed entry is logged (`Failed to parse entry [Keyword = …]`) and
+**skipped**, never surfaced to the user, so a guessed token yields a `_KID.ini` that quietly adds
+nothing with nothing in-game pointing at the cause. `po3_KeywordItemDistributor.log` is the only
+deterministic backstop, which is why every token is looked up rather than written from memory.
+
+The user's own instructions outrank anything in this skill.
 
 ## Common mistakes
 
-- **Targeting NPCs.** KID adds keywords to **items**. "Add a keyword to all bandits / female Nords" is
-  *NPCs* → that's SPID. The keyword going onto an NPC, not an item, is the tell.
 - **Miscounting pipe positions.** Sections are positional; a chance written one pipe early lands in
-  *traits* and is silently misread. Count the pipes; keep blank middles (`||`) when a later section is
-  used.
-- **Wrong type string.** Use the exact name from `types.md` (`Magic Effect`, not `MagicEffect`; `Soul
-  Gem`, not `Soulgem`). A wrong type string fails to match.
-- **Traits on a trait-less type.** Location, Misc Item, Key, Activator, Flora, Race, Talking Activator
-  take **no** traits — filter them by name/form only (`types.md`).
-- **Confusing the `E` trait with the `Enchantment` type.** `E` filters *items that carry* an
+  *traits* and is silently misread. Count the pipes and keep blank middles (`||`) when a later
+  section is used.
+- **A wrong type string.** Use the exact name from `references/types.md` (`Soul Gem`, not
+  `Soulgem`). A wrong type string matches nothing.
+- **Traits on a trait-less type.** Location, Misc Item, Key, Activator, Flora, Race and Talking
+  Activator parse no traits; filter these by name or form only, and see `references/types.md` for
+  what happens to a traits section written on one.
+- **Confusing the `E` trait with the `Enchantment` type.** `E` filters items that *carry* an
   enchantment; `Enchantment` is the ENCH record type itself.
-- **Forgetting `_KID` in the filename**, or adding `[Section]` headers. The `_KID` substring is
-  required; KID reads only the unnamed root section.
-- **Inventing a trait or value.** Look up the per-type trait list and the value tables — a wrong trait
-  token (e.g. a casting-type number that doesn't exist) silently no-ops.
+- **Forgetting `_KID` in the filename**, or adding `[Section]` headers. The substring is required,
+  and KID reads only the unnamed root section.
+- **Putting the file under `Data\SKSE\Plugins\`.** That is where SPID and SkyPatcher read from; KID
+  reads `Data\` flat, so a correctly-named file in the wrong folder is never found.
+- **Inventing a trait or value.** Look the per-type trait list and the value tables up — a casting
+  type or body slot that does not exist silently no-ops.
 
 ## Notes
 
 - **Provenance.** The `references/` corpus is reconstructed from the MIT KID source
-  (`powerof3/Keyword-Item-Distributor`, v3.5.0) and the Nexus #55728 description, with forwarded enum
-  values confirmed against `powerof3/CommonLibSSE`; the corpus status note in the skill's source tree
-  records it (dev-side; not shipped in the plugin). On a KID version
-  bump, re-derive before trusting it for new features.
-- **Lookup without authoring.** The same reference answers "what's the spell-type number for Ability",
-  "which body slot is 33", or "what archetypes can I filter magic effects by" — open `value-tables.md`;
-  no line needs writing.
+  (`powerof3/Keyword-Item-Distributor`, v3.5.0) and the Nexus #55728 description, with forwarded
+  enum values confirmed against `powerof3/CommonLibSSE`. Re-derive on a version bump.
+- **Lookup without authoring.** The same reference answers "what is the spell-type number for
+  Ability" or "which body slot is 33" — open `references/value-tables.md`; no line needs writing.
 - **`ExclusiveGroup`.** A second key (`ExclusiveGroup = Name|kwd1,kwd2`) defines mutually-exclusive
-  keywords so an item won't receive two from the same group (`grammar-core.md` §7) — source-documented,
-  not on the Nexus page.
-- **Cross-tool routing.** KID is one of the Skyrim distributor frameworks (KID / SPID / CID) plus the
-  record-editor SkyPatcher. When the target is ambiguous, ask what receives the change: an item (KID),
-  an NPC (SPID), a container (CID), or a record's own fields (SkyPatcher).
-- **Comment syntax** is standard INI `;` (KID reads configs via the CSimpleIniA library).
+  keywords so an item never receives two from the same group — source-documented, not on the Nexus
+  page.

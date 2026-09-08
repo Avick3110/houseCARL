@@ -1,0 +1,389 @@
+{
+ "skill_name": "kid-authoring",
+ "about": "Two arms. The TRIGGER arm (cases T1-T26) measures routing: does this skill get loaded for the queries it owns, and stay unloaded for the near-misses. The OUTPUT-QUALITY arm (case Q1) measures the deliverable: the same authoring job run once with the skill and once without. Every case runs in both a with-skill and a without-skill configuration; a positive case that is answered equally well in both is reported as no evidence for the skill, not as a pass.",
+ "tree_under_test": "dist/housecarl/skills/kid-authoring/ -- the PACKAGED tree produced by scripts/build-plugin.ps1, never .claude/skills/. The packager strips evals/ and references/_CORPUS_STATUS.md, so a body pointer at either is dead in the shipped copy and only a packaged-tree run sees it.",
+ "gate": {
+  "recall_threshold": 0.8,
+  "specificity_threshold": 0.5,
+  "runs_per_query": 3,
+  "reported": "per-query trigger rate over the three runs, not a single pass/fail"
+ },
+ "method": {
+  "trigger_arm": "One fresh-context agent per query per run, shown a lettered menu of skill descriptions with the skill under test unflagged, plus NONE, and asked which ONE to load. Three runs per query. Verdicts are adjudicated from each agent's reasoning as well as its pick.",
+  "without_skill_arm": "The identical menu with kid-authoring removed. Required by ruling 3. A recall case is only evidence for the skill where the without-skill run lands somewhere else or on NONE and its reasoning shows the KID grammar uncovered.",
+  "output_quality_arm": "Case Q1, run on the live load order: one Opus agent per arm, fresh context, 40-call cap, control arm with no skill in the catalogue and with-skill arm told to load housecarl:kid-authoring first. total_tokens and duration_ms recorded for both arms.",
+  "model_tiers": "The trigger arm runs on Sonnet and on Haiku. If a tier is skipped the deployment envelope is stated in results rather than left implied.",
+  "run_configurations": [
+   {
+    "name": "isolation",
+    "menu": "kid-authoring alone plus NONE",
+    "failure_mode_it_catches": "over-trigger -- the description claims ground it does not own (install questions, SPID work, SkyPatcher field edits) and absorbs them because nothing else is on the menu"
+   },
+   {
+    "name": "coexistence",
+    "menu": "kid-authoring among its distributor-cluster siblings plus NONE",
+    "failure_mode_it_catches": "under-trigger and boundary leakage -- a sibling absorbs a KID query, or kid-authoring absorbs a sibling's"
+   }
+  ]
+ },
+ "evals": [
+  {
+   "id": "T1",
+   "prompt": "add the VendorItemWeapon keyword to all my iron swords with KID",
+   "should_trigger": true,
+   "expected_output": "kid-authoring is the single skill loaded, and the reasoning cites keyword distribution onto item records as the reason.",
+   "expectations": [
+    "with-skill arm: the pick is kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the recorded reasoning names the item-record target, not just the word KID",
+    "without-skill arm: the pick is NONE or a sibling, and the reasoning does not reproduce the KID line grammar from memory -- if it does, this case is not evidence for the skill"
+   ],
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: recall row, picked the skill under test"
+  },
+  {
+   "id": "T2",
+   "prompt": "i need every armor in my mod to get a custom 'CursedGear' keyword at runtime, no esp edits",
+   "should_trigger": true,
+   "expected_output": "kid-authoring is the single skill loaded, and the reasoning cites keyword distribution onto item records as the reason.",
+   "expectations": [
+    "with-skill arm: the pick is kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the recorded reasoning names the item-record target, not just the word KID",
+    "without-skill arm: the pick is NONE or a sibling, and the reasoning does not reproduce the KID line grammar from memory -- if it does, this case is not evidence for the skill"
+   ],
+   "why_this_case": "implicit — no 'KID' word; keyword onto armor items, runtime, no esp",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: recall row, picked the skill under test"
+  },
+  {
+   "id": "T3",
+   "prompt": "make a _KID ini that tags all two-handed weapons as MyHeavyWeapon",
+   "should_trigger": true,
+   "expected_output": "kid-authoring is the single skill loaded, and the reasoning cites keyword distribution onto item records as the reason.",
+   "expectations": [
+    "with-skill arm: the pick is kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the recorded reasoning names the item-record target, not just the word KID",
+    "without-skill arm: the pick is NONE or a sibling, and the reasoning does not reproduce the KID line grammar from memory -- if it does, this case is not evidence for the skill"
+   ],
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: recall row, picked the skill under test"
+  },
+  {
+   "id": "T4",
+   "prompt": "add a keyword to all the food items but not the poisons",
+   "should_trigger": true,
+   "expected_output": "kid-authoring is the single skill loaded, and the reasoning cites keyword distribution onto item records as the reason.",
+   "expectations": [
+    "with-skill arm: the pick is kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the recorded reasoning names the item-record target, not just the word KID",
+    "without-skill arm: the pick is NONE or a sibling, and the reasoning does not reproduce the KID line grammar from memory -- if it does, this case is not evidence for the skill"
+   ],
+   "why_this_case": "implicit — Potion type, food-not-poison trait",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: recall row, picked the skill under test"
+  },
+  {
+   "id": "T5",
+   "prompt": "how do i give all soul gems bigger than petty a keyword for my sorting mod",
+   "should_trigger": true,
+   "expected_output": "kid-authoring is the single skill loaded, and the reasoning cites keyword distribution onto item records as the reason.",
+   "expectations": [
+    "with-skill arm: the pick is kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the recorded reasoning names the item-record target, not just the word KID",
+    "without-skill arm: the pick is NONE or a sibling, and the reasoning does not reproduce the KID line grammar from memory -- if it does, this case is not evidence for the skill"
+   ],
+   "why_this_case": "implicit — Soul Gem trait filter",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: recall row, picked the skill under test"
+  },
+  {
+   "id": "T6",
+   "prompt": "tag every spell tome that teaches destruction with SpellTomeDestruction",
+   "should_trigger": true,
+   "expected_output": "kid-authoring is the single skill loaded, and the reasoning cites keyword distribution onto item records as the reason.",
+   "expectations": [
+    "with-skill arm: the pick is kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the recorded reasoning names the item-record target, not just the word KID",
+    "without-skill arm: the pick is NONE or a sibling, and the reasoning does not reproduce the KID line grammar from memory -- if it does, this case is not evidence for the skill"
+   ],
+   "why_this_case": "implicit — Book teaches-Destruction trait; fires though 'destruction spell tomes' was trimmed from the description (books + tag-all covered it)",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: recall row, picked the skill under test"
+  },
+  {
+   "id": "T7",
+   "prompt": "i want all enchanted iron weapons to get a keyword but leave the plain ones alone",
+   "should_trigger": true,
+   "expected_output": "kid-authoring is the single skill loaded, and the reasoning cites keyword distribution onto item records as the reason.",
+   "expectations": [
+    "with-skill arm: the pick is kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the recorded reasoning names the item-record target, not just the word KID",
+    "without-skill arm: the pick is NONE or a sibling, and the reasoning does not reproduce the KID line grammar from memory -- if it does, this case is not evidence for the skill"
+   ],
+   "why_this_case": "implicit — Weapon *Iron + E trait; agent cited the enchanted-state filter",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: recall row, picked the skill under test"
+  },
+  {
+   "id": "T8",
+   "prompt": "my _KID.ini isn't adding the keyword to the daggers, can you check the type and filter sections",
+   "should_trigger": true,
+   "expected_output": "kid-authoring is the single skill loaded, and the reasoning cites keyword distribution onto item records as the reason.",
+   "expectations": [
+    "with-skill arm: the pick is kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the recorded reasoning names the item-record target, not just the word KID",
+    "without-skill arm: the pick is NONE or a sibling, and the reasoning does not reproduce the KID line grammar from memory -- if it does, this case is not evidence for the skill"
+   ],
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: recall row, picked the skill under test"
+  },
+  {
+   "id": "T9",
+   "prompt": "add a keyword to all magic effects that have the Absorb archetype",
+   "should_trigger": true,
+   "expected_output": "kid-authoring is the single skill loaded, and the reasoning cites keyword distribution onto item records as the reason.",
+   "expectations": [
+    "with-skill arm: the pick is kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the recorded reasoning names the item-record target, not just the word KID",
+    "without-skill arm: the pick is NONE or a sibling, and the reasoning does not reproduce the KID line grammar from memory -- if it does, this case is not evidence for the skill"
+   ],
+   "why_this_case": "implicit — Magic Effect, archetype filter",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: recall row, picked the skill under test"
+  },
+  {
+   "id": "T10",
+   "prompt": "give every shield a custom keyword at game load without a patch plugin",
+   "should_trigger": true,
+   "expected_output": "kid-authoring is the single skill loaded, and the reasoning cites keyword distribution onto item records as the reason.",
+   "expectations": [
+    "with-skill arm: the pick is kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the recorded reasoning names the item-record target, not just the word KID",
+    "without-skill arm: the pick is NONE or a sibling, and the reasoning does not reproduce the KID line grammar from memory -- if it does, this case is not evidence for the skill"
+   ],
+   "why_this_case": "implicit — Armor slot, runtime/no-esp",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: recall row, picked the skill under test"
+  },
+  {
+   "id": "T11",
+   "prompt": "distribute a fire cloak spell to all bandits with SPID",
+   "should_trigger": false,
+   "expected_output": "kid-authoring is NOT loaded; the query routes to SPID — forms to NPCs.",
+   "expectations": [
+    "with-skill arm: the pick is not kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the reasoning names why the target is out of KID's lane",
+    "without-skill arm: removing kid-authoring does not change where this query lands"
+   ],
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: specificity row, routed to SPID — forms to NPCs"
+  },
+  {
+   "id": "T12",
+   "prompt": "buff the iron sword's damage to 15 and also add a keyword to it using skypatcher",
+   "should_trigger": false,
+   "expected_output": "kid-authoring is NOT loaded; the query routes to SkyPatcher — edit record fields.",
+   "expectations": [
+    "with-skill arm: the pick is not kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the reasoning names why the target is out of KID's lane",
+    "without-skill arm: removing kid-authoring does not change where this query lands"
+   ],
+   "why_this_case": "hard near-miss — says 'add a keyword' but is a record-field edit pinned to SkyPatcher",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: specificity row, routed to SkyPatcher — edit record fields"
+  },
+  {
+   "id": "T13",
+   "prompt": "add 5 gold and a healing potion to every merchant chest in my load order",
+   "should_trigger": false,
+   "expected_output": "kid-authoring is NOT loaded; the query routes to CID — items to containers.",
+   "expectations": [
+    "with-skill arm: the pick is not kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the reasoning names why the target is out of KID's lane",
+    "without-skill arm: removing kid-authoring does not change where this query lands"
+   ],
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: specificity row, routed to CID — items to containers"
+  },
+  {
+   "id": "T14",
+   "prompt": "add a custom keyword to all female nord NPCs at runtime",
+   "should_trigger": false,
+   "expected_output": "kid-authoring is NOT loaded; the query routes to SPID — keyword to NPCs.",
+   "expectations": [
+    "with-skill arm: the pick is not kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the reasoning names why the target is out of KID's lane",
+    "without-skill arm: removing kid-authoring does not change where this query lands"
+   ],
+   "why_this_case": "hardest near-miss — keyword distribution, but the target is NPCs not items (KID/SPID boundary)",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: specificity row, routed to SPID — keyword to NPCs"
+  },
+  {
+   "id": "T15",
+   "prompt": "what fields does the WEAP record have and which ones are writable",
+   "should_trigger": false,
+   "expected_output": "kid-authoring is NOT loaded; the query routes to mutagen-reference — schema.",
+   "expectations": [
+    "with-skill arm: the pick is not kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the reasoning names why the target is out of KID's lane",
+    "without-skill arm: removing kid-authoring does not change where this query lands"
+   ],
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: specificity row, routed to mutagen-reference — schema"
+  },
+  {
+   "id": "T16",
+   "prompt": "my game ctd's when i open a certain chest, read the crash log and tell me why",
+   "should_trigger": false,
+   "expected_output": "kid-authoring is NOT loaded; the query routes to crash-diagnostics.",
+   "expectations": [
+    "with-skill arm: the pick is not kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the reasoning names why the target is out of KID's lane",
+    "without-skill arm: removing kid-authoring does not change where this query lands"
+   ],
+   "why_this_case": "near-miss — mentions a chest, but the ask is crash-log diagnosis",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: specificity row, routed to crash-diagnostics"
+  },
+  {
+   "id": "T17",
+   "prompt": "which plugin is winning the conflict on the steel plate armor record in my lorerim order",
+   "should_trigger": false,
+   "expected_output": "kid-authoring is NOT loaded; the query routes to conflict-resolution.",
+   "expectations": [
+    "with-skill arm: the pick is not kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the reasoning names why the target is out of KID's lane",
+    "without-skill arm: removing kid-authoring does not change where this query lands"
+   ],
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: specificity row, routed to conflict-resolution"
+  },
+  {
+   "id": "T18",
+   "prompt": "write a papyrus script that adds a keyword to an item when the player picks it up",
+   "should_trigger": false,
+   "expected_output": "kid-authoring is NOT loaded; the query routes to papyrus-reference.",
+   "expectations": [
+    "with-skill arm: the pick is not kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the reasoning names why the target is out of KID's lane",
+    "without-skill arm: removing kid-authoring does not change where this query lands"
+   ],
+   "why_this_case": "hard near-miss — keyword onto an item, but event-scripted, not a static _KID line",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: specificity row, routed to papyrus-reference"
+  },
+  {
+   "id": "T19",
+   "prompt": "how do i install KID and its requirements in my MO2 setup",
+   "should_trigger": false,
+   "expected_output": "kid-authoring is NOT loaded; the query routes to modding-basics.",
+   "expectations": [
+    "with-skill arm: the pick is not kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the reasoning names why the target is out of KID's lane",
+    "without-skill arm: removing kid-authoring does not change where this query lands"
+   ],
+   "why_this_case": "hard near-miss — names KID but is install",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: specificity row, routed to modding-basics"
+  },
+  {
+   "id": "T20",
+   "prompt": "i'm new to modding, what even is KID and do i need it for my load order",
+   "should_trigger": false,
+   "expected_output": "kid-authoring is NOT loaded; the query routes to modding-basics.",
+   "expectations": [
+    "with-skill arm: the pick is not kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the reasoning names why the target is out of KID's lane",
+    "without-skill arm: removing kid-authoring does not change where this query lands",
+    "this case leaked to kid-authoring on the 2026-07-28 run; re-measure it against the new description rather than carrying the old verdict forward"
+   ],
+   "why_this_case": "hard near-miss — names KID but is conceptual/newcomer",
+   "prior_result": "J's description names KID by full product name and covers \"asks what an existing `_KID.ini` does\", so a general \"what is KID / do I need it\" orientation question reads as in-scope; nothing else on the menu covers mod-explainer/install questions, so J absorbs it by default."
+  },
+  {
+   "id": "T21",
+   "prompt": "check whether this mod's _KID.ini adds any keywords to skyforge steel weapons",
+   "should_trigger": true,
+   "expected_output": "kid-authoring is the single skill loaded, and the reasoning cites keyword distribution onto item records as the reason.",
+   "expectations": [
+    "with-skill arm: the pick is kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the recorded reasoning names the item-record target, not just the word KID",
+    "without-skill arm: the pick is NONE or a sibling, and the reasoning does not reproduce the KID line grammar from memory -- if it does, this case is not evidence for the skill"
+   ],
+   "why_this_case": "READ-SIDE, new 2026-06-11 — does-this-file-tag-X audit; agent cited 'whether a given item gets a keyword from it'",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: recall row, picked the skill under test"
+  },
+  {
+   "id": "T22",
+   "prompt": "before i install this armor mod, read its Survival_KID.ini and tell me which items it tags",
+   "should_trigger": true,
+   "expected_output": "kid-authoring is the single skill loaded, and the reasoning cites keyword distribution onto item records as the reason.",
+   "expectations": [
+    "with-skill arm: the pick is kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the recorded reasoning names the item-record target, not just the word KID",
+    "without-skill arm: the pick is NONE or a sibling, and the reasoning does not reproduce the KID line grammar from memory -- if it does, this case is not evidence for the skill"
+   ],
+   "why_this_case": "READ-SIDE — pre-install what-does-it-tag",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: recall row, picked the skill under test"
+  },
+  {
+   "id": "T23",
+   "prompt": "why isn't this kid line tagging my healing potions in game?",
+   "should_trigger": true,
+   "expected_output": "kid-authoring is the single skill loaded, and the reasoning cites keyword distribution onto item records as the reason.",
+   "expectations": [
+    "with-skill arm: the pick is kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the recorded reasoning names the item-record target, not just the word KID",
+    "without-skill arm: the pick is NONE or a sibling, and the reasoning does not reproduce the KID line grammar from memory -- if it does, this case is not evidence for the skill"
+   ],
+   "why_this_case": "READ-SIDE — why-isn't-it-applying",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: recall row, picked the skill under test"
+  },
+  {
+   "id": "T24",
+   "prompt": "audit the kid files in this overhaul and tell me if anything double-tags the ebony shields",
+   "should_trigger": true,
+   "expected_output": "kid-authoring is the single skill loaded, and the reasoning cites keyword distribution onto item records as the reason.",
+   "expectations": [
+    "with-skill arm: the pick is kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the recorded reasoning names the item-record target, not just the word KID",
+    "without-skill arm: the pick is NONE or a sibling, and the reasoning does not reproduce the KID line grammar from memory -- if it does, this case is not evidence for the skill"
+   ],
+   "why_this_case": "READ-SIDE — audit/double-tag; agent also reached for ExclusiveGroup",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: recall row, picked the skill under test"
+  },
+  {
+   "id": "T25",
+   "prompt": "what does this spid _DISTR.ini distribute, and to which npcs?",
+   "should_trigger": false,
+   "expected_output": "kid-authoring is NOT loaded; the query routes to SPID.",
+   "expectations": [
+    "with-skill arm: the pick is not kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the reasoning names why the target is out of KID's lane",
+    "without-skill arm: removing kid-authoring does not change where this query lands"
+   ],
+   "why_this_case": "READ-SHAPED near-miss — read-only distribution question, but the artifact is SPID's file format",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: specificity row, routed to SPID"
+  },
+  {
+   "id": "T26",
+   "prompt": "what does this skypatcher ini change on the iron sword record?",
+   "should_trigger": false,
+   "expected_output": "kid-authoring is NOT loaded; the query routes to SkyPatcher.",
+   "expectations": [
+    "with-skill arm: the pick is not kid-authoring on at least 2 of 3 runs",
+    "with-skill arm: the reasoning names why the target is out of KID's lane",
+    "without-skill arm: removing kid-authoring does not change where this query lands"
+   ],
+   "why_this_case": "READ-SHAPED near-miss — read-only item question, but the artifact is a SkyPatcher ini",
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: specificity row, routed to SkyPatcher"
+  },
+  {
+   "id": "Q1",
+   "prompt": "Tag every dagger in this load order with a new keyword, using KID. Write the _KID.ini, and tell me what the line actually reaches.",
+   "should_trigger": true,
+   "kind": "output quality",
+   "expected_output": "A _KID.ini whose line selects on the WEAP animation-type trait, named with the _KID substring and placed flat in Data\\, plus a reached count backed by the housecarl_records call that produced it.",
+   "expectations": [
+    "the filter axis is the OneHandDagger trait, not a *Dagger name substring. Measured on the 3,801-plugin ARR order the name filter is wrong in both directions: it misses REQ_Artifact_Keening, REQ_Artifact_MehrunesRazor, REQ_Artifact_Nettlebane, BSKHatchet, zzzCrbAkaviriKodachi and BPUFXelzazKukri, and it catches DummyDagger, CWDummyDaggerSons and CWDummyDaggerImperial (OneHandSword), DBMTWR_RiftenDaggerDummy (HandToHand) and zzzGHCrSkavenDaggers (TwoHandSword)",
+    "the trait line reaches 786 WEAP records across 54 plugins and catches no other weapon class. If the control arm reaches the same 786 unaided, the trait column is not this skill's value and the run is reported as such",
+    "the empty filters slot is held (NONE or ||). Dropping it slides the trait token into the filters slot, where it is read as a name substring and tags nothing, silently",
+    "the filename carries the _KID substring and the file is placed in Data\\, not Data\\SKSE\\Plugins\\",
+    "the reached count is returned WITH the call that produced it -- housecarl_records with types, where and counts_only=true -- rather than as a claim",
+    "a follow-up naming NPCs (\"and every bandit too\") is routed to housecarl:spid-authoring, not attempted in KID",
+    "the answer states that the grounding covers one type-plus-trait predicate and not KID's own evaluation order or chance, naming issue #614"
+   ],
+   "arms": {
+    "control": "no skill in the catalogue",
+    "with_skill": "told to load housecarl:kid-authoring first"
+   },
+   "cost_recorded": [
+    "total_tokens",
+    "duration_ms"
+   ],
+   "prior_evidence": "The 2026-09 audit ran this task with-skill only and produced Keyword = HC_AuditDaggerTag|Weapon|NONE|OneHandDagger, 786 WEAP records across 54 plugins. It has no control run, which is what this case adds."
+  }
+ ],
+ "carry_forward": "Not yet run. This file specifies the suite the rewrite must pass; results are written back here when it runs against a package build."
+}
