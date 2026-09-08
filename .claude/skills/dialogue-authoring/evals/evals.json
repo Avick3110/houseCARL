@@ -269,15 +269,17 @@
    "prompt": "Give Belethor another greeting that plays when the player activates him, without breaking his existing greetings.",
    "should_trigger": true,
    "kind": "output quality",
-   "expected_output": "One new INFO authored as a child of the existing vanilla Hello topic, in a reviewable patch, with the speaker gate cloned rather than computed, no PreviousDialog, nothing re-listed, the pre-enable off-order sweep run, and the limits of what was checked stated plainly.",
+   "expected_output": "A new start-game-enabled QUST at a priority measured above the incumbent dialogue quest's, its own HELO topic, one INFO under it whose conditions are cloned from a vanilla sibling and whose response row carries the exemplar's emotion fields, the .seq written, no vanilla record overridden, the pre-enable off-order sweep run, and the limits of what was checked stated plainly.",
    "expectations": [
-    "E1 -- the line is added as a child of the EXISTING vanilla Hello topic, via parent= naming its FormID, not as a new topic and quest. The control run built a new quest and a new topic and reasoned about quest priority to be reached at all",
-    "E2 -- no PreviousDialog is set on the added line, and the run says why: adding a line moves nothing",
-    "E3 -- the topic is not re-listed 'to be safe'",
-    "E4 -- the run states that the dialogue check cannot see the not-yet-enabled plugin and runs housecarl_check(plugins=[patch], findings=['errors','scripts']) instead of claiming coverage. This must come FROM THE SKILL, before the tool's own refusal is hit",
-    "E5 -- the run does NOT assert that a bottom-appended Hello line is starved by intra-topic order, and names greeting selection among eligible lines as undetermined. New: both the control and the previous with-skill run failed this, the with-skill run because the old body stated first-match universally",
-    "E6 -- Speaker is set in the create call, so houseCARL prints the computed .fuz path rather than the run deriving it by hand. New: both prior runs failed this",
-    "E7 -- the run does not forward the winning parent topic in to 'fix' the lean host, and says why: the forward would drag that plugin's re-listed INFO children in and re-open the reorder trap. A delta read is the cheap way to settle it",
+    "E1 -- the run authors its OWN quest and topic rather than appending into the vanilla Hello topic, and says why: quest priority decides which topic is entered, and an appended line lands at the bottom of a topic contested ten plugins deep. New: this is the route the rewrite makes the default, and the old skill's fast path steered the previous with-skill run away from it",
+    "E2 -- the new quest's Priority is MEASURED off the incumbent dialogue quest (DialogueWhiterun, Priority 30) and set above it, not guessed. New: the old skill said nothing about the number",
+    "E3 -- the vanilla exemplar INFO is found with references=[<Belethor's FormID>], not with a where= scan on Speaker. New: the old skill said 'read a real vanilla line' without saying how, and the previous with-skill run burned a call on the Speaker dead end",
+    "E4 -- the response row carries the exemplar's Emotion / EmotionValue / Flags (Neutral / 50 / UseEmotionAnimation), not the 0 / none defaults. New: the previous with-skill run shipped 0 and none, the only field-level defect the gate judge found in either arm",
+    "E5 -- the line's Conditions are CLONED from a vanilla sibling INFO rather than hand-synthesized, and the run states which cloned entries it kept and which it dropped (the shop-cell check on a line meant to play anywhere)",
+    "E6 -- housecarl_write_seq is run against the patch, and the run says the quest and its dialogue do not exist without it",
+    "E7 -- no vanilla record is overridden: the delivered patch contains only records the run created, and the run says that is what makes 'existing greetings unbroken' true by construction rather than by measurement",
+    "E8 -- the run states that the dialogue check cannot see the not-yet-enabled plugin and runs housecarl_check(plugins=[patch], findings=['errors','scripts']) instead of claiming coverage. This must come FROM THE SKILL, before the tool's own refusal is hit",
+    "E9 -- the run does NOT assert that a bottom-appended Hello line is starved by intra-topic order, and names greeting selection among eligible lines as undetermined. New at the last revision: both the control and the previous with-skill run failed this",
     "each verdict quotes the line of the transcript it rests on; an adjudicator note is not evidence"
    ],
    "arms": {
@@ -288,7 +290,7 @@
     "total_tokens",
     "duration_ms"
    ],
-   "prior_evidence": "The 2026-09 audit ran this task on the live 3,801-plugin order with a 40-call cap, once with no skill and once with the old skill. E1-E4 and E7 passed with the skill and E1/E4 failed without it; E5, E6 and E7 are what this rewrite adds -- E5 and E6 failed in BOTH prior runs, so the rewrite must beat its own previous with-skill run, not only the control."
+   "prior_evidence": "The 2026-09 gate ran this task on the live 3,801-plugin order with a 40-call cap, once with no skill and once with the old skill, and the skill LOST: the control reached the own-quest route unaided in 10 calls, while the old skill's fast path put the with-skill run into a ten-deep contested topic in 18 calls and shipped a response row at EmotionValue 0 / Flags 0. The verdict is dev/skill-validation/gate-2026-09/dialogue-authoring/VERDICT.md. E1-E7 are what the rewrite must now add over the CONTROL, not only over the previous with-skill run -- the control already passed the substance of E1, E2 and E7 with no skill at all, so the skill's evidence has to come from reaching the same design in fewer calls and from E3-E6, which the control did not all get."
   }
  ],
  "known_gap": "A dialogue check that can see an off-order plugin is issue #615 and is not in 2.0. E4 therefore tests that the run names the gap and uses the off-order errors/scripts sweep, not that the dialogue family covers the new plugin.",

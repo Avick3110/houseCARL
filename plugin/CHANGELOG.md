@@ -47,6 +47,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   houseCARL does for you. Where a recommendation is derived from that unreliable field rather than from the base
   record's SNAM, it says so. Nothing is rewritten: no field on the record distinguishes the two numberings.
 
+- **`dialogue-authoring` now makes a new line's own quest the default route, and appending into a vanilla
+  topic the exception.** A new line on an existing NPC gets its own start-game-enabled quest at a priority
+  measured above the incumbent dialogue quest's, its own topic, and the `.seq` — no vanilla record is
+  touched. Appending into an existing topic keeps its own section with the case for taking it, and both
+  worked examples now carry the conditions cloned from a vanilla sibling and the exemplar's
+  `Emotion`/`EmotionValue`/`Flags`; the append example previously wrote neither. The skill also says how to
+  find that vanilla sibling (`references=[<npc formid>]`, not a `Speaker` scan), that the activation greeting
+  is the `HELO` subtype with no `GREE`, and that a topic's `SNAM` marker is authoritative for its subtype
+  where the `Subtype` enum disagrees across form versions.
 - **`open-animation-replacer` now states how a DAR `_conditions.txt` chain binds, and that the DAR weapon-type
   numbers convert unchanged.** Both were marked unverified in its reference, and the skill told you to convert
   under one reading and say which. Both are now read off OAR's own source; the reference's §8 carries the rule,
