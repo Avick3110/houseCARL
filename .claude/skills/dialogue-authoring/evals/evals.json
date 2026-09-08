@@ -232,7 +232,7 @@
    "id": "T18",
    "prompt": "make this idle animation play only while a dagger is drawn",
    "should_trigger": false,
-   "expected_output": "dialogue-authoring is NOT loaded; the query routes to housecarl:oar-authoring.",
+   "expected_output": "dialogue-authoring is NOT loaded; the query routes to housecarl:open-animation-replacer.",
    "expectations": [
     "with-skill arm: the pick is not dialogue-authoring on at least 2 of 3 runs",
     "with-skill arm: the reasoning names animation conditions as a separate framework",
