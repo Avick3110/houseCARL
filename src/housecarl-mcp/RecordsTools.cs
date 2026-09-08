@@ -2307,7 +2307,8 @@ public static class RecordsTools
     /// <summary>The reverse MGEF lane's text render: a header census over the complete seed list, each windowed
     /// seed's carriers through the shared effect-chain render, the standard explicit cut and spill marker.
     /// max_chars is a CEILING: the notice and the spill block are charged first, the shared render is told what
-    /// this one has already spent, and a seed that would cross what is left is taken back out whole.</summary>
+    /// this one has already spent, and a seed that would cross what is left is taken back out whole. A seed the
+    /// shared render cut inside its own buffer reports that back — nothing here can measure it.</summary>
     static string RenderRecordsEffectChains(IReadOnlyList<(string Seed, EffectChainResult Result)> results,
                                             int totalSeeds, int carrierRows, int carrierTotal, int errors, string headerLine,
                                             OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated)
@@ -2334,9 +2335,14 @@ public static class RecordsTools
             sb.Append('\n').Append("seed ").Append(seed).Append('\n');
             // The shared render builds its own buffer, so it is told what this one has already spent — and it
             // still quotes the caller's max_chars in its own cut notice.
-            sb.Append(Wire.RenderEffectChain(result, room, sb.Length + 1, "walk.max_nodes")).Append('\n');
+            sb.Append(Wire.RenderEffectChain(result, room, sb.Length + 1, "walk.max_nodes", out bool said)).Append('\n');
             if (Crossed(sb, mark, room.Budget, Notice(rendered), ref truncated)) break;
             rendered++;
+            // The shared render keeps its own output inside the budget, so a seed it cut never crosses here: the
+            // cut it reports is the only thing that says this answer is incomplete, and it drives the spill.
+            if (!said) continue;
+            Stopped(sb, Notice(rendered), rendered, results.Count, ref truncated);
+            break;
         }
         sb.Append(spillText);
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);

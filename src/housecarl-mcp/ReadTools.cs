@@ -487,14 +487,19 @@ static class Wire
     /// a default here is a lever name guessed on the caller's behalf, which is exactly the bug this parameter was
     /// added to fix — a new caller must state its own spelling.</param>
     public static string RenderEffectChain(EffectChainResult r, int maxChars, string carrierBound)
-        => RenderEffectChain(r, new RenderCap(Cap(maxChars), Cap(maxChars)), 0, carrierBound);
+        => RenderEffectChain(r, new RenderCap(Cap(maxChars), Cap(maxChars)), 0, carrierBound, out _);
 
     /// <summary>The bounded form: <paramref name="room"/> carries the caller's max_chars and the budget its own
     /// tail has left, and <paramref name="used"/> is what the caller has already written — this render builds its
     /// own buffer, so the two together are what the rows are measured against, while every notice still quotes the
     /// max_chars the caller passed.</summary>
-    internal static string RenderEffectChain(EffectChainResult r, RenderCap room, int used, string carrierBound)
+    /// <param name="cut">true when carrier rows were held back here. This render cuts inside its own buffer, so a
+    /// caller measuring only the buffer's length sees nothing crossed — the answer is incomplete and only this
+    /// says so, which is what drives the caller's truncation flag and its spill.</param>
+    internal static string RenderEffectChain(EffectChainResult r, RenderCap room, int used, string carrierBound,
+                                             out bool cut)
     {
+        cut = false;
         if (r.Error is not null) return "error: " + r.Error + Wire.EpochLine(r.Stamp);
         int cap = room.Cap;
         var sb = new StringBuilder();
@@ -542,6 +547,7 @@ static class Wire
                 {
                     sb.Append(Notice(rendered));
                     truncated = true;
+                    cut = true;
                     break;
                 }
                 sb.Append(line);
