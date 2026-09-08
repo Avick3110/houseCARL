@@ -30,7 +30,11 @@ body's promises do not hold in.
 3. **Emit a `## Contents` table** at the head of every generated file **over 100 lines** — the
    stricter of the two thresholds the platform guidance and the checklist name, so it clears both.
    The table lists each `##` section with its entry count and its post-insertion line number, and
-   says that the lookup path is the index, not the table.
+   says that the lookup path is the index, not the table. **List only headings that head a
+   section** — `Properties`, `Events`, `Functions`, `Global Functions`, and the backticked class
+   names. Upstream emits some function doc-comment lines as `##` headings, so a table built by
+   walking `^## ` lists prose as sections and splits the enclosing section's entry count across
+   them; `papyrusutil.md` carried 22 such lines and was corrected on 2026-09-08.
 4. **Re-derive the index's line ranges.** Pass 3 inserts lines above every entry block in the files
    it touches; every affected row's `line_start` and `line_end` shift by the size of the inserted
    block. Verify afterwards that every row's `line_start` lands on a `### ` heading naming that
@@ -47,7 +51,7 @@ list that file above.
 ## Recorded trades
 
 - **The aggregates stay whole.** `papyrusutil.md` and `dylbills.md` each hold many scripts —
-  6,388 and 13,354 lines on the tree shipped 2026-09-08. They are not split, because every read off
+  6,366 and 13,354 lines on the tree shipped 2026-09-08. They are not split, because every read off
   them is line-exact through the index, so file size costs nothing at lookup time and splitting
   would churn every affected row's `file` field on each regeneration. The cost is the fallback read
   and human browsing, which the `## Contents` table covers.
