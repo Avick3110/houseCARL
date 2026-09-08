@@ -165,8 +165,10 @@ back.
 - **Keep one metadata path.** When the build system generates the export triad
   (`add_commonlibsse_plugin`, or the xmake plugin rule), a hand-written `SKSEPluginInfo` on top gives
   duplicate exports and a load failure that names nothing.
-- **Set the log up before `SKSE::Init`, and never re-init it after.** `SKSE::Init(skse)` truncates a
-  log you have just configured, taking every pre-`Init` line with it.
+- **Set the log up before `SKSE::Init`, and pass `a_log = false`.** `SKSE::Init(skse)` with the
+  default `a_log = true` runs CommonLib's own `log::init()`, which truncates the log you just
+  configured and replaces your logger, taking every pre-`Init` line with it. Call
+  `SKSE::Init(a_skse, false)` when you own the logger.
 - **Marshal state changes onto the game thread.** Most game-state writes must run on Skyrim's main
   thread, but the code that *discovers* the work — an event sink, a hook thunk, a Papyrus call — runs
   elsewhere. Mutating where you stand is a race and an intermittent CTD.
