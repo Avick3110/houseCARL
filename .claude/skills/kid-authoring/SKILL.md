@@ -84,9 +84,10 @@ Read what your task needs, not everything.
    large to render inline, pass `to_file` an absolute `.jsonl` path and re-enter it later as
    `formids=["@<that absolute path>"]`. Leave `source` omitted, or pass `"winner"` — the load-order
    winner is the record KID acts on. To show what a name filter would have caught instead, run the
-   same scan with `where=["editorid contains Dagger"]`, noting that KID's own String filter matches
-   the item's **display name**, not its EditorID, so that scan illustrates rather than repeats the
-   predicate. **This grounds one type-plus-trait predicate, not the whole line:** nothing on the 2.0
+   same scan with `where=["Name contains Dagger"]` — KID's String filter matches the item's
+   **display name**, so `Name` is the predicate that answers it. An `editorid contains` scan asks a
+   different question and turns up records with no name at all, which no String filter ever sees.
+   **This grounds one type-plus-trait predicate, not the whole line:** nothing on the 2.0
    surface replays KID's evaluation order or `chance` — that is issue **#614**, not in 2.0, so say
    so rather than implying the whole line was proved.
 
