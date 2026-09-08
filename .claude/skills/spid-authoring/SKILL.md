@@ -123,12 +123,19 @@ A SPID line is written blind unless you measure the population first. Three chec
    (`Factions[*any].Faction->editorid = BanditFaction`); resolve the field path with
    `housecarl:mutagen-reference` rather than guessing it.
 2. **Count how many of those are on a PC level multiplier**, when a Level Filter is in play:
-   `housecarl_records` with the same `types`, `where=["Configuration.Level.LevelMult >= 0"]` and
-   `counts_only=true`. That is the population the re-distribution pass covers, not the population
-   the line reaches — see *Verifying a distribution actually happened*.
+   `housecarl_records` with the same `types`, check 1's predicate **and**
+   `"Configuration.Level.LevelMult >= 0"` together in `where`, and `counts_only=true`. `where`
+   predicates are ANDed, so dropping check 1's term counts every scaling NPC in the order instead
+   of the group the line names. That is the population the re-distribution pass covers, not the
+   population the line reaches — see *Verifying a distribution actually happened*.
 3. **Prove the file is the one the game reads**, after placing it: `housecarl_asset_status` with
    `asset_paths=["<name>_DISTR.ini"]`, a Data-relative path like any other. It names the winning
    source, every source that provides it, and whether more than one contends.
+
+**A census is a floor.** Both counts read each record's *own* local data. An NPC that inherits its
+factions or stats from a template has that data masked on its own record, while SPID matches the
+resolved NPC (`references/grammar-core.md` §11), so a templated actor SPID reaches can go uncounted.
+Say that alongside the number rather than passing it off as the resolved population.
 
 **Stop condition.** Quote the counts you measured and no others; never state a reach you did not
 measure. **What the surface cannot do:** nothing reports the set a *composed line* reaches — SPID's
@@ -188,7 +195,7 @@ what SPID looked up; only a live actor shows what SPID applied.
   finds it by name, which is what makes a no-ESP keyword distribution verifiable from script at all.
   For the signature use `housecarl:papyrus-reference`; the SPID side is in `references/form-types.md`.
 - **Chance skips actors by design.** A `Chance` below 100 is *supposed* to miss some NPCs, so two
-  sampled actors without the form is an ordinary outcome for `|||||50` — and the roll is re-made
+  sampled actors without the form is an ordinary outcome for `||||||50` — and the roll is re-made
   each session unless `!` pins it per NPC. Set Chance to 100 before calling a rule failed.
 - **A Level Filter narrows by the NPC's own level; it does not narrow to auto-levelled NPCs.** It is
   checked against every NPC the line otherwise matches. The separate re-distribution pass covers
