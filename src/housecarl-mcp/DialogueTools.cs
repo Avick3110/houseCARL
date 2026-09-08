@@ -38,8 +38,12 @@ internal static class DialogueWire
         if (t.ConditionedInfoCount > 0) sb.Append("; ").Append(t.ConditionedInfoCount).Append(" carry conditions (CTDA)");
         if (t.DeletedInfoCount > 0) sb.Append("; ").Append(t.DeletedInfoCount).Append(" deleted line(s) skipped");
         sb.Append('\n');
+        // When the numeric subtype and the SNAM marker disagree, say which one to believe: the engine buckets topics
+        // by the marker, and the number goes stale on pre-Dragonborn topics (DialogueSubtype.MarkerDisagreesWithSubtype).
         sb.Append(pad).Append("  category=").Append(t.Category).Append("  subtype=").Append(t.Subtype)
-          .Append("  subtype_marker=").Append(t.SubtypeName).Append('\n');
+          .Append(t.SubtypeDisagreesWithMarker ? " (stale)" : "")
+          .Append("  subtype_marker=").Append(t.SubtypeName)
+          .Append(t.SubtypeDisagreesWithMarker ? " (authoritative)" : "").Append('\n');
 
         // Whether a Papyrus.log entry is even possible for a line: a result-script fragment runs code that can surface
         // in the log, while a plain voiced line has no code path. Always shown for a topic with live INFOs.

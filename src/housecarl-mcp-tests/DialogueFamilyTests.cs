@@ -295,6 +295,54 @@ public sealed class DialogueFamilyTests
         Assert.DoesNotContain("epoch=", Wire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: unseeded), 20000));
     }
 
+    // ---- Subtype vs SNAM (#660) -------------------------------------------------------------------------
+    // A topic whose numeric Subtype contradicts its SNAM marker is flagged, and both renders say the marker is
+    // the one to believe. A topic where the two agree says nothing.
+
+    [Fact]
+    public void ATopicWhoseSubtypeContradictsItsMarkerSaysTheMarkerWins()
+    {
+        var r = CheckDialogue(Svc, W.StaleSubtypeTopic);
+        var block = SeedBlock(r, Fid(W.StaleSubtypeTopic));
+
+        Assert.Contains("subtype=RechargeExit (stale)", block);
+        Assert.Contains("subtype_marker=HELO (authoritative)", block);
+        Assert.Contains("the MARKER is authoritative", block);
+        Assert.Contains("Treat this topic's subtype as Hello, not RechargeExit", block);
+    }
+
+    [Fact]
+    public void ATopicWhoseSubtypeMatchesItsMarkerIsNotFlagged()
+    {
+        var r = CheckDialogue(Svc, W.AgreeingSubtypeTopic);
+        var block = SeedBlock(r, Fid(W.AgreeingSubtypeTopic));
+
+        Assert.Contains("subtype=Hello", block);
+        Assert.DoesNotContain("(stale)", block);
+        Assert.DoesNotContain("authoritative", block);
+    }
+
+    /// <summary>The JSON transport carries the same verdict as a flag, so a consumer never parses it out of prose.</summary>
+    [Fact]
+    public void TheJsonSweepFlagsAStaleSubtype()
+    {
+        bool Stale(Mutagen.Bethesda.Plugins.FormKey topic)
+        {
+            var result = Svc.CheckDialogue(new[] { Fid(topic) }, 1000);
+            Assert.Null(result.Error);
+            var json = JsonDocument.Parse(JsonWire.RenderCheck(new CheckSweep(DialogueSel(), Dialogue: result), 20000));
+            var row = json.RootElement.GetProperty("families")
+                          .GetProperty(SweepFamilySelection.Token(SweepFamily.Dialogue))
+                          .GetProperty("seeds").EnumerateArray()
+                          .SelectMany(s => s.GetProperty("topics").EnumerateArray())
+                          .Single(t => t.GetProperty("topic").GetString() == topic.ToString());
+            return row.GetProperty("subtype_stale").GetBoolean();
+        }
+
+        Assert.True(Stale(W.StaleSubtypeTopic));
+        Assert.False(Stale(W.AgreeingSubtypeTopic));
+    }
+
     /// <summary>Everything AFTER the seed prefix the sweep echoes — the composed refusal itself. The sweep writes
     /// "{seed}: {refusal}.", and the seed is "&lt;id&gt;:&lt;definer&gt;", so a plugin name found anywhere in the
     /// whole response may be the seed's own echo rather than the failure's subject.</summary>

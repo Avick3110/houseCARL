@@ -68,6 +68,12 @@ public sealed record TopicValidation(
     /// (the topic resolved to no touching plugins). This is the one view that shows a pure REORDER, which changes
     /// which line plays while leaving every field identical — see <see cref="DialogueInfoOrder"/>.</summary>
     public InfoOrderView? InfoOrder { get; init; }
+
+    /// <summary>True when <see cref="Subtype"/> (the numeric DATA field) names a different subtype than
+    /// <see cref="SubtypeName"/> (the SNAM marker). The marker is authoritative — the engine buckets by it — so a
+    /// render must label the pair rather than show the number bare. See
+    /// <see cref="DialogueSubtype.MarkerDisagreesWithSubtype"/> for why the number goes stale.</summary>
+    public bool SubtypeDisagreesWithMarker { get; init; }
 }
 
 /// <summary>The SEQ staleness/coverage lint result for a QUEST-input validation; null for a non-SGE quest or a DIAL
@@ -461,8 +467,14 @@ public static class DialogueValidate
         {
             var expected = DialogueSubtype.MarkerFor((int)topic.Subtype);
             bool isOverride = !string.Equals(topic.FormKey.ModKey.FileName.String, winnerPlugin, StringComparison.OrdinalIgnoreCase);
+            // The recommended marker is DERIVED from the numeric Subtype, which is unreliable on a topic authored
+            // before the Dragonborn-era CK renumbered the enum (see DialogueSubtype.MarkerDisagreesWithSubtype). With
+            // SNAM blank there is nothing to cross-check it against, so the advice says where it came from and points
+            // at the base record's marker rather than asserting a number-derived tag is right.
+            var derived = $" That marker is derived from the numeric Subtype, which is stale on topics authored before "
+                        + "the Dragonborn-era Creation Kit renumbered the subtype enum — check the base record's SNAM before writing it.";
             var fix = expected is not null
-                ? $"Set it to {expected} (the marker for Subtype={topic.Subtype}); houseCARL's create tools now auto-fill it, or {ToolNames.Apply} on SubtypeName with value={expected}."
+                ? $"Set it to {expected} (the marker for Subtype={topic.Subtype}); houseCARL's create tools now auto-fill it, or {ToolNames.Apply} on SubtypeName with value={expected}.{derived}"
                 : $"Set it to the correct 4-char marker for Subtype={topic.Subtype} via {ToolNames.Apply} on SubtypeName.";
             issues.Add(isOverride
                 ? new(DialogueIssueSeverity.Warning,
@@ -472,6 +484,24 @@ public static class DialogueValidate
                 : new(DialogueIssueSeverity.Problem,
                     "DialogTopic.SubtypeName (the SNAM subtype marker) is empty (0000) — the game buckets topics by this 4-char marker, "
                     + $"and this plugin DEFINES the topic, so a blank marker is a load CTD on load (#131); the record is malformed. {fix}"));
+        }
+
+        // --- Subtype vs SNAM disagreement: the numeric DATA\Subtype says one thing and the SNAM marker another.
+        //     SNAM wins — the engine buckets by the marker, and xEdit marks DATA\Subtype cpIgnore for the same reason.
+        //     The usual cause is age, not damage: the Dragonborn-era CK inserted six FlyingMount* subtypes at index 20,
+        //     so a topic authored before that stores a number six lower than the modern enum and every reader (Mutagen,
+        //     xEdit, houseCARL) labels it six entries too early. No field distinguishes the two numberings, so this is
+        //     reported, never "fixed" — rewriting DATA\Subtype here would be a guess at what the author meant.
+        else if (DialogueSubtype.MarkerDisagreesWithSubtype(topic))
+        {
+            var fromMarker = DialogueSubtype.NameForMarker(topic.SubtypeName);
+            issues.Add(new(DialogueIssueSeverity.Warning,
+                $"DialogTopic.Subtype reads {topic.Subtype} ((int){(int)topic.Subtype}) but the SNAM marker is "
+                + $"{topic.SubtypeName.Type}{(string.IsNullOrEmpty(fromMarker) ? "" : $" ({fromMarker})")} — they disagree, and the MARKER is "
+                + "authoritative: the game buckets topics by SNAM. The record is not necessarily broken; Bethesda renumbered the "
+                + "numeric subtype enum when the Dragonborn-era Creation Kit inserted six FlyingMount* values at index 20, so a "
+                + "topic authored before that stores a number six lower than the modern table and every reader labels it too early. "
+                + $"Treat this topic's subtype as {(string.IsNullOrEmpty(fromMarker) ? topic.SubtypeName.Type : fromMarker)}, not {topic.Subtype}."));
         }
 
         // Static condition lints need the owning quest's reference-alias IDs — resolved ONCE here off the load-order
@@ -569,7 +599,10 @@ public static class DialogueValidate
         return new TopicValidation(
             topic.FormKey, edid, winnerPlugin, infoCount, conditioned, deleted, fragmentInfos,
             topic.Category.ToString(), topic.Subtype.ToString(), DescribeSubtypeName(topic.SubtypeName),
-            issues, voiceLines, voiceUndet, scriptFindings);
+            issues, voiceLines, voiceUndet, scriptFindings)
+        {
+            SubtypeDisagreesWithMarker = DialogueSubtype.MarkerDisagreesWithSubtype(topic),
+        };
     }
 
     /// <summary>SEQ staleness/coverage lint for a QUEST input: if the quest is Start-Game-Enabled, does its DEFINING

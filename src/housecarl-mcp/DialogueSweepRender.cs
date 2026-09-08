@@ -295,6 +295,9 @@ internal static class DialogueSweepRender
         w.WriteString("category", t.Category);
         w.WriteString("subtype", t.Subtype);
         w.WriteString("subtype_marker", t.SubtypeName);
+        // The marker is authoritative when the two disagree — the engine buckets by SNAM and the numeric subtype goes
+        // stale on pre-Dragonborn topics. Emitted always so a consumer never has to infer it from the issues text.
+        w.WriteBoolean("subtype_stale", t.SubtypeDisagreesWithMarker);
         WriteIssues(w, "issues", t.Issues);
         w.WriteStartArray("silent_lines");
         foreach (var l in t.VoiceLines)
