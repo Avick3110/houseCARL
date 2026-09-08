@@ -925,11 +925,13 @@ public sealed class FieldPredicateSet
     }
 
     /// <summary>Which no-verdict class wins when a fold saw more than one: a read fault outranks a schema miss,
-    /// which outranks a container or a genuinely-unset element.</summary>
+    /// which outranks a container or a genuinely-unset element. A list hop outranks the other schema misses because
+    /// its remedy is the specific one (a missing bracket, not a mistyped name).</summary>
     static int NoVerdictRank(EvalKind k) => k switch
     {
-        EvalKind.Unreadable => 4,
-        EvalKind.ListHop => 3, EvalKind.NotAList => 3, EvalKind.NoField => 3, EvalKind.NoParent => 3,
+        EvalKind.Unreadable => 5,
+        EvalKind.ListHop => 4,
+        EvalKind.NotAList => 3, EvalKind.NoField => 3, EvalKind.NoParent => 3,
         EvalKind.Container => 2,
         _ => 1,   // Unset
     };
@@ -1076,12 +1078,17 @@ public sealed class FieldPredicateSet
         }
         if (links.Count == 0) return (false, EvalKind.Unset);   // present but empty — genuinely nothing linked
 
-        bool anyVerdict = false, anyNoField = false, anyListHop = false;
+        // The no-verdict class that carries out is the LOUDEST one an actually-reached target produced (the same
+        // ranking a fold uses), so a read fault is only ever reported for a target that really faulted. Every
+        // target reading the field unset — and every target being unresolvable, which reads nothing at all — is
+        // an unset path, not a parse failure.
+        bool anyVerdict = false;
+        EvalKind? unjudged = null;
         foreach (var fk in links)
         {
             if (!_targetCache.TryGetValue(fk, out var target))
                 _targetCache[fk] = target = _fetchWinnerBody(fk);
-            if (target is null) continue;                       // unresolvable target — can't judge through it
+            if (target is null) continue;                       // unresolvable target — nothing read there, nothing faulted
             var (sat, kind) = EvalCore(p, target);
             if (_fatal is not null) return (false, EvalKind.Definite);
             if (kind == EvalKind.Definite)
@@ -1089,10 +1096,10 @@ public sealed class FieldPredicateSet
                 anyVerdict = true;
                 if (sat) return (true, EvalKind.Definite);
             }
-            else if (kind is EvalKind.NoField or EvalKind.ListHop or EvalKind.NoParent) { anyNoField = true; anyListHop |= kind == EvalKind.ListHop; }
+            else if (unjudged is null || NoVerdictRank(kind) > NoVerdictRank(unjudged.Value)) unjudged = kind;
         }
         if (anyVerdict) return (false, EvalKind.Definite);
-        return (false, anyNoField ? (anyListHop ? EvalKind.ListHop : EvalKind.NoField) : EvalKind.Unreadable);
+        return (false, unjudged ?? EvalKind.Unset);
     }
 
     /// <summary>The three-state presence verdict for a leaf under <c>exists</c>/<c>missing</c>: a DEFINITE
@@ -1239,6 +1246,8 @@ public sealed class FieldPredicateSet
     /// likely a mistyped or container/list path).</item>
     /// <item>A predicate that read no value on MORE THAN HALF the candidates ⇒ a SOFT note (a path wrong for some
     /// scanned types in a mixed scan reads as a non-match there, not an error).</item>
+    /// <item>A predicate that READ FAULTED on ANY candidate ⇒ the same note whatever the ratio: those records
+    /// could not be judged, and a handful of them under the half-threshold must not pass unsaid.</item>
     /// </list></summary>
     public string? AccountingNote()
     {
@@ -1252,8 +1261,8 @@ public sealed class FieldPredicateSet
             {
                 // No candidate read a value — but the CAUSE decides whether this is a wrong path or a correct path
                 // over a value-less scope, and those need opposite next moves (fix the path vs. widen the scope). All
-                // four keep the loud marker "yielded no readable value on any" (distinct from the SOFT "had no readable
-                // value on" for a >half-but-not-all miss), then diverge on the actionable reason.
+                // four keep the loud marker "yielded no readable value on any" (distinct from the SOFT "had no value
+                // on" for a >half-but-not-all miss), then diverge on the actionable reason.
                 const string loud = "yielded no readable value on any of";
                 long unset = _noValue[k] - _noField[k] - _container[k] - _unreadable[k];   // what is left: genuinely-unset valid fields
                 string reason;
@@ -1314,10 +1323,20 @@ public sealed class FieldPredicateSet
                              $"leaf that exists on these records.";
                 (notes ??= new()).Add(reason + " 0 matches on that basis is NOT a confirmed 'nothing matches'.");
             }
-            else if (_noValue[k] * 2 > _scanned)
+            else if (_noValue[k] * 2 > _scanned || _unreadable[k] > 0)
+            {
+                // A real read FAULT is always said, whatever the ratio: those records could not be judged at all,
+                // and passing them off as non-matches with nothing said is the silently degraded answer. The tail
+                // says what THIS note's records did, so it never calls an unjudgeable record a non-match.
+                var tail = _unreadable[k] == 0
+                    ? " — counted as non-matches there, not errors."
+                    : _unreadable[k] == _noValue[k]
+                        ? " — a coverage/parse limit on this field, so the filter could NOT judge those records; they are absent from the results, which is not the same as their not matching."
+                        : $" — the filter could NOT judge the {_unreadable[k]:N0} read-fault record(s) (a coverage/parse limit on this field); the rest counted as non-matches, not errors.";
                 (notes ??= new()).Add(
                     $"note: '{path}' had no value on {_noValue[k]:N0} of {_scanned:N0} scanned record(s) — " +
-                    NoValueBreakdown(k) + " — counted as non-matches there, not errors.");
+                    NoValueBreakdown(k) + tail);
+            }
         }
         return notes is null ? null : string.Join("\n", notes);
     }
