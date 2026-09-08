@@ -155,11 +155,14 @@ foreach ($f in @('.mcp.json','LICENSE','THIRD-PARTY-NOTICES.txt','README.md','CH
 # ---- 7. leak-check the shipped skill trees (excluded files + markdown pointers) ----
 # Runs on both trees before the -PluginTreeOnly return, so CI (which assembles with that switch)
 # runs it too. Two invariants, from dev/DECISIONS.md 2026-09-07 ruling 2: nothing this script
-# excludes may survive into a shipped copy, and every references/<file> a shipped markdown file
-# writes must exist in that same copy and must not be a file this script excludes. The pointer scan
-# reads every .md in the skill, not just SKILL.md - a reference file pointing at a stripped file is
-# the same dead link. It matches either slash and any case, and a backslash pointer is itself a
-# defect (skill pointers are written with forward slashes).
+# excludes may survive into a shipped copy, and every file a shipped markdown file points at must
+# exist in that same copy and must not be a file this script excludes. Both pointer forms are read:
+# the references/<file> hop, and the bare sibling name that most of the corpus uses. The scan reads
+# every .md in the skill, not just SKILL.md - a reference file pointing at a stripped file is the
+# same dead link. It matches either slash and any case, and a backslash pointer is itself a defect
+# (skill pointers are written with forward slashes). This checks that a pointer RESOLVES; the ruling's
+# form half - that a pointer is written as references/<file> - is enforced per skill by the regrade in
+# that skill's rewrite wave, not here.
 Step '7/12' 'Leak-check skills (excluded files + markdown pointers)'
 $skillLeaks = @()
 foreach ($r in $LeakRoots) {
@@ -174,6 +177,9 @@ $pointerFails = @()
 $docCount = 0
 foreach ($r in $SkillRoots) {
   foreach ($skillDir in (Get-ChildItem $r -Directory)) {
+    # every file name this skill ships - what a bare sibling pointer has to resolve to
+    $shipped = @{}
+    Get-ChildItem $skillDir.FullName -Recurse -Force -File | ForEach-Object { $shipped[$_.Name] = $true }
     foreach ($doc in (Get-ChildItem $skillDir.FullName -Recurse -Force -File -Filter '*.md')) {
       $docCount++
       $rel     = ($doc.FullName.Substring($skillDir.FullName.Length).TrimStart('\')) -replace '\\','/'
@@ -194,6 +200,16 @@ foreach ($r in $SkillRoots) {
           $pointerFails += ("{0} ({1}) points at {2}, which this script strips from every shipped copy." -f $skillDir.Name, $rel, $ptr)
         } elseif (-not (Test-Path (Join-Path $skillDir.FullName $ptr))) {
           $pointerFails += ("{0} ({1}) points at {2}, which is not in the shipped copy." -f $skillDir.Name, $rel, $ptr)
+        }
+      }
+      # the bare sibling form, the dominant one in the corpus (a plain value-tables.md, no references/ hop):
+      # it resolves against every name the skill ships. Only .md and .jsonl are candidates - those are the
+      # extensions shipped skill files use, so a bare .json/.ini/.psc name here is a file in the modded game
+      # (OAR's config.json, SPID's _DISTR.ini, a vanilla Form.psc), never a pointer at a sibling document.
+      foreach ($m in [regex]::Matches($docText, '(?<![A-Za-z0-9_./\\-])[A-Za-z0-9_-]+\.(?:md|jsonl)(?![A-Za-z0-9])', 'IgnoreCase')) {
+        if ($m.Value -eq '_CORPUS_STATUS.md') { continue }   # the stripped-file rule above owns this name
+        if (-not $shipped.ContainsKey($m.Value)) {
+          $pointerFails += ("{0} ({1}) points at {2}, which is not in the shipped copy." -f $skillDir.Name, $rel, $m.Value)
         }
       }
     }
