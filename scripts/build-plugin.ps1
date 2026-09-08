@@ -180,7 +180,7 @@ foreach ($r in $SkillRoots) {
       $docText = Get-Content $doc.FullName -Raw
       if (-not $docText) { $pointerFails += ("{0} ships an empty {1}." -f $skillDir.Name, $rel); continue }
       # a references/ or evals/ pointer in any spelling, plus a bare mention of the stripped status note
-      $hits  = @([regex]::Matches($docText, '(?:references|evals)[/\\][A-Za-z0-9_./\\-]+', 'IgnoreCase') | ForEach-Object { $_.Value })
+      $hits  = @([regex]::Matches($docText, '(?<![A-Za-z0-9_./\\-])(?:references|evals)[/\\][A-Za-z0-9_./\\-]+', 'IgnoreCase') | ForEach-Object { $_.Value })
       $hits += @([regex]::Matches($docText, '(?<![A-Za-z0-9_./\\-])_CORPUS_STATUS\.md', 'IgnoreCase') | ForEach-Object { $_.Value })
       foreach ($hit in $hits) {
         $ptr = $hit.TrimEnd('.', ',', ';', ':', ')')
