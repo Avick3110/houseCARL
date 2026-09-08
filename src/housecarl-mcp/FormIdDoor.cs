@@ -56,11 +56,14 @@ internal sealed class FormIdDoor
         return fk;
     }
 
-    /// <summary>Refuse a runtime FormID in a slot that may hold something OTHER than a FormID (a create's
-    /// <c>parent=</c> takes an EditorID too), returning the sentence or null. Anything the door cannot recognise as
-    /// a runtime FormID is left to the caller's own parser.</summary>
+    /// <summary>Refuse a runtime FormID — or a HYBRID of the two notations — in a slot that may hold something
+    /// OTHER than a FormID (a create's <c>parent=</c> takes an EditorID too), returning the sentence or null.
+    /// Anything else is left to the caller's own parser.</summary>
     public string? RuntimeRefusal(string? raw)
     {
+        // A hybrid carries a colon, so TryParse says no to it — check it first, or the token falls through to the
+        // caller's own parse and comes back as "Malformed FormKey string".
+        if (RuntimeFormId.HybridNote(raw) is { } hybrid) return hybrid;
         if (!RuntimeFormId.TryParse(raw, out _)) return null;
         try { Parse(raw); return null; }
         catch (WriteRefusal ex) { return ex.Message; }
