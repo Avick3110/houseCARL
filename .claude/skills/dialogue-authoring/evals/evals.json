@@ -23,7 +23,7 @@
    },
    {
     "name": "coexistence",
-    "menu": "dialogue-authoring among the other ten skills plus NONE -- eleven skills ship, so ten are the others",
+    "menu": "dialogue-authoring among the other eight skills plus NONE -- nine skills ship, so eight are the others",
     "failure_mode_it_catches": "under-trigger and boundary leakage -- a sibling absorbs a dialogue query, or dialogue-authoring absorbs a sibling's"
    }
   ]
@@ -84,9 +84,9 @@
    "expectations": [
     "with-skill arm: the pick is dialogue-authoring on at least 2 of 3 runs",
     "with-skill arm: the reasoning names what an unconditioned INFO means, not just how to enumerate records",
-    "without-skill arm: the pick is a bulk-read skill or NONE"
+    "without-skill arm: the pick is NONE, with the bulk read done off the tool descriptions"
    ],
-   "why_this_case": "read-side; the nearest sibling (bulk-record-jobs) owns the mechanism, this skill owns the meaning"
+   "why_this_case": "read-side; the tools own the mechanism, this skill owns the meaning"
   },
   {
    "id": "T6",
@@ -244,7 +244,7 @@
    "id": "T19",
    "prompt": "catalogue every quest in my load order into a spreadsheet with its owning plugin",
    "should_trigger": false,
-   "expected_output": "dialogue-authoring is NOT loaded; the query routes to housecarl:bulk-record-jobs.",
+   "expected_output": "dialogue-authoring is NOT loaded; the query routes to NONE and the tools directly.",
    "expectations": [
     "with-skill arm: the pick is not dialogue-authoring on at least 2 of 3 runs",
     "with-skill arm: the reasoning names it as a bulk read with a deliverable, not a dialogue judgement",
