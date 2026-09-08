@@ -204,6 +204,14 @@ public static class DescriptionVocabularyGuardProbe
     static readonly string[] PublishedVocabulary =
         { "Set", "Add", "Remove", "SetAtIndex", "InsertAtIndex", "ReplaceAll", "Merge", "CopyFrom" };
 
+    /// <summary>The CREATE surface's vocabulary, written out here independently of <see cref="WriteVerbs.OnCreate"/>
+    /// and of <see cref="WriteVerbs.OnCreateRecital"/> — the second statement that lets INV4-CREATEHOMES fail. The
+    /// create surface publishes an <c>enum</c> off <c>OnCreate</c> and a recital off <c>OnCreateRecital</c> on the
+    /// SAME member, so the two disagreeing means the schema and the description of one field contradict each
+    /// other. In the published order.</summary>
+    static readonly string[] PublishedCreateVocabulary =
+        { "Set", "Add", "Remove", "SetAtIndex", "InsertAtIndex", "ReplaceAll", "Merge" };
+
     /// <summary>The verb a write slot uses when the caller names none — written independently for the same reason
     /// as the vocabulary above. <see cref="WriteVerbs.AllRecital"/> feeds one shipped description (and one
     /// vestigial <c>BulkOp.verb</c> attribute no caller reads since #468), so ONE edit to its <c>(default)</c>
@@ -1437,6 +1445,14 @@ public static class DescriptionVocabularyGuardProbe
             HomesAgree(WriteVerbs.All, WriteVerbs.AllRecital, PublishedVocabulary),
             new() { $"All=[{string.Join(",", WriteVerbs.All)}] AllRecital=[{string.Join(",", RecitalNames(WriteVerbs.AllRecital))}] "
                   + $"independent=[{string.Join(",", PublishedVocabulary)}]" }, tier: Tier.Construction);
+
+        Check("INV4-CREATEHOMES WriteVerbs.OnCreate and WriteVerbs.OnCreateRecital agree with each other AND with the create "
+            + "vocabulary written independently here — the published enum and the published description of "
+            + "create.records[].ops[].op come off these two",
+            HomesAgree(WriteVerbs.OnCreate, WriteVerbs.OnCreateRecital, PublishedCreateVocabulary),
+            new() { $"OnCreate=[{string.Join(",", WriteVerbs.OnCreate)}] "
+                  + $"OnCreateRecital=[{string.Join(",", RecitalNames(WriteVerbs.OnCreateRecital))}] "
+                  + $"independent=[{string.Join(",", PublishedCreateVocabulary)}]" }, tier: Tier.Construction);
 
         Check($"INV4-MARK     WriteVerbs.AllRecital marks exactly one verb (default), and it is '{PublishedDefault}'",
             MarkedDefaults(WriteVerbs.AllRecital) is [var only] && only == PublishedDefault,
