@@ -111,7 +111,8 @@ Read `references/papyrusutil.md` lines 5163-5175 and the block gives
 
 Eight traps a correct signature does not reveal. Each compiles clean and then misbehaves:
 
-- `Game.GetForm` returns `None` for the whole ESL range — use `Game.GetFormEx`.
+- `Game.GetForm` returns `None` for any FormID `>= 0x80000000` — the whole ESL range *and* load
+  index `0x80+` — use `Game.GetFormEx`.
 - `SendModEvent` sends three arguments; the handler receives **four** (the engine appends the
   sender), and a three-parameter handler silently never runs.
 - Papyrus string `==` is case-**insensitive**, so a case difference is never the cause of a missed
