@@ -55,15 +55,17 @@ Claude Code invocation — on Codex it is the bare folder name (`facegen-diagnos
 4. **Read the written record back**, and say what happened when it did not take.
 
 ```
-housecarl_apply(ops=[{"formid": "013BA3:Skyrim.esm", "field_path": "BasicStats.Damage", "value": 12}], patch="SwordFix", readback=true)
+housecarl_apply(ops=[{"formid": "012EB7:Skyrim.esm", "field_path": "BasicStats.Damage", "value": 12}], patch="SwordFix", readback=true)
 ```
 ```
-wrote SwordFix.esp   1 record, 1 op   epoch=7f3a1c
-  013BA3:Skyrim.esm  IronSword  BasicStats.Damage  10 -> 12
+wrote SwordFix.esp (new patch; 1284 bytes)
+full read-back — the ENTIRE record(s) as written, re-read from the patch file (NOT load-order truth):
+  Weapon 012EB7:Skyrim.esm  editorid=IronSword
+    BasicStats.Damage = 12
+    ...
 ```
 
-The read-back is the written FILE, not load-order truth. Report the patch name back — it is auto-suffixed
-when taken — and tell the user to enable it. A refused call wrote nothing: fix the path and send it again.
+Report the patch name back — it is auto-suffixed when taken. A refused call wrote nothing.
 
 ## Lanes and FormIDs
 
