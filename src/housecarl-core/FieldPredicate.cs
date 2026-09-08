@@ -107,6 +107,7 @@ public sealed class FieldPredicateSet
     readonly long[] _noField;     // per-predicate SUBSET of _noValue: the path is not a field on the record (mistyped / wrong for this type)
     readonly long[] _container;   // per-predicate SUBSET of _noValue: the path resolves to a container/list, not a scalar leaf
     readonly long[] _unreadable;  // per-predicate SUBSET of _noValue: the path READ FAULTED (Mutagen-unparseable content) — a fault, NOT an unset value
+    readonly long[] _unresolved;  // per-predicate SUBSET of _noValue: a '->' step's links are PRESENT but no target resolves (disabled plugin / missing master) — not an unset field
     readonly long[] _listHop;     // per-predicate SUBSET of _noField: the path hopped THROUGH a list/dict with a dotted segment (a missing bracket, not a mistyped name)
     readonly string?[] _listHopOwner;  // the collection field the hop dead-ended on, for the remedy sentence
     readonly string?[] _listHopRemedy; // the leaf-checked remedy the read engine composed for that hop, quoted verbatim
@@ -189,6 +190,7 @@ public sealed class FieldPredicateSet
         _noField = new long[predicates.Count];
         _container = new long[predicates.Count];
         _unreadable = new long[predicates.Count];
+        _unresolved = new long[predicates.Count];
         _listHop = new long[predicates.Count];
         _listHopOwner = new string?[predicates.Count];
         _listHopRemedy = new string?[predicates.Count];
@@ -715,6 +717,9 @@ public sealed class FieldPredicateSet
                 case EvalKind.NoParent: _noField[k]++; _noParent[k]++; _noValue[k]++; _noParentWhat[k] ??= _lastNoParent; all = false; break;
                 case EvalKind.Container: _container[k]++; _noValue[k]++; all = false; break;
                 case EvalKind.Unreadable: _unreadable[k]++; _noValue[k]++; all = false; break;
+                // The links are there; their targets are not in this order. Its own counter, because its remedy is
+                // its own: enable the plugin or supply the master, never widen the scope.
+                case EvalKind.UnresolvedTarget: _unresolved[k]++; _noValue[k]++; all = false; break;
                 default: _noValue[k]++; all = false; break;   // Unset — a valid, value-less path
             }
         }
@@ -723,8 +728,9 @@ public sealed class FieldPredicateSet
 
     /// <summary>How one predicate's evaluation on one record resolved: a DEFINITE verdict (the value was read and
     /// compared, or an identity/presence test decided), or one of the no-verdict classes the accounting keys on.
-    /// Mirrors the leaf-note vocabulary: no-such-field / container / read-fault / genuinely-unset.</summary>
-    enum EvalKind { Definite, NoField, ListHop, NotAList, NoParent, Container, Unreadable, Unset }
+    /// Mirrors the leaf-note vocabulary: no-such-field / container / read-fault / unresolved target /
+    /// genuinely-unset.</summary>
+    enum EvalKind { Definite, NoField, ListHop, NotAList, NoParent, Container, Unreadable, UnresolvedTarget, Unset }
 
     /// <summary>The type of the record the most recent <c>*parent</c> hop found no containing record for, stashed
     /// for the rollup sentence.</summary>
@@ -936,14 +942,16 @@ public sealed class FieldPredicateSet
     }
 
     /// <summary>Which no-verdict class wins when a fold saw more than one: a read fault outranks a schema miss,
-    /// which outranks a container or a genuinely-unset element. A list hop outranks the other schema misses because
-    /// its remedy is the specific one (a missing bracket, not a mistyped name).</summary>
+    /// which outranks a container, an unresolved link target, or a genuinely-unset element. A list hop outranks the
+    /// other schema misses because its remedy is the specific one (a missing bracket, not a mistyped name); an
+    /// unresolved target outranks unset because it has a remedy at all.</summary>
     static int NoVerdictRank(EvalKind k) => k switch
     {
-        EvalKind.Unreadable => 5,
-        EvalKind.ListHop => 4,
-        EvalKind.NotAList => 3, EvalKind.NoField => 3, EvalKind.NoParent => 3,
-        EvalKind.Container => 2,
+        EvalKind.Unreadable => 6,
+        EvalKind.ListHop => 5,
+        EvalKind.NotAList => 4, EvalKind.NoField => 4, EvalKind.NoParent => 4,
+        EvalKind.Container => 3,
+        EvalKind.UnresolvedTarget => 2,
         _ => 1,   // Unset
     };
 
@@ -1013,9 +1021,9 @@ public sealed class FieldPredicateSet
 
     /// <summary>The <c>-&gt;</c> link step on one candidate: links under the LEFT path → each target's winner body (from
     /// the bound view, cached across candidates) → <see cref="EvalCore"/> on each — satisfied iff ANY target
-    /// satisfies. No-verdict classification: a left-path miss reuses the leaf-note vocabulary; links that all fail
-    /// to resolve/judge report Unreadable (the filter cannot judge this candidate — never a silent non-match
-    /// dressed as a definite one).</summary>
+    /// satisfies. No-verdict classification: a left-path miss reuses the leaf-note vocabulary; links whose targets
+    /// none resolve report UnresolvedTarget, and a target that faulted reports Unreadable — either way the filter
+    /// says it could not judge this candidate, never a silent non-match dressed as a definite one.</summary>
     (bool Satisfied, EvalKind Kind) EvalLinkStep(Predicate p, IMajorRecordGetter body)
     {
         if (_fetchWinnerBody is null)
@@ -1090,16 +1098,17 @@ public sealed class FieldPredicateSet
         if (links.Count == 0) return (false, EvalKind.Unset);   // present but empty — genuinely nothing linked
 
         // The no-verdict class that carries out is the LOUDEST one an actually-reached target produced (the same
-        // ranking a fold uses), so a read fault is only ever reported for a target that really faulted. Every
-        // target reading the field unset — and every target being unresolvable, which reads nothing at all — is
-        // an unset path, not a parse failure.
+        // ranking a fold uses), so a read fault is only ever reported for a target that really faulted. A target
+        // that does not RESOLVE is neither: nothing faulted, and the link on this record is present and non-null,
+        // so calling it unset would assert something false about the record. It gets its own class, whose remedy
+        // is the plugin's, not the scope's.
         bool anyVerdict = false;
         EvalKind? unjudged = null;
         foreach (var fk in links)
         {
             if (!_targetCache.TryGetValue(fk, out var target))
                 _targetCache[fk] = target = _fetchWinnerBody(fk);
-            if (target is null) continue;                       // unresolvable target — nothing read there, nothing faulted
+            if (target is null) { Louder(ref unjudged, EvalKind.UnresolvedTarget); continue; }
             var (sat, kind) = EvalCore(p, target);
             if (_fatal is not null) return (false, EvalKind.Definite);
             if (kind == EvalKind.Definite)
@@ -1107,10 +1116,16 @@ public sealed class FieldPredicateSet
                 anyVerdict = true;
                 if (sat) return (true, EvalKind.Definite);
             }
-            else if (unjudged is null || NoVerdictRank(kind) > NoVerdictRank(unjudged.Value)) unjudged = kind;
+            else Louder(ref unjudged, kind);
         }
         if (anyVerdict) return (false, EvalKind.Definite);
         return (false, unjudged ?? EvalKind.Unset);
+    }
+
+    /// <summary>Keep the loudest no-verdict class seen so far.</summary>
+    static void Louder(ref EvalKind? held, EvalKind seen)
+    {
+        if (held is null || NoVerdictRank(seen) > NoVerdictRank(held.Value)) held = seen;
     }
 
     /// <summary>The three-state presence verdict for a leaf under <c>exists</c>/<c>missing</c>: a DEFINITE
@@ -1277,11 +1292,11 @@ public sealed class FieldPredicateSet
             if (_valueRead[k] == 0)
             {
                 // No candidate read a value — but the CAUSE decides whether this is a wrong path or a correct path
-                // over a value-less scope, and those need opposite next moves (fix the path vs. widen the scope). All
-                // four keep the loud marker "yielded no readable value on any" (distinct from the SOFT "had no value
-                // on" for a >half-but-not-all miss), then diverge on the actionable reason.
+                // over a value-less scope, and those need opposite next moves (fix the path vs. enable the plugin vs.
+                // widen the scope). All of them keep the loud marker "yielded no readable value on any" (distinct
+                // from the SOFT "had no value on" for a >half-but-not-all miss), then diverge on the actionable reason.
                 const string loud = "yielded no readable value on any of";
-                long unset = _noValue[k] - _noField[k] - _container[k] - _unreadable[k];   // what is left: genuinely-unset valid fields
+                long unset = UnsetCount(k);   // what is left: genuinely-unset valid fields
                 string reason;
                 if (_noField[k] == _scanned && _noParent[k] > 0)
                 {
@@ -1330,14 +1345,19 @@ public sealed class FieldPredicateSet
                     reason = $"predicate field '{path}' could not be READ on any of {_scanned:N0} scanned record(s) — a read FAULT (Mutagen could not " +
                              $"parse the field's content), NOT an unset value. This is a coverage/parse limit on this field, not a filter miss; the " +
                              $"filter can't judge these records.";
-                else if (_noField[k] == 0 && _container[k] == 0 && _unreadable[k] == 0)
+                else if (_unresolved[k] == _scanned)
+                    reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — the link IS SET on every one, but NONE of its " +
+                             $"targets are in this load order (a disabled plugin, or a master that isn't installed), so there was nothing to read " +
+                             $"on the other side. Check the plugin holding the target records is enabled and its masters are present; widening the " +
+                             $"scope will not help.";
+                else if (_noField[k] == 0 && _container[k] == 0 && _unreadable[k] == 0 && _unresolved[k] == 0)
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — but the field IS VALID; it is simply UNSET " +
                              $"(absent/null) on every one, so the path reads fine and there are just no values in this scope. Widen the scope, or " +
                              $"the value you want may live on a different field (e.g. a dialogue topic's player text is on DIAL 'Name', not INFO 'Prompt').";
                 else
                     reason = $"predicate field '{path}' {loud} {_scanned:N0} scanned record(s) — a mix of no-such-field ({_noField[k]:N0}), " +
-                             $"container/list ({_container[k]:N0}), read-fault ({_unreadable[k]:N0}), and unset ({unset:N0}); check it's a scalar " +
-                             $"leaf that exists on these records.";
+                             $"container/list ({_container[k]:N0}), read-fault ({_unreadable[k]:N0}), unresolved link target ({_unresolved[k]:N0}), " +
+                             $"and unset ({unset:N0}); check it's a scalar leaf that exists on these records.";
                 (notes ??= new()).Add(reason + " 0 matches on that basis is NOT a confirmed 'nothing matches'.");
             }
             else if (_noValue[k] * 2 > _scanned || _unreadable[k] > 0)
@@ -1359,19 +1379,24 @@ public sealed class FieldPredicateSet
     }
 
     /// <summary>Why a predicate read no value, named per CAUSE from the counters the scan already kept — a null,
-    /// a field the record's type does not carry (the other arm of a union), a container, and a real read fault are
-    /// four different answers, and one word for all four ("unreadable") claims a read failure that did not happen.
-    /// The classes are counted in code as the scan runs, never re-derived from a rendered note.</summary>
+    /// a field the record's type does not carry (the other arm of a union), a container, a link whose target is not
+    /// in the order, and a real read fault are five different answers, and one word for all five ("unreadable")
+    /// claims a read failure that did not happen. The classes are counted in code as the scan runs, never
+    /// re-derived from a rendered note.</summary>
     string NoValueBreakdown(int k)
     {
-        long unset = _noValue[k] - _noField[k] - _container[k] - _unreadable[k];
+        long unset = UnsetCount(k);
         var parts = new List<string>();
         if (unset > 0) parts.Add($"unset — null or absent ({unset:N0})");
         if (_noField[k] > 0) parts.Add($"not a field on the record read ({_noField[k]:N0})");
         if (_container[k] > 0) parts.Add($"a container/list, not a scalar ({_container[k]:N0})");
         if (_unreadable[k] > 0) parts.Add($"a read fault — Mutagen could not parse the field ({_unreadable[k]:N0})");
+        if (_unresolved[k] > 0) parts.Add($"the link is set but its target is not in this load order ({_unresolved[k]:N0})");
         return parts.Count == 0 ? "no value" : string.Join(", ", parts);
     }
+
+    /// <summary>The genuinely-unset remainder: the no-value candidates none of the named causes accounts for.</summary>
+    long UnsetCount(int k) => _noValue[k] - _noField[k] - _container[k] - _unreadable[k] - _unresolved[k];
 
     static string OpStr(Op op) => op switch
     {

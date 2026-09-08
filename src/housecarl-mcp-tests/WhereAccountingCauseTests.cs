@@ -112,4 +112,28 @@ public sealed class WhereAccountingCauseTests
         Assert.DoesNotContain("read FAULT", note);
         Assert.DoesNotContain("read fault", note);
     }
+
+    /// <summary>Nor is it UNSET: the links are set and non-null, and nothing was read only because the targets are
+    /// not in the order. The note must name that cause and send the caller at the plugin, not at the scope.</summary>
+    [Fact]
+    public void ALinkStepWhoseTargetsDoNotResolveIsNamedUnresolved_NotUnset()
+    {
+        var mod = new SkyrimMod(new ModKey("HcAcctUnres", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var absent = FormKey.Factory("000800:HcAcctMissing.esp");
+        var bodies = new List<IMajorRecordGetter>();
+        for (int i = 0; i < 3; i++)
+        {
+            var w = mod.Weapons.AddNew();
+            w.EditorID = $"HcAcctUnresW{i}";
+            w.ObjectEffect.SetTo(absent);
+            bodies.Add(w);
+        }
+
+        var note = NoteOver("ObjectEffect->Name = Frostbite", bodies, _ => null);
+
+        Assert.NotNull(note);
+        Assert.Contains("NONE of its targets are in this load order", note);
+        Assert.DoesNotContain("UNSET", note);
+        Assert.DoesNotContain("Widen the scope", note);
+    }
 }
