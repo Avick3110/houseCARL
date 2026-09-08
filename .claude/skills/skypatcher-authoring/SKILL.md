@@ -110,8 +110,10 @@ Prove the target set, every address, and the draft file itself before anything i
 - The draft: `housecarl_records` with `formids=` a target and `source={"overlay": "skypatcher",
   "state": "post", "ini": "<absolute path to the draft .ini>", "subfolder": "weapon"}` reads the
   record as the game would see it once that draft is placed — the live layer plus the draft, sorted
-  into its type folder by filename. Pass that same pole as `versus=` against the plain post pole with
-  `project={"form": "delta"}` for the draft's own effect and nothing else. Warnings the replay
+  into its type folder by filename. Drop `subfolder` when the draft already sits in a folder of that
+  name. Keep that pole on `source=` and pass the plain post pole,
+  `versus={"overlay": "skypatcher", "state": "post"}`, with `project={"form": "delta"}` for the
+  draft's own effect and nothing else. Warnings the replay
   produces for a draft line — an unknown key, an op with no field mapping, a filter it cannot
   evaluate — render beside the answer under the draft's path.
 
