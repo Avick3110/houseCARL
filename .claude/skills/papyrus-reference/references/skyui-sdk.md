@@ -4,6 +4,23 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Properties | 9 | 24 |
+| Events | 30 | 96 |
+| Functions | 52 | 431 |
+| `SKI_QuestBase` | 0 | 1046 |
+| Properties | 1 | 1052 |
+| Events | 3 | 1062 |
+| Functions | 2 | 1084 |
+
+---
+
 ## Properties
 
 ### `CurrentPage: String`

@@ -4,6 +4,64 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Events | 4 | 65 |
+| Global Functions | 16 | 109 |
+| `DbAliasTimer` | 0 | 309 |
+| Events | 4 | 315 |
+| Global Functions | 16 | 359 |
+| `DbBigActorArray` | 0 | 559 |
+| Properties | 134 | 565 |
+| Events | 1 | 1383 |
+| Global Functions | 2 | 1391 |
+| Functions | 33 | 1430 |
+| `DbBigStringArray` | 0 | 1654 |
+| Properties | 134 | 1660 |
+| Events | 1 | 2478 |
+| Global Functions | 2 | 2486 |
+| Functions | 33 | 2525 |
+| `DbColorFunctions` | 0 | 2749 |
+| Global Functions | 14 | 2755 |
+| `DbConditionFunctions` | 0 | 2920 |
+| Global Functions | 17 | 2926 |
+| `DbFormTimer` | 0 | 3176 |
+| Events | 4 | 3182 |
+| Global Functions | 16 | 3226 |
+| `DbIniFunctions` | 0 | 3426 |
+| Global Functions | 14 | 3432 |
+| `DbMiscFunctions` | 0 | 3640 |
+| Global Functions | 266 | 3646 |
+| Functions | 3 | 7602 |
+| `DbMiscFunctionsSSE` | 0 | 7630 |
+| Global Functions | 4 | 7638 |
+| `DbSkseEvents` | 0 | 7711 |
+| Events | 57 | 7717 |
+| Global Functions | 42 | 8516 |
+| `DbSkseFunctions` | 0 | 9058 |
+| Events | 1 | 9064 |
+| Global Functions | 216 | 9082 |
+| `DbSksePersistentVariables` | 0 | 11766 |
+| Properties | 2 | 11772 |
+| Events | 2 | 11788 |
+| `DynamicActorArrays` | 0 | 11815 |
+| Functions | 14 | 11821 |
+| `DynamicArrays` | 0 | 11988 |
+| Functions | 101 | 11994 |
+| `DynamicArrays_B` | 0 | 12913 |
+| Functions | 14 | 12919 |
+| `DynamicStringArrays` | 0 | 12996 |
+| Functions | 15 | 13002 |
+| `PapyrusUtilEx` | 0 | 13186 |
+| Global Functions | 10 | 13192 |
+
+---
+
 ## Events
 
 ### `OnTimer(aiTimerID)`

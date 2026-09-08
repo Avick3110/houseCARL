@@ -4,6 +4,24 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Properties | 77 | 25 |
+| Events | 1 | 501 |
+| Global Functions | 9 | 509 |
+| Functions | 12 | 606 |
+| `SkyrimPlatformConnection` | 0 | 691 |
+| Properties | 5 | 697 |
+| Events | 9 | 729 |
+| Functions | 4 | 822 |
+
+---
+
 ## Properties
 
 ### `CurrentlyInstalledVersion: String`

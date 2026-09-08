@@ -4,6 +4,18 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Events | 63 | 19 |
+| Functions | 25 | 730 |
+
+---
+
 ## Events
 
 ### `OnActivate(akActionRef)`

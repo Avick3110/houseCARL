@@ -7,6 +7,37 @@ Ordered collection of values (value is float, integer, string, form or another c
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Global Functions | 57 | 41 |
+| `JAtomic` | 0 | 751 |
+| Global Functions | 20 | 759 |
+| `JContainers` | 0 | 1085 |
+| Global Functions | 8 | 1093 |
+| `JDB` | 0 | 1166 |
+| Global Functions | 16 | 1175 |
+| `JFormDB` | 0 | 1367 |
+| Global Functions | 26 | 1375 |
+| `JFormMap` | 0 | 1710 |
+| Global Functions | 22 | 1719 |
+| `JIntMap` | 0 | 2008 |
+| Global Functions | 22 | 2017 |
+| `JLua` | 0 | 2306 |
+| Global Functions | 10 | 2314 |
+| `JMap` | 0 | 2464 |
+| Global Functions | 22 | 2473 |
+| `JString` | 0 | 2762 |
+| Global Functions | 6 | 2770 |
+| `JValue` | 0 | 2838 |
+| Global Functions | 39 | 2846 |
+
+---
+
 ## Global Functions
 
 ### `addFlt(object, value, addToIndex)`

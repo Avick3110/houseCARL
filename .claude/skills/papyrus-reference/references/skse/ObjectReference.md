@@ -4,6 +4,19 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Properties | 10 | 20 |
+| Events | 35 | 92 |
+| Functions | 161 | 463 |
+
+---
+
 ## Properties
 
 ### `Motion_BoxIntertia: Int`

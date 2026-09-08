@@ -4,6 +4,17 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Global Functions | 14 | 18 |
+
+---
+
 ## Global Functions
 
 ### `ClearIniData(iLevel, sPath, sSection, sKey) → Bool`

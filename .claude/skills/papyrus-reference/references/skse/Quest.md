@@ -4,6 +4,19 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Events | 30 | 20 |
+| Global Functions | 1 | 384 |
+| Functions | 35 | 400 |
+
+---
+
 ## Events
 
 ### `OnStoryActivateActor(akLocation, akActor)`

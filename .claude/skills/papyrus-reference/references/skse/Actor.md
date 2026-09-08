@@ -4,6 +4,19 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Properties | 8 | 20 |
+| Events | 19 | 88 |
+| Functions | 223 | 314 |
+
+---
+
 ## Properties
 
 ### `CritStage_DisintegrateEnd: Int`

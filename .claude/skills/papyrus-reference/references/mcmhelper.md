@@ -4,6 +4,28 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Global Functions | 10 | 29 |
+| `MCM_ConfigBase` | 0 | 142 |
+| Events | 5 | 148 |
+| Functions | 10 | 194 |
+| `SKI_ConfigBase` | 0 | 309 |
+| Properties | 3 | 315 |
+| Events | 4 | 335 |
+| Functions | 4 | 369 |
+| `SKI_QuestBase` | 0 | 405 |
+| Properties | 1 | 411 |
+| Events | 3 | 421 |
+| Functions | 2 | 443 |
+
+---
+
 ## Global Functions
 
 ### `GetModSettingBool(a_modName, a_settingName) → Bool`

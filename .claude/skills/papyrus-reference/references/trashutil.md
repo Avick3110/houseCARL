@@ -4,6 +4,21 @@
 
 ---
 
+## Contents
+
+Entry blocks are reached from `index.jsonl` at their `line_start`..`line_end`;
+this table is for a fallback read, not the lookup path.
+
+| Section | Entries | Line |
+|---|---|---|
+| Global Functions | 32 | 22 |
+| `Trash_Function` | 0 | 385 |
+| Global Functions | 36 | 391 |
+| `Trash_PlayerControl` | 0 | 822 |
+| Global Functions | 16 | 828 |
+
+---
+
 ## Global Functions
 
 ### `AuxArrayEmpty(Holder, CollectionName) → Bool`
