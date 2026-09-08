@@ -20,8 +20,9 @@ what once wrote 26 broken conditions onto one gate. So read a known-good gate an
    back: `housecarl_records(formids=["<source>"], project={"form":"fields","fields":["Conditions"],"depth":4})`.
    Note that `depth` is a sub-parameter *inside* the form; passing it beside the form is refused, and
    the `delta` form does not take it at all.
-2. **Read each target first and skip any that already carry `Conditions`.** There is no idempotent
-   verb, so the read-then-skip is yours to do, and it is what makes a re-run safe.
+2. **Read each target first, so you know what you are about to overwrite.** Do not skip the targets
+   that already carry `Conditions` — a broken hand-synthesized gate is exactly what this recipe
+   exists to replace, and skipping those repairs none of them.
 3. **Copy the field with the zip**, many pairs in one call. `bundle=` names the paths copied for
    every pair; `assignments=` pairs each target with its own source. Only what `bundle` names is
    copied — identity and every other field are untouched by construction:
