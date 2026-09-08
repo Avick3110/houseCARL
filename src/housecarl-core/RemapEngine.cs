@@ -238,7 +238,7 @@ public static class RemapEngine
                     catch (Exception ex)
                     {
                         unscannable++;
-                        if (unscannableSamples.Count < 5) unscannableSamples.Add($"{plugin} {fk} — {ex.GetType().Name}: {ex.Message}");
+                        if (unscannableSamples.Count < 5) unscannableSamples.Add($"{plugin} {FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}");
                     }
                 }
                 if (!headerFaulted) scanned++;                           // counted only once the whole plugin has been read through, header included
@@ -365,13 +365,13 @@ public static class RemapEngine
             catch (Exception ex)
             {
                 return RenumberResult.Fail(
-                    $"could not duplicate {RecordNaming.StripOverlay(rec.GetType().Name)} {rec.FormKey} under {newKey} " +
+                    $"could not duplicate {RecordNaming.StripOverlay(rec.GetType().Name)} {FormIdToken.Of(rec.FormKey)} under {newKey} " +
                     $"({WriteEngine.Describe(ex)}) — the renumber is abandoned with nothing shippable (Q3).");
             }
 
             if (!TryAddToFlatGroup(target, dup))
                 return RenumberResult.Fail(
-                    $"{RecordNaming.StripOverlay(rec.GetType().Name)} {rec.FormKey} lives only in a NESTED group (Cell / placed " +
+                    $"{RecordNaming.StripOverlay(rec.GetType().Name)} {FormIdToken.Of(rec.FormKey)} lives only in a NESTED group (Cell / placed " +
                     "ref / INFO / navmesh / landscape), which has no flat top-level group to place the duplicate into. The nested " +
                     "duplicate-into placement is a later wave — refusing rather than silently dropping the record (Q3).");
 
@@ -458,7 +458,7 @@ public static class RemapEngine
                     var dup = RenumberOne(rec, dict, stats);
                     if (!TryAddToFlatGroup(target, dup))
                         return RenumberResult.Fail(
-                            $"{RecordNaming.StripOverlay(rec.GetType().Name)} {rec.FormKey} is a flat top-level record but no matching " +
+                            $"{RecordNaming.StripOverlay(rec.GetType().Name)} {FormIdToken.Of(rec.FormKey)} is a flat top-level record but no matching " +
                             $"group was found on the target mod to place its renumbered copy (engine inconsistency, Q3) — the renumber is abandoned with nothing shippable.");
                 }
             }
@@ -759,7 +759,7 @@ public static class RemapEngine
                             var dup = RenumberOne(rec, dict, stats, reg);
                             if (!TryAddToFlatGroup(target, dup))
                                 return MergeResult.Fail(
-                                    $"{RecordNaming.StripOverlay(rec.GetType().Name)} {rec.FormKey} (donor '{name}') is a flat top-level record but no " +
+                                    $"{RecordNaming.StripOverlay(rec.GetType().Name)} {FormIdToken.Of(rec.FormKey)} (donor '{name}') is a flat top-level record but no " +
                                     "matching group was found on the target mod to place its merged copy (engine inconsistency, Q3) — the merge is abandoned with nothing shippable.");
                         }
                     }
@@ -827,7 +827,7 @@ public static class RemapEngine
                     winner.GetType().GetProperty(prop.Name)?.GetValue(winner) as IList
                     ?? throw new InvalidOperationException(
                         $"cannot graft {what}: the winning donor's {RecordNaming.StripOverlay(winner.GetType().Name)} " +
-                        $"{winner.FormKey} has no settable record list '{prop.Name}' to receive it (Q3).");
+                        $"{FormIdToken.Of(winner.FormKey)} has no settable record list '{prop.Name}' to receive it (Q3).");
                 foreach (var el in seq)
                 {
                     if (el is IMajorRecordGetter childRec)
@@ -838,7 +838,7 @@ public static class RemapEngine
                             GraftMissingDescendants(childRec, placed, dict, stats, reg);
                             continue;
                         }
-                        WinnerList($"{RecordNaming.StripOverlay(childRec.GetType().Name)} {childRec.FormKey}")
+                        WinnerList($"{RecordNaming.StripOverlay(childRec.GetType().Name)} {FormIdToken.Of(childRec.FormKey)}")
                             .Add(RenumberOne(childRec, dict, stats, reg));
                     }
                     else if (el is IMajorRecordGetterEnumerable blockStruct)
@@ -866,8 +866,8 @@ public static class RemapEngine
         var prop = winner.GetType().GetProperty(propName);
         if (prop is null || !prop.CanWrite)
             throw new InvalidOperationException(
-                $"cannot graft {RecordNaming.StripOverlay(child.GetType().Name)} {child.FormKey}: the winning donor's " +
-                $"{RecordNaming.StripOverlay(winner.GetType().Name)} {winner.FormKey} has no settable '{propName}' slot to receive it (Q3).");
+                $"cannot graft {RecordNaming.StripOverlay(child.GetType().Name)} {FormIdToken.Of(child.FormKey)}: the winning donor's " +
+                $"{RecordNaming.StripOverlay(winner.GetType().Name)} {FormIdToken.Of(winner.FormKey)} has no settable '{propName}' slot to receive it (Q3).");
         if (prop.GetValue(winner) is IMajorRecord occupant)
         {
             // The winner already carries its OWN (different) record in this slot — the winner's structure wins wholesale;

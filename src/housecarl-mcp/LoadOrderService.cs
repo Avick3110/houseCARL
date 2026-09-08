@@ -622,8 +622,8 @@ public sealed class LoadOrderService : IDisposable
             return new SkseAuditedRef(r, SkseRefVerdict.Unparseable, $"'{r.Plugin}' is not a valid plugin name");
         var fk = new FormKey(mk, r.LocalId!.Value);
         return index.ResolveWinner(fk) is not null
-            ? new SkseAuditedRef(r, SkseRefVerdict.Ok, fk.ToString())
-            : new SkseAuditedRef(r, SkseRefVerdict.Dangling, $"{fk} resolves to no record in '{r.Plugin}'");
+            ? new SkseAuditedRef(r, SkseRefVerdict.Ok, FormIdToken.Of(fk))
+            : new SkseAuditedRef(r, SkseRefVerdict.Dangling, $"{FormIdToken.Of(fk)} resolves to no record in '{r.Plugin}'");
     }
 
     /// <summary>Decode a config file's bytes to text, honoring a BOM (UTF-8/16) when present (real shipped configs carry
@@ -989,13 +989,13 @@ public sealed class LoadOrderService : IDisposable
 
         var body = view.GetRecord(session, winner.Value.WinnerPlugin, fk);
         if (body is null)
-            return (null, winner.Value.WinnerPlugin, null, none, $"Winner '{winner.Value.WinnerPlugin}' did not yield {fk} on fetch — a load-order inconsistency.", null);
+            return (null, winner.Value.WinnerPlugin, null, none, $"Winner '{winner.Value.WinnerPlugin}' did not yield {FormIdToken.Of(fk)} on fetch — a load-order inconsistency.", null);
 
         var typeName = ReadEngine.ReadFields(body, new[] { "EditorID" }).Type;   // the same type naming every read tool reports
         var maps = fieldMap.ForRecordType(typeName);
         if (maps.Count == 0)
             return (typeName, winner.Value.WinnerPlugin, body.EditorID, none,
-                $"Record type '{typeName}' is not a SkyPatcher-patchable type (or has no field map) — the SkyPatcher layer cannot touch {fk}.", null);
+                $"Record type '{typeName}' is not a SkyPatcher-patchable type (or has no field map) — the SkyPatcher layer cannot touch {FormIdToken.Of(fk)}.", null);
 
         // The running copy: the winner overridden into an in-memory scratch mod (never written to disk).
         // Nested-group types (CELL / REFR / INFO…) need the source link cache to rebuild their parent
@@ -1011,7 +1011,7 @@ public sealed class LoadOrderService : IDisposable
         catch (Exception ex)
         {
             return (typeName, winner.Value.WinnerPlugin, body.EditorID, none,
-                $"Could not materialize a mutable copy of {fk} ({typeName}) for the replay — {ex.GetType().Name}: {ex.Message}", null);
+                $"Could not materialize a mutable copy of {FormIdToken.Of(fk)} ({typeName}) for the replay — {ex.GetType().Name}: {ex.Message}", null);
         }
 
         // Watch this record's own EditorID lookups: only a replay that actually read from a table missing a
@@ -1046,7 +1046,7 @@ public sealed class LoadOrderService : IDisposable
         // Named as the record's error rather than answered wrong.
         if (spr is { ConsumedIncompleteTable: true })
             return (typeName, winner.Value.WinnerPlugin, body.EditorID, none,
-                $"the SkyPatcher replay of {fk} resolved an EditorID against the load order, and "
+                $"the SkyPatcher replay of {FormIdToken.Of(fk)} resolved an EditorID against the load order, and "
                 + string.Join(" ", spr.Unreadable.Select(u => u.Message).Distinct()), null);
 
         return (typeName, winner.Value.WinnerPlugin, body.EditorID, folders, null, copy);
@@ -1139,7 +1139,7 @@ public sealed class LoadOrderService : IDisposable
                     var map = fieldMap.For(fo.Subfolder, r.TypeName!);
                     foreach (var a in res.Applied)
                         if (SkyPatcherConflicts.IsNoOpWrite(a, map))
-                            noOps.Add(new SkyPatcherNoOpWrite(fo.Subfolder, fk.ToString(), r.EditorId,
+                            noOps.Add(new SkyPatcherNoOpWrite(fo.Subfolder, FormIdToken.Of(fk), r.EditorId,
                                 a.FieldPath, a.File, a.LineNumber, a.Op, a.RawValue, a.Before!));
                 }
             }
@@ -2429,14 +2429,14 @@ public sealed class LoadOrderService : IDisposable
         if (rec is null)
         {
             if (plugin is null)
-                return ReadOutcome.Fail(fk, $"Winner '{winner.Value.WinnerPlugin}' did not yield {fk} on fetch — a load-order inconsistency.");
+                return ReadOutcome.Fail(fk, $"Winner '{winner.Value.WinnerPlugin}' did not yield {FormIdToken.Of(fk)} on fetch — a load-order inconsistency.");
             // An untouched record under a named plugin refuses by naming the actual touchers: a bare "does not
             // define" reads as "my write was lost", and the touching list is the actionable fact. The ?? is
             // defensive — the non-null winner above proves the fk is in the index — but the nullable return became
             // a real NRE on the off-order sibling, so the guard stays.
             var touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
             return ReadOutcome.Fail(fk,
-                $"Plugin '{plugin}' does not touch {fk} — it has no version of this record. " +
+                $"Plugin '{plugin}' does not touch {FormIdToken.Of(fk)} — it has no version of this record. " +
                 $"Touched by (load order, winner last): {string.Join(", ", touchers)}.");
         }
 
@@ -2627,9 +2627,9 @@ public sealed class LoadOrderService : IDisposable
     static string UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk,
                                    Dictionary<string, string>? absenceMemo = null)
     {
-        var defining = fk.ModKey.FileName.ToString();
+        var defining = FormIdToken.Plugin(fk.ModKey.FileName.String);
         if (view.ExcludedPlugins.TryGetValue(defining, out var why))
-            return $"FormID {fk} is not resolvable: its plugin '{defining}' was excluded from this session: {why}";
+            return $"FormID {FormIdToken.Of(fk)} is not resolvable: its plugin '{defining}' was excluded from this session: {why}";
         if (view.ContainsPlugin(defining))
         {
             var esl = view.IsLightFlagged(defining)
@@ -2653,7 +2653,7 @@ public sealed class LoadOrderService : IDisposable
             tail = hint + "." + absence;
             if (absenceMemo is not null) absenceMemo[defining] = tail;
         }
-        return $"FormID {fk} is not present in the load order ({view.PluginCount} plugins): its plugin '{defining}' " +
+        return $"FormID {FormIdToken.Of(fk)} is not present in the load order ({view.PluginCount} plugins): its plugin '{defining}' " +
                $"is not in the order{tail}";
     }
 
@@ -2674,12 +2674,12 @@ public sealed class LoadOrderService : IDisposable
     static RecordSummary ResolveSummary(LoadOrderResolver resolver, LoadOrderResolver.IndexView view, FormKey fk)
     {
         var w = view.ResolveWinner(fk);
-        if (w is null) return new RecordSummary(fk, "?", null, "?", 0, $"{fk} not in the load order");
+        if (w is null) return new RecordSummary(fk, "?", null, "?", 0, $"{FormIdToken.Of(fk)} not in the load order");
         using var session = resolver.OpenSession();
         var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
         if (body is null)
             return new RecordSummary(fk, "?", null, w.Value.WinnerPlugin, w.Value.OverrideDepth,
-                $"winner '{w.Value.WinnerPlugin}' did not yield {fk} on fetch");
+                $"winner '{w.Value.WinnerPlugin}' did not yield {FormIdToken.Of(fk)} on fetch");
         return new RecordSummary(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
                                  w.Value.WinnerPlugin, w.Value.OverrideDepth, null)
                .WithRuntime(view.RuntimeAddressOf(fk));
@@ -2793,16 +2793,16 @@ public sealed class LoadOrderService : IDisposable
         var w = view.ResolveWinner(fk);
         if (w is null)
             result = EngineImplicit.TryDescribe(fk, out var eiType, out var eiEditorId)
-                ? new ResolvedRef(fk.ToString(), Resolved: true, Type: eiType, EditorId: eiEditorId, Winner: "<engine>")   // engine-implicit: hardcoded, real, defined by no plugin
+                ? new ResolvedRef(FormIdToken.Of(fk), Resolved: true, Type: eiType, EditorId: eiEditorId, Winner: "<engine>")   // engine-implicit: hardcoded, real, defined by no plugin
                 // Valid FormKey, no active plugin defines it. The reason is the three-cause sentence every other
                 // lane states, so the identity form's row says WHICH cause instead of a bare "not present".
-                : new ResolvedRef(fk.ToString(), Resolved: false, Error: UnresolvedFormId(view, fk, memo.Absences));
+                : new ResolvedRef(FormIdToken.Of(fk), Resolved: false, Error: UnresolvedFormId(view, fk, memo.Absences));
         else
         {
             var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
             result = body is null
-                ? new ResolvedRef(fk.ToString(), Resolved: false, Winner: w.Value.WinnerPlugin)   // winner named but the fetch didn't yield it
-                : new ResolvedRef(fk.ToString(), Resolved: true, Type: RecordNaming.StripOverlay(body.GetType().Name),
+                ? new ResolvedRef(FormIdToken.Of(fk), Resolved: false, Winner: w.Value.WinnerPlugin)   // winner named but the fetch didn't yield it
+                : new ResolvedRef(FormIdToken.Of(fk), Resolved: true, Type: RecordNaming.StripOverlay(body.GetType().Name),
                                   EditorId: body.EditorID, Name: ReadDisplayName(body), Winner: w.Value.WinnerPlugin);
         }
         memo.Refs[fk] = result;
@@ -3209,7 +3209,7 @@ public sealed class LoadOrderService : IDisposable
                     // so the ?? is load-bearing, not defensive.
                     IReadOnlyList<string> touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
                     results[index] = ReadOutcome.Fail(fk,
-                        $"file '{plugin}' ({poleWhere}) does not define or override {fk} — it has no version of this record. " +
+                        $"file '{plugin}' ({poleWhere}) does not define or override {FormIdToken.Of(fk)} — it has no version of this record. " +
                         (touchers.Count > 0
                             ? $"Touched by (active order, winner last): {string.Join(", ", touchers)}."
                             : "No active plugin touches it either."))
@@ -3317,12 +3317,12 @@ public sealed class LoadOrderService : IDisposable
             var fk = fkOpt!.Value;
 
             var s = sReader(fk, null);
-            if (s.Error is not null) { rows.Add(new DeltaRow(fk.ToString(), s.Pole, null, null, null, null, "subject: " + s.Error)); continue; }
+            if (s.Error is not null) { rows.Add(new DeltaRow(FormIdToken.Of(fk), s.Pole, null, null, null, null, "subject: " + s.Error)); continue; }
             // previous_provider is measured from the SUBJECT, so hand the reference reader the subject's resolved
             // plugin for this record and it anchors on the right stack position. The off-order subject is already
             // refused for the whole call above.
             var r = rReader(fk, s.Pole!.Plugin);
-            if (r.Error is not null) { rows.Add(new DeltaRow(fk.ToString(), s.Pole, r.Pole, null, r.StackAbove, null, "versus: " + r.Error)); continue; }
+            if (r.Error is not null) { rows.Add(new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, null, r.StackAbove, null, "versus: " + r.Error)); continue; }
 
             string? note = string.Equals(s.Pole.Plugin, r.Pole!.Plugin, StringComparison.OrdinalIgnoreCase) && s.Pole.Where == r.Pole.Where
                 ? "the two poles resolved to the SAME provider — the diff is trivially empty by construction"
@@ -3330,7 +3330,7 @@ public sealed class LoadOrderService : IDisposable
             // Two copies of one filename on opposite arms: the delta line names the off-order side's mod folder, or
             // the reader cannot tell which side a value came from without the pole lines above.
             var diff = FieldsDiff.Compare(s.Fields!, r.Fields!, referenceLabel: r.Pole.LabelVersus(s.Pole.Plugin));
-            rows.Add(new DeltaRow(fk.ToString(), s.Pole, r.Pole, diff, r.StackAbove, note, null));
+            rows.Add(new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, diff, r.StackAbove, note, null));
         }
         return rows;
     }
@@ -3369,7 +3369,7 @@ public sealed class LoadOrderService : IDisposable
                         return new PoleReading(null, null, null, UnresolvedFormId(view, fk));
                     var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
                     if (body is null)
-                        return new PoleReading(null, null, null, $"the winner body of {fk} could not be read from '{w.Value.WinnerPlugin}'.");
+                        return new PoleReading(null, null, null, $"the winner body of {FormIdToken.Of(fk)} could not be read from '{w.Value.WinnerPlugin}'.");
                     return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth, parentOf: hop),
                                            new DiffPole(w.Value.WinnerPlugin, "winner (active order)", true,
                                                         RecordNaming.StripOverlay(body.GetType().Name), body.EditorID), null, null);
@@ -3383,21 +3383,21 @@ public sealed class LoadOrderService : IDisposable
                 {
                     var touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
                     if (touchers.Count == 0)
-                        return new PoleReading(null, null, null, $"no active plugin touches {fk} — there is no provider stack to measure previous_provider in.");
+                        return new PoleReading(null, null, null, $"no active plugin touches {FormIdToken.Of(fk)} — there is no provider stack to measure previous_provider in.");
                     int idx = -1;
                     for (int i = 0; i < touchers.Count; i++)
                         if (string.Equals(touchers[i], subjectPlugin, StringComparison.OrdinalIgnoreCase)) { idx = i; break; }
                     if (idx < 0)   // the subject doesn't touch the record at all
                         return new PoleReading(null, null, null,
-                            $"the subject '{subjectPlugin}' does not touch {fk}, so it has no position to measure previous_provider from. " +
+                            $"the subject '{subjectPlugin}' does not touch {FormIdToken.Of(fk)}, so it has no position to measure previous_provider from. " +
                             $"Touched by (active order, winner last): {string.Join(", ", touchers)}.");
                     if (idx == 0)  // the subject IS the origin; never a silent empty diff
                         return new PoleReading(null, null, null,
-                            $"no previous provider — '{subjectPlugin}' DEFINES {fk} (bottom of the touching list); there is nothing beneath it to compare against.");
+                            $"no previous provider — '{subjectPlugin}' DEFINES {FormIdToken.Of(fk)} (bottom of the touching list); there is nothing beneath it to compare against.");
                     var refPlugin = touchers[idx - 1];
                     var body = view.GetRecord(session, refPlugin, fk);
                     if (body is null)
-                        return new PoleReading(null, null, null, $"the previous provider '{refPlugin}' of {fk} could not be read.");
+                        return new PoleReading(null, null, null, $"the previous provider '{refPlugin}' of {FormIdToken.Of(fk)} could not be read.");
                     // Mid-stack subject: what sits above is surfaced as neutral fact, never advice.
                     IReadOnlyList<string>? above = idx < touchers.Count - 1 ? touchers.Skip(idx + 1).ToList() : null;
                     return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth, parentOf: hop),
@@ -3428,7 +3428,7 @@ public sealed class LoadOrderService : IDisposable
                             // Name the actual touchers, never a silent absence.
                             var touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
                             return new PoleReading(null, null, null,
-                                $"'{arm.Plugin}' does not define or override {fk} — it has no version of this record. " +
+                                $"'{arm.Plugin}' does not define or override {FormIdToken.Of(fk)} — it has no version of this record. " +
                                 (touchers.Count > 0
                                     ? $"Touched by (active order, winner last): {string.Join(", ", touchers)}."
                                     : "No active plugin touches it either."));
@@ -3451,7 +3451,7 @@ public sealed class LoadOrderService : IDisposable
                     {
                         var touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
                         return new PoleReading(null, null, null,
-                            $"file '{arm.Plugin}' ({arm.Where}) does not define or override {fk} — it has no version of this record. " +
+                            $"file '{arm.Plugin}' ({arm.Where}) does not define or override {FormIdToken.Of(fk)} — it has no version of this record. " +
                             (touchers.Count > 0
                                 ? $"Touched by (active order, winner last): {string.Join(", ", touchers)}."
                                 : "No active plugin touches it either."));
@@ -3494,7 +3494,7 @@ public sealed class LoadOrderService : IDisposable
                 var w = view.ResolveWinner(fk);
                 if (w is null) return new PoleReading(null, null, null, UnresolvedFormId(view, fk));
                 var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
-                if (body is null) return new PoleReading(null, null, null, $"the winner body of {fk} could not be read from '{w.Value.WinnerPlugin}'.");
+                if (body is null) return new PoleReading(null, null, null, $"the winner body of {FormIdToken.Of(fk)} could not be read from '{w.Value.WinnerPlugin}'.");
                 return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth, parentOf: hop),
                                        new DiffPole(w.Value.WinnerPlugin, "skypatcher overlay (pre) = winner", true,
                                                     RecordNaming.StripOverlay(body.GetType().Name), body.EditorID), null, null);
@@ -3791,15 +3791,15 @@ public sealed class LoadOrderService : IDisposable
             var touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
             if (touchers.Count == 0)
             {
-                rows.Add(new TreeRow(fk.ToString(), null, null, Array.Empty<string>(), null, Array.Empty<TreeNodeDelta>(),
+                rows.Add(new TreeRow(FormIdToken.Of(fk), null, null, Array.Empty<string>(), null, Array.Empty<TreeNodeDelta>(),
                                      UnresolvedFormId(view, fk), Array.Empty<ChildDeclarers>()));
                 continue;
             }
             var tree = ResolveTreePinned(new ViewPin(resolver, view), fk, fields);
             if (tree is null || tree.Nodes.Count == 0)
             {
-                rows.Add(new TreeRow(fk.ToString(), null, null, touchers, null, Array.Empty<TreeNodeDelta>(),
-                                     $"the provider bodies of {fk} could not be read.", Array.Empty<ChildDeclarers>()));
+                rows.Add(new TreeRow(FormIdToken.Of(fk), null, null, touchers, null, Array.Empty<TreeNodeDelta>(),
+                                     $"the provider bodies of {FormIdToken.Of(fk)} could not be read.", Array.Empty<ChildDeclarers>()));
                 continue;
             }
 
@@ -3814,7 +3814,7 @@ public sealed class LoadOrderService : IDisposable
                 var r = refReader(fk, null);
                 if (r.Error is not null)
                 {
-                    rows.Add(new TreeRow(fk.ToString(), tree.Winner.Record.Type, tree.Winner.Record.EditorId,
+                    rows.Add(new TreeRow(FormIdToken.Of(fk), tree.Winner.Record.Type, tree.Winner.Record.EditorId,
                                          touchers, null, Array.Empty<TreeNodeDelta>(), "versus: " + r.Error,
                                          Array.Empty<ChildDeclarers>()));
                     continue;
@@ -3843,7 +3843,7 @@ public sealed class LoadOrderService : IDisposable
                 var d = FieldsDiff.Compare(node.Record, refFields!, referenceLabel: refLabel);
                 nodes.Add(new TreeNodeDelta(node.Plugin, isWinner, false, d.Deltas, d.AgreedCount, d.Complete, null));
             }
-            rows.Add(new TreeRow(fk.ToString(), tree.Winner.Record.Type, tree.Winner.Record.EditorId,
+            rows.Add(new TreeRow(FormIdToken.Of(fk), tree.Winner.Record.Type, tree.Winner.Record.EditorId,
                                  touchers, refLabel, nodes, null, tree.ChildDeclarers));
         }
         return rows;
@@ -4009,7 +4009,7 @@ public sealed class LoadOrderService : IDisposable
                 // Fetch returns null for two conditions and they need different sentences: no winner at all (the
                 // three-cause unresolved sentence), or a named winner whose body did not come back on fetch.
                 var seedWin = view.ResolveWinner(seedFk);
-                rows[i] = new WalkSeedResult(seedFk.ToString(), null, null, Array.Empty<WalkNodeRow>(), Array.Empty<string>(), null, null,
+                rows[i] = new WalkSeedResult(FormIdToken.Of(seedFk), null, null, Array.Empty<WalkNodeRow>(), Array.Empty<string>(), null, null,
                     seedWin is null
                         ? UnresolvedFormId(view, seedFk) + " Nothing to walk from."
                         : $"the winner body of {seedFk} could not be read from '{seedWin.Value.WinnerPlugin}' — nothing to walk from.");
@@ -4101,7 +4101,7 @@ public sealed class LoadOrderService : IDisposable
                     var body = Fetch(key);
                     if (body is null)
                     {
-                        st.Nodes.Add(new WalkNodeRow(key.ToString(), null, null, hop, pulledBy, "kept",
+                        st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), null, null, hop, pulledBy, "kept",
                                                      "unresolved — no active plugin defines this target (a missing endpoint)"));
                         continue;
                     }
@@ -4116,11 +4116,11 @@ public sealed class LoadOrderService : IDisposable
                             refusal = $"the walk reached a {type} ({key}, via {pulledBy}) — a node class this call excludes with severity 'refuse'. Nothing is returned for this call.";
                             return Array.Empty<WalkSeedResult>();
                         }
-                        st.Nodes.Add(new WalkNodeRow(key.ToString(), type, body.EditorID, hop, pulledBy, "kept", $"excluded ({type}, severity stop) — recorded as a boundary, not entered"));
+                        st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), type, body.EditorID, hop, pulledBy, "kept", $"excluded ({type}, severity stop) — recorded as a boundary, not entered"));
                         continue;
                     }
                     bool atCap = hop >= depth;
-                    st.Nodes.Add(new WalkNodeRow(key.ToString(), type, body.EditorID, hop, pulledBy,
+                    st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), type, body.EditorID, hop, pulledBy,
                                                  atCap ? "kept" : "expanded",
                                                  atCap ? $"at the walk.depth cap ({depth}) — not entered" : null));
                     if (atCap)
@@ -4146,7 +4146,7 @@ public sealed class LoadOrderService : IDisposable
             if (followSegs is { Length: 1 } && followSegs[0].Equals("Template", StringComparison.OrdinalIgnoreCase)
                 && st.Body is INpcGetter seedNpc)
                 templateReport = NpcTemplateReport(Fetch, seedNpc, st.Key);
-            results.Add(new WalkSeedResult(st.Key.ToString(), st.Type, st.Body.EditorID, st.Nodes, st.Cycles, st.Truncation, templateReport, null));
+            results.Add(new WalkSeedResult(FormIdToken.Of(st.Key), st.Type, st.Body.EditorID, st.Nodes, st.Cycles, st.Truncation, templateReport, null));
         }
         return results;
     }
@@ -4164,7 +4164,7 @@ public sealed class LoadOrderService : IDisposable
             var name = flag.ToString();
             if (!seed.Configuration.TemplateFlags.HasFlag(flag))
             {
-                report.Add(new NpcTemplateCategory(name, false, seedFk.ToString(), seed.EditorID,
+                report.Add(new NpcTemplateCategory(name, false, FormIdToken.Of(seedFk), seed.EditorID,
                                                    "local data ACTIVE (flag clear)"));
                 continue;
             }
@@ -4181,11 +4181,11 @@ public sealed class LoadOrderService : IDisposable
                 var body = fetch(nextKey);
                 if (body is null) { note = $"template target {nextKey} is unresolved — the chain is broken here"; break; }
                 if (body is ILeveledNpcGetter lvln)
-                { provKey = nextKey.ToString(); provEid = lvln.EditorID; note = "a LEVELED actor — the concrete provider is rolled at runtime"; break; }
+                { provKey = FormIdToken.Of(nextKey); provEid = lvln.EditorID; note = "a LEVELED actor — the concrete provider is rolled at runtime"; break; }
                 if (body is not INpcGetter npc)
                 { note = $"template target {nextKey} is a {RecordNaming.StripOverlay(body.GetType().Name)}, not an NPC or leveled actor"; break; }
                 if (!npc.Configuration.TemplateFlags.HasFlag(flag))
-                { provKey = nextKey.ToString(); provEid = npc.EditorID; break; }
+                { provKey = FormIdToken.Of(nextKey); provEid = npc.EditorID; break; }
                 cur = npc;
             }
             report.Add(new NpcTemplateCategory(name, true, provKey, provEid, note));
@@ -4235,26 +4235,26 @@ public sealed class LoadOrderService : IDisposable
             var win = view.ResolveWinner(fk);
             if (win is null)
             {
-                rows.Add(new InfoOrderRow(fk.ToString(), null, null, null, null, UnresolvedFormId(view, fk)));
+                rows.Add(new InfoOrderRow(FormIdToken.Of(fk), null, null, null, null, UnresolvedFormId(view, fk)));
                 continue;
             }
             var body = view.GetRecord(session, win.Value.WinnerPlugin, fk);
             if (body is null)
             {
-                rows.Add(new InfoOrderRow(fk.ToString(), null, null, win.Value.WinnerPlugin, null,
-                                          $"the winner body of {fk} could not be read from '{win.Value.WinnerPlugin}'."));
+                rows.Add(new InfoOrderRow(FormIdToken.Of(fk), null, null, win.Value.WinnerPlugin, null,
+                                          $"the winner body of {FormIdToken.Of(fk)} could not be read from '{win.Value.WinnerPlugin}'."));
                 continue;
             }
             if (body is not Mutagen.Bethesda.Skyrim.IDialogTopicGetter)
             {
                 var typeName = RecordNaming.StripOverlay(body.GetType().Name);
-                rows.Add(new InfoOrderRow(fk.ToString(), typeName, body.EditorID, win.Value.WinnerPlugin, null,
-                    $"{fk} is a {typeName}, and the info_order form renders the merged INFO sequence of a DIALOGUE TOPIC (DIAL). " +
+                rows.Add(new InfoOrderRow(FormIdToken.Of(fk), typeName, body.EditorID, win.Value.WinnerPlugin, null,
+                    $"{FormIdToken.Of(fk)} is a {typeName}, and the info_order form renders the merged INFO sequence of a DIALOGUE TOPIC (DIAL). " +
                     "For a quest's topics, select them by composition: types=[\"DIAL\"] where=[\"Quest = " + fk + "\"]."));
                 continue;
             }
             dialRows.Add((rows.Count, fk));
-            rows.Add(new InfoOrderRow(fk.ToString(), RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
+            rows.Add(new InfoOrderRow(FormIdToken.Of(fk), RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
                                       win.Value.WinnerPlugin, null, null));
             if (dialSeen.Add(fk)) dialFks.Add(fk);
         }
@@ -4500,7 +4500,7 @@ public sealed class LoadOrderService : IDisposable
                         {
                             unscannable++;
                             if (unscannableSamples.Count < 3)
-                                unscannableSamples.Add($"{fk} — winner '{w.Value.WinnerPlugin}' did not yield the record on fetch");
+                                unscannableSamples.Add($"{FormIdToken.Of(fk)} — winner '{w.Value.WinnerPlugin}' did not yield the record on fetch");
                             continue;
                         }
                         if (conflictsOnly && (view.TouchingPlugins(fk)?.Count ?? 0) <= 1) continue;
@@ -4528,7 +4528,7 @@ public sealed class LoadOrderService : IDisposable
                         if (groups is not null)
                         {
                             var gk = groupBy == "type" ? RecordNaming.StripOverlay(body.GetType().Name)
-                                   : groupBy == "defined_in" ? fk.ModKey.FileName.ToString()
+                                   : groupBy == "defined_in" ? FormIdToken.Plugin(fk.ModKey.FileName.String)
                                    : w.Value.WinnerPlugin;
                             groups[gk] = groups.GetValueOrDefault(gk) + 1;
                         }
@@ -4546,7 +4546,7 @@ public sealed class LoadOrderService : IDisposable
                     {
                         unscannable++;
                         if (unscannableSamples.Count < 3)
-                            unscannableSamples.Add($"{fk} — {ex.GetType().Name}: {ex.Message}");
+                            unscannableSamples.Add($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}");
                     }
                 }
             }
@@ -4716,7 +4716,7 @@ public sealed class LoadOrderService : IDisposable
                         if (groups is not null)                                   // group_by=: aggregate over all matches, no keys or prefill, no limit cap
                         {
                             var gk = groupBy == "type" ? RecordNaming.StripOverlay(filterBody.GetType().Name)
-                                   : groupBy == "defined_in" ? fk.ModKey.FileName.ToString()
+                                   : groupBy == "defined_in" ? FormIdToken.Plugin(fk.ModKey.FileName.String)
                                    : view.ResolveWinner(fk)?.WinnerPlugin ?? "?";  // "winner"
                             groups[gk] = groups.GetValueOrDefault(gk) + 1;
                         }
@@ -4737,7 +4737,7 @@ public sealed class LoadOrderService : IDisposable
                     {
                         unscannable++;
                         if (unscannableSamples.Count < 3)
-                            unscannableSamples.Add($"{fk}{(source is null ? "" : $" in {source}")} — {ex.GetType().Name}: {ex.Message}");
+                            unscannableSamples.Add($"{FormIdToken.Of(fk)}{(source is null ? "" : $" in {source}")} — {ex.GetType().Name}: {ex.Message}");
                     }
                     return true;
                 }
@@ -4767,7 +4767,7 @@ public sealed class LoadOrderService : IDisposable
                     // group_by=winner here does an index-level ResolveWinner per conflict key — a resolve, not a body
                     // parse, and unavoidable for the aggregate, since the non-group path defers the winner to the
                     // renderer, which only fetches the capped rows. Deliberate: accuracy over speed.
-                    var gk = groupBy == "defined_in" ? fk.ModKey.FileName.ToString() : view.ResolveWinner(fk)?.WinnerPlugin ?? "?";
+                    var gk = groupBy == "defined_in" ? FormIdToken.Plugin(fk.ModKey.FileName.String) : view.ResolveWinner(fk)?.WinnerPlugin ?? "?";
                     groups[gk] = groups.GetValueOrDefault(gk) + 1;
                 }
                 else if (total > offset && keys.Count < limit) { keys.Add(fk); sources.Add(null); }   // no scoped plugin → display the winner; offset= skips the first N
@@ -5019,7 +5019,7 @@ public sealed class LoadOrderService : IDisposable
                     if (groups is not null)
                     {
                         var gk = groupBy == "type" ? RecordNaming.StripOverlay(rec.GetType().Name)
-                               : groupBy == "defined_in" ? fk.ModKey.FileName.ToString()
+                               : groupBy == "defined_in" ? FormIdToken.Plugin(fk.ModKey.FileName.String)
                                : view.ResolveWinner(fk)?.WinnerPlugin ?? "(not in the active order)";
                         groups[gk] = groups.GetValueOrDefault(gk) + 1;
                     }
@@ -5038,7 +5038,7 @@ public sealed class LoadOrderService : IDisposable
                 {
                     unscannable++;
                     if (unscannableSamples.Count < 3)
-                        unscannableSamples.Add($"{fk} in {pole.Plugin} — {ex.GetType().Name}: {ex.Message}");
+                        unscannableSamples.Add($"{FormIdToken.Of(fk)} in {pole.Plugin} — {ex.GetType().Name}: {ex.Message}");
                 }
             }
         }
@@ -5620,13 +5620,13 @@ public sealed class LoadOrderService : IDisposable
             var renamed = missing.Where(k => k.ModKey != ov.ModKey && selfIds.Contains(k.ID)).ToList();
             var hint = renamed.Count == 0 ? "" :
                 $"\n  NOTE: this file DOES carry {(renamed.Count == 1 ? "that FormID" : "those FormIDs")} — but under its own " +
-                $"name, as {string.Join(", ", renamed.Take(3).Select(k => $"{k.ID:X6}:{ov.ModKey.FileName}"))}. A plugin's records are keyed by its " +
+                $"name, as {string.Join(", ", renamed.Take(3).Select(k => FormIdToken.Of(new FormKey(ov.ModKey, k.ID))))}. A plugin's records are keyed by its " +
                 "FILENAME, so a copy saved under a different name is a DIFFERENT plugin. Keep the original filename and " +
                 "park the copy in another folder, or name the FormIDs as this file spells them.";
             (ov as IDisposable)?.Dispose();
             error = $"refused — source file '{fromPlugin}' ({loc.Where}) does NOT define or override {missing.Count} of the " +
                     $"{specs.Count} record(s) named; there is no version of them there to forward, and NOTHING was written:\n  - " +
-                    string.Join("\n  - ", missing.Select(k => k.ToString())) + hint;
+                    string.Join("\n  - ", missing.Select(k => FormIdToken.Of(k))) + hint;
             return null;
         }
 
@@ -6224,7 +6224,7 @@ public sealed class LoadOrderService : IDisposable
             if (seqSource?.LooseFilePath is not { } seqPath) return null;      // no .seq, or a BSA-only one (bytes uncheckable here) → nothing to flag
             var uncovered = SeqFile.UncoveredSgeQuests(targetPath, File.ReadAllBytes(seqPath));
             if (uncovered.Count == 0) return null;                            // the .seq still lists every SGE quest → not staled
-            var names = string.Join(", ", uncovered.Select(q => q.EditorId ?? q.FormKey.ToString()));
+            var names = string.Join(", ", uncovered.Select(q => q.EditorId ?? FormIdToken.Of(q.FormKey)));
             bool one = uncovered.Count == 1;
             return $"the .seq for '{targetName}' no longer lists {(one ? "its start-game-enabled quest" : $"{uncovered.Count} of its start-game-enabled quests")} "
                  + $"at {(one ? "its" : "their")} current on-disk FormID(s) ({names}), so {(one ? "it" : "they")} would silently never start on a fresh save "

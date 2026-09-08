@@ -303,7 +303,7 @@ public static class ErrorCheck
                     catch (Exception ex)
                     {
                         unscannable++;
-                        if (unscannableSamples.Count < 3) unscannableSamples.Add($"{fk} — {ex.GetType().Name}: {ex.Message}");
+                        if (unscannableSamples.Count < 3) unscannableSamples.Add($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}");
                     }
                 }
             }
@@ -407,7 +407,7 @@ public static class ErrorCheck
                             catch (Exception ex)
                             {
                                 unscannable++;
-                                if (unscannableSamples.Count < 3) unscannableSamples.Add($"{rec.FormKey} — {ex.GetType().Name}: {ex.Message}");
+                                if (unscannableSamples.Count < 3) unscannableSamples.Add($"{FormIdToken.Of(rec.FormKey)} — {ex.GetType().Name}: {ex.Message}");
                             }
                         }
                     }

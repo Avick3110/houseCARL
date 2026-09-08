@@ -150,7 +150,7 @@ public static class WriteEngine
             Console.Error.WriteLine($"error: no {type} with {(editorid is not null ? "EditorID '" + editorid + "'" : "FormKey " + formkeyRaw)} in {Path.GetFileName(source)}.");
             return 1;
         }
-        Console.WriteLine($"Resolved:      {target.FormKey} ({target.EditorID ?? "<no editorid>"})");
+        Console.WriteLine($"Resolved:      {FormIdToken.Of(target.FormKey)} ({target.EditorID ?? "<no editorid>"})");
         foreach (var r in reqs)
             Console.WriteLine($"  before: {string.Join('.', r.Path)}{(r.Key is not null ? "[" + r.Key + "]" : "")} = {ReadLeafDisplay(target, r.Path, r.Key)}");
         Console.WriteLine();
@@ -176,7 +176,7 @@ public static class WriteEngine
         try { patchRecord = GenericGetOrAddAsOverride(patchMod, target, sourceCache); }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"error: could not override {type} {target.FormKey} — {ex.Message}");
+            Console.Error.WriteLine($"error: could not override {type} {FormIdToken.Of(target.FormKey)} — {ex.Message}");
             return 1;
         }
         foreach (var r in reqs) ApplyVerb(patchRecord, r);
@@ -248,7 +248,7 @@ public static class WriteEngine
             var val = leaf.GetValue(current);
             if (val is null) return "(null)";
             static string Fmt(object? o) =>
-                o is null ? "(null)" : o is IFormLinkGetter fl ? fl.FormKey.ToString() : o.ToString() ?? "(null)";
+                o is null ? "(null)" : o is IFormLinkGetter fl ? FormIdToken.Of(fl.FormKey) : o.ToString() ?? "(null)";
             if (key is not null)
             {
                 if (val is System.Collections.IDictionary dd)
@@ -309,7 +309,7 @@ public static class WriteEngine
         if (target is null) { Console.Error.WriteLine($"error: not found in {Path.GetFileName(source)}"); return 1; }
 
         var typeName = RecordNaming.StripGetterInterface(PrimaryGetter(target.GetType())?.Name ?? "I?Getter");
-        Console.WriteLine($"{typeName}  {target.FormKey}  ({target.EditorID ?? "<no editorid>"})");
+        Console.WriteLine($"{typeName}  {FormIdToken.Of(target.FormKey)}  ({target.EditorID ?? "<no editorid>"})");
         foreach (var p in paths)
             Console.WriteLine($"  {p} = {ReadLeafDisplay(target, p.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), null)}");
 
@@ -394,7 +394,7 @@ public static class WriteEngine
         var ownerCatalog = RecordNaming.StripGetterInterface(PrimaryGetter(owner.GetType())?.Name ?? "I?Getter");
         Console.WriteLine($"Source plugin: {source}");
         Console.WriteLine($"Output patch:  {outPath}  (ModKey {name}.esp)");
-        Console.WriteLine($"Condition:     {ownerCatalog} {owner.FormKey} ({owner.EditorID ?? "<no editorid>"}) . {condField}[{condIndex}] . {armCatalog}.{floiProp}");
+        Console.WriteLine($"Condition:     {ownerCatalog} {FormIdToken.Of(owner.FormKey)} ({owner.EditorID ?? "<no editorid>"}) . {condField}[{condIndex}] . {armCatalog}.{floiProp}");
         Console.WriteLine($"Re-target:     {oldTarget}  ->  {newTarget}   (form mode)");
         Console.WriteLine();
 
@@ -408,7 +408,7 @@ public static class WriteEngine
         var patchMod = new SkyrimMod(new ModKey(name, ModType.Plugin), SkyrimRelease.SkyrimSE);
         IMajorRecord ov;
         try { ov = GenericGetOrAddAsOverride(patchMod, owner, cache); }
-        catch (Exception ex) { Console.Error.WriteLine($"error: could not override {ownerCatalog} {owner.FormKey} — {ex.Message}"); return 1; }
+        catch (Exception ex) { Console.Error.WriteLine($"error: could not override {ownerCatalog} {FormIdToken.Of(owner.FormKey)} — {ex.Message}"); return 1; }
         object arm;
         try { arm = NavigateToConditionArm(ov, condField, condIndex); }
         catch (Exception ex) { Console.Error.WriteLine($"error: could not navigate to the condition arm — {ex.Message}"); return 1; }
@@ -445,7 +445,7 @@ public static class WriteEngine
 
         var ok = sourceUnchanged && readBack is { } rb && !rb.IsNull;
         Console.WriteLine(ok
-            ? $"=== CONDITION PATCH WRITTEN — open {Path.GetFileName(outPath)} in xEdit: {ownerCatalog} {owner.FormKey}, condition #{condIndex}, confirm the target is now {newTarget}. Original untouched. ==="
+            ? $"=== CONDITION PATCH WRITTEN — open {Path.GetFileName(outPath)} in xEdit: {ownerCatalog} {FormIdToken.Of(owner.FormKey)}, condition #{condIndex}, confirm the target is now {newTarget}. Original untouched. ==="
             : "=== FAIL — see above ===");
         return ok ? 0 : 1;
     }
@@ -494,7 +494,7 @@ public static class WriteEngine
         if (linkedGetter is null) return null;
         foreach (var rec in mod.EnumerateMajorRecords())
             if (linkedGetter.IsInstanceOfType(rec) && rec.FormKey != current && !rec.FormKey.IsNull)
-                return rec.FormKey.ToString();
+                return FormIdToken.Of(rec.FormKey);
         return null;
     }
 
@@ -569,7 +569,7 @@ public static class WriteEngine
         try { carry = CaptureChildGroup(record); return null; }
         catch (Exception ex)
         {
-            return $"cannot forward {record.FormKey}: reading the child records under the version the destination " +
+            return $"cannot forward {FormIdToken.Of(record.FormKey)}: reading the child records under the version the destination " +
                    $"already carries threw ({ex.GetType().Name}: {ex.Message}) — surfaced, not swallowed (Q3). " +
                    untouchedClause;
         }
@@ -600,7 +600,7 @@ public static class WriteEngine
             if (arrived > 0)
             {
                 var sample = string.Join(", ", ChildNamesOf(fresh, 5)) + (arrived > 5 ? ", …" : "");
-                return $"cannot forward {fresh.FormKey}: the forwarded copy arrived carrying {arrived} child record(s) "
+                return $"cannot forward {FormIdToken.Of(fresh.FormKey)}: the forwarded copy arrived carrying {arrived} child record(s) "
                      + $"of its own ({sample}), " + (carry.IsEmpty
                          ? "which a forward does not mean — it asserts the source's FIELDS and leaves the source's own "
                            + "children in the source's plugin, so houseCARL refuses rather than silently import them (Q3). "
@@ -620,7 +620,7 @@ public static class WriteEngine
             // reflected set that would restore them is empty, and that disagreement is exactly the silent loss.
             var after = ChildCountOf(fresh);
             if (after != carry.Count)
-                return $"cannot forward {fresh.FormKey}: it carries {carry.Count} child record(s) " +
+                return $"cannot forward {FormIdToken.Of(fresh.FormKey)}: it carries {carry.Count} child record(s) " +
                        $"({string.Join(", ", carry.Names)}{(carry.Count > carry.Names.Count ? ", …" : "")}) and {after} " +
                        "are on the record after the replace — houseCARL will not write a plugin whose child records it " +
                        $"cannot account for (Q3). {untouchedClause} Please report this with the record type.";
@@ -628,7 +628,7 @@ public static class WriteEngine
         }
         catch (Exception ex)
         {
-            return $"cannot preserve the {carry.Count} child record(s) under {fresh.FormKey}: carrying them across " +
+            return $"cannot preserve the {carry.Count} child record(s) under {FormIdToken.Of(fresh.FormKey)}: carrying them across " +
                    $"the replace threw ({ex.GetType().Name}: {ex.Message}) — surfaced, not swallowed (Q3). " +
                    untouchedClause;
         }
@@ -644,7 +644,7 @@ public static class WriteEngine
     /// <summary>Up to <paramref name="max"/> child records of <paramref name="record"/>, named for a message.</summary>
     internal static List<string> ChildNamesOf(IMajorRecordGetter record, int max) =>
         record is IMajorRecordGetterEnumerable e
-            ? e.EnumerateMajorRecords().Take(max).Select(r => r.EditorID ?? r.FormKey.ToString()).ToList()
+            ? e.EnumerateMajorRecords().Take(max).Select(r => r.EditorID ?? FormIdToken.Of(r.FormKey)).ToList()
             : new List<string>();
 
     /// <summary>The settable properties of <paramref name="t"/> that can REACH an owned major record, MEMOIZED per type
@@ -810,7 +810,7 @@ public static class WriteEngine
     {
         if (sourceLinkCache is null)
             throw new InvalidOperationException(
-                $"Record {source.FormKey} ({source.GetType().Name}) is in a nested group (no flat SkyrimGroup<T>) " +
+                $"Record {FormIdToken.Of(source.FormKey)} ({source.GetType().Name}) is in a nested group (no flat SkyrimGroup<T>) " +
                 "and needs the source link cache to reconstruct its parent chain — pass sourceLinkCache " +
                 "(sourceMod.ToImmutableLinkCache()) to GenericGetOrAddAsOverride. Surfaced, not guessed (Q3).");
 
@@ -840,17 +840,17 @@ public static class WriteEngine
         catch (TargetInvocationException tie)
         {
             throw new InvalidOperationException(
-                $"Nested record {source.FormKey} ({source.GetType().Name}) not found in the source cache — " +
+                $"Nested record {FormIdToken.Of(source.FormKey)} ({source.GetType().Name}) not found in the source cache — " +
                 "cannot reconstruct its parent chain (fail-closed, Q3).", tie.InnerException ?? tie);
         }
         if (ctx is null)
             throw new InvalidOperationException(
-                $"ResolveContext returned null for nested record {source.FormKey} — not found in the source cache.");
+                $"ResolveContext returned null for nested record {FormIdToken.Of(source.FormKey)} — not found in the source cache.");
 
         var goao = ctx.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
             .FirstOrDefault(m => m.Name == "GetOrAddAsOverride" && m.GetParameters().Length == 1
                 && m.GetParameters()[0].ParameterType.IsInstanceOfType(patchMod))
-            ?? throw new InvalidOperationException($"Nested context for {source.FormKey} has no GetOrAddAsOverride(mod).");
+            ?? throw new InvalidOperationException($"Nested context for {FormIdToken.Of(source.FormKey)} has no GetOrAddAsOverride(mod).");
 
         return (IMajorRecord)goao.Invoke(ctx, new object[] { patchMod })!;
     }
@@ -1078,7 +1078,7 @@ public static class WriteEngine
                 var foreign = matches.FirstOrDefault(r => r.FormKey.ModKey != patchMod.ModKey);
                 if (foreign is not null)
                     throw new InvalidOperationException(
-                        $"create refused: this patch already carries an OVERRIDE of {foreign.FormKey} whose editorid is '{editorId}' — " +
+                        $"create refused: this patch already carries an OVERRIDE of {FormIdToken.Of(foreign.FormKey)} whose editorid is '{editorId}' — " +
                         $"re-creating over an override would blank the original plugin's record. Pick a different editorid for the new record, " +
                         "or edit the override's fields with " + ToolNames.Apply + ".");
                 if (matches.Count > 1)
@@ -1482,7 +1482,7 @@ public static class WriteEngine
         // looking at; this one asks the copy about to be written, and catches a difference between the two.
         if (shape == OwnedChildShape.Singular && prop!.GetValue(parentInPatch) is IMajorRecordGetter occupant)
             throw new InvalidOperationException(
-                $"nested create: '{parentName}.{prop.Name}' already holds a {childType.Name} ({occupant.FormKey}" +
+                $"nested create: '{parentName}.{prop.Name}' already holds a {childType.Name} ({FormIdToken.Of(occupant.FormKey)}" +
                 (occupant.EditorID is { } oe ? $" editorid={oe}" : "") + ") and it holds exactly one, so there is no " +
                 "room to create another. Edit the one that is there by its own FormID, or remove it first with " +
                 ToolNames.Remove + " and create again.");
@@ -1591,7 +1591,7 @@ public static class WriteEngine
         foreach (var existing in patchMod.EnumerateMajorRecords())
             if (recordType.IsInstanceOfType(existing) && string.Equals(existing.EditorID, editorId, StringComparison.Ordinal))
                 throw new InvalidOperationException(
-                    $"a {recordType.Name} with editorid '{editorId}' already exists in this patch ({existing.FormKey}); creating " +
+                    $"a {recordType.Name} with editorid '{editorId}' already exists in this patch ({FormIdToken.Of(existing.FormKey)}); creating " +
                     $"it again would duplicate it. {recordType.Name} create does not upsert here — edit the existing record, or " +
                     "use a different editorid.");
     }
@@ -2101,7 +2101,7 @@ public static class WriteEngine
             // a directly-assignable immutable reference (string, MemorySlice…) — safe to share while the source overlay lives
             if (pt.IsInstanceOfType(srcVal)) { prop.SetValue(parent, srcVal); return; }
             // a settable FormLink slot (rare) — build the matching concrete from the source key
-            if (srcVal is IFormLinkGetter sfl && TryFormLink(sfl.FormKey.ToString(), Nullable.GetUnderlyingType(pt) ?? pt, out var mk)
+            if (srcVal is IFormLinkGetter sfl && TryFormLink(FormIdToken.Of(sfl.FormKey), Nullable.GetUnderlyingType(pt) ?? pt, out var mk)
                 && mk is not null && pt.IsInstanceOfType(mk)) { prop.SetValue(parent, mk); return; }
             throw new ExpectedApplyRejectionException(
                 $"CopyFrom cannot assign a {Pretty(srcVal.GetType())} into settable '{prop.Name}' ({Pretty(pt)}) — a field kind CopyFrom doesn't transplant yet (a clean refusal, not a silent skip).");

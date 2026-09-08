@@ -52,7 +52,7 @@ internal sealed class FormIdDoor
             throw new WriteRefusal(
                 $"'{(raw ?? "").Trim()}' is a runtime FormID, which houseCARL accepts for reading but not for " +
                 $"writing, because it names a slot in the load order as it stands rather than a record — write to " +
-                $"'{fk.ID:X6}:{fk.ModKey.FileName}' instead.");
+                $"'{FormIdToken.Of(fk)}' instead.");
         return fk;
     }
 

@@ -139,7 +139,7 @@ public static class ClosureCopy
         foreach (var rec in scratch.EnumerateMajorRecords())
             if (!RemapEngine.TryAddToFlatGroup(patch, (IMajorRecord)rec))
                 return CopyResult.Fail(new CopyRefusal(CopyRefusalKind.Transplant,
-                    $"{RecordNaming.StripOverlay(rec.GetType().Name)} {rec.FormKey} could not be placed in the patch",
+                    $"{RecordNaming.StripOverlay(rec.GetType().Name)} {FormIdToken.Of(rec.FormKey)} could not be placed in the patch",
                     Key: rec.FormKey));
 
         var copied = nodes.Select(n => new CopiedRecord(
@@ -181,7 +181,7 @@ public static class ClosureCopy
                 if (singleLink.FormKeyNullable is not { } fk || fk.IsNull || !isBound(fk)) continue;
                 if (!IsNullableLink(val))
                     return new CopyRefusal(CopyRefusalKind.RequiredForeignLink,
-                        $"the record's REQUIRED field '{prop.Name}' points at {fk}, which is in the source universe " +
+                        $"the record's REQUIRED field '{prop.Name}' points at {FormIdToken.Of(fk)}, which is in the source universe " +
                         "being copied away from: it cannot be nulled without inventing data, and keeping it would " +
                         "silently master that plugin", prop.Name, fk);
                 continue;
@@ -191,7 +191,7 @@ public static class ClosureCopy
             {
                 var keys = sub.EnumerateFormLinks()
                     .Where(l => !l.FormKey.IsNull && isBound(l.FormKey))
-                    .Select(l => l.FormKey.ToString()).Distinct().ToList();
+                    .Select(l => FormIdToken.Of(l.FormKey)).Distinct().ToList();
                 if (keys.Count > 0)
                     return new CopyRefusal(CopyRefusalKind.UnclearableSubstruct,
                         $"the record's field '{prop.Name}' carries reference(s) into the source universe " +
@@ -220,10 +220,10 @@ public static class ClosureCopy
                 // Pass 1 has already proven this link is nullable; the else-branch is a backstop against the two
                 // passes ever disagreeing, not the primary refusal path.
                 if (TryNullLink(val))
-                    stripped.Add(new StripEntry(prop.Name, fk.ToString()));
+                    stripped.Add(new StripEntry(prop.Name, FormIdToken.Of(fk)));
                 else
                     return StripResult.Fail(new CopyRefusal(CopyRefusalKind.RequiredForeignLink,
-                        $"the record's REQUIRED field '{prop.Name}' points at {fk}, which is in the source universe " +
+                        $"the record's REQUIRED field '{prop.Name}' points at {FormIdToken.Of(fk)}, which is in the source universe " +
                         "being copied away from: it cannot be nulled without inventing data, and keeping it would " +
                         "silently master that plugin", prop.Name, fk));
                 continue;
@@ -244,7 +244,7 @@ public static class ClosureCopy
                     {
                         var keys = elc.EnumerateFormLinks()
                             .Where(l => !l.FormKey.IsNull && isBound(l.FormKey))
-                            .Select(l => l.FormKey.ToString()).Distinct().ToList();
+                            .Select(l => FormIdToken.Of(l.FormKey)).Distinct().ToList();
                         if (keys.Count > 0)
                         { list.RemoveAt(i); stripped.Add(new StripEntry($"{prop.Name}[{i}]", string.Join(", ", keys))); }
                     }
@@ -257,7 +257,7 @@ public static class ClosureCopy
             {
                 var keys = sub.EnumerateFormLinks()
                     .Where(l => !l.FormKey.IsNull && isBound(l.FormKey))
-                    .Select(l => l.FormKey.ToString()).Distinct().ToList();
+                    .Select(l => FormIdToken.Of(l.FormKey)).Distinct().ToList();
                 if (keys.Count == 0) continue;
                 // Nulling the property removes EVERYTHING on it, not just the bound link(s) that forced the removal.
                 // Marked so the render can say so: for VirtualMachineAdapter this is every script on the clone.
@@ -689,7 +689,7 @@ public static class ClosureCopy
                 live.Add(l.FormKey);
                 if (offender is null && l.FormKey.ModKey != patchModKey && !isOnOrder(l.FormKey.ModKey))
                     offender = new OffOrderHit(l.FormKey, rec.FormKey,
-                        $"{RecordNaming.StripOverlay(rec.GetType().Name)} '{rec.EditorID ?? "<no editorid>"}' ({rec.FormKey})");
+                        $"{RecordNaming.StripOverlay(rec.GetType().Name)} '{rec.EditorID ?? "<no editorid>"}' ({FormIdToken.Of(rec.FormKey)})");
             }
         }
         return (live, offender);

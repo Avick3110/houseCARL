@@ -216,7 +216,7 @@ public static class SkyPatcherOverlay
         return new SkyPatcherOverlayResult(applied, directives, warnings, matched, unresolvedSkips);
     }
 
-    static string Ident(FormKey fk, string? editorId) => editorId is null ? fk.ToString() : $"{fk} ({editorId})";
+    static string Ident(FormKey fk, string? editorId) => editorId is null ? FormIdToken.Of(fk) : $"{FormIdToken.Of(fk)} ({editorId})";
 
     static string HardReason(SkyPatcherOpDef op) => op.Shape switch
     {
@@ -374,7 +374,7 @@ public static class SkyPatcherOverlay
                 if (resolver.WinnerPluginOf(fk) is { } winner
                     && seg.Values.Any(v => v.Raw.Equals(winner, StringComparison.OrdinalIgnoreCase)) != inSet)
                 {
-                    warn.Add($"mn:{fk}", $"filterByModNames{conn}: the record's defining master ('{origin}') and winning override ('{winner}') disagree on membership — which one the DLL tests is unverified, so whether the line applies is UNRESOLVED.");
+                    warn.Add($"mn:{FormIdToken.Of(fk)}", $"filterByModNames{conn}: the record's defining master ('{origin}') and winning override ('{winner}') disagree on membership — which one the DLL tests is unverified, so whether the line applies is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 bool ok = conn is "Excluded" or "Exclude" ? !inSet : inSet;
@@ -401,7 +401,7 @@ public static class SkyPatcherOverlay
                 var winner = resolver.WinnerPluginOf(fk);
                 if (winner is null)
                 {
-                    warn.Add($"ov:{fk}", $"modNamesLastOverridden{conn}: could not resolve the winning override plugin of {fk} — whether the line yields is UNRESOLVED.");
+                    warn.Add($"ov:{FormIdToken.Of(fk)}", $"modNamesLastOverridden{conn}: could not resolve the winning override plugin of {FormIdToken.Of(fk)} — whether the line yields is UNRESOLVED.");
                     return FilterVerdict.Unresolved;
                 }
                 bool hit = seg.Values.Any(v => v.Raw.Equals(winner, StringComparison.OrdinalIgnoreCase));
@@ -1173,7 +1173,7 @@ public static class SkyPatcherOverlay
 
         string token;
         if (v.IsNameLiteral) token = v.NameText!;                       // rename literal, wrapper stripped
-        else if (v.Address is { IsFormId: true } a && TryFormKey(a, out var fk1)) token = fk1.ToString();
+        else if (v.Address is { IsFormId: true } a && TryFormKey(a, out var fk1)) token = FormIdToken.Of(fk1);
         else if (map.ValueMap is { } vm && vm.TryGetValue(v.Raw, out var mapped)) token = mapped;
         else if (map.FormType is not null)
         {

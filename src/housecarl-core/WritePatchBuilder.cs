@@ -836,7 +836,7 @@ public static class WritePatchBuilder
                         $"{marker} — you set Subtype={dt.Subtype}; the game buckets by the SNAM marker, so it was synced to match (#131 — otherwise the Subtype change is a silent no-op)"));
                     break;
                 case MarkerFill.Unmodeled:
-                    return $"cannot set Subtype on DialogTopic {fk}: no SNAM marker is modeled for Subtype={dt.Subtype} " +
+                    return $"cannot set Subtype on DialogTopic {FormIdToken.Of(fk)}: no SNAM marker is modeled for Subtype={dt.Subtype} " +
                            $"((int){(int)dt.Subtype}, outside the known 0..{DialogueSubtype.Count - 1}). Use a valid Subtype, or set SubtypeName explicitly";
             }
         }
@@ -1212,12 +1212,12 @@ public static class WritePatchBuilder
                 // NO FormLinks doesn't cross this walk — that class still surfaces only at the real serialize, which
                 // the dry-run footer discloses.
                 if (WriteEngine.RootNullArm(ex) is not null)
-                    return $"dry run caught what the real write would fail on: {rec.FormKey} carries a required modeled " +
+                    return $"dry run caught what the real write would fail on: {FormIdToken.Of(rec.FormKey)} carries a required modeled " +
                            "sub-field left null (the same null-dereference Mutagen's writer refuses at serialize). The " +
                            "cause is a COMPOSED record that left a required polymorphic sub-field unset — e.g. a Condition " +
                            "composed without its Data arm, or a leveled-list / effect element missing a required part. " +
                            "Compose that sub-field too (select the arm via compose). Nothing was written.";
-                return $"dry run: enumerating {rec.FormKey}'s references threw ({ex.GetType().Name}: {ex.Message}) — " +
+                return $"dry run: enumerating {FormIdToken.Of(rec.FormKey)}'s references threw ({ex.GetType().Name}: {ex.Message}) — " +
                        "the would-be content could not be fully checked; the real write would hit the same data. Nothing was written.";
             }
         }
@@ -1391,7 +1391,7 @@ public static class WritePatchBuilder
             if (!carried.TryGetValue(fk, out var info))
             {
                 problems.Add(
-                    $"{fk}: not carried by patch '{fileName}' — only a record the patch ITSELF defines (a created record " +
+                    $"{FormIdToken.Of(fk)}: not carried by patch '{fileName}' — only a record the patch ITSELF defines (a created record " +
                     "or an accumulated override) can be removed; a master's record can't be literally removed, only its " +
                     "override dropped (and this patch has no override of it).");
                 continue;
@@ -1482,9 +1482,9 @@ public static class WritePatchBuilder
             if (!OwnedChildLifecycle.TryFindSlot(mod, fk, out var slot)) continue;
             var unnamed = OwnedChildLifecycle.DescendantsOf(slot.Child).Where(d => !named.Contains(d.FormKey)).ToList();
             if (unnamed.Count > 0)
-                return $"removing {fk} means detaching it from '{slot.Describe()}', which takes the "
+                return $"removing {FormIdToken.Of(fk)} means detaching it from '{slot.Describe()}', which takes the "
                      + $"{unnamed.Count} record(s) under it with it — and you named none of them: "
-                     + string.Join(", ", unnamed.Take(5).Select(d => $"{d.FormKey}{(d.EditorID is { } e ? $" ({e})" : "")}"))
+                     + string.Join(", ", unnamed.Take(5).Select(d => $"{FormIdToken.Of(d.FormKey)}{(d.EditorID is { } e ? $" ({e})" : "")}"))
                      + (unnamed.Count > 5 ? $", and {unnamed.Count - 5} more" : "")
                      + ". Name them in the same call so the removal reports every record it drops, or leave this one.";
             if (OwnedChildLifecycle.Detach(slot) is { } err) return err;
@@ -1596,7 +1596,7 @@ public static class WritePatchBuilder
             if (!carried.TryGetValue(fk, out var info))
             {
                 problems.Add(
-                    $"{fk}: not carried by '{fileName}' — in-place removes only a record the file ITSELF defines or " +
+                    $"{FormIdToken.Of(fk)}: not carried by '{fileName}' — in-place removes only a record the file ITSELF defines or " +
                     "overrides. To stop ANOTHER plugin's record from winning, use the default patch lane (forward the " +
                     "master version, or override it) instead.");
                 continue;
@@ -2803,7 +2803,7 @@ public static class WritePatchBuilder
                 if (!link.FormKey.IsNull && donorSet.Contains(link.FormKey.ModKey))
                 {
                     danglingCount++;
-                    if (dangling.Count < 10) dangling.Add($"{rec.FormKey} → {link.FormKey}");
+                    if (dangling.Count < 10) dangling.Add($"{FormIdToken.Of(rec.FormKey)} → {FormIdToken.Of(link.FormKey)}");
                 }
         if (danglingCount > 0)
             return MergeBuildResult.Fail(
@@ -3054,7 +3054,7 @@ public static class WritePatchBuilder
         string ClashReason(string wantType, IReadOnlyList<IMajorRecord> clash)
         {
             if (clash.FirstOrDefault(r => r.FormKey.ModKey != patchMod.ModKey) is { } foreign)
-                return $"{fileName} carries an override of {foreign.FormKey} under that editorid — re-creating over an "
+                return $"{fileName} carries an override of {FormIdToken.Of(foreign.FormKey)} under that editorid — re-creating over an "
                      + $"override would blank the original plugin's record. Edit it with {ToolNames.Apply}, or pick another editorid.";
             if (clash.Count > 1)
                 return $"{fileName} defines {clash.Count} records with that editorid "
@@ -3252,7 +3252,7 @@ public static class WritePatchBuilder
                         ?? (plan.patchParent is not null && FormKey.TryFactory(s.ParentRef!, out var orderFk) ? OrderBodyOf(orderFk) : null);
                     if ((Occupant(plan.patchParent) ?? Occupant(inOrder)) is { } occupant)
                     {
-                        problems.Add($"{s.RecordType} '{s.EditorId}': '{parentType.Name}.{slotName}' already holds a {s.RecordType} ({occupant.FormKey}"
+                        problems.Add($"{s.RecordType} '{s.EditorId}': '{parentType.Name}.{slotName}' already holds a {s.RecordType} ({FormIdToken.Of(occupant.FormKey)}"
                             + (occupant.EditorID is { } oe ? $" editorid={oe}" : "") + ") and it holds exactly one, so there is no room to create another. "
                             + "Edit the one that is there by its own FormID, or remove it first and create again.");
                         continue;
@@ -3375,19 +3375,19 @@ public static class WritePatchBuilder
                     // EXPECTED apply-time refusal (live state pre-flight can't see — e.g. a duplicate dict key): clean
                     // guidance, NOT the inconsistency wrapper. Whole call still refused, nothing serialized.
                     return CreateOutcome.Fail(
-                        $"refused applying [{Label(req)}] to new {s.RecordType} '{s.EditorId}' ({rec.FormKey}) — {ex.Message} (nothing created)");
+                        $"refused applying [{Label(req)}] to new {s.RecordType} '{s.EditorId}' ({FormIdToken.Of(rec.FormKey)}) — {ex.Message} (nothing created)");
                 }
                 catch (MalformedTargetDataException ex)
                 {
                     // The target record's own data is malformed (present-but-null element/entry) — render it
                     // accurately, NOT under the inconsistency wrapper. Whole call refused, nothing serialized.
                     return CreateOutcome.Fail(
-                        $"refused applying [{Label(req)}] to new {s.RecordType} '{s.EditorId}' ({rec.FormKey}) — {ex.Message} (nothing created)");
+                        $"refused applying [{Label(req)}] to new {s.RecordType} '{s.EditorId}' ({FormIdToken.Of(rec.FormKey)}) — {ex.Message} (nothing created)");
                 }
                 catch (Exception ex)
                 {
                     return CreateOutcome.Fail(
-                        $"engine error applying [{Label(req)}] to new {s.RecordType} '{s.EditorId}' ({rec.FormKey}): " +
+                        $"engine error applying [{Label(req)}] to new {s.RecordType} '{s.EditorId}' ({FormIdToken.Of(rec.FormKey)}): " +
                         $"pre-flight ACCEPTED it but the apply threw — a real inconsistency, surfaced not swallowed (Q3): {ex.GetType().Name}: {ex.Message}");
                 }
             }
@@ -3553,8 +3553,8 @@ public static class WritePatchBuilder
                         ? $"{walkError} — this was a DRY RUN read of the in-memory would-be content; nothing was written."
                         : $"{walkError} — the WRITE ITSELF SUCCEEDED (the patch was serialized and re-opened); inspect the patch in xEdit; do not re-issue the ops.")
                     : (inMemory
-                        ? $"the in-memory would-be content did not yield {fk} — a real inconsistency, surfaced not swallowed (Q3); nothing was written."
-                        : $"the written file did not yield {fk} on re-open — a real inconsistency, surfaced not swallowed (Q3); inspect the patch in xEdit.")));
+                        ? $"the in-memory would-be content did not yield {FormIdToken.Of(fk)} — a real inconsistency, surfaced not swallowed (Q3); nothing was written."
+                        : $"the written file did not yield {FormIdToken.Of(fk)} on re-open — a real inconsistency, surfaced not swallowed (Q3); inspect the patch in xEdit.")));
         return result;
     }
 
@@ -3576,7 +3576,7 @@ public static class WritePatchBuilder
         string? One(string? v)
         {
             if (err is not null || !WriteEngine.IsSameCallSiblingRef(v, out var ed)) return v;
-            if (created.TryGetValue(ed, out var rec)) return rec.FormKey.ToString();
+            if (created.TryGetValue(ed, out var rec)) return FormIdToken.Of(rec.FormKey);
             err = $"internal: same-call reference '@{ed}' on {onWhat} resolved to no record created in this call — " +
                   "pre-flight should have caught it; surfaced, not swallowed (Q3).";
             return v;
@@ -3635,7 +3635,7 @@ public static class WritePatchBuilder
                     if (!created.TryGetValue(ed, out var rec))
                         return (sp, $"internal: same-call reference '@{ed}' on {onWhat} resolved to no record created " +
                                     "in this call — pre-flight should have caught it; surfaced, not swallowed (Q3).");
-                    nf[kv.Key] = rec.FormKey.ToString();
+                    nf[kv.Key] = FormIdToken.Of(rec.FormKey);
                 }
                 else nf[kv.Key] = kv.Value;
             }

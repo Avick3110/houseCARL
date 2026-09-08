@@ -147,7 +147,7 @@ public static class DialogueValidate
     /// every member of the family is a CK-editor / byte-parity shape the game itself tolerates. All four gap
     /// surfaces (per-INFO, quest InputIssues, DLVW, DLBR) go through this so they cannot drift apart.</summary>
     static DialogueIssue GapIssue(string noun, FormKey fk, CkParityGap gap) =>
-        new(DialogueIssueSeverity.Warning, $"{noun} {fk} is missing the {gap.Subrecord} subrecord — {gap.Detail}");
+        new(DialogueIssueSeverity.Warning, $"{noun} {FormIdToken.Of(fk)} is missing the {gap.Subrecord} subrecord — {gap.Detail}");
 
     /// <summary>Resolve <paramref name="fk"/> to its load-order winner and validate the dialogue graph: a DIAL →
     /// validate that one topic; a QUST → fan out to EVERY topic the quest owns (a whole-order DIAL winner scan,
@@ -315,12 +315,12 @@ public static class DialogueValidate
             var win = view.ResolveWinner(fk);
             if (win is null)
                 return DialogueValidationReport.ForError(fk,
-                    $"{fk} is not in the active load order — nothing to validate. Pass a dialogue topic (DIAL) FormID to validate one topic, a quest (QUST) FormID to validate all of a quest's topics, or a dialogue view (DLVW) / branch (DLBR) FormID for a record-level CK-parity check.");
+                    $"{FormIdToken.Of(fk)} is not in the active load order — nothing to validate. Pass a dialogue topic (DIAL) FormID to validate one topic, a quest (QUST) FormID to validate all of a quest's topics, or a dialogue view (DLVW) / branch (DLBR) FormID for a record-level CK-parity check.");
 
             var body = view.GetRecord(session, win.Value.WinnerPlugin, fk);
             if (body is null)
                 return DialogueValidationReport.ForError(fk,
-                    $"{fk} resolves to a winner in {win.Value.WinnerPlugin} but its body could not be fetched (the plugin may have changed since the index was built) — re-run to rebuild and try again.");
+                    $"{FormIdToken.Of(fk)} resolves to a winner in {win.Value.WinnerPlugin} but its body could not be fetched (the plugin may have changed since the index was built) — re-run to rebuild and try again.");
 
             if (body is IDialogTopicGetter topic)
             {
@@ -402,7 +402,7 @@ public static class DialogueValidate
             }
 
             return DialogueValidationReport.ForError(fk,
-                $"{fk} resolves to a {RecordNaming.StripOverlay(body.GetType().Name)} in {win.Value.WinnerPlugin}, not a dialogue topic (DIAL), quest (QUST), dialogue view (DLVW), or dialogue branch (DLBR). Pass a DIAL FormID to validate one topic, a QUST FormID to validate every topic a quest owns, or a DLVW/DLBR FormID for a record-level CK-parity check.");
+                $"{FormIdToken.Of(fk)} resolves to a {RecordNaming.StripOverlay(body.GetType().Name)} in {win.Value.WinnerPlugin}, not a dialogue topic (DIAL), quest (QUST), dialogue view (DLVW), or dialogue branch (DLBR). Pass a DIAL FormID to validate one topic, a QUST FormID to validate every topic a quest owns, or a DLVW/DLBR FormID for a record-level CK-parity check.");
         }
         catch (Exception ex)
         {
@@ -631,7 +631,7 @@ public static class DialogueValidate
             foreach (var g in ownerQuest.TextDisplayGlobals)
                 if (!g.FormKey.IsNull && resolve(g.FormKey) is IGlobalGetter glob && glob.EditorID is { Length: > 0 } gid)
                     ownerTextGlobals.Add(gid);
-            ownerQuestLabel = $"the owning quest {ownerQuest.EditorID ?? ownerFk.ToString()}";
+            ownerQuestLabel = $"the owning quest {ownerQuest.EditorID ?? FormIdToken.Of(ownerFk)}";
         }
 
         // --- Per-INFO walk over the topic's LIVE INFOs. A deleted INFO is a REMOVED line — skip it entirely (don't
@@ -659,10 +659,10 @@ public static class DialogueValidate
             if (DialogueScriptCheck.HasResultFragment(info)) fragmentInfos++;
 
             // Text-encoding lint over this line's player-facing strings: its menu Prompt and each spoken row.
-            CheckEncoding(info.Prompt?.String, $"INFO {info.FormKey} Prompt", issues);
+            CheckEncoding(info.Prompt?.String, $"INFO {FormIdToken.Of(info.FormKey)} Prompt", issues);
             int rnum = 0;
             foreach (var resp in info.Responses)
-                CheckEncoding(resp.Text?.String, $"INFO {info.FormKey} response {++rnum} text", issues);
+                CheckEncoding(resp.Text?.String, $"INFO {FormIdToken.Of(info.FormKey)} response {++rnum} text", issues);
 
             // A `<Global=X>` tag in a Prompt/response renders as `[...]` in game unless X names a global in the owning
             // quest's TextDisplayGlobals. A silent failure — the record is byte-valid and the tag just fails to
@@ -675,7 +675,7 @@ public static class DialogueValidate
             var pnam = NonNull(info.PreviousDialog.FormKeyNullable);
             if (pnam is not null && BadRef(pnam.Value, "a dialogue line (INFO)", b => b is IDialogResponsesGetter) is { } pwhy)
                 issues.Add(new(DialogueIssueSeverity.Problem,
-                    $"INFO {info.FormKey} has a previous-link (PNAM -> {pnam.Value}) that {pwhy}."));
+                    $"INFO {FormIdToken.Of(info.FormKey)} has a previous-link (PNAM -> {pnam.Value}) that {pwhy}."));
 
             // LinkTo: the REAL conversation chain — this line hands off to the next topic(s). A set link to a missing
             // DialogTopic is a broken chain; an empty LinkTo is a normal terminal line (never flagged).
@@ -684,7 +684,7 @@ public static class DialogueValidate
                 var lk = link.FormKey;
                 if (!lk.IsNull && BadRef(lk, "a dialogue topic (DIAL)", b => b is IDialogTopicGetter) is { } lwhy)
                     issues.Add(new(DialogueIssueSeverity.Problem,
-                        $"INFO {info.FormKey} links (LinkTo) to {lk}, which {lwhy} — the conversation chain is broken."));
+                        $"INFO {FormIdToken.Of(info.FormKey)} links (LinkTo) to {lk}, which {lwhy} — the conversation chain is broken."));
             }
 
             if (info.Conditions.Count > 0)
@@ -828,7 +828,7 @@ public static class DialogueValidate
                 var name = m.Groups[1].Value.Trim();
                 if (name.Length == 0 || ownerTextGlobals.Contains(name) || !flagged.Add(name)) continue;
                 issues.Add(new(DialogueIssueSeverity.Warning,
-                    $"INFO {info.FormKey} {locus} uses the text-replacement tag {m.Value}, but {name} is not a "
+                    $"INFO {FormIdToken.Of(info.FormKey)} {locus} uses the text-replacement tag {m.Value}, but {name} is not a "
                     + $"global in {ownerQuestLabel}'s TextDisplayGlobals — in game the tag renders as [...] (the global is "
                     + $"never substituted). Add {name} to the quest's Text Display Globals."));
             }
@@ -891,10 +891,10 @@ public static class DialogueValidate
             {
                 if (data.Reference.IsNull)
                     issues.Add(new(DialogueIssueSeverity.Warning,
-                        $"INFO {info.FormKey} condition #{n} ({fn}) is set to Run On a specific reference, but no reference is set — it evaluates against nothing, so the gate never behaves as intended."));
+                        $"INFO {FormIdToken.Of(info.FormKey)} condition #{n} ({fn}) is set to Run On a specific reference, but no reference is set — it evaluates against nothing, so the gate never behaves as intended."));
                 else if (!inOrder(refKey) && !EngineImplicit.IsImplicit(refKey))
                     issues.Add(new(DialogueIssueSeverity.Warning,
-                        $"INFO {info.FormKey} condition #{n} ({fn}) Run On reference {refKey} is not in the active load order — the gate evaluates against nothing."));
+                        $"INFO {FormIdToken.Of(info.FormKey)} condition #{n} ({fn}) Run On reference {refKey} is not in the active load order — the gate evaluates against nothing."));
             }
 
             // 2. Dead alias index — only when the owning quest's alias set is known; else skip, never guess.
@@ -931,14 +931,14 @@ public static class DialogueValidate
                     : floiIsForm && WriteEngine.IsFormLinkOrIndex(p.PropertyType) ? WriteEngine.ReadFloiFormKey(v) : null;
                 if (paramFk is { } pk && !inOrder(pk) && !EngineImplicit.IsImplicit(pk))
                     issues.Add(new(DialogueIssueSeverity.Warning,
-                        $"INFO {info.FormKey} condition #{n} ({fn}) references {pk}, which is not in the active load order — a deleted/disabled form or a wrong FormID, so the condition can't evaluate as intended."));
+                        $"INFO {FormIdToken.Of(info.FormKey)} condition #{n} ({fn}) references {pk}, which is not in the active load order — a deleted/disabled form or a wrong FormID, so the condition can't evaluate as intended."));
             }
 
             // 4. Dangling global comparison value — a ConditionGlobal compared against a GLOB not in the order. The
             //    comparison value lives on the Condition, not the Data arm, so it's outside the param sweep above.
             if (cond is IConditionGlobalGetter cg && !cg.ComparisonValue.IsNull && !inOrder(cg.ComparisonValue.FormKey))
                 issues.Add(new(DialogueIssueSeverity.Warning,
-                    $"INFO {info.FormKey} condition #{n} ({fn}) compares against global {cg.ComparisonValue.FormKey}, which is not in the active load order."));
+                    $"INFO {FormIdToken.Of(info.FormKey)} condition #{n} ({fn}) compares against global {FormIdToken.Of(cg.ComparisonValue.FormKey)}, which is not in the active load order."));
 
             // 5. GetIsID pointed at a PLACED reference — the wrong KIND of form (a dangling one is already caught by
             //    lint 3). GetIsID compares the run-on actor's BASE form, so a placed-instance FormID can never match.
@@ -947,7 +947,7 @@ public static class DialogueValidate
             if (data is IGetIsIDConditionDataGetter gid && floiIsForm && WriteEngine.ReadFloiFormKey(gid.Object) is { } objFk
                 && inOrder(objFk) && resolve(objFk) is IPlacedGetter)
                 issues.Add(new(DialogueIssueSeverity.Warning,
-                    $"INFO {info.FormKey} condition #{n} (GetIsID) points at the placed reference {objFk}, but GetIsID compares the run-on actor's BASE form — pass the base NPC_/object, not a placed instance."));
+                    $"INFO {FormIdToken.Of(info.FormKey)} condition #{n} (GetIsID) points at the placed reference {objFk}, but GetIsID compares the run-on actor's BASE form — pass the base NPC_/object, not a placed instance."));
         }
     }
 

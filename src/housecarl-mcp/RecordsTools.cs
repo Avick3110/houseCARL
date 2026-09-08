@@ -804,7 +804,7 @@ public static class RecordsTools
                     catch (Exception ex) { results.Add((raw?.Trim() ?? "", EffectChainResult.Fail($"bad FormID '{raw}': {ex.Message}"))); continue; }
                     // The per-seed carrier bound is the walk's own reach budget; limit=/offset= stay the SEED
                     // window, never a second silent cut on the carrier axis.
-                    results.Add((fk.ToString(), svc.ResolveEffectChain(fk, types, walkMaxNodes)));
+                    results.Add((FormIdToken.Of(fk), svc.ResolveEffectChain(fk, types, walkMaxNodes)));
                 }
                 // One build for the whole batch: each seed's resolve captures its own view, so the stamps must
                 // agree, and an @artifact seed list's epoch demand must match that build.
@@ -852,7 +852,7 @@ public static class RecordsTools
                         if (carrierSeen.Add(r.Seed)) carrierSel.Add(r.Seed);
                         foreach (var row in r.Result.Rows)
                         {
-                            var key = row.Carrier.ToString();
+                            var key = FormIdToken.Of(row.Carrier);
                             if (carrierSeen.Add(key)) carrierSel.Add(key);
                         }
                     }
@@ -1360,7 +1360,7 @@ public static class RecordsTools
             //      rendering the chain or reading the reached set, seam-checked throughout. ----
             if (walk is not null && outcome.Error is null && outcome.Groups is null)
             {
-                var seedKeys = outcome.Keys.Select(k => k.ToString()).ToArray();
+                var seedKeys = outcome.Keys.Select(FormIdToken.Of).ToArray();
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es) selected by the scan as walk seeds";
                 expectEpoch = outcome.Epoch;
@@ -1384,7 +1384,7 @@ public static class RecordsTools
             //      Two captures meet here, so the seam is epoch-compared and the halves can never mix builds.
             if (comparisonForm && outcome.Error is null && outcome.Groups is null)
             {
-                var cmpKeys = outcome.Keys.Select(k => k.ToString()).ToList();
+                var cmpKeys = outcome.Keys.Select(FormIdToken.Of).ToList();
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es) selected by the scan";
                 if (form == "delta")
@@ -1421,7 +1421,7 @@ public static class RecordsTools
             //      epoch-compared like every two-capture form. ----
             if (form == "info_order" && outcome.Error is null && outcome.Groups is null)
             {
-                var ioKeys = outcome.Keys.Select(k => k.ToString()).ToList();
+                var ioKeys = outcome.Keys.Select(FormIdToken.Of).ToList();
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es) selected by the scan";
                 var ioRows = svc.InfoOrderBatch(ioKeys, null, out var ioRefusal, out var ioEpoch);
@@ -1443,7 +1443,7 @@ public static class RecordsTools
             // it takes the lane too — except under dense, whose own render carries the per-element rows.
             if (bodyLaneForm && !counts_only && outcome.Error is null && outcome.Groups is null)
             {
-                var keys = outcome.Keys.Select(k => k.ToString()).ToList();
+                var keys = outcome.Keys.Select(FormIdToken.Of).ToList();
                 IReadOnlyList<ReadOutcome> bodies;
                 // This lane READS a body per row exactly as the scan render does, so it is clocked the same way and
                 // reports the same render_ms — the bound is one number over both lanes only if both are measured.
@@ -1679,7 +1679,7 @@ public static class RecordsTools
             // Comparisons over the file's matches: the file IS the subject pole (its version of each match).
             if (comparisonForm && outcome.Error is null && outcome.Groups is null)
             {
-                var cmpKeys = outcome.Keys.Select(k => k.ToString()).ToList();
+                var cmpKeys = outcome.Keys.Select(FormIdToken.Of).ToList();
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es) selected from the file";
                 if (form == "delta")
@@ -1717,7 +1717,7 @@ public static class RecordsTools
             // fields/everything over the file's matches: bodies via the one-pole batch (it reads the FILE).
             if (form is ("fields" or "rows" or "everything") && !counts_only && outcome.Error is null && outcome.Groups is null)
             {
-                var keys = outcome.Keys.Select(k => k.ToString()).ToList();
+                var keys = outcome.Keys.Select(FormIdToken.Of).ToList();
                 // The render bound is on the row cost, not on where the row came from: a row here reads a body
                 // exactly as the in-order lane's does, so it refuses on the same numbers before reading one.
                 if (RenderBudget.Refuse(keys.Count, form == "everything") is { } offTooBig)
@@ -2550,7 +2550,7 @@ public static class RecordsTools
             var key = gb switch
             {
                 "type" => o.Record!.Type,
-                "defined_in" => o.FormKey.ModKey.FileName.ToString(),
+                "defined_in" => FormIdToken.Plugin(o.FormKey.ModKey.FileName.String),
                 _ => o.WinnerPlugin ?? "?",
             };
             groups[key] = groups.GetValueOrDefault(key) + 1;

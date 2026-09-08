@@ -577,6 +577,9 @@ public sealed class LoadOrderResolver : IDisposable
             stamps[i] = FileStamp.Of(p);
         }
 
+        // These names are the canonical spelling of every plugin in the order — every FormID token prints through them.
+        FormIdToken.Publish(names);
+
         return new LoadOrderResolver(paths, names, nameToIdx, stamps, explainAbsence);
     }
 
@@ -1071,7 +1074,7 @@ public sealed class LoadOrderResolver : IDisposable
                 var fk = rec.FormKey;
                 if (!s.Index.TryGetValue(fk, out var e))               // the FILE outran the snapshot (edited after the build) — name it, never skip
                     throw new InvalidOperationException(
-                        $"index staleness: '{pluginName}' yields {fk} which the current index build does not contain — the plugin changed since the index was built; re-run (the next call's freshness check rebuilds).");
+                        $"index staleness: '{pluginName}' yields {FormIdToken.Of(fk)} which the current index build does not contain — the plugin changed since the index was built; re-run (the next call's freshness check rebuilds).");
                 var touching = e.count == 1 ? new[] { _names[e.winner] } : Array.ConvertAll(s.Overriders[fk], i => _names[i]);
                 yield return new RecordStatus(fk, RecordNaming.StripOverlay(rec.GetType().Name),
                                               PluginWins: e.winner == idx, OverrideDepth: e.count, TouchingPlugins: touching);
@@ -1195,7 +1198,7 @@ public sealed class LoadOrderResolver : IDisposable
     {
         if (SeekBody(session.Overlay(overlayIdx), fk, getterType) is { } rec) return rec;
         throw new InvalidOperationException(
-            $"body-fetch inconsistency: {_names[overlayIdx]} is indexed as containing {fk} but did not yield it on re-enumeration.");
+            $"body-fetch inconsistency: {_names[overlayIdx]} is indexed as containing {FormIdToken.Of(fk)} but did not yield it on re-enumeration.");
     }
 
     // ---- Cross-query scan primitives -------------------

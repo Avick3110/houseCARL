@@ -175,7 +175,7 @@ public static class ReadEngine
         if (target is null) { Console.Error.WriteLine($"error: not found in {Path.GetFileName(source)}"); return 1; }
 
         var typeName = RecordNaming.StripGetterInterface(WriteEngine.PrimaryGetter(target.GetType())?.Name ?? "I?Getter");
-        Console.WriteLine($"{typeName}  {target.FormKey}  ({target.EditorID ?? "<no editorid>"})");
+        Console.WriteLine($"{typeName}  {FormIdToken.Of(target.FormKey)}  ({target.EditorID ?? "<no editorid>"})");
 
         // --depth N (default 1): depth>=2 expands list/dict/substruct contents (descendable reads). With
         // --path it expands those targets; without, the whole-record dump. Routes through the SAME ReadFields
@@ -250,7 +250,7 @@ public static class ReadEngine
                 EmitWithDepth(on, string.Join(".", tail), d, fields, ref budget, p);
             }
         }
-        return new RecordFields(typeName, record.FormKey.ToString(), record.EditorID, fields);
+        return new RecordFields(typeName, FormIdToken.Of(record.FormKey), record.EditorID, fields);
     }
 
     /// <summary>The <c>*parent</c> containment step on a read path: strip the leading hops, climb to the record
@@ -900,13 +900,13 @@ public static class ReadEngine
         // reach it), and EditorID rides along when present, so a depth=2 owned-record list reads
         // "[DialogResponses 4D9A74:Plugin.esp editorid=…]" rather than a bare opaque [Type].
         if (val is IMajorRecordGetter mr)
-            return $"[{typeName} {mr.FormKey}{(string.IsNullOrEmpty(mr.EditorID) ? "" : $" editorid={mr.EditorID}")}]";
+            return $"[{typeName} {FormIdToken.Of(mr.FormKey)}{(string.IsNullOrEmpty(mr.EditorID) ? "" : $" editorid={mr.EditorID}")}]";
         foreach (var idName in IdentityFieldNames)
         {
             var p = t.GetProperty(idName, BindingFlags.Public | BindingFlags.Instance);
             if (p is null || p.GetIndexParameters().Length != 0) continue;
             object? iv; try { iv = p.GetValue(val); } catch { continue; }
-            var s = iv switch { null => null, string str => str, IFormLinkGetter fl => fl.FormKey.ToString(), _ => iv.ToString() };
+            var s = iv switch { null => null, string str => str, IFormLinkGetter fl => FormIdToken.Of(fl.FormKey), _ => iv.ToString() };
             if (string.IsNullOrEmpty(s)) continue;
             if (iv is IFormLinkGetter) refToken = s;
             return $"[{typeName}] {idName}={s}";
@@ -942,7 +942,7 @@ public static class ReadEngine
         try
         {
             if (only.GetValue(val) is not IFormLinkGetter fl) return null;
-            refToken = fl.FormKey.ToString();
+            refToken = FormIdToken.Of(fl.FormKey);
             return $"{only.Name}={refToken}";
         }
         catch { return null; }
@@ -1036,7 +1036,7 @@ public static class ReadEngine
         // link (FormKey.Null) is NOT a round-trippable token (the write surface sets links to a real
         // FormKey, never "Null"), so surface it as no-value — consistent with what Coerce accepts.
         if (val is IFormLinkGetter fl)
-            return fl.FormKey.IsNull ? LeafRead.None(NullLinkNote) : LeafRead.Value(fl.FormKey.ToString());
+            return fl.FormKey.IsNull ? LeafRead.None(NullLinkNote) : LeafRead.Value(FormIdToken.Of(fl.FormKey));
         // TranslatedString (FULL/DESC) — emit the resolved .String (the inverse of Coerce's implicit
         // `record.Name = "x"`). A genuinely-empty "" still round-trips as a value; a NULL .String is an
         // UNRESOLVED localized string (no .STRINGS entry for the target language in the workspace) and is
@@ -1189,7 +1189,7 @@ public static class ReadEngine
             case TimeOnly t: token = t.ToString("O", CultureInfo.InvariantCulture); return true;
             case char ch: token = ch.ToString(); return true;
             case string[] arr: token = string.Join(",", arr); return true;
-            case FormKey fk: token = fk.ToString(); return true;
+            case FormKey fk: token = FormIdToken.Of(fk); return true;
             case ModKey mk: token = mk.ToString(); return true;
             case RecordType rt: token = rt.ToString(); return true;
         }
@@ -1241,8 +1241,8 @@ public static class ReadEngine
             // Form mode. The binary overlay's FLOI is NOT itself a link — it carries the link in its
             // .Link property, the same accessor the write side reads (ReadFloiFormKey).
             // A present-but-null link stays a note, matching plain FormLink leaves.
-            if (val is IFormLinkGetter fl) return LeafRead.Value(fl.FormKey.ToString());
-            if (WriteEngine.ReadFloiFormKey(val) is { } fk) return LeafRead.Value(fk.ToString());
+            if (val is IFormLinkGetter fl) return LeafRead.Value(FormIdToken.Of(fl.FormKey));
+            if (WriteEngine.ReadFloiFormKey(val) is { } fk) return LeafRead.Value(FormIdToken.Of(fk));
             return LeafRead.Unreadable($"(floi: form mode, null or unreadable FormKey on {val.GetType().Name})");
         }
 

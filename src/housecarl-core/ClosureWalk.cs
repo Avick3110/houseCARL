@@ -433,7 +433,7 @@ public static class ClosureWalk
                         var at = path.IndexOf(next);
                         cycles.Add(new WalkCycle(
                             path.Skip(at).ToList(), next,
-                            labels.TryGetValue(key, out var lb) ? lb : key.ToString()));
+                            labels.TryGetValue(key, out var lb) ? lb : FormIdToken.Of(key)));
                     }
                     continue;
                 }

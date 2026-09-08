@@ -502,7 +502,7 @@ static class JsonWire
                 if (ms.Length >= cap) { rowsTruncated = true; break; }
                 var o = outcomes[i];
                 string? hit = matches is { } mt && i < mt.Count ? mt[i] : null;   // multi-target references= un-merge
-                if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", o.FormKey.ToString()); w.WriteString("error", o.Error); if (hit is not null) w.WriteString("matches", hit); w.WriteEndObject(); }
+                if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", FormIdToken.Of(o.FormKey)); w.WriteString("error", o.Error); if (hit is not null) w.WriteString("matches", hit); w.WriteEndObject(); }
                 else WriteReadRecord(w, o, ms, cap, hit, childFields: childFields, levers: levers);
                 rendered++;
             }
@@ -590,7 +590,7 @@ static class JsonWire
                 w.Flush();
                 if (ms.Length >= cap) { rowsTruncated = true; break; }
                 w.WriteStartObject();
-                w.WriteString("formid", o.FormKey.ToString());
+                w.WriteString("formid", FormIdToken.Of(o.FormKey));
                 WriteRuntime(w, o.RuntimeFormId, o.RuntimeFormIdNote);
                 if (o.Error is not null) w.WriteString("error", o.Error);
                 else
@@ -1186,7 +1186,7 @@ static class JsonWire
                         // "source" field still names the body read, so the json carries the same source/winner truth.
                         // Pinned to the scan's build — the document's epoch names ONE build.
                         var o = reader!.Row(i);   // a collapsed cell names the caller's own expansion knob
-                        if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", fk.ToString()); w.WriteString("error", o.Error); if (matches is not null) w.WriteString("matches", matches); w.WriteEndObject(); }
+                        if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", FormIdToken.Of(fk)); w.WriteString("error", o.Error); if (matches is not null) w.WriteString("matches", matches); w.WriteEndObject(); }
                         else { WriteReadRecord(w, o, ms, cap, matches, childFields: childFields, levers: levers); childUnioned |= o.OwnedChildUnioned; }
                     }
                     else
@@ -1322,7 +1322,7 @@ static class JsonWire
                     if (detail)
                     {
                         var o = reader!.Row(i);   // dense refuses depth>1 unless a quantifier asks for it; pinned to the scan's build
-                        if (o.Error is not null) { (errors ??= new()).Add((fk.ToString(), o.Error)); rendered++; continue; }
+                        if (o.Error is not null) { (errors ??= new()).Add((FormIdToken.Of(fk), o.Error)); rendered++; continue; }
                         var r = o.Record!;
                         if (fold is not null)
                         {
@@ -1330,7 +1330,7 @@ static class JsonWire
                             // one row per element and repeats its identity columns on each. The unquantified
                             // columns keep their own single cell, which is the same cell an unfolded call renders.
                             var (cols, carried, ferr) = fold.Columns(r);
-                            if (ferr is not null) { (errors ??= new()).Add((fk.ToString(), ferr)); rendered++; continue; }
+                            if (ferr is not null) { (errors ??= new()).Add((FormIdToken.Of(fk), ferr)); rendered++; continue; }
                             // A row is keyed by its ELEMENT KEY, never by its place in the column: a sub-path
                             // column skips an element whose arm does not carry it, and by position that cell
                             // would land beside a different element's row and read as that element's value. The key
@@ -1407,9 +1407,9 @@ static class JsonWire
                     else
                     {
                         var m = q.Prefilled is not null ? q.Prefilled[i] : svc.ResolveSummaryOn(q, fk);   // pinned to the scan's build
-                        if (m.Error is not null) { (errors ??= new()).Add((m.FormKey.ToString(), m.Error)); rendered++; continue; }
+                        if (m.Error is not null) { (errors ??= new()).Add((FormIdToken.Of(m.FormKey), m.Error)); rendered++; continue; }
                         w.WriteStartArray();
-                        w.WriteStringValue(m.FormKey.ToString());
+                        w.WriteStringValue(FormIdToken.Of(m.FormKey));
                         WriteCell(w, RuntimeCell(m.RuntimeFormId, m.RuntimeFormIdNote));
                         w.WriteStringValue(m.Type);
                         WriteCell(w, m.EditorId);
@@ -1473,7 +1473,7 @@ static class JsonWire
     internal static void WriteSummaryRow(Utf8JsonWriter w, RecordSummary m, string? matches)
     {
         w.WriteStartObject();
-        w.WriteString("formid", m.FormKey.ToString());
+        w.WriteString("formid", FormIdToken.Of(m.FormKey));
         WriteRuntime(w, m.RuntimeFormId, m.RuntimeFormIdNote);
         if (m.Error is not null) w.WriteString("error", m.Error);
         else
@@ -2546,7 +2546,7 @@ static class JsonWire
             {
                 if (Over(w, ms, cap)) { truncated = true; break; }
                 w.WriteStartObject();
-                w.WriteString("formid", c.FormKey.ToString());
+                w.WriteString("formid", FormIdToken.Of(c.FormKey));
                 w.WriteString("record_type", c.RecordType);
                 w.WriteString("editorid", c.EditorId);
                 // A replace is never silent (the CreatedRecord contract): the same fact the text render puts in

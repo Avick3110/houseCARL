@@ -286,7 +286,7 @@ public static class SkyPatcherConflicts
             if (IsBarePrimary(cls))
                 foreach (var v in seg.Values)
                     tokens.Add(v.Address is { IsFormId: true } a && SkyPatcherOverlay.TryFormKey(a, out var fk)
-                        ? fk.ToString()
+                        ? FormIdToken.Of(fk)
                         : v.Raw.ToLowerInvariant());
             else
                 conditional = true;   // Excluded-primary, crosscutting, restrictTo, gates — narrows applicability
