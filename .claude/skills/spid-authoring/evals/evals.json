@@ -1,0 +1,291 @@
+{
+  "skill": "spid-authoring",
+  "source_tree": "dist/housecarl/skills/spid-authoring",
+  "note": "Every arm reads the PACKAGED tree, never .claude/skills/. The packager strips evals/ and references/_CORPUS_STATUS.md, so a run against the source tree measures a skill that never ships.",
+  "method": "Trigger arm: an independent fan-out of fresh-context agents, one per query per run, each shown a neutral menu of skill descriptions (this skill among realistic siblings, not flagged as under test) plus one query, asked which ONE skill to load (or NONE) and why. Verdicts are adjudicated from each agent's reasoning and its pick. Menu: A=SkyPatcher edit-record-fields, B=KID keywords-to-items, C=SPID distribute-to-NPCs [under test], D=CID items-to-containers, E=mutagen-reference record-schema, F=crash-diagnostics, G=conflict-resolution, H=papyrus-reference, I=modding-basics.",
+  "arms": [
+    {
+      "id": "with-skill",
+      "description": "The packaged skill present in the catalogue."
+    },
+    {
+      "id": "without-skill",
+      "description": "The same queries with no skill in the catalogue at all. Required on every trigger eval: a with-skill-only measurement reports the skill's self-assessment, not its value. The pair is the only honest measure."
+    }
+  ],
+  "configurations": [
+    {
+      "id": "coexistence",
+      "description": "The nine-skill menu above — the deployment shape, with the three near-neighbour distributor skills present.",
+      "failure_mode_recall": "A should-trigger query is claimed by a neighbour (KID, SkyPatcher, CID) because the boundary clause reads as a scope the neighbour also satisfies.",
+      "failure_mode_specificity": "A should-not query is pulled in because the description owns the literal token 'SPID' and states no exclusion for the question's shape."
+    },
+    {
+      "id": "isolation",
+      "description": "This skill alone in the catalogue, plus NONE.",
+      "failure_mode_recall": "A should-trigger query gets NONE because the description's trigger list does not name the question's shape at all — a miss no neighbour can mask.",
+      "failure_mode_specificity": "A should-not query is taken because there is no neighbour to route it to and the description offers no negative clause; isolation is where an over-broad description shows."
+    }
+  ],
+  "judges": {
+    "graders": "Two Sonnet judges per row, adjudicated by Opus on disagreement.",
+    "haiku_pass": "Every row is additionally scored by Haiku. Haiku is the smallest model the plugin is deployed against, and a description that only a larger model routes correctly has not been measured against its envelope. A Haiku-only miss is reported as a row, not averaged away.",
+    "deployment_envelope": "Claude Code plugin install, Haiku through Opus."
+  },
+  "gate": {
+    "recall_threshold": 0.8,
+    "specificity_threshold": 0.5,
+    "runs_per_query": 3,
+    "reporting": "Report the trigger RATE over the three runs per query, not a single verdict. A query that triggers twice of three is a 0.67 row and is reported as one.",
+    "evidence": "Every row carries its own evidence — the adjudicated reasoning behind the pick — on hits as well as misses. A row with a pass and no evidence is not a measurement."
+  },
+  "rerun_triggers": [
+    "Any edit to the frontmatter description.",
+    "A SPID version promotion — the corpus is derived for 7.3.0 and the suite has never been measured against another version.",
+    "Corpus drift: any edit to references/ that changes what a filter, form type or trait means. This is the mechanism that let 7.3.0 documentation ship unmeasured against a 7.0.0 install."
+  ],
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "make a SPID ini that gives all bandits a fire cloak spell",
+      "expected_output": "housecarl:spid-authoring",
+      "expectations": ["Routes to this skill.", "Reasoning names the _DISTR.ini artifact or distribution-to-NPCs, not the spell record."],
+      "should_trigger": true,
+      "evidence": "Explicit SPID + distribute-to-NPCs; the plainest write-side shape."
+    },
+    {
+      "id": 2,
+      "prompt": "distribute a custom keyword to all female nord NPCs at 50% chance, in a _DISTR file",
+      "expected_output": "housecarl:spid-authoring",
+      "expectations": ["Routes to this skill.", "Reasoning distinguishes a keyword onto NPCs from a keyword onto items (KID)."],
+      "should_trigger": true,
+      "evidence": "The keyword/NPC-vs-item boundary is the one this row exercises; the target decides it."
+    },
+    {
+      "id": 3,
+      "prompt": "i want every whiterun guard to wear this city guard outfit using spid",
+      "expected_output": "housecarl:spid-authoring",
+      "expectations": ["Routes to this skill."],
+      "should_trigger": true,
+      "evidence": "Named framework plus an outfit target."
+    },
+    {
+      "id": 4,
+      "prompt": "give all the unique vampire NPCs a night eye power but skip the regular nameless ones",
+      "expected_output": "housecarl:spid-authoring",
+      "expectations": ["Routes to this skill without the word SPID appearing in the prompt."],
+      "should_trigger": true,
+      "evidence": "Implicit — no 'SPID' token; the recorded pick keyed on distribute-power-to-filtered-NPCs including the Unique trait."
+    },
+    {
+      "id": 5,
+      "prompt": "how do i target npcs by faction and race in a _DISTR file and hand them a perk",
+      "expected_output": "housecarl:spid-authoring",
+      "expectations": ["Routes to this skill.", "Reasoning names the targeting question, which the description's 'targeting NPCs by faction, race, level or trait' clause carries."],
+      "should_trigger": true,
+      "evidence": "Directly matches the description's trigger list."
+    },
+    {
+      "id": 6,
+      "prompt": "add this perk to npcs above level 20 that have decent destruction skill, no esp",
+      "expected_output": "housecarl:spid-authoring",
+      "expectations": ["Routes to this skill without the word SPID appearing in the prompt."],
+      "should_trigger": true,
+      "evidence": "Implicit — level plus skill filter, 'to npcs ... no esp' is the SPID shape."
+    },
+    {
+      "id": 7,
+      "prompt": "what's the syntax to give every npc 3 lockpicks at runtime without a plugin",
+      "expected_output": "housecarl:spid-authoring",
+      "expectations": ["Routes to this skill."],
+      "should_trigger": true,
+      "evidence": "Implicit — item plus count to NPCs at runtime, no plugin."
+    },
+    {
+      "id": 8,
+      "prompt": "my _DISTR.ini isn't giving the spell to the draugr, can you check the pipe sections",
+      "expected_output": "housecarl:spid-authoring",
+      "expectations": ["Routes to this skill.", "Reasoning cites the _DISTR.ini artifact or the isn't-distributing clause."],
+      "should_trigger": true,
+      "evidence": "Fires although the description does not say 'pipe sections' — the artifact name and the isn't-distributing clause carry it."
+    },
+    {
+      "id": 9,
+      "prompt": "set this travel package as the second AI package on all the riverwood villagers",
+      "expected_output": "housecarl:spid-authoring",
+      "expectations": ["Routes to this skill."],
+      "should_trigger": true,
+      "evidence": "Package-index distribution to an NPC group."
+    },
+    {
+      "id": 10,
+      "prompt": "give a faction to all dead draugr and make it deterministic so it's the same across saves",
+      "expected_output": "housecarl:spid-authoring",
+      "expectations": ["Routes to this skill."],
+      "should_trigger": true,
+      "evidence": "Faction distribution plus the deterministic-chance '!' — SPID-specific."
+    },
+    {
+      "id": 11,
+      "prompt": "add the VendorItemWeapon keyword to all my iron swords with KID",
+      "expected_output": "housecarl:kid-authoring",
+      "expectations": ["Does NOT route to this skill.", "Routes to the KID skill."],
+      "should_trigger": false,
+      "evidence": "Named framework and an item target; the description's 'a keyword onto item records is KID' clause is the exclusion."
+    },
+    {
+      "id": 12,
+      "prompt": "buff the iron sword's damage to 15 and add a keyword to it, using skypatcher",
+      "expected_output": "housecarl:skypatcher-authoring",
+      "expectations": ["Does NOT route to this skill."],
+      "should_trigger": false,
+      "evidence": "Record fields plus a named framework; the description's SkyPatcher clause is the exclusion."
+    },
+    {
+      "id": 13,
+      "prompt": "add 5 gold and a healing potion to every merchant chest in my load order",
+      "expected_output": "none of the distributor authoring skills (CID has no skill)",
+      "expectations": ["Does NOT route to this skill."],
+      "should_trigger": false,
+      "evidence": "Container target; the description names CID and this tree ships no CID skill."
+    },
+    {
+      "id": 14,
+      "prompt": "what fields does the NPC_ record have in xedit and which ones are writable",
+      "expected_output": "housecarl:mutagen-reference",
+      "expectations": ["Does NOT route to this skill."],
+      "should_trigger": false,
+      "evidence": "Schema question; NPC_ appears but nothing is being distributed."
+    },
+    {
+      "id": 15,
+      "prompt": "my game ctd's right when a dragon priest spawns, read the crash log and tell me why",
+      "expected_output": "a crash-diagnosis skill, not this one",
+      "expectations": ["Does NOT route to this skill."],
+      "should_trigger": false,
+      "evidence": "Crash triage; no distribution artifact."
+    },
+    {
+      "id": 16,
+      "prompt": "which plugin is winning the conflict on the steel plate armor record in my lorerim order",
+      "expected_output": "a conflict-resolution skill, not this one",
+      "expectations": ["Does NOT route to this skill."],
+      "should_trigger": false,
+      "evidence": "Load-order winner question on an item record."
+    },
+    {
+      "id": 17,
+      "prompt": "write a papyrus script that adds a spell to the player when they enter whiterun",
+      "expected_output": "housecarl:papyrus-reference",
+      "expectations": ["Does NOT route to this skill."],
+      "should_trigger": false,
+      "evidence": "Script artifact, and the target is the player — which SPID cannot reach at all."
+    },
+    {
+      "id": 18,
+      "prompt": "how do i install SPID and its requirements in my MO2 setup",
+      "expected_output": "a modding-basics skill, not this one",
+      "expectations": ["Does NOT route to this skill."],
+      "should_trigger": false,
+      "evidence": "Hard near-miss — names SPID but is an install question, not authoring or interpreting a line."
+    },
+    {
+      "id": 19,
+      "prompt": "i'm brand new to skyrim modding, can you explain what SPID even is and whether i need it",
+      "expected_output": "a modding-basics skill, not this one",
+      "expectations": ["Does NOT route to this skill."],
+      "should_trigger": false,
+      "evidence": "Hard near-miss — names SPID but is conceptual/newcomer. The recorded diagnosis is that the description owns the literal token 'SPID' and states no scope boundary excluding conceptual or beginner questions. The rewritten description adds a target boundary against sibling frameworks, which does not address this shape; this row is a measurement of that gap, not a predicted pass."
+    },
+    {
+      "id": 20,
+      "prompt": "add a fire enchantment to all the iron swords in the game at runtime",
+      "expected_output": "housecarl:skypatcher-authoring",
+      "expectations": ["Does NOT route to this skill."],
+      "should_trigger": false,
+      "evidence": "Hard near-miss — runtime plus apply-to-many, but the target is ITEMS, not NPCs."
+    },
+    {
+      "id": 21,
+      "prompt": "check Authoria - Modded Outfit Distribution and see if it is assigning an outfit to NPC- 'Mjoll'. (the mod's files include several _DISTR.ini files)",
+      "expected_output": "housecarl:spid-authoring",
+      "expectations": ["Routes to this skill.", "Reasoning treats the task as reading an existing _DISTR.ini, not writing one."],
+      "should_trigger": true,
+      "evidence": "Read-side; the verbatim field-failure task the older write-framed description missed. 'Authors and interprets' plus 'auditing a _DISTR.ini' is the clause that carries it."
+    },
+    {
+      "id": 22,
+      "prompt": "i downloaded a follower tweaks mod that has a _DISTR.ini inside, what does it actually change about the npcs?",
+      "expected_output": "housecarl:spid-authoring",
+      "expectations": ["Routes to this skill."],
+      "should_trigger": true,
+      "evidence": "Read-side, pre-install what-does-this-file-do; the interpret clause carries it."
+    },
+    {
+      "id": 23,
+      "prompt": "does this spid ini affect serana, or does the unique filter exclude her? here's the file",
+      "expected_output": "housecarl:spid-authoring",
+      "expectations": ["Routes to this skill."],
+      "should_trigger": true,
+      "evidence": "Read-side, per-NPC inclusion hinging on the U trait — the exact reasoning gap the field report recorded."
+    },
+    {
+      "id": 24,
+      "prompt": "audit the spid lines in this mod and tell me why my guards aren't getting the cloaks",
+      "expected_output": "housecarl:spid-authoring",
+      "expectations": ["Routes to this skill."],
+      "should_trigger": true,
+      "evidence": "Read-side audit plus the why-isn't-it-distributing clause, both named in the description."
+    },
+    {
+      "id": 25,
+      "prompt": "what does this skypatcher npc ini do to mjoll's stats?",
+      "expected_output": "housecarl:skypatcher-authoring",
+      "expectations": ["Does NOT route to this skill."],
+      "should_trigger": false,
+      "evidence": "Read-shaped near-miss — a read-only NPC question, but the artifact is a SkyPatcher ini; the framework, not the read verb, decides."
+    },
+    {
+      "id": 26,
+      "prompt": "read this papyrus script and tell me which npcs it adds spells to",
+      "expected_output": "housecarl:papyrus-reference",
+      "expectations": ["Does NOT route to this skill."],
+      "should_trigger": false,
+      "evidence": "Read-shaped near-miss — 'spells to NPCs' phrasing, but the artifact is a .psc; artifact type wins."
+    },
+    {
+      "id": 27,
+      "prompt": "what even is spell perk item distributor and is it something a new modlist needs",
+      "expected_output": "a modding-basics skill, not this one",
+      "expectations": ["Does NOT route to this skill."],
+      "should_trigger": false,
+      "new_in": "2026-09-08 rewrite",
+      "evidence": "Added as an unbiased MEASUREMENT, not a predicted pass. The rewritten description expands the acronym in its first clause, which adds SPID tokens rather than removing them, and its 'Not this skill' clause is a target boundary against KID/CID/SkyPatcher — it says nothing about conceptual or beginner questions. If this row and row 19 both trigger, the fix is a conceptual/beginner exclusion in the description, and that is the finding to report."
+    },
+    {
+      "id": 28,
+      "prompt": "i want every steel dagger in the game tagged with a custom keyword at runtime, no esp",
+      "expected_output": "housecarl:kid-authoring",
+      "expectations": ["Does NOT route to this skill.", "Routes to the KID skill.", "Reasoning names the target (item records) as the deciding question, not the runtime/no-ESP framing shared with SPID."],
+      "should_trigger": false,
+      "new_in": "2026-09-08 rewrite",
+      "evidence": "Exercises the new description's 'a keyword onto item records is KID' clause on a prompt that names no framework and shares SPID's runtime/no-ESP framing. Without the clause the shared framing is the only signal."
+    }
+  ],
+  "output_quality": {
+    "description": "The audit's own with/without task, run twice against the live ARR 2.0 order, fresh context each, one arm with the packaged skill in the catalogue and one with no skill at all — the control the audit's veto skipped.",
+    "task": "write `HC_Audit_DISTR.ini` granting vanilla perk \"Juggernaut\" rank 1 (Skyrim.esm) to every NPC in the bandit faction at level 20+, never the player, never unique NPCs. Ground it in the live load order; estimate reach.",
+    "task_provenance": "Quoted verbatim from dev/skill-validation/audit-2026-09/spid-authoring/with-skill/log.md. Not restated: the 'never unique NPCs' clause is what produces the -U trait term, and the reach estimate is what assertion 2 scores.",
+    "assertions": [
+      "1. The line's faction term sits in the Form section (position 2), not the String section, and the FormID carries the suffix-tilde form 0xBCD2A~Skyrim.esm, not SkyPatcher's prefix-pipe. The unique exclusion is written -U in the Trait section.",
+      "2. The answer states, as a number taken from housecarl_records with counts_only=true, both the population the filter names and how many of them are on a PC level multiplier (where=[\"Configuration.Level.LevelMult >= 0\"]) — and does not assert a reach it did not measure.",
+      "3. The answer states the player exclusion as a property of SPID (no filter is needed and none exists) rather than hunting for a token, and — where the perk was chosen by name — records that the winning override may have renamed the record."
+    ],
+    "beating_the_control": "The without-skill arm misses at least one assertion and the with-skill arm carries all three, with the misses named. On the audit's own account the control is expected to fail 1 (the faction written as a String filter, where it would have matched nothing and logged nothing) and 3 (the player-token hunt); assertion 2 is what this rewrite adds, and an arm that does not run the census cannot satisfy it. If the control satisfies all three, the skill's value on this task is not demonstrated and that result is reported as-is.",
+    "per_run_record": [
+      "total_tokens",
+      "duration_ms",
+      "skill invocations and reference reads, against substantive houseCARL calls"
+    ]
+  }
+}
