@@ -67,13 +67,13 @@ when taken — and tell the user to enable it. A refused call wrote nothing: fix
 
 ## Lanes and FormIDs
 
-A FormID is `XXXXXX:Plugin.esp` — six hex digits, then the filename of the master that defines the record.
-The runtime form a log or the console prints is taken too, wherever a parameter holds nothing but FormIDs.
-SkyPatcher, SPID and KID each write their own syntax; their skills say so.
+A FormID is `XXXXXX:Plugin.esp` — six hex digits, then the defining master's filename. The runtime form a log
+or the console prints is read-only: `housecarl_records` takes it, every write refuses it and names the
+`XXXXXX:Plugin.esp` form to use. SkyPatcher, SPID and KID write their own syntax.
 
-Every write tool has the same three lanes: `patch=` writes a new plugin, `into=` extends an existing houseCARL
-patch, `in_place=` overwrites the file it names. In place is consent-gated at the server, per plugin, by
-`acknowledge=` — it refuses rather than asking this skill to police it.
+`housecarl_apply`, `housecarl_create` and `housecarl_forward` take three lanes: `patch=` a new plugin, `into=`
+an existing houseCARL patch, `in_place=` the file it names. `housecarl_remove` edits only what exists: `into=`
+or `in_place=`, no `patch=`. In place is consent-gated per plugin by `acknowledge=`.
 
 ## Where this does not apply
 
