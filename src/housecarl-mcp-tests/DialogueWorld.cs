@@ -37,6 +37,10 @@ public sealed class DialogueWorld : IDisposable
     public const string MidName = "HcDvMid.esp";
     public const string LastName = "HcDvLast.esp";
 
+    /// <summary>Creation Club content: in loadorder.txt, absent from plugins.txt, so it is FORCE-LOADED — the
+    /// implicit group the load-order status shows, and content the modder no more authored than a base master's.</summary>
+    public const string CcName = "ccHcTest.esl";
+
     public string Root { get; }
     public string Instance { get; }
     public string MasterPath { get; }
@@ -69,9 +73,21 @@ public sealed class DialogueWorld : IDisposable
     /// number, which the modder cannot act on, so the check stays quiet about it.</summary>
     public FormKey VanillaStaleTopic { get; }
 
-    /// <summary>A stale base-master topic that <see cref="LastName"/> OVERRIDES, carrying the stale number forward —
-    /// now a record a mod authored, so the check warns.</summary>
+    /// <summary>A stale base-master topic that <see cref="LastName"/> OVERRIDES, carrying the base record's pair
+    /// forward UNCHANGED — Bethesda's number still, not the override's statement, so the check stays quiet.</summary>
     public FormKey VanillaStaleOverriddenTopic { get; }
+
+    /// <summary>A base-master topic whose pair AGREES, overridden by the force-loaded <see cref="CcName"/> with a
+    /// contradicting Subtype: a pair that plugin really did author, kept quiet only by who force-loads it.</summary>
+    public FormKey CcOverriddenTopic { get; }
+
+    /// <summary>Two fields edited apart, not an old file: Subtype=Custom (0) beside SNAM=HELO (79), a gap the
+    /// Dragonborn renumbering cannot explain. The Subtype edit is an in-game no-op until SNAM is synced.</summary>
+    public FormKey EditedApartSubtypeTopic { get; }
+
+    /// <summary>SNAM=FVDL — index 3, the one modeled row Mutagen's enum leaves unnamed — beside Subtype=Custom, so a
+    /// render has to name the subtype from the marker itself rather than hand back nothing.</summary>
+    public FormKey FvdlMarkerTopic { get; }
 
     /// <summary>A topic whose SNAM is a non-blank marker the table does not model (<c>ZZZZ</c>) — neither blank nor a
     /// disagreement, and silently unbucketed in game if nothing says so.</summary>
@@ -97,6 +113,11 @@ public sealed class DialogueWorld : IDisposable
         vanillaOver.Subtype = DialogTopic.SubtypeEnum.RechargeExit;
         vanillaOver.SubtypeName = new RecordType("HELO");
         VanillaStaleOverriddenTopic = vanillaOver.FormKey;
+        // …and one whose pair AGREES, for the Creation Club override to contradict on its own account.
+        var ccBase = sky.DialogTopics.AddNew(); ccBase.EditorID = "HcDvCcOverridden";
+        ccBase.Subtype = DialogTopic.SubtypeEnum.Hello;
+        ccBase.SubtypeName = new RecordType("HELO");
+        CcOverriddenTopic = ccBase.FormKey;
 
         var master = new SkyrimMod(masterKey, SkyrimRelease.SkyrimSE);
 
@@ -118,6 +139,16 @@ public sealed class DialogueWorld : IDisposable
         agree.Subtype = DialogTopic.SubtypeEnum.Hello;
         agree.SubtypeName = new RecordType("HELO");
         AgreeingSubtypeTopic = agree.FormKey;
+        // Two fields edited apart: Custom (0) beside HELO (79) is a gap no renumbering explains.
+        var apart = master.DialogTopics.AddNew(); apart.EditorID = "HcDvEditedApart";
+        apart.Subtype = DialogTopic.SubtypeEnum.Custom;
+        apart.SubtypeName = new RecordType("HELO");
+        EditedApartSubtypeTopic = apart.FormKey;
+        // The row Mutagen's enum omits (index 3) — the marker is the only name there is.
+        var fvdl = master.DialogTopics.AddNew(); fvdl.EditorID = "HcDvFvdlMarker";
+        fvdl.Subtype = DialogTopic.SubtypeEnum.Custom;
+        fvdl.SubtypeName = new RecordType("FVDL");
+        FvdlMarkerTopic = fvdl.FormKey;
         // A non-blank marker the table does not model — the silent-fallthrough case.
         var unmodeled = master.DialogTopics.AddNew(); unmodeled.EditorID = "HcDvUnmodeledMarker";
         unmodeled.Subtype = DialogTopic.SubtypeEnum.Hello;
@@ -167,15 +198,26 @@ public sealed class DialogueWorld : IDisposable
         WriteEngine.GenericGetOrAddAsOverride(last, vanillaOver);
         last.BeginWrite.ToPath(LastPath).WithLoadOrder(new ISkyrimModGetter[] { sky, master, mid }).Write();
 
+        // CC (force-loaded, and the winner of its topic): overrides an AGREEING base topic with a contradicting
+        // Subtype, so the pair is this plugin's own — only who force-loads it keeps the check quiet.
+        var cc = new SkyrimMod(ModKey.FromNameAndExtension(CcName), SkyrimRelease.SkyrimSE);
+        var ccTopic = (IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(cc, ccBase);
+        ccTopic.Subtype = DialogTopic.SubtypeEnum.Custom;
+        Directory.CreateDirectory(Path.Combine(mods, "CcMod"));
+        cc.BeginWrite.ToPath(Path.Combine(mods, "CcMod", CcName))
+          .WithLoadOrder(new ISkyrimModGetter[] { sky, master, mid, last }).Write();
+
         File.WriteAllText(Path.Combine(Instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
         var prof = Path.Combine(Instance, "profiles", "Default");
         Directory.CreateDirectory(prof);
         File.WriteAllText(Path.Combine(prof, "loadorder.txt"),
-            "# header\r\n" + VanillaName + "\r\n" + MasterName + "\r\n" + MidName + "\r\n" + LastName + "\r\n");
+            "# header\r\n" + VanillaName + "\r\n" + MasterName + "\r\n" + MidName + "\r\n" + LastName + "\r\n"
+            + CcName + "\r\n");
+        // Neither the base master nor the CC plugin is listed here — that absence is what makes them force-loaded.
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + MasterName + "\r\n*" + MidName + "\r\n*" + LastName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+LastMod\r\n+MidMod\r\n+MasterMod\r\n+VanillaStub\r\n");
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+CcMod\r\n+LastMod\r\n+MidMod\r\n+MasterMod\r\n+VanillaStub\r\n");
 
         var store = new UserConfigStore(Path.Combine(Root, "user.json"));
         Svc = LoadOrderService.WithInstance(Instance, 0, store);
