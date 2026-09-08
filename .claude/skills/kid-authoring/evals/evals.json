@@ -183,13 +183,13 @@
    "id": "T13",
    "prompt": "add 5 gold and a healing potion to every merchant chest in my load order",
    "should_trigger": false,
-   "expected_output": "kid-authoring is NOT loaded; the query routes to skypatcher-authoring — its container patcher puts items into containers. Destination corrected 2026-09-08 on review of PR #649; the old answer named CID, which ships no skill in this tree.",
+   "expected_output": "kid-authoring is NOT loaded; the query routes to skypatcher-authoring — its container patcher puts items into containers.",
    "expectations": [
     "with-skill arm: the pick is not kid-authoring on at least 2 of 3 runs",
     "with-skill arm: the reasoning names why the target is out of KID's lane",
     "without-skill arm: removing kid-authoring does not change where this query lands"
    ],
-   "prior_evidence": "2026-07-28 run under the compressed descriptions: specificity row, routed to CID — items to containers"
+   "prior_evidence": "2026-07-28 run under the compressed descriptions: specificity row, routed to CID — items to containers. Destination corrected 2026-09-08 on review of PR #649; the recorded answer named CID, which ships no skill in this tree, and SkyPatcher's container patcher owns the job."
   },
   {
    "id": "T14",
