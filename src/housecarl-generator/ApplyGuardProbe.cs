@@ -505,7 +505,7 @@ public static class ApplyGuardProbe
             onePath is not null && ReadSubject(onePath, fx.SubjectKey).Dmg == 55, one);
 
         // op= is the verb name (§5.1) — an Add on a list, on the winner that has NO keywords
-        var kwFid = $"{fx.DonorWeaponFid}";   // any FormID resolvable as a link value is enough for the Add to be legal
+        var kwFid = fx.KeywordFid;   // a Keyword, because pre-flight type-checks what a link points at
         var add = ApplyTools.Apply(fx.Svc, ops: Json($$"""[{"formid":"{{fx.SubjectFid}}","field_path":"Keywords","op":"Add","value":"{{kwFid}}"}]"""),
             patch: "ApAdd");
         var addPath = PatchPathFrom(fx, add);
