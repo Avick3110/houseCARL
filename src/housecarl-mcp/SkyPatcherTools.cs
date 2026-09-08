@@ -28,20 +28,20 @@ public static class SkyPatcherTools
          "and NO-OP WRITES (true ITM — the replay shows the SET writes the value the record already has). " +
          "Entries whose applicability " +
          "also hangs on other filters are flagged conditional rather than guessed. Pass filter= a type folder, mod, " +
-         "or filename substring to expand matching files to their patch lines. For ONE record's computed " +
+         "or filename substring to list only the matching files, expanded to their patch lines. For ONE record's computed " +
          "post-SkyPatcher state use " + ToolNames.Records + " formids=[\"<FormID>\"] source={\"overlay\": \"skypatcher\", \"state\": \"post\"} — source= is a version pole, not a selection, so the read needs formids= (or a scan scope). " +
          "Read-only.")]
     public static string SkyPatcherLayer(
         LoadOrderService svc,
         [Description("Optional. A type-folder (e.g. 'weapon'), providing-mod, or INI filename substring (case-insensitive). " +
-            "Expands the matching files to their individual patch lines. Omit for the whole-layer overview.")]
+            "Lists only the matching files, expanded to their individual patch lines. Omit for the whole-layer overview.")]
             string? filter = null,
         [Description("Optional. Max characters before lists are cut with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.SkypatcherLayer, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
         var data = svc.SkyPatcherLayer();
-        return SkyPatcherWire.RenderLayer(data, filter?.Trim(), max_chars > 0 ? max_chars : 80_000);
+        return SkyPatcherWire.RenderLayer(data, filter, max_chars > 0 ? max_chars : 80_000);
     });
 }
 
@@ -55,9 +55,10 @@ static class SkyPatcherWire
     {
         var sb = new StringBuilder();
         var folders = d.Scan.Folders;
+        filter = string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();   // a blank filter is no filter, never a match-everything
         // A filter matching nothing must never fall through to the unfiltered overview — that reads as the whole layer.
-        if (filter is { Length: > 0 } && !folders.Any(f => f.Files.Any(x => Matches(filter, f, x))))
-            return ZeroMatch(d, filter);
+        if (filter is { } zero && !folders.Any(f => f.Files.Any(x => Matches(zero, f, x))))
+            return ZeroMatch(d, zero);
         int files = folders.Sum(f => f.Files.Count);
         int applied = folders.Sum(f => f.PatchingEnabled ? f.Files.Count(x => x.NotApplied is null) : 0);
         int lines = folders.Sum(f => f.Files.Sum(x => x.Lines.Count(l => l.Kind == SkyPatcherLineKind.Patch)));
@@ -75,10 +76,22 @@ static class SkyPatcherWire
           .Append(d.NoOps.Count).Append(" no-op write(s)\n");
         if (folders.Count == 0)
             sb.Append("\nno SkyPatcher INIs in the active order (no Data\\SKSE\\Plugins\\SkyPatcher content, or SkyPatcher itself is not installed).\n");
+        // filter= selects as well as expands: only matching files are listed, so a late-sorting match is never cut by the cap.
+        if (filter is { } hdr)
+            sb.Append("filter '").Append(hdr).Append("' — ")
+              .Append(folders.Sum(f => f.Files.Count(x => Matches(hdr, f, x)))).Append(" of ").Append(files)
+              .Append(" INI(s) match; only those are listed below (the counts above are the whole layer).\n");
 
         foreach (var f in folders)
         {
-            if (sb.Length >= cap) { sb.Append("... [remaining folders omitted at max_chars — raise it or pass filter=]\n"); break; }
+            if (filter is { } sel && !f.Files.Any(x => Matches(sel, f, x))) continue;
+            if (sb.Length >= cap)
+            {
+                sb.Append(filter is null
+                    ? "... [remaining folders omitted at max_chars — raise it or pass filter=]\n"
+                    : "... [remaining matching folders omitted at max_chars — raise it or narrow filter=]\n");
+                break;
+            }
             int fLines = f.Files.Sum(x => x.Lines.Count(l => l.Kind == SkyPatcherLineKind.Patch));
             sb.Append("\n").Append(f.Subfolder).Append(": ").Append(f.Files.Count).Append(" INI(s), ").Append(fLines).Append(" patch line(s)");
             if (!f.PatchingEnabled) sb.Append("  [!] toggled OFF in SkyPatcher.ini — the DLL skips this whole folder");
@@ -86,6 +99,9 @@ static class SkyPatcherWire
             sb.Append('\n');
             foreach (var file in f.Files)
             {
+                // filter= match (folder, provider, or filename) selects the file and expands it to its patch lines.
+                bool expand = filter is { } q && Matches(q, f, file);
+                if (filter is not null && !expand) continue;
                 if (sb.Length >= cap) { sb.Append("  ... [cut at max_chars]\n"); break; }
                 int n = file.Lines.Count(l => l.Kind == SkyPatcherLineKind.Patch);
                 sb.Append("  - ").Append(file.SortKey).Append("  (").Append(n).Append(" line(s)) ← ").Append(file.WinningProvider ?? "(no provider)");
@@ -93,8 +109,6 @@ static class SkyPatcherWire
                 if (file.NotApplied is not null) sb.Append("  [!] NOT applied: ").Append(file.NotApplied);
                 if (file.ShadowedProviders.Count > 0) sb.Append("  [!] shadows same-path copies from ").Append(string.Join(", ", file.ShadowedProviders));
                 sb.Append('\n');
-                // filter= match (folder, provider, or filename) expands the file to its patch lines.
-                bool expand = filter is not null && Matches(filter, f, file);
                 if (expand)
                     for (int i = 0; i < file.Lines.Count; i++)
                     {
@@ -208,7 +222,7 @@ static class SkyPatcherWire
             sb.Append("[!] ").Append(note).Append('\n');
         }
         AppendCaveats(sb, d.ReadIncomplete, d.AssetWarnings);
-        sb.Append("\n→ " + ToolNames.Records + " formids=['<FormID>'] source={\"overlay\": \"skypatcher\", \"state\": \"post\"} for one record's computed post-SkyPatcher state; filter='<folder/mod/file>' to expand files to their lines.");
+        sb.Append("\n→ " + ToolNames.Records + " formids=['<FormID>'] source={\"overlay\": \"skypatcher\", \"state\": \"post\"} for one record's computed post-SkyPatcher state; filter='<folder/mod/file>' to list just those files, expanded to their lines.");
         return sb.ToString().TrimEnd('\n');
     }
 
@@ -229,7 +243,9 @@ static class SkyPatcherWire
         sb.Append("SkyPatcher layer — filter '").Append(filter).Append("' — 0 of ").Append(files)
           .Append(" INI(s) match [profile '").Append(d.ProfileName).Append("']\n\n");
         if (folders.Count == 0)
-            sb.Append("nothing matched: the active order has no SkyPatcher INIs at all (no Data\\SKSE\\Plugins\\SkyPatcher content, or SkyPatcher itself is not installed).\n");
+            sb.Append(d.ReadIncomplete
+                ? "nothing matched: no SkyPatcher INIs were found, and the read was incomplete (below), so the layer is not necessarily empty.\n"
+                : "nothing matched: the active order has no SkyPatcher INIs at all (no Data\\SKSE\\Plugins\\SkyPatcher content, or SkyPatcher itself is not installed).\n");
         else
         {
             sb.Append("nothing matched: no type folder, providing mod, or INI filename contains '").Append(filter).Append("'.")
@@ -239,6 +255,9 @@ static class SkyPatcherWire
               .Append(" The type folder(s) present are: ").Append(string.Join(", ", folders.Select(f => f.Subfolder)))
               .Append(". Omit filter= for the whole-layer overview.\n");
         }
+        // The scan notes (shadowed copies, undocumented subfolders) are often why the filter matched nothing.
+        foreach (var note in d.NoOpNotes) sb.Append("[!] ").Append(note).Append('\n');
+        foreach (var note in d.Scan.Notes) sb.Append("[!] ").Append(note).Append('\n');
         AppendCaveats(sb, d.ReadIncomplete, d.AssetWarnings);
         return sb.ToString().TrimEnd('\n');
     }
