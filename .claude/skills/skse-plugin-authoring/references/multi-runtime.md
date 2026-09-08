@@ -44,11 +44,15 @@ target is **SE + AE and no VR**, read these five rows and stop; the rest is for 
 2. **FLAT is not SE and is not AE.** A dual SE+AE build (preset `flatrim`) defines `EXCLUSIVE_SKYRIM_FLAT`
    **alone**; `_SE` and `_AE` are *not* defined (a single-runtime build defines its own plus FLAT). FLAT
    means "not VR", so it cannot discriminate SE from AE. In one dual DLL, discriminate at **runtime**:
-   `REL::Module::IsAE()` for a branch, `REL::Relocate(seAndVr, ae)` for an offset (`BaseExtraList` is the
-   canonical case). Compile-time `EXCLUSIVE_SKYRIM_SE` / `_AE` gating selects an arm only when you ship two
-   separate builds (presets `se` and `ae`) — written into a `flatrim` build, every arm falls through and the
-   divergent code is silently absent on both runtimes. Assuming a dual build defines both is exactly
-   backwards. Detail: [compile-time vs runtime](#compile-time-vs-runtime--the-decision-rule).
+   `REL::Module::IsAE()` for a branch, `REL::Relocate(seAndVr, ae)` for an offset. Compile-time
+   `EXCLUSIVE_SKYRIM_SE` / `_AE` gating selects an arm only when you ship two separate builds (presets `se`
+   and `ae`) — written into a `flatrim` build, every arm falls through and the divergent code is silently
+   absent on both runtimes. Assuming a dual build defines both is exactly backwards. The runtime probe
+   reaches an offset, not a **layout**: where SE and AE differ in class size, vtable slot count, base class
+   or whether a member is there at all — `BaseExtraList` is that case, not a `Relocate` case — `flatrim`
+   cannot carry the difference, because `sizeof`, `STATIC_ASSERT_SIZE` and direct field access stay wrong on
+   one runtime. Read the member through its generated accessor (row 5), or ship the `se` and `ae` presets.
+   Detail: [compile-time vs runtime](#compile-time-vs-runtime--the-decision-rule).
 3. **Both entry points, always.** SE loads a plugin through `SKSEPlugin_Query`; AE loads it through the
    static `SKSEPlugin_Version` data. Ship only one and the DLL is silently skipped on the other runtime —
    let `add_commonlibsse_plugin` (or the xmake plugin rule) generate both, and never hand-write a second
@@ -485,6 +489,13 @@ preset), and a **runtime** probe in a dual `flatrim` build, where neither macro 
 `REL::Module::IsAE()` for a branch, `REL::Relocate(seAndVr, ae)` for an offset. Reaching for FLAT where
 SE/AE diverge compiles clean but is silently wrong in one runtime; reaching for `_SE`/`_AE` in `flatrim`
 compiles clean and drops the divergent code on both.
+
+`BaseExtraList` itself is **not** a case the runtime probe answers: a shifted member, a changed `sizeof` and
+an added vtable pointer are the layout bucket of the decision rule above, and `Relocate` selects an offset,
+not a type's shape. `REL::Relocate(0x00, 0x08)` for the data member still leaves `sizeof`, any
+`STATIC_ASSERT_SIZE` and every direct field access wrong on one runtime. In `flatrim` the answer is the
+generated `RUNTIME_DATA` accessor where NG exposes one; where it does not, `flatrim` cannot carry the
+difference and the honest answer is the `se` and `ae` presets.
 
 ## Lineage caution
 
