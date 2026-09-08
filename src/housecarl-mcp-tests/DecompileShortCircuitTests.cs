@@ -104,6 +104,29 @@ public class DecompileShortCircuitTests
         Assert.Contains("Sink(temp0, \"T \" + label)", res.Source);
     }
 
+    [Fact]
+    public void AGuardedBlockThatNeverTouchesItsConditionTempIsNotReportedAsAnArm()
+    {
+        // Same shape with the block's read taken away: it neither reads nor writes the temp, so it
+        // is not an arm, and the later read of a temp the condition already spent is an unsupported
+        // shape either way. The failure must say which temp, not blame a short-circuit arm.
+        var f = Fn(("Bool", "flag"), ("String", "label"));
+        Local(f, "Bool", "::temp0");
+        Local(f, "String", "::temp2");
+        Local(f, "None", "::NoneVar");
+        Ins(f, InstructionOpcode.CAST, Id("::temp0"), Id("flag"));
+        Ins(f, InstructionOpcode.JMPF, Id("::temp0"), Int(2));                        // -> 3, the STRCAT
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Nudge"), Id("self"), Id("::NoneVar"), Int(0));
+        Ins(f, InstructionOpcode.STRCAT, Id("::temp2"), Str("T "), Id("label"));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Sink"), Id("self"), Id("::NoneVar"),
+                                             Int(2), Id("::temp0"), Id("::temp2"));
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_UntouchedProbe", ("Untouched", f)));
+
+        Assert.Contains("::temp0", Assert.Single(res.Failures));
+        Assert.DoesNotContain("short-circuit", Assert.Single(res.Failures));
+    }
+
     // ---------------------------------------------------------------- in-memory pex builders
     static PexFile File(string objectName, params (string Name, PexObjectFunction Fn)[] fns)
     {

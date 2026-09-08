@@ -1060,8 +1060,8 @@ public sealed class PapyrusDecompiler
         }
 
         /// <summary>Is <paramref name="name"/> written as a destination anywhere in [lo, hi)?
-        /// A short-circuit arm always writes its own temp; a plain if's condition temp is dead in
-        /// the block it guards.</summary>
+        /// A short-circuit arm always writes its own temp, so a guarded block that never touches
+        /// the condition temp is not an arm and must not be reported as one.</summary>
         bool WritesDestIn(int lo, int hi, string name)
         {
             for (int k = lo; k < hi && k < _ins.Count; k++)
