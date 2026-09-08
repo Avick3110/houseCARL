@@ -2320,7 +2320,9 @@ public static class WriteEngine
         // ctor_args were given — the caller names the discriminator as a field, which is the natural spelling and the
         // one the discriminator refusal already sends them to.
         var fromFields = spec.CtorArgs is null ? CtorArgsFromFields(type, spec.Fields) : null;
-        var instance = Instantiate(type, spec.CtorArgs ?? fromFields?.Args);
+        // The constructor CtorArgsFromFields chose is the one invoked — not one re-derived from the arg count, which
+        // would pick a different overload of the same arity than the gate validated.
+        var instance = fromFields is { } ff ? Instantiate(ff.Ctor, ff.Args) : Instantiate(type, spec.CtorArgs);
         foreach (var (name, val) in spec.Fields ?? new())
         {
             // A field the constructor already carried is not re-set: it is written, and on an arm whose discriminator
@@ -2451,13 +2453,24 @@ public static class WriteEngine
             var ctor = t.GetConstructors().FirstOrDefault(c => c.GetParameters().Length == ctorArgs.Length)
                 ?? throw new InvalidOperationException(
                     $"{t.Name}: no constructor taking {ctorArgs.Length} arg(s). Ctors: {CtorList(t)}");
-            var ps = ctor.GetParameters();
-            return ctor.Invoke(ps.Select((p, i) => Coerce(ctorArgs[i], p.ParameterType)).ToArray());
+            return Instantiate(ctor, ctorArgs);
         }
         var paramless = t.GetConstructor(Type.EmptyTypes);
         if (paramless is not null) return paramless.Invoke(null);
         return InstantiateComposition(t);
     }
+
+    /// <summary>Invoke ONE already-chosen constructor with positional string args, each coerced to its parameter
+    /// type. Taking the <see cref="ConstructorInfo"/> rather than re-selecting it by arity is what makes the
+    /// fields-lane gate and apply the same choice: two overloads of the same arity are two different builds, and
+    /// arity alone cannot tell them apart.</summary>
+    static object Instantiate(ConstructorInfo ctor, string[] args) =>
+        ctor.Invoke(ctor.GetParameters().Select((p, i) => Coerce(args[i], p.ParameterType)).ToArray());
+
+    /// <summary>Build a type from the constructor its own compose fields satisfy, or null when none does — the seam
+    /// <see cref="BuildStruct"/>'s no-<c>ctor_args</c> lane is made of (choose a constructor, invoke THAT one).</summary>
+    internal static object? BuildFromFieldConstructor(Type t, IReadOnlyDictionary<string, string>? fields) =>
+        CtorArgsFromFields(t, fields) is { } ff ? Instantiate(ff.Ctor, ff.Args) : null;
 
     /// <summary>Recognition-only mirror of <see cref="Instantiate"/>'s ctor-args path — the write pre-flight gate's twin
     /// of the apply-time ctor build. Does this struct type have a constructor of the supplied arity, and does each
@@ -2491,10 +2504,12 @@ public static class WriteEngine
     /// (<c>MagicEffectArchetype(TypeEnum)</c>). Recognised by the missing parameterless ctor, never by type name.
     /// Picks the SMALLEST public constructor whose every parameter is named by a supplied field (matched
     /// case-insensitively, so the parameter <c>type</c> is satisfied by the field <c>Type</c>) and whose value
-    /// coerces; returns those args in positional order together with the field names it consumed, or null when no
-    /// constructor is satisfied. Reads nothing and builds nothing, so the pre-flight gate calls the same method the
-    /// apply does and the two cannot drift.</summary>
-    static (string[] Args, HashSet<string> Consumed)? CtorArgsFromFields(Type t, IReadOnlyDictionary<string, string>? fields)
+    /// coerces; returns THAT constructor with its args in positional order and the field names it consumed, or null
+    /// when no constructor is satisfied. The chosen <see cref="ConstructorInfo"/> travels with the args because the
+    /// args alone do not identify it — two overloads of the same arity would let the apply invoke one the gate never
+    /// validated. Reads nothing and builds nothing, so the pre-flight gate calls the same method the apply does and
+    /// the two cannot drift.</summary>
+    static (ConstructorInfo Ctor, string[] Args, HashSet<string> Consumed)? CtorArgsFromFields(Type t, IReadOnlyDictionary<string, string>? fields)
     {
         if (t.GetConstructor(Type.EmptyTypes) is not null || fields is not { Count: > 0 }) return null;
         foreach (var ctor in t.GetConstructors().Where(c => c.GetParameters().Length > 0)
@@ -2511,7 +2526,7 @@ public static class WriteEngine
                 args[i] = fields[named];
                 consumed.Add(named);
             }
-            if (ok) return (args, consumed);
+            if (ok) return (ctor, args, consumed);
         }
         return null;
     }
