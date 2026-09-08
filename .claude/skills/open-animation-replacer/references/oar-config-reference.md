@@ -361,6 +361,18 @@ built-in roster (§6) and the value-component shapes (§4); the hand flag is §4
 | `IsInCombat()` / `IsChild()` / `IsInInterior()` / `IsPlayerTeammate()` | same name | no parameters |
 | Form B's `<Plugin.esp>/<FormID>/` folder pair | `IsActorBase` | auto-synthesized from the folder names; write it out explicitly when converting by hand |
 
+**The type rows' `n → n` identity is UNVERIFIED at 6, 9, 10 and 11.** §5 records that OAR's enum
+deliberately differs from the vanilla one at exactly those four values — battleaxe 6 and warhammer 10
+split by the `WeapTypeWarhammer` keyword out of the single engine type `kTwoHandAxe`, crossbow 9,
+shield 11 — and DAR's own numbering has not been read for this reference; OAR's legacy parse in
+`Parsing.cpp` is the source that would settle it. Outside that range the two agree. So converting
+`IsEquippedRightType(6)` emits `"Type": { "value": 6.0 }`, which under §5 is battleaxe only: if DAR's
+6 covered the whole `kTwoHandAxe` class, the converted submod silently stops applying to warhammers,
+and 9/10/11 may not name what the DAR file named at all. Same rule as the `AND`/`OR` binding above:
+convert under one reading, say which in the submod's `description`, and test it in game. A narrowed
+type condition parses, loads and wins its priority slot while never passing, and Detected Problems
+stays clean.
+
 `NOT Fn(…)` becomes `"negated": true` on the converted condition. A DAR argument is ALREADY the local
 id within the plugin named beside it — that is what the `"Plugin.esp" | 0xFormID` pair means, so
 there is nothing to strip: `0x02F2F4` becomes `"2F2F4"`, dropping only the `0x` and the leading
