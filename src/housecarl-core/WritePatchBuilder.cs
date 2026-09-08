@@ -2920,24 +2920,34 @@ public static class WritePatchBuilder
         IMajorRecordGetter? OrderBodyOf(FormKey fk)
             => ParentBodyFrom(fk.ModKey.FileName.String, fk)
                ?? (view.ResolveWinner(fk) is { } ow ? ParentBodyFrom(ow.WinnerPlugin, fk) : null);
+        // Both destination indexes — by FormKey for the "does it already carry this parent?" question, by editorid for
+        // the in-place collision pre-flight — off ONE walk. Two questions asked over the same records, and a call that
+        // asks both would otherwise enumerate the whole destination twice. The editorid side keeps the WHOLE match set,
+        // carried overrides included, because that is the set the upsert judges.
         Dictionary<FormKey, IMajorRecord>? carried = null;
+        Dictionary<string, List<IMajorRecord>>? carriedByEdid = null;
+        void IndexDestination()
+        {
+            if (carried is not null) return;
+            carried = new Dictionary<FormKey, IMajorRecord>();
+            carriedByEdid = new Dictionary<string, List<IMajorRecord>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in patchMod.EnumerateMajorRecords())
+            {
+                carried.TryAdd(r.FormKey, r);   // first wins, as it did when this was a GroupBy
+                if (r.EditorID is not { } edid) continue;
+                if (!carriedByEdid.TryGetValue(edid, out var same)) carriedByEdid[edid] = same = new List<IMajorRecord>();
+                same.Add(r);
+            }
+        }
         IMajorRecord? AlreadyCarried(FormKey fk)
         {
-            carried ??= patchMod.EnumerateMajorRecords().GroupBy(r => r.FormKey).ToDictionary(g => g.Key, g => g.First());
-            return carried.TryGetValue(fk, out var rec) ? rec : null;
+            IndexDestination();
+            return carried!.TryGetValue(fk, out var rec) ? rec : null;
         }
-        // The target's records by editorid, indexed once — the in-place collision pre-flight below asks per spec, and
-        // enumerating the destination each time is the same O(specs x records) the parent index avoids. The WHOLE match
-        // set, carried overrides included, because that is the set the upsert judges. Lazy: nothing is built off the
-        // in-place lane.
-        Dictionary<string, List<IMajorRecord>>? carriedByEdid = null;
         IReadOnlyList<IMajorRecord> CarriedUnder(string editorId)
         {
-            carriedByEdid ??= patchMod.EnumerateMajorRecords()
-                .Where(r => r.EditorID is not null)
-                .GroupBy(r => r.EditorID!, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
-            return carriedByEdid.TryGetValue(editorId, out var recs) ? recs : Array.Empty<IMajorRecord>();
+            IndexDestination();
+            return carriedByEdid!.TryGetValue(editorId, out var recs) ? recs : Array.Empty<IMajorRecord>();
         }
         // A replace the upsert would honour AND that takes nothing down with the record. The upsert's replace arm drops
         // the record from its group and re-adds it fresh, and the record's OWN CHILD GROUP goes with the drop — the
