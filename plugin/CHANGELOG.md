@@ -68,6 +68,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   budget, so at a `max_chars` it cannot fit in it names the number that clears it instead of coming back over
   the cap saying nothing. The `max_chars=` parameter now states the ceiling over the whole tool. As everywhere else, the result is
   untouched: what the ceiling holds back inline is complete in the artifact the response names.
+- **The KID authoring skill now measures what a line reaches before the file is written.** Composing a
+  `_KID.ini` gained a grounding step: the type-plus-trait predicate is counted with `housecarl_records`
+  (`types`, `where`, `counts_only=true`), the count is reported with the call that produced it, and a
+  census of zero — or one the user did not expect — stops the line rather than shipping it. The skill
+  states the bound on that check: it proves one predicate, not KID's own evaluation order or `chance`.
+  The skill also states which record field a KID trait tests is the schema's answer and points at
+  `housecarl:mutagen-reference` for it, corrects the filter and trait section numbers in its grammar
+  reference (filters are section 2, traits section 3), and drops a reference pointer that the packager
+  deleted from every shipped copy.
 
 - **A SkyPatcher INI can be checked before it is placed in a mod.** `housecarl_records`'s overlay pole takes a
   draft file: `source={"overlay": "skypatcher", "state": "post", "ini": "<absolute path to a draft .ini>",
