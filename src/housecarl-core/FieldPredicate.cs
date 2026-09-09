@@ -9,7 +9,8 @@ namespace HousecarlCore;
 /// A field-VALUE predicate over a record body — the query-side complement to <see cref="ReadEngine"/>.
 ///
 /// <para>Where a records scan can already scope and shape results by a record's IDENTITY and LINKS
-/// (type / editorid_contains / references), a <see cref="FieldPredicateSet"/> filters by a field's VALUE:
+/// (types= / references=, and this same where= grammar's own 'editorid' term), a <see cref="FieldPredicateSet"/>
+/// filters by a field's VALUE:
 /// <c>"MagicSkill = Destruction"</c>, <c>"BasicStats.Damage &gt;= 50"</c>, <c>"Archetype.ActorValue = Infamy"</c>.
 /// Multiple predicates are ANDed (the wire is <c>where: string[]</c>).</para>
 ///
