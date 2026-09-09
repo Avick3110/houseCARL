@@ -25,6 +25,11 @@ public sealed class TwoDisabledDonorsWorld : IDisposable
     /// the world is asked for it, because it is a collision, not the ordinary shape.</summary>
     public const string ReservedNameFolder = "Data";
 
+    /// <summary>A folder modlist.txt does not mention at all — on disk, never registered by MO2. The state of a
+    /// folder written since the last refresh, and NOT the same as a switched-off one: there is nothing in MO2's
+    /// list to switch on.</summary>
+    public const string UnregisteredFolder = "AnUnregisteredMod";
+
     public string Root { get; }
     public string ModsDir { get; }
     public LoadOrderService Svc { get; }
@@ -38,7 +43,9 @@ public sealed class TwoDisabledDonorsWorld : IDisposable
     /// shape, where the source resolves through the active order and still lives in exactly one mod folder.</param>
     /// <param name="reservedNameOverride">Also ship the override plugin from a second, disabled mod folder literally
     /// named <c>Data</c>.</param>
-    public TwoDisabledDonorsWorld(bool enableDefining = false, bool reservedNameOverride = false)
+    /// <param name="unregisteredOverride">Also ship an override plugin from a folder modlist.txt never mentions.</param>
+    public TwoDisabledDonorsWorld(bool enableDefining = false, bool reservedNameOverride = false,
+                                 bool unregisteredOverride = false)
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-two-donors-" + Guid.NewGuid().ToString("N"));
         var instance = Path.Combine(Root, "inst");
@@ -82,6 +89,15 @@ public sealed class TwoDisabledDonorsWorld : IDisposable
             var collideFace = Path.Combine(ModsDir, ReservedNameFolder, FaceGenPath.For(DonorNpc, FaceGenSlot.Mesh));
             Directory.CreateDirectory(Path.GetDirectoryName(collideFace)!);
             File.WriteAllBytes(collideFace, Encoding.ASCII.GetBytes("FACEGEN-IN-THE-RESERVED-NAME-FOLDER"));
+        }
+
+        // …and the same override from a folder the profile's mod list never mentions, so the locate judges it
+        // unregistered rather than switched off.
+        if (unregisteredOverride)
+        {
+            var fresh = new SkyrimMod(new ModKey("Fresh", ModType.Plugin), SkyrimRelease.SkyrimSE);
+            fresh.Npcs.GetOrAddAsOverride(npc);
+            Write(fresh, UnregisteredFolder, baseMod, donor);
         }
 
         // The ONLY copy of the FaceGen, beside the DEFINING plugin — the second arm's folder.
@@ -165,6 +181,19 @@ public sealed class CopySourceFolderReadbackTests : IDisposable
 
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
         Assert.Contains($"'{TwoDisabledDonorsWorld.OverrideFolder}' is a mod folder that is NOT enabled in MO2", r);
+    }
+
+    /// <summary>…and so does the OTHER disabled arm, the one the record did NOT come from. That folder is the one a
+    /// caller acts on next — it ships the FaceGen — so leaving it unqualified is what would read as a live folder.</summary>
+    [Fact]
+    public void EveryDisabledSourceArmSaysSoNotJustTheOneTheRecordCameFrom()
+    {
+        var r = Copy("HcTwoBothSaid");
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
+        Assert.Contains($"'{TwoDisabledDonorsWorld.DefiningFolder}' is a mod folder that is NOT enabled in MO2", r);
+        // One line each, same clause, and no more than one per folder.
+        Assert.Equal(2, r.Split('\n').Count(l => l.StartsWith("note: '", StringComparison.Ordinal)));
     }
 
     /// <summary>The claim that matters: the folder the readback names for an arm is the folder that actually holds
@@ -274,6 +303,36 @@ public sealed class CopyEnabledDonorFolderTests : IDisposable
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
         Assert.Contains("winner (from the active load order)", r);
         Assert.DoesNotContain("winner (from the active load order,", r);
+    }
+}
+
+/// <summary>#703, the other way a source folder is not loaded: modlist.txt never mentions it. It gets its own true
+/// sentence — MO2 has no entry to enable, so "NOT enabled in MO2" would be false and "switch it on" a remedy that
+/// does not exist.</summary>
+[Trait("tier", "integration")]
+public sealed class CopyUnregisteredSourceFolderTests : IDisposable
+{
+    readonly TwoDisabledDonorsWorld _w = new(unregisteredOverride: true);
+
+    public void Dispose() => _w.Dispose();
+
+    static readonly string[] Seeds = { "HeadParts", "HairColor", "HeadTexture", "WornArmor" };
+
+    [Fact]
+    public void AnUnregisteredSourceFolderIsSaidToBeUnregisteredNotDisabled()
+    {
+        var r = CopyTools.Copy(
+            _w.Svc, _w.Fid(_w.DonorNpc), new[] { "Fresh.esp", "Donor.esp" }, Seeds,
+            new[] { "Race:refuse" }, null, "HcFreshClone", "HcFreshFolder", null);
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
+        var line = r.Split('\n').Single(l => l.StartsWith($"note: '{TwoDisabledDonorsWorld.UnregisteredFolder}'",
+                                                          StringComparison.Ordinal));
+        Assert.Contains("MO2 has NOT registered", line);
+        Assert.Contains("refresh MO2", line);
+        Assert.DoesNotContain("NOT enabled in MO2", line);
+        // …while the switched-off arm beside it keeps the clause whose remedy it really has.
+        Assert.Contains($"'{TwoDisabledDonorsWorld.DefiningFolder}' is a mod folder that is NOT enabled in MO2", r);
     }
 }
 
