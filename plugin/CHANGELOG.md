@@ -111,11 +111,6 @@ saying it sets an expectation their install may contradict. Say what is known, a
   against the 1,024 ceiling it used to breach, and opens on its trigger. The CI guard that watched this file
   changed direction to match: it used to require every tool name to appear here, which is why it stayed green
   through all seventeen dead names, and now requires every `housecarl_*` name written here to be a live tool.
-- **A FormID token now spells its plugin the way the file is spelled on disk, in every read.** A link's plugin
-  used to be spelled from the master list of whatever plugin held the link, and a token you passed in was echoed
-  as you typed it, so the same record could come back as `Skyrim.esm` in one read and `skyrim.esm` in another and
-  a join of two outputs missed those rows. Every token, and the `defined_in` grouping key, now prints the load
-  order's own spelling; a plugin the order now loaded does not carry keeps the spelling it arrived with.
 - **`mutagen-reference` and `papyrus-reference` now say in their frontmatter that their lookup works offline.**
   Both carried only the shared compatibility sentence — the houseCARL MCP server and a configured Mod Organizer 2
   instance — which read as gating the whole skill, including a schema or signature lookup that reads files bundled
