@@ -149,7 +149,12 @@ public static class CopyTools
         // Which source produced the record the caller ASKED for. Needed in both modes: the source record is not
         // among the internalized rows in either, so nothing else names where its own body came from.
         if (o.FromArm is { } fromArm)
+        {
             sb.Append(WriteSentences.CopyFromArmLead).Append(WriteSentences.CopyArm(fromArm)).Append(".\n");
+            // The source folder is switched off in MO2, which the standalone claim below is read against.
+            if (fromArm.Layer is { Kind: SourceLayerKind.ModFolder, OwnerEnabled: false } off)
+                sb.Append(WriteSentences.CopySourceOffOrderFolder(off.Name)).Append('\n');
+        }
         sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, Path.GetFileName(o.OutPath!), o.Bytes,
             Path.GetFileName(Path.GetDirectoryName(o.OutPath!)!)));
 

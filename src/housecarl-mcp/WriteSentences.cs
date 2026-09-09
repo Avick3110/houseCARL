@@ -401,6 +401,11 @@ internal static class WriteSentences
     [MustState("read from")]
     internal const string CopyFromArmLead = "the source record was read from ";
 
+    /// <summary>…and that the folder it came out of is switched OFF in MO2. Said beside the provenance because the
+    /// standalone claim below reads differently once the caller knows the game is not loading the source at all.</summary>
+    internal static string CopySourceOffOrderFolder(string folder) =>
+        $"note: '{folder}' is {OffOrderModFolder}.";
+
     // ---- the copied records' asset paths -------------------------------------------------------------
     /// <summary>The asset paths the copied records reference, and the route to acting on them: copy enumerates, and
     /// never fetches, places or judges. The absent-reads clause is load-bearing — <c>from_source=</c> can read a
@@ -602,6 +607,13 @@ internal static class WriteSentences
             : "")
       + PlaceSourcePoleSpelling;
 
+    /// <summary>The one fact every surface that reads from a NAMED source owes: the bytes came out of a mod folder
+    /// MO2 has switched off, and that is not an error because the caller named it. Shared by the placement lane and
+    /// the closure copy's readback so the sentence cannot drift between them.</summary>
+    [MustState("NOT enabled in MO2")]
+    internal const string OffOrderModFolder =
+        "a mod folder that is NOT enabled in MO2 — you named it, so houseCARL read it off disk";
+
     /// <summary>The provenance line for bytes read out of a mod the active profile does NOT include. About the SOURCE
     /// and nothing else: the placed copy's own "does not win until you enable + sort" is the render's separate,
     /// unconditional line, and neither fact may be stated twice.</summary>
@@ -611,8 +623,8 @@ internal static class WriteSentences
         ? $"read from '{provider}', out of a root archive the engine does NOT load (no active plugin binds it) — you "
         + "named the mod, so houseCARL looked inside its own archives; the bytes are that mod's, and nothing about "
         + "that archive has to change for the copy just placed"
-        : $"read from '{provider}', a mod folder that is NOT enabled in MO2 — you named it, so houseCARL read it off "
-        + "disk; the bytes are that mod's, and enabling it is not required for the copy just placed";
+        : $"read from '{provider}', {OffOrderModFolder}; the bytes are that mod's, and enabling it is not required "
+        + "for the copy just placed";
 
     /// <summary>The both-slots expansion's own constraint on the pole. A FormID with no kind derives TWO destination
     /// paths, so an explicit source= (one file) cannot serve them — but the pole can, because it names whose copy

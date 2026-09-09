@@ -61,8 +61,13 @@ public enum SourceLayerKind
     GameData,
 }
 
-/// <summary>The layer a source's file sits in: which branch answered, and the name that branch produced.</summary>
-public sealed record SourceLayer(SourceLayerKind Kind, string Name);
+/// <summary>The layer a source's file sits in: which branch answered, the name that branch produced, and — for a
+/// mod folder — whether MO2 has that folder switched ON.
+/// <para><paramref name="OwnerEnabled"/> defaults to true because every other layer is always live: the game's Data
+/// folder and MO2's overwrite are not things a profile turns off. It is false only for a mod folder the active
+/// profile has switched off, which is a fact a readback owes the caller — a source the game is not loading reads
+/// very differently beside a claim about what the artifact does or does not master.</para></summary>
+public sealed record SourceLayer(SourceLayerKind Kind, string Name, bool OwnerEnabled = true);
 
 /// <summary>One element of an ordered source universe: the caller's own spelling, how it resolved, a human
 /// description of WHERE it resolved to, and the fetch itself.
