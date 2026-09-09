@@ -36,10 +36,10 @@ namespace HousecarlGenerator;
 ///                      concrete arms, NOTHING written. (Green today as a regression guard, not a fix-proof — it keeps
 ///                      the loud-fail boundary loud after the fix opened the concrete-arm path beside it.)
 ///   G7  READMAP      — the READ-SIDE base→arm mapping (LoadOrderService.BuildTypeLookup): a records scan with
-///                      type='Global' over an order holding a GlobalFloat AND a GlobalInt resolves (no "unknown type")
+///                      types=['Global'] over an order holding a GlobalFloat AND a GlobalInt resolves (no "unknown type")
 ///                      and returns BOTH — proving the abstract base NAME unions its concrete arms (the read-side twin
 ///                      of the create branch). The union spanning two DISTINCT arms is the observable form of the
-///                      "4 arms" by-construction claim. type='GameSetting' returns its GameSettingFloat (generality).
+///                      "4 arms" by-construction claim. types=['GameSetting'] returns its GameSettingFloat (generality).
 ///                      RED before the fix (BuildTypeLookup skipped polymorphic-base names → "unknown record type").
 /// </summary>
 public static class CreateGlobalProbe
