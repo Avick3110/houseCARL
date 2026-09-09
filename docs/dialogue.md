@@ -58,12 +58,16 @@ you want it before you write the link; if you do not, name a line from a plugin 
 position it gives you. (A PNAM that truly resolves to nothing — a target no active plugin defines — places the
 line at the HEAD, not the bottom.)
 
-## The bookkeeping create fills, and the one fill that is unreachable
+## The bookkeeping create fills, and the one value they do not decide
 
 `housecarl_create` fills the Creation Kit's bookkeeping on dialogue records and reports each fill, so nothing
-here is silent. One default is still the wrong value: a `DialogBranch`'s `Flags` default to `0`, which is not
-`TopLevel`, and a player branch that is not top level **never reaches the player's menu**. Pass
-`Flags = TopLevel` explicitly on any `Category = Player` branch (#693).
+here is silent. A `DialogBranch`'s `Flags` fill follows its `Category`, because the two are not independent: a
+`Category = Player` branch with no `Flags` is filled to `TopLevel`, which is what the CK's own branch dialog
+ticks for a new player branch and what publishes the branch to the player's menu — a player branch that is not
+top level **never reaches that menu**, so `0` would be the one value that kills the branch and every topic
+under it (#693). Any other branch is filled to `0`. The fill is non-override as usual: pass `Flags` yourself and
+it stands, including `Flags = 0` for a player branch you mean to keep out of the menu, and including
+`Blocking` or `Exclusive`, which no fill sets for you.
 
 A second value in that bookkeeping is an authoring choice rather than a default: the `Goodbye` flag, which ends
 the conversation on the line that carries it, lives inside the INFO's own `Flags` struct. The create path
