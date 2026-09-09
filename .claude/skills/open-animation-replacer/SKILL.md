@@ -58,7 +58,12 @@ Every step below names the section it needs, so one section can be read on its o
    wildcard, so `meshes/actors/*/…` walks every facegen, body and armor mesh under `meshes/actors`
    before a row renders, and `limit=`/`offset=` do not bound that — they window the render. A DAR
    Form B `<Plugin.esp>/<FormID>/` folder carries no marker file at all, so sweep
-   `.../DynamicAnimationReplacer/**/*.hkx` too when an actor-base override is in play. The call
+   `.../DynamicAnimationReplacer/**/*.hkx` too when an actor-base override is in play. Add a third
+   selector for the base-clip layer, `meshes/actors/character/animations/<original.hkx>` — a mod that
+   replaces the original file outright competes for the same frames and neither replacer selector
+   sees it. Discard any hit under `character/_1stperson/animations/`: that is the first-person
+   animation graph, a different set of frames, and its matching relative paths are false competitors.
+   The call
    resolves every file the VFS provides beneath each selector, names which mod wins each one, and
    reports loudly when an archive could not be read; page a large sweep with `limit=` and `offset=`,
    cap it with `max_chars=`.
@@ -109,7 +114,13 @@ pass in the situation you care about. Priority and winner resolution:
    `character` for humanoids. A submod with no `.hkx` is using `overrideAnimationsFolder` or is
    conditions-only — that is normal.
 2. **Choose a unique priority.** Higher beats lower. To override an existing mod, read its submod
-   priority and go above it. Include legacy DAR folder names in the comparison.
+   priority and go above it. Include legacy DAR folder names in the comparison — a Form A folder's
+   name is its priority, a Form B `<Plugin.esp>/<FormID>/` folder's priority is 0
+   (`references/oar-config-reference.md` §8), so anything positive beats it. Go just above the
+   highest submod that actually **wins the frames** in your situation — the one whose conditions
+   pass there — not above the highest integer in the load order. Parking near int32 max also
+   outranks the situational overlays that live up there (Look Around, RaySense and the like), which
+   a conversion has no reason to suppress.
 3. **Build the condition set.** Each entry is
    `{ "condition": "<Name>", "requiredVersion": "1.0.0.0", …params }`; add `"negated": true` to
    invert. Combine with `AND` / `OR` / `XOR`. **The submod's top-level array is lowercase
@@ -174,14 +185,19 @@ Check offline first, then in game.
 2. **List the priorities.** For the original animation you target, list every submod that targets it
    with its priority, legacy DAR folder names included; confirm yours sits where you intended and
    that no two are equal.
-3. **Re-read your own file.** Top-level array `conditions`, every nested array `Conditions`, every
+3. **Splice yours in and recompute the winner.** Put your submod into that competitor list at its
+   new priority, re-sort, and walk the list again for the situation you care about — reading each
+   competitor's conditions to see which of them would pass there. Asserting a priority is not the
+   check; recomputing the winner table with your submod in it is. Name what you suppressed as well
+   as what you beat.
+4. **Re-read your own file.** Top-level array `conditions`, every nested array `Conditions`, every
    `formID` a local id in the plugin its `pluginName` names.
-4. **Enforce in game.** OAR parses configs on game load and the in-game editor reloads a mod live.
+5. **Enforce in game.** OAR parses configs on game load and the in-game editor reloads a mod live.
    The editor's **Detected Problems** panel is the enforcement: it flags INVALID conditions (missing
    addon, unresolvable form) and duplicate priorities. Everything above is guidance; this panel
    decides.
 
-Loop steps 1-4 until Detected Problems is empty and the priority list shows your submod winning in
+Loop steps 1-5 until Detected Problems is empty and the priority list shows your submod winning in
 the situation you care about. That pair is the stop condition.
 
 ## Worked example — overriding a mod's conditions via `user.json`
@@ -213,12 +229,15 @@ untouched, so it can be updated without losing the override.
 
 ## Worked example — converting a DAR `_conditions.txt`
 
-Legacy folder `…/DynamicAnimationReplacer/_CustomConditions/2000030002/` holds:
+Legacy folder `…/DynamicAnimationReplacer/_CustomConditions/777000/` holds `2hm_idle.hkx` and a
+`_conditions.txt`:
 
 ```
-NOT IsInCombat() AND
-IsEquippedRight("Skyrim.esm" | 0x02F2F4) OR
-IsEquippedRight("Woodaxeweapons.esp" | 0x005909)
+IsActorBase("0Kaidan.esp" | 0x00002f9a) AND
+IsEquippedRightType(5) AND
+Random(0.2) AND
+NOT IsSneaking() AND
+NOT IsInCombat()
 ```
 
 The folder name is the priority. Map each function to its OAR condition — the full table is
@@ -226,32 +245,44 @@ The folder name is the priority. Map each function to its OAR condition — the 
 `IsEquippedLeft` → the same with `true`; `IsEquippedRightType` / `IsEquippedLeftType` →
 `IsEquippedType` with `Type` and the hand flag; `IsEquippedRightHasKeyword` /
 `IsEquippedLeftHasKeyword` → `IsEquippedHasKeyword` with the hand flag; a Form B
-`<Plugin.esp>/<FormID>/` folder pair → the auto-synthesized `IsActorBase`. `0x02F2F4` becomes the
-local hex `"2F2F4"`.
+`<Plugin.esp>/<FormID>/` folder pair → the auto-synthesized `IsActorBase`. Type `5` is Greatsword in
+§5's table — DAR's type numbers are the same numbering, `n → n`, so never translate them. `0x00002f9a`
+becomes the local hex `"2F9A"`: a DAR argument is already the local id in the plugin named beside it,
+so drop the `0x` and the leading zeros and nothing else.
 
 DAR has no parenthesis grouping, but the binding is settled: **`OR` binds tighter than `AND`**, so a
 chain is an `AND` of `OR`-groups, and an `OR`-group is a run of lines ending in `OR` plus the next
 line that yields a condition — a blank line or a `;` comment is skipped without closing the group
-(§8, from OAR's `Parsing.cpp`). Here that leaves the `NOT IsInCombat()` guard as a
-top-level term and pairs the two `IsEquippedRight` lines into one `OR`:
+(§8, from OAR's `Parsing.cpp`). Read the binding before you write anything: here all five lines end
+in `AND`, so there is no `OR` group and the set is flat, but had the two middle lines ended in `OR`
+they would bind into a single `OR` term sitting inside the `AND` set, and reading such a chain flat
+left-to-right inverts what it gates on.
+
+`Random` takes a state block and a comparison rather than a bare number; the reference does not
+publish its argument names, so this is the shape to copy:
 
 ```json
-{ "name": "Woodcutter axe attacks (from DAR 2000030002)",
-  "description": "Converted from DAR 2000030002. The NOT IsInCombat guard is a top-level AND term; the two IsEquippedRight lines are one OR group.",
-  "priority": 2000030002,
+{ "name": "Kaidan greatsword idle (from DAR 777000)",
+  "description": "Converted from DAR _CustomConditions/777000. Kaidan, greatsword in the right hand, out of combat, not sneaking, 20% of the time. All five lines end in AND, so this is one flat AND set.",
+  "priority": 777000,
   "conditions": [
-    { "condition": "IsInCombat", "requiredVersion": "1.0.0.0", "negated": true },
-    { "condition": "OR", "requiredVersion": "1.0.0.0",
-      "Conditions": [
-        { "condition": "IsEquipped", "requiredVersion": "1.0.0.0",
-          "Form": { "pluginName": "Skyrim.esm", "formID": "2F2F4" }, "Left hand": false },
-        { "condition": "IsEquipped", "requiredVersion": "1.0.0.0",
-          "Form": { "pluginName": "Woodaxeweapons.esp", "formID": "5909" }, "Left hand": false } ] } ] }
+    { "condition": "IsActorBase", "requiredVersion": "1.0.0.0",
+      "Actor base": { "pluginName": "0Kaidan.esp", "formID": "2F9A" } },
+    { "condition": "IsEquippedType", "requiredVersion": "1.0.0.0",
+      "Type": { "value": 5.0 }, "Left hand": false },
+    { "condition": "Random", "requiredVersion": "2.3.0.0",
+      "State": { "scope": "Local", "shouldResetOnLoopOrEcho": false },
+      "Minimum random value": { "value": 0.0 },
+      "Maximum random value": { "value": 1.0 },
+      "Comparison": "<", "Numeric value": { "value": 0.2 } },
+    { "condition": "IsSneaking", "requiredVersion": "1.0.0.0", "negated": true },
+    { "condition": "IsInCombat", "requiredVersion": "1.0.0.0", "negated": true } ] }
 ```
 
-Read the chain flat instead — the guard `AND`-ed with the first equipped-form term and the whole
-wrapped in the `OR` — and the animation fires in combat for every weapon but the first. That is the
-error the binding rule prevents, not a second legitimate reading.
+Keeping the priority at the folder name preserves the conversion's standing exactly. Raise it only
+to beat a submod that currently wins these frames, and then by verification step 3 — recompute, do
+not assume. Here the competitor that decides it is a greatsword moveset with **no** actor gate, which
+passes on Kaidan; the boss and player-gated submods in the same band do not, whatever their priority.
 
 The config is only half the folder. Carry the legacy folder's `.hkx` files across to the new submod
 at their mirrored `<project>/<original.hkx>` paths, or point `overrideAnimationsFolder` at the legacy
