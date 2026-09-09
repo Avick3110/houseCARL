@@ -55,16 +55,27 @@ public sealed class DialogBranchFlagsRefusalTests
         Assert.Empty(o.Created);
     }
 
-    /// <summary>The refusal names the record it is about, so a batch creating several says which one.</summary>
+    /// <summary>A batch creating several records says WHICH one: the refusal names the flagless branch's editorid
+    /// and not the quest created beside it. It is a pre-flight refusal, so the whole batch is off — the quest is not
+    /// created either, and no patch file reaches disk at all.</summary>
     [Fact]
-    public void TheRefusalNamesTheEditorId()
+    public void ABatchIsRefusedNamingTheOffendingBranch()
     {
         using var w = new RecordsWorld();
 
-        var o = CreateBranch(w, "HcBrNamedInRefusal");
+        var o = w.Svc.CreateRecordsBatch(
+            new[]
+            {
+                new CreateOp { RecordType = "Quest", Editorid = "HcBrBatchQuest", Operations = Array.Empty<BulkOp>() },
+                new CreateOp { RecordType = "DialogBranch", Editorid = "HcBrBatchNoFlags", Operations = Array.Empty<BulkOp>() },
+            },
+            "HcBrBatchPatch", null);
 
         Assert.False(o.Success);
-        Assert.Contains("HcBrNamedInRefusal", o.Error);
+        Assert.Contains("HcBrBatchNoFlags", o.Error);
+        Assert.DoesNotContain("HcBrBatchQuest", o.Error);
+        Assert.Empty(o.Created);
+        Assert.Empty(Directory.GetFiles(w.ModsDir, "HcBrBatchPatch*.es*", SearchOption.AllDirectories));
     }
 
     /// <summary>An explicit TopLevel — a menu entry the player picks — lands on disk.</summary>
