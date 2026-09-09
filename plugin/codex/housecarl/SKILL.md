@@ -36,7 +36,7 @@ The user's instructions take precedence over guidelines provided in a skill.
 | Writing or building a native SKSE plugin DLL in C++ | `housecarl:skse-plugin-authoring` | before the first C++ |
 
 A dark, grey or black NPC face is not a skill: `housecarl_check findings=["facegen"]` reports it one row per
-NPC, and `docs/facegen.md` in the repo carries the causes behind each class.
+NPC, and [docs/facegen.md](https://github.com/Avick3110/houseCARL/blob/main/docs/facegen.md) carries the causes behind each class.
 
 MCP tools are written bare on both hosts (`housecarl_records`); a sibling is written `housecarl:<skill>`, the
 Claude Code form — on Codex it is the bare folder name (`mutagen-reference`) installed beside this one.

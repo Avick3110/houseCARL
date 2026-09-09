@@ -268,7 +268,7 @@ public static class NifTools
                      "other repair: a head mesh hardcoding the vanilla skin while a per-race body framework gives a " +
                      "different body is the face-versus-body mismatch, not the dark-face bug, and rewriting them is " +
                      "what NPC Facegen Patcher does in bulk - a whole mod's meshes are still faster there. Causes " +
-                     "and repairs by class: docs/facegen.md.")] string path = "",
+                     "and repairs by class: " + ReadSentences.FaceGenDocUrl + ".")] string path = "",
         [Description("set_shader_value: which lighting value — 'glossiness', 'specular_strength', 'specular_color', 'emissive_color', 'emissive_multiple', or 'alpha'.")] string shader_value = "",
         [Description("set_shader_value: the new value — one number for a scalar ('30'), or three comma-separated components for a colour ('1,0.5,0.25'). Colours and alpha are conventionally 0-1 (NOT 0-255); a value outside that is written as asked but WARNED about.")] string value = "",
         [Description("Optional. Edit a specific provider's copy instead of the VFS winner — the mod folder name, 'overwrite', " +
