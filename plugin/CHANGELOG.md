@@ -13,6 +13,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **The note a write emits when a link target's plugin cannot be read now counts FormLink values, not
+  FormID-shaped tokens.** The values a write's link check needs are enumerated by the same schema walk that does
+  the checking, so the count is of the actual FormLink slots the write sets. What the note says about the skip is
+  unchanged: those links are not type-checked, and the write proceeds.
 - **`housecarl_skypatcher_layer` with a `filter=` that matches no INI now says so instead of returning the
   whole-layer overview.** It answers with the filter, the match count (0 of N INIs), the type folders that are
   present, and a nearest-name suggestion where there is one, so a filter typo can no longer read as the layer's
