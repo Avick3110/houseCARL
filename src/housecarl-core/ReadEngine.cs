@@ -124,10 +124,14 @@ public static class ReadEngine
     /// without matching prose: the 'rows' fold drops this one and keeps the rest.</remarks>
     public const string AbsentNote = "(absent)";
 
-    /// <summary>A present-but-null FormLink (FormKey.Null) — modeled, but carrying no target. Not a
-    /// round-trippable token (the write surface sets links to a real FormKey, never "Null"), so surfaced as
-    /// a note. Distinct from <see cref="AbsentNote"/> (a wholly absent optional); the conflict diff treats
-    /// both as "no value here" (see <c>FieldsDiff.IsAbsentSentinel</c>).</summary>
+    /// <summary>A FormLink carrying no target, in the two shapes that mean the same thing: a NON-nullable link
+    /// holding FormID zero (its subrecord is always on disk, so zero is the only way it says "nothing"), or a
+    /// NULLABLE link whose subrecord is ABSENT. A nullable link whose subrecord is PRESENT with zero means the
+    /// opposite and renders <see cref="PresentNullLinkNote"/> instead (#697). Not a round-trippable token (the
+    /// write surface sets links to a real FormKey, never "Null"), so surfaced as a note. Distinct from
+    /// <see cref="AbsentNote"/> (a wholly absent optional); the conflict diff treats both of those as "no value
+    /// here" (see <c>FieldsDiff.IsAbsentSentinel</c>), which <see cref="PresentNullLinkNote"/> is deliberately
+    /// not part of.</summary>
     internal const string NullLinkNote = "(null link)";
 
     /// <summary>A NULLABLE FormLink whose subrecord is PRESENT on the record and carries FormID zero — the shape
