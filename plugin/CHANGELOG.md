@@ -30,6 +30,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   a removal edits an artifact that already exists, so its lane is `into=`. `housecarl_merge_plugins` and
   `housecarl_bsa_repack` keep a separate `patch_name=` for the mod FOLDER, since on those two `patch=` names
   the plugin and the archive.
+- **On the tools whose `patch=` names the output mod FOLDER — `housecarl_compact_plugin`,
+  `housecarl_compile_script`, `housecarl_decompile_script`, `housecarl_nif_set`, `housecarl_write_seq`,
+  `housecarl_place` — an artifact spelling (`plugin_name=`, `output=`, `archive_name=`) is refused by name
+  with the supported list instead of being read as the folder's name.** `plugin_name=` still reaches the
+  plugin parameter on the tools that have one (on `housecarl_compact_plugin`, `source=`).
 - **`housecarl_skypatcher_layer` with a `filter=` that matches no INI now says so instead of returning the
   whole-layer overview.** It answers with the filter, the match count (0 of N INIs), the type folders that are
   present, and a nearest-name suggestion where there is one, so a filter typo can no longer read as the layer's
