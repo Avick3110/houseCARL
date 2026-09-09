@@ -471,6 +471,12 @@ internal static class ReadSentences
     [NoClaims("an address, not a sentence; the claims about the facegen family are the boundary's own")]
     internal const string FaceGenDocUrl = "https://github.com/Avick3110/houseCARL/blob/main/docs/facegen.md";
 
+    /// <summary>Where the dialogue order rules live — quest priority over a generic greeting, the PNAM a re-listed
+    /// INFO has to carry, and the DialogBranch Flags default. Same shape as <see cref="FaceGenDocUrl"/>: a repo
+    /// path cited by URL, because the plugin ships no copy of docs/ and no skill owns dialogue any more.</summary>
+    [NoClaims("an address, not a sentence; the claims about the dialogue family are the boundary's own")]
+    internal const string DialogueDocUrl = "https://github.com/Avick3110/houseCARL/blob/main/docs/dialogue.md";
+
     /// <summary>The facegen family's honest scope boundary. It reports PROVENANCE — which mod wins each half and
     /// which plugin wins the record — and never the render, so a clean result is not a promise that a face looks
     /// right. The not-this line is here too: the classes this family cannot see are named rather than left to be

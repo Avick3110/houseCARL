@@ -143,7 +143,9 @@ public static class CheckTools
              "the running game can — and it does not check lip-sync or audio content, so 'checks passed' never " +
              "reads as 'this will play'. The dialogue family FLAGS, never silently rewrites: a stale .seq, a " +
              "blank subtype marker or a missing CNAM/ENAM is reported for you to fix, and nothing in the checked " +
-             "plugin is touched. " +
+             "plugin is touched. The ORDER rules a clean graph still has to respect — quest priority deciding " +
+             "which topic a generic greeting reaches, and the PNAM a re-listed INFO carries to keep its place — " +
+             "are at " + ReadSentences.DialogueDocUrl + ". " +
              // ---- family: facegen (the dark-face join) -------------------------------------------------
              "FACEGEN FAMILY - the dark/grey-face diagnosis, as ONE row per NPC: its formid, editorid, defining " +
              "master, RECORD winner, MESH winner (provider + loose/BSA), TINT winner, the mismatch CLASS and a fix " +
