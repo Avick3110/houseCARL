@@ -282,11 +282,22 @@ public static class DialogueCkParity
     /// deliberately (2117 TopLevel menu branches, 203 Player branches at exactly 0), and each wrong guess is its own
     /// in-game defect: 0 on a menu branch kills it and every topic under it (#693), TopLevel on a scripted Say() topic
     /// publishes it to the player's menu as a selectable "..." (#212). A passed value always wins, an explicit 0
-    /// included — Flags is nullable, so a set 0 reads non-null and is not this case.</summary>
-    public static string? BranchFlagsRefusal(IDialogBranchGetter branch, string editorId) =>
-        HasFlags(branch) ? null
+    /// included.
+    ///
+    /// <para>Called from CreateRecords' Phase-1 pre-flight, before anything is allocated, so a flagless branch is
+    /// reported alongside every other create refusal in ONE round trip. There <paramref name="authorSetFlags"/> is
+    /// read off the spec's edits (an op on the Flags path) — the same author-set test the DIAL Priority seed uses,
+    /// because no record exists yet to read.</para></summary>
+    public static string? BranchFlagsRefusal(bool authorSetFlags, string editorId) =>
+        authorSetFlags ? null
             : $"DialogBranch '{editorId}' needs Flags: pass TopLevel for a menu entry the player can pick, or 0 for a "
               + "scripted Say() topic that must stay hidden.";
+
+    /// <summary>The same refusal asked of a BUILT branch — one home for the sentence, so the record-shaped question
+    /// (the guard probe's, on a branch in hand) and the spec-shaped one cannot drift. Flags is nullable, so a set 0
+    /// reads non-null and is not this case.</summary>
+    public static string? BranchFlagsRefusal(IDialogBranchGetter branch, string editorId) =>
+        BranchFlagsRefusal(HasFlags(branch), editorId);
 
     // --- DLBR presence predicates: the single home for "does this DialogBranch carry the CK-parity subrecord?",
     //     consulted by ApplyBranchDefaults (fills Category when absent), BranchFlagsRefusal (refuses a create when Flags
