@@ -87,10 +87,18 @@ Read what your task needs, not everything.
    refuses it). For a set too large to render inline, pass `to_file` an absolute `.jsonl` path and
    re-enter it later as
    `formids=["@<that absolute path>"]`. Leave `source` omitted, or pass `"winner"` — the load-order
-   winner is the record KID acts on. To show what a name filter would have caught instead, run the
-   same scan with `where=["Name contains Dagger"]` — KID's String filter matches the item's
-   **display name**, so `Name` is the predicate that answers it. An `editorid contains` scan asks a
-   different question and turns up records with no name at all, which no String filter ever sees.
+   winner is the record KID acts on. To show what a String filter would have caught instead, scan
+   the channels that filter actually tests (`references/filters.md` §1 and §3), which is more than
+   the display name: a bare term is an exact test on the EditorID or the name, and a `*wildcard` is
+   a substring test on the EditorID, the name **and** the item's own keyword EditorIDs. So a
+   wildcard census is three scans — `where=["Name contains Dagger"]`,
+   `where=["editorid contains Dagger"]` and
+   `where=["Keywords[*any]->editorid contains Dagger"]` — and the reach is their **union**, which
+   `where=` cannot express in one call because its terms are ANDed. Get the union by
+   inclusion-exclusion over the three counts and their four intersections, or by writing each scan
+   to a `to_file` artifact and merging the identity columns. A single `Name contains` count
+   under-reports a wildcard line, usually by a lot: the keyword channel alone catches everything
+   carrying `WeapTypeDagger`.
    When the line carries a **plugin-name** filter, count by the **defining** plugin, not the winner:
    KID tests `TESFile::IsFormInMod` on the item's own FormID (`references/filters.md` §2), so the
    filter catches only records that plugin defines, and a patch that overrides them changes nothing
@@ -122,14 +130,19 @@ Keyword = HC_AuditDaggerTag|Weapon|NONE|OneHandDagger
 ```
 
 Grounded on a 3,801-plugin order this reaches 786 WEAP records, defined across 54 plugins and won by
-39 (`project={"form": "aggregate", "group_by": "defined_in"}`, then `"winner"`). A `*Dagger` **name**
-filter is wrong in **both** directions on the same order: it misses `REQ_Artifact_Keening` ("Keening"),
-`REQ_Artifact_MehrunesRazor`, `REQ_Artifact_Nettlebane`, `BSKHatchet` ("Elven Hatchet"),
-`zzzCrbAkaviriKodachi` and `BPUFXelzazKukri`, whose names carry no "dagger"; and by
-`where=["Name contains Dagger", "Data.AnimationType != OneHandDagger"]` it catches exactly two —
-`DBMTWR_RiftenDaggerDummy` ("The Dagger of Riften (2)", `HandToHand`) and `zzzGHCrSkavenDaggers`
-("Skaven Daggers", `TwoHandSword`). The `DummyDagger` records an EditorID scan turns up have no name
-at all, so a String filter never sees them: that scan illustrates the predicate, it does not repeat it.
+39 (`project={"form": "aggregate", "group_by": "defined_in"}`, then `"winner"`). A `*Dagger`
+wildcard is wrong in **both** directions on the same order. Its three channels reach 676 records by
+name, 702 by EditorID and 773 by keyword EditorID — 778 in union, and 772 of those are also
+`OneHandDagger`, so it **misses 14** of the trait's 786 and **over-catches 6**. The 14 it misses are
+the ones carrying no dagger keyword and no "dagger" text: `ccBGSSSE019_ForkofHorripilation` ("Fork of
+Horripilation") and its replica/spoon variants, `zzzCOWitchKnife01` ("Witch Knife"),
+`WTKitchenOverlordKnife` ("Dragonslayer"), `_Camp_DummyWeapon` and `MRTBlankWeapon` (no name at all).
+The 6 it over-catches are `DBMTWR_RiftenDaggerDummy` ("The Dagger of Riften (2)", `HandToHand`),
+`zzzGHCrSkavenDaggers` ("Skaven Daggers", `TwoHandSword`), `zzzRevSerpentSword` ("Atakota Sword",
+`OneHandSword`, caught on its `WeapTypeDagger` keyword) and the three nameless `DummyDagger` records
+(`OneHandSword`) — nameless is no protection, because the EditorID is a live channel. The keyword
+channel is what makes the wildcard nearly as good as the trait here, and what makes a name-only
+census (676) a bad proxy for it.
 
 **Tag one mod's armor above rating 20**, filters and traits both used:
 
