@@ -37,16 +37,18 @@ saying it sets an expectation their install may contradict. Say what is known, a
   converts a different worked folder; `kid-authoring` names the record field behind every trait, adds an
   exclusion-then-trait example, and says how a KID line differs from a SPID one; `spid-authoring` documents the
   FormLink wire form and the one-call union census, says a written-out player exclusion is inert, and labels its
-  level-filter census as measured on one instance. The four questions that entry left open are answered in the
-  next one.
+  level-filter census as measured on one instance. The four questions that entry left open are settled by the entry on the
+  four grammar questions answered from the distributors' own source.
 - **`kid-authoring` and `spid-authoring` answer four grammar questions from the distributors' own source.** A KID
   plugin-name filter selects by the plugin that *defines* a record, not the one that wins it, so an override
   changes nothing about the set; a KID `*wildcard` is a case-insensitive substring test against EditorID, display
   name and the item's own keyword EditorIDs only — a `.nif` term tests the model path instead, and archetype and
   actor-value names are exact-match channels a wildcard never reaches; SPID's INI scan reads `Data/` itself and
   does not descend, so a `_DISTR.ini` in a subfolder is never read; and SPID's SKSE version manifest carries only
-  the major digit, so every 7.x release declares 7.0.0 there while its file version resource carries the full
-  number — `meta.ini` is the running version and `housecarl_skse`'s number is a major-version floor. The same
+  the major digit, so every 7.x release declares 7.0.0 there while the DLL's own file-version resource carries
+  the full number — `housecarl_skse`'s number is a major-version floor, MO2's `meta.ini` is the installed
+  download's version string and can lag a repack or a manual update, and the file-version resource is the
+  authoritative read. The same
   read corrected how KID's filter groups combine: Matches and Wildcards are separate gates a line must pass
   both of, not one pooled OR. Each fact
   cites the function and release tag it was read at, in the skills' `references/`; the corpus-status files record
