@@ -272,23 +272,29 @@ internal static class ToolCallShim
         return (unknown, props.EnumerateObject().Select(prop => prop.Name).ToList());
     }
 
-    /// <summary>A string <c>in_place=</c> whose value spells a boolean gets a named refusal; null to proceed. The
+    /// <summary>An <c>in_place=</c> spelling a boolean, quoted or bare, gets a named refusal; null to proceed. The
     /// parameter takes the filename being overwritten, so "true"/"false" — 1.x's lane flag — is not a file, and a
-    /// string one satisfies both the schema type and the tool body's non-empty check: the call would otherwise
-    /// enter the opt-in overwrite lane and fail as though overwriting a plugin named "false".</summary>
+    /// quoted one satisfies both the schema type and the tool body's non-empty check: the call would otherwise
+    /// enter the opt-in overwrite lane and fail as though overwriting a plugin named "false". The bare spelling is
+    /// caught here too, so the same sentence answers both rather than a type error steering the caller into the
+    /// quoted one.</summary>
     static CallToolResult? InPlaceNamesAFile(CallToolRequestParams p, JsonElement schema)
     {
         if (p.Arguments is not { Count: > 0 } args) return null;
-        if (!args.TryGetValue("in_place", out var val) || val.ValueKind != JsonValueKind.String) return null;
+        if (!args.TryGetValue("in_place", out var val)) return null;
+        var spellsBool = val.ValueKind is JsonValueKind.True or JsonValueKind.False
+                      || (val.ValueKind == JsonValueKind.String && bool.TryParse(val.GetString(), out _));
+        if (!spellsBool) return null;                                                   // a real filename — not this pass's
         if (schema.ValueKind != JsonValueKind.Object ||
             !schema.TryGetProperty("properties", out var props) || props.ValueKind != JsonValueKind.Object) return null;
         if (!props.TryGetProperty("in_place", out var inPlaceSchema)) return null;
         var declared = DeclaredTypes(inPlaceSchema);
         if (!declared.Contains("string") || declared.Contains("boolean")) return null;   // not the filename-valued shape
-        if (!bool.TryParse(val.GetString(), out _)) return null;                         // a real filename — not this pass's
 
+        // The value as the caller spelled it: quoted for a string, bare for a JSON boolean.
+        var spelled = val.ValueKind == JsonValueKind.String ? $"\"{val.GetString()}\"" : val.GetRawText();
         return NamedError(
-            $"error: {p.Name}: in_place=\"{val.GetString()}\" names no file — in_place takes the FILENAME being " +
+            $"error: {p.Name}: in_place={spelled} names no file — in_place takes the FILENAME being " +
             "overwritten (in_place=\"X.esp\"), and \"true\"/\"false\" are not files. Omit in_place entirely for the " +
             "default new-patch lane. Fix the argument and retry.");
     }

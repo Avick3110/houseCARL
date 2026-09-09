@@ -174,29 +174,36 @@ public sealed class ToolCallShimWirePathTests
         Assert.Contains("plugin,", r.Text, StringComparison.Ordinal);
     }
 
-    // ---- a quoted boolean never selects the in-place lane ------------------------------------------------
+    // ---- a boolean, quoted or bare, never selects the in-place lane ---------------------------------------
 
     /// <summary>1.x's <c>in_place=false</c> meant the default new-patch lane. Quoted, it satisfies the string
     /// schema and the body's non-empty check, so without a gate the call enters the opt-in overwrite lane with a
-    /// target named "false". It must be refused by name instead, saying what in_place takes.</summary>
+    /// target named "false". Bare, it is the likelier arrival and must not fall through to the type-mismatch
+    /// sentence, which says only "expects string" and steers the caller into the quoted spelling. Both spellings
+    /// take the same refusal, saying what in_place takes. The parameter is the value as spelled, so the assertion
+    /// pins that the refusal quotes a string and leaves a JSON boolean bare.</summary>
     [Theory]
+    [InlineData("\"false\"")]
+    [InlineData("\"true\"")]
     [InlineData("false")]
     [InlineData("true")]
-    public void AQuotedBooleanInPlaceIsRefusedByNameAndNeverEntersTheOverwriteLane(string spelling)
+    public void ABooleanInPlaceIsRefusedByNameAndNeverEntersTheOverwriteLane(string spelling)
     {
-        var r = _s.Call(ToolNames.Apply, $$"""{"ops":[],"in_place":"{{spelling}}"}""");
+        var r = _s.Call(ToolNames.Apply, $$"""{"ops":[],"in_place":{{spelling}}}""");
 
         Assert.True(r.IsError, r.Describe());
         Assert.False(r.BodyRan, r.Describe());
-        Assert.Contains($"error: {ToolNames.Apply}: in_place=\"{spelling}\" names no file", r.Text, StringComparison.Ordinal);
+        Assert.Contains($"error: {ToolNames.Apply}: in_place={spelling} names no file", r.Text, StringComparison.Ordinal);
         Assert.Contains("in_place=\"X.esp\"", r.Text, StringComparison.Ordinal);
         // The lane's own failures name the file it was given — proof the call never reached it.
         Assert.DoesNotContain("acknowledge", r.Text, StringComparison.Ordinal);
+        // The type-mismatch pass must not be the one answering the bare spelling.
+        Assert.DoesNotContain("expects string", r.Text, StringComparison.Ordinal);
     }
 
     /// <summary>A real filename is untouched by that gate: it reaches the tool body, which judges the lane.</summary>
     [Fact]
-    public void AFilenameInPlaceIsNotRefusedByTheQuotedBooleanGate()
+    public void AFilenameInPlaceIsNotRefusedByTheBooleanGate()
     {
         var r = _s.Call(ToolNames.Apply, """{"ops":[],"in_place":"NoSuchPlugin.esp"}""");
 
