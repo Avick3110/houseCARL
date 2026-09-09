@@ -6,7 +6,7 @@ namespace HousecarlMcp;
 /// What every findings family agrees is malformed, validated once before the merged <c>check</c> surface dispatches
 /// to any of them.
 ///
-/// <para>The families parse <c>type=</c>, <c>formids=</c>, <c>plugins=</c> and <c>exclude=</c> themselves, but the
+/// <para>The families parse <c>types=</c>, <c>formids=</c>, <c>plugins=</c> and <c>exclude=</c> themselves, but the
 /// merged tool calls a family only where it was selected — so a selection none of those parameters scope would run
 /// with nothing ever looking at them, and a typo'd narrowing would come back as an ordinary answer.</para>
 ///
