@@ -13,7 +13,7 @@ namespace HousecarlMcp;
 /// plugins.txt — masters first, highest-priority winner last, duplicate plugin names resolved by mod priority.
 /// No USVFS and no live MO2 state: the server reads real plugin paths and runs standalone.
 /// </summary>
-public sealed class LoadOrderService : IDisposable
+public sealed partial class LoadOrderService : IDisposable
 {
     // Three modes. INSTANCE (default): one MO2 instance folder, from which the roots and active profile are derived by
     // reading ModOrganizer.ini, and a profile switch is picked up on the next tool call. EXPLICIT (dev override): the

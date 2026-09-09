@@ -25,6 +25,11 @@ public enum SweepFamily
     /// owns — so it takes its own <c>seeds=</c> rather than the other families' plugin scope, and a call that names
     /// it without seeds is a declared cost-refusal, never a whole-order dialogue sweep.</para></summary>
     Dialogue,
+
+    /// <summary>FACEGEN: which mod wins each NPC's head .nif, which wins its face .dds, and which plugin wins the
+    /// NPC_ record behind them, joined one row per NPC. The dark/grey-face desync — two independent precedences,
+    /// which is why xEdit shows nothing. Swept like the errors family, and NOT in the default set.</summary>
+    Facegen,
 }
 
 /// <summary>
@@ -54,13 +59,15 @@ public sealed class SweepFamilySelection
     /// rejects. What still needs writing per family is its own data (<see cref="Token"/>, <see cref="Title"/>,
     /// <see cref="Describe"/>) and its class tokens.</para></summary>
     public static readonly IReadOnlyList<SweepFamily> Registered =
-        new[] { SweepFamily.Errors, SweepFamily.Scripts, SweepFamily.Dialogue };
+        new[] { SweepFamily.Errors, SweepFamily.Scripts, SweepFamily.Dialogue, SweepFamily.Facegen };
 
-    SweepFamilySelection(IReadOnlyList<SweepFamily> ran, ErrorFindingClass errors, ScriptFindingClass scripts, bool defaulted)
+    SweepFamilySelection(IReadOnlyList<SweepFamily> ran, ErrorFindingClass errors, ScriptFindingClass scripts,
+                         FaceGenFindingClass facegen, bool defaulted)
     {
         Ran = ran;
         ErrorClasses = errors;
         ScriptClasses = scripts;
+        FaceGenClasses = facegen;
         Defaulted = defaulted;
         NotRun = Registered.Where(f => !ran.Contains(f)).ToArray();
     }
@@ -80,6 +87,11 @@ public sealed class SweepFamilySelection
     /// <summary>Which script classes the scripts family reports.</summary>
     public ScriptFindingClass ScriptClasses { get; }
 
+    /// <summary>Which facegen classes the facegen family reports. <see cref="FaceGenFindingClass.All"/> when the
+    /// family was named without narrowing — under which the benign <c>family_split</c> class is COUNTED in the
+    /// header but not listed, so 268 benign rows cannot bury 126 real ones.</summary>
+    public FaceGenFindingClass FaceGenClasses { get; }
+
     /// <summary><c>findings=</c> was omitted, so <see cref="Ran"/> is the default rather than a caller's choice.
     /// The render says which of the two it is: "you did not ask for these" and "you asked for these and not those"
     /// are different sentences.</summary>
@@ -91,6 +103,7 @@ public sealed class SweepFamilySelection
         SweepFamily.Errors => "errors",
         SweepFamily.Scripts => "scripts",
         SweepFamily.Dialogue => "dialogue",
+        SweepFamily.Facegen => "facegen",
         _ => f.ToString().ToLowerInvariant(),
     };
 
@@ -100,6 +113,7 @@ public sealed class SweepFamilySelection
         SweepFamily.Errors => "load-order integrity sweep",
         SweepFamily.Scripts => "VMAD script-property binding sweep",
         SweepFamily.Dialogue => "dialogue graph validation (seeded)",
+        SweepFamily.Facegen => "facegen mesh/tint/record join",
         _ => Token(f),
     };
 
@@ -110,6 +124,7 @@ public sealed class SweepFamilySelection
         SweepFamily.Errors => "dangling references, missing masters and parse failures",
         SweepFamily.Scripts => "unbound script properties",
         SweepFamily.Dialogue => "broken dialogue wiring, silent lines and result scripts that will not fire",
+        SweepFamily.Facegen => "dark-face desyncs between an NPC's baked files and its winning record",
         _ => Token(f),
     };
 
@@ -131,7 +146,8 @@ public sealed class SweepFamilySelection
     public static string Vocabulary =>
         string.Join(", ", Registered.Select(f => "'" + Token(f) + "'"))
         + " (whole families), or the classes inside them: 'dangling', 'missing_masters' (errors); "
-        + "'unbound_object', 'unbound_scalar', 'unbound' (both), 'bound_null' (scripts). The dialogue family takes "
+        + "'unbound_object', 'unbound_scalar', 'unbound' (both), 'bound_null' (scripts); "
+        + FaceGenCheck.Vocabulary + " (facegen). The dialogue family takes "
         + "no class token — it narrows by seeds=, not by class";
 
     /// <summary>Parse the merged <c>findings=</c>. An empty or omitted list is the errors-family default; an
@@ -145,14 +161,15 @@ public sealed class SweepFamilySelection
         if (names is not { Count: > 0 })
         {
             selection = new SweepFamilySelection(new[] { SweepFamily.Errors }, ErrorFindingClass.All,
-                                                 ScriptFindingClass.All, defaulted: true);
+                                                 ScriptFindingClass.All, FaceGenFindingClass.All, defaulted: true);
             return true;
         }
 
         var ran = new List<SweepFamily>();
         var errorClasses = ErrorFindingClass.None;
         var scriptClasses = ScriptFindingClass.None;
-        bool errorsWholeFamily = false, scriptsWholeFamily = false;
+        var facegenClasses = FaceGenFindingClass.None;
+        bool errorsWholeFamily = false, scriptsWholeFamily = false, facegenWholeFamily = false;
 
         foreach (var raw in names)
         {
@@ -165,6 +182,7 @@ public sealed class SweepFamilySelection
                 Add(fam);
                 if (fam == SweepFamily.Errors) errorsWholeFamily = true;
                 if (fam == SweepFamily.Scripts) scriptsWholeFamily = true;
+                if (fam == SweepFamily.Facegen) facegenWholeFamily = true;
                 continue;
             }
 
@@ -185,6 +203,12 @@ public sealed class SweepFamilySelection
                     Add(SweepFamily.Scripts); scriptClasses |= ScriptFindingClass.BoundNull; break;
 
                 default:
+                    // The facegen family's class tokens are its own data, resolved through the one lookup that
+                    // spells them, so the vocabulary a refusal offers cannot drift from what this accepts.
+                    if (FaceGenCheck.ClassFor(token) is { } fc)
+                    {
+                        Add(SweepFamily.Facegen); facegenClasses |= fc; break;
+                    }
                     error = $"findings='{raw}' is not a check finding family or class — use {Vocabulary}. "
                           + "Unscannable records, scan errors and unverifiable script attachments are ALWAYS "
                           + "reported and cannot be filtered out (a suppressed 'could not read' would read as a "
@@ -200,6 +224,7 @@ public sealed class SweepFamilySelection
             Registered.Where(ran.Contains).ToArray(),
             errorsWholeFamily || errorClasses == ErrorFindingClass.None ? ErrorFindingClass.All : errorClasses,
             scriptsWholeFamily || scriptClasses == ScriptFindingClass.None ? ScriptFindingClass.All : scriptClasses,
+            facegenWholeFamily || facegenClasses == FaceGenFindingClass.None ? FaceGenFindingClass.All : facegenClasses,
             defaulted: false);
         return true;
 

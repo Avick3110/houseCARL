@@ -70,6 +70,19 @@ internal enum SweepSubject
     /// subject and present in BOTH lanes, unlike the heads and blocks — a seed nobody could reach is the boundary of
     /// the answer, not a finding inside it, so <c>counts_only</c> must not silence it either.</summary>
     DialogueSeedRefusals,
+
+    /// <summary>The facegen family's finding rows — one per NPC (or per orphaned bake). Its analogue of
+    /// <see cref="ScriptRecords"/>: a row is emitted whole or not at all, because the three winners and the fix
+    /// sentence are one finding, and half of them under a class label claims more than it shows.</summary>
+    FaceGenRows,
+
+    /// <summary>Rows of the facegen family's <c>counts_only</c> histogram, by finding CLASS.</summary>
+    FaceGenClassRows,
+
+    /// <summary>Rows of the facegen family's <c>counts_only</c> histogram, by the mod that owns the winning bake.
+    /// Its own subject, for the reason the dangling axes each have one: a shared subject lets the first axis to
+    /// close on the budget refuse every row of the second.</summary>
+    FaceGenModRows,
 }
 
 /// <summary>
@@ -80,7 +93,8 @@ internal enum SweepSubject
 internal static class SweepSubjects
 {
     internal static bool IsHistogram(this SweepSubject s)
-        => s is SweepSubject.HistogramByTarget or SweepSubject.HistogramBySource or SweepSubject.HistogramByProperty;
+        => s is SweepSubject.HistogramByTarget or SweepSubject.HistogramBySource or SweepSubject.HistogramByProperty
+             or SweepSubject.FaceGenClassRows or SweepSubject.FaceGenModRows;
 }
 
 /// <summary>

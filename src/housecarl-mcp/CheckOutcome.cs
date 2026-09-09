@@ -208,6 +208,15 @@ internal sealed class CheckOutcome
                     if (sr.Reports.Count > 0) subjects.Add(SweepSubject.ScriptRecords);
                 }
             }
+            else if (f == SweepFamily.Facegen && _s.FaceGen is { Error: null } fg)
+            {
+                if (fg.CountsOnly)
+                {
+                    if (fg.ByClass is { Count: > 0 }) subjects.Add(SweepSubject.FaceGenClassRows);
+                    if (fg.ByOwningMod is { Count: > 0 }) subjects.Add(SweepSubject.FaceGenModRows);
+                }
+                else if (fg.Findings.Count > 0) subjects.Add(SweepSubject.FaceGenRows);
+            }
             else if (f == SweepFamily.Dialogue && _s.Dialogue is { Error: null } d)
             {
                 // The unreachable-seed rows are in the plan in both lanes: they are rendered rows like any other, and
@@ -251,6 +260,9 @@ internal sealed class CheckOutcome
                                                          declareExcluded: RosterOwner == SweepFamily.Errors),
                SweepFamily.Scripts => new CheckAccounting(_s.Scripts!, cap, JsonWire.FamilySectionDepth,
                                                           declareExcluded: RosterOwner == SweepFamily.Scripts),
+               SweepFamily.Facegen => new CheckAccounting(_s.FaceGen ?? FaceGenCheckResult.Fail(""), cap,
+                                                          JsonWire.FamilySectionDepth,
+                                                          declareExcluded: RosterOwner == SweepFamily.Facegen),
                // A dialogue family that refused still gets one: it declares no subject and states no accounting line,
                // but it owns this family's boundary — the standing-limits sentence — which is reserved and written
                // whatever the budget says.

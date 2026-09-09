@@ -46,6 +46,8 @@ internal sealed class CheckAccounting
     // wherever the listing came out short, because the sweep tallies findings by source and target plugin and never
     // by type, and a per-type count here would be one this response does not have.
     readonly string? _typeScope;
+    // The facegen family's true finding total, which its listing budget can cut below. Zero on every other lane.
+    readonly int _faceGenFound;
 
     /// <summary>Build the accounting for one response, declaring the subjects this lane has.
     ///
@@ -101,6 +103,24 @@ internal sealed class CheckAccounting
 
         if (!r.CountsOnly) Declare(SweepSubject.ScriptRecords, r.Reports.Count);
         if (r.CountsOnly) Declare(SweepSubject.ScriptScanRows, r.Reports.Count(x => x.ScanError is not null));
+        if (declareExcluded && r.ExcludedPlugins.Count > 0) Declare(SweepSubject.ExcludedRows, r.ExcludedPlugins.Count);
+    }
+
+    /// <summary>The facegen family's accounting — the same class again, in this family's units: one row per NPC.
+    ///
+    /// <para>It declares the excluded-plugin roster like its swept siblings, because it reads the same index build
+    /// and the same plugins go unparsed for it.</para></summary>
+    internal CheckAccounting(FaceGenCheckResult r, int cap, int jsonDepth = 1, bool declareExcluded = true)
+    {
+        _cap = cap;
+        _jsonDepth = jsonDepth;
+        _limit = r.Limit;
+        _boundary = ReadSentences.SweepFaceGenBoundary;
+        _bySource = Array.Empty<SweepCount>();
+        _faceGenFound = r.CountsOnly ? 0 : r.TotalFound;
+        if (!r.Success) return;   // see the errors ctor: a refused family declares nothing
+
+        if (!r.CountsOnly) Declare(SweepSubject.FaceGenRows, r.Findings.Count);
         if (declareExcluded && r.ExcludedPlugins.Count > 0) Declare(SweepSubject.ExcludedRows, r.ExcludedPlugins.Count);
     }
 
@@ -222,7 +242,7 @@ internal sealed class CheckAccounting
     /// rather than a second list of subjects: the two disagreeing is what makes a reserve stop matching the
     /// sentence it reserves for.</summary>
     bool CanStateAccounting => Has(SweepSubject.DanglingEntries) || Has(SweepSubject.ScriptRecords)
-                               || Has(SweepSubject.DialogueTopics)
+                               || Has(SweepSubject.DialogueTopics) || Has(SweepSubject.FaceGenRows)
                                || Missing(Worst(escaped: false));
 
     /// <summary>This lane's accounting + boundary, in json bytes, without the entry slack. Measured by serializing
@@ -332,7 +352,8 @@ internal sealed class CheckAccounting
     {
         var v = Real();
         return Has(SweepSubject.DanglingEntries) || Has(SweepSubject.ScriptRecords)
-               || Has(SweepSubject.DialogueTopics) || Missing(v) ? Compose(v) : null;
+               || Has(SweepSubject.DialogueTopics) || Has(SweepSubject.FaceGenRows)
+               || Missing(v) ? Compose(v) : null;
     }
 
     string Compose(Values v)
@@ -394,6 +415,20 @@ internal sealed class CheckAccounting
         if (Short(v, SweepSubject.DialogueSeedRefusals))
             sb.Append(string.Format(ReadSentences.SweepDialogueRefusalsCut, Shown(v, SweepSubject.DialogueSeedRefusals),
                                     Found(SweepSubject.DialogueSeedRefusals)));
+
+        // The facegen family's own two-part shape: what this response carries against what the sweep found, then
+        // the listing budget's share of what is absent. The found total is never capped, so a short listing with no
+        // total beside it would read as the whole answer.
+        if (Has(SweepSubject.FaceGenRows))
+        {
+            sb.Append(Short(v, SweepSubject.FaceGenRows)
+                ? string.Format(ReadSentences.SweepFaceGenVisible, Shown(v, SweepSubject.FaceGenRows),
+                                Found(SweepSubject.FaceGenRows))
+                : string.Format(ReadSentences.SweepFaceGenAllVisible, Found(SweepSubject.FaceGenRows)));
+            if (_faceGenFound > Found(SweepSubject.FaceGenRows) || v.Worst)
+                sb.Append(string.Format(ReadSentences.SweepFaceGenFindings,
+                                        Found(SweepSubject.FaceGenRows), _faceGenFound, _limit));
+        }
 
         // The scripts family's counts_only honesty layer, in its own subject: the plugins whose record enumeration
         // faulted.
