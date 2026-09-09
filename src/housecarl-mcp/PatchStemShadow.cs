@@ -40,7 +40,7 @@ internal static class PatchStemShadow
     /// <summary>The refusal: one sentence naming what was found and what to try. Both remedies are safe — pick
     /// another name, or enable the plugin already there — because the caller who reached this may have meant either.
     /// <paramref name="param"/> is the calling lane's OWN parameter for the name, since the file is spelled by
-    /// <c>patch=</c> on the record lanes, <c>output=</c> on a merge and <c>plugin_name=</c> on a header-only create.
+    /// <c>patch=</c> on the record lanes, <c>output=</c> on a merge and <c>patch=</c> on a header-only create.
     /// The remedy says "your install" rather than "a mod folder" because the sweep also reaches the overwrite folder
     /// and game Data, and <see cref="PluginFileHit.Where"/> has already named which of the three it was.
     /// <paramref name="found"/> is the file actually sitting there when it is NOT the one being written — the

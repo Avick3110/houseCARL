@@ -27,7 +27,7 @@ public static class WriteTools
          "binding by plugin basename need (e.g. a CraftingCategories-style trigger that must ship 'Foo.esp' so 'Foo.json' " +
          "loads), a placeholder ESL for FormID reservation, a dummy plugin for another mod to list as a master, or any " +
          "'I just need plugin Foo to be present' case. UNLIKE " + ToolNames.Create + ", it authors NO record — so it adds no conflict-tree footprint " +
-         "(no filler override needed to make the plugin non-empty). plugin_name is used EXACTLY (the basename is " +
+         "(no filler override needed to make the plugin non-empty). patch is used EXACTLY (the basename is " +
          "load-bearing — houseCARL will NOT auto-suffix it): if a plugin of that name is already active in the load order, " +
          "or a houseCARL folder of that name already exists, it REFUSES loud rather than rename or overwrite (Q3). Pass " +
          "esl=true for the lightest trigger (a header-only light plugin consumes no consequential load-order slot; with " +
@@ -37,7 +37,7 @@ public static class WriteTools
     public static string CreatePlugin(
         LoadOrderService svc,
         [Description("The EXACT plugin name (with or without a trailing .esp/.esm/.esl; e.g. 'Authoria - CraftingCategories'). Used VERBATIM as the basename — houseCARL will not auto-suffix it, because a trigger plugin's whole job is that its basename matches the config bound to it. The written file is '<name>.esp', and a name that already exists as a plugin — .esp, .esm or .esl — anywhere on your install, active or somewhere your order is not loading it, is refused, naming that place and the file.")]
-            string plugin_name,
+            string patch,
         [Description("When true, flag the plugin as a light master (ESL) — the lightest possible trigger: a header-only ESL consumes no consequential load-order slot. Default false (a normal full plugin).")]
             bool esl = false,
         [Description("Optional. Author text for the TES4 header (the CNAM field). Purely informational.")]
@@ -46,9 +46,9 @@ public static class WriteTools
             string? description = null) => Guard.Tool(ToolNames.CreatePlugin, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        if (string.IsNullOrWhiteSpace(plugin_name))
-            return "error: plugin_name is empty. Name the plugin to create (a header-only plugin has no record to derive a name from).";
-        return RenderCreatePlugin(svc.CreatePlugin(plugin_name, esl, author, description));
+        if (string.IsNullOrWhiteSpace(patch))
+            return "error: patch is empty. Name the plugin to create (a header-only plugin has no record to derive a name from).";
+        return RenderCreatePlugin(svc.CreatePlugin(patch, esl, author, description));
     });
 
     [McpServerTool(Name = ToolNames.CompactPlugin, Title = "Compact / ESL-renumber a plugin's FormIDs"),

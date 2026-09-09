@@ -116,7 +116,7 @@ public sealed class PatchStemShadowTests
         Assert.False(o.Success);
         Assert.Contains("Foreign Trigger Mod", o.Error);
         Assert.Contains("HcShadowTrigger.esm", o.Error);
-        Assert.Contains("plugin_name=", o.Error);
+        Assert.Contains("patch=", o.Error);
         Assert.Empty(Directory.EnumerateDirectories(w.ModsDir, "houseCARL - HcShadowTrigger*"));
     }
 

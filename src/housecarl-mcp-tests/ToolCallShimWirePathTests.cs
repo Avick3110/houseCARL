@@ -93,30 +93,34 @@ public sealed class ToolCallShimWirePathTests
 
     // ---- the plugin/plugins/plugin_name clique ----------------------------------------------------------
 
-    /// <summary>The plugin clique stays a full set of edges: <c>plugin=</c> binds on a tool whose declared
-    /// parameter is <c>plugin_name</c>.</summary>
+    /// <summary><c>create_plugin</c> takes the 2.0 word <c>patch=</c> for the plugin it creates, so the old
+    /// <c>plugin=</c> spelling is a named unknown rather than a silent rebind: no candidate of the plugin
+    /// clique is declared there any more.</summary>
     [Fact]
-    public void CreatePluginResolvesTheAliasPluginOntoItsOwnPluginNameAndReachesTheBody()
+    public void CreatePluginTakesPatchAndRefusesTheOldPluginSpellingByName()
     {
-        var r = _s.Call(ToolNames.CreatePlugin, """{"plugin":"MyTrigger"}""");
+        var ok = _s.Call(ToolNames.CreatePlugin, """{"patch":"MyTrigger"}""");
+        Assert.False(ok.IsError, ok.Describe());
+        Assert.True(ok.BodyRan, ok.Describe());
 
-        Assert.False(r.IsError, r.Describe());
-        Assert.DoesNotContain("unknown parameter", r.Text, StringComparison.Ordinal);
-        Assert.True(r.BodyRan, r.Describe());
+        var old = _s.Call(ToolNames.CreatePlugin, """{"plugin":"MyTrigger"}""");
+        Assert.True(old.IsError, old.Describe());
+        Assert.Contains("unknown parameter: plugin", old.Text, StringComparison.Ordinal);
     }
 
-    /// <summary>The reverse edge of the same clique: <c>plugin_name=</c> binds on a tool whose declared
-    /// parameter is bare <c>plugin</c>. On <c>compact_plugin</c> the rename also satisfies the required check,
-    /// so reaching the body is itself evidence the rename happened.</summary>
+    /// <summary><c>compact_plugin</c>'s subject is the SOURCE pole, so <c>source=</c> reaches the body and the
+    /// old bare <c>plugin=</c> still renames onto it through the clique's remaining edge.</summary>
     [Fact]
-    public void CompactPluginResolvesTheAliasPluginNameOntoItsOwnPluginAndReachesTheBody()
+    public void CompactPluginTakesSourceAndTheOldPluginSpellingStillRenamesOntoIt()
     {
-        var r = _s.Call(ToolNames.CompactPlugin, """{"plugin_name":"Skyrim.esm"}""");
+        var direct = _s.Call(ToolNames.CompactPlugin, """{"source":"Skyrim.esm"}""");
+        Assert.False(direct.IsError, direct.Describe());
+        Assert.True(direct.BodyRan, direct.Describe());
 
-        Assert.False(r.IsError, r.Describe());
-        Assert.DoesNotContain("unknown parameter", r.Text, StringComparison.Ordinal);
-        Assert.DoesNotContain("required parameter", r.Text, StringComparison.Ordinal);
-        Assert.True(r.BodyRan, r.Describe());
+        var aliased = _s.Call(ToolNames.CompactPlugin, """{"plugin":"Skyrim.esm"}""");
+        Assert.False(aliased.IsError, aliased.Describe());
+        Assert.DoesNotContain("required parameter", aliased.Text, StringComparison.Ordinal);
+        Assert.True(aliased.BodyRan, aliased.Describe());
     }
 
     /// <summary>A stray <c>target=</c> on a tool that has none stays the named unknown WITH the supported list

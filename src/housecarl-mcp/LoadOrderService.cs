@@ -6542,12 +6542,12 @@ public sealed class LoadOrderService : IDisposable
     {
         if (string.IsNullOrWhiteSpace(pluginName))
             return WritePatchBuilder.CreatePluginOutcome.Fail(
-                "plugin_name is required — a header-only plugin has no record to derive a name from, so name it explicitly (e.g. 'Authoria - CraftingCategories').");
+                "patch is required — a header-only plugin has no record to derive a name from, so name it explicitly (e.g. 'Authoria - CraftingCategories').");
 
         var stem = PatchStem(pluginName);
         if (string.IsNullOrWhiteSpace(stem))
             return WritePatchBuilder.CreatePluginOutcome.Fail(
-                $"plugin_name '{pluginName}' has no usable name once path parts and the plugin extension are stripped — give a plain name like 'MyTrigger'.");
+                $"patch '{pluginName}' has no usable name once path parts and the plugin extension are stripped — give a plain name like 'MyTrigger'.");
 
         lock (_writeGate)                                                 // one write at a time, resolve through commit
         {
@@ -6579,7 +6579,7 @@ public sealed class LoadOrderService : IDisposable
                 foreach (var ext in PluginExts)                       // .esp / .esm / .esl — the basename is what binds
                     if (PatchStemShadow.Find(comp, _modsDir, _dataDir, _overwriteDir, stem + ext, active) is { } shadow)
                         return WritePatchBuilder.CreatePluginOutcome.Fail(
-                            PatchStemShadow.Refusal(plugin, shadow, "plugin_name", stem + ext,
+                            PatchStemShadow.Refusal(plugin, shadow, "patch", stem + ext,
                                                     "a header-only trigger needs a UNIQUE basename"));
 
             Directory.CreateDirectory(folder);
