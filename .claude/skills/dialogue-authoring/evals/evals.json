@@ -196,7 +196,7 @@
    "id": "T15",
    "prompt": "my new follower's face is dark grey in game but fine in xEdit",
    "should_trigger": false,
-   "expected_output": "dialogue-authoring is NOT loaded; the query routes to housecarl:facegen-diagnostics.",
+   "expected_output": "dialogue-authoring is NOT loaded; the query routes to housecarl_check findings=[\"facegen\"].",
    "expectations": [
     "with-skill arm: the pick is not dialogue-authoring on at least 2 of 3 runs",
     "with-skill arm: the reasoning names the facegen file layer",

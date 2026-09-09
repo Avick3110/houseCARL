@@ -73,12 +73,12 @@ It can:
   read-only; downloading stays your mod manager's job.
 - Look up **record schemas** (every type Mutagen models) and **Papyrus / SKSE signatures**, author
   **SkyPatcher**, **SPID**, and **KID** distributor files, **author Skyrim dialogue** and **Open Animation
-  Replacer configs**, **author SKSE plugins in C++** (CommonLibSSE-NG),
-  and **diagnose the dark / grey / black-face NPC bug** — through 9 bundled,
+  Replacer configs**, and **author SKSE plugins in C++** (CommonLibSSE-NG) — through 8 bundled,
   namespaced skills (`/housecarl:mutagen-reference`, `/housecarl:papyrus-reference`,
   `/housecarl:skypatcher-authoring`, `/housecarl:spid-authoring`, `/housecarl:kid-authoring`,
-  `/housecarl:dialogue-authoring`, `/housecarl:facegen-diagnostics`,
-  `/housecarl:open-animation-replacer`, `/housecarl:skse-plugin-authoring`).
+  `/housecarl:dialogue-authoring`, `/housecarl:open-animation-replacer`,
+  `/housecarl:skse-plugin-authoring`). The dark / grey / black-face NPC bug is a tool rather than a
+  skill: `housecarl_check findings=["facegen"]` reports it one row per NPC.
 
 Coverage is **reflection-driven**: the set of record types houseCARL understands *is* the set Mutagen
 models, by construction — not a hand-maintained subset.
