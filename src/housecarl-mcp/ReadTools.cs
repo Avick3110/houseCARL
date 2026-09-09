@@ -743,6 +743,9 @@ static class Wire
     /// <summary>Reserve every axis's fixed part — its unconditional lines and its closing disclosure — then render
     /// them all. Two passes, because an axis reserving its own room only when its turn came would find a sibling
     /// had already spent the budget.</summary>
+    internal static void AppendHistogramAxes(StringBuilder sb, BoundedBody body, int rowLimit, params HistogramAxis[] axes)
+        => AppendHistograms(sb, body, rowLimit, axes);
+
     static void AppendHistograms(StringBuilder sb, BoundedBody body, int rowLimit, params HistogramAxis[] axes)
     {
         foreach (var a in axes) body.Reserve(a.Subject, a.TextFixed);
@@ -946,6 +949,11 @@ static class Wire
             {
                 AppendScriptsHead(sb, s.Scripts!);
                 AppendScriptsSection(sb, s.Scripts!, body, histogramLimit);
+            }
+            else if (f == SweepFamily.Facegen)
+            {
+                FaceGenSweepRender.AppendHead(sb, s.FaceGen!);
+                FaceGenSweepRender.AppendSection(sb, s.FaceGen!, body, histogramLimit);
             }
             else
             {

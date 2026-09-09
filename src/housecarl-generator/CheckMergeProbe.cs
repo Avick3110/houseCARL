@@ -176,11 +176,16 @@ public static class CheckMergeProbe
             && dialogue.Unresolved.Count == UnreachableSeeds && dialogue.Resolved.Count() == 1,
             $"topics={dialogue.TopicsFound} findings={dialogue.ProblemsFound} unreachable={dialogue.Unresolved.Count}");
 
+        // The FACEGEN family's fixture, built as a result for the same reason the dialogue one is: this family
+        // joins the VFS to the record winners, and a synthetic order with no baked facegen would render an empty
+        // section that vouches for nothing. The rows are the classes the render has to tell apart.
+        var facegen = FaceGenFixture();
+
         var both = new CheckSweep(Sel("errors", "scripts"), errors, scripts);
         var text = Wire.RenderCheck(both, 0);
         var json = JsonWire.RenderCheck(both, 0);
         // Every registered family at once — what the ALL sentence and the cap ladder are asked about.
-        var all = new CheckSweep(Sel("errors", "scripts", "dialogue"), errors, scripts, dialogue);
+        var all = new CheckSweep(Sel("errors", "scripts", "dialogue", "facegen"), errors, scripts, dialogue, facegen);
         var allText = Wire.RenderCheck(all, 0);
         var allJson = JsonWire.RenderCheck(all, 0);
 
@@ -382,13 +387,15 @@ public static class CheckMergeProbe
                 // TWO registered families the default does not run — the fixture-known count, not Registered.Count-1:
                 // a fourth family landing must turn this red so somebody decides what the default means, rather than
                 // sliding through on arithmetic that agrees with whatever the list happens to hold.
-                && notRun?.GetArrayLength() == 2
+                && notRun?.GetArrayLength() == 3
                 && Str(At(notRun, 0), "family") == "scripts"
                 && Str(At(notRun, 1), "family") == "dialogue"
+                && Str(At(notRun, 2), "family") == "facegen"
                 && Str(At(notRun, 0), "findings") == spelling
                 && Obj(root, "families") is { } defFams
                 && !defFams.TryGetProperty("scripts", out _)
-                && !defFams.TryGetProperty("dialogue", out _),
+                && !defFams.TryGetProperty("dialogue", out _)
+                && !defFams.TryGetProperty("facegen", out _),
                 Trim(defJson));
         }
 
@@ -1599,7 +1606,10 @@ public static class CheckMergeProbe
         //      merged INFO order, went to records project=info_order at the F1 split and is not on this surface,
         //      so a row naming only the sweep sends "why does the wrong line play" somewhere that will not answer.
         var retiredBad = new List<string>();
-        foreach (var f in SweepFamilySelection.Registered)
+        // Only the families that ABSORBED an ancestor tool. A family with no ancestor - facegen, which is new
+        // rather than merged - has no old name for a row to point at, and demanding one would invent a retired
+        // tool that never existed.
+        foreach (var f in new[] { SweepFamily.Errors, SweepFamily.Scripts, SweepFamily.Dialogue })
         {
             var spelling = SweepFamilySelection.Spelling(f);
             var rows = AliasTable.AllRetiredTools
@@ -1620,7 +1630,7 @@ public static class CheckMergeProbe
             retiredBad.Add("housecarl_validate_dialogue has no retired-name row at all");
         else if (!dialogueHint.Contains("info_order", StringComparison.Ordinal))
             retiredBad.Add("the housecarl_validate_dialogue row names no destination for class 8 (the effective merged INFO order), which this surface deliberately does not carry");
-        Arm($"ORCH-EVERY-ABSORBED-ANCESTOR-HAS-A-RETIRED-NAME-ROW: each of the {SweepFamilySelection.Registered.Count} families this surface registers has exactly ONE retired-name row pointing at it, reachable by the ancestor's own name, and the dialogue row names BOTH destinations — the sweep for classes 1-7 and records project=info_order for class 8. Asked off the family registry, so a family added with no row for its ancestor reddens this",
+        Arm($"ORCH-EVERY-ABSORBED-ANCESTOR-HAS-A-RETIRED-NAME-ROW: each of the 3 families this surface ABSORBED has exactly ONE retired-name row pointing at it, reachable by the ancestor's own name, and the dialogue row names BOTH destinations — the sweep for classes 1-7 and records project=info_order for class 8. Asked off the family registry, so a family added with no row for its ancestor reddens this",
             retiredBad.Count == 0,
             retiredBad.Count == 0 ? $"{SweepFamilySelection.Registered.Count} families, {AliasTable.AllRetiredTools.Count} rows in the table"
                                   : string.Join("; ", retiredBad));
@@ -1985,6 +1995,36 @@ public static class CheckMergeProbe
     /// <summary>The double-quote character, for arms that have to spell a caller-facing <c>findings=["x"]</c>
     /// token back and would otherwise read as a wall of escapes.</summary>
     const char QuoteChar = '"';
+
+    /// <summary>The facegen family's fixture: one row of each class the render must tell apart - an absent half,
+    /// a cross-product pair, a stale bake, and an orphaned file that belongs to no NPC.</summary>
+    static FaceGenCheckResult FaceGenFixture()
+    {
+        FaceGenFinding Row(FaceGenFindingClass c, string id, string? mesh, string? tint, string? detail = null) =>
+            new(id, "HcFgNpc" + id[..2], "HcCheckMerge.esp", "HcCheckMerge.esp", mesh, tint,
+                FaceGenCheck.Token(c), FaceGenCheck.Fix(c), detail, mesh is null ? null : "ModA");
+        var rows = new[]
+        {
+            Row(FaceGenFindingClass.TintAbsent, "000801:HcCheckMerge.esp", "ModA (loose)", null),
+            Row(FaceGenFindingClass.MeshAbsent, "000802:HcCheckMerge.esp", null, "ModB (loose)"),
+            Row(FaceGenFindingClass.SplitBake, "000803:HcCheckMerge.esp", "ModA (loose)", "ModB (loose)"),
+            Row(FaceGenFindingClass.StaleBake, "000804:HcCheckMerge.esp", "ModA (loose)", "ModA (loose)",
+                "winner HcCheckMerge.esp disagrees with the bake's own plugin ModA.esp on TintLayers"),
+            Row(FaceGenFindingClass.Inert, "000805:HcCheckMerge.esp", null, null,
+                "no plugin in this order defines this FormID, so no NPC reads this bake"),
+        };
+        var byClass = rows.GroupBy(r => r.Class)
+                          .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        var byMod = rows.Where(r => r.OwningMod is not null)
+                        .GroupBy(r => r.OwningMod!)
+                        .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        return new FaceGenCheckResult(rows, NpcsScanned: 12, NpcsTemplated: 2, FilesSeen: 9,
+                                      TotalFound: rows.Length, NoComparisonPole: 1,
+                                      ByClass: SweepFindings.Histogram(byClass),
+                                      ByOwningMod: SweepFindings.Histogram(byMod),
+                                      CountsOnly: false, ExcludedPlugins: new Dictionary<string, string>(),
+                                      Error: null, Epoch: "e2-facegenfixture", Limit: 1000, WholeOrder: true);
+    }
 
     static SweepFamilySelection Sel(params string[] tokens)
     {

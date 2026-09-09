@@ -448,6 +448,35 @@ internal static class ReadSentences
         "finding is a flag to VERIFY. A script whose .pex is not on disk is reported unverifiable, never passed " +
         "clean.";
 
+    /// <summary>The facegen family's lead when its listing is whole — the same completeness assertion its siblings
+    /// make, in this family's unit: one row per NPC.</summary>
+    [MustState("appear above", "found by this sweep")]
+    internal const string SweepFaceGenAllVisible =
+        " all {0} facegen row(s) found by this sweep appear above.";
+
+    /// <summary>The facegen family's lead when it is not.</summary>
+    [MustState("appear above", "found by this sweep")]
+    internal const string SweepFaceGenVisible =
+        " {0} of the {1} facegen row(s) found by this sweep appear above.";
+
+    /// <summary>The facegen family's listing budget, decomposed against the total the sweep counted. The total is
+    /// never capped, so a short listing with no total beside it would read as the whole answer.</summary>
+    [MustState("limit=", "listing budget")]
+    internal const string SweepFaceGenFindings =
+        " {0} of the {1} finding(s) this sweep found were listed: the listing budget (limit={2}) ran out.";
+
+    /// <summary>The facegen family's honest scope boundary. It reports PROVENANCE — which mod wins each half and
+    /// which plugin wins the record — and never the render, so a clean result is not a promise that a face looks
+    /// right. The not-this line is here too: the classes this family cannot see are named rather than left to be
+    /// mistaken for a clean answer.</summary>
+    [MustState("provenance", "never the render", "purple or white face", "player-only grey", "brown weight face")]
+    internal const string SweepFaceGenBoundary =
+        "reports provenance — which mod wins each half of the bake and which plugin wins the record — and never " +
+        "the render: it cannot read a .dds's pixels, cannot bake geometry (that is the Creation Kit's Ctrl+F4), " +
+        "and a clean row is not a promise the face looks right. NOT this family: a purple or white face (a missing " +
+        "texture), player-only grey (RaceMenu/SKEE runtime state), a brown weight face (save-baked weight), or an " +
+        "appearance distributed at runtime by SPID. See docs/facegen.md for the causes behind each class.";
+
     /// <summary>Which families this response answers for, composed from the outcome rather than the selection.
     /// With <c>findings=</c> omitted the sweep runs the errors family alone — an unscoped scripts sweep takes
     /// minutes and an unscoped dialogue sweep is refused outright — so the narrowed default has to be stated

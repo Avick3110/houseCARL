@@ -122,6 +122,25 @@ internal static class SweepDemand
             }
         }
 
+        if (s.FaceGen is { Error: null } fg)
+        {
+            if (fg.CountsOnly)
+                foreach (var a in FaceGenSweepRender.Axes(fg))
+                {
+                    reserved += a.TextFixed;
+                    Rows(t, a, histogramLimit);
+                }
+            else
+            {
+                t.Declare(SweepSubject.FaceGenRows);
+                foreach (var row in fg.Findings)
+                {
+                    if (t.Done(SweepSubject.FaceGenRows)) break;
+                    t.Add(SweepSubject.FaceGenRows, FaceGenSweepRender.ComposeRow(row).Length);
+                }
+            }
+        }
+
         if (s.Dialogue is { Error: null } d2)
         {
             if (!d2.CountsOnly)
@@ -275,6 +294,28 @@ internal static class SweepDemand
                     t.Add(SweepSubject.ScriptRecords,
                           JsonWire.ScriptRecordCostFor(rec, depths.ScriptRecords, records > 0));
                     records++;
+                }
+            }
+        }
+
+        if (s.FaceGen is { Error: null } fg)
+        {
+            if (fg.CountsOnly)
+                foreach (var a in FaceGenSweepRender.Axes(fg))
+                {
+                    if (a.Rows is not null) reserved += JsonWire.HistogramFrameCostFor(a, depths.AxisFrame);
+                    JsonRows(t, a, histogramLimit, depths);
+                }
+            else
+            {
+                t.Declare(SweepSubject.FaceGenRows);
+                int rows = 0;
+                foreach (var row in fg.Findings)
+                {
+                    if (t.Done(SweepSubject.FaceGenRows)) break;
+                    t.Add(SweepSubject.FaceGenRows,
+                          FaceGenSweepRender.RowCostFor(row, depths.FaceGenRows, rows > 0));
+                    rows++;
                 }
             }
         }

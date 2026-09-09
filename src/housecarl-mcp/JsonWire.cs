@@ -15,7 +15,7 @@ namespace HousecarlMcp;
 /// malformed JSON. The accounting rides inside the document, so JSON is never a silently degraded mode.</para></summary>
 static class JsonWire
 {
-    static readonly JsonWriterOptions Opts = new() { Indented = true };
+    internal static readonly JsonWriterOptions Opts = new() { Indented = true };
 
     /// <summary>The options every json response is written under, exposed so <see cref="CheckAccounting"/> measures
     /// its reserve against the same encoding it will be written in — measuring unindented what is written indented
@@ -1768,6 +1768,8 @@ static class JsonWire
         internal int DialogueSeeds => Section + 1;
         /// <summary>Elements of a seed's <c>topics</c>.</summary>
         internal int DialogueTopics => Section + 3;
+        /// <summary>Elements of the facegen family's <c>findings</c>.</summary>
+        internal int FaceGenRows => Section + 1;
     }
 
     /// <summary>What ONE UNIT costs the finished document, measured where it will land.
@@ -2020,6 +2022,11 @@ static class JsonWire
                 WriteScriptsHead(w, s.Scripts!);
                 WriteScriptsSection(w, s.Scripts!, body, histogramLimit);
             }
+            else if (f == SweepFamily.Facegen)
+            {
+                FaceGenSweepRender.WriteHead(w, s.FaceGen!);
+                FaceGenSweepRender.WriteSection(w, s.FaceGen!, body, histogramLimit);
+            }
             else
             {
                 DialogueSweepRender.WriteHead(w, o);
@@ -2187,6 +2194,12 @@ static class JsonWire
     /// already written by the time this axis's own rows are tested, so an axis over-reserves against itself by that
     /// much. Over-reserving costs characters; under-reserving is what this exists to stop, so the simpler
     /// arithmetic is deliberately taken in the safe direction.</para></summary>
+    /// <summary>The same two-pass axis write, keyed off the axes' own subjects so a family that already holds
+    /// <see cref="HistogramAxis"/> values does not spell its json field names a second time.</summary>
+    internal static void WriteHistogramAxes(Utf8JsonWriter w, BoundedBody? body, int rowLimit, params HistogramAxis[] axes)
+        => WriteHistograms(w, body, rowLimit, new JsonUnitDepths(w.CurrentDepth),
+                           axes.Select(a => (AxisJsonName(a.Subject), a.Subject, a.Rows)).ToArray());
+
     static void WriteHistograms(Utf8JsonWriter w, BoundedBody? body, int rowLimit, JsonUnitDepths depths,
                                 params (string Name, SweepSubject Subject, IReadOnlyList<SweepCount>? Rows)[] axes)
     {
@@ -3232,6 +3245,8 @@ static class JsonWire
         SweepSubject.HistogramByTarget => "dangling_by_target_plugin",
         SweepSubject.HistogramBySource => "dangling_by_source_plugin",
         SweepSubject.HistogramByProperty => "unbound_by_property",
+        SweepSubject.FaceGenClassRows => "facegen_by_class",
+        SweepSubject.FaceGenModRows => "facegen_by_owning_mod",
         _ => s.ToString(),
     };
 }

@@ -27,6 +27,7 @@ internal sealed record CheckSweep(
     ErrorCheckResult? Errors = null,
     ScriptCheckResult? Scripts = null,
     DialogueCheckResult? Dialogue = null,
+    FaceGenCheckResult? FaceGen = null,
     string? SharedInputError = null,
     OrderStamp? Order = null,
     string? OrderSeamError = null)
@@ -38,13 +39,14 @@ internal sealed record CheckSweep(
         SweepFamily.Errors => Errors?.Error,
         SweepFamily.Scripts => Scripts?.Error,
         SweepFamily.Dialogue => Dialogue?.Error,
+        SweepFamily.Facegen => FaceGen?.Error,
         _ => null,
     };
 
     /// <summary>The epoch any family stamped, for a refusal render. Any family will do: a call whose families
     /// stamped different builds refuses through <see cref="OrderSeamError"/> and never reaches here. The dialogue
     /// family is read here too, so a dialogue-only refusal is stamped like its siblings' are.</summary>
-    internal string? Epoch => Errors?.Epoch ?? Scripts?.Epoch ?? Dialogue?.Epoch;
+    internal string? Epoch => Errors?.Epoch ?? Scripts?.Epoch ?? Dialogue?.Epoch ?? FaceGen?.Epoch;
 
     /// <summary>The plugins the order this call answered from had LOST to a load failure, captured once before any
     /// family was dispatched and checked afterwards against every family's own stamp, so this really is the build
@@ -59,6 +61,7 @@ internal sealed record CheckSweep(
         SweepFamily.Errors => Errors is { Error: null },
         SweepFamily.Scripts => Scripts is { Error: null },
         SweepFamily.Dialogue => Dialogue is { Error: null },
+        SweepFamily.Facegen => FaceGen is { Error: null },
         _ => false,
     };
 
@@ -71,6 +74,7 @@ internal sealed record CheckSweep(
     {
         SweepFamily.Errors => Errors?.ExcludedPlugins,
         SweepFamily.Scripts => Scripts?.ExcludedPlugins,
+        SweepFamily.Facegen => FaceGen?.ExcludedPlugins,
         _ => null,
     };
 }

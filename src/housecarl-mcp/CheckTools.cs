@@ -34,15 +34,17 @@ public static class CheckTools
          "Read-only; writes nothing. Resolves against the load-order WINNERS, like every other read. " +
          "ONE surface: which FAMILIES run (findings=) x what they are run over (the SCOPE) x how it reads back " +
          "(TRANSPORT). " +
-         "FAMILIES: 'errors' (load-order integrity), 'scripts' (VMAD script-property binding) and 'dialogue' " +
-         "(dialogue graph validation over SEEDED topics and quests). findings= takes whole families or the classes " +
+         "FAMILIES: 'errors' (load-order integrity), 'scripts' (VMAD script-property binding), 'dialogue' " +
+         "(dialogue graph validation over SEEDED topics and quests) and 'facegen' (the dark-face join: which mod " +
+         "wins each NPC's head .nif, which wins its face .dds, which plugin wins the record). findings= takes " +
+         "whole families or the classes " +
          "inside them, and carries what each family reports, what it does NOT, and what the default runs — omitted, " +
          "it runs the errors family alone. " +
          "SCOPE: the two SWEPT families share one — plugins= (off-order files included) / types= / formids= / " +
          "editorid_contains= / exclude=, plus property_contains= on the scripts family. The dialogue family is " +
          "SEEDED instead: seeds= names what to validate, and no plugin scope narrows it. Narrowing narrows the " +
          "COUNTS too: they are always the counts for the scope actually swept, and the response says so. " +
-         "TRANSPORT: counts_only= / format= / limit= / max_chars=. Results cap at limit= and max_chars, both " +
+         "TRANSPORT: counts_only= / format= / limit= / max_chars= / to_file=. Results cap at limit= and max_chars, both " +
          "overruns explicit and per family: the response states how much of each family's listing it carries, why " +
          "the rest is absent, and which knob moves it. " +
          "NOT HERE: the effective merged INFO order — the sequence the game walks, which line MOVED and which " +
@@ -84,9 +86,10 @@ public static class CheckTools
              "counts as the vanilla BASELINE the errors family splits out (see limit=) — that is always Mutagen's own base-master set.")]
             string[]? exclude = null,
         [Description("Optional. Which finding FAMILIES and CLASSES to look for, in one vocabulary. Families: " +
-             "'errors', 'scripts', 'dialogue'. Classes inside them: 'dangling', 'missing_masters' (errors); " +
+             "'errors', 'scripts', 'dialogue', 'facegen'. Classes inside them: 'dangling', 'missing_masters' (errors); " +
              "'unbound_object' (HIGH — the silent-None footgun), 'unbound_scalar' (MEDIUM), 'unbound' (both), " +
-             "'bound_null' (advisory) (scripts). The DIALOGUE family has no class token — it narrows by seeds=, " +
+             "'bound_null' (advisory) (scripts); 'tint_absent', 'mesh_absent', 'bake_absent', 'split_bake', " +
+             "'stale_bake', 'family_split', 'foreign_index', 'inert' (facegen). The DIALOGUE family has no class token — it narrows by seeds=, " +
              "which it requires. A family token means every class in it; a class token runs its family narrowed to " +
              "that class; naming several runs each. DEFAULT (omitted) = the ERRORS family alone, and the response " +
              "STATES which families ran, which registered families did not, and the exact findings= spelling that " +
@@ -140,7 +143,29 @@ public static class CheckTools
              "the running game can — and it does not check lip-sync or audio content, so 'checks passed' never " +
              "reads as 'this will play'. The dialogue family FLAGS, never silently rewrites: a stale .seq, a " +
              "blank subtype marker or a missing CNAM/ENAM is reported for you to fix, and nothing in the checked " +
-             "plugin is touched.")]
+             "plugin is touched. " +
+             // ---- family: facegen (the dark-face join) -------------------------------------------------
+             "FACEGEN FAMILY - the dark/grey-face diagnosis, as ONE row per NPC: its formid, editorid, defining " +
+             "master, RECORD winner, MESH winner (provider + loose/BSA), TINT winner, the mismatch CLASS and a fix " +
+             "sentence. A dark face is the DESYNC between two independent precedences - the MO2 VFS decides the two " +
+             "baked files, plugin load order decides the record - which is exactly why xEdit shows no conflict. " +
+             "CLASSES: 'tint_absent' (the mesh wins, the .dds has no provider anywhere), 'mesh_absent' (the " +
+             "mirror), 'bake_absent' (the NPC needs a bake and has NEITHER half), 'split_bake' (both win, from " +
+             "different products), 'stale_bake' (a clean same-source pair whose WINNING record disagrees with the " +
+             "facegen owner's plugin on the seven face fields; HairColor alone does not touch the bake and is not " +
+             "a flag), 'family_split' (both win, from one product's two mods or a repack of its own archive - " +
+             "BENIGN, counted in the header and listed only under its own class token), 'foreign_index' (a " +
+             "same-local-id file carrying a different load-order index byte, inferred from the file itself), " +
+             "'inert' (the key resolves to a placed reference, to no record, to a plugin not in the order, or the " +
+             "filename is malformed - named and dropped, not a face bug). POPULATION is the UNION: every NPC_ in " +
+             "scope that needs a bake, plus every facegen file on disk whose key resolves to nothing. An NPC whose " +
+             "Template carries the Traits flag inherits its appearance and has no bake of its own - it is EXCLUDED " +
+             "and counted, never flagged. The file half (inert/foreign_index) is reported only on an UNSCOPED " +
+             "sweep: under plugins= a file for an NPC outside the scope is out of scope, not orphaned. BOUNDARY: " +
+             "it reports PROVENANCE, never the render - it cannot read a .dds's pixels and cannot bake geometry " +
+             "(Ctrl+F4), so a clean row is not a promise the face looks right; and NOT this family: a purple or " +
+             "white face (a missing texture), player-only grey (RaceMenu/SKEE), a brown weight face (save-baked " +
+             "weight), or an appearance distributed at runtime by SPID. Causes and repairs: docs/facegen.md.")]
             string[]? findings = null,
         [Description("Optional. true = return ONLY the header totals plus each running family's histograms, with no per-plugin or per-record listing. Errors: dangling-by-TARGET-plugin (which plugin the broken refs point INTO — the one absent dependency behind a wall of findings) and dangling-by-SOURCE-plugin (which plugin they come FROM — how much is vanilla baseline and how much your mods introduced). Scripts: unbound-by-PROPERTY-NAME. Dialogue: the totals and the unreachable-seed roster alone, no per-topic blocks — a seed nobody could reach bounds the answer rather than sitting inside it, so this does not silence it. The cheap before/after-a-fix comparison; totals stay exact (never limit-capped) and limit= caps the histogram ROWS instead.")]
             bool counts_only = false,
@@ -175,6 +200,15 @@ public static class CheckTools
              "graph walk across every touching plugin, and the order this bound was measured on carries 82,343 " +
              "dialogue topics). limit= caps how many seeds one call expands.")]
             string[]? seeds = null,
+        [Description("Optional. TRANSPORT: write the COMPLETE findings of every family that ran to this ABSOLUTE " +
+             ".jsonl path as an artifact (line 1 = manifest) and render only the manifest inline - the same " +
+             "convention " + ToolNames.Records + " uses, so an artifact re-enters via formids=[\"@<path>\"]. ONE " +
+             "file with a 'family' and a 'class' column, not one per family: a merged call's findings are one " +
+             "answer, and a column a family does not use is null. The rows are the SWEEP's findings, not the " +
+             "render's, so nothing is missing because the inline body ran out of characters; what limit= already " +
+             "cut is cut here too, and the manifest says so by carrying total above row_count. Refused with " +
+             "counts_only=true, which returns the histograms and no rows.")]
+            string? to_file = null,
         [Description("Optional. Max characters before the response stops with an explicit notice. 0 = the server default (~80k). The budget is DIVIDED among the families that ran and their parts, not spent in series — a family that renders second does not inherit what the first one left over. Raise it for a quest that owns many topics.")]
             int max_chars = 0) => Guard.Tool(ToolNames.Check, () =>
     {
@@ -211,6 +245,10 @@ public static class CheckTools
             scripts = svc.ValidateScripts(plugins, lim, formids, editorid_contains,
                                           types, property_contains, SweepFindings.Tokens(selection.ScriptClasses),
                                           counts_only, exclude, offOrderMemo);
+        FaceGenCheckResult? facegen = null;
+        if (selection.Ran.Contains(SweepFamily.Facegen))
+            facegen = svc.CheckFaceGen(plugins, lim, formids, editorid_contains, types,
+                                       FaceGenTokens(selection.FaceGenClasses), counts_only, exclude, offOrderMemo);
         DialogueCheckResult? dialogue = null;
         if (selection.Ran.Contains(SweepFamily.Dialogue))
             // Its own scope, not the plugins= list: this family selects records, not plugins, so handing it
@@ -229,13 +267,39 @@ public static class CheckTools
                   $"epoch={familyEpoch} when the {family} family answered) — the response would describe two " +
                   "builds. Retry the call."
                 : null;
-        if ((Seam(errors?.Epoch, "errors") ?? Seam(scripts?.Epoch, "scripts")) is { } seam)
+        if ((Seam(errors?.Epoch, "errors") ?? Seam(scripts?.Epoch, "scripts")
+             ?? Seam(facegen?.Epoch, "facegen")) is { } seam)
         {
             var torn = new CheckSweep(selection, OrderSeamError: seam);
             return json ? JsonWire.RenderCheck(torn, max_chars, lim) : Wire.RenderCheck(torn, max_chars, lim);
         }
 
-        var sweep = new CheckSweep(selection, errors, scripts, dialogue, Order: order);
+        var sweep = new CheckSweep(selection, errors, scripts, dialogue, facegen, Order: order);
+
+        // to_file=: the rows ARE the file, so the response is the manifest and each family's boundary. Refused
+        // beside counts_only=, which returns the histograms and no rows for the file to hold.
+        if (to_file?.Trim() is { Length: > 0 } path)
+        {
+            if (counts_only)
+                return Wire.Refuse(json, "error: counts_only= returns the histograms with no findings, and to_file= "
+                                       + "writes the findings - the two contradict; drop one.");
+            var query = new[]
+            {
+                new KeyValuePair<string, string>("findings", string.Join(",", selection.Ran.Select(SweepFamilySelection.Token))),
+                new KeyValuePair<string, string>("plugins", plugins is { Length: > 0 } ? string.Join(",", plugins) : "<whole order>"),
+                new KeyValuePair<string, string>("limit", lim.ToString()),
+            };
+            var (spill, artErr) = CheckArtifact.Write(sweep, path, query);
+            if (artErr is not null) return Wire.Refuse(json, "error: " + artErr);
+            return CheckArtifact.RenderManifestOnly(sweep, spill!, json);
+        }
+
         return json ? JsonWire.RenderCheck(sweep, max_chars, lim) : Wire.RenderCheck(sweep, max_chars, lim);
     });
+
+    /// <summary>The facegen class tokens a parsed selection spells, so the tool hands the service the same
+    /// vocabulary a caller writes rather than a second representation of it.</summary>
+    static string[] FaceGenTokens(FaceGenFindingClass c)
+        => c == FaceGenFindingClass.All ? Array.Empty<string>()
+         : FaceGenCheck.Registered.Where(r => c.HasFlag(r)).Select(FaceGenCheck.Token).ToArray();
 }
