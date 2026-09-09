@@ -149,6 +149,9 @@ public static class CheckTools
         [Description("Optional. Max findings to list per family (default 1000). The TRUE totals are always " +
              "reported; over the cap the response says so, and for the errors family says how many plugins lost " +
              "entries, names the ones that lost the most (a count each), and states how many it did not name. " +
+             "It is ONE budget per family, spent in the order the records stream — so under a MULTI-TYPE types= " +
+             "scope it can be spent entirely on the first type and never reach the second. The response says so " +
+             "whenever the budget dropped anything: a type absent from the listing is UNLISTED, not clean. " +
              "BASELINE (errors family): the base-game masters carry permanent vanilla dangling refs no load order " +
              "can fix, so the response splits them out of the total and spends limit= on every other plugin FIRST " +
              "— vanilla cannot crowd mod findings out of the listing. Master-table findings and unverifiable " +

@@ -17,7 +17,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `housecarl_records` takes.** One type is a set of one, so `types=["Npc"]` sweeps what `type="Npc"` swept; a set
   sweeps the union of its types in one pass and merges the findings, and the response's narrowing line names every
   type in it. An unknown type is still refused by name, and the cost is what the parameter says it is: the scope is
-  applied at the record stream, so the types you did not name cost nothing.
+  applied at the record stream, so the types you did not name cost nothing. A BLANK entry in a type set is refused
+  saying it is blank, on `housecarl_check` and `housecarl_records` alike; an empty or omitted set is the separate
+  thing it has always been (no narrowing). And because `limit=` is one listing budget spent in the order the types
+  stream, a cut listing under a multi-type scope now says which order it was spent in: a type absent from it is
+  unlisted, not clean.
 - **The note a write emits when a link target's plugin cannot be read now names what it counts: the distinct
   records the write links to in that plugin.** The values a write's link check needs are enumerated by the same
   schema walk that does the checking, and two slots naming one record are one record here. What the note says
