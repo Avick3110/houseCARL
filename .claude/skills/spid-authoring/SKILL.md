@@ -81,8 +81,10 @@ Read grammar-core plus the one or two files you need — don't bulk-load everyth
      meant for Count after five. Leave an unused middle section blank (`||`) or `NONE`; a trailing
      unused section can be dropped.
    - Combine filters per `references/grammar-core.md`: **OR within a section, AND between
-     sections**, **exclusions (`-X`) always AND**. For a *union* of groups, write multiple lines
-     for one form.
+     sections**, **exclusions (`-X`) always AND**. A union of groups **in the same section is a comma
+     list on one line** — `Form = 0x123||FactionA,FactionB` is "in A **or** in B", one line, because
+     within a section commas already mean OR. Write multiple lines only when the union spans
+     *different* sections, which a single line cannot express: those AND together.
 
 4. **Set Count / Index / Chance** if needed (`references/grammar-core.md`): item count or `min-max`
    range; zero-based package index; package-list type `0`–`4`; a `0`–`100` chance (default 100).
@@ -122,9 +124,14 @@ A SPID line is written blind unless you measure the population first. Three chec
 
 1. **Size the group the filter names**, before composing: `housecarl_records` with `types`, a
    `where` predicate for the faction or keyword, and `counts_only=true` — the cheap census. A
-   faction or keyword test is one quantified step with a link step
-   (`Factions[*any].Faction->editorid = BanditFaction`); resolve the field path with
-   `housecarl:mutagen-reference` rather than guessing it.
+   faction or keyword test is one quantified step, and it takes either spelling: the link step
+   (`Factions[*any].Faction->editorid = BanditFaction`), which resolves the target record's EditorID,
+   or the **FormLink wire form** (`Factions[*any].Faction = 01BCC0:Skyrim.esm`), which compares the
+   link itself. Prefer the wire form when you already hold the FormID — it needs no second
+   resolution — and the link step when you only know the EditorID. Either way, resolve the field path
+   with `housecarl:mutagen-reference` rather than guessing it. For a **union** of groups, one call
+   does it: a comma list inside the predicate (`Factions[*any].Faction in [01BCC0:Skyrim.esm,
+   0267BE:Skyrim.esm]`) censuses both at once, where one predicate per group needs a call each.
 2. **Count how many of those are on a PC level multiplier**, when a Level Filter is in play:
    `housecarl_records` with the same `types`, check 1's predicate **and**
    `"Configuration.Level.LevelMult >= 0"` together in `where`, and `counts_only=true`. `where`
@@ -162,6 +169,17 @@ Read the installed version before relying on a dated feature: `housecarl_skse` w
 manifest declares — name, author, version — without loading it. That is what the file declares, not
 what it does; treat it as the version, not as proof of behaviour.
 
+**When the DLL and MO2's `meta.ini` disagree, trust neither silently — report both.** They answer
+different questions: the DLL manifest is what the binary the game loads declares about itself, and
+`meta.ini` is what the mod manager recorded about the download it installed. They can differ for
+ordinary reasons — a mod page version that is not the plugin version, a manual update over an
+existing mod, a repack — and neither is a lie. Which to believe is **unverified**, and this is a
+standing houseCARL issue (#667), observed as `housecarl_skse` saying 7.0.0 against a `meta.ini`
+of 7.3.1.0 for the same install. So: quote both sources with their names, and when a feature gate
+turns on the answer, gate on the **lower** of the two — that is the version whose features you can
+count on either way. What would settle it is reading the DLL's own version resource directly and
+comparing it against both.
+
 ## Common mistakes, and the rule that replaces each
 
 - **Count the pipes before you save.** The sections are positional; a chance written one pipe early
@@ -188,7 +206,10 @@ what SPID looked up; only a live actor shows what SPID applied.
 - **SPID does not distribute to the player.** The on-load path is gated on an explicit `!IsPlayer()`
   check and the other paths into `Distribute()` exclude the player by their own guards, so asserting
   on `Game.GetPlayer()` reports failure for a rule that is working perfectly. No filter is needed and
-  none exists — sample NPCs instead (`references/grammar-core.md` §3).
+  none exists — sample NPCs instead (`references/grammar-core.md` §3). A written-out player
+  exclusion, `-0x7~Skyrim.esm`, is **legal but inert**: it parses as an ordinary Form exclusion and
+  changes nothing, because the player was never in the set. Leave it out rather than carrying a term
+  that reads like it is doing work; if it is already there, say it is harmless, not wrong.
 - **A newly added rule reaches old saves, but not mid-session.** SPID distributes from scratch each
   launch and writes nothing into the save, so actors in a pre-existing save do pick up a rule added
   afterwards. The INIs are read **once per game launch**, though: a rule added while the game runs

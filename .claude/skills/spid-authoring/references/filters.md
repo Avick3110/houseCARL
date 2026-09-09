@@ -182,8 +182,14 @@ into the range and loses it when it falls out. That pass is restricted to PC-lev
 adds re-evaluation to an already-distributed population, it does not shrink the population the line
 reached in the first place.
 
-**Why it matters in numbers.** On a heavily overhauled order the two populations are nowhere near
-each other — a census of one live load order (`housecarl_records`, `counts_only=true`) found 17 of
+**Why it matters in numbers.** These numbers are **instance-derived**: they were measured once, on
+one heavily overhauled 3,801-plugin order, with `housecarl_records` at a stamped epoch. They are here
+to show the *shape* of the gap — hundreds-fold, not a rounding error — and nothing else. They are not
+a constant, not a baseline for another order, and not a number to quote as a finding; a later census
+of the same order, on a differently-cut group, returned 2,249 / 155 / 917. Measure your own order at
+the epoch you are working against, and quote that.
+
+On such an order the two populations are nowhere near each other — that census found 17 of
 24,782 bandit-faction NPCs on a PC level multiplier, against 4,040 matching the line's own level
 bound; that same order carries 963 PC-level-mult NPC records in total, across every faction.
 Reading the filter as "auto-levelled NPCs only" understates the reach by a factor of hundreds there.
