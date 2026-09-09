@@ -13,6 +13,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **The `dialogue-authoring` skill is gone; seven skills ship.** It tied its no-skill control on the September
+  behavioural gate, so the dialogue tools are the whole surface now. What it held that was measured in game
+  moves to `docs/dialogue.md`: which topic a generic greeting enters is decided by quest priority across quests
+  before intra-topic order, so a gate that always passes replaces the NPC's whole greeting pool; and a
+  re-listed INFO — any override of an existing one, including one that only adds a condition — falls to the
+  bottom of the merged topic order unless it carries `PreviousDialog` naming the line above it, read from
+  `project={"form":"info_order"}`. That page also names the `DialogBranch.Flags` default and the two lanes that
+  cannot see an unenabled plugin.
 - **The `mutagen-reference` schema reference now reports a record-identity field as not writable.** A field
   marked `id` — `FormKey` on a record, and `ModKey` / `Master` on the `SkyrimMod` and `MasterReference`
   structs — is refused by the write pre-flight whether or not the library exposes a setter for it. The two
