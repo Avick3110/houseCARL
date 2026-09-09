@@ -133,9 +133,12 @@ public static class ConflictDiffProbe
         // ---- I (PR-G, item 4.3): a NULLABLE FORMLINK the contributor (master) doesn't carry but the winner
         //      does. The empirically-confirmed render is "SharedCrimeFactionList: ABSENT here (winner has …)" —
         //      a FIRST-CLASS absent state, NOT the pre-fix phantom "=(absent) (winner …)" value delta. The null
-        //      formlink reads through the read engine's "(absent)" sentinel; the symmetric "(null link)"
-        //      sentinel (a present-but-FormKey.Null link) is handled identically by construction
-        //      (IsAbsentSentinel covers both). ----
+        //      formlink reads through the read engine's "(absent)" sentinel, as does "(null link)" (a link with
+        //      no target) — IsAbsentSentinel covers both. It does NOT cover "(null link, subrecord present)": a
+        //      nullable link whose subrecord is on the record carrying zero is a carried fact, so it deltas
+        //      against a side carrying nothing rather than collapsing (the decision lives on
+        //      FieldsDiff.IsAbsentSentinel; measured by PresentNullLinkRenderTests). This fixture is
+        //      Mutagen-authored, so its links carry the ABSENT shape and never reach that branch. ----
         var dI = DiffOf(svc, resolver, fI.FormKey);
         Check("I: an absent nullable formlink renders as a FIRST-CLASS ABSENT state, not a phantom value delta",
               dI.Complete
