@@ -43,6 +43,13 @@ Match specific records (or records *associated* with another form):
 - **EditorID** — `MyAwesomeSwordID`.
 - **Plugin name** — `MyMod.esp` matches **all items of that type defined in the plugin** (`[desc]`
   "To get all items in a mod: `MyAwesomeSwords.esp`"). Combine several: `ModA.esp,ModB.esp`.
+  **Defining plugin or winning plugin? — unverified.** The description says "defined in", and that is
+  the reading to compose against: `-Skyrim.esm` excludes every record whose FormID belongs to
+  `Skyrim.esm`, whoever overrides it. The other reading — the plugin that wins the record at runtime
+  — gives a different set whenever a patch overrides a master's records, and on a heavily-patched
+  order the two differ by a lot. Nothing in this corpus settles it; KID's own source would, at the
+  point where it turns a plugin-name filter into a form set. Until it is checked, say which reading
+  your count assumes and give the other number when the two diverge.
 
 ### Type-specific Form filters [desc]
 
@@ -89,6 +96,15 @@ into the requirement set (so `ArmorHeavy+ArmorGauntlet` is one requirement-pair)
 the **first character** of their term. Wildcards go into a strings-only bucket (they are substring
 tests, not resolved to forms).
 
+**Which channels a wildcard tests.** A `*` term is a String filter, so it is a substring test over
+§1's string channels — item name, effect archetype, actor value name, nif path — and nothing else.
+The strings-only bucket is `[source]`: a wildcard is never resolved to a form, so `*Iron` cannot test
+a keyword *record*, and `*` before a FormID, EditorID or plugin name matches nothing. The table's
+"name/keyword" wording above is the Nexus description's; whether the item's own keyword EditorIDs are
+one of the compared strings is **unverified** — §1's channel list, also from the description, does not
+include them. KID's source at the wildcard comparison would settle it. Compose as if name is the
+channel that matters, and say so when a count rests on it.
+
 **Evaluation order [desc]:** `Requirements → Exclusions → Matches → Wildcards`.
 *(The description prints "3. Matches / 3. Wildcards" — a numbering typo; Wildcards evaluate last.)*
 
@@ -123,4 +139,9 @@ Keyword = SpellTomeDestruction|Book|NONE|S,20
 
 ;every item sharing a mesh path
 Keyword = SteelMace|Weapon|*steelmace.nif
+
+;exclusion-only filters, then a trait: every poison NOT defined in Skyrim.esm
+;the filters section carries only a -exclusion (no positive term is required), and the
+;trait narrows what is left — this is the shape a "everything except vanilla" job takes
+Keyword = MyModdedPoisonTag|Potion|-Skyrim.esm|P
 ```

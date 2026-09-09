@@ -19,95 +19,104 @@ section on them is ignored. **[source]**
 **Trait classes in this file:** Armor · Weapon · Ammo · Magic Effect · Potion · Ingredient · Book ·
 Soul Gem · Spell / Enchantment / Scroll (shared) · Furniture · Worked examples.
 
+**The record field column.** Each table below names the record field the trait reads, so a census can
+be written without a second lookup — that is the field path to hand `housecarl_records`'s `where=`.
+The field names are the schema's, read off `housecarl:mutagen-reference`; KID's own source is not
+bundled here, so the column says *which field holds that property*, not that KID's C++ reads it by
+that name. Where the schema holds no single field for a trait the column says so rather than guessing
+a path — resolve those against the record with `housecarl:mutagen-reference` before you census them.
+The spellings differ in places: KID writes `HandToHandMelee` where the schema writes `HandToHand`, so
+a `where=` clause uses the schema's spelling and the INI line uses KID's.
+
 ---
 
 ## Armor (ARMO)
 
-| Trait | Meaning |
-|---|---|
-| `E` / `-E` | enchanted / not enchanted |
-| `T` / `-T` | templated / not templated |
-| `AR(min/max)` | armor-rating range (float) |
-| `W(min/max)` | weight range (float) |
-| `30`–`61` | a single number = **biped body slot** (slot N → bit `1<<(N-30)`) |
-| `HEAVY` / `LIGHT` / `CLOTHING` | armor class |
+| Trait | Meaning | Record field |
+|---|---|---|
+| `E` / `-E` | enchanted / not enchanted | `ObjectEffect` set / unset |
+| `T` / `-T` | templated / not templated | `TemplateArmor` set / unset |
+| `AR(min/max)` | armor-rating range (float) | `ArmorRating` |
+| `W(min/max)` | weight range (float) | `Weight` |
+| `30`–`61` | a single number = **biped body slot** (slot N → bit `1<<(N-30)`) | `BodyTemplate.FirstPersonFlags` (a bit-flag enum, `BipedObjectFlag`) |
+| `HEAVY` / `LIGHT` / `CLOTHING` | armor class | `BodyTemplate.ArmorType` — `HeavyArmor` / `LightArmor` / `Clothing` |
 
 ## Weapon (WEAP)
 
-| Trait | Meaning |
-|---|---|
-| `E` / `-E` | enchanted / not enchanted |
-| `T` / `-T` | templated / not templated |
-| `W(min/max)` | weight range (float) |
-| `D(min/max)` | damage range (float) |
-| animation type | one of: `HandToHandMelee` `OneHandSword` `OneHandDagger` `OneHandAxe` `OneHandMace` `TwoHandSword` `TwoHandAxe` `Bow` `Staff` `Crossbow` |
+| Trait | Meaning | Record field |
+|---|---|---|
+| `E` / `-E` | enchanted / not enchanted | `ObjectEffect` set / unset |
+| `T` / `-T` | templated / not templated | `Template` set / unset (not `TemplateArmor` — WEAP's is plain `Template`) |
+| `W(min/max)` | weight range (float) | `BasicStats.Weight` |
+| `D(min/max)` | damage range (float) | `BasicStats.Damage` |
+| animation type | one of: `HandToHandMelee` `OneHandSword` `OneHandDagger` `OneHandAxe` `OneHandMace` `TwoHandSword` `TwoHandAxe` `Bow` `Staff` `Crossbow` | `Data.AnimationType` — same spellings **except** KID's `HandToHandMelee`, which the schema calls `HandToHand` |
 
 ## Ammo (AMMO)
 
-| Trait | Meaning |
-|---|---|
-| `B` / `-B` | is a bolt / is not a bolt (i.e. arrow) |
-| `D(min/max)` | damage range (float) |
+| Trait | Meaning | Record field |
+|---|---|---|
+| `B` / `-B` | is a bolt / is not a bolt (i.e. arrow) | `Flags`, the `NonBolt` bit — **inverted**: `B` is `NonBolt` *clear*, `-B` is `NonBolt` *set* |
+| `D(min/max)` | damage range (float) | `Damage` |
 
 ## Magic Effect (MGEF)
 
-| Trait | Meaning |
-|---|---|
-| `H` / `-H` | hostile / not hostile |
-| `DISPEL` / `-DISPEL` | has / lacks the *Dispel With Keywords* flag |
-| `D(value)` | delivery type — `value-tables.md` → Delivery |
-| `CT(value)` | casting type — `value-tables.md` → Casting Type |
-| `R(value)` | resistance actor value (numeric) — `value-tables.md` → Resistances |
-| `<av>(min/max)` | **school + skill range** — `<av>` is the school's actor-value number, `min/max` the skill level. `20(0/25)` = all novice (0–25) Destruction effects. Schools in `value-tables.md`. |
+| Trait | Meaning | Record field |
+|---|---|---|
+| `H` / `-H` | hostile / not hostile | `Flags` has `Hostile` |
+| `DISPEL` / `-DISPEL` | has / lacks the *Dispel With Keywords* flag | `Flags` has `DispelWithKeywords` |
+| `D(value)` | delivery type — `value-tables.md` → Delivery | `TargetType` (the schema's name for delivery: `Self` / `Touch` / `Aimed` / `TargetActor` / `TargetLocation`) |
+| `CT(value)` | casting type — `value-tables.md` → Casting Type | `CastType` |
+| `R(value)` | resistance actor value (numeric) — `value-tables.md` → Resistances | `ResistValue` |
+| `<av>(min/max)` | **school + skill range** — `<av>` is the school's actor-value number, `min/max` the skill level. `20(0/25)` = all novice (0–25) Destruction effects. Schools in `value-tables.md`. | two fields: `MagicSkill` for the school, `MinimumSkillLevel` for the range |
 
 ## Potion (ALCH)
 
-| Trait | Meaning |
-|---|---|
-| `P` / `-P` | poison / not poison |
-| `F` / `-F` | food / not food |
+| Trait | Meaning | Record field |
+|---|---|---|
+| `P` / `-P` | poison / not poison | `Flags` has `Poison` |
+| `F` / `-F` | food / not food | `Flags` has `FoodItem` |
 
 *(Potions, food, and poisons are all ALCH — these two traits separate them.)*
 
 ## Ingredient (INGR)
 
-| Trait | Meaning |
-|---|---|
-| `F` / `-F` | food / not food |
+| Trait | Meaning | Record field |
+|---|---|---|
+| `F` / `-F` | food / not food | `Flags` has `FoodItem` (INGR's own flag enum, not ALCH's) |
 
 ## Book (BOOK)
 
-| Trait | Meaning |
-|---|---|
-| `S` / `-S` | teaches a spell / doesn't |
-| `AV` / `-AV` | teaches a skill (actor value) / doesn't |
-| `<av>` | a numeric actor value = the specific skill/spell-type the book is associated with (e.g. `20` = Destruction). Names→numbers in `value-tables.md`. |
+| Trait | Meaning | Record field |
+|---|---|---|
+| `S` / `-S` | teaches a spell / doesn't | `Teaches`, a polymorphic field, sitting on its `BookSpell` arm |
+| `AV` / `-AV` | teaches a skill (actor value) / doesn't | `Teaches` sitting on its `BookSkill` arm (the third arm is `BookTeachesNothing`) |
+| `<av>` | a numeric actor value = the specific skill/spell-type the book is associated with (e.g. `20` = Destruction). Names→numbers in `value-tables.md`. | `Teaches.Skill` on the `BookSkill` arm |
 
 ## Soul Gem (SLGM)
 
-| Trait | Meaning |
-|---|---|
-| `BLACK` / `-BLACK` | can / cannot hold an NPC (black) soul |
-| `SOUL(size)` | size of the soul **currently contained** — `value-tables.md` → Soul Sizes (1–5) |
-| `GEM(size)` *or bare* `<size>` | the gem's **maximum capacity** — sizes 1–5 |
+| Trait | Meaning | Record field |
+|---|---|---|
+| `BLACK` / `-BLACK` | can / cannot hold an NPC (black) soul | `MajorFlags` has `CanHoldNpcSoul` |
+| `SOUL(size)` | size of the soul **currently contained** — `value-tables.md` → Soul Sizes (1–5) | `ContainedSoul` — `None` `Petty` `Lesser` `Common` `Greater` `Grand`, with `None` at 0, so KID's 1–5 line up with the names one-for-one |
+| `GEM(size)` *or bare* `<size>` | the gem's **maximum capacity** — sizes 1–5 | `MaximumCapacity`, same enum |
 
 ## Spell · Enchantment · Scroll (SPEL / ENCH / SCRL) — shared
 
-| Trait | Meaning |
-|---|---|
-| `H` / `-H` | hostile / not hostile |
-| `ST(value)` | spell type — `value-tables.md` → Spell Types (0–13) |
-| `D(value)` | delivery type — `value-tables.md` → Delivery |
-| `CT(value)` | casting type — `value-tables.md` → Casting Type |
-| `<av>` | a single numeric actor value = associated skill/school (e.g. `20` = all Destruction spells). *No `(min/max)` here — that range form is Magic-Effect-only.* |
+| Trait | Meaning | Record field |
+|---|---|---|
+| `H` / `-H` | hostile / not hostile | **no field of its own** — hostility lives on the effects (`Effects[*].BaseEffect` → MGEF `Flags` has `Hostile`); how KID reduces several effects to one answer is not settled by this reference |
+| `ST(value)` | spell type — `value-tables.md` → Spell Types (0–13) | SPEL / SCRL: `Type`; ENCH: `EnchantType`. The schema's `SpellType` enum carries fewer names than KID's 0–13 table, so census a number KID lists but the schema does not by the field it derives from instead |
+| `D(value)` | delivery type — `value-tables.md` → Delivery | `TargetType` |
+| `CT(value)` | casting type — `value-tables.md` → Casting Type | `CastType` |
+| `<av>` | a single numeric actor value = associated skill/school (e.g. `20` = all Destruction spells). *No `(min/max)` here — that range form is Magic-Effect-only.* | **no field of its own** — the school comes from the effects (`Effects[*].BaseEffect` → MGEF `MagicSkill`) |
 
 ## Furniture (FURN)
 
-| Trait | Meaning |
-|---|---|
-| `T(value)` | furniture type — `value-tables.md` → Furniture Types (0–3) |
-| `BT(value)` | workbench type — `value-tables.md` → Bench Types (1–7) |
-| `US(value)` | workbench use-skill actor value — `value-tables.md` → Actor Values |
+| Trait | Meaning | Record field |
+|---|---|---|
+| `T(value)` | furniture type — `value-tables.md` → Furniture Types (0–3) | **not one scalar field** — FURN carries `Flags` (which has `IsPerch`) and a `Markers` list; resolve against the record before you census it |
+| `BT(value)` | workbench type — `value-tables.md` → Bench Types (1–7) | `WorkbenchData.BenchType` |
+| `US(value)` | workbench use-skill actor value — `value-tables.md` → Actor Values | `WorkbenchData.UsesSkill` |
 
 ---
 

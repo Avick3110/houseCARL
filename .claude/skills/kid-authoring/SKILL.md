@@ -63,8 +63,11 @@ Read what your task needs, not everything.
    matches → wildcards.
 
 4. **Add traits if the narrowing is a property of the item.** Only the 12 trait-bearing types accept
-   them. Which record field a KID trait tests is the schema's answer, not KID's: resolve the field
-   with `housecarl:mutagen-reference` before composing the filter.
+   them. `references/traits.md` names the record field behind each trait in its own column — that is
+   the path step 6's census puts in `where=`. Where the column says the schema holds no single field
+   for a trait, resolve it against the record with `housecarl:mutagen-reference` before composing.
+   Mind the spelling split the column flags: the INI takes KID's token, a `where=` takes the
+   schema's (`HandToHandMelee` against `HandToHand`).
 
 5. **Compose the line, and count the pipes.**
    ```
@@ -88,6 +91,9 @@ Read what your task needs, not everything.
    same scan with `where=["Name contains Dagger"]` — KID's String filter matches the item's
    **display name**, so `Name` is the predicate that answers it. An `editorid contains` scan asks a
    different question and turns up records with no name at all, which no String filter ever sees.
+   When the line carries a **plugin-name** filter, say which reading your count assumes:
+   `references/filters.md` §2 records that whether KID resolves one by defining plugin or by winning
+   plugin is unverified, and on a patched order the two counts differ.
    **This grounds one type-plus-trait predicate, not the whole line:** nothing on the 2.0
    surface replays KID's evaluation order or `chance` — that is issue **#614**, not in 2.0, so say
    so rather than implying the whole line was proved.
@@ -151,6 +157,14 @@ The user's own instructions outrank anything in this skill.
 
 ## Common mistakes, and the rule that replaces each
 
+- **Writing a KID line in SPID's shape.** The two ship together and their lines look alike, but a
+  KID line is **five** sections, four pipes (`Keyword = keyword | Type | filters | traits | chance`),
+  and a SPID line is **seven**, six pipes
+  (`FormType = form | strings | forms | level | traits | count | chance`). SPID's split of
+  string filters and form filters into two separate sections is the trap: KID mixes both kinds in
+  its **one** filters section, so a line written SPID-style puts the form filters where KID reads
+  traits and is skipped or silently misread. KID's type token is also its own — `Potion`, never
+  `ALCH`.
 - **Miscounting pipe positions.** Sections are positional; a chance written one pipe early lands in
   *traits* and is silently misread. Count the pipes and keep blank middles (`||`) when a later
   section is used.
