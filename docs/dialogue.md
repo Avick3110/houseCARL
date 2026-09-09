@@ -2,7 +2,7 @@
 
 A dialogue line that is byte-valid still plays nothing if the order around it is wrong. Two of those rules were
 measured in game rather than reasoned about, and a third is bookkeeping `housecarl_create` fills for you — with
-one default that is the wrong one. This page carries all three.
+one default that is the wrong one and one flag it never sets. This page carries all three.
 
 ## Quest priority decides the greeting, before intra-topic order
 
@@ -40,6 +40,11 @@ Adding a **new** line re-lists nothing and needs no PNAM for the lines around it
 here is silent. One default is still the wrong value: a `DialogBranch`'s `Flags` default to `0`, which is not
 `TopLevel`, and a player branch that is not top level **never reaches the player's menu**. Pass
 `Flags = TopLevel` explicitly on any `Category = Player` branch (#693).
+
+A second value in that bookkeeping is an authoring choice rather than a default: the `Goodbye` flag, which ends
+the conversation on the line that carries it, lives inside the INFO's own `Flags` struct. The create path
+materialises that struct to all-zero, and all-zero is not `Goodbye` — a line meant to close the conversation
+needs `Flags.Flags = Goodbye` set explicitly, and nothing fills it for you.
 
 Two things cannot be measured on a patch that is not yet enabled:
 
