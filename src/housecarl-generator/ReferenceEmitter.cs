@@ -69,7 +69,7 @@ public static class ReferenceEmitter
         Arms = t.Arms,
         // Identity fields carry a Mutagen setter but the write pre-flight always refuses them, so the read
         // view reports them as not writable and the summary counts them out. corpus.json keeps the raw count.
-        Writable = t.Kind == "enum" ? null : $"{t.Fields.Count(f => f.Writable && !f.IsIdentity)}/{t.FieldCount}",
+        Writable = t.Kind == "enum" ? null : $"{t.Fields.Count(f => f.Writable && !f.IsIdentity)}/{t.Fields.Count}",
         Values = t.EnumValues,
         Fields = (t.Kind == "enum" || t.Fields.Count == 0) ? null : t.Fields.Select(ToSlimField).ToList(),
     };
