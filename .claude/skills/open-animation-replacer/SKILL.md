@@ -61,8 +61,12 @@ Every step below names the section it needs, so one section can be read on its o
    `.../DynamicAnimationReplacer/**/*.hkx` too when an actor-base override is in play. Add a third
    selector for the base-clip layer, `meshes/actors/character/animations/<original.hkx>` — a mod that
    replaces the original file outright competes for the same frames and neither replacer selector
-   sees it. Discard any hit under `character/_1stperson/animations/`: that is the first-person
-   animation graph, a different set of frames, and its matching relative paths are false competitors.
+   sees it. All three selectors are rooted at `character/animations/`, so the sweep covers the
+   third-person graph only: the first-person graph lives in the sibling tree
+   `meshes/actors/character/_1stperson/animations/`, is a different set of frames, and does not
+   compete with anything found here. When the job is about first-person animations, root the same
+   three selectors at that path instead — do not add it to a third-person sweep, where every hit
+   would be a false competitor.
    The call
    resolves every file the VFS provides beneath each selector, names which mod wins each one, and
    reports loudly when an archive could not be read; page a large sweep with `limit=` and `offset=`,
@@ -253,10 +257,35 @@ so drop the `0x` and the leading zeros and nothing else.
 DAR has no parenthesis grouping, but the binding is settled: **`OR` binds tighter than `AND`**, so a
 chain is an `AND` of `OR`-groups, and an `OR`-group is a run of lines ending in `OR` plus the next
 line that yields a condition — a blank line or a `;` comment is skipped without closing the group
-(§8, from OAR's `Parsing.cpp`). Read the binding before you write anything: here all five lines end
-in `AND`, so there is no `OR` group and the set is flat, but had the two middle lines ended in `OR`
-they would bind into a single `OR` term sitting inside the `AND` set, and reading such a chain flat
-left-to-right inverts what it gates on.
+(§8, from OAR's `Parsing.cpp`). Read the binding before you write anything: here the first four lines
+end in `AND` and the last ends in nothing, so there is no `OR` group and the set is flat.
+
+Where a chain does carry an `OR`, the group is nested and reaches one line further than it looks.
+This three-line chain
+
+```
+NOT IsInCombat() AND
+IsEquippedRight("Skyrim.esm" | 0x0001397E) OR
+IsEquippedRight("Skyrim.esm" | 0x00013980)
+```
+
+is an `AND` set of two members, the second of which is an `OR` group holding both `IsEquipped`
+conditions — the run of `OR`-terminated lines plus the next line that yields a condition:
+
+```json
+"conditions": [
+  { "condition": "IsInCombat", "requiredVersion": "1.0.0.0", "negated": true },
+  { "condition": "OR", "requiredVersion": "1.0.0.0", "Conditions": [
+      { "condition": "IsEquipped", "requiredVersion": "1.0.0.0", "Left hand": false,
+        "Form": { "pluginName": "Skyrim.esm", "formID": "1397E" } },
+      { "condition": "IsEquipped", "requiredVersion": "1.0.0.0", "Left hand": false,
+        "Form": { "pluginName": "Skyrim.esm", "formID": "13980" } } ] } ]
+```
+
+The group reaches one line past the last `OR`, which is the easy thing to get wrong: in the 777000
+chain above, had lines 2 and 3 ended in `OR` instead of `AND`, the group would run to line 4 as well
+and hold **three** members — `IsEquippedType`, `Random` and `NOT IsSneaking` — not the two that ended
+in `OR`. Reading such a chain flat left-to-right inverts what it gates on.
 
 `Random` takes a state block and a comparison rather than a bare number. Its six keys and its
 `2.3.0.0` version floor are in the reference's DAR mapping table, read off shipped configs — copy
@@ -265,7 +294,7 @@ the submod never wins:
 
 ```json
 { "name": "Kaidan greatsword idle (from DAR 777000)",
-  "description": "Converted from DAR _CustomConditions/777000. Kaidan, greatsword in the right hand, out of combat, not sneaking, 20% of the time. All five lines end in AND, so this is one flat AND set.",
+  "description": "Converted from DAR _CustomConditions/777000. Kaidan, greatsword in the right hand, out of combat, not sneaking, 20% of the time. No line ends in OR, so this is one flat AND set.",
   "priority": 777000,
   "conditions": [
     { "condition": "IsActorBase", "requiredVersion": "1.0.0.0",
