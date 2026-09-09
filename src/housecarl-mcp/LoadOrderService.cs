@@ -1258,7 +1258,7 @@ public sealed class LoadOrderService : IDisposable
     /// full winner-to-loser provider chain and ambiguity flag, while the build-level caveats
     /// (<see cref="AssetView.BsaFailures"/>, discovery warnings) ride once on the batch so an ABSENT answer is never
     /// over-trusted. The single capture is what makes a load-order-wide sweep one call instead of one per mesh.</summary>
-    public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? mod)
+    public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider)
     {
         AssetResolver.AssetView view;
         IReadOnlyList<string> warnings;
@@ -1278,7 +1278,7 @@ public sealed class LoadOrderService : IDisposable
             var rel = (raw ?? "").Trim();
             // Per-path isolation holds by construction rather than by trusting the callee: anything unexpected from
             // one path's resolve, read or parse becomes that path's named error, never the whole batch's.
-            try { results.Add(NifInspectOne(view, rel, mod)); }
+            try { results.Add(NifInspectOne(view, rel, sourceProvider)); }
             catch (Exception ex) { results.Add(NifInspectData.Fail(rel, $"unexpected error inspecting this path — {ex.GetType().Name}: {ex.Message}")); }
         }
         return new NifInspectBatchData(results, view.BsaFailures, warnings, profileName);
@@ -1286,7 +1286,7 @@ public sealed class LoadOrderService : IDisposable
 
     /// <summary>One path's inspect against the already-captured view — the per-path body of <see cref="NifInspect"/>.
     /// Every failure is a named per-path outcome, never a throw.</summary>
-    static NifInspectData NifInspectOne(AssetResolver.AssetView view, string rel, string? mod)
+    static NifInspectData NifInspectOne(AssetResolver.AssetView view, string rel, string? sourceProvider)
     {
         if (rel.Length == 0)
             return NifInspectData.Fail("", "empty mesh path. Pass a Data-relative path, e.g. 'meshes\\actors\\character\\facegendata\\facegeom\\Skyrim.esm\\00000007.nif'.");
@@ -1297,14 +1297,15 @@ public sealed class LoadOrderService : IDisposable
 
         var providers = place.Sources.Select(s => new NifProvider(s.ProviderName, KindLabel(s.Kind))).ToList();
 
-        // Pick the copy to read: the VFS winner by default, or a specific provider when mod= names one. mod= is
+        // Pick the copy to read: the VFS winner by default, or a specific provider when source_provider= names one.
+        // source_provider= is
         // answered FIRST, ahead of the ABSENT return: naming a mod reaches that mod whether or not MO2 ticks it, and
         // a donor outside the active set is exactly a path nothing active supplies — under ABSENT its name would
         // never be consulted and the answer would read as "the donor has no mesh" (#388 ii).
         PlacementSource chosen;
-        if (!string.IsNullOrWhiteSpace(mod))
+        if (!string.IsNullOrWhiteSpace(sourceProvider))
         {
-            var pick = NifPick(view, place, rel, mod!.Trim());
+            var pick = NifPick(view, place, rel, sourceProvider!.Trim());
             if (pick.Error is not null)
                 return new NifInspectData(rel, null, providers, place.Ambiguous, pick.Absent, null, pick.Error);
             chosen = pick.Source!;
@@ -1340,31 +1341,31 @@ public sealed class LoadOrderService : IDisposable
     static NifProvider NifProviderFor(PlacementSource s)
         => new(s.ProviderName, KindLabel(s.Kind), s.OffOrder, s.OwnerEnabled);
 
-    /// <summary>Answer <c>mod=</c> for the NIF surface: pick the named provider's copy through the ONE source policy
+    /// <summary>Answer <c>source_provider=</c> for the NIF surface: pick the named provider's copy through the ONE source policy
     /// every asset caller rides, or hand back the refusal sentence. Shared by nif_inspect and nif_set, which are the
     /// same code twice and have drifted once before.
     ///
     /// <para>Two things follow from routing it here rather than matching the name in place. Naming a mod reaches
     /// that mod's loose files AND its own root archives, ticked or not (#388), so the refusal never reports a donor's
     /// mesh as absent. And the provider names the refusal lists are spelled by the same formatter the tool prints
-    /// them with, so the token in the message is the token <c>mod=</c> takes (#340).</para></summary>
-    static (PlacementSource? Source, string? Error, bool Absent) NifPick(AssetResolver.AssetView view, PlacementResolution place, string rel, string mod)
+    /// them with, so the token in the message is the token <c>source_provider=</c> takes (#340).</para></summary>
+    static (PlacementSource? Source, string? Error, bool Absent) NifPick(AssetResolver.AssetView view, PlacementResolution place, string rel, string sourceProvider)
     {
         // Parse, not Named: the refusal's tail teaches the '*winner' pole, so this surface has to take it. The sigil
         // is what makes that safe — '*' cannot appear in a Windows name, so a bare token is always a provider.
-        var choice = AssetSourceChoice.Parse(mod);
+        var choice = AssetSourceChoice.Parse(sourceProvider);
         var pick = AssetSourceSelection.Select(place, choice, n => view.TryResolveOffOrderProvider(n, rel));
         if (pick.Verdict == AssetSourceVerdict.Selected) return (pick.Source, null, false);
         // The winner pole over an empty universe is the ABSENT case, not a named miss; say so rather than quote
         // '*winner' back as a mod name that supplies nothing. Absent travels with it: this is the same absence the
-        // no-mod= arm reports, so it earns the same scan-incomplete hedging at the point of use.
+        // no-source_provider= arm reports, so it earns the same scan-incomplete hedging at the point of use.
         if (choice.Pole != AssetSourcePole.Named)
             return (null, "ABSENT — no active mod or BSA provides '" + rel + "', so there is no winner to read."
                         + (AssetPathHint.MeshHint(view, rel) is { } wh ? " " + wh : ""), true);
         // A named miss is NOT an absence — it says which mod, and carries its own inline scan caveat instead, so it
         // must not also draw the ABSENT-worded hedges.
         return (null, WriteSentences.PlaceSourceNamedAbsent(
-            mod, rel, pick.ProviderNames,
+            sourceProvider, rel, pick.ProviderNames,
             pick.OffOrderReason, pick.OffOrderUnreadableName, pick.OffOrderUnreadableCause,
             AssetPathHint.MeshHint(view, rel), place.ReadIncomplete), false);
     }
@@ -1376,7 +1377,7 @@ public sealed class LoadOrderService : IDisposable
     // ---- NIF layer: whitelisted writes into a mesh (housecarl_nif_set) ----
 
     /// <summary>Apply the whitelisted write ops to a mesh: resolve the Data-relative <paramref name="relPath"/> to the
-    /// winning copy (or <paramref name="mod"/>'s copy), read its bytes in process, hand them to
+    /// winning copy (or <paramref name="sourceProvider"/>'s copy), read its bytes in process, hand them to
     /// <see cref="NifService.Set"/>, which applies and verifies or refuses loudly — nothing reaches disk unless it
     /// verified — then place the verified bytes. Two lanes, mirroring the record write lanes:
     ///   • DEFAULT (non-destructive): write into a new houseCARL-owned MO2 mod folder at the same relative path, which
@@ -1387,7 +1388,7 @@ public sealed class LoadOrderService : IDisposable
     ///     has no loose file to edit and is refused with the default-lane guidance.
     /// Serialized on the write gate. For the default lane, "wrote it" is not "it wins": the render says to enable and
     /// sort the fresh mod, and this never claims the fix took effect on write.</summary>
-    public NifSetResult NifSet(string relPath, IReadOnlyList<NifSetOp> ops, string? mod, string? patchName, string? into, bool inPlace, bool acknowledge)
+    public NifSetResult NifSet(string relPath, IReadOnlyList<NifSetOp> ops, string? sourceProvider, string? patchName, string? into, bool inPlace, bool acknowledge)
     {
         var rel = (relPath ?? "").Trim();
         if (rel.Length == 0) return NifSetResult.Fail("no mesh path given. Pass a Data-relative path, e.g. 'meshes\\armor\\iron\\cuirass_1.nif'.");
@@ -1407,12 +1408,13 @@ public sealed class LoadOrderService : IDisposable
 
             var providers = place.Sources.Select(s => new NifProvider(s.ProviderName, KindLabel(s.Kind))).ToList();
 
-            // pick the copy to read/edit: the VFS winner, or a specific provider when mod= names one. mod= is
+            // pick the copy to read/edit: the VFS winner, or a specific provider when source_provider= names one.
+            // source_provider= is
             // answered ahead of the ABSENT return, for the same reason nif_inspect answers it there.
             PlacementSource chosen;
-            if (!string.IsNullOrWhiteSpace(mod))
+            if (!string.IsNullOrWhiteSpace(sourceProvider))
             {
-                var pick = NifPick(view, place, rel, mod!.Trim());
+                var pick = NifPick(view, place, rel, sourceProvider!.Trim());
                 if (pick.Error is not null) return NifSetResult.Fail(pick.Error, providers, profileName);
                 chosen = pick.Source!;
             }
@@ -1437,7 +1439,7 @@ public sealed class LoadOrderService : IDisposable
             var editedBytes = outcome.WrittenBytes!;
             var report = outcome.Report!;
             var chosenProv = NifProviderFor(chosen);
-            // Whether the edited copy is the VFS winner or a mod=-named loser. Drives the "is it live" wording.
+            // Whether the edited copy is the VFS winner or a source_provider=-named loser. Drives the "is it live" wording.
             bool editedIsWinner = place.Sources.Count > 0 && ReferenceEquals(chosen, place.Sources[0]);
 
             // ---- IN-PLACE lane ----
@@ -9752,13 +9754,13 @@ public sealed record NifProvider(string Name, string Kind, bool OffOrder = false
 
     /// <summary>The spelling every listing prints — the name inside a delimiter a Windows name cannot contain, with
     /// the kind outside it, through the one formatter the asset surface uses. The printed token is the token
-    /// <c>mod=</c> accepts, so a caller can copy it back verbatim (#340).</summary>
+    /// <c>source_provider=</c> accepts, so a caller can copy it back verbatim (#340).</summary>
     public string Text => HousecarlCore.AssetSourceSelection.Describe(Name, Kind);
 }
 
 /// <summary>The per-path data behind housecarl_nif_inspect: the VFS resolution of ONE mesh path joined to the
 /// format-level <see cref="HousecarlCore.NifInspect"/> of the copy that was read. <see cref="Inspected"/> is the
-/// provider whose bytes were parsed (the winner, or the <c>mod=</c>-named copy); <see cref="Providers"/> is the FULL
+/// provider whose bytes were parsed (the winner, or the <c>source_provider=</c>-named copy); <see cref="Providers"/> is the FULL
 /// winner→loser chain (asset-tool parity), <see cref="Ambiguous"/> flags file-layer contention. <see cref="Absent"/>
 /// marks the no-provider outcome specifically, so the renderer can hedge THAT error at point of use on the
 /// batch-level scan caveats (an ABSENT is only authoritative when the scan was complete — asset_status parity).
