@@ -19,7 +19,10 @@ internal static class FaceGenSweepRender
     internal static void AppendHead(StringBuilder sb, FaceGenCheckResult r)
     {
         sb.Append("scanned ").Append(r.NpcsScanned).Append(r.NpcsScanned == 1 ? " NPC · " : " NPCs · ")
-          .Append(r.NpcsTemplated).Append(" excluded (Template+Traits: no bake of their own) · ")
+          .Append(r.NpcsTemplated + r.NpcsNoFaceGenRace + r.NpcsRaceUnresolved)
+          .Append(" excluded (").Append(r.NpcsTemplated).Append(" Template+Traits, ")
+          .Append(r.NpcsNoFaceGenRace).Append(" on a race with no FaceGenHead flag, ")
+          .Append(r.NpcsRaceUnresolved).Append(" whose race could not be read) · ")
           .Append(r.FilesSeen).Append(" facegen file(s) on disk · ")
           .Append(r.TotalFound).Append(" finding(s)");
         if (r.Epoch is not null) sb.Append(" · epoch=").Append(r.Epoch);
@@ -101,6 +104,8 @@ internal static class FaceGenSweepRender
     {
         w.WriteNumber("npcs_scanned", r.NpcsScanned);
         w.WriteNumber("npcs_excluded_templated", r.NpcsTemplated);
+        w.WriteNumber("npcs_excluded_no_facegen_race", r.NpcsNoFaceGenRace);
+        w.WriteNumber("npcs_excluded_race_unresolved", r.NpcsRaceUnresolved);
         w.WriteNumber("facegen_files_on_disk", r.FilesSeen);
         w.WriteNumber("findings_found", r.TotalFound);
         w.WriteNumber("clean_pairs_without_comparison_pole", r.NoComparisonPole);

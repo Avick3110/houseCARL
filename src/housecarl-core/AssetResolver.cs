@@ -127,6 +127,16 @@ public sealed class AssetResolver : IDisposable
     /// import path in this same precedence.</summary>
     public IReadOnlyList<(string Name, string Dir)> LooseRoots => _looseRoots;
 
+    /// <summary>The MO2 layer each active archive's FILE lives in, keyed by the archive's filename — the same
+    /// <see cref="AssetProvider.Source"/> a BSA hit reports. A bulk caller that has to ask which MOD provides a hit
+    /// reads this once instead of paying <see cref="ResolveForPlacement"/> per path for the one field that carries
+    /// it. Empty values are dropped: an archive with no known layer answers nothing rather than "".</summary>
+    public IReadOnlyDictionary<string, string> ArchiveOwningMods
+        => _archiveOwners ??= _archives.Where(a => !string.IsNullOrEmpty(a.OwningMod))
+                                       .GroupBy(a => Path.GetFileName(a.Path), StringComparer.OrdinalIgnoreCase)
+                                       .ToDictionary(g => g.Key, g => g.First().OwningMod!, StringComparer.OrdinalIgnoreCase);
+    IReadOnlyDictionary<string, string>? _archiveOwners;
+
     /// <summary>Archives that could not be read this build (path: reason) — surfaced, never silently treated as empty.</summary>
     public IReadOnlyList<string> BsaFailures => _snap.Failures;
 
@@ -530,6 +540,10 @@ public sealed class AssetResolver : IDisposable
 
         /// <summary>Archives that could not be read this build — see <see cref="AssetResolver.BsaFailures"/>.</summary>
         public IReadOnlyList<string> BsaFailures => _s.Failures;
+
+        /// <summary>The archive-to-MO2-layer map for this build — see <see cref="AssetResolver.ArchiveOwningMods"/>.
+        /// On the view because a bulk read that pins a build must read the map off the same one.</summary>
+        public IReadOnlyDictionary<string, string> ArchiveOwningMods => _r.ArchiveOwningMods;
 
         /// <summary>The Exists=false caveat for THIS build — see <see cref="AssetResolver.ReadIncomplete"/>.</summary>
         public bool ReadIncomplete => _s.Failures.Count > 0;
