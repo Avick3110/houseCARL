@@ -15,6 +15,15 @@ internal static class AliasTable
     /// <paramref name="ExceptTools"/> suppresses a candidate on tools where that word means something else.</summary>
     internal readonly record struct Rename(string Old, string[] Candidates, (string Tool, string Candidate)[]? ExceptTools = null);
 
+    /// <summary>The tools whose <c>patch=</c> names the output mod FOLDER rather than the artifact the caller
+    /// asked for. Any old spelling that names an artifact must not reach <c>patch</c> on these.</summary>
+    static readonly (string Tool, string Candidate)[] FolderPatchTools =
+    {
+        (ToolNames.WriteSeq, "patch"), (ToolNames.Place, "patch"),
+        (ToolNames.CompactPlugin, "patch"), (ToolNames.CompileScript, "patch"),
+        (ToolNames.DecompileScript, "patch"), (ToolNames.NifSet, "patch"),
+    };
+
     /// <summary>The rename rows, in both directions: old callers must keep binding on renamed tools and new
     /// vocabulary must already bind on not-yet-renamed ones. A parameter that became grammar rather than a new
     /// name is not a rename — those live in <see cref="Dissolutions"/>.</summary>
@@ -33,13 +42,19 @@ internal static class AliasTable
         // `source` is a candidate here so the row still has a route on a tool that declares no plugin spelling
         // at all; it goes last so a tool with a scope word keeps getting `plugins`.
         new("plugins", new[] { "plugin", "pluginname", "pluginnames", "source" }),
-        // plugin_name becomes patch, else a plugin scope word. `patch` is suppressed on write_seq: there it names
-        // the OUTPUT FOLDER, so plugin_name= would silently put the .seq in a folder named after the plugin.
-        // `source` goes last so a tool declaring both a scope word and the pole keeps getting the scope word.
-        // `patch` is suppressed on the two tools where it names an output FOLDER rather than a plugin: write_seq
-        // and place. On both, plugin_name= would silently name the folder after a plugin.
+        // plugin_name becomes patch, else a plugin scope word. `source` goes last so a tool declaring both a
+        // scope word and the pole keeps getting the scope word.
+        // `patch` is suppressed on every tool where it names something other than a plugin: the output FOLDER on
+        // write_seq, place, compact_plugin, compile_script, decompile_script and nif_set, and the .bsa on
+        // bsa_repack. On all of them plugin_name= would silently name that artifact after a plugin.
         new("pluginname",  new[] { "patch", "plugins", "plugin", "pluginnames", "source" },
-            ExceptTools: new[] { (ToolNames.WriteSeq, "patch"), (ToolNames.Place, "patch") }),
+            ExceptTools: new[]
+            {
+                (ToolNames.WriteSeq, "patch"), (ToolNames.Place, "patch"),
+                (ToolNames.CompactPlugin, "patch"), (ToolNames.CompileScript, "patch"),
+                (ToolNames.DecompileScript, "patch"), (ToolNames.NifSet, "patch"),
+                (ToolNames.BsaRepack, "patch"),
+            }),
         new("pluginnames", new[] { "plugins", "plugin", "pluginname", "source" }),
         // Reverse: the pole spelling on not-yet-renamed tools. nexus_mod is excepted — its mod= is a Nexus mod
         // ID, not the provider disambiguator, and the Nexus tools are not part of the rename.
@@ -51,15 +66,17 @@ internal static class AliasTable
         new("type",  new[] { "types" }),
         new("types", new[] { "type" }),
 
-        // One name for the new artifact: patch. Candidate order matters on tools declaring several output names —
-        // merge_plugins declares patch_name and output (patch= must reach output), bsa_repack declares patch_name
-        // and archive_name (patch= must reach the .bsa). Hence output, then archivename, before patchname.
+        // One name for the new artifact: patch. merge_plugins and bsa_repack now declare patch outright (the
+        // merged plugin, the .bsa), so the retired output= and archive_name= reach it directly; the order below
+        // is kept for the tools still carrying an old spelling.
         // `patchname` also falls through to `into` because it is the habitual output spelling on every write
         // tool, so it must reach removal's into=. `archivename`/`output` do not: each names one specific tool's
         // artifact, neither of which is a removal habit.
+        // Both are suppressed on the tools whose patch= is an output FOLDER, not an artifact: there output= or
+        // archive_name= would silently name the folder instead of being refused with the supported list.
         new("patchname",   new[] { "patch", "into" }),
-        new("archivename", new[] { "patch" }),
-        new("output",      new[] { "patch" }),
+        new("archivename", new[] { "patch" }, ExceptTools: FolderPatchTools),
+        new("output",      new[] { "patch" }, ExceptTools: FolderPatchTools),
         // `into` is last: the artifact a removal edits already exists, so on the remove tool a bare patch= means
         // into=. Every tool with a new-artifact spelling declares one of the four candidates above first.
         new("patch",       new[] { "output", "archivename", "patchname", "pluginname", "into" }),

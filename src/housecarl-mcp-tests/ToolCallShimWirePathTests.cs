@@ -124,6 +124,24 @@ public sealed class ToolCallShimWirePathTests
         Assert.True(aliased.BodyRan, aliased.Describe());
     }
 
+    /// <summary>The tools whose <c>patch=</c> is the output mod FOLDER never take <c>plugin_name=</c> onto it:
+    /// on <c>compact_plugin</c> the spelling reaches the SOURCE pole and the body, and on
+    /// <c>compile_script</c>, which declares no plugin spelling at all, it stays a named unknown instead of
+    /// silently naming the folder after a plugin.</summary>
+    [Fact]
+    public void PluginNameNeverBindsToTheOutputFolderPatchOnTheRiderTools()
+    {
+        var compact = _s.Call(ToolNames.CompactPlugin, """{"plugin_name":"Skyrim.esm"}""");
+        Assert.False(compact.IsError, compact.Describe());
+        Assert.DoesNotContain("required parameter", compact.Text, StringComparison.Ordinal);
+        Assert.True(compact.BodyRan, compact.Describe());
+
+        var compile = _s.Call(ToolNames.CompileScript, """{"script":"X.psc","plugin_name":"MyMod.esp"}""");
+        Assert.True(compile.IsError, compile.Describe());
+        Assert.Contains("unknown parameter: plugin_name", compile.Text, StringComparison.Ordinal);
+        Assert.False(compile.BodyRan, compile.Describe());
+    }
+
     /// <summary>A stray <c>target=</c> on a tool that has none stays the named unknown WITH the supported list
     /// — never a rename onto <c>in_place</c> that answers with a type error about a key the caller never
     /// sent.</summary>
