@@ -85,7 +85,7 @@ stream are intact. A failed gate writes **nothing** and says why — there is no
 Two lanes:
 
 - **Default.** The verified mesh goes into a **new houseCARL MO2 mod folder** at the same path
-  (`patch_name=` names it, `into=` accumulates into an existing one). Originals are untouched, and a
+  (`patch=` names it, `into=` accumulates into an existing one). Originals are untouched, and a
   BSA-packed source becomes a loose winning override this way. Enable that mod in MO2 — a new mod folder
   lands last in the priority order, so enabling is the step that makes the edit win.
 - **In place** (`in_place=true` with `acknowledge=true`). Overwrites the winning loose file where it
