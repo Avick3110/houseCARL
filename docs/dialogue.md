@@ -43,8 +43,13 @@ them apart (#697).
 Take the line at the target's position minus one and write that FormID into the override's `PreviousDialog`.
 Adding a **new** line re-lists nothing and needs no PNAM for the lines around it.
 
-Two cases the recipe does not cover. If the target is already at position 1 there is no line above it to name, so
-write no PNAM at all — an empty previous-link is normal and the dialogue check never flags absence. And because
+Two cases the recipe does not cover. If the target is already at position 1 there is no line above it to name —
+and writing no PNAM does not leave it there. Absent is the tail arm: the re-listed line goes to the **bottom**,
+and every line that was beneath it now answers first. The only shape that holds a line at the head is the
+present-zero PNAM above, and houseCARL cannot write one — Mutagen's writer emits no subrecord for a null link, so
+a `PreviousDialog` you set to null reaches disk absent. Either leave the position-1 line alone, or re-list the
+run beneath it in the same call, each of those lines carrying the FormID of the line above it: the merge places
+them back in front of the line that fell to the bottom and the original sequence is restored. And because
 `info_order` merges every plugin touching the topic, the line at position minus one can be one defined by a plugin
 your patch does not master; write that FormID and the link dangles. What the engine does with a dangling
 previous-link is not something measured here, but the dangling link itself is visible from the data layer:
