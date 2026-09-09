@@ -40,11 +40,13 @@ namespace HousecarlCore;
 //
 //  IN-GAME-BEHAVIOUR TIER. The same omitted-subrecord asymmetry, but the consequence is neither a CK-editor crash
 //  nor a byte-only mismatch the game shrugs off: the RUNNING GAME behaves wrong.
-//    • DLBR (DialogBranch)   Flags      (DNAM)     → 0 (no flags)
+//    • DLBR (DialogBranch)   Flags      (DNAM)     → TopLevel on a Category=Player branch, 0 (no flags) otherwise
 //  An ABSENT DNAM is read by the engine as TopLevel, so a branch the author never marked top-level is published to
 //  the player's dialogue menu anyway — a nameless Say()-only topic surfaces as a selectable "..." that fires its
 //  lines on click. The output is byte-valid and passes validate_dialogue, so nothing catches it before the game
 //  does; that combination (valid-looking, silently wrong) is what makes this the sharpest tier, not the mildest.
+//  The fill VALUE follows Category for the same reason: a Player branch that is not TopLevel never reaches the
+//  player's menu, so filling 0 there is the same defect with the opposite sign (#693).
 //
 //  ONE FIELD IS NOT NULLABLE — DIAL Priority is a plain float that defaults to 0, so "the author left it unset"
 //  can't be read off is-null the way every other field here is. The create path detects it from the AUTHOR'S OP LIST
@@ -240,16 +242,21 @@ public static class DialogueCkParity
     /// Command appears on just 2 vanilla branches, both deliberately authored.</summary>
     public const DialogBranch.CategoryType BranchCategoryDefault = DialogBranch.CategoryType.Player;
 
-    /// <summary>DLBR Flags (DNAM) CK-parity default — 0 (none of TopLevel/Blocking/Exclusive set), the CK's value for
-    /// a branch whose flag checkboxes the author never ticked. UNLIKE <see cref="BranchCategoryDefault"/>, the
-    /// zero-value is NOT the dominant vanilla value — and that divergence is the whole point, so it is stated here
-    /// rather than left to look like an oversight. Over the 3061 DialogBranches defined in Skyrim.esm: ALL 3061
-    /// carry DNAM (none omit it — the CK writes it unconditionally); 2117 are TopLevel, 728 Blocking, 30 Exclusive,
-    /// and 203 carry it as exactly 0. Those 203 are why this default is attested rather than invented: a
-    /// present-but-zero DNAM is a normal CK-authored shape. The 2117 TopLevel branches were deliberately ticked
-    /// top-level by an author — an authored choice non-override preserves, exactly as Category=Command is
-    /// preserved above.</summary>
+    /// <summary>DLBR Flags (DNAM) CK-parity default for a NON-Player branch — 0 (none of TopLevel/Blocking/Exclusive
+    /// set), the CK's value for a branch whose flag checkboxes the author never ticked. Over the 3061 DialogBranches
+    /// defined in Skyrim.esm: ALL 3061 carry DNAM (none omit it — the CK writes it unconditionally); 2117 are
+    /// TopLevel, 728 Blocking, 30 Exclusive, and 203 carry it as exactly 0, so a present-but-zero DNAM is a normal
+    /// CK-authored shape. A Category=Command branch is authored deliberately and its flags are the author's to tick,
+    /// so nothing is assumed for it beyond materialising the subrecord. A Player branch gets
+    /// <see cref="BranchPlayerFlagsDefault"/> instead — see there for why 0 is the one value that makes it dead.</summary>
     public const DialogBranch.Flag BranchFlagsDefault = (DialogBranch.Flag)0;
+
+    /// <summary>DLBR Flags (DNAM) CK-parity default for a Category=Player branch — TopLevel, which is what the CK's own
+    /// branch dialog ticks for a new player branch. A player branch that is not top level never reaches the player's
+    /// dialogue menu, so 0 is the one value that makes the branch and every topic under it dead (#693); it is also the
+    /// dominant vanilla shape (2117 of Skyrim.esm's 3061 branches are TopLevel). Non-override as ever: a passed Flags,
+    /// INCLUDING an explicit 0 for a deliberately hidden player branch, always wins.</summary>
+    public const DialogBranch.Flag BranchPlayerFlagsDefault = DialogBranch.Flag.TopLevel;
 
     /// <summary>DLBR (DialogBranch) CK-parity default — the Category (TNAM) enum, nullable and omitted by Mutagen when
     /// unset; a CK-authored DialogBranch always carries it. Fill Player (the near-universal value + the enum's
@@ -261,8 +268,9 @@ public static class DialogueCkParity
     ///
     /// ALSO fills the Flags (DNAM) enum — same nullable-and-omitted shape, but the in-game-behaviour tier: an absent
     /// DNAM is read by the engine as TopLevel, publishing a branch the author never marked top-level into the player's
-    /// dialogue menu. Fill 0 (no flags) when the author left it null; an explicit Flags — INCLUDING an explicit
-    /// TopLevel — always wins.
+    /// dialogue menu. The fill value follows the branch's Category (the one filled just above, when the author left it
+    /// null): a Player branch gets TopLevel, because a player branch that is not top level never reaches the player's
+    /// menu (#693); anything else gets 0. An explicit Flags — INCLUDING an explicit 0 — always wins.
     ///
     /// Returns the fills applied (empty when the author set both).</summary>
     public static IReadOnlyList<CkParityFill> ApplyBranchDefaults(IDialogBranch branch)
@@ -283,15 +291,27 @@ public static class DialogueCkParity
 
         if (!HasFlags(branch))
         {
-            branch.Flags = BranchFlagsDefault;
-            fills.Add(new CkParityFill(
-                "Flags (DNAM subrecord) auto-set to 0 (no flags — not top-level, not blocking, not exclusive)",
-                "0 — every CK-authored DialogBranch carries the DNAM (Flags) subrecord, and a branch whose flag "
-                + "checkboxes the author never ticked carries it as 0 (203 of Skyrim.esm's 3061 branches do exactly "
-                + "that). A branch written WITHOUT DNAM is read by the engine as TopLevel, so its topics are published "
-                + "to the player's dialogue menu — a nameless Say()-only topic shows up as a selectable \"...\". This "
-                + "materialises the subrecord only; TopLevel/Blocking/Exclusive stay an explicit authoring choice a "
-                + "0-fill does NOT set, and an explicit Flags always wins. CK-parity default-populate, in-model."));
+            // The fill follows Category: a player branch has to be TopLevel to reach the player's menu (#693).
+            bool player = branch.Category == BranchCategoryDefault;
+            branch.Flags = player ? BranchPlayerFlagsDefault : BranchFlagsDefault;
+            fills.Add(player
+                ? new CkParityFill(
+                    "Flags (DNAM subrecord) auto-set to TopLevel (a Category=Player branch reaches the player's dialogue menu)",
+                    "TopLevel — every CK-authored DialogBranch carries the DNAM (Flags) subrecord, and the CK's branch "
+                    + "dialog ticks Top-Level for a new player branch; 2117 of Skyrim.esm's 3061 branches carry it. "
+                    + "TopLevel is what publishes the branch to the player's dialogue menu: a Category=Player branch "
+                    + "without it never reaches the menu, so it and every topic under it are dead (#693). Blocking and "
+                    + "Exclusive stay an explicit authoring choice this fill does NOT set, and an explicit Flags — "
+                    + "including 0 for a deliberately hidden player branch — always wins. CK-parity default-populate, "
+                    + "in-model.")
+                : new CkParityFill(
+                    "Flags (DNAM subrecord) auto-set to 0 (no flags — not top-level, not blocking, not exclusive)",
+                    "0 — every CK-authored DialogBranch carries the DNAM (Flags) subrecord, and a branch whose flag "
+                    + "checkboxes the author never ticked carries it as 0 (203 of Skyrim.esm's 3061 branches do exactly "
+                    + "that). A branch written WITHOUT DNAM is read by the engine as TopLevel, so its topics are published "
+                    + "to the player's dialogue menu — a nameless Say()-only topic shows up as a selectable \"...\". This "
+                    + "materialises the subrecord only; TopLevel/Blocking/Exclusive stay an explicit authoring choice a "
+                    + "0-fill does NOT set, and an explicit Flags always wins. CK-parity default-populate, in-model."));
         }
 
         return fills;
@@ -328,8 +348,9 @@ public static class DialogueCkParity
                 + "of Skyrim.esm's 3061 branches). A branch missing it is read by the ENGINE as TopLevel, so its topics "
                 + "are published to the player's dialogue menu — a nameless Say()-only topic renders as a selectable "
                 + "\"...\". This is an in-game defect, not a byte-parity nit: the record is byte-valid and only "
-                + "misbehaves once loaded. houseCARL's create tools auto-fill it — set Flags (0 for a hidden branch, "
-                + "TopLevel for a player-facing one) to populate it."));
+                + "misbehaves once loaded. houseCARL's create tools auto-fill it — TopLevel on a Category=Player branch "
+                + "(a player branch that is not top level never reaches the player's menu), 0 otherwise — or set Flags "
+                + "yourself to populate it."));
 
         return gaps;
     }

@@ -13,8 +13,8 @@ namespace HousecarlGenerator;
 /// null optional subrecord on write; the Creation Kit writes it unconditionally — so an INFO created without CNAM
 /// (FavorLevel) / ENAM (Flags) crashes the CK when its topic is opened, and a bare DLVW crashes the CK Dialogue Views
 /// editor (S1); the S2 fields (DLBR Category, DIAL Priority, QUST NextAliasID + objective Flags) are byte-parity only
-/// (no crash) but complete the write the same way; the S3 field (DLBR Flags/DNAM, #212) is neither — an absent DNAM is
-/// read by the ENGINE as TopLevel, so a byte-valid branch that passes every check misbehaves in the running game.
+/// (no crash) but complete the write the same way. The DLBR Flags (DNAM) create arms live in the test project
+/// (DialogBranchFlagsFillTests) — they are not repeated here.
 /// This guard pins the whole surface so it can't drift:
 ///   • the create-path AUTO-FILL — create the record through the service and read the written subrecords back off disk,
 ///   • the create-path NON-OVERRIDE — an explicit value is never clobbered,
@@ -46,11 +46,6 @@ namespace HousecarlGenerator;
 ///                       Custom topic WITH a branch raises no such Warning.
 ///   DLBR-TNAM-AUTOFILL — create a bare DialogBranch → written Category=Player (TNAM), REPORTED.
 ///   DLBR-TNAM-WINS     — an explicit Category=Command is NOT overridden to Player.
-///   DLBR-DNAM-AUTOFILL — (S3, #212) create a bare DialogBranch → Flags=0 (DNAM) PRESENT on disk, REPORTED. Presence
-///                       is the assertion, not value: an absent DNAM reads as TopLevel in the ENGINE and publishes the
-///                       branch to the player's dialogue menu, while the fill's value is the zero-value — so only a
-///                       null-vs-zero read distinguishes fixed from broken (the QUST-ALIAS VTCK round-trip lesson).
-///   DLBR-DNAM-WINS     — an explicit Flags=TopLevel is NOT overridden to 0 (a real top-level branch stays visible).
 ///   DIAL-PNAM-AUTOFILL — create a Custom topic with no Priority → written Priority=50 (PNAM), REPORTED.
 ///   DIAL-PNAM-WINS     — an explicit Priority=10 is NOT overridden to 50, AND an explicit Priority=0 STAYS 0 (the
 ///                       non-nullable-float edge: author-set-0 is distinguished from unset, no fill, no op).
@@ -83,13 +78,6 @@ internal static class DialogueCkParityGuardProbe
         // ---- CONST-SHAPE (S2): the pinned seed values are the CK-authored/vanilla defaults (byte-verified 2026-07-04). ----
         Check(DialogueCkParity.TopicPrioritySeed == 50f && DialogueCkParity.BranchCategoryDefault == DialogBranch.CategoryType.Player,
             $"CONST-SHAPE S2 seeds — DIAL Priority=50, DLBR Category=Player — priority={DialogueCkParity.TopicPrioritySeed} category={DialogueCkParity.BranchCategoryDefault}");
-
-        // ---- CONST-SHAPE (S3): the DLBR Flags seed is 0 — NO flag set. The value matters in a way the others don't:
-        //      any non-zero seed here would set TopLevel/Blocking/Exclusive on every authored branch, which is the
-        //      #212 defect with a different sign. Pinned explicitly so a "helpful" default can't drift in. ----
-        Check(DialogueCkParity.BranchFlagsDefault == default(DialogBranch.Flag)
-            && !DialogueCkParity.BranchFlagsDefault.HasFlag(DialogBranch.Flag.TopLevel),
-            $"CONST-SHAPE S3 seed — DLBR Flags=0 (no TopLevel/Blocking/Exclusive) — flags={DialogueCkParity.BranchFlagsDefault} raw={(int)DialogueCkParity.BranchFlagsDefault}");
 
         var root = Path.Combine(Path.GetTempPath(), "hc-dial-ckparity-guard-" + Guid.NewGuid().ToString("N"));
         try
@@ -335,32 +323,6 @@ internal static class DialogueCkParityGuardProbe
                 var (cat, _) = o.Success ? ReadBranch(o.OutputPath, o.Created[0].FormKey) : (null, null);
                 Check(o.Success && cat == DialogBranch.CategoryType.Command,
                     $"DLBR-TNAM-WINS explicit Category=Command kept (not overridden to Player) — {(o.Success ? $"category={cat}" : "err=[" + o.Error + "]")}");
-            }
-
-            // ================================  S3 — the in-game-behavior tier (#212)  ================================
-
-            // ---- DLBR-DNAM-AUTOFILL: create a bare DialogBranch → written Flags=0 (DNAM), REPORTED. The empirical
-            //      crux mirrors the QUST alias VTCK arm: the fill's value IS the zero-value, so "filled correctly" and
-            //      "omitted entirely" are indistinguishable by value alone — only PRESENCE on disk separates the fix
-            //      from the bug (absent → engine reads TopLevel → the branch is published to the player's dialogue
-            //      menu, which is the whole defect). Assert the round-tripped Flags is NON-NULL *and* zero. ----
-            {
-                var o = svc.CreateOne("DialogBranch", "HcCkpBrFl", Array.Empty<BulkOp>(), "HcCkpBrFl", null);
-                var (_, flags) = o.Success ? ReadBranch(o.OutputPath, o.Created[0].FormKey) : (null, null);
-                bool reported = o.Success && o.Created[0].Ops.Any(op => op.Label.Contains("Flags (DNAM", StringComparison.OrdinalIgnoreCase));
-                Check(o.Success && flags is not null && flags == default(DialogBranch.Flag) && reported,
-                    $"DLBR-DNAM-AUTOFILL bare DialogBranch → Flags=0 PRESENT on disk (not omitted), reported — {(o.Success ? $"flags={(flags is null ? "(absent)" : flags.ToString())} reported={reported}" : "err=[" + o.Error + "]")}");
-            }
-
-            // ---- DLBR-DNAM-WINS: an explicit Flags=TopLevel is NOT overridden to 0. The non-override arm that matters
-            //      most here — a player-facing branch is authored by TICKING TopLevel, and a fill that clobbered it
-            //      would hide dialogue that is supposed to show (the #212 defect inverted). Category still auto-fills. ----
-            {
-                var ops = new[] { new BulkOp { FieldPath = "Flags", Verb = "Set", Value = "TopLevel" } };
-                var o = svc.CreateOne("DialogBranch", "HcCkpBrTop", ops, "HcCkpBrTop", null);
-                var (cat, flags) = o.Success ? ReadBranch(o.OutputPath, o.Created[0].FormKey) : (null, null);
-                Check(o.Success && flags == DialogBranch.Flag.TopLevel && cat == DialogBranch.CategoryType.Player,
-                    $"DLBR-DNAM-WINS explicit Flags=TopLevel kept (not overridden to 0), Category still filled — {(o.Success ? $"flags={flags} category={cat}" : "err=[" + o.Error + "]")}");
             }
 
             // ---- DIAL-PNAM-AUTOFILL: create a Custom topic with no Priority → written Priority=50 (PNAM), REPORTED. ----

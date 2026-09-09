@@ -13,6 +13,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **`housecarl_create` fills a player dialogue branch's `Flags` to `TopLevel`, not `0`.** A `DialogBranch`
+  created with no `Flags` used to get `0` whatever its category, and a `Category = Player` branch that is not
+  top level never reaches the player's dialogue menu, so the branch and every topic under it were dead. The
+  fill now follows the category — `TopLevel` for a player branch, `0` for any other — and is reported by name
+  in the auto-fill list, so you can read back what it wrote. It stays non-override: a `Flags` you pass wins,
+  including `Flags = 0` for a player branch you mean to keep out of the menu. What the fill does and does not
+  decide is in `docs/dialogue.md`.
 - **The `dialogue-authoring` skill is gone; seven skills ship.** It tied its no-skill control on the September
   behavioural gate, so the dialogue tools are the whole surface now. What it held that was measured in game
   moves to `docs/dialogue.md`: which topic a generic greeting enters is decided by quest priority across quests
