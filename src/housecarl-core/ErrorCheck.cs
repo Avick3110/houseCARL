@@ -488,7 +488,7 @@ public static class ErrorCheck
                                     countsOnly, view.Epoch,
                                     bySource is null ? null : SweepFindings.Histogram(bySource),
                                     baselineDangling, baseSwept, nonBaseInScope, limit,
-                                    recordScope?.TypeOrder);
+                                    recordScope?.TypeScopeLabel);
     }
 
     /// <summary>Bump the <c>counts_only=</c> dangling histogram for one broken target: keyed by the PLUGIN the target
@@ -609,7 +609,7 @@ public sealed record ErrorCheckResult(
     IReadOnlyList<string>? BaseMastersSwept = null,
     bool NonBaseInScope = false,
     int Limit = 0,   // the listing budget this sweep was GIVEN. Carried so the response can name the knob it is telling the caller to raise without being passed it a second time — a render-side copy defaults, and a default that disagrees with the sweep puts a wrong number in front of the caller
-    string? TypeScopeOrder = null)   // the scope's types, in the order the budget was spent on them, when it covered MORE than one; null otherwise. The listing budget is one counter, so a multi-type scope can list the first type and never reach the second, and the response says so rather than letting the narrowing line read as "the rest are clean"
+    string? TypeScopeLabel = null)   // the scope's types, spelled with the arms any entry expanded to, when it covered MORE than one; null otherwise. There is ONE listing for the whole scope, filled plugin by plugin and type by type inside each, so a short listing can be missing any of those types entirely, and the response says so rather than letting the narrowing line read as "the rest are clean"
 
 {
     public bool Success => Error is null;

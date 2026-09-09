@@ -36,21 +36,44 @@ public sealed class SweepScope
     /// <summary>The user-facing spelling of <see cref="Types"/> (the raw <c>types=</c> entries), for <see cref="Label"/>.</summary>
     public string? TypeLabel { get; }
 
+    // The same entries with every one that EXPANDED spelling its arms ("GMST → GameSettingInt, ..."), for
+    // TypeScopeLabel. Null where the caller built no such spelling, and TypeLabel then stands in.
+    readonly string? _armLabel;
+
     public SweepScope(IReadOnlySet<FormKey>? formids, string? editorIdContains,
-                      IReadOnlyList<Type>? types, string? typeLabel)
+                      IReadOnlyList<Type>? types, string? typeLabel, string? armLabel = null)
     {
         Formids = formids is { Count: > 0 } ? formids : null;
         EditorIdContains = string.IsNullOrWhiteSpace(editorIdContains) ? null : editorIdContains.Trim();
         Types = types is { Count: > 0 } ? types : null;
         TypeLabel = Types is null ? null : typeLabel;
+        _armLabel = Types is null ? null : armLabel;
     }
 
-    /// <summary>The scope's types spelled for the response, but ONLY where the scope covers more than one — the
-    /// listing budget is one counter spent in the order these are streamed, so a multi-type scope can list the
-    /// first type and never reach the second. Null where one type (or none) is in force and that cannot happen.
-    /// <para>More than one TYPE, not more than one entry: one entry can expand to several arms (<c>Global</c> to
-    /// its int/float/short arms), and the budget is spent arm by arm there too.</para></summary>
-    public string? TypeOrder => Types is { Count: > 1 } ? TypeLabel : null;
+    /// <summary>The scope's types spelled for the short-listing rule, but ONLY where the scope covers more than one
+    /// — there is one listing for the whole scope, so with several types in it any one of them can come out short.
+    /// Null where a single type is in force and that cannot happen.
+    /// <para>More than one TYPE, not more than one entry: one entry can expand to several arms (<c>GMST</c> to its
+    /// int/float/string/bool arms), and the listing is shared across those arms too. Which is why this spells the
+    /// arms an entry expanded to: a rule about "any of those types" has to name types the reader can act on, and
+    /// <c>types=[GMST]</c> alone names none.</para></summary>
+    public string? TypeScopeLabel => Types is { Count: > 1 } ? (_armLabel ?? TypeLabel) : null;
+
+    /// <summary>One <c>types=</c> entry spelled with the arms it resolved to, where it resolved to more than one —
+    /// the polymorphic bases (<c>GMST</c>, <c>GLOB</c>) and the many-to-one signatures. A concrete entry is spelled
+    /// as itself.</summary>
+    public static string SpellTypeEntry(string entry, IReadOnlyList<Type> arms)
+        => arms.Count > 1 ? $"{entry} → {string.Join(", ", arms.Select(GetterName))}" : entry;
+
+    /// <summary>A getter interface's user-facing type name: <c>IGameSettingIntGetter</c> to <c>GameSettingInt</c>,
+    /// the catalog spelling <c>types=</c> itself takes.</summary>
+    static string GetterName(Type t)
+    {
+        var n = t.Name;
+        if (n.Length > 1 && n[0] == 'I' && char.IsUpper(n[1])) n = n[1..];
+        if (n.EndsWith("Getter", StringComparison.Ordinal)) n = n[..^"Getter".Length];
+        return n;
+    }
 
     /// <summary>True when nothing is actually narrowed (every knob absent) — the caller can then pass null and keep the
     /// unscoped path byte-identical.</summary>

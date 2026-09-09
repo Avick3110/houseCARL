@@ -277,15 +277,29 @@ internal static class ReadSentences
     [MustState("not named here")]
     internal const string SweepRosterCut = " (the {0} largest of {1}; the rest are not named here)";
 
-    /// <summary>The type-scope rule, stated wherever a MULTI-TYPE scope was in force and the listing budget dropped
-    /// something. The budget is one counter spent in the order the scope's types are streamed, so a type later in
-    /// that order can be missing from the listing entirely — and a listing that names two types while showing one
-    /// otherwise reads as "the other one is clean".</summary>
-    [MustState("limit=", "unlisted", "not clean")]
-    internal const string SweepTypeOrderRule =
-        " limit= is ONE listing budget, spent in the order the scope's types are streamed (types=[{0}]), so a type " +
-        "later in that order can be absent from the listing above: absent there means unlisted, not clean. Sweep " +
-        "that type alone, or raise limit=.";
+    /// <summary>The type-scope rule, stated wherever a MULTI-TYPE scope was in force and the listing above came out
+    /// short. There is ONE listing for every type in the scope, and it is filled plugin by plugin (non-base plugins
+    /// first, base masters last) with the scope's types streamed inside each plugin — so no type is finished before
+    /// the next begins, and ANY of them can be missing from a short listing. A listing that names two types while
+    /// showing one otherwise reads as "the other one is clean". <c>{1}</c> is the knob that cut it.</summary>
+    [MustState("ONE listing", "unlisted", "not clean")]
+    internal const string SweepTypeScopeRule =
+        " There is ONE listing for every type in the scope (types=[{0}]), filled plugin by plugin (non-base plugins " +
+        "first, base masters last) and type by type inside each, and {1} cut it short — so ANY of those types can be " +
+        "missing from it: absent there means unlisted, not clean. Sweep that type alone, or raise {1}.";
+
+    /// <summary>The knob names the type-scope rule points at, one per cause. Consts rather than literals at the
+    /// render so the sentence and its reserve name the same knob, and the both-causes spelling is the longest.</summary>
+    [MustState("limit=")]
+    internal const string SweepKnobLimit = "limit=";
+
+    /// <inheritdoc cref="SweepKnobLimit"/>
+    [MustState("max_chars=")]
+    internal const string SweepKnobMaxChars = "max_chars=";
+
+    /// <inheritdoc cref="SweepKnobLimit"/>
+    [MustState("limit=", "max_chars=")]
+    internal const string SweepKnobBoth = "limit= and max_chars=";
 
     /// <summary>A rule about the listing rather than a claim about this response's contents, stated wherever a
     /// roster is: it tells the reader that a plugin with no section of its own is still in that roster.</summary>
