@@ -36,9 +36,9 @@ housecarl_records(formids=["02707A:Skyrim.esm"], project={"form":"info_order"})
 ```
 
 A line the order marks *pinned first by its own PNAM marker* carries that present-zero PNAM: leave it alone.
-The record read cannot answer this for you — an absent PNAM and a present-zero one both render
-`PreviousDialog = (null link)` under `project={"form":"everything"}`, and only `info_order`'s placement tells
-them apart (#697).
+The record read says which shape a line carries: under `project={"form":"everything"}` a present-zero PNAM reads
+`PreviousDialog = (null link, subrecord present)` and an absent one reads `PreviousDialog = (null link)`. The
+placement `info_order` reports is still what tells you where the line actually lands.
 
 Take the line at the target's position minus one and write that FormID into the override's `PreviousDialog`.
 Adding a **new** line re-lists nothing and needs no PNAM for the lines around it.
