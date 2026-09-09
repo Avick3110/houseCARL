@@ -17,7 +17,7 @@ namespace HousecarlGenerator;
 ///
 /// Drives the REAL service write path against a synthetic MO2 instance whose load order already contains an active
 /// "Patch.esp". Arms:
-///   COLLISION — a DEFAULT-stem write (patch_name omitted → "Patch") uniquifies to "houseCARL - Patch_001\Patch_001.esp"
+///   COLLISION — a DEFAULT-stem write (patch omitted → "Patch") uniquifies to "houseCARL - Patch_001\Patch_001.esp"
 ///               because "Patch.esp" is already active. RED if the load-order arm is reverted (old code emits "Patch.esp").
 ///   CONTROL   — a write with a stem NOT in the load order stays bare ("houseCARL - <stem>\<stem>.esp"): the guard fires
 ///               only on a real collision, never spuriously.

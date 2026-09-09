@@ -1480,7 +1480,7 @@ public sealed class LoadOrderService : IDisposable
 
             // ---- DEFAULT (new-folder) lane ----
             RiderFolder rf;
-            try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_NifEdit", new RiderNaming("patch_name")); }
+            try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_NifEdit", new RiderNaming("patch")); }
             catch (InvalidOperationException ex) { return NifSetResult.Fail(ex.Message, providers, profileName); }
 
             var dest = Path.Combine(rf.OutputDir, rel);
@@ -7992,25 +7992,25 @@ public sealed class LoadOrderService : IDisposable
     /// Data\Scripts. Carries the mod-folder root and fresh flag through for cleanup.</summary>
     public RiderFolder ResolveCompiledScriptFolder(string? patchName, string? into)
     {
-        var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts", new RiderNaming("patch_name"));
+        var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts", new RiderNaming("patch"));
         var scripts = Path.Combine(f.ModFolder, "Scripts");
         Directory.CreateDirectory(scripts);
         return f with { OutputDir = scripts };
     }
 
-    /// <summary>The output_dir= escape hatch: the user names where the compiled .pex lands instead of houseCARL
-    /// cutting a fresh folder-per-patch mod folder. output_dir is a mod-folder ROOT and houseCARL appends
+    /// <summary>The out_path= escape hatch: the user names where the compiled .pex lands instead of houseCARL
+    /// cutting a fresh folder-per-patch mod folder. out_path is a mod-folder ROOT and houseCARL appends
     /// <c>Scripts\</c>, matching <see cref="ResolveCompiledScriptFolder"/> and MO2's deploy model so the .pex
     /// actually loads, with a guard against appending a second Scripts\ when one is already there. It cuts no
     /// houseCARL mod folder, and the folder is user-owned, so the returned <see cref="RiderFolder"/> carries
     /// CreatedFresh=false and cleanup never deletes it on a failed compile. <paramref name="deployWarning"/> is
     /// non-null when the final Scripts\ path is none of a mod's own Scripts\, the MO2 overwrite folder, or the game's
     /// Data, because the .pex compiles but the game will not auto-load it from there. Refuses loudly on an unusable
-    /// output_dir — a malformed path, or one naming an existing file.</summary>
+    /// out_path — a malformed path, or one naming an existing file.</summary>
     public RiderFolder ResolveExplicitScriptFolder(string outputDir, out string? deployWarning)
         => ResolveExplicitRiderFolder(outputDir, "Scripts", ScriptOutputContract, out deployWarning);
 
-    /// <summary>The same output_dir= contract for the SEQ rider: the user names a mod-folder root and houseCARL
+    /// <summary>The same out_path= contract for the SEQ rider: the user names a mod-folder root and houseCARL
     /// appends <c>SEQ\</c>. It exists because the .seq output model otherwise assumes the plugin it serves lives in a
     /// houseCARL folder, which the in-place .esp lane inverts — the .esp in the mod's own folder, the .seq in a
     /// different mod entirely — and a .seq in an un-enabled or wrong folder leaves the quest silently dead.
@@ -8021,7 +8021,7 @@ public sealed class LoadOrderService : IDisposable
     public RiderFolder ResolveExplicitSeqFolder(string outputDir, out string? deployWarning)
         => ResolveExplicitRiderFolder(outputDir, "SEQ", SeqOutputContract, out deployWarning);
 
-    /// <summary>The shared body of the output_dir= lanes, one artifact per caller: normalize the root, refuse an
+    /// <summary>The shared body of the out_path= lanes, one artifact per caller: normalize the root, refuse an
     /// unusable one loudly, apply <paramref name="contract"/>, which appends <paramref name="sub"/> with the
     /// double-segment guard and decides deployability, create the folder, and hand back a user-owned RiderFolder.
     /// One body rather than one per rider, so the rules cannot drift per artifact.</summary>
@@ -8036,9 +8036,9 @@ public sealed class LoadOrderService : IDisposable
             EnsurePathsDerived();                          // cheap: derive ModsDir/DataDir for the deployability check, NO resolver build
             string root;
             try { root = Path.GetFullPath((outputDir ?? "").Trim().Trim('"')); }
-            catch (Exception ex) { throw new InvalidOperationException($"output_dir '{outputDir}' is not a usable path ({ex.Message})."); }
+            catch (Exception ex) { throw new InvalidOperationException($"out_path '{outputDir}' is not a usable path ({ex.Message})."); }
             if (File.Exists(root))
-                throw new InvalidOperationException($"output_dir '{root}' is a file, not a folder. Give a mod-folder root — houseCARL appends {sub}\\.");
+                throw new InvalidOperationException($"out_path '{root}' is a file, not a folder. Give a mod-folder root — houseCARL appends {sub}\\.");
 
             var (outDir, appended, warn) = contract(root, _modsDir, _dataDir, _overwriteDir);
             // A plain message when the folder cannot be created — the subfolder already exists as a file, or the path
@@ -8046,7 +8046,7 @@ public sealed class LoadOrderService : IDisposable
             // handler, which would read as a houseCARL bug rather than bad input.
             try { Directory.CreateDirectory(outDir); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            { throw new InvalidOperationException($"output_dir: couldn't create the output folder '{outDir}' ({ex.Message}). Check the path and that it's writable."); }
+            { throw new InvalidOperationException($"out_path: couldn't create the output folder '{outDir}' ({ex.Message}). Check the path and that it's writable."); }
             deployWarning = warn;
             // ModFolder is the mod-folder root — inert here, since cleanup is bypassed by CreatedFresh=false, but
             // kept accurate: when the user pointed at the subfolder, the root is its parent; otherwise the path they
@@ -8056,7 +8056,7 @@ public sealed class LoadOrderService : IDisposable
         }
     }
 
-    /// <summary>Pure, filesystem-free resolution of the output_dir= contract, so it is testable without an MO2
+    /// <summary>Pure, filesystem-free resolution of the out_path= contract, so it is testable without an MO2
     /// instance. Appends <c>Scripts\</c> to a mod-folder root, taking a root that already ends in a Scripts segment
     /// as-is — any case, trailing separator tolerated — rather than doubling it. <paramref name="outputDir"/> is
     /// expected absolute. Returns the final Scripts dir, whether Scripts\ was appended, and a deployWarning when the
@@ -8089,7 +8089,7 @@ public sealed class LoadOrderService : IDisposable
         return (seqDir, appended, warn);
     }
 
-    /// <summary>The shared pure core of the output_dir= contracts: append <paramref name="sub"/> to a mod-folder
+    /// <summary>The shared pure core of the out_path= contracts: append <paramref name="sub"/> to a mod-folder
     /// root, taking a root already ending in that segment as-is rather than doubling it, and decide deployability.
     /// MO2 overlays a mod folder's CONTENTS onto the game Data root, so a deployable folder is exactly
     /// <c>&lt;mods&gt;\&lt;modFolder&gt;\&lt;sub&gt;</c>, with the mod folder a direct child of mods and the
@@ -8154,7 +8154,7 @@ public sealed class LoadOrderService : IDisposable
     /// <c>into=</c>. Carries the root and fresh flag through for cleanup.</summary>
     public RiderFolder ResolveDecompiledSourceFolder(string? patchName, string? into)
     {
-        var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts", new RiderNaming("patch_name"));
+        var f = ResolvePatchModFolder(patchName, into, "houseCARL_Scripts", new RiderNaming("patch"));
         var src = Path.Combine(f.ModFolder, "Source", "Scripts");
         Directory.CreateDirectory(src);
         return f with { OutputDir = src };
@@ -8217,7 +8217,7 @@ public sealed class LoadOrderService : IDisposable
     /// plugin's own houseCARL folder when it lives in one, so the .seq deploys with the .esp; else a fresh folder, or
     /// <paramref name="into"/> / <paramref name="patchName"/> when given. A plugin with no such quests writes nothing
     /// and cuts no folder, stated explicitly rather than as a silent empty file. Serialized on the write gate.
-    /// <para><paramref name="outputDir"/> is the same output_dir= contract the compile lane carries: the user names a
+    /// <para><paramref name="outputDir"/> is the same out_path= contract the compile lane carries: the user names a
     /// mod-folder root — typically the plugin's own mod, after an in-place .esp edit — and the .seq lands in its
     /// <c>SEQ\</c>. It wins over <paramref name="patchName"/> and <paramref name="into"/>, and cuts no houseCARL
     /// folder.</para>
@@ -8274,8 +8274,8 @@ public sealed class LoadOrderService : IDisposable
                 return new SeqOutcome(true, null, null, null, built.Quests, built.PluginFileName, false)
                     { ResolvedFrom = resolvedFrom, PluginPath = pluginPath, UserChoseOutput = !string.IsNullOrWhiteSpace(outputDir) };
 
-            // Output folder: output_dir=, the user's own mod folder, wins; else the plugin's own houseCARL folder;
-            // else a fresh one or an explicit into= / patch_name. The output_dir arm cuts no houseCARL folder, so
+            // Output folder: out_path=, the user's own mod folder, wins; else the plugin's own houseCARL folder;
+            // else a fresh one or an explicit into= / patch. The out_path arm cuts no houseCARL folder, so
             // the owned-folder default is not consulted there — the caller named the destination outright.
             bool chosenOutput = !string.IsNullOrWhiteSpace(outputDir);
             string? autoInto = (!chosenOutput && string.IsNullOrWhiteSpace(into) && string.IsNullOrWhiteSpace(patchName))
@@ -8309,7 +8309,7 @@ public sealed class LoadOrderService : IDisposable
                     { ResolvedFrom = resolvedFrom, PluginPath = pluginPath, Unchanged = true, TimestampRefreshed = touched,
                       UserChoseOutput = chosenOutput, DeployWarning = deployWarning };
 
-            // Is there something here already? An output_dir= destination is a folder houseCARL does not own, so the
+            // Is there something here already? An out_path= destination is a folder houseCARL does not own, so the
             // file being replaced may be the mod's own shipped .seq, and "wrote" and "replaced yours" are different
             // facts about the disk.
             bool replaced = File.Exists(dest);
@@ -8319,14 +8319,14 @@ public sealed class LoadOrderService : IDisposable
             bool replacedSameBytes = replaced && sameBytes;
 
             // Crash-atomic write of <plugin>.seq under SEQ\, into a houseCARL-owned folder or the folder the caller
-            // named in output_dir=.
+            // named in out_path=.
             try { AtomicFile.WriteAllBytes(dest, built.Bytes); }
             catch (Exception ex)
             {
                 var residue = RemoveOrNameRiderResidue(rf);             // nothing landed → a fresh folder is an orphan
                 return SeqOutcome.Fail($"could not write '{seqName}': {ex.Message}"
                     + (residue is null ? "" : $" The freshly created folder was left at '{residue}'.")
-                    // On the output_dir lane cleanup is bypassed by design, since the folder is the user's, so the
+                    // On the out_path lane cleanup is bypassed by design, since the folder is the user's, so the
                     // SEQ\ directory is still there and "nothing was written" is true of the file, not the disk.
                     // Worded for what is known — the folder is there and houseCARL will not remove it — because
                     // claiming this call created it would be false whenever the mod already ships a SEQ\ folder.
@@ -8635,7 +8635,7 @@ public sealed class LoadOrderService : IDisposable
         // lanes', where the spelling is the same on every caller (#357).
         // It says to DROP into= because every lane here takes the extend branch on a non-blank into= and never looks
         // at the fresh name: adding the parameter to the call that just failed returns this same refusal — a loop on
-        // the rider lanes, which declare no into=/patch_name= exclusivity check to intercept it.
+        // the rider lanes, which declare no into=/patch= exclusivity check to intercept it.
         throw new InvalidOperationException(ExtendRefusal(
             $"no houseCARL patch named '{stem}' — no owned folder holds '{espName}' and none is named "
             + $"'{ModFolderName(stem)}'"
@@ -9899,7 +9899,7 @@ public sealed record SeqOutcome(
     public bool TimestampRefreshed { get; init; }
 
     /// <summary>The write REPLACED a file that was already there, rather than creating one. On the
-    /// <c>output_dir=</c> lane that file can be the mod's OWN shipped <c>.seq</c>, and houseCARL keeps no backup, so
+    /// <c>out_path=</c> lane that file can be the mod's OWN shipped <c>.seq</c>, and houseCARL keeps no backup, so
     /// "wrote" and "replaced yours" are different facts about the disk and are reported as such.</summary>
     public bool Replaced { get; init; }
 
@@ -9909,14 +9909,14 @@ public sealed record SeqOutcome(
     /// about a file it re-wrote identically.</summary>
     public bool ReplacedSameBytes { get; init; }
 
-    /// <summary>The caller named <c>output_dir=</c>, so the .seq landed in a folder the USER owns and no
+    /// <summary>The caller named <c>out_path=</c>, so the .seq landed in a folder the USER owns and no
     /// houseCARL mod folder was cut. Drives the confirmation: "enable this houseCARL mod in MO2" is the wrong next
     /// step for a file written into the user's own mod.</summary>
     public bool UserChoseOutput { get; init; }
 
-    /// <summary>The note for an <c>output_dir=</c> that neither MO2 nor the game reads SEQ files from. The
+    /// <summary>The note for an <c>out_path=</c> that neither MO2 nor the game reads SEQ files from. The
     /// .seq is correct; the engine will never see it, and every start-game-enabled quest in the plugin stays silently
-    /// dead until it moves. Null when the destination deploys (and on every non-output_dir lane, which lands in a
+    /// dead until it moves. Null when the destination deploys (and on every non-out_path lane, which lands in a
     /// houseCARL mod folder by construction).</summary>
     public string? DeployWarning { get; init; }
 

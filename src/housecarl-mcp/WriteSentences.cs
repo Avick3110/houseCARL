@@ -754,7 +754,7 @@ internal static class WriteSentences
         internal const string SeqListCutRemedy =
             "the .seq itself carries ALL of them — nothing is missing from the FILE. Re-run only if you need this LIST "
           + "widened: for a plugin OUTSIDE a houseCARL folder with no lane named, that writes the .seq again into "
-          + "ANOTHER fresh mod folder (name into=/output_dir=, or let a plugin in its own houseCARL folder default "
+          + "ANOTHER fresh mod folder (name into=/out_path=, or let a plugin in its own houseCARL folder default "
           + "there — at any named destination a byte-identical .seq is left untouched)";
     }
 }

@@ -2642,15 +2642,15 @@ static class JsonWire
             WriteNullable(w, "seq_path", o.SeqPath);
             WriteNullable(w, "mod_folder", o.ModFolder);
             w.WriteBoolean("wrote_into_plugin_folder", o.WroteIntoPluginFolder);
-            w.WriteBoolean("user_chose_output_dir", o.UserChoseOutput);
+            w.WriteBoolean("user_chose_out_path", o.UserChoseOutput);
             WriteNullable(w, "deploy_warning", o.DeployWarning);
             WriteNullable(w, "lane_note", outputNote);
             w.WriteNumber("quest_count", o.Quests.Count);
             if (o.Quests.Count == 0)
                 w.WriteString("note", "no start-game-enabled quests in this plugin — " + WriteSentences.Twins.SeqNoQuests + "."
-                    // The lane was acknowledged but never resolved on this path: user_chose_output_dir true, no
+                    // The lane was acknowledged but never resolved on this path: user_chose_out_path true, no
                     // seq_path, no deploy_warning. Say which of the two it is.
-                    + (o.UserChoseOutput ? " output_dir= was not resolved or checked either — no destination was touched, so an unusable one would not have been reported here." : ""));
+                    + (o.UserChoseOutput ? " out_path= was not resolved or checked either — no destination was touched, so an unusable one would not have been reported here." : ""));
 
             w.WriteStartArray("quests");
             int rendered = 0;

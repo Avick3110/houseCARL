@@ -57,7 +57,7 @@ public static class CompileTools
     [McpServerTool(Name = ToolNames.CompileScript, Title = "Compile a Papyrus script (.psc → .pex)"),
      Description(
          "Compile a Papyrus script (.psc) to .pex using the Creation Kit's PapyrusCompiler.exe, landing the .pex in a NEW " +
-         "houseCARL patch-mod folder you review and enable in MO2 (originals untouched) — or pass output_dir= to land it in a " +
+         "houseCARL patch-mod folder you review and enable in MO2 (originals untouched) — or pass out_path= to land it in a " +
          "folder you choose (houseCARL appends Scripts\\ so MO2 deploys it). Pass script= the full path to the " +
          ".psc to compile. IMPORT PATH: houseCARL adds the script's own folder, then AUTO-DISCOVERS the Papyrus source " +
          "folders your enabled MO2 mods already ship (Source\\Scripts / Scripts\\Source, in MO2 priority order — so SKSE, " +
@@ -88,11 +88,11 @@ public static class CompileTools
         [Description("Optional. Save this call's import_dirs= (plus any import_set= it loaded) under this name for reuse via import_set=. Persisted in houseCARL's user config, so it survives restarts; re-saving an existing name replaces it.")]
             string? save_import_set = null,
         [Description("Optional. Base name for the NEW patch-mod folder the .pex lands in (default 'houseCARL_Scripts'); auto-suffixed if taken.")]
-            string? patch_name = null,
+            string? patch = null,
         [Description("Optional. Filename of an existing houseCARL patch mod to add the .pex into instead of creating a fresh folder (accumulate compiled scripts). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null,
-        [Description("Optional. Land the .pex in a folder of YOUR choosing instead of a fresh houseCARL patch folder — pass the mod-folder ROOT; houseCARL appends Scripts\\ (and won't double it if you already point at a ...\\Scripts folder). When set, patch_name=/into= are ignored. Scripts load from exactly <mods>\\<YourMod>\\Scripts, the MO2 overwrite folder, or <Data>\\Scripts — anywhere else (including a NESTED path under a mod) the .pex still compiles but you're warned it won't deploy automatically.")]
-            string? output_dir = null) => Guard.Tool(ToolNames.CompileScript, () =>
+        [Description("Optional. Land the .pex in a folder of YOUR choosing instead of a fresh houseCARL patch folder — pass the mod-folder ROOT; houseCARL appends Scripts\\ (and won't double it if you already point at a ...\\Scripts folder). When set, patch=/into= are ignored. Scripts load from exactly <mods>\\<YourMod>\\Scripts, the MO2 overwrite folder, or <Data>\\Scripts — anywhere else (including a NESTED path under a mod) the .pex still compiles but you're warned it won't deploy automatically.")]
+            string? out_path = null) => Guard.Tool(ToolNames.CompileScript, () =>
     {
         // 1) MO2 must be configured — the .pex lands under the instance's mods folder.
         if (svc.ConfigPromptOrNull() is { } cfgPrompt) return cfgPrompt;
@@ -178,37 +178,37 @@ public static class CompileTools
                    $"{joinedLength} chars; the limit is about 32000). Re-run with auto_imports=false and pass only the " +
                    "dependencies this script needs via import_dirs= (save_import_set= will keep that list for next time).";
 
-        // 7) output folder: output_dir= names a user-owned location, so append Scripts\ rather than making a houseCARL
-        // patch folder. It supersedes patch_name=/into=, and says so rather than ignoring them silently.
+        // 7) output folder: out_path= names a user-owned location, so append Scripts\ rather than making a houseCARL
+        // patch folder. It supersedes patch=/into=, and says so rather than ignoring them silently.
         LoadOrderService.RiderFolder rf;
         string? deployWarning = null, outputNote = null;
-        if (!string.IsNullOrWhiteSpace(output_dir))
+        if (!string.IsNullOrWhiteSpace(out_path))
         {
-            if (!string.IsNullOrWhiteSpace(patch_name) || !string.IsNullOrWhiteSpace(into))
-                outputNote = "note: output_dir= was given, so patch_name=/into= are ignored (the .pex lands in output_dir, not a houseCARL patch folder).";
-            try { rf = svc.ResolveExplicitScriptFolder(output_dir, out deployWarning); }
+            if (!string.IsNullOrWhiteSpace(patch) || !string.IsNullOrWhiteSpace(into))
+                outputNote = "note: out_path= was given, so patch=/into= are ignored (the .pex lands in out_path, not a houseCARL patch folder).";
+            try { rf = svc.ResolveExplicitScriptFolder(out_path, out deployWarning); }
             // The ignored-lane note rides the refusal too: a refusal is when a caller re-reads their parameters, and
-            // "patch_name= was ignored" is still true of the call they are about to retype.
+            // "patch= was ignored" is still true of the call they are about to retype.
             catch (InvalidOperationException ex) { return "error: " + ex.Message + (outputNote is null ? "" : "\n" + outputNote); }
         }
         else
         {
-            try { rf = svc.ResolveCompiledScriptFolder(patch_name, into); }
+            try { rf = svc.ResolveCompiledScriptFolder(patch, into); }
             catch (InvalidOperationException ex) { return "error: " + ex.Message; }
         }
 
         // 8) compile + render.
         var result = HousecarlCore.PapyrusCompile.CompileObject(compilerExe!, objectName, plan.Dirs, rf.OutputDir);
-        var rendered = Render(result, plan, userChoseOutputDir: !string.IsNullOrWhiteSpace(output_dir));
+        var rendered = Render(result, plan, userChoseOutputDir: !string.IsNullOrWhiteSpace(out_path));
         if (result.Success)
         {
-            // Never report a clean "done" for a .pex that will not deploy from where output_dir= put it.
+            // Never report a clean "done" for a .pex that will not deploy from where out_path= put it.
             if (deployWarning is not null) rendered += "\n" + deployWarning;
         }
         else
         {
             // A failed compile produced no .pex: delete an empty fresh folder, name a partial one, leave an into= reuse
-            // alone. An output_dir= folder is user-owned (CreatedFresh=false), so RemoveOrNameRiderResidue returns null
+            // alone. An out_path= folder is user-owned (CreatedFresh=false), so RemoveOrNameRiderResidue returns null
             // for it by construction — a user directory is never deleted.
             var left = svc.RemoveOrNameRiderResidue(rf);
             if (left is not null)
@@ -444,7 +444,7 @@ public static class CompileTools
         if (r.Success)
         {
             sb.Append("compile OK: ").Append(r.ObjectName).Append(".psc → ").Append(r.PexPath).Append('\n');
-            // The destination line must match where the .pex actually went: a user-chosen output_dir= is not a
+            // The destination line must match where the .pex actually went: a user-chosen out_path= is not a
             // houseCARL patch folder and may have no "enable in MO2" step at all. Any deployability caveat for such a
             // target is appended by the caller as deployWarning.
             sb.Append(userChoseOutputDir

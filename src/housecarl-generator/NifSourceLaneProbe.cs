@@ -210,7 +210,7 @@ internal static class NifSourceLaneProbe
                 // Finding 4: mod= is answered ahead of the ABSENT return, so a successful write can land with NO
                 // current winner at all. The render must not then tell the caller to sort above one.
                 var soleSet = HousecarlMcp.NifTools.NifSet(svc2, mesh_path: SoleRel, op: "set_flags", target: "GuardShape",
-                                                           flags: "0x800000E", mod: SoleMod, patch_name: "NifSole");
+                                                           flags: "0x800000E", mod: SoleMod, patch: "NifSole");
                 Check(soleSet.Contains("wrote the verified mesh into a new mod folder"),
                       $"nif_set writes a sole off-order provider's copy — {Line(soleSet, "wrote the verified") ?? Line(soleSet, "error") ?? "(no write line)"}");
                 Check(!soleSet.Contains("the current winner"),
