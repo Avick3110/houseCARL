@@ -91,9 +91,11 @@ Read what your task needs, not everything.
    same scan with `where=["Name contains Dagger"]` — KID's String filter matches the item's
    **display name**, so `Name` is the predicate that answers it. An `editorid contains` scan asks a
    different question and turns up records with no name at all, which no String filter ever sees.
-   When the line carries a **plugin-name** filter, say which reading your count assumes:
-   `references/filters.md` §2 records that whether KID resolves one by defining plugin or by winning
-   plugin is unverified, and on a patched order the two counts differ.
+   When the line carries a **plugin-name** filter, count by the **defining** plugin, not the winner:
+   KID tests `TESFile::IsFormInMod` on the item's own FormID (`references/filters.md` §2), so the
+   filter catches only records that plugin defines, and a patch that overrides them changes nothing
+   about the set. Count the records that plugin defines — on a patched order that is a different
+   number from "records this plugin wins", and it is the first one the filter means.
    **This grounds one type-plus-trait predicate, not the whole line:** nothing on the 2.0
    surface replays KID's evaluation order or `chance` — that is issue **#614**, not in 2.0, so say
    so rather than implying the whole line was proved.
