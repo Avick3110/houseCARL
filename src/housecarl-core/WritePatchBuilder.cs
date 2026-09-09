@@ -971,8 +971,8 @@ public static class WritePatchBuilder
                 }
                 if (CrossTypeRefusal(e, srcBody, body) is { } typeErr) { Problem(typeErr); continue; }
             }
-            // Last, as on the patch lane: an edit already rejected above is never pre-flighted, so harvesting its
-            // links would walk a plugin for a check that will not run.
+            // Last, as on the patch lane, for the MESSAGE ORDER: an edit with both a bad from_plugin and a bad
+            // field_path is rejected above and reports the source problem first, which is what the patch lane does.
             var sunk = linkTokens.Count;
             var harvestVerdict = harvestRulebook.CollectLinkValues(req);
             staged.Add((order, e, body, req, label, srcBody, selfSource, harvestVerdict, linkTokens.Count != sunk));
