@@ -24,7 +24,7 @@ namespace HousecarlGenerator;
 ///   AUTOFILL     — create a DialogTopic with Subtype=Hello and NO marker → the written SNAM is HELO, and the
 ///                  auto-fill is REPORTED as an op (not silent, Q3).
 ///   DEFAULT-CUST — create a bare DialogTopic (Subtype defaults to Custom) → the written SNAM is CUST (matches xEdit's
-///                  own SNAM default; the dialogue-authoring skill's Custom example no longer ships a crash).
+///                  own SNAM default, so a Custom topic created without a marker no longer ships a load crash).
 ///   EXPLICIT-WINS— create a DialogTopic with an explicit SubtypeName=GBYE → it is NOT overridden to CUST.
 ///   VALIDATE-BLANK — a topic shipped with a blank marker (a raw pre-fix insert) → validate_dialogue raises a Problem
 ///                  naming the SNAM marker; a topic WITH a marker raises no such Problem.

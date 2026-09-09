@@ -83,10 +83,10 @@ models — by construction, not a hand-maintained subset.
   compatibility patch installed on purpose isn't misread as out of date; trace a file to its mod by MD5
   hash; and a raw GraphQL backstop reaches any field the curated tools don't surface yet. All keyless and
   read-only: it finds and informs; downloading stays your mod manager's "Mod Manager Download" handoff.
-- **Look things up and author distributor files** through 9 bundled, namespaced skills:
+- **Look things up and author distributor files** through 7 bundled, namespaced skills:
   record schemas (every type Mutagen models), Papyrus / SKSE signatures, SkyPatcher / SPID / KID
-  distributor grammars, Skyrim dialogue authoring, Open Animation Replacer config authoring, SKSE plugin
-  (C++/CommonLibSSE-NG) authoring, and dark-face NPC diagnosis.
+  distributor grammars, Open Animation Replacer config authoring, and SKSE plugin
+  (C++/CommonLibSSE-NG) authoring.
 
 ## Requirements
 
@@ -173,10 +173,6 @@ Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Code
 - **`skypatcher-authoring`**, **`spid-authoring`**, **`kid-authoring`** — author SkyPatcher INI,
   SPID `_DISTR.ini`, and KID `_KID.ini` distributor files from a grammar reference rather than invented
   syntax.
-- **`dialogue-authoring`** — author or audit Skyrim dialogue at the data layer: create topics (DIAL) and
-  lines (INFO) in a new plugin, wire them to a branch and quest, attach result scripts, write the
-  start-game-enabled `.seq`, and validate a whole topic's or quest's dialogue graph — encoding the
-  counter-intuitive bookkeeping a byte-valid line skips (and so plays nothing in game).
 - **`open-animation-replacer`** — author or interpret Open Animation Replacer (OAR) configs: `config.json` /
   `user.json`, condition sets, submod priorities (OAR ignores load order — higher priority wins), the
   source-verified `IsEquippedType` enum, addon conditions (Math / RaySense / IED / …), and DAR legacy
@@ -187,6 +183,9 @@ Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Code
   native Papyrus functions from C++, target SE + AE + VR from one DLL, or read an open-source plugin's source
   to explain what it does. Distinct from ESP/record work and from `.psc` Papyrus (owned by `papyrus-reference`);
   its runtime claims still await an in-game validation pass.
+
+Dialogue is not a skill: the dialogue tools carry their own bookkeeping, and [docs/dialogue.md](docs/dialogue.md)
+carries the two order rules a new line has to respect.
 
 ## License
 

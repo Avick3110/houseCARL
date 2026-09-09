@@ -10,7 +10,7 @@ namespace HousecarlGenerator;
 /// frontmatter to learn the skill's `name` + `description`, and the description is the ENTIRE surface the
 /// relevance matcher triggers on. When the frontmatter fails to parse, the harness drops ALL of it silently —
 /// the skill loads with empty metadata, present on disk but invisible to triggering. That is a Q3
-/// silently-wrong outcome in a SHIPPED artifact, and it is exactly what bit `dialogue-authoring` at the 1.3
+/// silently-wrong outcome in a SHIPPED artifact, and it is exactly what bit a shipped skill at the 1.3
 /// pre-release gate: a single colon-space inside the unquoted description ("...the records themselves:
 /// distributing...") made YAML read a nested mapping, threw, and dropped name+description. It passed PR review
 /// and CI green because CI never validated the plugin PACKAGE — only `claude plugin validate --strict` (a
@@ -31,12 +31,12 @@ namespace HousecarlGenerator;
 ///          --- ... --- fenced block parses as a YAML mapping with a non-empty `name` and `description`. The parse
 ///          uses a real YAML parser (YamlDotNet) — a FAITHFUL PROXY for, not byte-identical to, the harness's own
 ///          (JS) YAML parser: it reliably catches the colon-space class (RED-proven below), but the residual risk
-///          is a false-NEGATIVE (YamlDotNet accepts what the real loader would drop). For the 9 bundled skills
+///          is a false-NEGATIVE (YamlDotNet accepts what the real loader would drop). For the 7 bundled skills
 ///          the CI `claude plugin validate --strict` step closes that residual; for the Codex umbrella skill it
 ///          does not, and this is the only check. The description is also measured against the loader's
 ///          MAX_DESCRIPTION_LENGTH: past it the tail of the trigger surface is truncated away silently, which
 ///          the Codex umbrella shipped for a release with nothing red to say so. (RED: the literal colon-space
-///          description that dropped dialogue-authoring; a frontmatter missing `description`; a file with no
+///          description that dropped that skill; a frontmatter missing `description`; a file with no
 ///          fence at all; a description one character past the ceiling.)
 ///   INV2 — THE PLUGIN MANIFEST PARSES + CARRIES name/version. plugin.json is valid JSON with a non-empty
 ///          string name + version (the single source of truth the build stamps). (RED: a manifest missing
@@ -83,7 +83,7 @@ public static class PluginValidateProbe
             }
 
             // RED arms — the SAME checker must catch each class, or it is toothless
-            RedSkill("INV1-RED  colon-space description (the dialogue-authoring bug) is caught",
+            RedSkill("INV1-RED  colon-space description (the 1.3 pre-release bug) is caught",
                 "---\nname: x\ndescription: it edits the records themselves: distributing forms is SPID\n---\n",
                 s => s.Contains("parse", StringComparison.OrdinalIgnoreCase));
             RedSkill("INV1-RED  a frontmatter missing 'description' is caught",
@@ -202,7 +202,7 @@ public static class PluginValidateProbe
     static string FirstLine(string s) => s.Replace("\r", "").Split('\n')[0];
 
     /// <summary>A repo-root-relative, forward-slashed label for a SKILL.md's directory — so
-    /// '.claude/skills/dialogue-authoring' and 'plugin/codex/housecarl' are both unambiguous in the CI log.</summary>
+    /// '.claude/skills/spid-authoring' and 'plugin/codex/housecarl' are both unambiguous in the CI log.</summary>
     static string RelLabel(string file)
     {
         var dir = Path.GetDirectoryName(Path.GetFullPath(file))!;

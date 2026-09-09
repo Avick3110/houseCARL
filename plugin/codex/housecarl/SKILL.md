@@ -30,13 +30,15 @@ The user's instructions take precedence over guidelines provided in a skill.
 | A no-ESP edit to a record's own fields, or to one NPC | `housecarl:skypatcher-authoring` | before the INI line |
 | Spells, perks, items, outfits or factions onto NPCs by group | `housecarl:spid-authoring` | before the `_DISTR.ini` line |
 | Keywords onto item records | `housecarl:kid-authoring` | before the `_KID.ini` line |
-| Adding, wiring or auditing dialogue topics and lines | `housecarl:dialogue-authoring` | before the DIAL/INFO write |
 | Gating animations by weapon, keyword, perk or race | `housecarl:open-animation-replacer` | before the condition |
 | A Papyrus or SKSE function signature, or a `.psc` edit | `housecarl:papyrus-reference` | before the script edit |
 | Writing or building a native SKSE plugin DLL in C++ | `housecarl:skse-plugin-authoring` | before the first C++ |
 
 A dark, grey or black NPC face is not a skill: `housecarl_check findings=["facegen"]` reports it one row per
 NPC, and [docs/facegen.md](https://github.com/Avick3110/houseCARL/blob/main/docs/facegen.md) carries the causes behind each class.
+Dialogue is not a skill either: `housecarl_create` reports the bookkeeping it fills, and
+[docs/dialogue.md](https://github.com/Avick3110/houseCARL/blob/main/docs/dialogue.md) carries the greeting-priority
+and PNAM order rules a new or re-listed line has to respect.
 
 MCP tools are written bare on both hosts (`housecarl_records`); a sibling is written `housecarl:<skill>`, the
 Claude Code form — on Codex it is the bare folder name (`mutagen-reference`) installed beside this one.

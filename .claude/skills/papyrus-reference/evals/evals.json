@@ -127,7 +127,7 @@
     {"id": 12, "query": "write an SKSE plugin in C++ that exposes a native papyrus string-hashing function", "should_trigger": false, "expected_route": "skse-plugin-authoring — producer side, C++ not .psc"},
     {"id": 13, "query": "what fields does the QUST record have and is Priority writable?", "should_trigger": false, "expected_route": "mutagen-reference — record schema, not function signatures"},
     {"id": 14, "query": "attach this existing script to the magic effect record and fill in its properties", "should_trigger": false, "expected_route": "record-edit tools / NONE — record operation, no .psc is read or written"},
-    {"id": 15, "query": "wire a TIF result fragment onto this dialogue line so it advances the quest stage", "should_trigger": false, "expected_route": "dialogue-authoring"},
+    {"id": 15, "query": "wire a TIF result fragment onto this dialogue line so it advances the quest stage", "should_trigger": false, "expected_route": "NONE — the dialogue skill was deleted; the result script is a record write, not a signature lookup"},
     {"id": 16, "query": "how do i install SKSE and PapyrusUtil in MO2?", "should_trigger": false, "expected_route": "NONE / basics — names corpus members but is an install question"},
     {"id": 17, "query": "decompile campfire's pex files and tell me how heavy its update loops are", "should_trigger": false, "expected_route": "NONE — the judgment asked is heaviness, and the skill that owned it was deleted; hard near-miss"},
     {"id": 18, "query": "gate this dodge animation behind a perk check so only the player gets it", "should_trigger": false, "expected_route": "open-animation-replacer — animation condition, not a script"}

@@ -1,8 +1,8 @@
 # skse-plugin-authoring — corpus status (dev-side; NOT shipped in the plugin)
 
 *This file is the provenance ledger and staleness contract for the nine shipped references. It stays in
-`skill-draft/` (and, after packaging, is the one `references/` file NOT bundled — same pattern as
-`dialogue-authoring/references/_CORPUS_STATUS.md`). Readers of the shipped skill never see it; maintainers
+`skill-draft/` (and, after packaging, is the one `references/` file NOT bundled — the pattern every
+skill's corpus ledger follows). Readers of the shipped skill never see it; maintainers
 refreshing the corpus start here.*
 
 ## What these references are
