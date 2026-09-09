@@ -112,8 +112,10 @@ internal static class CheckArtifact
             }
         }
 
+        // The benign class the RESPONSE withholds is written here: the file carries every class the sweep found,
+        // which is what "the complete findings" means, and the class column tells the two apart.
         if (s.FaceGen is { Error: null } fg)
-            foreach (var f in fg.Findings)
+            foreach (var f in fg.Findings.Concat(fg.WithheldBenign ?? Array.Empty<FaceGenFinding>()))
             {
                 total++;
                 writer.WriteRow((w, _) => Row(w, "facegen", f.Class, formid: f.FormId, editorid: f.EditorId,
@@ -124,7 +126,8 @@ internal static class CheckArtifact
 
         // The facegen family counts findings its listing budget cut, so the file's own total says so rather than
         // letting row_count read as the whole answer.
-        if (s.FaceGen is { Error: null } fgt) total += Math.Max(0, fgt.TotalFound - fgt.Findings.Count);
+        if (s.FaceGen is { Error: null } fgt)
+            total += Math.Max(0, fgt.TotalFound - fgt.Findings.Count - (fgt.WithheldBenign?.Count ?? 0));
 
         var (manifest, err) = writer.Save(path, ToolNames.Check, query, identity: "formid", RowSchema,
                                           sort: "family, then the order each family reported",
