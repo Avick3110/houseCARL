@@ -5,7 +5,7 @@ using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>load_order_status' lookup= reports a plugin's LOCALIZED header flag (#376), so the in-place write refusal
+/// <summary>load_order_status' filter= reports a plugin's LOCALIZED header flag (#376), so the in-place write refusal
 /// that flag causes can be seen coming instead of being met halfway through a job.</summary>
 [Trait("tier", "integration")]
 public sealed class StatusLocalizedLookupTests : IClassFixture<StatusLocalizedWorld>

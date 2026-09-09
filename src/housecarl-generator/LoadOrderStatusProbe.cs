@@ -252,10 +252,10 @@ internal static class LoadOrderStatusProbe
                 string noExt = Path.GetFileNameWithoutExtension(masterName);
                 var hit = StatusWire.Render(svc.StatusData(), logs, svc.NamedProfileComposition(null), filter: noExt, localized: svc.PluginLocalizedFlag(noExt), cap: 80_000);
                 Check(hit.Contains("not in the load order") && hit.Contains("Did you mean") && hit.Contains(masterName),
-                      $"lookup='{noExt}' (no extension) → the plugin-miss line suggests '{masterName}'");
+                      $"filter='{noExt}' (no extension) → the plugin-miss line suggests '{masterName}'");
                 var farMiss = StatusWire.Render(svc.StatusData(), logs, svc.NamedProfileComposition(null), filter: "ZzzNothingLikeIt.esp", localized: svc.PluginLocalizedFlag("ZzzNothingLikeIt.esp"), cap: 80_000);
                 Check(farMiss.Contains("not in the load order") && !farMiss.Contains("Did you mean"),
-                      "an unrelated lookup renders the miss with NO suggestion (no spurious 'did you mean')");
+                      "an unrelated filter renders the miss with NO suggestion (no spurious 'did you mean')");
             }
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { /* temp scratch */ } }
