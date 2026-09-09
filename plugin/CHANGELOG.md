@@ -19,8 +19,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
   before intra-topic order, so a gate that always passes replaces the NPC's whole greeting pool; and a
   re-listed INFO — any override of an existing one, including one that only adds a condition — falls to the
   bottom of the merged topic order unless it carries `PreviousDialog` naming the line above it, read from
-  `project={"form":"info_order"}`. That page also names the `DialogBranch.Flags` default and the two lanes that
-  cannot see an unenabled plugin.
+  `project={"form":"info_order"}`. That page also names the `DialogBranch.Flags` default, the
+  `Goodbye` flag nothing fills for you, and the two lanes that cannot see an unenabled plugin. `housecarl_create`
+  and `housecarl_check` cite it by URL, the way the facegen page is cited, so a session authoring or checking
+  dialogue reaches it from the tool description.
 - **The `mutagen-reference` schema reference now reports a record-identity field as not writable.** A field
   marked `id` — `FormKey` on a record, and `ModKey` / `Master` on the `SkyrimMod` and `MasterReference`
   structs — is refused by the write pre-flight whether or not the library exposes a setter for it. The two
