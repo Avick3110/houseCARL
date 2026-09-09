@@ -10,10 +10,11 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// A world of ABSTRACT-GROUP records only: one GLOB group holding all three of Mutagen's concrete arms
-/// (GlobalShort / GlobalInt / GlobalFloat) and one GMST group holding two of its own. Mutagen models these groups as
-/// an abstract base with concrete subclasses, so a type filter naming an arm is the only case where the resolved
-/// getter type is narrower than the GRUP a typed enumeration seeks.
+/// The TYPE-FILTER world: one GLOB group holding all three of Mutagen's concrete arms (GlobalShort / GlobalInt /
+/// GlobalFloat) and one GMST group holding two of its own. Mutagen models these groups as an abstract base with
+/// concrete subclasses, so a type filter naming an arm is the only case where the resolved getter type is narrower
+/// than the GRUP a typed enumeration seeks. Beside them, one NPC_ and one WEAP each carrying a dangling FormLink,
+/// so a sweep's <c>types=</c> SET has two types that each contribute a finding.
 ///
 /// <para>Its own world: the shared records and bulk worlds carry no globals, and adding any would move counts their
 /// tests assert.</para>
@@ -24,7 +25,7 @@ public sealed class TypeArmWorld : IDisposable
     public string MasterName { get; }
     public LoadOrderService Svc { get; }
 
-    /// <summary>The two GlobalShort records — what a <c>type='GlobalShort'</c> filter must return, and all it must
+    /// <summary>The two GlobalShort records — what a <c>types=['GlobalShort']</c> filter must return, and all it must
     /// return.</summary>
     public const string Short1 = "HcArmShortA";
     public const string Short2 = "HcArmShortB";
@@ -40,10 +41,16 @@ public sealed class TypeArmWorld : IDisposable
     /// record stream. Named for a base-game master because <c>BaseMastersSwept</c> is what exposes that lane's
     /// "examined" set to a test: a swept off-order base master is listed there, and one whose every record a scope
     /// filtered out is not. It holds a GlobalFloat and a GlobalInt and deliberately NO GlobalShort, so a
-    /// <c>type='GlobalShort'</c> sweep of it must examine nothing.</summary>
+    /// <c>types=['GlobalShort']</c> sweep of it must examine nothing.</summary>
     public const string OffOrderName = "Update.esm";
     public const string OffOrderFloat = "HcArmOffFloat";
     public const string OffOrderInt = "HcArmOffInt";
+
+    /// <summary>One NPC_ and one WEAP in the master, each carrying a single dangling FormLink — the two types the
+    /// sweep's set-valued <c>types=</c> tests select over. Globals carry no links at all, so a set whose arms both
+    /// contribute a finding needs records that do.</summary>
+    public const string SweepNpc = "HcArmSweepNpc";
+    public const string SweepWeapon = "HcArmSweepWeapon";
 
     readonly string _priorCorpusPath;
 
@@ -62,6 +69,11 @@ public sealed class TypeArmWorld : IDisposable
         master.Globals.Add(new GlobalShort(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = Short2, Data = 2 });
         master.Globals.Add(new GlobalInt(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = Int1, Data = 3 });
         master.Globals.Add(new GlobalFloat(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = Float1, Data = 4.5f });
+
+        // Two link-bearing records of different types, one dangling ref each: the set-valued types= sweep's subjects.
+        var deadFk = FormKey.Factory("0E0E0E:" + MasterName);
+        var npc = master.Npcs.AddNew(); npc.EditorID = SweepNpc; npc.Race.SetTo(deadFk);
+        var weap = master.Weapons.AddNew(); weap.EditorID = SweepWeapon; weap.ObjectEffect.SetTo(deadFk);
 
         master.GameSettings.Add(new GameSettingInt(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = GmstInt, Data = 7 });
         master.GameSettings.Add(new GameSettingFloat(master.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = GmstFloat, Data = 8.5f });
