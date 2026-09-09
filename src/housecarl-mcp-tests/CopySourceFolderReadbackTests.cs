@@ -156,6 +156,17 @@ public sealed class CopySourceFolderReadbackTests : IDisposable
         Assert.Contains("the source record was read from Override.esp", r);
     }
 
+    /// <summary>#703: the folder the source came out of is switched off in MO2, and the readback says so — the
+    /// standalone claim beside it is about mastering, not about whether the game loads the source.</summary>
+    [Fact]
+    public void TheReadbackSaysTheSourceFolderIsNotEnabledInMo2()
+    {
+        var r = Copy("HcTwoDisabledSaid");
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
+        Assert.Contains($"'{TwoDisabledDonorsWorld.OverrideFolder}' is a mod folder that is NOT enabled in MO2", r);
+    }
+
     /// <summary>The claim that matters: the folder the readback names for an arm is the folder that actually holds
     /// that plugin's files. Proven by following it — the placement that names it lands the FaceGen's real bytes,
     /// and the folder of the arm the RECORD came from does not supply the file at all.</summary>
@@ -228,6 +239,16 @@ public sealed class CopyEnabledDonorFolderTests : IDisposable
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
         Assert.Contains(
             $"Donor.esp (from the active load order, MO2 mod folder \"{TwoDisabledDonorsWorld.DefiningFolder}\")", r);
+    }
+
+    /// <summary>…and an enabled donor gets no such note: the folder is on, so saying it is off would be false.</summary>
+    [Fact]
+    public void AnEnabledSourceFolderIsNotCalledDisabled()
+    {
+        var r = Copy("Donor.esp", "HcEnabledNotDisabled");
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), "refused: " + r.Split('\n')[0]);
+        Assert.DoesNotContain("NOT enabled in MO2", r);
     }
 
     /// <summary>…and the folder it names is the one that really holds that plugin's FaceGen — the same proof the
