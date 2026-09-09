@@ -48,14 +48,14 @@ public static class BsaTools
      Description(
          "Extract a Bethesda .bsa archive's contents to a folder so you can read the files. Reads the archive directly " +
          "(via Mutagen — handles compressed archives too) — no external tool needed. Unpacks the WHOLE archive. Pass " +
-         "dest= a folder to unpack into; OMIT dest to let houseCARL unpack into a NEW reviewable mod folder under your " +
+         "out_path= a folder to unpack into; OMIT out_path to let houseCARL unpack into a NEW reviewable mod folder under your " +
          "mods directory (reported back) — that needs houseCARL pointed at your MO2 instance. Originals are never modified.")]
     public static string BsaExtract(
         LoadOrderService svc,
         [Description("Full path to the .bsa archive to extract.")]
             string archive,
         [Description("Optional. Folder to unpack into. If omitted, houseCARL creates a NEW mod folder under your mods directory and reports its path.")]
-            string? dest = null) => Guard.Tool(ToolNames.BsaExtract, () =>
+            string? out_path = null) => Guard.Tool(ToolNames.BsaExtract, () =>
     {
         if (string.IsNullOrWhiteSpace(archive)) return "error: no archive given. Pass the full path to the .bsa.";
         try { archive = Path.GetFullPath(archive.Trim().Trim('"')); }
@@ -63,7 +63,7 @@ public static class BsaTools
         if (!File.Exists(archive)) return $"error: no such file: '{archive}'.";
 
         string target;
-        bool managed = string.IsNullOrWhiteSpace(dest);
+        bool managed = string.IsNullOrWhiteSpace(out_path);
         if (managed)
         {
             if (svc.ConfigPromptOrNull() is { } cfg) return cfg;   // need ModsDir for the default managed folder
@@ -73,7 +73,7 @@ public static class BsaTools
         }
         else
         {
-            target = Path.GetFullPath(dest!.Trim().Trim('"'));
+            target = Path.GetFullPath(out_path!.Trim().Trim('"'));
         }
 
         string residue = managed ? $"\nThe freshly created mod folder was left at '{target}' — delete it or retry into it." : "";
@@ -92,11 +92,10 @@ public static class BsaTools
     });
 
     /// <summary>How the repack lane names its mod folder, for the into= not-found refusal (#357). It names
-    /// patch_name= and says why: this tool declares archive_name= as well, and the §5.3 candidate order routes a
-    /// bare patch= there — to the .bsa filename, not the folder — so the sibling lanes' patch= sentence would
-    /// rename the caller's archive and leave the folder defaulted.</summary>
+    /// patch_name= and says why: on this tool patch= is the .bsa filename (the artifact the caller came for),
+    /// so the sibling lanes' patch= sentence would rename the caller's archive and leave the folder defaulted.</summary>
     public static readonly LoadOrderService.RiderNaming RepackNaming = new(
-        "patch_name", "On this tool a bare patch= names the ARCHIVE (archive_name=), not the folder.");
+        "patch_name", "On this tool patch= names the ARCHIVE, not the folder.");
 
     [McpServerTool(Name = ToolNames.BsaRepack, Title = "Pack a folder into a .bsa archive"),
      Description(
@@ -111,7 +110,7 @@ public static class BsaTools
         [Description("Full path to the source folder of loose files to pack (its tree becomes the archive's contents).")]
             string source_folder,
         [Description("Optional. The .bsa filename to create (default: the source folder's name + '.bsa').")]
-            string? archive_name = null,
+            string? patch = null,
         [Description("Optional. Archive format: 'sse' (default, Skyrim SE), 'tes5' (Skyrim LE), 'fo4', 'fo4dds', 'sf1', 'sf1dds', 'tes4', 'fo3', 'fnv', 'tes3'.")]
             string? format = null,
         [Description("Optional. Compress the archive (default false). WARNING: compression breaks sounds/voices — leave false if the folder contains any audio.")]
@@ -127,9 +126,9 @@ public static class BsaTools
         if (svc.ConfigPromptOrNull() is { } cfg) return cfg;
         if (bridge.RequireOrPrompt(ToolDependency.Bsarch, out var bsarch) is { } prompt) return prompt;
 
-        var name = string.IsNullOrWhiteSpace(archive_name)
+        var name = string.IsNullOrWhiteSpace(patch)
             ? new DirectoryInfo(source_folder).Name + ".bsa"
-            : Path.GetFileName(archive_name!.Trim().Trim('"'));
+            : Path.GetFileName(patch!.Trim().Trim('"'));
         if (!name.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase)) name += ".bsa";
 
         LoadOrderService.RiderFolder rf;
