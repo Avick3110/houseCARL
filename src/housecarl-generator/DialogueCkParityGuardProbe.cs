@@ -343,7 +343,7 @@ internal static class DialogueCkParityGuardProbe
                 var (cat, _) = o.Success ? ReadBranch(o.OutputPath, o.Created[0].FormKey) : (null, null);
                 bool reported = o.Success && o.Created[0].Ops.Any(op => op.Label.Contains("Category (TNAM", StringComparison.OrdinalIgnoreCase));
                 Check(o.Success && cat == DialogBranch.CategoryType.Player && reported,
-                    $"DLBR-TNAM-AUTOFILL bare DialogBranch → Category=Player, reported — {(o.Success ? $"category={cat} reported={reported}" : "err=[" + o.Error + "]")}");
+                    $"DLBR-TNAM-AUTOFILL DialogBranch with only Flags → Category=Player, reported — {(o.Success ? $"category={cat} reported={reported}" : "err=[" + o.Error + "]")}");
             }
 
             // ---- DLBR-TNAM-WINS: an explicit Category=Command is NOT overridden to Player. ----
