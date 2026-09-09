@@ -208,31 +208,28 @@ public sealed class RecordsBindingShimTests
         Assert.True(r.BodyRan, r.Describe());
     }
 
-    // ---- the alias layer --------------------------------------------------------------------------------
+    // ---- the spelling bridge ----------------------------------------------------------------------------
 
-    /// <summary>A spelling the tool does not declare is renamed to the canonical parameter its own row names.
-    /// The first declared candidate for <c>plugin</c> here is <c>source</c>, the whose-version pole, so the
-    /// pole is asserted as a value rather than merely that something bound.</summary>
+    /// <summary>A 1.x parameter name is no longer mapped onto a 2.0 one: <c>plugin=</c> is refused by name like
+    /// any other unknown parameter, and nothing lands on the whose-version pole behind the caller's back.</summary>
     [Fact]
-    public void TheAliasPluginIsResolvedToRecordsOwnSourceAndTheCallReachesTheBody()
+    public void AOnePointXParameterNameIsRefusedByName_NotMappedOntoRecordsOwnSource()
     {
         var args = AfterAliasResolution("""{"types":["CELL"],"plugin":"Synthetic.esp"}""");
 
-        Assert.False(args.ContainsKey("plugin"));
-        Assert.Equal("Synthetic.esp", args["source"].GetString());
+        Assert.True(args.ContainsKey("plugin"));
+        Assert.False(args.ContainsKey("source"));
 
         var r = _s.Call(ToolNames.Records, """{"types":["CELL"],"plugin":"Synthetic.esp"}""");
-        Assert.False(r.IsError, r.Describe());
-        Assert.True(r.BodyRan, r.Describe());
+        Assert.True(r.IsError, r.Describe());
+        Assert.Contains("unknown parameter: plugin", r.Text, StringComparison.Ordinal);
     }
 
-    /// <summary>The underscore/case bridge, resolved by normalization alone. It is the bridge and not a table
-    /// row that is proved, by asserting the table has no row for this spelling.</summary>
+    /// <summary>The underscore/case bridge, resolved by normalization alone — it names a parameter the tool
+    /// declares rather than translating a retired name into a current one.</summary>
     [Fact]
     public void AnUnderscoreVariantIsResolvedToItsDeclaredParameterByNormalizationAlone()
     {
-        Assert.Null(AliasTable.RenameFor(ToolCallShim.Normalize("wheresource")));
-
         var args = AfterAliasResolution("""{"types":["CELL"],"wheresource":"winner"}""");
 
         Assert.False(args.ContainsKey("wheresource"));
@@ -243,36 +240,31 @@ public sealed class RecordsBindingShimTests
         Assert.True(r.BodyRan, r.Describe());
     }
 
-    /// <summary>A spelling resolved via the synonym group rather than by normalization equality:
-    /// <c>plugin_name</c> normalizes to "pluginname", which no declared parameter matches, so only the
-    /// table's row can place it. The pole it lands on is the one the value's kind can bind — a filename
-    /// string is the whose-version pole, while the scope pole takes an object.</summary>
+    /// <summary>A spelling no declared parameter normalizes to has nothing to bridge onto: <c>plugin_name</c>
+    /// normalizes to "pluginname", which <c>housecarl_records</c> does not declare, so it is refused by name
+    /// rather than placed on a pole by a retired-name table.</summary>
     [Fact]
-    public void TheAliasPluginNameIsResolvedThroughTheSynonymGroupNotByNormalizationEquality()
+    public void ASpellingNoDeclaredParameterNormalizesToIsRefusedByName()
     {
         Assert.DoesNotContain(ToolCallShim.Normalize("plugin_name"),
                               PublishedParameters().Select(ToolCallShim.Normalize));
 
         var args = AfterAliasResolution("""{"types":["CELL"],"plugin_name":"Synthetic.esp"}""");
 
-        Assert.False(args.ContainsKey("plugin_name"));
-        Assert.Equal("Synthetic.esp", args["source"].GetString());
+        Assert.True(args.ContainsKey("plugin_name"));
+        Assert.False(args.ContainsKey("source"));
 
         var r = _s.Call(ToolNames.Records, """{"types":["CELL"],"plugin_name":"Synthetic.esp"}""");
-        Assert.False(r.IsError, r.Describe());
-        Assert.True(r.BodyRan, r.Describe());
+        Assert.True(r.IsError, r.Describe());
+        Assert.Contains("unknown parameter: plugin_name", r.Text, StringComparison.Ordinal);
     }
 
-    /// <summary>A declared parameter is never treated as an alias. <c>plugins</c> is a rename row's old
-    /// spelling on other tools and <c>housecarl_records</c> declares it, so the row has something here to be
-    /// kept away from. Asserted as a value because the wire cannot see it: <c>records.source</c> is declared
-    /// <c>JsonElement</c> and takes any JSON, so a rename onto it would still reach the body and answer with
-    /// the same config prompt as the correct call.</summary>
+    /// <summary>A declared parameter is never rewritten. Asserted as a value because the wire cannot see it:
+    /// <c>records.source</c> is declared <c>JsonElement</c> and takes any JSON, so a rewrite onto it would
+    /// still reach the body and answer with the same config prompt as the correct call.</summary>
     [Fact]
-    public void RecordsOwnDeclaredPluginsIsNeverTreatedAsAnAlias()
+    public void RecordsOwnDeclaredPluginsIsNeverRewritten()
     {
-        Assert.NotNull(AliasTable.RenameFor(ToolCallShim.Normalize("plugins")));   // the row exists to fire
-
         var args = AfterAliasResolution("""{"types":["CELL"],"plugins":{"names":["Skyrim.esm"]}}""");
 
         Assert.Equal(new[] { "types", "plugins" }, args.Keys.ToArray());
@@ -280,22 +272,21 @@ public sealed class RecordsBindingShimTests
                      args["plugins"].GetProperty("names").EnumerateArray().Select(e => e.GetString()).ToArray());
     }
 
-    /// <summary>An explicit canonical value is never clobbered: with <c>source</c> supplied the stray
-    /// <c>plugin</c> has no free target, so it is left for the unknown-parameter path and named rather than
-    /// silently merged over the caller's own value.</summary>
+    /// <summary>An explicitly supplied parameter is never clobbered by a variant spelling of itself: the
+    /// stray is left for the unknown-parameter path and named rather than merged over the caller's value.</summary>
     [Fact]
-    public void AnAliasWhoseCanonicalIsAlreadySuppliedIsNamedUnknown_NotMergedOverIt()
+    public void AVariantWhoseCanonicalIsAlreadySuppliedIsNamedUnknown_NotMergedOverIt()
     {
-        var args = AfterAliasResolution("""{"types":["CELL"],"source":"winner","plugin":"Other.esp"}""");
+        var args = AfterAliasResolution("""{"types":["CELL"],"source":"winner","Source_":"Other.esp"}""");
         Assert.Equal("winner", args["source"].GetString());     // the caller's own value survives
-        Assert.True(args.ContainsKey("plugin"));                // the stray is left where it was
+        Assert.True(args.ContainsKey("Source_"));               // the stray is left where it was
 
-        var r = _s.Call(ToolNames.Records, """{"types":["CELL"],"source":"winner","plugin":"Other.esp"}""");
+        var r = _s.Call(ToolNames.Records, """{"types":["CELL"],"source":"winner","Source_":"Other.esp"}""");
         Assert.True(r.IsError, r.Describe());
-        Assert.Contains("unknown parameter: plugin", r.Text, StringComparison.Ordinal);
+        Assert.Contains("unknown parameter: Source_", r.Text, StringComparison.Ordinal);
     }
 
-    /// <summary>The kind gate must not reach the normalization bridge: a case variant names the right
+    /// <summary>The bridge is not kind-gated: a case variant names the right
     /// parameter, so the rename proceeds even for an unbindable value and the type refusal names the real
     /// parameter and fault, never an unknown-parameter refusal denying it exists.</summary>
     [Fact]

@@ -4,7 +4,8 @@ using Xunit;
 namespace HousecarlMcpTests;
 
 /// <summary>
-/// The binding shim's required-parameter refusals, and the alias clique on the write and reshape tools.
+/// The binding shim's required-parameter refusals, and the refusal of 1.x parameter names on the write and
+/// reshape tools.
 ///
 /// <para>The population is derived from the wire — every published tool whose own schema carries a
 /// <c>required</c> list — so the sweep is a function of the surface and no later tool can fall out of it.
@@ -91,7 +92,7 @@ public sealed class ToolCallShimWirePathTests
         Assert.True(r.BodyRan, r.Describe());
     }
 
-    // ---- the plugin/plugins/plugin_name clique ----------------------------------------------------------
+    // ---- 1.x parameter names are refused, never mapped --------------------------------------------------
 
     /// <summary><c>create_plugin</c> takes the 2.0 word <c>patch=</c> for the plugin it creates, so the old
     /// <c>plugin=</c> spelling is a named unknown rather than a silent rebind: no candidate of the plugin
@@ -110,31 +111,30 @@ public sealed class ToolCallShimWirePathTests
     }
 
     /// <summary><c>compact_plugin</c>'s subject is the SOURCE pole, so <c>source=</c> reaches the body and the
-    /// old bare <c>plugin=</c> still renames onto it through the clique's remaining edge.</summary>
+    /// old <c>plugin=</c> spelling is refused by name, naming <c>source</c>: no shim maps it any more.</summary>
     [Fact]
-    public void CompactPluginTakesSourceAndTheOldPluginSpellingStillRenamesOntoIt()
+    public void CompactPluginTakesSourceAndRefusesTheOldPluginSpellingByName()
     {
         var direct = _s.Call(ToolNames.CompactPlugin, """{"source":"Skyrim.esm"}""");
         Assert.False(direct.IsError, direct.Describe());
         Assert.True(direct.BodyRan, direct.Describe());
 
-        var aliased = _s.Call(ToolNames.CompactPlugin, """{"plugin":"Skyrim.esm"}""");
-        Assert.False(aliased.IsError, aliased.Describe());
-        Assert.DoesNotContain("required parameter", aliased.Text, StringComparison.Ordinal);
-        Assert.True(aliased.BodyRan, aliased.Describe());
+        var old = _s.Call(ToolNames.CompactPlugin, """{"plugin":"Skyrim.esm"}""");
+        Assert.True(old.IsError, old.Describe());
+        Assert.False(old.BodyRan, old.Describe());
+        Assert.Contains("required parameter missing: source. Supplied: plugin.", old.Text, StringComparison.Ordinal);
     }
 
-    /// <summary>The tools whose <c>patch=</c> is the output mod FOLDER never take <c>plugin_name=</c> onto it:
-    /// on <c>compact_plugin</c> the spelling reaches the SOURCE pole and the body, and on
-    /// <c>compile_script</c>, which declares no plugin spelling at all, it stays a named unknown instead of
-    /// silently naming the folder after a plugin.</summary>
+    /// <summary>The tools whose <c>patch=</c> is the output mod FOLDER never take <c>plugin_name=</c> onto it,
+    /// and it does not reach <c>compact_plugin</c>'s SOURCE pole either: on both tools the spelling is refused
+    /// by name instead of silently naming the folder after a plugin.</summary>
     [Fact]
     public void PluginNameNeverBindsToTheOutputFolderPatchOnTheRiderTools()
     {
         var compact = _s.Call(ToolNames.CompactPlugin, """{"plugin_name":"Skyrim.esm"}""");
-        Assert.False(compact.IsError, compact.Describe());
-        Assert.DoesNotContain("required parameter", compact.Text, StringComparison.Ordinal);
-        Assert.True(compact.BodyRan, compact.Describe());
+        Assert.True(compact.IsError, compact.Describe());
+        Assert.False(compact.BodyRan, compact.Describe());
+        Assert.Contains("required parameter missing: source. Supplied: plugin_name.", compact.Text, StringComparison.Ordinal);
 
         var compile = _s.Call(ToolNames.CompileScript, """{"script":"X.psc","plugin_name":"MyMod.esp"}""");
         Assert.True(compile.IsError, compile.Describe());
@@ -142,13 +142,13 @@ public sealed class ToolCallShimWirePathTests
         Assert.False(compile.BodyRan, compile.Describe());
     }
 
-    /// <summary>A stray <c>target=</c> on a tool that has none stays the named unknown WITH the supported list
-    /// — never a rename onto <c>in_place</c> that answers with a type error about a key the caller never
-    /// sent.</summary>
+    /// <summary>A stray <c>target=</c> on a tool that has none is the named unknown WITH the supported list —
+    /// never a rewrite onto <c>in_place</c>, which would engage the opt-in overwrite lane from a call that
+    /// never spelled it.</summary>
     [Fact]
     public void AStrayTargetOnCompactPluginIsANamedUnknown_NotAnInPlaceTypeError()
     {
-        var r = _s.Call(ToolNames.CompactPlugin, """{"plugin":"X.esp","target":"X.esp"}""");
+        var r = _s.Call(ToolNames.CompactPlugin, """{"source":"X.esp","target":"X.esp"}""");
 
         Assert.True(r.IsError, r.Describe());
         Assert.Contains("unknown parameter: target", r.Text, StringComparison.Ordinal);
@@ -156,24 +156,16 @@ public sealed class ToolCallShimWirePathTests
         Assert.DoesNotContain("in_place (expects", r.Text, StringComparison.Ordinal);
     }
 
-    /// <summary>The kind gate: a plural spelling carrying an ARRAY must not be renamed onto a SCALAR
-    /// parameter, and the refusal keeps the caller's OWN key so the correction is about the argument they
-    /// actually sent.
-    ///
-    /// <para>The scalar control is the other half of the gate: the SAME spelling carrying a STRING is
-    /// compatible with the scalar pole, so it does rename and the call runs. Without it this test would pass
-    /// against a gate that refused the spelling outright.</para>
-    /// </summary>
+    /// <summary>1.x's <c>plugin_name=</c> is not mapped onto <c>compact_plugin</c>'s own <c>plugin=</c>: it is
+    /// refused by name, and the required parameter it did not supply is named too.</summary>
     [Fact]
-    public void AnArrayUnderAPluralSpellingIsNotRenamedOntoAScalarParameter_TheRefusalKeepsTheCallersKey()
+    public void TheOnePointXPluginNameSpellingIsRefusedByName_NotMappedOntoCompactPluginsOwnPlugin()
     {
-        var array = _s.Call(ToolNames.CompactPlugin, """{"plugins":["A.esp","B.esp"]}""");
-        Assert.True(array.IsError, array.Describe());
-        Assert.Contains("Supplied: plugins", array.Text, StringComparison.Ordinal);
-        Assert.DoesNotContain("could not be bound", array.Text, StringComparison.Ordinal);
+        var r = _s.Call(ToolNames.CompactPlugin, """{"plugin_name":"Skyrim.esm"}""");
 
-        var scalar = _s.Call(ToolNames.CompactPlugin, """{"plugins":"A.esp"}""");
-        Assert.False(scalar.IsError, scalar.Describe());
-        Assert.True(scalar.BodyRan, scalar.Describe());
+        Assert.True(r.IsError, r.Describe());
+        Assert.False(r.BodyRan, r.Describe());
+        Assert.Contains("required parameter", r.Text, StringComparison.Ordinal);
+        Assert.Contains("plugin", r.Text, StringComparison.Ordinal);
     }
 }
