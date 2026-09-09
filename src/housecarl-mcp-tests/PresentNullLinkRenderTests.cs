@@ -1,6 +1,7 @@
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
+using HousecarlCore;
 using HousecarlMcp;
 using Xunit;
 
@@ -118,5 +119,60 @@ public sealed class PresentNullLinkRenderTests : IDisposable
         Assert.Contains("(null link, subrecord present)", marked);
         Assert.DoesNotContain("(null link, subrecord present)", plain);
         Assert.Contains("(null link)", plain);
+    }
+
+    /// <summary>The same split on the QUERY axis: `exists`/`missing` is the surface a modder sweeps a topic with,
+    /// so a head-marked line must answer exists — the subrecord IS on the record — and only the plain line must
+    /// answer missing. Collapsing them here would hand back the opposite of the read.</summary>
+    [Fact]
+    public void PresenceSweepsTellTheTwoShapesApart()
+    {
+        string Sweep(string predicate) =>
+            RecordsTools.Records(_w.Svc, formids: new[] { Fid(_w.MarkedLine), Fid(_w.PlainLine) },
+                                 where: new[] { predicate },
+                                 project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "EditorID" } });
+
+        var exists = Sweep("PreviousDialog exists");
+        Assert.Contains("HcPnlMarked", exists);
+        Assert.DoesNotContain("HcPnlPlain", exists);
+
+        var missing = Sweep("PreviousDialog missing");
+        Assert.Contains("HcPnlPlain", missing);
+        Assert.DoesNotContain("HcPnlMarked", missing);
+    }
+}
+
+/// <summary>The conflict-diff half of #697, driven at <see cref="FieldsDiff"/> directly: the present-zero note is
+/// deliberately NOT an absent sentinel, so a side carrying the head marker deltas against a side carrying nothing
+/// instead of both collapsing into the same "no value here" state. Nothing else pins that exclusion — adding the
+/// note to <c>IsAbsentSentinel</c> would otherwise leave a green suite and the collapse back on the conflict tree.</summary>
+[Trait("tier", "unit")]
+public sealed class PresentNullLinkDiffTests
+{
+    const string PresentZero = "(null link, subrecord present)";
+    const string Absent = "(absent)";
+
+    static RecordFields Info(string pnamNote) =>
+        new("INFO", "000800:A.esm", "HcInfo",
+            new[] { new FieldValue("EditorID", true, "HcInfo", null),
+                    new FieldValue("PreviousDialog", false, null, pnamNote, Present: false) });
+
+    [Fact]
+    public void ACarriedHeadMarkerDeltasAgainstASideCarryingNothing()
+    {
+        var d = FieldsDiff.Compare(Info(PresentZero), Info(Absent));
+
+        Assert.Contains(d.Deltas, x => x.StartsWith("PreviousDialog=" + PresentZero, StringComparison.Ordinal));
+        Assert.DoesNotContain(d.Deltas, x => x.Contains("ABSENT here", StringComparison.Ordinal));
+    }
+
+    /// <summary>The pole-symmetric half, and the reason the exclusion is one-sided rather than a rename: two
+    /// genuinely-absent sides still agree, so nothing new is reported where nothing changed.</summary>
+    [Fact]
+    public void TwoAbsentSidesStillCollapse()
+    {
+        var d = FieldsDiff.Compare(Info(Absent), Info(Absent));
+
+        Assert.DoesNotContain(d.Deltas, x => x.StartsWith("PreviousDialog", StringComparison.Ordinal));
     }
 }
