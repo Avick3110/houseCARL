@@ -92,14 +92,22 @@ public static class BsaTools
     });
 
     /// <summary>How the repack lane names its mod folder, for the into= not-found refusal (#357): patch=, the same
-    /// parameter as every other tool that writes a folder, since the .bsa inside takes that folder's name.</summary>
-    public static readonly LoadOrderService.RiderNaming RepackNaming = new("patch");
+    /// parameter as every other tool that writes a folder, since the .bsa inside takes that folder's name. That name
+    /// is load-bearing — the game auto-loads an archive only as &lt;activePluginBasename&gt;.bsa (or one listed in
+    /// sResourceArchiveList) — so a taken stem REFUSES here rather than suffixing the archive to a name nothing
+    /// loads.</summary>
+    public static readonly LoadOrderService.RiderNaming RepackNaming = new(
+        "patch",
+        new LoadOrderService.StemRefusal(
+            "the .bsa (the game auto-loads an archive only under its plugin's exact basename)",
+            "Remove it in MO2, pass patch= a different name, or pass into= to place the archive in an existing houseCARL patch folder."));
 
     [McpServerTool(Name = ToolNames.BsaRepack, Title = "Pack a folder into a .bsa archive"),
      Description(
          "Pack a folder of loose files into a Bethesda .bsa archive (via BSArch), placed in a NEW reviewable houseCARL mod " +
          "folder under your mods directory (originals untouched; enable it in MO2 to use). patch= names that folder and the " +
-         ".bsa inside takes its name. format defaults to 'sse' (Skyrim " +
+         ".bsa inside takes its name — a name already taken is refused, and an existing archive is never replaced, because " +
+         "the game loads an archive only under its plugin's exact basename. format defaults to 'sse' (Skyrim " +
          "Special Edition). compress defaults to FALSE — a compressed archive is smaller but BREAKS any sounds/voices it " +
          "contains (a BSArch limitation), so only compress archives with no audio. Needs the BSArch path (auto-prompts if " +
          "unset) and houseCARL pointed at your MO2 instance (for the output folder).")]
@@ -108,18 +116,25 @@ public static class BsaTools
         ToolPathResolver bridge,
         [Description("Full path to the source folder of loose files to pack (its tree becomes the archive's contents).")]
             string source_folder,
-        [Description("Optional. Base name for the NEW mod folder the .bsa lands in (default: the source folder's name); auto-suffixed if taken. The archive inside takes that folder's name, so patch='MyArchive' writes 'houseCARL - MyArchive\\MyArchive.bsa'.")]
+        [Description("Optional. Base name for the NEW mod folder the .bsa lands in (default: the source folder's name). The archive inside takes that folder's name, so patch='MyArchive' writes 'houseCARL - MyArchive\\MyArchive.bsa'. A name already taken — by a mod folder, or by an active plugin of that basename — is REFUSED by name and nothing is written: the game auto-loads an archive only under its plugin's exact basename, so houseCARL never auto-renames it. Cannot be combined with into=.")]
             string? patch = null,
         [Description("Optional. Archive format: 'sse' (default, Skyrim SE), 'tes5' (Skyrim LE), 'fo4', 'fo4dds', 'sf1', 'sf1dds', 'tes4', 'fo3', 'fnv', 'tes3'.")]
             string? format = null,
         [Description("Optional. Compress the archive (default false). WARNING: compression breaks sounds/voices — leave false if the folder contains any audio.")]
             bool compress = false,
-        [Description("Optional. Filename of an existing houseCARL patch mod to place the .bsa into instead of a fresh folder (the archive then takes THAT folder's name). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
+        [Description("Optional. Filename of an existing houseCARL patch mod to place the .bsa into instead of a fresh folder (the archive then takes THAT folder's name). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match). Cannot be combined with patch=, and an archive of that folder's name already there is REFUSED, never replaced — so a second repack into one folder says so instead of overwriting the first.")]
             string? into = null) => Guard.Tool(ToolNames.BsaRepack, () =>
     {
         if (string.IsNullOrWhiteSpace(source_folder)) return "error: no source_folder given.";
         source_folder = Path.GetFullPath(source_folder.Trim().Trim('"'));
         if (!Directory.Exists(source_folder)) return $"error: no such folder: '{source_folder}'.";
+        // Lane exclusivity, as on write_seq: patch= names a NEW folder and into= an existing one, and the .bsa takes
+        // whichever folder's name — two ways of naming it with no way to choose, so the pair refuses by name rather
+        // than silently taking into='s folder (which the resolver reaches before patch= is read).
+        if (!string.IsNullOrWhiteSpace(patch) && !string.IsNullOrWhiteSpace(into))
+            return $"error: patch='{patch}' names a NEW mod folder for the .bsa, but into='{into}' packs it into an existing "
+                 + "houseCARL patch — the two lanes are exclusive, and the archive takes the folder's name either way. "
+                 + "Drop patch= to pack into that patch, or drop into= to make a new folder.";
         if (svc.ConfigPromptOrNull() is { } cfg) return cfg;
         if (bridge.RequireOrPrompt(ToolDependency.Bsarch, out var bsarch) is { } prompt) return prompt;
 
@@ -145,6 +160,12 @@ public static class BsaTools
         }
 
         var archive = Path.Combine(folder, name);
+        // An archive already at that path is REFUSED, never replaced and never backed up: on the into= lane every
+        // repack into one folder resolves to the same filename, and a silent overwrite loses the first archive's
+        // contents with the report saying only "packed".
+        if (File.Exists(archive))
+            return Refuse($"error: '{name}' already exists in that mod folder ('{archive}') — houseCARL won't replace an "
+                        + "archive it did not just write. Delete it, or repack into a different folder.");
         // An unknown format token refuses: a typo like 'fo4dd' must not silently pack -sse.
         var fmtFlag = HousecarlCore.BsaArchive.TryFormatFlag(format);
         if (fmtFlag is null)
