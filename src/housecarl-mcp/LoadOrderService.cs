@@ -1857,7 +1857,7 @@ public sealed class LoadOrderService : IDisposable
             view.Epoch, view.ContainedRecordCount);
     }
 
-    /// <summary>The LOCALIZED header flag of ONE plugin, for housecarl_load_order_status' lookup= (#376): a localized
+    /// <summary>The LOCALIZED header flag of ONE plugin, for housecarl_load_order_status' filter= (#376): a localized
     /// plugin's text lives in .STRINGS files rather than in the plugin, which is what the in-place write lanes refuse
     /// on, so a caller can see that refusal coming instead of meeting it mid-job. Null when the name is not a plugin
     /// at all (a mod folder, a typo — nothing has a header to read); otherwise the three-way read, Unreadable

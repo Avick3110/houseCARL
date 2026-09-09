@@ -13,7 +13,7 @@ public sealed class StatusLocalizedLookupTests : IClassFixture<StatusLocalizedWo
     readonly StatusLocalizedWorld _w;
     public StatusLocalizedLookupTests(StatusLocalizedWorld w) => _w = w;
 
-    string Lookup(string name) => StatusTools.LoadOrderStatus(_w.Svc, _w.Tools, lookup: name);
+    string Lookup(string name) => StatusTools.LoadOrderStatus(_w.Svc, _w.Tools, filter: name);
 
     [Fact]
     public void ALocalizedPluginIsNamedAsSuchWithTheInPlaceConsequence()
