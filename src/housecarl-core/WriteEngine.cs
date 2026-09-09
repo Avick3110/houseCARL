@@ -494,7 +494,7 @@ public static class WriteEngine
         if (linkedGetter is null) return null;
         foreach (var rec in mod.EnumerateMajorRecords())
             if (linkedGetter.IsInstanceOfType(rec) && rec.FormKey != current && !rec.FormKey.IsNull)
-                return FormIdToken.Of(rec.FormKey);
+                return rec.FormKey.ToString();
         return null;
     }
 
