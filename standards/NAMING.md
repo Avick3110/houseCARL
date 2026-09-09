@@ -8,7 +8,7 @@
 | C# class and file | `PascalCase.cs`, file name = class name | `RecordReader.cs` |
 | Test project | `<component>-tests/` | `housecarl-mcp-tests/` |
 | Test class | `<Subject>Tests.cs` | `RecordsScanLaneTests.cs` |
-| Skill folder | `kebab-case/` | `dialogue-authoring/` |
+| Skill folder | `kebab-case/` | `spid-authoring/` |
 | Top-level directory | `kebab-case/` | `standards/` |
 | Repo-level doc | `UPPERCASE.md` | `CLAUDE.md`, `TESTING.md` |
 

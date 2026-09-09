@@ -72,13 +72,14 @@ It can:
   by MD5 hash; and a raw GraphQL backstop reaches any field the curated tools don't surface yet. Keyless and
   read-only; downloading stays your mod manager's job.
 - Look up **record schemas** (every type Mutagen models) and **Papyrus / SKSE signatures**, author
-  **SkyPatcher**, **SPID**, and **KID** distributor files, **author Skyrim dialogue** and **Open Animation
-  Replacer configs**, and **author SKSE plugins in C++** (CommonLibSSE-NG) — through 8 bundled,
+  **SkyPatcher**, **SPID**, and **KID** distributor files, **author Open Animation
+  Replacer configs**, and **author SKSE plugins in C++** (CommonLibSSE-NG) — through 7 bundled,
   namespaced skills (`/housecarl:mutagen-reference`, `/housecarl:papyrus-reference`,
   `/housecarl:skypatcher-authoring`, `/housecarl:spid-authoring`, `/housecarl:kid-authoring`,
-  `/housecarl:dialogue-authoring`, `/housecarl:open-animation-replacer`,
-  `/housecarl:skse-plugin-authoring`). The dark / grey / black-face NPC bug is a tool rather than a
-  skill: `housecarl_check findings=["facegen"]` reports it one row per NPC.
+  `/housecarl:open-animation-replacer`, `/housecarl:skse-plugin-authoring`). The dark / grey /
+  black-face NPC bug is a tool rather than a skill: `housecarl_check findings=["facegen"]` reports it
+  one row per NPC. Dialogue is a tool too: the order rules a new line has to respect are in
+  [docs/dialogue.md](https://github.com/Avick3110/houseCARL/blob/main/docs/dialogue.md).
 
 Coverage is **reflection-driven**: the set of record types houseCARL understands *is* the set Mutagen
 models, by construction — not a hand-maintained subset.

@@ -56,9 +56,10 @@ $PackagingSrc = Join-Path $RepoRoot 'packaging'        # tracked source for pack
 $ReleaseDir   = Join-Path $RepoRoot 'release'          # output dir for the shippable zip (gitignored)
 $PluginManifest = Join-Path $PluginSrc '.claude-plugin\plugin.json'   # single source of truth for the version
 
-# the 8 shipped skills (the modlist-authoring cluster was removed; facegen-diagnostics became the facegen
-# findings family on housecarl_check, with its causes table at docs/facegen.md)
-$Skills = @('mutagen-reference','papyrus-reference','skypatcher-authoring','spid-authoring','kid-authoring','dialogue-authoring','open-animation-replacer','skse-plugin-authoring')
+# the 7 shipped skills (the modlist-authoring cluster was removed; facegen-diagnostics became the facegen
+# findings family on housecarl_check, with its causes table at docs/facegen.md, and the dialogue skill's
+# measured facts became docs/dialogue.md)
+$Skills = @('mutagen-reference','papyrus-reference','skypatcher-authoring','spid-authoring','kid-authoring','open-animation-replacer','skse-plugin-authoring')
 
 function Step($n,$msg) { Write-Host "`n=== [$n] $msg ===" -ForegroundColor Cyan }
 

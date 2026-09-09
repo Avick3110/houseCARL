@@ -56,8 +56,8 @@ namespace HousecarlCore;
 //
 //  A SEMANTIC NON-DEFAULT worth stating: the `Goodbye` conversation-ender flag lives INSIDE the INFO Flags
 //  struct this fills. Materialising Flags to all-zero does NOT set Goodbye — a conversation-ending line still
-//  needs Flags.Flags = Goodbye set explicitly (that's an authoring choice, not a CK-parity default). The
-//  dialogue-authoring skill carries that semantic.
+//  needs Flags.Flags = Goodbye set explicitly (that's an authoring choice, not a CK-parity default).
+//  docs/dialogue.md carries that semantic.
 // ======================================================================
 
 /// <summary>One CK-parity field that was default-populated on create: a human-readable <see cref="Label"/> (the

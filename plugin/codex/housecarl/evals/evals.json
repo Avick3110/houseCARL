@@ -58,8 +58,8 @@
       "id": 5,
       "split": "train",
       "prompt": "I added a new greeting line to my follower quest and it never plays in game. Can you look at the dialogue?",
-      "expected_output": "the umbrella is loaded and routes to dialogue-authoring.",
-      "expectations": ["the skill is selected", "the route names dialogue-authoring before judging the INFO records"]
+      "expected_output": "the umbrella is loaded and routes to the dialogue tools — no skill fits.",
+      "expectations": ["the umbrella is selected", "the route reads the topic's merged INFO order rather than naming a skill"]
     },
     {
       "id": 6,

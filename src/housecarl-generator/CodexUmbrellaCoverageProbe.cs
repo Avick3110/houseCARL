@@ -9,7 +9,7 @@ namespace HousecarlGenerator;
 /// REGRESSION GUARD (standing CI instrument, self-contained) — CODEX UMBRELLA COVERAGE.
 ///
 /// The Codex packaging ships ONE umbrella routing skill (plugin/codex/housecarl/SKILL.md) that routes a job to
-/// the sibling skill that owns its grammar. Unlike the 9 Claude Code skills — each its own trigger — the
+/// the sibling skill that owns its grammar. Unlike the 7 Claude Code skills — each its own trigger — the
 /// umbrella is Codex's single hand-maintained router, so nothing forced it to track the skill surface.
 ///
 /// This guard makes that drift impossible by construction. It reads the REAL .claude/skills/* folders and asserts
