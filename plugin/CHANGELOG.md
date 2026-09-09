@@ -28,6 +28,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `project={"form":"fields", "fields":["PreviousDialog"]}` on the INFO says which shape it carries, and
   `project={"form":"info_order"}` on its topic says where the line lands.
 
+- **`housecarl_copy` says when the source it read from sits in a mod folder MO2 has switched off.** A
+  `from_source=` plugin found in a disabled mod folder is reported with the same sentence
+  `housecarl_place` and `housecarl_nif_inspect` already use, beside the line naming the folder. Nothing
+  about what is copied changes: the standalone claim under it is about what the patch masters, and it now
+  reads next to the fact that the game is not loading the source.
 - **`housecarl_create` refuses a dialogue branch with no `Flags` instead of filling one.** A `DialogBranch`
   created with no `Flags` is now refused in one sentence naming both values and what each does — `TopLevel`
   for a menu entry the player can pick, `0` for a scripted `Say()` topic that must stay hidden — and nothing
