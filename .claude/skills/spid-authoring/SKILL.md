@@ -164,24 +164,40 @@ nothing. The only checks that exist are the three under *Check the reach before 
 The window runs **both** ways. Above 7.3.0 the corpus may be behind — surface that and offer to
 re-derive. **Below 7.3.0 a documented feature may not exist yet**: `references/filters.md` marks the
 `Actor [ACHR]` Form filter *(added in 7.3)*, and on an older install that line is skipped silently.
-Read the installed version before relying on a dated feature: `housecarl_skse` with
-`findings='inventory'` and `filter=` the SPID DLL name reports what the DLL's static version
-manifest declares — name, author, version — without loading it. That is what the file declares, not
-what it does; treat it as the version, not as proof of behaviour.
+Read the installed version before relying on a dated feature — but read it from the right place.
+`housecarl_skse` with `findings='inventory'` and `filter=` the SPID DLL name reports what the DLL's
+static version manifest declares — name, author, version — without loading it. For SPID that number
+is a **major-version floor only** (below), so it cannot settle a 7.3 question either way: it says
+7.0.0 on every 7.x install, and reading it as "the version" is what makes a 7.3-only token look
+unavailable on a 7.3.1 install.
 
-**When the SKSE manifest and MO2's `meta.ini` disagree about SPID, `meta.ini` is the running
-version. [source]** SPID's manifest carries only the major digit: `v.PluginVersion(Version::MAJOR)`
+**The SKSE manifest carries only SPID's major digit, so it is a floor, never the running
+version. [source]** `v.PluginVersion(Version::MAJOR)`
 in the `SKSEPlugin_Version` export (`SPID/src/main.cpp`, SPID 7.3.0, commit `31e76d3`; unchanged at
 7.3.3), where `Version::MAJOR` is `PROJECT_VERSION_MAJOR` off `set(VERSION 7.3.0)` in
 `SPID/CMakeLists.txt`. Minor and patch are never written, so **every** SPID 7.x release declares
-7.0.0 to SKSE. The full number does exist in the binary, in its Win32 version resource —
-`FILEVERSION @PROJECT_VERSION_MAJOR@, @PROJECT_VERSION_MINOR@, @PROJECT_VERSION_PATCH@, 0`
-(`SPID/cmake/version.rc.in`) — which is where `7.3.1.0` comes from and why it matches what MO2
-recorded. So `housecarl_skse` reporting 7.0.0 is a truthful read of a lossy export, not a misread
-(houseCARL issue #667): treat its version as a **major-version floor only**, and take the minor and
-patch from `meta.ini`. A 7.3-only token like the `Actor [ACHR]` Form filter is gated on the
-`meta.ini` number; the manifest cannot answer that question at all. Quote both sources with their
-names when they differ, and say which one you gated on.
+7.0.0 to SKSE. So `housecarl_skse` reporting 7.0.0 is a truthful read of a lossy export, not a
+misread (houseCARL issue #667) — and being lossy, it can never *contradict* another source in the
+minor or patch digit, only fail to speak to it.
+
+Three sources, in order of authority:
+
+- **The DLL's own Win32 file-version resource** is the authoritative number:
+  `FILEVERSION @PROJECT_VERSION_MAJOR@, @PROJECT_VERSION_MINOR@, @PROJECT_VERSION_PATCH@, 0`
+  (`SPID/cmake/version.rc.in`). It is stamped on the binary itself, so it describes the file that
+  will actually load. Read it from the DLL's file properties (Details tab, "File version"); no
+  houseCARL tool reads it.
+- **MO2's `meta.ini` `version=`** is the version string MO2 recorded for the **download** at install
+  time, not a read of the DLL. It is the best number you have without opening the file's properties,
+  and it usually agrees — but it **lags**: a repack, a manual update dropped over an existing mod, or
+  a mod-page version that is not the plugin's own version all leave it stale. Drop SPID 7.1 into a
+  folder whose `meta.ini` still reads 7.3.1 and it will still read 7.3.1.
+- **The SKSE manifest** (`housecarl_skse`) is a floor: it proves 7.x, nothing finer.
+
+Gate a dated feature on the lower of what you actually verified. `meta.ini` alone is enough for a
+routine call; when a 7.3-only token like the `Actor [ACHR]` Form filter is load-bearing and
+`meta.ini` could be stale, check the DLL's file version. Quote the sources with their names when
+they differ, and say which one you gated on.
 
 ## Common mistakes, and the rule that replaces each
 
