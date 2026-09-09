@@ -13,6 +13,22 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **The `mutagen-reference` schema reference now reports a record-identity field as not writable.** A field
+  marked `id` — `FormKey`, and a header's `ModKey` / `Master` — carries a library setter but the write
+  pre-flight refuses it, so the reference reads `"w":false` on those fields and counts them out of a type's
+  `writable/total` summary (ARMO is `31/32`, not `32/32`). The read view and the write tools now agree about
+  what can be set. The skill says what `w` means; how to change a record's identity is in the same section.
+- **Four skills fold in what the September behavioural gate found.** `mutagen-reference` says how to resolve a
+  field's `target` and blesses one whole-file grep for enumerating the modeled types; `open-animation-replacer`
+  gives a legacy Form B folder's priority (0), tells you to recompute the winner table with your submod spliced
+  in rather than parking near int32 max, covers the base-clip layer and the `_1stperson` false competitor, and
+  converts a different worked folder; `kid-authoring` names the record field behind every trait, adds an
+  exclusion-then-trait example, and says how a KID line differs from a SPID one; `spid-authoring` documents the
+  FormLink wire form and the one-call union census, says a written-out player exclusion is inert, and labels its
+  level-filter census as measured on one instance. Where the bundled grammar does not settle a question — how KID
+  resolves a plugin-name filter, which strings a `*` wildcard tests, whether SPID's scan descends into
+  subfolders, which version source wins when a DLL and `meta.ini` disagree — the skill now says so and says what
+  would settle it, instead of leaving it to be guessed.
 - **`housecarl_check`'s record-type scope is now the set-valued `types=`, the same spelling and value form
   `housecarl_records` takes.** One type is a set of one, so `types=["Npc"]` sweeps what `type="Npc"` swept; a set
   sweeps the union of its types in one pass and merges the findings, and the response's narrowing line names every
