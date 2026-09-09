@@ -37,7 +37,7 @@ namespace HousecarlGenerator;
 ///                  really does name a fresh patch (#343: the bare "omit into=" it used to offer is the call that
 ///                  yields a generically-named Patch.esp), and the named call is then MADE to prove the sentence
 ///                  true rather than read. The two arms that keep it honest are negative: the RIDER lane does NOT
-///                  get it (on bsa_repack patch= binds to archive_name — the .bsa), and neither does the REMOVAL
+///                  get it (on bsa_repack patch= names the .bsa itself), and neither does the REMOVAL
 ///                  lane, which shares the record branch but whose patch= names an EXISTING patch.
 ///   REMOVE-TAIL  — that removal lane offers no create route at all (#356: it used to inherit "omit into= to create
 ///                  it fresh", which removal itself refuses), states why, and names the one lane it does have. Its
@@ -310,8 +310,8 @@ internal static class ExtendResolveProbe
 
             // ---- 8c: the RIDER lane names ITS OWN folder parameter and default (#357) ----
             //      Measured, not assumed: patch= is the new patch's name on the record-lane write tools, but on
-            //      housecarl_bsa_repack — a rider — it binds to archive_name (the .bsa), because that tool declares
-            //      both spellings and §5.3 routes patch= to the artifact. So the rider sentence is the LANE's, not a
+            //      housecarl_bsa_repack — a rider — it names the .bsa itself, because that tool declares both patch=
+            //      and patch_name= and §5.3 routes patch= to the artifact. So the rider sentence is the LANE's, not a
             //      shared one: it names the parameter that tool actually declares, its own default folder name, and
             //      on this tool the correction that a bare patch= names the archive. The naming comes from the
             //      shipped tool's own constant, so an arm here cannot pass against a sentence the tool never uses.

@@ -7935,8 +7935,8 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>How ONE rider lane names the mod folder it creates — the calling tool's own statement, the way
     /// <see cref="FreshPatchRemedy"/> is for the record lanes. <paramref name="Param"/> is the parameter that tool
     /// actually declares for the folder's name, and <paramref name="Caveat"/> is any correction that parameter
-    /// carries on it: on <c>housecarl_bsa_repack</c> a bare <c>patch=</c> binds to <c>archive_name</c>, so telling
-    /// that caller to pass <c>patch=</c> would rename their archive and leave the folder defaulted. A lane whose
+    /// carries on it: on <c>housecarl_bsa_repack</c> <c>patch=</c> names the .bsa itself, so telling that caller to
+    /// pass <c>patch=</c> for the folder would rename their archive and leave the folder defaulted. A lane whose
     /// <c>into=</c> can never be non-empty passes null, and keeps the weakest true remedy.</summary>
     public readonly record struct RiderNaming(string Param, string? Caveat = null);
 
