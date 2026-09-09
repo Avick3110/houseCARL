@@ -41,11 +41,11 @@ internal sealed class CheckAccounting
     // What this lane closes with. Families state different boundaries and the render reserves room per family for
     // the one that will actually be written, so the boundary is read from here rather than chosen at the render.
     readonly string _boundary;
-    // The scope's types where it covered more than one, null otherwise. The listing budget is ONE counter spent in
-    // the order those types are streamed, so a listing that names two types can carry only the first — stated as a
-    // rule wherever the budget dropped something, because the sweep tallies findings by source and target plugin
-    // and never by type, and a per-type count here would be one this response does not have.
-    readonly string? _typeOrder;
+    // The scope's types where it covered more than one, spelled with any expanded arms; null otherwise. There is ONE
+    // listing for the whole scope, so a listing that names two types can carry only one of them — stated as a rule
+    // wherever the listing came out short, because the sweep tallies findings by source and target plugin and never
+    // by type, and a per-type count here would be one this response does not have.
+    readonly string? _typeScope;
 
     /// <summary>Build the accounting for one response, declaring the subjects this lane has.
     ///
@@ -67,7 +67,7 @@ internal sealed class CheckAccounting
         _limit = r.Limit;
         _boundary = ReadSentences.SweepBoundary;
         _bySource = r.DanglingBySource ?? Array.Empty<SweepCount>();
-        _typeOrder = r.TypeScopeOrder;
+        _typeScope = r.TypeScopeLabel;
         _budgetListed = r.Reports.Sum(p => p.Dangling.Count);
         // A refused family declares nothing: a family-local refusal renders as its own section, so this writer is
         // reachable with a failed result, and declaring subjects anyway asserts completeness over a sweep that
@@ -91,7 +91,7 @@ internal sealed class CheckAccounting
         _limit = r.Limit;
         _boundary = ReadSentences.SweepScriptBoundary;
         _bySource = Array.Empty<SweepCount>();
-        _typeOrder = r.TypeScopeOrder;
+        _typeScope = r.TypeScopeLabel;
         // Both measured off the result: the totals the sweep counted regardless of the cap, and the findings the
         // reports actually carry.
         _scriptFindingsFound = r.CountsOnly ? 0 : r.TotalUnbound + r.TotalNullObject;
@@ -299,12 +299,28 @@ internal sealed class CheckAccounting
 
     int Shown(Values v, SweepSubject s) => v.Emitted.TryGetValue(s, out var e) ? e : 0;
 
-    /// <summary>Does this rendering have to state the type-order rule? Only where a multi-type scope was in force
-    /// AND this family's listing budget actually dropped findings — with nothing dropped, the listing IS the whole
-    /// answer for every type in the scope and the rule would warn about a hole that is not there. The worst case
-    /// takes it whenever the scope had one, so the reserve bounds the sentence it can write.</summary>
-    bool TypeOrderShort(Values v)
-        => _typeOrder is not null && (v.Worst || v.ByBudget > 0 || ScriptOmittedByBudget > 0);
+    /// <summary>Findings this family's listing BUDGET never admitted, in either family.</summary>
+    bool ShortByBudget(Values v) => v.ByBudget > 0 || ScriptOmittedByBudget > 0;
+
+    /// <summary>Findings the budget admitted and this response's max_chars then could not fit, in either family.
+    /// The render cuts the same one stream in the same order the budget does, so it can hide a whole type the same
+    /// way — which is why the rule below takes it and not the budget alone.</summary>
+    bool ShortByCut(Values v) => v.ByCut > 0 || Short(v, SweepSubject.ScriptRecords);
+
+    /// <summary>Does this rendering have to state the type-scope rule? Only where a multi-type scope was in force
+    /// AND this family's listing actually came out short — with nothing dropped, the listing IS the whole answer
+    /// for every type in the scope and the rule would warn about a hole that is not there. The worst case takes it
+    /// whenever the scope had one, so the reserve bounds the sentence it can write.</summary>
+    bool TypeScopeShort(Values v)
+        => _typeScope is not null && (v.Worst || ShortByBudget(v) || ShortByCut(v));
+
+    /// <summary>The knob the type-scope rule tells the caller to raise: the one that actually cut this listing, or
+    /// both where both did. The worst case takes the both-spelling, which is the longest, so the reserve bounds it.
+    /// Naming the wrong knob is the whole failure this answers — a listing cut by max_chars is not fixed by
+    /// raising limit=.</summary>
+    string ShortKnob(Values v)
+        => v.Worst || (ShortByBudget(v) && ShortByCut(v)) ? ReadSentences.SweepKnobBoth
+           : ShortByBudget(v) ? ReadSentences.SweepKnobLimit : ReadSentences.SweepKnobMaxChars;
 
     // ---- the text lane ------------------------------------------------------------------------------
 
@@ -399,11 +415,11 @@ internal sealed class CheckAccounting
             sb.Append(string.Format(ReadSentences.SweepUnreadCut, Shown(v, SweepSubject.UnreadRows),
                                     Found(SweepSubject.UnreadRows)));
 
-        // The type-scope rule, wherever the listing budget dropped something under a scope covering more than one
-        // type. It is about the ORDER the one budget was spent in, not about any count, so it is stated as a rule:
-        // the sweep tallies by source and target plugin and never by type, and naming a per-type count here would
-        // be naming a number this response does not have.
-        if (TypeOrderShort(v)) sb.Append(string.Format(ReadSentences.SweepTypeOrderRule, _typeOrder));
+        // The type-scope rule, wherever this listing came out short under a scope covering more than one type —
+        // by the budget, by max_chars, or by both, and it names which. It is about the ONE listing the scope's
+        // types share, not about any count, so it is stated as a rule: the sweep tallies by source and target
+        // plugin and never by type, and naming a per-type count here would be a number this response does not have.
+        if (TypeScopeShort(v)) sb.Append(string.Format(ReadSentences.SweepTypeScopeRule, _typeScope, ShortKnob(v)));
 
         if (v.Roster.Count > 0)
         {
@@ -545,9 +561,13 @@ internal sealed class CheckAccounting
         // states how many of them this response named too.
         if (Has(SweepSubject.DialogueSeedRefusals))
             w.WriteNumber("seeds_unreachable_named", Shown(v, SweepSubject.DialogueSeedRefusals));
-        // The text lane's type-order rule, in this transport's terms and under the same test, so the two lanes
-        // cannot say different things about the same budget.
-        if (TypeOrderShort(v)) w.WriteString("limit_spent_in_type_order", _typeOrder);
+        // The text lane's type-scope rule, in this transport's terms and under the same test, so the two lanes
+        // cannot say different things about the same listing: the types that shared it, and the knob that cut it.
+        if (TypeScopeShort(v))
+        {
+            w.WriteString("listing_short_across_types", _typeScope);
+            w.WriteString("listing_short_by", ShortKnob(v));
+        }
         // A fact about the CALL rather than about any subject, so every lane writes it: the cap it was given.
         w.WriteNumber("max_chars", _cap);
         // The same rule as at the head of this method, applied to the three blocks below: a field named for a

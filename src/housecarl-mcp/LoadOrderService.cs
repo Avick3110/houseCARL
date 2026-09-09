@@ -5227,14 +5227,15 @@ public sealed class LoadOrderService : IDisposable
         // The set is the union of its entries, resolved the way records= resolves types= — one type is a set of one.
         IReadOnlyList<Type>? types = null;
         string? typeLabel = null;
+        string? armLabel = null;
         if (typeSet is { Count: > 0 })
         {
-            try { types = ResolveTypeFilterSet(typeSet); }
+            try { types = ResolveTypeFilterSet(typeSet, out armLabel); }
             catch (ArgumentException ex) { return (null, ex.Message); }
             typeLabel = string.Join(", ", typeSet.Select(t => (t ?? "").Trim()));
         }
 
-        var scope = new SweepScope(keys, editoridContains, types, typeLabel);
+        var scope = new SweepScope(keys, editoridContains, types, typeLabel, armLabel);
         return (scope.IsEmpty ? null : scope, null);
     }
 
@@ -9250,13 +9251,26 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>A user type SET to its getter Types: the union of each entry's resolution, in order, deduped — one
     /// grammar with the singular form, since every entry goes through <see cref="ResolveTypeFilter"/> and an unknown
     /// one throws naming itself. Null for an absent or empty set, so the unnarrowed path stays untouched.</summary>
-    IReadOnlyList<Type>? ResolveTypeFilterSet(IReadOnlyList<string>? types)
+    IReadOnlyList<Type>? ResolveTypeFilterSet(IReadOnlyList<string>? types) => ResolveTypeFilterSet(types, out _);
+
+    /// <summary>The same resolution, also spelling each entry with the arms it expanded to
+    /// (<see cref="SweepScope.SpellTypeEntry"/>) — the label a response needs when it has to name the types that
+    /// share one listing, since an entry like <c>GMST</c> names none of them by itself.</summary>
+    IReadOnlyList<Type>? ResolveTypeFilterSet(IReadOnlyList<string>? types, out string? armLabel)
     {
+        armLabel = null;
         if (types is not { Count: > 0 }) return null;
         var union = new List<Type>();
+        var spelled = new List<string>(types.Count);
         foreach (var ts in types)
-            foreach (var t in ResolveTypeFilter((ts ?? "").Trim()))
+        {
+            var entry = (ts ?? "").Trim();
+            var arms = ResolveTypeFilter(entry);
+            foreach (var t in arms)
                 if (!union.Contains(t)) union.Add(t);
+            spelled.Add(SweepScope.SpellTypeEntry(entry, arms));
+        }
+        armLabel = string.Join(", ", spelled);
         return union;
     }
 
