@@ -1189,13 +1189,17 @@ public sealed class FieldPredicateSet
     /// summary (note starts with '[') is Present UNLESS it is an EMPTY list/dict (<see cref="ReadEngine.LeafRead.ContainerCount"/>
     /// == 0) — a modeled-but-empty field carries nothing, so it is Absent (the crucial empty-vs-carried split the
     /// display note alone can't give). A "(no field…" note is NoField, "(unreadable…" is Unreadable, and every other
-    /// no-value note ((absent)/(null link)/(unresolved…)) is a valid-but-unset Absent.</summary>
+    /// no-value note ((absent)/(null link)/(unresolved…)) is a valid-but-unset Absent. The one no-value note that
+    /// is PRESENT is <see cref="ReadEngine.PresentNullLinkNote"/>: the subrecord is on the record, which is what
+    /// <c>exists</c> asks about, and it is a carried fact (an INFO's "I am first" PNAM) — so `missing:PreviousDialog`
+    /// must not match a head-marked line (#697), the same split the read render and <c>FieldsDiff</c> make.</summary>
     static Presence ClassifyPresence(ReadEngine.LeafRead leaf)
     {
         if (leaf.HasValue) return Presence.Present;
         var note = leaf.Note ?? "";
         if (note.StartsWith("(no field", StringComparison.Ordinal)) return Presence.NoField;
         if (note.StartsWith("(unreadable", StringComparison.Ordinal)) return Presence.Unreadable;
+        if (note == ReadEngine.PresentNullLinkNote) return Presence.Present;   // subrecord present, carrying zero
         if (note.Length > 0 && note[0] == '[')
             return leaf.ContainerCount is 0 ? Presence.Absent : Presence.Present;   // empty list/dict → absent; substruct (null count) → present
         return Presence.Absent;   // (absent) / (null link) / (unresolved localized string) — a valid, unset field
