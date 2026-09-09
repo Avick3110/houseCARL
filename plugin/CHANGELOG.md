@@ -56,9 +56,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   parameters the tool does accept.** The table that renamed `plugin=` to `source=`, `patch_name=` to `patch=`,
   `operations=` to `ops=` and the rest, and that turned the old `in_place=true` + `target="X.esp"` pair into
   `in_place="X.esp"`, is gone; so are the migration hints it attached to a retired spelling. An old spelling
-  now gets the same unknown-parameter refusal as any other unrecognized argument, and an old `in_place=true`
-  is refused as the wrong type for a parameter that names the file being overwritten — nothing enters the
-  in-place lane from a call that did not spell it. Tolerance for an underscore or case variant of a parameter
+  now gets the same unknown-parameter refusal as any other unrecognized argument — including when it stood in
+  for a required parameter, where one sentence names both the parameter that is missing and the spelling that
+  is not one. An old `in_place=true`, and a quoted `in_place="false"` or `in_place="true"`, are refused by name
+  for a parameter that takes the file being overwritten: nothing enters the in-place lane from a call that did
+  not name a file. Tolerance for an underscore or case variant of a parameter
   the tool actually declares (`form_id` for `formid`) is unchanged. A call to a 1.x TOOL name is still refused
   with one sentence naming its 2.0 successor and how to spell the call.
 - **`housecarl_skypatcher_layer` with a `filter=` that matches no INI now says so instead of returning the

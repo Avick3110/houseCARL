@@ -156,8 +156,10 @@ public sealed class ToolCallShimWirePathTests
         Assert.DoesNotContain("in_place (expects", r.Text, StringComparison.Ordinal);
     }
 
-    /// <summary>1.x's <c>plugin_name=</c> is not mapped onto <c>compact_plugin</c>'s own <c>plugin=</c>: it is
-    /// refused by name, and the required parameter it did not supply is named too.</summary>
+    /// <summary>1.x's <c>plugin_name=</c> is not mapped onto <c>compact_plugin</c>'s own <c>plugin=</c>: the one
+    /// refusal names BOTH the required parameter it did not supply and the spelling it did — an old name standing
+    /// in for a required parameter is exactly the caller who needs the accepted list, and the missing-parameter
+    /// pass returning first must not swallow it.</summary>
     [Fact]
     public void TheOnePointXPluginNameSpellingIsRefusedByName_NotMappedOntoCompactPluginsOwnPlugin()
     {
@@ -165,7 +167,39 @@ public sealed class ToolCallShimWirePathTests
 
         Assert.True(r.IsError, r.Describe());
         Assert.False(r.BodyRan, r.Describe());
-        Assert.Contains("required parameter", r.Text, StringComparison.Ordinal);
-        Assert.Contains("plugin", r.Text, StringComparison.Ordinal);
+        Assert.Contains($"error: {ToolNames.CompactPlugin}: required parameter missing: plugin. " +
+                        $"Supplied: plugin_name. plugin_name is not a parameter of {ToolNames.CompactPlugin} " +
+                        "(it accepts only: ", r.Text, StringComparison.Ordinal);
+        // The accepted list is the tool's own, not a fixed string: it must carry the parameter the caller meant.
+        Assert.Contains("plugin,", r.Text, StringComparison.Ordinal);
+    }
+
+    // ---- a quoted boolean never selects the in-place lane ------------------------------------------------
+
+    /// <summary>1.x's <c>in_place=false</c> meant the default new-patch lane. Quoted, it satisfies the string
+    /// schema and the body's non-empty check, so without a gate the call enters the opt-in overwrite lane with a
+    /// target named "false". It must be refused by name instead, saying what in_place takes.</summary>
+    [Theory]
+    [InlineData("false")]
+    [InlineData("true")]
+    public void AQuotedBooleanInPlaceIsRefusedByNameAndNeverEntersTheOverwriteLane(string spelling)
+    {
+        var r = _s.Call(ToolNames.Apply, $$"""{"ops":[],"in_place":"{{spelling}}"}""");
+
+        Assert.True(r.IsError, r.Describe());
+        Assert.False(r.BodyRan, r.Describe());
+        Assert.Contains($"error: {ToolNames.Apply}: in_place=\"{spelling}\" names no file", r.Text, StringComparison.Ordinal);
+        Assert.Contains("in_place=\"X.esp\"", r.Text, StringComparison.Ordinal);
+        // The lane's own failures name the file it was given — proof the call never reached it.
+        Assert.DoesNotContain("acknowledge", r.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>A real filename is untouched by that gate: it reaches the tool body, which judges the lane.</summary>
+    [Fact]
+    public void AFilenameInPlaceIsNotRefusedByTheQuotedBooleanGate()
+    {
+        var r = _s.Call(ToolNames.Apply, """{"ops":[],"in_place":"NoSuchPlugin.esp"}""");
+
+        Assert.DoesNotContain("names no file", r.Text, StringComparison.Ordinal);
     }
 }

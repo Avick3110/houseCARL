@@ -13,8 +13,9 @@ namespace HousecarlMcp;
 /// Every pass is driven off the tool's own published InputSchema, so all current and future parameters are
 /// covered without per-tool wiring. In order: rename an underscore/case variant onto the declared parameter it
 /// names; coerce an unambiguous shape (a bare string for an array, a quoted number/bool); refuse a missing
-/// required parameter, an undeclared one, or a kind that cannot bind — each by name. Anything that still
-/// throws is caught here rather than above, where the SDK would genericize it.
+/// required parameter, an undeclared one, a quoted boolean where the in-place lane wants a filename, or a kind
+/// that cannot bind — each by name. Anything that still throws is caught here rather than above, where the SDK
+/// would genericize it.
 ///
 /// No pass maps a 1.x parameter name onto a 2.0 one: that table was deleted at 2.0.0 (SPEC §5.4 amendment
 /// 2026-09-06), so an old spelling is refused by name like any other unknown parameter.
@@ -42,6 +43,7 @@ internal static class ToolCallShim
                 CoerceObviousShapes(p, schema);
                 if (MissingRequired(p, schema) is { } refusal) return refusal;
                 if (UnknownParameters(p, schema) is { } unknownRefusal) return unknownRefusal;
+                if (InPlaceNamesAFile(p, schema) is { } laneRefusal) return laneRefusal;
                 if (TypeMismatches(p, schema) is { } typeRefusal) return typeRefusal;
             }
             return await next(request, cancellationToken);
@@ -191,7 +193,10 @@ internal static class ToolCallShim
 
     /// <summary>Schema-required parameters absent from the call get a named refusal; null to proceed. An explicit
     /// JSON <c>null</c> counts as missing unless the schema declares null legal, because the SDK binds it and the
-    /// tool body then NullReferences into a misleading internal-failure message.</summary>
+    /// tool body then NullReferences into a misleading internal-failure message. When the same call also carries
+    /// an undeclared key — the shape of a 1.x spelling standing in for the required parameter — the refusal names
+    /// that key and the accepted list too, so this pass running first never hides what
+    /// <see cref="UnknownParameters"/> would have said.</summary>
     static CallToolResult? MissingRequired(CallToolRequestParams p, JsonElement schema)
     {
         if (schema.ValueKind != JsonValueKind.Object ||
@@ -211,10 +216,18 @@ internal static class ToolCallShim
         }
         if (missing is null) return null;
 
+        // The undeclared keys of the same call, named here rather than left to a pass that will not run.
+        string strays = "";
+        if (Undeclared(p, schema) is { } u)
+            strays = $"{string.Join(", ", u.Unknown)} " +
+                     $"{(u.Unknown.Count == 1 ? "is not a parameter" : "are not parameters")} of {p.Name} " +
+                     $"(it accepts only: {string.Join(", ", u.Supported)}). ";
+
         string plural = missing.Count == 1 ? "" : "s";
         return NamedError(
             $"error: {p.Name}: required parameter{plural} missing: {string.Join(", ", missing)}. Supplied: " +
-            $"{(p.Arguments is { Count: > 0 } a ? string.Join(", ", a.Keys) : "(none)")}. Add the missing argument{plural} and retry.");
+            $"{(p.Arguments is { Count: > 0 } a ? string.Join(", ", a.Keys) : "(none)")}. {strays}" +
+            $"Add the missing argument{plural} and retry.");
     }
 
     /// <summary>Undeclared arguments get a named refusal listing the offenders and the tool's supported
@@ -223,6 +236,24 @@ internal static class ToolCallShim
     /// free-form args. Must run after <see cref="CoerceObviousShapes"/>, which only rewrites declared
     /// keys.</summary>
     internal static CallToolResult? UnknownParameters(CallToolRequestParams p, JsonElement schema)
+    {
+        if (Undeclared(p, schema) is not { } u) return null;
+        var (unknown, supported) = u;
+        string plural = unknown.Count == 1 ? "" : "s";
+        // Only nudge toward depth= on a tool that declares it; the supported list is printed either way.
+        string knobHint = supported.Contains("depth")
+            ? " (a wrong/guessed parameter often means the real knob is one of the above, e.g. depth= to expand a list/substruct)"
+            : "";
+        return NamedError(
+            $"error: {p.Name}: unknown parameter{plural}: {string.Join(", ", unknown)}. This tool accepts only: " +
+            $"{string.Join(", ", supported)}. An unrecognized argument is IGNORED (it does not change behavior), so " +
+            $"the call would otherwise run with that intent silently dropped — fix the name{knobHint} and retry.");
+    }
+
+    /// <summary>The call's arguments the schema does not declare, with the tool's supported parameter names; null
+    /// when there are none or the tool opts into free-form args. Shared so <see cref="MissingRequired"/> can name
+    /// them in its own refusal — the pass that reports them does not run once a required parameter is missing.</summary>
+    static (List<string> Unknown, List<string> Supported)? Undeclared(CallToolRequestParams p, JsonElement schema)
     {
         if (p.Arguments is not { Count: > 0 } args) return null;
         if (schema.ValueKind != JsonValueKind.Object) return null;
@@ -238,17 +269,28 @@ internal static class ToolCallShim
             (unknown ??= new()).Add(kv.Key);
         }
         if (unknown is null) return null;
+        return (unknown, props.EnumerateObject().Select(prop => prop.Name).ToList());
+    }
 
-        var supported = props.EnumerateObject().Select(prop => prop.Name).ToList();
-        string plural = unknown.Count == 1 ? "" : "s";
-        // Only nudge toward depth= on a tool that declares it; the supported list is printed either way.
-        string knobHint = supported.Contains("depth")
-            ? " (a wrong/guessed parameter often means the real knob is one of the above, e.g. depth= to expand a list/substruct)"
-            : "";
+    /// <summary>A string <c>in_place=</c> whose value spells a boolean gets a named refusal; null to proceed. The
+    /// parameter takes the filename being overwritten, so "true"/"false" — 1.x's lane flag — is not a file, and a
+    /// string one satisfies both the schema type and the tool body's non-empty check: the call would otherwise
+    /// enter the opt-in overwrite lane and fail as though overwriting a plugin named "false".</summary>
+    static CallToolResult? InPlaceNamesAFile(CallToolRequestParams p, JsonElement schema)
+    {
+        if (p.Arguments is not { Count: > 0 } args) return null;
+        if (!args.TryGetValue("in_place", out var val) || val.ValueKind != JsonValueKind.String) return null;
+        if (schema.ValueKind != JsonValueKind.Object ||
+            !schema.TryGetProperty("properties", out var props) || props.ValueKind != JsonValueKind.Object) return null;
+        if (!props.TryGetProperty("in_place", out var inPlaceSchema)) return null;
+        var declared = DeclaredTypes(inPlaceSchema);
+        if (!declared.Contains("string") || declared.Contains("boolean")) return null;   // not the filename-valued shape
+        if (!bool.TryParse(val.GetString(), out _)) return null;                         // a real filename — not this pass's
+
         return NamedError(
-            $"error: {p.Name}: unknown parameter{plural}: {string.Join(", ", unknown)}. This tool accepts only: " +
-            $"{string.Join(", ", supported)}. An unrecognized argument is IGNORED (it does not change behavior), so " +
-            $"the call would otherwise run with that intent silently dropped — fix the name{knobHint} and retry.");
+            $"error: {p.Name}: in_place=\"{val.GetString()}\" names no file — in_place takes the FILENAME being " +
+            "overwritten (in_place=\"X.esp\"), and \"true\"/\"false\" are not files. Omit in_place entirely for the " +
+            "default new-patch lane. Fix the argument and retry.");
     }
 
     /// <summary>Declared arguments whose JSON kind cannot bind to their declared schema type get a named refusal
