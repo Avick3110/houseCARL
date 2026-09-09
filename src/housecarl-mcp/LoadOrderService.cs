@@ -2600,7 +2600,7 @@ public sealed partial class LoadOrderService : IDisposable
     /// formid named twice in one batch pays once; the projection and the <c>plugin=</c> scope are fixed for a whole
     /// call, so the record is the whole key.
     /// <para>Its presence is also the SWITCH: a lane that hands one in gets the union, a lane that hands null gets
-    /// the index-only note. The scan lanes (<c>cross_plugin_query</c> detail rows, the dense grid, the artifact
+    /// the index-only note. The scan lanes (the scan's detail rows, the dense grid, the artifact
     /// spill of a scan) discover their row count rather than being handed it, so a body-per-toucher per row is a
     /// cost the caller never asked for — they state the index-only tier and name the formids lane, which assembles
     /// the union for records the caller named.</para></summary>
@@ -2666,7 +2666,7 @@ public sealed partial class LoadOrderService : IDisposable
     internal const int ConflictDiffDepth = 16;
 
     /// <summary>A header-only summary for one record (winner + type + editorid, no field dump) — the compact
-    /// one-line-per-match view cross_plugin_query uses by default. One winner-body fetch; holds nothing.</summary>
+    /// one-line-per-match view a cross-plugin scan uses by default. One winner-body fetch; holds nothing.</summary>
     public RecordSummary ResolveSummary(FormKey fk)
     {
         var resolver = Resolver;
@@ -8617,9 +8617,7 @@ public sealed partial class LoadOrderService : IDisposable
         var byEsp = OwnedFoldersHolding(espName)
             .Select(p => Path.GetDirectoryName(p)!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (byEsp.Count == 1) return byEsp[0];
-        // Known wrong for one class of caller: this arm and the folder catch-all below both say "pass into=", which a
-        // tool that declares no into= parameter cannot do — such a caller gets an unknown-parameter refusal instead.
-        // Unfixed here; the remedy needs the calling surface's own vocabulary, like laneClause below.
+        // Ambiguous: refuse and name every candidate folder as a ready-to-paste into= value.
         if (byEsp.Count > 1)
             throw new InvalidOperationException(
                 $"cannot extend: {byEsp.Count} houseCARL folders carry '{espName}' — ambiguous, refusing to guess. " +
@@ -9390,7 +9388,7 @@ public sealed record ReadOutcome(
     public static ReadOutcome Fail(FormKey fk, string error) => new(fk, null, null, null, 0, null, error);
 }
 
-/// <summary>The outcome of a cross_plugin_query. <see cref="Error"/> non-null ⇒ the query was rejected (with a
+/// <summary>The outcome of a cross-plugin scan. <see cref="Error"/> non-null ⇒ the query was rejected (with a
 /// recoverable, named reason — bad filter combo / unknown type / plugin not in order). Otherwise <see cref="Keys"/>
 /// are the matched FormKeys (at most `limit`); <see cref="Prefilled"/> (parallel to Keys) carries the in-hand
 /// summaries for the type/plugins paths, or is null for the conflicts_only-alone path (the renderer fills those
@@ -9435,11 +9433,11 @@ public sealed record CrossQueryOutcome(
     public static CrossQueryOutcome Fail(string error) => new(Array.Empty<FormKey>(), null, 0, false, error);
 }
 
-/// <summary>One row of a cross_plugin_query <c>group_by=</c> aggregation: a group key (winner plugin / record type /
+/// <summary>One row of a scan's <c>group_by=</c> aggregation: a group key (winner plugin / record type /
 /// defining plugin) and how many matches fell in it. Emitted instead of per-match lines when group_by is set.</summary>
 public sealed record GroupCount(string Key, int Count);
 
-/// <summary>A compact, header-only record summary (no field dump) — the per-match line cross_plugin_query emits
+/// <summary>A compact, header-only record summary (no field dump) — the per-match line a scan emits
 /// by default. <see cref="Error"/> non-null ⇒ the winner couldn't be summarised (named, recoverable).</summary>
 public sealed record RecordSummary(FormKey FormKey, string Type, string? EditorId, string Winner, int OverrideDepth, string? Error)
 {

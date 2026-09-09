@@ -20,7 +20,7 @@ namespace HousecarlGenerator;
 ///   • the create-path NON-OVERRIDE — an explicit value is never clobbered,
 ///   • the QUALIFYING VALUES — FavorLevel=None, materialized Flags, DNAM=00, ENAM=00000000 (S1); Category=Player,
 ///     Priority=50, NextAliasID=max+1/0, objective Flags=0 (S2) — the CK's own defaults, byte-verified vs vanilla,
-///   • the BNAM lint — housecarl_validate_dialogue WARNS a Custom topic with no Branch (the CK-views-crash catch),
+///   • the BNAM lint — the dialogue validator WARNS a Custom topic with no Branch (the CK-views-crash catch),
 ///     and does NOT warn a Custom topic that HAS a branch.
 /// Driven over a synthetic MO2 instance in temp (the dialogue-subtype-marker-guard synth pattern; no game files needed).
 /// Run: dotnet run --project src/housecarl-generator -- dialogue-ckparity-guard

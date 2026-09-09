@@ -1202,7 +1202,7 @@ public sealed class LoadOrderResolver : IDisposable
     }
 
     // ---- Cross-query scan primitives -------------------
-    //  These feed cross_plugin_query. Each is a SINGLE enumeration pass that yields the matching record's body
+    //  These feed the records cross-plugin scan. Each is a SINGLE enumeration pass that yields the matching record's body
     //  IN HAND: fetching each winner body separately instead costs a whole-overlay re-enumeration per candidate,
     //  which is minutes over a large type. The body the service filters on is this in-hand body; the resolver holds
     //  nothing past the yield. Each opens the CURRENT plugin, enumerates it, and DISPOSES it before moving to the

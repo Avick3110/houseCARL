@@ -266,7 +266,7 @@ public static class PerkRefsProbe
     public static int RunDiagnose(string[] args)
     {
         // --mo2 <instanceDir>: sweep the WHOLE load order through the PRODUCT stream (WinnerRecordsOfType),
-        // the exact loop cross_plugin_query runs. Without it: a quick single-plugin sweep of Skyrim.esm.
+        // the exact loop the records scan runs. Without it: a quick single-plugin sweep of Skyrim.esm.
         var f = HousecarlCore.WriteEngine.ParseFlags(args);
         if (f.GetValueOrDefault("mo2") is { } instanceDir) return DiagnoseFullOrder(instanceDir);
 

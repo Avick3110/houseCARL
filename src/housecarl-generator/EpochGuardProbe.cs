@@ -19,7 +19,7 @@ namespace HousecarlGenerator;
 ///   2  SENSITIVITY — a content edit (mtime change, NEWER or OLDER — the restored-backup case must not be
 ///      invisible), a reorder, and a set change each produce a DIFFERENT epoch; RefreshIfStale over an
 ///      unchanged order keeps it.
-///   3  STAMPS — every index-backed lane carries the capture's epoch: cross_plugin_query (incl. the Fail path
+///   3  STAMPS — every index-backed lane carries the capture's epoch: the records scan (incl. the Fail path
 ///      staying null — a refusal that never consulted a build must not invent one), batch (ONE epoch for the
 ///      whole batch; a malformed-formid row carries none), single read (refusals INCLUDED — "not present" is an
 ///      answer about a build), resolve (out-epoch), effect_chain, status. The diff, check_errors and
@@ -201,7 +201,7 @@ internal static class EpochGuardProbe
                 Check(IsEpochToken(current), $"Stats() names the current build epoch — '{current}'");
                 Check(svc.StatusData().Epoch == current, "StatusData carries the same epoch (the status line's source)");
 
-                // cross_plugin_query — outcome stamp + all three renders + the Fail path
+                // the records scan — outcome stamp + all three renders + the Fail path
                 var q = svc.CrossQuery("WEAP", null, null, false, null, null, 500);
                 Check(q.Epoch == current, "cross_plugin_query outcome stamps the scanned build");
                 Check(Wire.RenderCrossQuery(svc, q, null, 0).Contains($"epoch={current}"), "…text render carries epoch=<hex> in the header");

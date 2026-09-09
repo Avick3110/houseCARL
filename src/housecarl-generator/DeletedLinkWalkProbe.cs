@@ -8,8 +8,8 @@ namespace HousecarlGenerator;
 
 /// <summary>
 /// SELF-CONTAINED CI REGRESSION GUARD (<c>deleted-link-walk-guard</c>) for #279 — the DELETED-record rule in the two
-/// link walkers that <c>deleted-record-scan-guard</c> (#276, cross_plugin_query) does NOT cover:
-///   • <see cref="ErrorCheck.Run"/> — housecarl_check_errors' dangling-ref sweep.
+/// link walkers that <c>deleted-record-scan-guard</c> (#276, the records scan) does NOT cover:
+///   • <see cref="ErrorCheck.Run"/> — the errors family's dangling-ref sweep.
 ///   • <see cref="RemapEngine.IdentifyExternalReferencers"/> — the compact/merge dependency scan.
 /// All three now route through <see cref="DeletedRecordRule.HasNoLiveBody"/>; this pins the two new ones so the set
 /// can't drift back apart.

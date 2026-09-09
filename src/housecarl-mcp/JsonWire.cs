@@ -419,7 +419,7 @@ static class JsonWire
     internal const int ChildUnionMemberCap = 100;
 
     /// <summary>Serialize a resolved record: identity + winner/override_depth/source + the fields array. Shared by
-    /// read_record, batch_record_detail, and the cross_plugin_query detail path (one shape, no drift). <paramref
+    /// housecarl_records' single-record, batch and scan detail paths (one shape, no drift). <paramref
     /// name="matches"/> carries the multi-target references= un-merge when present.</summary>
     /// <param name="childFields">Collects the annotated field paths this record's array carried, for the
     /// response-level clause. Batch/query lanes pass ONE set across their rows and state the clause after the
@@ -458,8 +458,8 @@ static class JsonWire
         if (fields.Count > 0) w.WriteString("owned_child_note", ReadSentences.OwnedChildClause(fields, unioned));
     }
 
-    // ---- housecarl_batch_record_detail --------------------------------------------------------------
-    /// <summary>batch_record_detail as JSON: <c>{count, records:[…], rendered, truncated}</c>. A bad/absent formid is
+    // ---- housecarl_records: the batch read ----------------------------------------------------------
+    /// <summary>A batch read as JSON: <c>{count, records:[…], rendered, truncated}</c>. A bad/absent formid is
     /// a per-item <c>{formid,error}</c> so the batch survives. Truncation drops trailing records and flags it — the
     /// document stays valid JSON, and count is exact.</summary>
     public static string RenderBatch(IReadOnlyList<ReadOutcome> outcomes, int maxChars)
@@ -1103,8 +1103,8 @@ static class JsonWire
         return Finish(ms);
     }
 
-    // ---- housecarl_cross_plugin_query ---------------------------------------------------------------
-    /// <summary>cross_plugin_query as JSON — three shapes matching the text render: group_by count table
+    // ---- housecarl_records: the cross-plugin scan ---------------------------------------------------
+    /// <summary>A cross-plugin scan as JSON — three shapes matching the text render: group_by count table
     /// (<c>{group_by, total, groups:[…]}</c>), detail rows (full record objects with fields), or summary rows
     /// (<c>{formid,type,editorid,winner,override_depth}</c>). The accounting (total/capped/notes/truncated) rides
     /// in-band. The detail path threads resolve_names through the SAME ResolveRead the text render uses, so the two
@@ -1242,7 +1242,7 @@ static class JsonWire
             : $"field values are each match's SCOPED plugin's OWN version, NOT the live load-order winner — pass {wf} for load-order truth.";
     }
 
-    // ---- housecarl_cross_plugin_query format=dense --------------------------------------------------
+    // ---- housecarl_records: the cross-plugin scan, format=dense ------------------------------------
     /// <summary>The columnar render: a <c>columns</c> array once, then ONE positional row array per match —
     /// <c>[formid, editorid, field values…]</c> under fields= (plus a <c>source</c> column under a plugins= scope,
     /// naming the body each row's values were read from), <c>[formid, type, editorid, winner, override_depth]</c>

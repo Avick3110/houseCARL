@@ -12,7 +12,7 @@ namespace HousecarlGenerator;
 /// SYNTHESIZED 1-plugin order in TEMP — NO Skyrim.esm, so it runs in CI.
 ///
 /// THE GAP (reproduced by construction): there was no one call from a MagicEffect to "applied by these records, at
-/// these magnitudes" — you re-ran cross_plugin_query references=&lt;MGEF&gt; for SPEL, then ENCH, ALCH, SCRL, INGR, and
+/// these magnitudes" — you re-ran a scan with references=&lt;MGEF&gt; for SPEL, then ENCH, ALCH, SCRL, INGR, and
 /// hand-read each hit's matching Effects[].Data. Resolve collapses that into one verb.
 ///
 /// THE FIX (generic by construction): the five effect-bearing records share ONE element type (IEffectGetter), so
@@ -42,7 +42,7 @@ namespace HousecarlGenerator;
 ///
 /// COVERAGE NOTE (Q3 — name what this guard LEANS ON rather than re-proves; PR #107 review): the fixture is ONE
 /// plugin, so the winner-only scan (WinnerRecordsOfType) and the per-row winner= are exercised only at depth 0. Both
-/// are the SAME shared primitive cross_plugin_query uses, multi-plugin-proven in source-display-guard +
+/// are the SAME shared primitive the records scan uses, multi-plugin-proven in source-display-guard +
 /// snapshot-view-guard — so override/winner behavior is covered transitively, not re-proven here. The MATCH-ALL-FIVE
 /// arm is the canary for a sixth effect-bearing record (it would simply not be scanned).
 ///

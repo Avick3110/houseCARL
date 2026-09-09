@@ -95,7 +95,7 @@ public sealed record SeqLintFinding(
     bool QuestIsSge, string DefiningPlugin, string WinnerPlugin, uint OnDiskFormId,
     bool SeqExists, bool? SeqContainsQuest, bool? SeqNewerThanPlugin, string? Note);
 
-/// <summary>The whole-validation report for one <c>housecarl_validate_dialogue</c> call: the resolved input
+/// <summary>The whole-validation report for one dialogue-validation call: the resolved input
 /// (<see cref="Input"/>, <see cref="InputKind"/> = "topic"/"quest"/"view"/"branch"/"error",
 /// <see cref="InputEditorId"/>) and the per-topic validations. A top-level recoverable miss (the FormID isn't in
 /// the order, or resolves to none of the four input types) is a NAMED <see cref="Error"/>; a mid-run throw is

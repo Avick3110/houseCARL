@@ -203,7 +203,7 @@ public static class RemapEngine
             {
                 foreach (var (fk, _, body, _) in view.RecordsIn(new[] { plugin }, null))
                 {
-                    // PER-RECORD fault isolation, as in cross_plugin_query and ErrorCheck: EnumerateFormLinks lazily
+                    // PER-RECORD fault isolation, as in the records scan and ErrorCheck: EnumerateFormLinks lazily
                     // parses subrecord content, so ONE record Mutagen can't parse is counted and sampled, never an
                     // opaque whole-call abort and never a silent skip.
                     try

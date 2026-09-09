@@ -15,8 +15,8 @@ namespace HousecarlCore;
 public sealed record DialogueSeedResult(string Seed, DialogueValidationReport? Report, string? Refusal);
 
 /// <summary>
-/// The DIALOGUE family's result on the merged <c>check</c> surface: <c>housecarl_validate_dialogue</c>'s findings
-/// (its classes 1-7) over a seed list, aggregated so one response can carry several seeds' worth.
+/// The DIALOGUE family's result on the merged <c>check</c> surface: the dialogue validator's findings
+/// (classes 1-7) over a seed list, aggregated so one response can carry several seeds' worth.
 ///
 /// <para><b>Class 8 is deliberately absent.</b> The effective merged INFO order is an ordered sequence over the
 /// touching-plugin stack, not a findings list, so it lives on <c>records project=info_order</c>. Both surfaces share

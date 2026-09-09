@@ -7,7 +7,7 @@ using HousecarlCore;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// REGRESSION GUARD (standing CI instrument) for the field-value query predicate (cross_plugin_query where=).
+/// REGRESSION GUARD (standing CI instrument) for the field-value query predicate (the records scan's where=).
 ///
 /// Self-contained, in the pattern of <c>depth-leak-guard</c> / <c>pkcu-regression</c>: synthesizes records IN
 /// MEMORY with KNOWN field values, runs the product evaluator (<see cref="FieldPredicateSet"/>), and asserts the
