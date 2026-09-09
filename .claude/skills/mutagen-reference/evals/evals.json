@@ -23,7 +23,7 @@
       "expectations": [
         "The skill is selected",
         "The answer quotes a line resolved from references/records.jsonl",
-        "The answer states the type's writable/total count (32/32)",
+        "The answer states the type's writable/total count (31/32)",
         "No field name appears that is absent from that line"
       ]
     },
@@ -215,7 +215,7 @@
     "expectations": [
       "The armor-type axis is named as BodyTemplate.ArmorType, a leaf on a sub-struct, quoted from lines resolved out of references/records.jsonl and references/structs.jsonl — not inferred from a refusal message and not answered as a keyword mechanism",
       "The enum spelling is LightArmor / HeavyArmor / Clothing, quoted from references/enums.jsonl",
-      "The writable count 32/32 is read off the block, not inferred from per-field dry-run probes",
+      "The writable count 31/32 is read off the block, not inferred from per-field dry-run probes",
       "The write is composed first try, and no tool name outside the published surface appears in any call",
       "The without_skill arm fails at least one of the four above — if it stops failing, the skill has stopped adding anything and its existence is back on the table"
     ]

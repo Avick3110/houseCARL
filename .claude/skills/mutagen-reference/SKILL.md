@@ -42,14 +42,28 @@ Every one of them is generated; never hand-edit a shard. Do **not** bulk-load th
 
 4. **Resolve `ref` / `arms` / `target` on demand.** A field pointing at another modeled type carries `ref` (the sub-struct, enum, or owned child record), `arms` (a polymorphic field's permitted types), or `target` (the record a FormLink points at). To learn that type's own shape, grep the index for its name and block-read it the same way. That is how an enum resolves: a field reads `"c":"enum","ref":"ActorValue"`, and the legal names live once on the `ActorValue` entry.
 
+   **A `target` is a getter interface name, not an index key.** `target:"IEquipTypeGetter"` will not be found by grepping the index for `IEquipTypeGetter`; strip the leading `I` and the trailing `Getter` and grep for `EquipType`, which does resolve. Some targets are marker interfaces several record types implement — `IOwnerGetter`, `IEmittanceGetter` — and those strip to a name the index does not carry, because the reference models record types, not the interfaces that group them. When that happens, say the field accepts any record implementing that interface and that the reference does not enumerate them, and let the write pre-flight name the legal type: it refuses a link of the wrong type saying both the record's type and what the field links to.
+
+5. **Enumerating what is modeled.** When the question is the type list itself rather than one type's shape, `grep -o '"name":"[^"]*"' references/index.jsonl` (or the same over `"sig"`) is the sanctioned read — it is the one whole-file pass this skill blesses, because it returns keys, not blocks. "Do not bulk-load the index" is about reading blocks you do not need, not about counting names.
+
 ## Worked examples
+
+**What fields does a type with no records in this load order have?** The headline case, because nothing else answers it. A schema question about a type the order never instantiates cannot be reached by reading a record or by probing the write pre-flight — there is nothing to read and nothing to write against. The lookup does not care:
+
+```
+grep '"sig":"PARW"' references/index.jsonl  ->  records.jsonl, one line
+read that line, one line                    ->  the full field list, types, cardinalities, w
+answer: the whole schema, at the same cost as a type with a million instances.
+```
+
+The same holds for the two axes a refusal cannot give at all: a field's `target` (what a FormLink points at) and per-field `w`. Probing for those costs a call per field and still cannot finish.
 
 **Can I set the armor rating on armor?**
 
 ```
 grep '"sig":"ARMO"' references/index.jsonl  ->  records.jsonl line 9
 read records.jsonl line 9, one line         ->  {"n":"ArmorRating","t":"float","c":"scalar","w":true}
-answer: yes — writable, a float. The block also reports "writable":"32/32".
+answer: yes — writable, a float. The block also reports "writable":"31/32".
 ```
 
 **Is an armor light or heavy?** There is no armor-type field on ARMO; the axis is a leaf on a sub-struct, and only the second hop gives the spelling.
@@ -91,7 +105,7 @@ To proceed:
 - For a write, stop here: composing against a guessed schema risks a malformed record
 ```
 
-Stopping before the write is the point, and it is not the only guard: the server's own write pre-flight is the enforcement. It refuses an unknown field, an illegal verb or a bad enum value by name — naming the legal values verbatim — so a guess never reaches a plugin. This lookup is the cheaper path to the same answer: one grep and one line, against a refusal per attempt.
+Stopping before the write is the point, and it is not the only guard: the server's own write pre-flight is the enforcement. It refuses an unknown field, an illegal verb or a bad enum value by name — naming the legal values verbatim — so a guess never reaches a plugin. This lookup is the cheaper path to the same answer: one grep and one line, against a refusal per attempt — and for a type with no instances, per-field `w`, or a field's `target`, it is the only path, because a refusal route has nothing to probe against and does not finish.
 
 ## The index and schema shapes
 
@@ -110,13 +124,13 @@ Stopping before the write is the point, and it is not the only guard: the server
 A record or struct block is one compact JSON object on its own line:
 
 ```json
-{"name":"Armor","kind":"record","sig":"ARMO","getter":"...IArmorGetter","mutable":"...IArmor","writable":"32/32","fields":[{"n":"ArmorRating","t":"float","c":"scalar","w":true},{"n":"Keywords","t":"List<FormLink<IKeywordGetter>>","c":"list","w":true,"target":"IKeywordGetter"},{"n":"BodyTemplate","t":"IBodyTemplateGetter","c":"substruct","w":true,"ref":"BodyTemplate","null":true}]}
+{"name":"Armor","kind":"record","sig":"ARMO","getter":"...IArmorGetter","mutable":"...IArmor","writable":"31/32","fields":[{"n":"ArmorRating","t":"float","c":"scalar","w":true},{"n":"Keywords","t":"List<FormLink<IKeywordGetter>>","c":"list","w":true,"target":"IKeywordGetter"},{"n":"BodyTemplate","t":"IBodyTemplateGetter","c":"substruct","w":true,"ref":"BodyTemplate","null":true}]}
 ```
 
 Field keys are terse to stay light:
 
 - `n` name · `t` type (display) · `c` cardinality (`scalar` / `enum` / `formlink` / `list` / `dict` / `substruct` / `polymorphic` / `value`) · `w` writable.
-- Sparse keys, present only when they apply: `ref` (the sub-struct or enum this field points to), `arms` (a polymorphic field's permitted types), `elem` / `elemRef` / `elemArms` (a list or dict element's type, modeled-type ref, or arms), `key` (a dict's key type), `target` (the record a FormLink points at), `null` (nullable), `id` (a record-identity field such as `FormKey` — not free-edit content).
+- Sparse keys, present only when they apply: `ref` (the sub-struct or enum this field points to), `arms` (a polymorphic field's permitted types), `elem` / `elemRef` / `elemArms` (a list or dict element's type, modeled-type ref, or arms), `key` (a dict's key type), `target` (the record a FormLink points at), `null` (nullable), `id` (a record-identity field such as `FormKey` — not free-edit content, and always `w:false`).
 - Provenance keys a lookup can ignore: `getter` / `mutable`, and on an arm `base`.
 
 An enum block carries its legal values:
@@ -126,6 +140,8 @@ An enum block carries its legal values:
 ```
 
 A block's `writable` is the type's `writable/total` field count — a summary. A field's own `w` is what governs whether you can set that field.
+
+**`w` is what the write tools will accept, not merely what the library exposes a setter for.** The two differ on one class of field: an identity field, marked `id` (`FormKey`, and `ModKey` / `Master` on a header), has a setter in the library but the write pre-flight refuses it outright, because a record's identity is not free-edit content. The reference reports those as `"w":false,"id":true` and counts them out of the type's `writable/total`, so **an `id` field is never writable** and the read view and the write tools agree. Change a record's identity by creating or copying the record, never by setting the field.
 
 ## Addressing a field & what you can write
 
@@ -152,6 +168,8 @@ At the leaf, brackets are for `list` and `dict` elements only; mid-path, a gende
 - **A `ref`, `arms` or `target` is a pointer, so resolve it** — grep the index for that name and block-read it too (quoting the pointer answers a different question).
 - **`w:false` is the real schema**: some fields are read-only in the library, computed or without a mutable accessor (reading that as a bug sends the user chasing nothing).
 - **A field's own `w` governs that field**, not the block's `writable/total`, which is the type's summary count.
+- **An `id` field is never writable** — it reads `w:false` and the write pre-flight refuses it (reading `FormKey` as settable sends the user at a refusal they cannot get past).
+- **A `target` is a getter interface name**, so strip `I…Getter` before grepping the index, and say the reference does not enumerate a marker interface's implementers rather than naming one (quoting `IOwnerGetter` at the index returns nothing and reads as an absent type).
 - **A `substruct` is descended by name, a standalone `polymorphic` field is set by `compose`** (a bracket at the leaf is refused on either; mid-path a gendered substruct takes `[0]`/`[1]`).
 - **A condition parameter's displayed `FormLink<T>` is a normalisation** of `FormLinkOrIndex<T>` (reading it as a plain link understates what the field accepts).
 
