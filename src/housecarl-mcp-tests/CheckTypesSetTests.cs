@@ -1,3 +1,4 @@
+using HousecarlMcp;
 using Xunit;
 
 namespace HousecarlMcpTests;
@@ -57,5 +58,80 @@ public sealed class CheckTypesSetTests
 
         Assert.Contains("NOSUCHTYPE", r.Error);
         Assert.Empty(r.Reports);
+    }
+
+    /// <summary>A BLANK entry names no type, so it is refused SAYING it is blank rather than quoted back as an
+    /// unknown type ''. An empty set is a different thing (no narrowing) and is not this.</summary>
+    [Fact]
+    public void ABlankTypeInTheSetIsRefusedAsBlank()
+    {
+        var r = _w.Svc.CheckErrors(new[] { _w.MasterName }, 1000, types: new[] { "" });
+
+        Assert.Contains("blank record type", r.Error);
+        Assert.DoesNotContain("unknown record type", r.Error);
+        Assert.Empty(r.Reports);
+    }
+
+    /// <summary>One rule, not two: the records surface refuses the same blank entry with the same sentence, so a
+    /// caller cannot learn one grammar on one surface and meet another on the other.</summary>
+    [Fact]
+    public void TheRecordsSurfaceRefusesABlankTypeTheSameWay()
+    {
+        var r = RecordsTools.Records(_w.Svc, types: new[] { "" });
+
+        Assert.Contains("blank record type", r, StringComparison.Ordinal);
+        Assert.DoesNotContain("unknown record type", r, StringComparison.Ordinal);
+    }
+
+    /// <summary>limit= is ONE listing budget spent in the order the types stream, so a two-type sweep with room for
+    /// one finding lists the NPC_ and never reaches the WEAP. The response says so: absent from the listing means
+    /// unlisted, not clean.</summary>
+    [Fact]
+    public void ACutMultiTypeListingSaysTheBudgetWasSpentInTypeOrder()
+    {
+        var r = _w.Svc.CheckErrors(new[] { _w.MasterName }, 1, types: new[] { "Npc", "Weapon" });
+        var text = CheckErrorsFixtures.Text(r, 80_000);
+
+        Assert.Equal(2, r.TotalDangling);                                  // the totals are never capped
+        Assert.Single(r.Reports.SelectMany(p => p.Dangling));              // the listing carried one of them
+        Assert.Contains("types=[Npc, Weapon]", text, StringComparison.Ordinal);
+        Assert.Contains("unlisted, not clean", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>A budget that dropped nothing leaves the listing complete for every type in the scope, so the rule
+    /// is not stated — a warning about a hole that is not there reads as one that is.</summary>
+    [Fact]
+    public void AnUncutMultiTypeListingStatesNoTypeOrderRule()
+    {
+        var text = CheckErrorsFixtures.Text(
+            _w.Svc.CheckErrors(new[] { _w.MasterName }, 1000, types: new[] { "Npc", "Weapon" }), 80_000);
+
+        Assert.DoesNotContain("unlisted, not clean", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>With ONE type in scope the budget cannot have stopped before another type, so a cut listing states
+    /// no type-order rule either — the rule is about the set, not about the cut.</summary>
+    [Fact]
+    public void ACutSingleTypeListingStatesNoTypeOrderRule()
+    {
+        var r = _w.Svc.CheckErrors(new[] { _w.MasterName }, 0, types: new[] { "Npc" });
+        var text = CheckErrorsFixtures.Text(r, 80_000);
+
+        Assert.Equal(1, r.TotalDangling);
+        Assert.Empty(r.Reports.SelectMany(p => p.Dangling));                // the budget listed none of it
+        Assert.DoesNotContain("unlisted, not clean", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>The json twin carries the same fact under the same test, so the two transports cannot disagree
+    /// about which budget was spent how.</summary>
+    [Fact]
+    public void TheJsonTwinCarriesTheTypeOrderTheBudgetWasSpentIn()
+    {
+        var json = CheckErrorsFixtures.Json(
+            _w.Svc.CheckErrors(new[] { _w.MasterName }, 1, types: new[] { "Npc", "Weapon" }), 80_000);
+
+        Assert.Equal("Npc, Weapon",
+                     CheckErrorsFixtures.ErrorsFamily(json).GetProperty("accounting")
+                                        .GetProperty("limit_spent_in_type_order").GetString());
     }
 }

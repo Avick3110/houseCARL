@@ -277,6 +277,16 @@ internal static class ReadSentences
     [MustState("not named here")]
     internal const string SweepRosterCut = " (the {0} largest of {1}; the rest are not named here)";
 
+    /// <summary>The type-scope rule, stated wherever a MULTI-TYPE scope was in force and the listing budget dropped
+    /// something. The budget is one counter spent in the order the scope's types are streamed, so a type later in
+    /// that order can be missing from the listing entirely — and a listing that names two types while showing one
+    /// otherwise reads as "the other one is clean".</summary>
+    [MustState("limit=", "unlisted", "not clean")]
+    internal const string SweepTypeOrderRule =
+        " limit= is ONE listing budget, spent in the order the scope's types are streamed (types=[{0}]), so a type " +
+        "later in that order can be absent from the listing above: absent there means unlisted, not clean. Sweep " +
+        "that type alone, or raise limit=.";
+
     /// <summary>A rule about the listing rather than a claim about this response's contents, stated wherever a
     /// roster is: it tells the reader that a plugin with no section of its own is still in that roster.</summary>
     [MustState("no section of its own")]

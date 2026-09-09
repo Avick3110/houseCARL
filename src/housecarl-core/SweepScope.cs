@@ -45,6 +45,13 @@ public sealed class SweepScope
         TypeLabel = Types is null ? null : typeLabel;
     }
 
+    /// <summary>The scope's types spelled for the response, but ONLY where the scope covers more than one — the
+    /// listing budget is one counter spent in the order these are streamed, so a multi-type scope can list the
+    /// first type and never reach the second. Null where one type (or none) is in force and that cannot happen.
+    /// <para>More than one TYPE, not more than one entry: one entry can expand to several arms (<c>Global</c> to
+    /// its int/float/short arms), and the budget is spent arm by arm there too.</para></summary>
+    public string? TypeOrder => Types is { Count: > 1 } ? TypeLabel : null;
+
     /// <summary>True when nothing is actually narrowed (every knob absent) — the caller can then pass null and keep the
     /// unscoped path byte-identical.</summary>
     public bool IsEmpty => Formids is null && EditorIdContains is null && Types is null;

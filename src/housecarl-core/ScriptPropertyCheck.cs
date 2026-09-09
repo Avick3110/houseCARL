@@ -389,7 +389,7 @@ public static class ScriptPropertyCheck
                                      totalNull, totalUnverifiable, capped, av.ReadIncomplete, view.ExcludedPlugins, null,
                                      filterNote, histogram is null ? null : SweepFindings.Histogram(histogram), countsOnly,
                                      classes, totalUnboundObject, totalUnboundScalar, propFilter, view.Epoch, limit,
-                                     offOrderScanned, collapsedUnverifiable);
+                                     offOrderScanned, collapsedUnverifiable, recordScope?.TypeOrder);
     }
 
     /// <summary>One record's fault, appended to the plugin's running scan-error line — the same sentence on both
@@ -590,7 +590,8 @@ public sealed record ScriptCheckResult(
     string? Epoch = null,   // the swept INDEXED build's fingerprint; null only on the pre-sweep refusals. OffOrderScanned files are located OUTSIDE the index — their content is not under this fingerprint, so the renders qualify the stamp when any were swept
     int Limit = 0,   // the finding budget this sweep was GIVEN, so the response names the knob to raise off the number actually used
     IReadOnlyList<string>? OffOrderScanned = null,   // the files swept OFF-ORDER: on disk, not in the active order — the pre-enable verify lane
-    int UnverifiableCollapsed = 0)   // records whose unverifiable note repeated one already listed for the same script class; counted in TotalUnverifiable, not listed again
+    int UnverifiableCollapsed = 0,   // records whose unverifiable note repeated one already listed for the same script class; counted in TotalUnverifiable, not listed again
+    string? TypeScopeOrder = null)   // the scope's types, in the order the budget was spent on them, when it covered MORE than one; null otherwise — the same rule the errors family carries, because both families spend one listing budget over one type stream
 {
     public bool Success => Error is null;
     public static ScriptCheckResult Fail(string error) =>
