@@ -34,6 +34,14 @@ housecarl_records(formids=["02707A:Skyrim.esm"], project={"form":"info_order"})
 Take the line at the target's position minus one and write that FormID into the override's `PreviousDialog`.
 Adding a **new** line re-lists nothing and needs no PNAM for the lines around it.
 
+Two cases the recipe does not cover. If the target is already at position 1 there is no line above it to name, so
+write no PNAM at all — an empty previous-link is normal and the dialogue check never flags absence. And because
+`info_order` merges every plugin touching the topic, the line at position minus one can be one defined by a plugin
+your patch does not master; write that FormID and the link dangles. What the engine does with a dangling
+previous-link is not something measured here, but the dangling link itself is visible from the data layer:
+`housecarl_check(findings=["dialogue"], seeds=["<the topic>"])` reports it — once the patch is enabled, which is
+the same #615 limit as below.
+
 ## The bookkeeping create fills, and the one fill that is unreachable
 
 `housecarl_create` fills the Creation Kit's bookkeeping on dialogue records and reports each fill, so nothing
