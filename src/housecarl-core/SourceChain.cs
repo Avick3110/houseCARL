@@ -61,13 +61,29 @@ public enum SourceLayerKind
     GameData,
 }
 
+/// <summary>Whether the active MO2 profile is loading a mod folder — the two ways it is not, kept apart because
+/// their remedies differ and a sentence that merges them sends the caller to do the wrong thing.</summary>
+public enum ModFolderStanding
+{
+    /// <summary>modlist.txt lists the folder and the profile has it switched ON — the game loads it.</summary>
+    Live = 0,
+    /// <summary>modlist.txt lists the folder with the profile's switch OFF. Remedy: switch it on, re-sort.</summary>
+    SwitchedOff,
+    /// <summary>modlist.txt does not mention the folder at all, so MO2 has not registered it — the state of a folder
+    /// houseCARL just wrote, before the refresh. Remedy: refresh MO2; there is nothing in MO2's list to switch on,
+    /// which is why this is not <see cref="SwitchedOff"/>.</summary>
+    Unregistered,
+}
+
 /// <summary>The layer a source's file sits in: which branch answered, the name that branch produced, and — for a
-/// mod folder — whether MO2 has that folder switched ON.
-/// <para><paramref name="OwnerEnabled"/> defaults to true because every other layer is always live: the game's Data
-/// folder and MO2's overwrite are not things a profile turns off. It is false only for a mod folder the active
-/// profile has switched off, which is a fact a readback owes the caller — a source the game is not loading reads
-/// very differently beside a claim about what the artifact does or does not master.</para></summary>
-public sealed record SourceLayer(SourceLayerKind Kind, string Name, bool OwnerEnabled = true);
+/// mod folder — whether the active profile is loading that folder.
+/// <para><paramref name="Folder"/> is meaningful for <see cref="SourceLayerKind.ModFolder"/> alone; it defaults to
+/// <see cref="ModFolderStanding.Live"/> so the two layers that are never switched off — the game's Data folder and
+/// MO2's overwrite — need not state it. A producer that builds a mod-folder layer reads the standing from the
+/// profile, because a readback owes the caller the fact that the game is not loading the source it names.</para>
+/// </summary>
+public sealed record SourceLayer(
+    SourceLayerKind Kind, string Name, ModFolderStanding Folder = ModFolderStanding.Live);
 
 /// <summary>One element of an ordered source universe: the caller's own spelling, how it resolved, a human
 /// description of WHERE it resolved to, and the fetch itself.

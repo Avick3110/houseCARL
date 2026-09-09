@@ -401,10 +401,13 @@ internal static class WriteSentences
     [MustState("read from")]
     internal const string CopyFromArmLead = "the source record was read from ";
 
-    /// <summary>…and that the folder it came out of is switched OFF in MO2. Said beside the provenance because the
-    /// standalone claim below reads differently once the caller knows the game is not loading the source at all.</summary>
-    internal static string CopySourceOffOrderFolder(string folder) =>
-        $"note: '{folder}' is {OffOrderModFolder}.";
+    /// <summary>…and, for ONE source arm, that the game is not loading the mod folder it came out of. Said beside the
+    /// sources so no arm the readback names reads as a live folder, and because the standalone claim below reads
+    /// differently once the caller knows the game is not loading a source at all. The two off standings get their
+    /// own clause: their remedies differ, and there is nothing in MO2's list to switch on for an unregistered
+    /// folder.</summary>
+    internal static string CopySourceOffOrderFolder(string folder, ModFolderStanding standing) =>
+        $"note: '{folder}' is {(standing == ModFolderStanding.Unregistered ? UnregisteredModFolder : OffOrderModFolder)}.";
 
     // ---- the copied records' asset paths -------------------------------------------------------------
     /// <summary>The asset paths the copied records reference, and the route to acting on them: copy enumerates, and
@@ -613,6 +616,15 @@ internal static class WriteSentences
     [MustState("NOT enabled in MO2")]
     internal const string OffOrderModFolder =
         "a mod folder that is NOT enabled in MO2 — you named it, so houseCARL read it off disk";
+
+    /// <summary>…and the OTHER way the game is not loading a named folder: modlist.txt does not mention it at all.
+    /// It cannot borrow the sentence above — "NOT enabled in MO2" is false for a folder MO2 has no entry to enable,
+    /// and "switch it on" is a remedy that does not exist here — so it says the state and the remedy MO2 actually
+    /// has, the wording the locate lane already uses for this standing.</summary>
+    [MustState("NOT registered", "refresh MO2")]
+    internal const string UnregisteredModFolder =
+        "a mod folder MO2 has NOT registered — nothing in MO2's list to switch on; refresh MO2 to pick it up. You "
+        + "named the folder, so houseCARL read it off disk";
 
     /// <summary>The provenance line for bytes read out of a mod the active profile does NOT include. About the SOURCE
     /// and nothing else: the placed copy's own "does not win until you enable + sort" is the render's separate,
