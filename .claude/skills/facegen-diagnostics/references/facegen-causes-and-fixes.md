@@ -334,7 +334,7 @@ resolved there.
   Risk: `asset_status` "file wins" ≠ "file is the right sex" — but `nif_inspect`'s **shape names** often give
   it away (a `Male…`/`Female…` baked part, e.g. `MaleMouthHumanoidDefault` in the real Lucien read), so a
   wrong-sex facegen is partly checkable at the data layer. Still not a render guarantee — confirm in-game.
-- **`nif_inspect` reads the winner, or a named provider (`mod=`).** It resolves through the same VFS as
+- **`nif_inspect` reads the winner, or a named provider (`source_provider=`, the same pole `housecarl_place` takes).** It resolves through the same VFS as
   `asset_status`, so you can read the copy the game uses OR a specific mod's copy and *compare their baked
   shape names / tint paths* — "the winning file carries a different NPC's shapes than mod A's copy" is a
   data-layer finding, not a guess. It reads values, never pixels or geometry; the render check still stands.

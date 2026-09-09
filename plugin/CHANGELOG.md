@@ -25,7 +25,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `patch=`. `housecarl_bsa_repack`: `archive_name=` is `patch=`. `housecarl_bsa_extract`: `dest=` is
   `out_path=`. `housecarl_load_order_status`: `lookup=` is `filter=`. `housecarl_compile_script`:
   `patch_name=` is `patch=` and `output_dir=` is `out_path=`. `housecarl_decompile_script` and
-  `housecarl_nif_set`: `patch_name=` is `patch=`. `housecarl_write_seq`: `output_dir=` is `out_path=`, and
+  `housecarl_nif_set`: `patch_name=` is `patch=`. `housecarl_nif_inspect` and `housecarl_nif_set`: `mod=` is
+  `source_provider=` — the same provider pole `housecarl_place` takes, naming whose copy of the mesh to read,
+  while `source=` is only ever the plugin to read. `housecarl_write_seq`: `output_dir=` is `out_path=`, and
   its JSON response member `user_chose_output_dir` is `user_chose_out_path`. `housecarl_remove` is unchanged:
   a removal edits an artifact that already exists, so its lane is `into=`.
 - **`patch=` now names the output mod FOLDER on every tool that writes one, `housecarl_merge_plugins` and
