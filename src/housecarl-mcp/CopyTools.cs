@@ -149,12 +149,15 @@ public static class CopyTools
         // Which source produced the record the caller ASKED for. Needed in both modes: the source record is not
         // among the internalized rows in either, so nothing else names where its own body came from.
         if (o.FromArm is { } fromArm)
-        {
             sb.Append(WriteSentences.CopyFromArmLead).Append(WriteSentences.CopyArm(fromArm)).Append(".\n");
-            // The source folder is switched off in MO2, which the standalone claim below is read against.
-            if (fromArm.Layer is { Kind: SourceLayerKind.ModFolder, OwnerEnabled: false } off)
-                sb.Append(WriteSentences.CopySourceOffOrderFolder(off.Name)).Append('\n');
-        }
+        // One line per source arm the game is not loading — EVERY such arm, not just the one the record came from:
+        // the caller acts on the others too (the folder a placement is handed is often not the from arm's), so an
+        // unqualified arm reads as a live folder. Deduped by folder, since two arms can share one.
+        foreach (var off in o.SourcesConsulted
+                     .Select(a => a.Layer)
+                     .Where(l => l is { Kind: SourceLayerKind.ModFolder } && l.Folder != ModFolderStanding.Live)
+                     .DistinctBy(l => (l!.Name, l.Folder)))
+            sb.Append(WriteSentences.CopySourceOffOrderFolder(off!.Name, off.Folder)).Append('\n');
         sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, Path.GetFileName(o.OutPath!), o.Bytes,
             Path.GetFileName(Path.GetDirectoryName(o.OutPath!)!)));
 

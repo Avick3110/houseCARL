@@ -2932,12 +2932,17 @@ public static class WriteSurfaceGuardProbe
                 kept: keptBoth,
                 assets: new[] { @"meshes\actors\character\facegendata\facegeom\CopySrc.esp\00000800.nif" },
                 srcs: manySources)),
-            // A source read out of a mod folder MO2 has switched OFF. The note is about the arm the RECORD came
-            // from, so the disabled folder has to be the first arm to reach it.
+            // Sources the game is not loading: the arm the record came from, a SECOND switched-off arm it did not
+            // come from, and a folder MO2 has not registered — three lines, because every such arm says so and the
+            // unregistered one gets its own clause.
             CopyTools.Render(Make(false, null, Array.Empty<StripEntry>(), srcs: new[]
             {
                 new SourceArmRef("Disabled.esp", SourceArmKind.File,
-                    new SourceLayer(SourceLayerKind.ModFolder, "ASwitchedOffMod", OwnerEnabled: false)),
+                    new SourceLayer(SourceLayerKind.ModFolder, "ASwitchedOffMod", ModFolderStanding.SwitchedOff)),
+                new SourceArmRef("AlsoOff.esp", SourceArmKind.File,
+                    new SourceLayer(SourceLayerKind.ModFolder, "AnotherSwitchedOffMod", ModFolderStanding.SwitchedOff)),
+                new SourceArmRef("Fresh.esp", SourceArmKind.File,
+                    new SourceLayer(SourceLayerKind.ModFolder, "AnUnregisteredMod", ModFolderStanding.Unregistered)),
             })),
             // …and the two REFUSAL sentences that were method-form and outside the content net entirely.
             CopyTools.Render(ClosureCopyOutcome.Fail(
