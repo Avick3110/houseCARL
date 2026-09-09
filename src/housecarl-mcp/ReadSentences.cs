@@ -465,16 +465,16 @@ internal static class ReadSentences
     internal const string SweepFaceGenFindings =
         " {0} of the {1} finding(s) this sweep found were listed: the listing budget (limit={2}) ran out.";
 
-    /// <summary>The facegen family's honest scope boundary. It reports PROVENANCE — which mod wins each half and
-    /// which plugin wins the record — and never the render, so a clean result is not a promise that a face looks
-    /// right. The not-this line is here too: the classes this family cannot see are named rather than left to be
-    /// mistaken for a clean answer.</summary>
     /// <summary>Where the facegen causes-and-fixes table lives. A repo path, so it is cited by its URL: the plugin
     /// ships no copy of docs/, and every response carrying this must resolve for an installed user. The one fix
     /// sentence per class travels in the row itself, so the tool answers without following it.</summary>
     [NoClaims("an address, not a sentence; the claims about the facegen family are the boundary's own")]
     internal const string FaceGenDocUrl = "https://github.com/Avick3110/houseCARL/blob/main/docs/facegen.md";
 
+    /// <summary>The facegen family's honest scope boundary. It reports PROVENANCE — which mod wins each half and
+    /// which plugin wins the record — and never the render, so a clean result is not a promise that a face looks
+    /// right. The not-this line is here too: the classes this family cannot see are named rather than left to be
+    /// mistaken for a clean answer.</summary>
     [MustState("provenance", "never the render", "purple or white face", "player-only grey", "brown weight face")]
     internal const string SweepFaceGenBoundary =
         "reports provenance — which mod wins each half of the bake and which plugin wins the record — and never " +
