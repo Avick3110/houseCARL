@@ -2185,6 +2185,12 @@ static class JsonWire
     static int ScanErrorRowCost(RecordScriptFindings rec, int depth, bool subsequent)
         => MeasureUnit(depth, subsequent, w => WriteScanErrorRow(w, rec));
     // ---- shared sweep writers ----------------------------------------------------------------------
+    /// <summary>The same two-pass axis write, keyed off the axes' own subjects so a family that already holds
+    /// <see cref="HistogramAxis"/> values does not spell its json field names a second time.</summary>
+    internal static void WriteHistogramAxes(Utf8JsonWriter w, BoundedBody? body, int rowLimit, params HistogramAxis[] axes)
+        => WriteHistograms(w, body, rowLimit, new JsonUnitDepths(w.CurrentDepth),
+                           axes.Select(a => (AxisJsonName(a.Subject), a.Subject, a.Rows)).ToArray());
+
     /// <summary>Reserve every axis's OBJECT FRAME out of the body budget, then write the axes. The frame — the
     /// <c>distinct</c>/<c>rendered</c>/<c>cut_by</c> members around the rows — is this transport's whole disclosure
     /// that the axis exists and how much of it is here, so it is written unconditionally and its room comes out of
@@ -2194,12 +2200,6 @@ static class JsonWire
     /// already written by the time this axis's own rows are tested, so an axis over-reserves against itself by that
     /// much. Over-reserving costs characters; under-reserving is what this exists to stop, so the simpler
     /// arithmetic is deliberately taken in the safe direction.</para></summary>
-    /// <summary>The same two-pass axis write, keyed off the axes' own subjects so a family that already holds
-    /// <see cref="HistogramAxis"/> values does not spell its json field names a second time.</summary>
-    internal static void WriteHistogramAxes(Utf8JsonWriter w, BoundedBody? body, int rowLimit, params HistogramAxis[] axes)
-        => WriteHistograms(w, body, rowLimit, new JsonUnitDepths(w.CurrentDepth),
-                           axes.Select(a => (AxisJsonName(a.Subject), a.Subject, a.Rows)).ToArray());
-
     static void WriteHistograms(Utf8JsonWriter w, BoundedBody? body, int rowLimit, JsonUnitDepths depths,
                                 params (string Name, SweepSubject Subject, IReadOnlyList<SweepCount>? Rows)[] axes)
     {
