@@ -46,7 +46,9 @@ internal sealed class CheckAccounting
     // wherever the listing came out short, because the sweep tallies findings by source and target plugin and never
     // by type, and a per-type count here would be one this response does not have.
     readonly string? _typeScope;
-    // The facegen family's true finding total, which its listing budget can cut below. Zero on every other lane.
+    // The facegen findings ELIGIBLE for listing, which its listing budget can cut below — the benign class the
+    // family counts but withholds on purpose is not in it, or the budget sentence would fire on a complete listing.
+    // Zero on every other lane.
     readonly int _faceGenFound;
 
     /// <summary>Build the accounting for one response, declaring the subjects this lane has.
@@ -117,7 +119,7 @@ internal sealed class CheckAccounting
         _limit = r.Limit;
         _boundary = ReadSentences.SweepFaceGenBoundary;
         _bySource = Array.Empty<SweepCount>();
-        _faceGenFound = r.CountsOnly ? 0 : r.TotalFound;
+        _faceGenFound = r.CountsOnly ? 0 : r.ListableFound;
         if (!r.Success) return;   // see the errors ctor: a refused family declares nothing
 
         if (!r.CountsOnly) Declare(SweepSubject.FaceGenRows, r.Findings.Count);
