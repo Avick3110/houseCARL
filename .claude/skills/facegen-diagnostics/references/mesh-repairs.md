@@ -20,7 +20,7 @@ its geometry and never a `.dds`'s pixels.
 ## 1. What a read sees
 
 `housecarl_nif_inspect` resolves every mesh through the same VFS as `housecarl_asset_status` — the winner
-by default, `mod=` for a named provider, whether or not MO2 is loading it — so you can read the copy the
+by default, `source_provider=` for a named provider (the same pole `housecarl_place` takes), whether or not MO2 is loading it — so you can read the copy the
 game uses, or compare two mods' baked facegen without leaving the data layer.
 
 The default summary is the header version, whether the stream is Skyrim SE, the block census, any unknown
