@@ -13,11 +13,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
-- **A refusal for an unknown field now lists every field the record type has.** The `housecarl_create`
-  pre-flight used to name twelve fields and then `(+N more)`, with nothing on the surface showing the rest
-  — for a record type with no instance in the load order that refusal is the only place the schema is
-  visible. It now lists all of them up to forty names, and past that names the `mutagen-reference` skill
-  as where the remainder is.
+- **A refusal for an unknown field now names every field the record type has.** `housecarl_apply` and
+  `housecarl_create` run the same pre-flight, and it used to name twelve fields and then `(+N more)` with no
+  route from the call to the rest — a write call is the only place the surface shows a type's schema without
+  an instance of that type in the load order, so the cut ended there. It now names them all, and where the
+  list is too long to be a sentence it cuts and says in the same sentence that the `mutagen-reference` skill
+  carries the remainder. Where the cut falls, and what it is set against, is on `FieldListCap` in
+  `src/housecarl-core/CorpusRulebook.cs`.
 - **`housecarl_create` refuses a dialogue branch with no `Flags` instead of filling one.** A `DialogBranch`
   created with no `Flags` is now refused in one sentence naming both values and what each does — `TopLevel`
   for a menu entry the player can pick, `0` for a scripted `Say()` topic that must stay hidden — and nothing
