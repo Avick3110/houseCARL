@@ -2,7 +2,7 @@ namespace HousecarlCore;
 
 /// <summary>
 /// Nearest-plugin-name suggestion for a MISSED plugin lookup — the "did you mean …?" the tool surface appends when a
-/// plugins= / lookup= / FormID-plugin value matches no plugin in the load order. The common slips are a dropped
+/// plugins= / filter= / FormID-plugin value matches no plugin in the load order. The common slips are a dropped
 /// apostrophe ("Sanguines Trade…" for "Sanguine's Trade…") and the MOD FOLDER name passed where the .esp FILENAME was
 /// wanted ("Sanguine's Trade - An Economy Mod" for "…Mod.esp").
 ///

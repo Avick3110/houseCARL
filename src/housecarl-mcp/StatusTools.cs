@@ -18,9 +18,9 @@ public static class StatusTools
          "The enabled/disabled picture is read FRESH each call, so a mod/plugin you just toggled in MO2 shows " +
          "immediately; the resolved count reflects the resolver's last build, which houseCARL refreshes AUTOMATICALLY on " +
          "each call when the profile changed — no restart needed (a 'refresh still pending' note appears only in the rare " +
-         "case MO2 was mid-write). Pass lookup= a mod folder name (e.g. 'Requiem " +
+         "case MO2 was mid-write). Pass filter= a mod folder name (e.g. 'Requiem " +
          "Lite 2') or a plugin filename (e.g. 'Requiem.esp') to ask whether houseCARL sees that one as enabled/disabled " +
-         "(mod) or active/inactive/implicit (plugin) — a plugin lookup also reports its LOCALIZED header flag, which is " +
+         "(mod) or active/inactive/implicit (plugin) — a plugin filter also reports its LOCALIZED header flag, which is " +
          "what an in-place write to it would be refused over. Also reports the resolved Papyrus script-log and SKSE crash-log " +
          "FOLDERS — where to Read logs for triage/diagnosis (auto-detected, or as set via " + ToolNames.SetToolPath + "). " +
          "Also reports the RUNNING SERVER's build version (the binary's informational version — the release version, " +
@@ -31,11 +31,11 @@ public static class StatusTools
         LoadOrderService svc,
         ToolPathResolver tools,
         [Description("Optional. A mod folder name or plugin filename to look up. Omit for the whole-profile summary.")]
-            string? lookup = null,
+            string? filter = null,
         [Description("Optional. A profile NAME to INSPECT without switching to it (e.g. 'Default', 'Modded') — reports that " +
             "profile's enabled/disabled mods + active/inactive plugins even if it is not the active one, so you can compare " +
             "load orders across profiles. Omit to describe the ACTIVE profile (which also lists the available profile names). " +
-            "MO2-instance mode only (explicit-paths mode has no profiles folder); if both lookup= and profile= are given, " +
+            "MO2-instance mode only (explicit-paths mode has no profiles folder); if both filter= and profile= are given, " +
             "both render.")]
             string? profile = null,
         [Description("Optional. Max characters before name lists are cut with an explicit notice. 0 = the server default (~80k).")]
@@ -47,14 +47,14 @@ public static class StatusTools
         var data = svc.StatusData();
         var logs = StatusWire.LogFolders(tools);                 // resolved Papyrus/crash log dirs (pure — no persist)
         var profiles = svc.NamedProfileComposition(profile);     // available-profile discovery + inactive-profile inspection: text parse only, no index build, no switch
-        // Read only for a lookup: the flag is a per-plugin header read, and the whole-profile summary asks about none.
-        var localized = lookup is { Length: > 0 } ? svc.PluginLocalizedFlag(lookup.Trim()) : null;
-        return StatusWire.Render(data, logs, profiles, lookup, localized, max_chars > 0 ? max_chars : 80_000);
+        // Read only for a filter: the flag is a per-plugin header read, and the whole-profile summary asks about none.
+        var localized = filter is { Length: > 0 } ? svc.PluginLocalizedFlag(filter.Trim()) : null;
+        return StatusWire.Render(data, logs, profiles, filter, localized, max_chars > 0 ? max_chars : 80_000);
     });
 }
 
 /// <summary>Renders <see cref="LoadOrderStatusData"/>: a header line per category, then the name lists (disabled mods,
-/// inactive plugins, implicit masters), each bounded by max_chars with an explicit cut notice. lookup= switches to a
+/// inactive plugins, implicit masters), each bounded by max_chars with an explicit cut notice. filter= switches to a
 /// single mod/plugin verdict.</summary>
 static class StatusWire
 {
@@ -63,7 +63,7 @@ static class StatusWire
     public static string ServerLine => "server:   " + ServerBuild.Line + "\n";
 
     public static string Render(LoadOrderStatusData d, IReadOnlyList<LogFolderView> logs, NamedProfileResult profiles,
-                                string? lookup, HousecarlCore.LocalizedFlagRead? localized, int cap)
+                                string? filter, HousecarlCore.LocalizedFlagRead? localized, int cap)
     {
         var c = d.Composition;
         int checkedActive = c.ActivePluginNames.Count;
@@ -93,13 +93,13 @@ static class StatusWire
             sb.Append("[!] the profile changed mid-call and a refresh is still pending — houseCARL re-reads it " +
                       "automatically on the next tool call (lazy refresh; no restart needed).\n");
 
-        // profile= renders before the lookup branch, which returns early: the two compose, since lookup verdicts the
+        // profile= renders before the filter branch, which returns early: the two compose, since filter verdicts the
         // active profile while this inspects another, possibly inactive, one without switching to it.
         if (profiles.RequestedName is not null) AppendNamedProfile(sb, profiles, cap);
 
-        if (lookup is { Length: > 0 })
+        if (filter is { Length: > 0 })
         {
-            AppendLookup(sb, c, d.ExcludedPlugins, lookup.Trim(), localized);
+            AppendLookup(sb, c, d.ExcludedPlugins, filter.Trim(), localized);
             return sb.ToString().TrimEnd('\n');
         }
 
@@ -248,7 +248,7 @@ static class StatusWire
                              IReadOnlyDictionary<string, string> excluded, string name,
                              HousecarlCore.LocalizedFlagRead? localized = null)
     {
-        sb.Append("\nlookup '").Append(name).Append("':\n");
+        sb.Append("\nfilter '").Append(name).Append("':\n");
 
         // modMiss and pluginMiss must stay in sync with the not-found arm of their ternary below — each is the negation
         // of every hit case. They gate the "did you mean", so a desync would surface a suggestion on a non-miss.
