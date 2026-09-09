@@ -156,22 +156,22 @@ public sealed class ToolCallShimWirePathTests
         Assert.DoesNotContain("in_place (expects", r.Text, StringComparison.Ordinal);
     }
 
-    /// <summary>1.x's <c>plugin_name=</c> is not mapped onto <c>compact_plugin</c>'s own <c>plugin=</c>: the one
+    /// <summary>1.x's <c>plugin_name=</c> is not mapped onto <c>compact_plugin</c>'s own <c>source=</c>: the one
     /// refusal names BOTH the required parameter it did not supply and the spelling it did — an old name standing
     /// in for a required parameter is exactly the caller who needs the accepted list, and the missing-parameter
     /// pass returning first must not swallow it.</summary>
     [Fact]
-    public void TheOnePointXPluginNameSpellingIsRefusedByName_NotMappedOntoCompactPluginsOwnPlugin()
+    public void TheOnePointXPluginNameSpellingIsRefusedByName_NotMappedOntoCompactPluginsOwnSource()
     {
         var r = _s.Call(ToolNames.CompactPlugin, """{"plugin_name":"Skyrim.esm"}""");
 
         Assert.True(r.IsError, r.Describe());
         Assert.False(r.BodyRan, r.Describe());
-        Assert.Contains($"error: {ToolNames.CompactPlugin}: required parameter missing: plugin. " +
+        Assert.Contains($"error: {ToolNames.CompactPlugin}: required parameter missing: source. " +
                         $"Supplied: plugin_name. plugin_name is not a parameter of {ToolNames.CompactPlugin} " +
                         "(it accepts only: ", r.Text, StringComparison.Ordinal);
         // The accepted list is the tool's own, not a fixed string: it must carry the parameter the caller meant.
-        Assert.Contains("plugin,", r.Text, StringComparison.Ordinal);
+        Assert.Contains("source,", r.Text, StringComparison.Ordinal);
     }
 
     // ---- a boolean, quoted or bare, never selects the in-place lane ---------------------------------------
