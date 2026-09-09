@@ -11,10 +11,13 @@ namespace HousecarlMcp;
 /// "An error occurred invoking '&lt;tool&gt;'." — an opaque dead end a caller cannot self-correct from.
 ///
 /// Every pass is driven off the tool's own published InputSchema, so all current and future parameters are
-/// covered without per-tool wiring. In order: rename an alias to the declared parameter it names; correct the
-/// retired in-place lane spellings; coerce an unambiguous shape (a bare string for an array, a quoted
-/// number/bool); refuse a missing required parameter, an undeclared one, or a kind that cannot bind — each by
-/// name. Anything that still throws is caught here rather than above, where the SDK would genericize it.
+/// covered without per-tool wiring. In order: rename an underscore/case variant onto the declared parameter it
+/// names; coerce an unambiguous shape (a bare string for an array, a quoted number/bool); refuse a missing
+/// required parameter, an undeclared one, or a kind that cannot bind — each by name. Anything that still
+/// throws is caught here rather than above, where the SDK would genericize it.
+///
+/// No pass maps a 1.x parameter name onto a 2.0 one: that table was deleted at 2.0.0 (SPEC §5.4 amendment
+/// 2026-09-06), so an old spelling is refused by name like any other unknown parameter.
 /// </summary>
 internal static class ToolCallShim
 {
@@ -37,7 +40,6 @@ internal static class ToolCallShim
                 var schema = tool.ProtocolTool.InputSchema;
                 ResolveAliases(p, schema);
                 CoerceObviousShapes(p, schema);
-                if (LaneCorrections(p, schema) is { } laneRefusal) return laneRefusal;
                 if (MissingRequired(p, schema) is { } refusal) return refusal;
                 if (UnknownParameters(p, schema) is { } unknownRefusal) return unknownRefusal;
                 if (TypeMismatches(p, schema) is { } typeRefusal) return typeRefusal;
@@ -60,11 +62,12 @@ internal static class ToolCallShim
         }
     };
 
-    /// <summary>Rename an argument keyed by an alternate spelling of a declared parameter to the canonical one, so
-    /// a first-guess miss binds instead of costing a round-trip. Two sources in order: the underscore/case
-    /// <see cref="Normalize"/> bridge (exactly one match, else left alone), then <see cref="AliasTable"/>, whose
-    /// first declared candidate decides. Only a key the schema does NOT declare is ever considered and an
-    /// explicitly supplied canonical is never clobbered, so a well-formed call is byte-identical. Must run before
+    /// <summary>Rename an argument keyed by an underscore/case variant of a declared parameter to the canonical
+    /// spelling, so a first-guess miss binds instead of costing a round-trip. The only source is the
+    /// <see cref="Normalize"/> bridge — exactly one declared match, else left alone — which names a parameter this
+    /// tool has rather than translating a retired name into a current one. Only a key the schema does NOT declare
+    /// is ever considered and an explicitly supplied canonical is never clobbered, so a well-formed call is
+    /// byte-identical, and an unrecognized spelling is left for <see cref="UnknownParameters"/>. Must run before
     /// <see cref="CoerceObviousShapes"/> so the renamed value is still shape-coerced.</summary>
     internal static void ResolveAliases(CallToolRequestParams p, JsonElement schema)
     {
@@ -84,42 +87,15 @@ internal static class ToolCallShim
             bool Supplied(string declaredName) => args.ContainsKey(declaredName)              // caller already supplied the canonical — don't clobber
                 || (rewritten is not null && rewritten.ContainsKey(declaredName));            // an earlier rename already produced it
 
-            // A table rename must never fire into a guaranteed kind mismatch: it would report a type error
-            // about a key the caller never sent. An incompatible stray stays put under the caller's own
-            // spelling. The bridge is deliberately NOT gated this way — it names the right parameter, so the
-            // rename proceeds even for an unbindable value and TypeMismatches names the real fault.
-            bool CanBind(JsonElement value, JsonElement propSchema)
-            {
-                var types = DeclaredTypes(propSchema);
-                return types.Count == 0                                // untyped/polymorphic — let binding judge
-                    || KindSatisfies(value.ValueKind, types)
-                    || Coerce(value, propSchema) is not null;          // an obvious-intent shape CoerceObviousShapes will fix
-            }
-
-            // Source 1 — the normalization bridge: an underscore/case variant of exactly one declared parameter.
+            // The normalization bridge: an underscore/case variant of exactly one declared parameter. It is
+            // deliberately not kind-gated — it names the right parameter, so the rename proceeds even for an
+            // unbindable value and TypeMismatches names the real fault.
             var nkey = Normalize(key);
             string? target = null; bool ambiguous = false;
             foreach (var prop in props.EnumerateObject())
             {
                 if (Normalize(prop.Name) != nkey || Supplied(prop.Name)) continue;
                 if (target is null) target = prop.Name; else { ambiguous = true; break; }
-            }
-
-            // Source 2 — the table: first declared candidate decides; declared-but-supplied stops the entry.
-            if (target is null && !ambiguous && AliasTable.RenameFor(nkey) is { } entry)
-            {
-                foreach (var candidate in entry.Candidates)
-                {
-                    if (AliasTable.IsExcluded(entry, candidate, p.Name)) continue;
-                    string? declared = null; JsonElement declaredSchema = default;
-                    foreach (var prop in props.EnumerateObject())
-                        if (Normalize(prop.Name) == candidate) { declared = prop.Name; declaredSchema = prop.Value; break; }
-                    if (declared is null) continue;                    // candidate not on this tool — try the next
-                    if (!CanBind(kv.Value, declaredSchema)) continue;  // wrong kind for this candidate — judged BEFORE the supplied-stop, so a candidate that couldn't take the value never stops the entry
-                    if (Supplied(declared)) break;                     // primary (kind-compatible) meaning already in use — stop the entry
-                    target = declared;
-                    break;
-                }
             }
             if (ambiguous || target is null) continue;                // nothing unambiguous — leave for UnknownParameters
 
@@ -213,76 +189,6 @@ internal static class ToolCallShim
         return set;
     }
 
-    /// <summary>Correct the old in-place lane spelling on a tool whose <c>in_place</c> is the string naming the
-    /// file being overwritten. The complete old pair (<c>in_place=true</c> plus an undeclared string
-    /// <c>target</c>) is auto-mapped; a bare <c>in_place=true</c>, or a stray <c>target</c> with no
-    /// <c>in_place</c>, is refused with a naming correction — never silently renamed, since that would engage the
-    /// opt-in overwrite lane from a call that never spelled it. A bare <c>in_place=false</c> is the default lane
-    /// and drops; <c>false</c> with a <c>target</c> is contradictory and refused. Quoted <c>"true"</c>/
-    /// <c>"false"</c> count as the bools, never as a filename. Dormant where <c>in_place</c> is still a bool.
-    /// Must run before the refusal passes so the correction outranks their generic wording.</summary>
-    internal static CallToolResult? LaneCorrections(CallToolRequestParams p, JsonElement schema)
-    {
-        if (p.Arguments is not { Count: > 0 } args) return null;
-        if (schema.ValueKind != JsonValueKind.Object ||
-            !schema.TryGetProperty("properties", out var props) || props.ValueKind != JsonValueKind.Object) return null;
-
-        // The pass concerns exactly one declared parameter: a string-typed in_place.
-        if (!props.TryGetProperty("in_place", out var inPlaceSchema)) return null;
-        var declared = DeclaredTypes(inPlaceSchema);
-        if (!declared.Contains("string") || declared.Contains("boolean")) return null;   // bool (or polymorphic) → dormant
-
-        // Only a stray (undeclared) target= counts; a tool that declares its own target keeps it.
-        bool hasStrayTargetKey = args.ContainsKey("target") && !props.TryGetProperty("target", out _);
-
-        if (!args.TryGetValue("in_place", out var val))
-        {
-            // No in_place at all: a stray target= is half the old pair — refuse with the naming correction
-            // rather than let it near the lane.
-            if (!hasStrayTargetKey) return null;
-            return NamedError(
-                $"error: {p.Name}: target= was 1.x's in-place spelling and does not select the lane by itself — " +
-                "the in-place overwrite lane is spelled in_place=\"X.esp\" (naming the file you intend to " +
-                "overwrite). Omit it entirely for the default new-patch lane. Fix the arguments and retry.");
-        }
-        bool? boolish = val.ValueKind switch
-        {
-            JsonValueKind.True => true,
-            JsonValueKind.False => false,
-            JsonValueKind.String when bool.TryParse(val.GetString(), out var b) => b,
-            _ => null,
-        };
-        if (boolish is null) return null;                                                // a real file name (or another mistake) — not this pass's
-
-        // A string target= names the file; anything else stays null and takes the correction path.
-        string? targetFile = null;
-        if (hasStrayTargetKey && args.TryGetValue("target", out var tv) && tv.ValueKind == JsonValueKind.String)
-            targetFile = tv.GetString();
-
-        if (boolish == true && targetFile is { Length: > 0 })
-        {
-            var rewritten = new Dictionary<string, JsonElement>(args);
-            rewritten["in_place"] = Parse(JsonSerializer.Serialize(targetFile));         // the complete old pair → the current spelling
-            rewritten.Remove("target");
-            p.Arguments = rewritten;
-            return null;
-        }
-        if (boolish == false && !hasStrayTargetKey)
-        {
-            var rewritten = new Dictionary<string, JsonElement>(args);                   // the old default-lane spelling → absent, which is the default
-            rewritten.Remove("in_place");
-            p.Arguments = rewritten;
-            return null;
-        }
-        return NamedError(boolish == true
-            ? $"error: {p.Name}: in_place names the FILE being overwritten — name the file: in_place=\"X.esp\". " +
-              "(1.x's in_place=true + target=\"X.esp\" became in_place=\"X.esp\"; omit in_place entirely for the " +
-              "default new-patch lane.) Fix the argument and retry."
-            : $"error: {p.Name}: in_place=false alongside target= is contradictory — 1.x's in_place=false meant " +
-              "the default new-patch lane, which ignores target. Either omit both (default lane) or name the file " +
-              "to overwrite: in_place=\"X.esp\". Fix the arguments and retry.");
-    }
-
     /// <summary>Schema-required parameters absent from the call get a named refusal; null to proceed. An explicit
     /// JSON <c>null</c> counts as missing unless the schema declares null legal, because the SDK binds it and the
     /// tool body then NullReferences into a misleading internal-failure message.</summary>
@@ -324,18 +230,12 @@ internal static class ToolCallShim
         if (schema.TryGetProperty("additionalProperties", out var ap) && ap.ValueKind != JsonValueKind.False) return null;
         if (!schema.TryGetProperty("properties", out var props) || props.ValueKind != JsonValueKind.Object) return null;
 
-        // The declared names, normalized: the gate that scopes each migration hint to tools that actually
-        // carry the replacement grammar (see AliasTable.Dissolutions).
-        var declaredNormalized = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var prop in props.EnumerateObject()) declaredNormalized.Add(Normalize(prop.Name));
-
         List<string>? unknown = null;
         foreach (var kv in args)
         {
             if (kv.Key.Length > 0 && kv.Key[0] == '_') continue;   // MCP/JSON-RPC metadata convention — never a real tool param
             if (props.TryGetProperty(kv.Key, out _)) continue;
-            var hint = AliasTable.DissolutionHint(Normalize(kv.Key), declaredNormalized);
-            (unknown ??= new()).Add(hint is null ? kv.Key : $"{kv.Key} ({hint})");
+            (unknown ??= new()).Add(kv.Key);
         }
         if (unknown is null) return null;
 

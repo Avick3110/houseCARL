@@ -8,7 +8,7 @@ namespace HousecarlMcp;
 /// <c>housecarl_check</c> — the merged derived-findings sweep: the error, script-binding and dialogue findings in
 /// one call, with <c>findings=</c> selecting the taxonomy.
 ///
-/// <para>The single-family tools stay registered alongside it; the alias rows for their names are in
+/// <para>The single-family tools stay registered alongside it; the retired-name rows for their names are in
 /// <see cref="AliasTable"/> and stay dormant while those names still resolve. No response carries deprecation
 /// prose.</para>
 ///
