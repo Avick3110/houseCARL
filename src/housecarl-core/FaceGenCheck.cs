@@ -236,7 +236,11 @@ public static class FaceGenCheck
                        && recordScope is null && dropped.Count == 0;
         if (wholeOrder)
         {
-            var seenLocals = new Dictionary<string, HashSet<uint>>(StringComparer.OrdinalIgnoreCase);
+            // One canonical set per TREE, not one across both: the mesh and the tint are separate files under the
+            // same master folder name, so a 00-prefixed .dds must not vouch for a foreign-index .nif beside it.
+            var seenGeom = new Dictionary<string, HashSet<uint>>(StringComparer.OrdinalIgnoreCase);
+            var seenTint = new Dictionary<string, HashSet<uint>>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, HashSet<uint>> SeenIn(bool mesh) => mesh ? seenGeom : seenTint;
             var files = new List<(string Folder, string Name, bool Mesh)>();
             foreach (var (root, mesh) in new[] { (GeomRoot, true), (TintRoot, false) })
                 foreach (var rel in assets.EnumerateUnder(root))
@@ -250,14 +254,15 @@ public static class FaceGenCheck
 
             // Pass 1: which 6-hex local ids each folder has a CANONICAL (00-prefixed) file for. A non-canonical
             // file is a foreign index only against one of these, so both passes are needed.
-            foreach (var (folder, name, _) in files)
+            foreach (var (folder, name, mesh) in files)
                 if (ParseKeyFile(name) is { } p && p.Index == 0)
                 {
-                    if (!seenLocals.TryGetValue(folder, out var set)) seenLocals[folder] = set = new HashSet<uint>();
+                    var seen = SeenIn(mesh);
+                    if (!seen.TryGetValue(folder, out var set)) seen[folder] = set = new HashSet<uint>();
                     set.Add(p.Local);
                 }
 
-            foreach (var (folder, name, _) in files)
+            foreach (var (folder, name, mesh) in files)
             {
                 var parsed = ParseKeyFile(name);
                 if (parsed is null)
@@ -279,9 +284,10 @@ public static class FaceGenCheck
                     // A same-local-id file carrying somebody else's load-order index byte. INFERRED from the file
                     // itself, not from the CK: the canonical path is the 00-prefixed one, and this file sits beside
                     // it (or in place of it) under a name the engine does not look up.
-                    if (!seenLocals.TryGetValue(folder, out var set) || !set.Contains(local))
+                    if (!SeenIn(mesh).TryGetValue(folder, out var set) || !set.Contains(local))
                         Emit(FaceGenFindingClass.ForeignIndex, fk, folder, null, null, null,
-                             $"{folder}\\{name} — index byte {index:X2}, not the canonical 00; no 00{local:X6} file exists here");
+                             $"{folder}\\{name} — index byte {index:X2}, not the canonical 00; no 00{local:X6}"
+                             + $"{Path.GetExtension(name)} exists beside it");
                     continue;
                 }
                 if (judged.Contains(fk)) continue;                         // answered by the record half above
@@ -615,11 +621,18 @@ public sealed record FaceGenCheckResult(
 {
     public bool Success => Error is null;
 
+    /// <summary>Whether this sweep LISTS its benign 'family_split' rows, rather than counting them and withholding
+    /// them. True only where the caller named the class: the default sweep asks for every class and gets the rows
+    /// held back. One spelling, read by every sentence and field that turns on it, so the transports cannot
+    /// disagree about it — the condition <see cref="FaceGenCheck.Run"/> withholds by.</summary>
+    public bool FamilySplitListed
+        => Classes != FaceGenFindingClass.All && Classes.HasFlag(FaceGenFindingClass.FamilySplit);
+
     /// <summary>How many findings were ELIGIBLE for the listing — the found total minus the benign class this sweep
     /// counted but did not list. The budget sentence compares against this, so a withheld benign row cannot make a
     /// complete listing claim the listing budget ran out.</summary>
     public int ListableFound
-        => Classes != FaceGenFindingClass.All && Classes.HasFlag(FaceGenFindingClass.FamilySplit)
+        => FamilySplitListed
            ? TotalFound                                              // the caller named the benign class: it is listed
            : TotalFound - CountOf(FaceGenFindingClass.FamilySplit);
 

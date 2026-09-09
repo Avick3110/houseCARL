@@ -38,7 +38,9 @@ internal static class FaceGenSweepRender
                     + "only on an UNSCOPED sweep. Under plugins=, exclude= or a record scope (formids= / "
                     + "editorid_contains=) a file for an NPC outside the scope is out of scope, not inert.\n");
         int benign = r.CountOf(FaceGenFindingClass.FamilySplit);
-        if (benign > 0 && !r.Classes.HasFlag(FaceGenFindingClass.FamilySplit))
+        // The same condition the sweep withholds by, not a second reading of it: gated on HasFlag alone this note
+        // never fired on the default sweep, which is the one call that needs the pointer.
+        if (benign > 0 && !r.FamilySplitListed)
             sb.Append("note: ").Append(benign).Append(" benign 'family_split' row(s) counted above are NOT listed — ")
               .Append("ask for them with findings=[\"family_split\"].\n");
         else if (benign > 0)
@@ -110,8 +112,7 @@ internal static class FaceGenSweepRender
         w.WriteNumber("findings_found", r.TotalFound);
         w.WriteNumber("clean_pairs_without_comparison_pole", r.NoComparisonPole);
         w.WriteBoolean("whole_order", r.WholeOrder);
-        w.WriteBoolean("family_split_listed", r.Classes.HasFlag(FaceGenFindingClass.FamilySplit)
-                                              && r.Classes != FaceGenFindingClass.All);
+        w.WriteBoolean("family_split_listed", r.FamilySplitListed);
         if (r.Epoch is not null) w.WriteString("epoch", r.Epoch);
         if (r.FilterNote is not null) w.WriteString("narrowed", r.FilterNote);
         if (r.ScanError is not null) w.WriteString("scan_error", r.ScanError);
