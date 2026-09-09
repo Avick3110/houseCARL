@@ -68,11 +68,12 @@ public static class FaceGenCheck
                                          SweepExclusion.Resolved? exclude = null)
     {
         var findings = new List<FaceGenFinding>();
+        var withheld = new List<FaceGenFinding>();
         var byClass = new Dictionary<string, int>(StringComparer.Ordinal);
         var byMod = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         int totalFound = 0, npcsScanned = 0, templated = 0, noPole = 0, noFaceGenRace = 0, raceUnresolved = 0;
+        int excludedFromScope = 0;
         var raceMemo = new Dictionary<FormKey, bool?>();
-        var archiveLayers = assets.ArchiveOwningMods;   // archive filename -> the MO2 layer its file lives in, read once
         bool listFamilySplit = classes != FaceGenFindingClass.All && classes.HasFlag(FaceGenFindingClass.FamilySplit);
 
         // The scope's plugin targets. An off-order file is swept as its own overlay, exactly as the errors family
@@ -88,15 +89,41 @@ public static class FaceGenCheck
                 if (!targets.Contains(name, StringComparer.OrdinalIgnoreCase)) targets.Add(name);
             }
         }
+        // The exclusion axis, applied to the SWEEP on EVERY lane — a plugins= scope and the whole order alike. An
+        // excluded plugin contributes no NPCs either way, and a name the caller TYPED that is in no lane's scope is
+        // a typo and refuses, exactly as the errors family refuses it.
+        var dropped = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (exclude is { } ex)
         {
-            var drop = new HashSet<string>(ex.Names, StringComparer.OrdinalIgnoreCase);
-            targets.RemoveAll(drop.Contains);
-            if (offOrder is { Count: > 0 }) offOrder = offOrder.Where(o => !drop.Contains(o.Name)).ToList();
-            if (scope is { Count: > 0 } && targets.Count == 0 && (offOrder is null || offOrder.Count == 0))
+            var inScope = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (scope is { Count: > 0 })
+            {
+                foreach (var t in targets) inScope.Add(t);
+                if (offOrder is { Count: > 0 }) foreach (var o in offOrder) inScope.Add(o.Name);
+            }
+            else
+                foreach (var n in resolver.PluginNames)
+                    if (!view.ExcludedPlugins.ContainsKey(n)) inScope.Add(n);
+
+            // Only the names the CALLER TYPED are held against the scope; a group member that is not here is the
+            // ordinary case.
+            foreach (var name in ex.TypedNames)
+                if (!inScope.Contains(name))
+                    return FaceGenCheckResult.Fail(
+                        $"exclude= names '{name}', which is not in the scope this facegen sweep would cover.{view.AbsenceClause(name)} "
+                        + "Nothing was swept — an exclusion that matches nothing would return the findings you asked to leave out.")
+                           with { Epoch = view.Epoch };
+
+            foreach (var n in ex.Names) dropped.Add(n);
+            int scopeBefore = inScope.Count;
+            targets.RemoveAll(dropped.Contains);
+            if (offOrder is { Count: > 0 }) offOrder = offOrder.Where(o => !dropped.Contains(o.Name)).ToList();
+            inScope.RemoveWhere(dropped.Contains);
+            excludedFromScope = scopeBefore - inScope.Count;
+            if (inScope.Count == 0)
                 return FaceGenCheckResult.Fail(
-                    "exclude= removed every plugin this facegen sweep would have covered — there is nothing left to "
-                    + "check. Narrow exclude=, or widen plugins=.") with { Epoch = view.Epoch };
+                    $"exclude= removed every plugin this facegen sweep would have covered ({scopeBefore} in scope, all excluded) — "
+                    + "there is nothing left to check. Narrow exclude=, or widen plugins=.") with { Epoch = view.Epoch };
         }
 
         // The NPCs this sweep judges, and the record body it judges each from. Keyed so the file half below can ask
@@ -124,6 +151,16 @@ public static class FaceGenCheck
                 case null: raceUnresolved++; return;
             }
             Classify(fk, body, winnerPlugin, offOrderFile);
+        }
+
+        // Is this NPC excluded from the whole-order lane? exclude= narrows the SELECTION, not the judgement — the
+        // same thing it does to a plugins= scope — so an NPC is out only when EVERY plugin touching it is excluded.
+        // The winner is tested first, which is free: an NPC whose winner is kept is in scope whatever else touches it.
+        bool ExcludedOut(FormKey fk, string winner)
+        {
+            if (dropped.Count == 0 || !dropped.Contains(winner)) return false;
+            var touching = view.TouchingPlugins(fk);
+            return touching is null || touching.All(dropped.Contains);
         }
 
         // Does this race bake a head? Memoized per race, so a 66,000-NPC order pays one record read per race.
@@ -157,7 +194,11 @@ public static class FaceGenCheck
             else if (scope is not { Count: > 0 })
             {
                 foreach (var (fk, _, body) in view.WinnerRecordsOfType(NpcTypes))
-                    Judge(fk, body, view.ResolveWinner(fk)?.WinnerPlugin ?? fk.ModKey.FileName.String, offOrderFile: false);
+                {
+                    var winner = view.ResolveWinner(fk)?.WinnerPlugin ?? fk.ModKey.FileName.String;
+                    if (ExcludedOut(fk, winner)) continue;
+                    Judge(fk, body, winner, offOrderFile: false);
+                }
             }
 
             if (offOrder is { Count: > 0 })
@@ -187,9 +228,12 @@ public static class FaceGenCheck
         // Every facegen file on disk whose key belongs to no NPC this sweep judged. Enumerated ONCE over the two
         // trees; a file under an in-scope NPC's key was already answered above and is skipped here.
         int filesSeen = 0;
-        // Only meaningful over the WHOLE order: under a plugin scope a file for an NPC outside the scope is not
-        // inert, it is simply out of scope, and reporting it would be a claim about records this call never read.
-        bool wholeOrder = scope is not { Count: > 0 } && (offOrder is null || offOrder.Count == 0);
+        // Only meaningful over the WHOLE order: under ANY narrowing — plugins=, exclude=, or a record scope like
+        // formids= / editorid_contains= — a file for an NPC outside the narrowing is not inert, it is simply out of
+        // scope, and reporting it would be a claim about records this call never read. It would also cost one flat
+        // enumeration of the winning plugin per unjudged file, which on a whole order is every facegen file on disk.
+        bool wholeOrder = scope is not { Count: > 0 } && (offOrder is null || offOrder.Count == 0)
+                       && recordScope is null && dropped.Count == 0;
         if (wholeOrder)
         {
             var seenLocals = new Dictionary<string, HashSet<uint>>(StringComparer.OrdinalIgnoreCase);
@@ -248,8 +292,13 @@ public static class FaceGenCheck
                     continue;
                 }
                 // Resolves to something that is not an NPC at all — the PlacedNpc case both gate arms got wrong.
+                // A null body is the plugin having changed on disk since the index was built: reported as its own
+                // row rather than thrown, so one moved plugin cannot kill a whole-order sweep.
                 var body = view.GetRecord(session, w.WinnerPlugin, fk);
-                if (body is not INpcGetter)
+                if (body is null)
+                    Emit(FaceGenFindingClass.Inert, fk, folder, w.WinnerPlugin, null, null,
+                         $@"{folder}\{name} — {w.WinnerPlugin} no longer holds this FormID; it changed on disk after this order was indexed. Re-run the check.");
+                else if (body is not INpcGetter)
                     Emit(FaceGenFindingClass.Inert, fk, folder, w.WinnerPlugin, null, null,
                          $@"{folder}\{name} — this FormID is a {TypeNameOf(body)}, not an NPC, so no actor reads this bake");
             }
@@ -258,16 +307,18 @@ public static class FaceGenCheck
         var histClass = SweepFindings.Histogram(byClass);
         var histMod = SweepFindings.Histogram(byMod);
         var filterNote = SweepFindings.FilterNote(
-            recordScope is null && !wholeOrder ? SweepFindings.ScopedCountsClaim
-          : recordScope is null ? null : SweepFindings.ScopedCountsClaim,
+            wholeOrder ? null : SweepFindings.ScopedCountsClaim,
             recordScope?.Label,
             scope is { Count: > 0 } ? $"plugins=[{string.Join(", ", targets.Concat(offOrderScanned))}]" : null,
-            Describe(classes));
+            Describe(classes),
+            // Stated whenever the caller PASSED an exclusion, zero included: an exclude= that leaves no trace in the
+            // response reads as one that was ignored.
+            exclude is not null ? $"exclude= left out {excludedFromScope} plugin(s)" : null);
 
         return new FaceGenCheckResult(findings, npcsScanned, templated, filesSeen, totalFound, noPole,
                                       histClass, histMod, countsOnly, view.ExcludedPlugins, null,
                                       offOrderScanned, filterNote, classes, view.Epoch, limit, scanError,
-                                      assets.ReadIncomplete, wholeOrder, noFaceGenRace, raceUnresolved);
+                                      assets.ReadIncomplete, wholeOrder, noFaceGenRace, raceUnresolved, withheld);
 
         // ---- the per-NPC join ---------------------------------------------------------------------
         void Classify(FormKey fk, IMajorRecordGetter body, string winnerPlugin, bool offOrderFile)
@@ -309,16 +360,13 @@ public static class FaceGenCheck
         }
 
         // One half of the pair: the winning provider plus the MO2 LAYER it physically lives in. A loose provider IS
-        // its layer; a BSA's layer is looked up in the build's archive map, which is read once for the whole sweep —
-        // ResolveForPlacement carries the same field but builds a concrete descriptor per provider per path, which
-        // a whole-order sweep pays 20,000 times over for one string.
+        // its layer; a BSA carries its layer down from the source the resolver actually picked, so a layer this
+        // sweep classifies on can never belong to a different archive that happens to share the filename.
         FaceGenHalf? Half(string relPath)
         {
             var hit = assets.Resolve(relPath);
             if (hit is not { Exists: true, Winner: { } w }) return null;
-            return new FaceGenHalf(w.Source, w.Kind,
-                                   w.Kind == AssetKind.Bsa && archiveLayers.TryGetValue(w.Source, out var mod)
-                                       ? mod : w.Source);
+            return new FaceGenHalf(w.Source, w.Kind, w.OwningMod is { Length: > 0 } mod ? mod : w.Source);
         }
 
         // Two layers of ONE product, as far as their NAMES can say. This is a heuristic and the response says so:
@@ -408,8 +456,13 @@ public static class FaceGenCheck
             if (f.OwningMod is { Length: > 0 } m) byMod[m] = byMod.GetValueOrDefault(m) + 1;
             // The benign class is COUNTED in the header and LISTED only when the caller named it. On the measured
             // order 268 of 408 pair mismatches were one product's two halves, and listing them by default buries
-            // the 126 that are real.
-            if (cls == FaceGenFindingClass.FamilySplit && !listFamilySplit) return;
+            // the 126 that are real. Held aside rather than dropped: a to_file= artifact carries every class, so
+            // "complete findings" stays true there while the response stays readable.
+            if (cls == FaceGenFindingClass.FamilySplit && !listFamilySplit)
+            {
+                if (!countsOnly && withheld.Count < limit) withheld.Add(f);
+                return;
+            }
             if (countsOnly || findings.Count >= limit) return;
             findings.Add(f);
         }
@@ -557,9 +610,18 @@ public sealed record FaceGenCheckResult(
     bool ReadIncomplete = false,
     bool WholeOrder = false,
     int NpcsNoFaceGenRace = 0,
-    int NpcsRaceUnresolved = 0)
+    int NpcsRaceUnresolved = 0,
+    IReadOnlyList<FaceGenFinding>? WithheldBenign = null)
 {
     public bool Success => Error is null;
+
+    /// <summary>How many findings were ELIGIBLE for the listing — the found total minus the benign class this sweep
+    /// counted but did not list. The budget sentence compares against this, so a withheld benign row cannot make a
+    /// complete listing claim the listing budget ran out.</summary>
+    public int ListableFound
+        => Classes != FaceGenFindingClass.All && Classes.HasFlag(FaceGenFindingClass.FamilySplit)
+           ? TotalFound                                              // the caller named the benign class: it is listed
+           : TotalFound - CountOf(FaceGenFindingClass.FamilySplit);
 
     /// <summary>How many findings of one class this sweep FOUND (never the capped listing's count).</summary>
     public int CountOf(FaceGenFindingClass c)

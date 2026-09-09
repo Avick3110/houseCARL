@@ -40,7 +40,7 @@ public static class CheckTools
          "whole families or the classes " +
          "inside them, and carries what each family reports, what it does NOT, and what the default runs — omitted, " +
          "it runs the errors family alone. " +
-         "SCOPE: the two SWEPT families share one — plugins= (off-order files included) / types= / formids= / " +
+         "SCOPE: the three SWEPT families share one — plugins= (off-order files included) / types= / formids= / " +
          "editorid_contains= / exclude=, plus property_contains= on the scripts family. The dialogue family is " +
          "SEEDED instead: seeds= names what to validate, and no plugin scope narrows it. Narrowing narrows the " +
          "COUNTS too: they are always the counts for the scope actually swept, and the response says so. " +
@@ -161,11 +161,12 @@ public static class CheckTools
              "scope that needs a bake, plus every facegen file on disk whose key resolves to nothing. An NPC whose " +
              "Template carries the Traits flag inherits its appearance and has no bake of its own - it is EXCLUDED " +
              "and counted, never flagged. The file half (inert/foreign_index) is reported only on an UNSCOPED " +
-             "sweep: under plugins= a file for an NPC outside the scope is out of scope, not orphaned. BOUNDARY: " +
+             "sweep: under plugins=, exclude= or a record scope a file for an NPC outside the scope is out of " +
+             "scope, not orphaned. BOUNDARY: " +
              "it reports PROVENANCE, never the render - it cannot read a .dds's pixels and cannot bake geometry " +
              "(Ctrl+F4), so a clean row is not a promise the face looks right; and NOT this family: a purple or " +
              "white face (a missing texture), player-only grey (RaceMenu/SKEE), a brown weight face (save-baked " +
-             "weight), or an appearance distributed at runtime by SPID. Causes and repairs: docs/facegen.md.")]
+             "weight), or an appearance distributed at runtime by SPID. Causes and repairs: " + ReadSentences.FaceGenDocUrl + ".")]
             string[]? findings = null,
         [Description("Optional. true = return ONLY the header totals plus each running family's histograms, with no per-plugin or per-record listing. Errors: dangling-by-TARGET-plugin (which plugin the broken refs point INTO — the one absent dependency behind a wall of findings) and dangling-by-SOURCE-plugin (which plugin they come FROM — how much is vanilla baseline and how much your mods introduced). Scripts: unbound-by-PROPERTY-NAME. Dialogue: the totals and the unreachable-seed roster alone, no per-topic blocks — a seed nobody could reach bounds the answer rather than sitting inside it, so this does not silence it. The cheap before/after-a-fix comparison; totals stay exact (never limit-capped) and limit= caps the histogram ROWS instead.")]
             bool counts_only = false,

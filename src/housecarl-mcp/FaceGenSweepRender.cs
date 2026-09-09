@@ -35,8 +35,8 @@ internal static class FaceGenSweepRender
               .Append(" — their NPCs are judged from the file's own records.\n");
         if (!r.WholeOrder)
             sb.Append("note: the file half of the population (orphaned bakes — 'inert', 'foreign_index') is reported "
-                    + "only on an UNSCOPED sweep. Under plugins= a file for an NPC outside the scope is out of scope, "
-                    + "not inert.\n");
+                    + "only on an UNSCOPED sweep. Under plugins=, exclude= or a record scope (formids= / "
+                    + "editorid_contains=) a file for an NPC outside the scope is out of scope, not inert.\n");
         int benign = r.CountOf(FaceGenFindingClass.FamilySplit);
         if (benign > 0 && !r.Classes.HasFlag(FaceGenFindingClass.FamilySplit))
             sb.Append("note: ").Append(benign).Append(" benign 'family_split' row(s) counted above are NOT listed — ")
@@ -169,11 +169,4 @@ internal static class FaceGenSweepRender
     /// <summary>The row's cost, for the demand pass — measured where the unit lands, like every other family's.</summary>
     internal static int RowCostFor(FaceGenFinding f, int depth, bool subsequent)
         => JsonWire.MeasureUnit(depth, subsequent, w => WriteRow(w, f));
-
-    /// <summary>The columns a <c>to_file=</c> artifact's rows carry, in order.</summary>
-    internal static readonly string[] RowSchema =
-    {
-        "class", "formid", "editorid", "defining_master", "record_winner", "mesh_winner", "tint_winner",
-        "owning_mod", "detail", "fix",
-    };
 }

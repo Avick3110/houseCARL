@@ -142,6 +142,50 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenWorld>
                         .Select(l => JsonDocument.Parse(l).RootElement).ToList();
         Assert.All(rows, r => Assert.Equal("facegen", r.GetProperty("family").GetString()));
         Assert.Contains(rows, r => r.GetProperty("class").GetString() == "stale_bake");
+        // The benign class the RESPONSE withholds is still in the file: complete findings, with the class column
+        // telling them apart, and a total that matches so a consumer cannot read the omission as a cut listing.
+        Assert.Contains(rows, r => r.GetProperty("class").GetString() == "family_split");
+        Assert.Equal(rows.Count, manifest.RootElement.GetProperty("total").GetInt32());
+    }
+
+    [Fact]
+    public void AWithheldBenignRowDoesNotMakeACompleteListingClaimTheBudgetRanOut()
+    {
+        var text = Sweep("facegen");
+        Assert.DoesNotContain("were listed", text, StringComparison.Ordinal);
+        Assert.Contains("family_split=1", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExcludeNarrowsAnUnscopedSweepAndSaysSo()
+    {
+        // Excluding the master drops every NPC only it touches; HcFgStale stays, because the overhaul the caller
+        // kept touches it too — exclude= narrows the selection, not the judgement.
+        var text = CheckTools.CheckTool(_w.Svc, findings: new[] { "facegen" },
+                                        exclude: new[] { FaceGenWorld.MasterName }, max_chars: 60000);
+        Assert.Contains("exclude= left out 1 plugin(s)", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("'HcFgTintAbsent'", text, StringComparison.Ordinal);
+        Assert.Contains("'HcFgStale'", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnExcludeNamingNothingIsRefusedByName()
+    {
+        var refusal = CheckTools.CheckTool(_w.Svc, findings: new[] { "facegen" },
+                                           exclude: new[] { "HcFgNoSuch.esp" }, max_chars: 60000);
+        Assert.Contains("HcFgNoSuch.esp", refusal, StringComparison.Ordinal);
+        Assert.Contains("not in the scope this facegen sweep would cover", refusal, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ARecordScopeAlsoTurnsTheFileHalfOff()
+    {
+        var scoped = CheckTools.CheckTool(_w.Svc, findings: new[] { "facegen" },
+                                          editorid_contains: "HcFgStale", max_chars: 60000);
+        Assert.Contains("only on an UNSCOPED sweep", scoped, StringComparison.Ordinal);
+        Assert.DoesNotContain("00099999.nif", scoped, StringComparison.Ordinal);
+        Assert.DoesNotContain("notahexname.nif", scoped, StringComparison.Ordinal);
+        Assert.Contains("'HcFgStale'", scoped, StringComparison.Ordinal);
     }
 
     [Fact]
