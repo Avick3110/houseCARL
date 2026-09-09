@@ -439,7 +439,7 @@ public static class WritePatchBuilder
         // resolved below is exactly the set the check reads — no second, hand-written list of value slots to drift
         // from it. The walk needs each edit's record TYPE, which only the resolve loop can derive, so Phase 1 runs in
         // two passes: resolve + harvest per edit, then validate every staged edit against the lookup the harvest fed.
-        var linkTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var linkTokens = new LinkHarvestSink();
         var harvestRulebook = rulebook.WithLinkHarvest(linkTokens);
         var staged = new List<(int order, PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label, IMajorRecordGetter? srcBody, string? harvestVerdict, bool carriesLinks)>(edits.Count);
         // Ordered, so a report mixing a resolve problem with a pre-flight one still reads in the caller's edit order
@@ -538,9 +538,9 @@ public static class WritePatchBuilder
             var label = Label(req);
             // The harvest walk IS a validate, so its verdict is kept along with whether this edit put anything in the
             // sink — an edit that put nothing in needs no second walk (see the Phase 1b note).
-            var sunk = linkTokens.Count;
+            var sunk = linkTokens.Adds;
             var harvestVerdict = harvestRulebook.CollectLinkValues(req);
-            staged.Add((order, e, body, winnerPlugin, patchLocal, req, label, srcBody, harvestVerdict, linkTokens.Count != sunk));
+            staged.Add((order, e, body, winnerPlugin, patchLocal, req, label, srcBody, harvestVerdict, linkTokens.Adds != sunk));
         }
 
         // --- Phase 1b: resolve the harvested link targets ONCE, then pre-flight every staged edit through the
@@ -548,7 +548,7 @@ public static class WritePatchBuilder
         //     one at every point the link check decides, so an edit that contributed none was walked identically
         //     already and the harvest's verdict is the pre-flight answer. The double walk is paid by the edits that
         //     carry links, not by every edit in a 2000-op call. ---
-        var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens);
+        var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens.Tokens);
         var linkRulebook = rulebook.WithLinkTargets(linkTypes);
         var resolved = new List<(PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label, IMajorRecordGetter? srcBody)>(staged.Count);
         foreach (var s in staged)
@@ -709,6 +709,28 @@ public static class WritePatchBuilder
         return copyFromSources is not null
             && IsOffOrderCopySource(e, view)
             && copyFromSources.TryGetValue(e, out body);
+    }
+
+    /// <summary>The harvest sink: it DEDUPS tokens for the one link-target resolve, and separately counts every value
+    /// the walk offers it. "Did this edit carry a link" reads <see cref="Adds"/>, never the set size — two edits naming
+    /// the SAME FormID grow the set once, so a size test calls the second one link-free, keeps its harvest verdict
+    /// (taken with no lookup, hence no type check) and lets an illegal link through unnamed and uncounted.</summary>
+    sealed class LinkHarvestSink : ICollection<string>
+    {
+        readonly HashSet<string> _tokens = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>How many values the walk has offered, duplicates included.</summary>
+        public int Adds { get; private set; }
+        /// <summary>The distinct tokens, for the one up-front resolve.</summary>
+        public IReadOnlyCollection<string> Tokens => _tokens;
+        public void Add(string item) { Adds++; _tokens.Add(item); }
+        public int Count => _tokens.Count;
+        public bool IsReadOnly => false;
+        public bool Contains(string item) => _tokens.Contains(item);
+        public void CopyTo(string[] array, int arrayIndex) => _tokens.CopyTo(array, arrayIndex);
+        public IEnumerator<string> GetEnumerator() => _tokens.GetEnumerator();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+        public void Clear() => throw new NotSupportedException("the harvest sink only accumulates.");
+        public bool Remove(string item) => throw new NotSupportedException("the harvest sink only accumulates.");
     }
 
     /// <summary>The pre-flight's link-TARGET resolver: a FormLink value in, the runtime type of the record it points
@@ -909,7 +931,7 @@ public static class WritePatchBuilder
 
         // Two passes, exactly as the patch lane: the rulebook's own walk harvests each staged edit's FormLink values
         // (it needs the record type the resolve below derives), then one lookup answers the pre-flight for all of them.
-        var linkTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var linkTokens = new LinkHarvestSink();
         var harvestRulebook = rulebook.WithLinkHarvest(linkTokens);
         var staged = new List<(int order, PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label, IMajorRecordGetter? srcBody, bool selfSource, string? harvestVerdict, bool carriesLinks)>(edits.Count);
         var problems = new List<(int Order, string Message)>();
@@ -973,14 +995,14 @@ public static class WritePatchBuilder
             }
             // Last, as on the patch lane, for the MESSAGE ORDER: an edit with both a bad from_plugin and a bad
             // field_path is rejected above and reports the source problem first, which is what the patch lane does.
-            var sunk = linkTokens.Count;
+            var sunk = linkTokens.Adds;
             var harvestVerdict = harvestRulebook.CollectLinkValues(req);
-            staged.Add((order, e, body, req, label, srcBody, selfSource, harvestVerdict, linkTokens.Count != sunk));
+            staged.Add((order, e, body, req, label, srcBody, selfSource, harvestVerdict, linkTokens.Adds != sunk));
         }
 
         // --- Phase 1b: one resolve of the harvested link targets, then pre-flight every staged edit against it —
         //     re-walking only the edits that contributed a link value, exactly as the patch lane does. ---
-        var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens);
+        var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens.Tokens);
         var linkRulebook = rulebook.WithLinkTargets(linkTypes);
         var resolved = new List<(PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label, IMajorRecordGetter? srcBody, bool selfSource)>(staged.Count);
         foreach (var s in staged)
@@ -2953,7 +2975,7 @@ public static class WritePatchBuilder
         // rooted at the declared type, so the walk runs before any of Phase 1. Every editorid in the call is offered
         // as a sibling so the walk reaches the same slots the per-spec validation will; a '@editorid' value resolves
         // to no FormKey and is skipped by the lookup, exactly as it is skipped by the check.
-        var linkTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var linkTokens = new LinkHarvestSink();
         var allEditorIds = specs.Select(s => s.EditorId).Where(x => !string.IsNullOrWhiteSpace(x)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var harvestRulebook = rulebook.WithLinkHarvest(linkTokens);
         // The harvest walk IS a validate, so an edit that put nothing in the sink is already decided and Phase 1 does
@@ -2963,11 +2985,11 @@ public static class WritePatchBuilder
         foreach (var s in specs)
             foreach (var req in s.Edits)
             {
-                var sunk = linkTokens.Count;
+                var sunk = linkTokens.Adds;
                 var verdict = harvestRulebook.CollectLinkValues(req, allEditorIds);
-                if (linkTokens.Count == sunk) harvestVerdicts[req] = verdict;
+                if (linkTokens.Adds == sunk) harvestVerdicts[req] = verdict;
             }
-        var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens);
+        var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens.Tokens);
         var linkRulebook = rulebook.WithLinkTargets(linkTypes);
 
         // --- Phase 0: open the destination FIRST — moved AHEAD of pre-flight so a FormKey parent can resolve from it (a

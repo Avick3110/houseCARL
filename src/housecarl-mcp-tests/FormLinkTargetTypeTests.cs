@@ -134,6 +134,26 @@ public sealed class FormLinkTargetTypeTests : RecordsTestBase
         AssertNoPatchWritten("HcLinkTypeCreatePatch");
     }
 
+    /// <summary>Every rejected op is named and counted, however many name the SAME wrong record (#687). The harvest
+    /// sink dedups tokens, so the "did this edit carry a link" test used to read the set SIZE: the second and third
+    /// ops setting the same spell grew it by nothing, were called link-free, kept the harvest's untype-checked
+    /// verdict, and went unlisted — a refusal that read "2 of 4", with the other two apparently valid.</summary>
+    [Fact]
+    public void EveryOpNamingTheSameWrongTargetIsNamedAndCounted()
+    {
+        var spell = Fid(W.SpellA);
+        var armor = Fid(W.Armor);
+        var r = ApplyTools.Apply(Svc,
+            ops: Je($@"[{{""formid"":""{armor}"",""field_path"":""FormKey"",""op"":""Set"",""value"":""{spell}""}},
+                       {{""formid"":""{armor}"",""field_path"":""Race"",""op"":""Set"",""value"":""{spell}""}},
+                       {{""formid"":""{armor}"",""field_path"":""PickUpSound"",""op"":""Set"",""value"":""{spell}""}},
+                       {{""formid"":""{armor}"",""field_path"":""TemplateArmor"",""op"":""Set"",""value"":""{spell}""}}]"),
+            dry_run: true);
+
+        Refused(r, "4 of 4 edit(s) rejected", "'FormKey'", "'Race'", "'PickUpSound'", "'TemplateArmor'");
+        Assert.Equal(3, CountOf(r, "is a Spell"));
+    }
+
     /// <summary>A create's ReplaceAll may mix same-call '@editorid' siblings with literal FormIDs. The sibling has no
     /// record yet, so it is not type-checked; the literal beside it is.</summary>
     [Fact]
