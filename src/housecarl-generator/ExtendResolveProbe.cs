@@ -36,9 +36,9 @@ namespace HousecarlGenerator;
 ///   REMEDY       — that refusal's fresh-write escape NAMES patch=&lt;the guessed name&gt; for the callers whose patch=
 ///                  really does name a fresh patch (#343: the bare "omit into=" it used to offer is the call that
 ///                  yields a generically-named Patch.esp), and the named call is then MADE to prove the sentence
-///                  true rather than read. The two arms that keep it honest are negative: the RIDER lane does NOT
-///                  get it (on bsa_repack patch= names the .bsa itself), and neither does the REMOVAL
-///                  lane, which shares the record branch but whose patch= names an EXISTING patch.
+///                  true rather than read. The RIDER lane names patch= too — its folder's name is the .bsa's — while
+///                  the REMOVAL lane, which shares the record branch, gets no fresh route at all, because its
+///                  patch= names an EXISTING patch.
 ///   REMOVE-TAIL  — that removal lane offers no create route at all (#356: it used to inherit "omit into= to create
 ///                  it fresh", which removal itself refuses), states why, and names the one lane it does have. Its
 ///                  spelling is the calling TOOL'"'"'s, not the service'"'"'s, and the arms call the tools to see it.
@@ -171,10 +171,10 @@ internal static class ExtendResolveProbe
             Console.WriteLine();
             Console.WriteLine("--- 5: rider/asset lane (ResolvePatchModFolder) resolves the renamed patch too ---");
             {
-                var byEsp = svc.ResolvePatchModFolder(null, "SeedA", "houseCARL_Archive", BsaTools.RepackNaming);
+                var byEsp = svc.ResolvePatchModFolder(null, "SeedA", "HcRiderDefault", BsaTools.RepackNaming);
                 Check(!byEsp.CreatedFresh && Ends(byEsp.ModFolder, "houseCARL - SeedA Renamed"),
                       $"rider into=\"SeedA\" finds the renamed folder by the .esp it holds ({Path.GetFileName(byEsp.ModFolder)}, reused)");
-                var byFolder = svc.ResolvePatchModFolder(null, "SeedA Renamed", "houseCARL_Archive", BsaTools.RepackNaming);
+                var byFolder = svc.ResolvePatchModFolder(null, "SeedA Renamed", "HcRiderDefault", BsaTools.RepackNaming);
                 Check(!byFolder.CreatedFresh && Ends(byFolder.ModFolder, "houseCARL - SeedA Renamed"),
                       "rider into=\"SeedA Renamed\" (folder name) resolves the same reused folder");
             }
@@ -308,46 +308,38 @@ internal static class ExtendResolveProbe
                       $"…and the refusal never names the file the write produces ('{written}') — it promises no filename");
             }
 
-            // ---- 8c: the RIDER lane names ITS OWN folder parameter and default (#357) ----
-            //      Measured, not assumed: patch= is the new patch's name on the record-lane write tools, but on
-            //      housecarl_bsa_repack — a rider — it names the .bsa itself, because that tool declares both patch=
-            //      and patch_name= and §5.3 routes patch= to the artifact. So the rider sentence is the LANE's, not a
-            //      shared one: it names the parameter that tool actually declares, its own default folder name, and
-            //      on this tool the correction that a bare patch= names the archive. The naming comes from the
-            //      shipped tool's own constant, so an arm here cannot pass against a sentence the tool never uses.
+            // ---- 8c: the RIDER lane names ITS OWN folder parameter (#357) ----
+            //      Measured, not assumed: the sentence is the LANE's, naming the parameter that tool actually
+            //      declares for the folder. That is patch= on every tool that writes one, bsa_repack included
+            //      since the .bsa takes the folder's name (Aaron, 2026-09-09) — but the naming still comes from
+            //      the shipped tool's own constant, so an arm here cannot pass against a sentence it never uses.
             Console.WriteLine();
-            Console.WriteLine("--- 8c: the rider lane names patch_name= and its own default, not patch= ---");
+            Console.WriteLine("--- 8c: the rider lane names the folder parameter its own tool declares ---");
             {
                 string riderErr = "";
-                try { svc.ResolvePatchModFolder(null, "GhostRider", "houseCARL_Archive", BsaTools.RepackNaming); }
+                try { svc.ResolvePatchModFolder(null, "GhostRider", "HcRiderDefault", BsaTools.RepackNaming); }
                 catch (InvalidOperationException ex) { riderErr = ex.Message; }
                 Check(riderErr.Contains("GhostRider.esp", StringComparison.Ordinal) && OneSentence(riderErr),
                       $"the rider lane still refuses in ONE sentence, naming the .esp searched ({riderErr})");
-                // The caveat is a standalone sentence spliced mid-clause, so it reads as a clause: no leading capital
-                // after the semicolon, and the acronym inside it is left alone.
-                Check(riderErr.Contains("; on this tool patch= names the ARCHIVE", StringComparison.Ordinal),
-                      $"…and its spliced caveat reads as a clause, not a capitalised sentence inside one ({riderErr})");
-                Check(riderErr.Contains("patch_name=\"GhostRider\" for a fresh folder", StringComparison.Ordinal)
+                Check(riderErr.Contains("patch=\"GhostRider\" for a fresh folder", StringComparison.Ordinal)
                       && riderErr.Contains("auto-suffixed if that name is taken", StringComparison.Ordinal),
-                      "…and hands back patch_name= with the caller's own guessed name in it, qualified with the auto-suffix");
-                Check(riderErr.Contains("patch= names the ARCHIVE", StringComparison.Ordinal),
-                      "…and corrects patch= on the one tool where it binds to the .bsa instead");
-                Check(!riderErr.Contains("patch=\"", StringComparison.Ordinal),
-                      "…and never offers patch= itself on this lane, where it would rename the caller's archive");
+                      "…and hands back patch= with the caller's own guessed name in it, qualified with the auto-suffix");
+                Check(!riderErr.Contains("patch_name", StringComparison.Ordinal),
+                      "…and never offers the retired patch_name= spelling");
 
                 // The remedy has to say to DROP into=, not merely to add the parameter: this lane takes the extend
-                // branch on ANY non-blank into= and never reads patch_name=, and no rider tool declares an
-                // into=/patch_name= exclusivity check to intercept a caller who adds one to the other.
-                Check(riderErr.Contains("dropping into= and passing patch_name=\"GhostRider\"", StringComparison.Ordinal),
+                // branch on ANY non-blank into= and never reads patch=, and no rider tool declares an
+                // into=/patch= exclusivity check to intercept a caller who adds one to the other.
+                Check(riderErr.Contains("dropping into= and passing patch=\"GhostRider\"", StringComparison.Ordinal),
                       "…and says to DROP into=, so following it is not a loop");
                 string bothErr = "";
-                try { svc.ResolvePatchModFolder("GhostRider", "GhostRider", "houseCARL_Archive", BsaTools.RepackNaming); }
+                try { svc.ResolvePatchModFolder("GhostRider", "GhostRider", "HcRiderDefault", BsaTools.RepackNaming); }
                 catch (InvalidOperationException ex) { bothErr = ex.Message; }
                 Check(bothErr == riderErr,
-                      "…which is the point: keeping into= and adding patch_name= returns the IDENTICAL refusal");
+                      "…which is the point: keeping into= and adding patch= returns the IDENTICAL refusal");
 
                 // FOLLOW it, the way 8b follows its own: dropping into= makes the folder the sentence promised.
-                var madeFresh = svc.ResolvePatchModFolder("GhostRider", null, "houseCARL_Archive", BsaTools.RepackNaming);
+                var madeFresh = svc.ResolvePatchModFolder("GhostRider", null, "HcRiderDefault", BsaTools.RepackNaming);
                 Check(Path.GetFileName(madeFresh.ModFolder) == "houseCARL - GhostRider" && madeFresh.CreatedFresh,
                       $"…and following it creates that folder fresh ({madeFresh.ModFolder})");
                 Directory.Delete(madeFresh.ModFolder, recursive: true);        // later arms count the owned inventory
@@ -546,13 +538,13 @@ internal static class ExtendResolveProbe
 
                 // the rider lane refuses the un-owned folder too (shared resolver — same gate)
                 string riderErr2 = "";
-                try { svc.ResolvePatchModFolder(null, "Foreign", "houseCARL_Archive", BsaTools.RepackNaming); }
+                try { svc.ResolvePatchModFolder(null, "Foreign", "HcRiderDefault", BsaTools.RepackNaming); }
                 catch (InvalidOperationException ex) { riderErr2 = ex.Message; }
                 Check(riderErr2.Contains("NOT created by houseCARL", StringComparison.Ordinal),
                       "the RIDER lane also refuses the un-owned folder (same ownership gate, no foreign-plugin door)");
-                Check(riderErr2.Contains("patch_name= a name no mod folder already uses for a fresh folder", StringComparison.Ordinal)
+                Check(riderErr2.Contains("patch= a name no mod folder already uses for a fresh folder", StringComparison.Ordinal)
                       && riderErr2.Contains("; try into=\"", StringComparison.Ordinal) && OneSentence(riderErr2),
-                      "…and names THAT lane's own parameter plus the owned patches, in one sentence, never patch= or a dead end (#359)");
+                      "…and names THAT lane's own parameter plus the owned patches, in one sentence, never a dead end (#359)");
             }
 
             // ---- 9b: the un-owned refusal at TOOL altitude, on a folder holding an ACTIVE plugin -----------------
@@ -652,7 +644,7 @@ internal static class ExtendResolveProbe
                 Check(!(rec.Error ?? "").Contains("AssetsOnly", StringComparison.Ordinal),
                       "the RECORD lane leaves out an owned folder holding no plugin (it could not extend it)");
                 string riderList = "";
-                try { svc.ResolvePatchModFolder(null, nearBare, "houseCARL_Archive", BsaTools.RepackNaming); }
+                try { svc.ResolvePatchModFolder(null, nearBare, "HcRiderDefault", BsaTools.RepackNaming); }
                 catch (InvalidOperationException ex) { riderList = ex.Message; }
                 Check(riderList.Contains("into=\"houseCARL - AssetsOnly\"", StringComparison.Ordinal),
                       "…and the RIDER lane keeps it, since that lane extends the folder itself");

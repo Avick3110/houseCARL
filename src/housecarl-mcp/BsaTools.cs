@@ -91,16 +91,15 @@ public static class BsaTools
         return sb.ToString();
     });
 
-    /// <summary>How the repack lane names its mod folder, for the into= not-found refusal (#357). It names
-    /// patch_name= and says why: on this tool patch= is the .bsa filename (the artifact the caller came for),
-    /// so the sibling lanes' patch= sentence would rename the caller's archive and leave the folder defaulted.</summary>
-    public static readonly LoadOrderService.RiderNaming RepackNaming = new(
-        "patch_name", "On this tool patch= names the ARCHIVE, not the folder.");
+    /// <summary>How the repack lane names its mod folder, for the into= not-found refusal (#357): patch=, the same
+    /// parameter as every other tool that writes a folder, since the .bsa inside takes that folder's name.</summary>
+    public static readonly LoadOrderService.RiderNaming RepackNaming = new("patch");
 
     [McpServerTool(Name = ToolNames.BsaRepack, Title = "Pack a folder into a .bsa archive"),
      Description(
          "Pack a folder of loose files into a Bethesda .bsa archive (via BSArch), placed in a NEW reviewable houseCARL mod " +
-         "folder under your mods directory (originals untouched; enable it in MO2 to use). format defaults to 'sse' (Skyrim " +
+         "folder under your mods directory (originals untouched; enable it in MO2 to use). patch= names that folder and the " +
+         ".bsa inside takes its name. format defaults to 'sse' (Skyrim " +
          "Special Edition). compress defaults to FALSE — a compressed archive is smaller but BREAKS any sounds/voices it " +
          "contains (a BSArch limitation), so only compress archives with no audio. Needs the BSArch path (auto-prompts if " +
          "unset) and houseCARL pointed at your MO2 instance (for the output folder).")]
@@ -109,15 +108,13 @@ public static class BsaTools
         ToolPathResolver bridge,
         [Description("Full path to the source folder of loose files to pack (its tree becomes the archive's contents).")]
             string source_folder,
-        [Description("Optional. The .bsa filename to create (default: the source folder's name + '.bsa').")]
+        [Description("Optional. Base name for the NEW mod folder the .bsa lands in (default: the source folder's name); auto-suffixed if taken. The archive inside takes that folder's name, so patch='MyArchive' writes 'houseCARL - MyArchive\\MyArchive.bsa'.")]
             string? patch = null,
         [Description("Optional. Archive format: 'sse' (default, Skyrim SE), 'tes5' (Skyrim LE), 'fo4', 'fo4dds', 'sf1', 'sf1dds', 'tes4', 'fo3', 'fnv', 'tes3'.")]
             string? format = null,
         [Description("Optional. Compress the archive (default false). WARNING: compression breaks sounds/voices — leave false if the folder contains any audio.")]
             bool compress = false,
-        [Description("Optional. Base name for the NEW mod folder the .bsa lands in (default 'houseCARL_Archive'); auto-suffixed if taken.")]
-            string? patch_name = null,
-        [Description("Optional. Filename of an existing houseCARL patch mod to place the .bsa into instead of a fresh folder. Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
+        [Description("Optional. Filename of an existing houseCARL patch mod to place the .bsa into instead of a fresh folder (the archive then takes THAT folder's name). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null) => Guard.Tool(ToolNames.BsaRepack, () =>
     {
         if (string.IsNullOrWhiteSpace(source_folder)) return "error: no source_folder given.";
@@ -126,15 +123,17 @@ public static class BsaTools
         if (svc.ConfigPromptOrNull() is { } cfg) return cfg;
         if (bridge.RequireOrPrompt(ToolDependency.Bsarch, out var bsarch) is { } prompt) return prompt;
 
-        var name = string.IsNullOrWhiteSpace(patch)
-            ? new DirectoryInfo(source_folder).Name + ".bsa"
-            : Path.GetFileName(patch!.Trim().Trim('"'));
-        if (!name.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase)) name += ".bsa";
-
+        // patch= names the mod FOLDER and the .bsa inside takes that folder's name, as on every other tool that
+        // writes one — including the into= case, where the archive is named for the folder it lands in.
+        // A caller who spells the archive itself — patch="MyArchive.bsa" — means that name, so the extension is
+        // stripped here rather than folded into the folder name and doubled on the file.
         LoadOrderService.RiderFolder rf;
-        try { rf = svc.ResolvePatchModFolder(patch_name, into, "houseCARL_Archive", RepackNaming); }
+        var stem = patch?.Trim().Trim('"');
+        if (stem is not null && stem.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase)) stem = stem[..^4];
+        try { rf = svc.ResolvePatchModFolder(stem, into, new DirectoryInfo(source_folder).Name, RepackNaming); }
         catch (InvalidOperationException ex) { return "error: " + ex.Message; }
         var folder = rf.OutputDir;
+        var name = rf.Stem + ".bsa";
 
         // On any post-allocation failure: an empty fresh folder is deleted, a partial .bsa is kept and named, and a
         // reused into= folder is left alone.

@@ -9,7 +9,7 @@ namespace HousecarlMcpTests;
 /// "&lt;name&gt;.esp" — two plugins that cannot both be active — and said nothing. The check is on the FILENAME the
 /// call will write, so a lane whose folder name and plugin name differ is judged by the plugin it really emits.
 /// Driven through <c>housecarl_create</c>'s engine entry, the shortest real <c>patch=</c> write; through
-/// <c>housecarl_merge_plugins</c>, whose output filename is not its folder stem; through
+/// <c>housecarl_merge_plugins</c>, whose merged plugin now takes its folder's stem like any other write; through
 /// <c>housecarl_create_plugin</c>, which is judged on its basename rather than one filename; and through
 /// <c>housecarl_copy</c>, whose stem falls back to a name the caller did not spell as <c>patch=</c>.
 ///
@@ -139,12 +139,11 @@ public sealed class PatchStemShadowTests
         Assert.Equal("My Cool Patch.esp", Path.GetFileName(o.OutputPath));
     }
 
-    /// <summary>A merge's folder stem and its plugin filename are different names: the folder defaults to
-    /// "&lt;patch&gt; renamed" while the file written is patch= itself. The shadow is on the FILE, so a foreign
-    /// disabled mod holding that filename refuses the merge, and the remedy names patch=, the parameter that
-    /// actually moves it.</summary>
+    /// <summary>A merge names its folder and its plugin with one word: patch= is the mod folder and the merged
+    /// plugin inside takes that stem. The shadow is on the FILE, so a foreign disabled mod holding that filename
+    /// refuses the merge, and the remedy names patch=, the parameter that actually moves it.</summary>
     [Fact]
-    public void AMergeIsRefusedOnTheOutputFilenameItWritesNotItsFolderStem()
+    public void AMergeIsRefusedOnTheOutputFilenameItWrites()
     {
         using var w = new RecordsWorld();
         AddDisabledForeignMod(w, "Foreign Merge Mod", "HcShadowMerge.esp");

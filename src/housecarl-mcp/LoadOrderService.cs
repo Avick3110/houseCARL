@@ -7126,9 +7126,11 @@ public sealed class LoadOrderService : IDisposable
     /// below the write floor renumbers exactly as it does for the first donor of any merge and the per-donor line
     /// reports it. A rename's side effects are reported rather than refused: the output lands in a new mod folder
     /// beside the donor's, the swap instruction applies unchanged, and the existing-saves warning covers the break a
-    /// changed plugin name causes.</summary>
+    /// changed plugin name causes. <paramref name="patch"/> names the output MOD FOLDER, as it does on every tool
+    /// that writes one, and the merged plugin inside it takes that folder's name: patch="MyMerge" writes
+    /// "houseCARL - MyMerge\MyMerge.esp" through the same fresh-write resolver the record lanes use.</summary>
     public WritePatchBuilder.MergeOutcome MergePlugins(
-        IReadOnlyList<string>? plugins, string? outputName, string? patchName = null)
+        IReadOnlyList<string>? plugins, string? patch)
     {
         // ---- argument shape; every refusal names the fix ----
         var donorsRaw = (plugins ?? Array.Empty<string>()).Select(p => (p ?? "").Trim()).Where(p => p.Length > 0)
@@ -7142,27 +7144,33 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.MergeOutcome.Fail(
                 "merge needs at least ONE donor plugin — pass plugins=[\"A.esp\"] to move one plugin's records to a new " +
                 "name (a rename), or plugins=[\"A.esp\", \"B.esp\", …] to combine several.");
-        var outName = (outputName ?? "").Trim();
-        if (outName.Length == 0)
+        var patchName = (patch ?? "").Trim();
+        if (patchName.Length == 0)
             return WritePatchBuilder.MergeOutcome.Fail(
-                "output is required — name the NEW merged plugin file to create (e.g. 'MyMerge.esp'). It must not already exist in your load order.");
+                "patch is required — name the NEW mod folder to create (e.g. 'MyMerge'). The merged plugin inside it takes that name ('MyMerge.esp'), and it must not already exist in your load order.");
+        // patch= names the FOLDER and the plugin takes the folder's name, the rule on every tool that writes one.
+        // The requested stem is what these pre-flight refusals are about; the file finally written follows the stem
+        // ResolveOutputPath settles on below, which is this one unless a mod folder of that name already exists.
+        var outName = PatchStem(patchName) + ".esp";
         ModKey outKey;
         try { outKey = ModKey.FromFileName(outName); }
-        catch (Exception ex) { return WritePatchBuilder.MergeOutcome.Fail($"'{outName}' is not a valid plugin filename ({ex.Message})."); }
-        if (outKey.Type == ModType.Light)
+        catch (Exception ex) { return WritePatchBuilder.MergeOutcome.Fail($"patch='{patchName}' does not name a valid plugin: '{outName}' ({ex.Message})."); }
+        // The .esl spelling is REFUSED rather than stripped to .esp like any other extension, because it asks for
+        // something the merge cannot deliver, and silently handing back a full plugin would be a degraded mode.
+        if (patchName.EndsWith(".esl", StringComparison.OrdinalIgnoreCase))
             return WritePatchBuilder.MergeOutcome.Fail(
                 // The reason is what the merge does NOT do, and only that. Neither "the donors' ids stay in the full
                 // range" nor "it keeps each donor's object ids where they already are" is true on every path: an
                 // already-light donor's ids are all inside the window by definition, and BuildMergeRemap renumbers
                 // collisions and below-floor ids from 0x800 up — a count the report prints.
-                $"refused — '{outName}' has the .esl extension, which the game engine force-treats as a LIGHT master regardless " +
+                $"refused — patch='{patchName}' asks for the .esl extension, which the game engine force-treats as a LIGHT master regardless " +
                 "of the header flag, but a merge never constrains object ids to the light window: it renumbers only what it must " +
-                "(cross-donor collisions, and ids below the write floor), so an id above 0xFFF would be misread in game. Merge to " +
-                "a '.esp' instead: if every donor was light and every merged id landed in the window, the output is written LIGHT " +
+                "(cross-donor collisions, and ids below the write floor), so an id above 0xFFF would be misread in game. Pass " +
+                $"patch='{PatchStem(patchName)}' instead, which writes '{outName}': if every donor was light and every merged id landed in the window, the output is written LIGHT " +
                 "already; otherwise the report says so, and " + ToolNames.CompactPlugin + " on it renumbers every id into the light " +
                 "window (the tools compose). Nothing was written.");
         if (donorsRaw.Any(d => string.Equals(d, outName, StringComparison.OrdinalIgnoreCase)))
-            return WritePatchBuilder.MergeOutcome.Fail($"the output '{outName}' cannot also be a donor — name a NEW plugin file.");
+            return WritePatchBuilder.MergeOutcome.Fail($"the output '{outName}' (the plugin patch='{patchName}' names) cannot also be a donor — pass patch= a NEW name.");
 
         lock (_writeGate)                                                 // one write at a time
         {
@@ -7172,8 +7180,8 @@ public sealed class LoadOrderService : IDisposable
                 return WritePatchBuilder.MergeOutcome.Fail($"cannot write: ModsDir '{_modsDir}' does not exist. Check HouseCarl:ModsDir.");
             if (view.ContainsPlugin(outName))
                 return WritePatchBuilder.MergeOutcome.Fail(
-                    $"'{outName}' is already an active plugin in your load order — the merge output must be a NEW plugin name " +
-                    "(merging over an existing plugin would shadow it in MO2).");
+                    $"'{outName}' — the plugin patch='{patchName}' names — is already an active plugin in your load order, and the merge " +
+                    "output must be a NEW plugin name (merging over an existing plugin would shadow it in MO2). Pass patch= another name.");
 
             // ---- validate and load-order-sort the donors: merge semantics are load-order semantics, so sort rather
             //      than trusting argument order. One name-to-position index serves this sort and the master sort. ----
@@ -7236,8 +7244,28 @@ public sealed class LoadOrderService : IDisposable
                     return WritePatchBuilder.MergeOutcome.Fail(keyErr!);
                 donorKeys.Add((dName, keys));                             // a pure-override donor (0 originating keys) is a legit patch donor
             }
+            // ---- output folder and plugin: the same fresh-write resolver the record lanes use, so patch= names the
+            //      mod folder "houseCARL - <stem>" and the merged plugin inside it is "<stem>.esp". Resolved HERE,
+            //      before the remap, because the remap is keyed on the output ModKey and the stem can still be
+            //      auto-suffixed by a mod folder of that name (an active plugin of it was refused above). ----
+            string outPath;
+            bool createdFolder;
+            try { outPath = ResolveOutputPath(patchName, into: null, out _, out createdFolder); }
+            catch (InvalidOperationException ex) { return WritePatchBuilder.MergeOutcome.Fail(ex.Message); }
+            outName = Path.GetFileName(outPath);
+            try { outKey = ModKey.FromFileName(outName); }
+            catch (Exception ex) { return FailAfterFolder($"'{outName}' is not a valid plugin filename ({ex.Message})."); }
+
+            // A refusal past the folder allocation removes the folder again, so "nothing was written" is true of the
+            // disk too and no orphan accretes suffixes on retry.
+            WritePatchBuilder.MergeOutcome FailAfterFolder(string msg)
+            {
+                if (createdFolder) RemoveFolderCreatedThisCall(outPath);
+                return WritePatchBuilder.MergeOutcome.Fail(msg);
+            }
+
             var plan = RemapEngine.BuildMergeRemap(donorKeys, outKey, RemapEngine.EslFloor, FormIdRange.ObjectIdMax);
-            if (!plan.Success) return WritePatchBuilder.MergeOutcome.Fail(plan.Error!);
+            if (!plan.Success) return FailAfterFolder(plan.Error!);
 
             // ---- 3. identify-pass — WARN-and-proceed (the A4 posture; unlike compact this NEVER refuses: the donors stay
             //      installed and ACTIVE until the user swaps in MO2, so nothing breaks at write time. The report names each
@@ -7260,7 +7288,7 @@ public sealed class LoadOrderService : IDisposable
                 try { declared = view.DeclaredMasters(dName); }
                 catch (Exception ex)
                 {
-                    return WritePatchBuilder.MergeOutcome.Fail($"cannot read donor '{dName}' masters ({ex.Message}) — nothing written.");
+                    return FailAfterFolder($"cannot read donor '{dName}' masters ({ex.Message}) — nothing written.");
                 }
                 foreach (var mfn in declared)
                     if (!transformSet.Contains(mfn) && seenMasters.Add(mfn)) masterSet.Add(mfn);
@@ -7268,24 +7296,12 @@ public sealed class LoadOrderService : IDisposable
             masterSet.Sort((a, b) =>
                 (orderIndex.TryGetValue(a, out var ia) ? ia : int.MaxValue).CompareTo(orderIndex.TryGetValue(b, out var ib) ? ib : int.MaxValue));
 
-            // ---- output folder: a fresh houseCARL mod folder, since a merge is always a new file ----
-            RiderFolder rf;
-            // The plugin written here is outName, not the folder stem, so that is the name the shadow check tests and
-            // patch= is the parameter its refusal names.
-            try { rf = ResolvePatchModFolder(patchName, null,
-                Path.GetFileNameWithoutExtension(outName) + (donorInfos.Count == 1 ? " renamed" : " merged"),
-                naming: null, writesPlugin: (outName, "patch")); }
-            catch (InvalidOperationException ex) { return WritePatchBuilder.MergeOutcome.Fail(ex.Message); }
-            WriteOwnerMeta(rf.ModFolder, outName);
-            var outPath = Path.Combine(rf.OutputDir, outName);
-
             // ---- build and write the merged plugin ----
             var build = WritePatchBuilder.MergeBuild(
                 donorInfos.Select(d => (d.Name, d.Path, d.Key)).ToList(), outKey, plan.Dict, masterSet, view.PluginPath, outPath, view.DataDir);
             if (!build.Success)
             {
-                if (rf.CreatedFresh) RemoveOrNameRiderResidue(rf);        // a refused build leaves no orphan folder
-                return WritePatchBuilder.MergeOutcome.Fail(build.Error!);
+                return FailAfterFolder(build.Error!);                      // a refused build leaves no orphan folder
             }
 
             // ---- FormID-keyed assets follow the renumber, per donor: a merge renames the plugin, and the plugin
@@ -7887,7 +7903,7 @@ public sealed class LoadOrderService : IDisposable
             // Every record lane that reaches here declares patch= and writes "<stem>.esp", so that is the file the
             // shadow check tests and the spelling its refusal names.
             var freeStem = UniqueStem(baseStem, stemFromCaller ?? !string.IsNullOrWhiteSpace(patchName),
-                                      new PatchStemShadow.Target(s => s + ".esp", FollowsStem: true, "patch"));
+                                      new PatchStemShadow.Target(s => s + ".esp", "patch"));
             var newFolder = Path.Combine(_modsDir, ModFolderName(freeStem));
             var plugin = freeStem + ".esp";
             // A dry run (create:false) resolves the would-be path only — no folder, no meta.ini — so the disk stays
@@ -7929,16 +7945,16 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>The resolved output location for a NON-.esp rider: the directory to WRITE into, the mod-folder ROOT
     /// (what the cleanup operates on), and whether THIS call created the folder fresh, versus reusing an into= folder,
     /// which the user owns and cleanup never touches). For the .bsa/extract riders OutputDir == ModFolder; for the
-    /// compile/decompile riders OutputDir is a subfolder (<c>Scripts\</c> / <c>Source\Scripts\</c>) under ModFolder.</summary>
-    public readonly record struct RiderFolder(string OutputDir, string ModFolder, bool CreatedFresh);
+    /// compile/decompile riders OutputDir is a subfolder (<c>Scripts\</c> / <c>Source\Scripts\</c>) under ModFolder.
+    /// <paramref name="Stem"/> is the folder's own name without the "houseCARL - " prefix — the name a lane whose
+    /// artifact takes the folder's name (the .bsa) gives that artifact.</summary>
+    public readonly record struct RiderFolder(string OutputDir, string ModFolder, bool CreatedFresh, string Stem);
 
     /// <summary>How ONE rider lane names the mod folder it creates — the calling tool's own statement, the way
     /// <see cref="FreshPatchRemedy"/> is for the record lanes. <paramref name="Param"/> is the parameter that tool
-    /// actually declares for the folder's name, and <paramref name="Caveat"/> is any correction that parameter
-    /// carries on it: on <c>housecarl_bsa_repack</c> <c>patch=</c> names the .bsa itself, so telling that caller to
-    /// pass <c>patch=</c> for the folder would rename their archive and leave the folder defaulted. A lane whose
+    /// actually declares for the folder's name, which is <c>patch=</c> on every tool that writes one. A lane whose
     /// <c>into=</c> can never be non-empty passes null, and keeps the weakest true remedy.</summary>
-    public readonly record struct RiderNaming(string Param, string? Caveat = null);
+    public readonly record struct RiderNaming(string Param);
 
     /// <summary>Resolve a houseCARL-owned mod folder under ModsDir for a non-.esp output — compiled scripts, a packed
     /// .bsa, extracted loose files — generalising the folder-per-patch model beyond the .esp write path. Either a
@@ -7946,13 +7962,10 @@ public sealed class LoadOrderService : IDisposable
     /// so a prior one is never clobbered, or <paramref name="into"/> an existing houseCARL-owned one. It refuses a
     /// folder houseCARL did not create. Derives ModsDir cheaply by reading ModOrganizer.ini, with no index build, and
     /// throws the unconfigured prompt when there is no instance. The returned
-    /// <see cref="RiderFolder.CreatedFresh"/> flag drives the cleanup on a failure.
-    /// <paramref name="writesPlugin"/> is the plugin FILE this lane will put in the folder and the parameter its
-    /// caller changes to move it — <c>merge_plugins</c> alone, whose output filename is its own parameter and not the
-    /// folder stem. A lane that writes scripts, an archive or loose files passes nothing and takes no plugin-shadow
-    /// refusal, because it puts no second plugin on disk.</summary>
-    public RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming,
-                                             (string File, string Param)? writesPlugin = null)
+    /// <see cref="RiderFolder.CreatedFresh"/> flag drives the cleanup on a failure. No lane here writes a plugin —
+    /// scripts, an archive or loose files only — so none takes a plugin-shadow refusal; a plugin's own name follows
+    /// its folder stem through <see cref="ResolveOutputPath"/> instead.</summary>
+    public RiderFolder ResolvePatchModFolder(string? patchName, string? into, string defaultStem, RiderNaming? naming)
     {
         lock (_gate)
         {
@@ -7972,18 +7985,15 @@ public sealed class LoadOrderService : IDisposable
                 // rider — so the lane hands both in and the sentence is true of it (#357). A lane that hands in
                 // nothing keeps the weakest true remedy rather than a shared one that is wrong for it.
                 var folder = ResolveOwnedPatchFolder(into, needEsp: false, FreshPatchRemedy.None, riderNaming: naming);
-                return new RiderFolder(folder, folder, CreatedFresh: false);   // reused — the user owns it; cleanup leaves it
+                return new RiderFolder(folder, folder, CreatedFresh: false, FolderStem(folder));   // reused — the user owns it; cleanup leaves it
             }
 
-            var writes = writesPlugin is { } wp
-                ? new PatchStemShadow.Target(_ => wp.File, FollowsStem: false, wp.Param)
-                : (PatchStemShadow.Target?)null;
             var newStem = UniqueStem(PatchStem(string.IsNullOrWhiteSpace(patchName) ? defaultStem : patchName!),
-                                     !string.IsNullOrWhiteSpace(patchName), writes);
+                                     !string.IsNullOrWhiteSpace(patchName), writes: null);
             var newFolder = Path.Combine(_modsDir, ModFolderName(newStem));
             Directory.CreateDirectory(newFolder);
             WriteOwnerMeta(newFolder, "(houseCARL output)");   // ownership marker; this folder may hold scripts / a .bsa / loose files, not an .esp
-            return new RiderFolder(newFolder, newFolder, CreatedFresh: true);
+            return new RiderFolder(newFolder, newFolder, CreatedFresh: true, newStem);
         }
     }
 
@@ -8052,7 +8062,7 @@ public sealed class LoadOrderService : IDisposable
             // kept accurate: when the user pointed at the subfolder, the root is its parent; otherwise the path they
             // gave IS the root.
             var modRoot = appended ? root : (Path.GetDirectoryName(outDir.TrimEnd('\\', '/')) ?? outDir);
-            return new RiderFolder(outDir, modRoot, CreatedFresh: false);   // user-owned: residue cleanup never touches it
+            return new RiderFolder(outDir, modRoot, CreatedFresh: false, FolderStem(modRoot));   // user-owned: residue cleanup never touches it
         }
     }
 
@@ -8433,6 +8443,16 @@ public sealed class LoadOrderService : IDisposable
     /// pane and is the human-visible ownership signal (the meta.ini marker is the structural one).</summary>
     static string ModFolderName(string stem) => "houseCARL - " + stem;
 
+    /// <summary>The stem a mod folder carries: "houseCARL - &lt;stem&gt;" without the prefix, and the folder's own
+    /// name when it has none — a renamed patch folder, or a user-owned one. The inverse of
+    /// <see cref="ModFolderName"/> where one applies, and the name an artifact takes from its folder.</summary>
+    static string FolderStem(string folderPath)
+    {
+        var name = Path.GetFileName(folderPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        const string prefix = "houseCARL - ";
+        return name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? name[prefix.Length..] : name;
+    }
+
     /// <summary>Plugin extensions stripped from a caller-supplied patch name (case-insensitive). NOT every dot — see
     /// <see cref="PatchStem"/>. Aliases the one shared home (<see cref="HousecarlCore.PluginFile.Extensions"/>) so this
     /// and the load-order reader / name-suggester copies can't diverge.</summary>
@@ -8483,15 +8503,14 @@ public sealed class LoadOrderService : IDisposable
 
         // Free of a folder and of an active plugin, and shadowing nothing. A shadow on the name the CALLER passed is
         // refused; a shadow on a suffix houseCARL invented is stepped past, since the caller cannot be told to avoid
-        // a name they never chose — unless the file does not follow the stem, where every suffix lands on that same
-        // file and stepping could never clear it.
+        // a name they never chose, and the file follows the stem, so the next suffix clears it.
         bool Takeable(string s)
         {
             if (!IsStemFree(s, active)) return false;
             if (comp is null || writes is not { } w) return true;
             var file = w.PluginFor(s);
             if (PatchStemShadow.Find(comp, _modsDir, _dataDir, _overwriteDir, file, active) is not { } hit) return true;
-            if (!w.FollowsStem || (stemFromCaller && s == stem))
+            if (stemFromCaller && s == stem)
                 throw new InvalidOperationException(PatchStemShadow.Refusal(file, hit, w.Param));
             return false;
         }
@@ -8607,7 +8626,6 @@ public sealed class LoadOrderService : IDisposable
                     OwnedPatchCandidates(needEsp, stem),
                     riderNaming is { } fr
                         ? $"dropping into= and passing {fr.Param}= a name no mod folder already uses for a fresh folder"
-                          + (fr.Caveat is null ? "" : $" ({AsClause(fr.Caveat)})")
                         : freshPatch switch
                         {
                             FreshPatchRemedy.NamedByPatchParam => "dropping into= and passing patch= a name no mod folder already uses for a fresh patch",
@@ -8643,8 +8661,7 @@ public sealed class LoadOrderService : IDisposable
             noFreshRule,
             OwnedPatchCandidates(needEsp, stem),
             riderNaming is { } rn
-                ? $"dropping into= and passing {rn.Param}=\"{stem}\" for a fresh folder (auto-suffixed if that name is taken"
-                  + (rn.Caveat is null ? ")" : $"; {AsClause(rn.Caveat)})")
+                ? $"dropping into= and passing {rn.Param}=\"{stem}\" for a fresh folder (auto-suffixed if that name is taken)"
                 : freshPatch switch
                 {
                     FreshPatchRemedy.NamedByPatchParam => $"dropping into= and passing patch=\"{stem}\" for a fresh patch (auto-suffixed if that name is taken)",
@@ -8702,17 +8719,6 @@ public sealed class LoadOrderService : IDisposable
         var said = facts.Count == 1 ? facts[0]
                  : string.Join(", ", facts.Take(facts.Count - 1)) + ", and " + facts[^1];
         return "cannot extend: " + said + (tries.Count == 0 ? "." : "; try " + string.Join(", or ", tries) + ".");
-    }
-
-    /// <summary>A standalone sentence spliced into the middle of a refusal, made a clause: its leading capital is
-    /// lowered (an acronym, whose second letter is a capital too, is left alone) and its terminating period dropped, so
-    /// the one-sentence rule survives the splice.</summary>
-    static string AsClause(string sentence)
-    {
-        var s = sentence.TrimEnd().TrimEnd('.');
-        return s.Length == 0 || !char.IsUpper(s[0]) || (s.Length > 1 && char.IsUpper(s[1]))
-            ? s
-            : char.ToLowerInvariant(s[0]) + s.Substring(1);
     }
 
     /// <summary>houseCARL-owned mod folders under ModsDir holding a plugin file named <paramref name="espFileName"/>
