@@ -97,13 +97,17 @@ the **first character** of their term. Wildcards go into a strings-only bucket (
 tests, not resolved to forms).
 
 **Which channels a wildcard tests.** A `*` term is a String filter, so it is a substring test over
-§1's string channels — item name, effect archetype, actor value name, nif path — and nothing else.
-The strings-only bucket is `[source]`: a wildcard is never resolved to a form, so `*Iron` cannot test
-a keyword *record*, and `*` before a FormID, EditorID or plugin name matches nothing. The table's
-"name/keyword" wording above is the Nexus description's; whether the item's own keyword EditorIDs are
-one of the compared strings is **unverified** — §1's channel list, also from the description, does not
-include them. KID's source at the wildcard comparison would settle it. Compose as if name is the
-channel that matters, and say so when a count rests on it.
+string channels, and the strings-only bucket is `[source]`: a wildcard is never resolved to a form.
+Two consequences. `*Iron` cannot test a keyword *record* — only text. And `*` before a FormID,
+EditorID or plugin name is not rejected by the parser: `*0x1234~MyMod.esp` becomes a substring test
+against the string channels, which will practically never match, so it is a mis-cut filter that
+silently tags nothing, not a term KID refuses.
+
+**Which strings are in that bucket is unverified.** §1's channel list — item name, effect archetype,
+actor value name, nif path — is `[desc]`, and the modifier table's "name/keyword" wording is the Nexus
+description's too; neither settles whether the item's own keyword EditorIDs are among the compared
+strings. KID's source at the wildcard comparison would. Compose as if name is the channel that
+matters, and say so when a count rests on it.
 
 **Evaluation order [desc]:** `Requirements → Exclusions → Matches → Wildcards`.
 *(The description prints "3. Matches / 3. Wildcards" — a numbering typo; Wildcards evaluate last.)*
