@@ -84,6 +84,22 @@ public sealed class RetiredNameRedirectTests
             $"{old}'s row promises [{string.Join(", ", unspoken)}] but the response does not name them: {r.Describe()}");
     }
 
+    /// <summary>The refusal itself, as a sentence: a 1.x tool name is REFUSED — not accepted, redirected or
+    /// executed — and the refusal names the tool called and the successor to call instead. The parameter shim
+    /// was deleted at 2.0.0 and these rows were kept for exactly this, so the wording is pinned rather than
+    /// left to the sweep above, which only asks that the successor be mentioned somewhere.</summary>
+    [Fact]
+    public void ARetiredToolNameIsRefusedInOneSentenceNamingItsSuccessor_NothingRuns()
+    {
+        var r = _s.Call("housecarl_read_record", """{"formid":"0F1AC1:Skyrim.esm"}""");
+
+        Assert.True(r.IsError, r.Describe());
+        Assert.False(r.BodyRan, r.Describe());
+        Assert.StartsWith("error: housecarl_read_record is not on this surface — absorbed into housecarl_records",
+                          r.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(ServerFixture.GenericError, r.Text, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// If every 1.9 name is still registered, the theory above asserts nothing and passes on every row — a
     /// vacuous sweep reported as a clean one.
