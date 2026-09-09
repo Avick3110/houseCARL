@@ -51,10 +51,12 @@ a `PreviousDialog` you set to null reaches disk absent. Either leave the positio
 run beneath it in the same call, each of those lines carrying the FormID of the line above it: the merge places
 them back in front of the line that fell to the bottom and the original sequence is restored. And because
 `info_order` merges every plugin touching the topic, the line at position minus one can be one defined by a plugin
-your patch does not master; write that FormID and the link dangles. What the engine does with a dangling
-previous-link is not something measured here, but the dangling link itself is visible from the data layer:
-`housecarl_check(findings=["dialogue"], seeds=["<the topic>"])` reports it — once the patch is enabled, which is
-the same #615 limit as below.
+your patch does not master. That does not dangle: the patch lane is handed the whole load order and Mutagen
+derives the master list from the records' own FormLinks, so writing that FormID **adds that plugin as a master**
+of your patch — a new hard dependency, one more plugin your patch requires and must load after. Decide whether
+you want it before you write the link; if you do not, name a line from a plugin you already master and accept the
+position it gives you. (A PNAM that truly resolves to nothing — a target no active plugin defines — places the
+line at the HEAD, not the bottom.)
 
 ## The bookkeeping create fills, and the one fill that is unreachable
 
