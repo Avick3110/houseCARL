@@ -35,7 +35,7 @@ public static class DecompileTools
         [Description("Full path to the .pex compiled script to decompile. For a script inside a BSA, run " + ToolNames.BsaExtract + " first and pass the extracted path.")]
             string pex,
         [Description("Optional. Base name for the NEW patch-mod folder the .psc lands in (default 'houseCARL_Scripts'); auto-suffixed if taken.")]
-            string? patch_name = null,
+            string? patch = null,
         [Description("Optional. Filename of an existing houseCARL patch mod to add the .psc into instead of creating a fresh folder (accumulate sources; pairs with " + ToolNames.CompileScript + "'s into=). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null) => Guard.Tool(ToolNames.DecompileScript, () =>
     {
@@ -66,7 +66,7 @@ public static class DecompileTools
         // 4) output folder (folder-per-patch, Source\Scripts subdir) — resolved before the hierarchy build so a
         //    folder-resolution error costs nothing and the instance paths are derived before the cached walk.
         LoadOrderService.RiderFolder rf;
-        try { rf = svc.ResolveDecompiledSourceFolder(patch_name, into); }
+        try { rf = svc.ResolveDecompiledSourceFolder(patch, into); }
         catch (InvalidOperationException ex) { return "error: " + ex.Message; }
 
         // 5) class hierarchy: cached vanilla baseline + mods-tree sources, topped up with the input pex itself
@@ -95,7 +95,7 @@ public static class DecompileTools
                    (o.Written.Count > 0 ? $"Already written this call: {string.Join(", ", o.Written)}." : "Nothing was written."));
         if (o.ExistingTarget is not null)
             return Refuse($"error: '{o.ExistingTarget}' already exists — houseCARL never overwrites a source file. " +
-                   "Move/delete it, or pass a different patch_name= (or into= another patch folder). " +
+                   "Move/delete it, or pass a different patch= (or into= another patch folder). " +
                    (o.Written.Count > 0 ? $"Already written this call: {string.Join(", ", o.Written)}." : "Nothing was written."));
 
         // 7) render: totals, failures, and every degraded mode named.

@@ -39,7 +39,7 @@ namespace HousecarlGenerator;
 ///   EMPTY-NOOP     — a plugin with NO SGE quests writes nothing, cuts no folder (no orphan), reports the clean no-op.
 ///   REFUSE-NOFILE  — WriteSeq on a missing plugin path refuses, named (Q3).
 ///
-/// #312 (output_dir= + the byte-identical no-op):
+/// #312 (out_path= + the byte-identical no-op):
 ///   PURE-SEQ-CONTRACT / PURE-SEQ-DEPLOY — the pure path contract: SEQ\ appended once (double-SEQ guard), and the
 ///                    deployability rule with a warning worded for a .seq's own consequence (silently dead quests).
 ///   OUTPUT-DIR / -DEPLOYS / -OUTSIDE    — the .seq lands in the USER's folder, no houseCARL folder cut and no owner
@@ -47,7 +47,7 @@ namespace HousecarlGenerator;
 ///   USER-OWNED-SURVIVES — residue cleanup never deletes a folder the user named.
 ///   UNCHANGED / -DIFFERS — a byte-identical destination is left ALONE (proved by mtime, not by the flag), while a
 ///                    stale one is rewritten (the compare is on BYTES, never existence).
-///   TOOL-LANE      — output_dir= wins over patch=/into= and the ignored lane is STATED (Q3).
+///   TOOL-LANE      — out_path= wins over patch=/into= and the ignored lane is STATED (Q3).
 ///   RENDER-UNCHANGED / JSON-UNCHANGED — the no-op renders as its own state on both transports (written=false).
 /// </summary>
 internal static class SeqWriteGuardProbe
@@ -268,7 +268,7 @@ internal static class SeqWriteGuardProbe
                   && string.Equals(oByName.PluginPath, Path.GetFullPath(svcPlugin), StringComparison.OrdinalIgnoreCase),
                 $"FILENAME-LANE source= by filename resolves to the same file and states its arm — from=[{oByName.ResolvedFrom}] path=[{oByName.PluginPath}] err=[{oByName.Error}]");
 
-            // ====================== #312 — output_dir= and the byte-identical no-op ======================
+            // ====================== #312 — out_path= and the byte-identical no-op ======================
 
             // PURE-CONTRACT: the SEQ twin of the compile lane's path contract. Pure, so it is provable without an
             // instance, and it is the piece the resolve arms below cannot distinguish from a lucky Path.Combine.
@@ -313,11 +313,11 @@ internal static class SeqWriteGuardProbe
                   && oOut.UserChoseOutput && !oOut.WroteIntoPluginFolder
                   && Directory.GetDirectories(mods).Length == cutBefore
                   && !File.Exists(Path.Combine(userMod, "meta.ini")),
-                $"OUTPUT-DIR .seq lands in <output_dir>\\SEQ, no houseCARL folder cut, no ownership marker stamped — path=[{oOut.SeqPath}] chose={oOut.UserChoseOutput} err=[{oOut.Error}]");
+                $"OUTPUT-DIR .seq lands in <out_path>\\SEQ, no houseCARL folder cut, no ownership marker stamped — path=[{oOut.SeqPath}] chose={oOut.UserChoseOutput} err=[{oOut.Error}]");
             // …and a mod folder directly under mods\ DEPLOYS, so no warning. (The arm above is the case a user hits;
             // this is the half that proves the warning is a real discriminator rather than always-on.)
             // …and it asserts WHERE THE FILE WENT alongside the null warning: on its own, "no warning" is also what
-            // every houseCARL-folder lane produces, so the arm passed unchanged with output_dir= routing disabled
+            // every houseCARL-folder lane produces, so the arm passed unchanged with out_path= routing disabled
             // (its own RED check found that, twice — the flag alone was no better, since it reports what the CALLER
             // asked for, not which lane ran). The path is the only witness that cannot be faked by intent.
             Check(PathUnder(oOut.SeqPath, userMod) && oOut.DeployWarning is null,
@@ -334,7 +334,7 @@ internal static class SeqWriteGuardProbe
             // USER-OWNED-SURVIVES: residue cleanup must never delete a folder the user named (CreatedFresh=false).
             var userRf = svc.ResolveExplicitSeqFolder(userMod, out _);
             Check(!userRf.CreatedFresh && svc.RemoveOrNameRiderResidue(userRf) is null && Directory.Exists(userRf.OutputDir),
-                "USER-OWNED-SURVIVES residue cleanup never deletes an output_dir folder (CreatedFresh=false; the folder survives)");
+                "USER-OWNED-SURVIVES residue cleanup never deletes an out_path folder (CreatedFresh=false; the folder survives)");
 
             // UNCHANGED: re-running against a destination that already holds these bytes writes NOTHING. Proved by the
             // file's TIMESTAMP, not by the flag alone — the flag is what a broken short-circuit would set while still
@@ -403,25 +403,25 @@ internal static class SeqWriteGuardProbe
                 $"MTIME-FUTURE a future-stamped plugin still ends up OLDER than its .seq (the refresh is verified, not assumed) — seq={File.GetLastWriteTimeUtc(expectedUserSeq):O} plugin={future:O} unchanged={oFuture.Unchanged} touched={oFuture.TimestampRefreshed}");
             File.SetLastWriteTimeUtc(svcPlugin, new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc));   // leave the fixture sane
 
-            // TOOL-LANE: output_dir= WINS over patch=/into=, and says so (Q3 — an ignored parameter is stated, never
+            // TOOL-LANE: out_path= WINS over patch=/into=, and says so (Q3 — an ignored parameter is stated, never
             // silently dropped). Asserted through the TOOL, because the note is composed there.
-            var toolBoth = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin), patch: "HcSeqIgnored", output_dir: userMod);
-            Check(toolBoth.Contains("output_dir= was given", StringComparison.Ordinal)
+            var toolBoth = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin), patch: "HcSeqIgnored", out_path: userMod);
+            Check(toolBoth.Contains("out_path= was given", StringComparison.Ordinal)
                   && toolBoth.Contains("ignored", StringComparison.Ordinal)
                   && !Directory.EnumerateDirectories(mods, "houseCARL - HcSeqIgnored*").Any(),
-                $"TOOL-LANE output_dir= wins over patch= and the ignored lane is STATED, with no folder cut for it — render=[{Trim(toolBoth)}]");
+                $"TOOL-LANE out_path= wins over patch= and the ignored lane is STATED, with no folder cut for it — render=[{Trim(toolBoth)}]");
 
             // RENDER-UNCHANGED: the no-op's text render leads with it. "wrote" on a call that wrote nothing is the
             // silent-success shape Q3 refuses, and the first line is what a caller reads.
-            var toolSame = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin), output_dir: userMod);
+            var toolSame = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin), out_path: userMod);
             Check(toolSame.StartsWith("unchanged", StringComparison.Ordinal)
                   && toolSame.Contains(WriteSentences.Twins.SeqUnchanged, StringComparison.Ordinal)
                   && !toolSame.Contains("houseCARL mod folder — enable it", StringComparison.Ordinal),
-                $"RENDER-UNCHANGED the no-op renders as 'unchanged … NOTHING was written', and an output_dir destination is NOT called a houseCARL mod folder — render=[{Trim(toolSame)}]");
+                $"RENDER-UNCHANGED the no-op renders as 'unchanged … NOTHING was written', and an out_path destination is NOT called a houseCARL mod folder — render=[{Trim(toolSame)}]");
 
             // JSON-UNCHANGED: written=false with unchanged=true and a seq_path — the machine twin of the same fact
             // (the pre-#312 `written` was "a path exists", which would now report a write that never happened).
-            // REPLACED: the write that overwrites an existing .seq says so. On the output_dir lane that file can be
+            // REPLACED: the write that overwrites an existing .seq says so. On the out_path lane that file can be
             // the mod's OWN shipped copy and houseCARL keeps no backup — the same "two different facts about the disk"
             // argument that split the no-op out (review round 1).
             File.WriteAllBytes(expectedUserSeq, new byte[] { 1, 2, 3, 4, 5, 6 });
@@ -441,7 +441,7 @@ internal static class SeqWriteGuardProbe
                 $"REPLACED-NEG a first write to an empty destination is 'wrote', not 'replaced' — replaced={oFresh.Replaced}");
             // …and the json twin of the replaced state, which had no arm (PR #318 review [nit]).
             File.WriteAllBytes(expectedUserSeq, new byte[] { 9, 9, 9, 9, 9, 9 });
-            var jsonRepl = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin), output_dir: userMod, format: "json");
+            var jsonRepl = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin), out_path: userMod, format: "json");
             Check(jsonRepl.Contains("\"replaced\": true", StringComparison.Ordinal)
                   && jsonRepl.Contains("\"replaced_same_bytes\": false", StringComparison.Ordinal)
                   // The json half of the pair whose text half pins the same construction above. Read through the
@@ -451,15 +451,15 @@ internal static class SeqWriteGuardProbe
                   && jrn.GetString() == WriteSentences.Twins.SeqReplacedUserFolder,
                 $"REPLACED-JSON the replaced state and its note are on the json transport too — render=[{Trim(jsonRepl)}]");
 
-            // LANE-ORDER: output_dir= + patch= + into= together is NOT refused. The pair-exclusivity check used to run
-            // first, so naming all three was rejected over two parameters output_dir='s own contract promises to
+            // LANE-ORDER: out_path= + patch= + into= together is NOT refused. The pair-exclusivity check used to run
+            // first, so naming all three was rejected over two parameters out_path='s own contract promises to
             // ignore — a tool contradicting itself (review round 1).
             var toolAllThree = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin),
-                patch: "HcSeqIgnoredA", into: "HcSeqIgnoredB.esp", output_dir: userMod);
+                patch: "HcSeqIgnoredA", into: "HcSeqIgnoredB.esp", out_path: userMod);
             Check(!toolAllThree.StartsWith("error:", StringComparison.Ordinal)
-                  && toolAllThree.Contains("output_dir= was given", StringComparison.Ordinal),
-                $"LANE-ORDER output_dir= + patch= + into= is accepted with the ignored-lane note, not refused — render=[{Trim(toolAllThree)}]");
-            // …while the pair WITHOUT output_dir is still the refusal it was.
+                  && toolAllThree.Contains("out_path= was given", StringComparison.Ordinal),
+                $"LANE-ORDER out_path= + patch= + into= is accepted with the ignored-lane note, not refused — render=[{Trim(toolAllThree)}]");
+            // …while the pair WITHOUT out_path is still the refusal it was.
             var toolPair = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin),
                 patch: "HcSeqIgnoredA", into: "HcSeqIgnoredB.esp");
             Check(toolPair.StartsWith("error:", StringComparison.Ordinal)
@@ -468,12 +468,12 @@ internal static class SeqWriteGuardProbe
 
             // NOOP-LANE-NOTE: the no-SGE-quest early return carries the ignored-lane note too. It used to drop it
             // while the json twin emitted one — the D2 divergence this file's epoch fold exists to close.
-            var toolEmptyNote = SeqTools.WriteSeq(svc, source: emptyPlugin, patch: "HcSeqIgnoredC", output_dir: userMod);
+            var toolEmptyNote = SeqTools.WriteSeq(svc, source: emptyPlugin, patch: "HcSeqIgnoredC", out_path: userMod);
             Check(toolEmptyNote.Contains("no start-game-enabled quests", StringComparison.Ordinal)
-                  && toolEmptyNote.Contains("output_dir= was given", StringComparison.Ordinal),
+                  && toolEmptyNote.Contains("out_path= was given", StringComparison.Ordinal),
                 $"NOOP-LANE-NOTE the nothing-to-do render states the ignored lane too — render=[{Trim(toolEmptyNote)}]");
 
-            // WRITE-FAIL-FOLDER: the output_dir lane's write-failure clause, which had no arm (PR #318 review [nit]).
+            // WRITE-FAIL-FOLDER: the out_path lane's write-failure clause, which had no arm (PR #318 review [nit]).
             // A directory sitting where the .seq must go makes the write throw with the folder already resolved, so
             // the message has to say the folder is left alone — cleanup is bypassed on a user-owned destination.
             var blocked = Path.Combine(root, "blocked");
@@ -484,24 +484,24 @@ internal static class SeqWriteGuardProbe
                   && be.Contains("is left in place", StringComparison.Ordinal)
                   && be.Contains("never removes a folder you named", StringComparison.Ordinal)
                   && Directory.Exists(Path.Combine(blocked, "SEQ")),
-                $"WRITE-FAIL-FOLDER a failed output_dir write names the folder it leaves behind, and leaves it — err=[{oBlocked.Error}]");
+                $"WRITE-FAIL-FOLDER a failed out_path write names the folder it leaves behind, and leaves it — err=[{oBlocked.Error}]");
 
             // LANE-NOTE-ON-REFUSAL: an ignored lane stays stated when the call FAILS. A refusal is exactly when a
             // caller re-reads their parameters, and "patch= was ignored" is still true (review round 2).
-            var failNote = SeqTools.WriteSeq(svc, source: "HcSeqNoSuchPlugin.esp", patch: "HcSeqIgnoredD", output_dir: userMod);
+            var failNote = SeqTools.WriteSeq(svc, source: "HcSeqNoSuchPlugin.esp", patch: "HcSeqIgnoredD", out_path: userMod);
             Check(failNote.StartsWith("error:", StringComparison.Ordinal)
-                  && failNote.Contains("output_dir= was given", StringComparison.Ordinal),
+                  && failNote.Contains("out_path= was given", StringComparison.Ordinal),
                 $"LANE-NOTE-ON-REFUSAL a failed call still states the ignored lane — render=[{Trim(failNote)}]");
             var failNoteJson = SeqTools.WriteSeq(svc, source: "HcSeqNoSuchPlugin.esp", patch: "HcSeqIgnoredD",
-                output_dir: userMod, format: "json");
+                out_path: userMod, format: "json");
             Check(failNoteJson.Contains("\"lane_note\"", StringComparison.Ordinal)
-                  && failNoteJson.Contains("output_dir= was given", StringComparison.Ordinal),
+                  && failNoteJson.Contains("out_path= was given", StringComparison.Ordinal),
                 $"LANE-NOTE-ON-REFUSAL-JSON …on the json transport too (D2) — render=[{Trim(failNoteJson)}]");
 
-            var jsonSame = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin), output_dir: userMod, format: "json");
+            var jsonSame = SeqTools.WriteSeq(svc, source: Path.GetFileName(svcPlugin), out_path: userMod, format: "json");
             Check(jsonSame.Contains("\"written\": false", StringComparison.Ordinal)
                   && jsonSame.Contains("\"unchanged\": true", StringComparison.Ordinal)
-                  && jsonSame.Contains("\"user_chose_output_dir\": true", StringComparison.Ordinal)
+                  && jsonSame.Contains("\"user_chose_out_path\": true", StringComparison.Ordinal)
                   && jsonSame.Contains("\"seq_path\"", StringComparison.Ordinal),
                 $"JSON-UNCHANGED json reports written=false + unchanged=true + the path — render=[{Trim(jsonSame)}]");
         }

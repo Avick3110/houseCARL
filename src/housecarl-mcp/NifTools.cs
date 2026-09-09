@@ -194,7 +194,7 @@ public static class NifTools
          "ACT — op= names the write; its operands are new_name=, flags=, scale=, body_part_id= [+ partition_index=], " +
          "alpha_flags= / alpha_threshold=, path= [+ texture_slot=] (set_path with no slot is the header-string " +
          "form), and shader_value= + value=.\n" +
-         "LANE — patch_name= | into= on the default lane, or in_place= + acknowledge=.")]
+         "LANE — patch= | into= on the default lane, or in_place= + acknowledge=.")]
     public static string NifSet(
         LoadOrderService svc,
         [Description("The Data-relative mesh path to edit, e.g. " +
@@ -251,7 +251,7 @@ public static class NifTools
                      "out. Empty = the winner.")]
             string mod = "",
         [Description("Optional. Base name for the NEW mod folder the edited mesh is written into (default lane; auto-suffixed if taken). Ignored with in_place=true.")]
-            string patch_name = "",
+            string patch = "",
         [Description("Optional. Write into an EXISTING houseCARL-owned mod folder instead of a fresh one (default lane). Mutually exclusive with in_place.")]
             string into = "",
         [Description("Optional, default false. IN-PLACE LANE (opt-in): OVERWRITE the winning LOOSE file where it sits instead of writing a new folder — NO backup. Requires acknowledge=true (see below). OMIT (the default) to write a new winning override and leave the original untouched.")]
@@ -269,7 +269,7 @@ public static class NifTools
 
         var data = svc.NifSet(mesh_path, new[] { built! },
             string.IsNullOrWhiteSpace(mod) ? null : mod,
-            string.IsNullOrWhiteSpace(patch_name) ? null : patch_name,
+            string.IsNullOrWhiteSpace(patch) ? null : patch,
             string.IsNullOrWhiteSpace(into) ? null : into,
             in_place, acknowledge);
         return NifSetWire.Render(data);

@@ -14,8 +14,8 @@ namespace HousecarlGenerator;
 ///        • explicit-paths mode → DataDir's parent (the game dir), derived without an ini read;
 ///        • unconfigured → null (no _configured guard would otherwise hit EnsurePathsDerived's NotConfigured throw);
 ///        • an UNUSABLE instance dir → null, NOT a thrown exception (the rider's own config gate names the real problem).
-///   B  <see cref="LoadOrderService.ScriptOutputContract"/> (6.3 output_dir=) — the DECIDED contract (Aaron 2026-06-16):
-///      output_dir is a mod-folder ROOT and houseCARL appends Scripts\ (so the .pex deploys), with a double-Scripts guard
+///   B  <see cref="LoadOrderService.ScriptOutputContract"/> (6.3 out_path=) — the DECIDED contract (Aaron 2026-06-16):
+///      out_path is a mod-folder ROOT and houseCARL appends Scripts\ (so the .pex deploys), with a double-Scripts guard
 ///      and a Q3 deployability warning. PURE (no I/O) so the riskiest change's only proof isn't punted:
 ///        • a bare root gets Scripts\ appended; a root already ending in Scripts\ does NOT get a second one (any case);
 ///        • a path under the MO2 mods dir or a game Data\Scripts is deployable (no warning); one outside any deploy root
@@ -31,7 +31,7 @@ internal static class CompileErgonomicsProbe
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");
-        Console.WriteLine(" compile-ergonomics guard — GameDirOrNull null-safety + output_dir= contract (PR-J)");
+        Console.WriteLine(" compile-ergonomics guard — GameDirOrNull null-safety + out_path= contract (PR-J)");
         Console.WriteLine("================================================================");
         Console.WriteLine();
         int fail = 0;
@@ -78,7 +78,7 @@ internal static class CompileErgonomicsProbe
         }
         finally { try { File.Delete(tmpStore); } catch { /* non-fatal */ } }
 
-        // ---------------------------------------------------------- B) output_dir= contract (6.3): pure double-Scripts guard
+        // ---------------------------------------------------------- B) out_path= contract (6.3): pure double-Scripts guard
         Console.WriteLine();
         Console.WriteLine("--- B1: ScriptOutputContract (pure) — append Scripts\\ with the double-Scripts guard + deployability ---");
         const string mods = @"C:\MO2\mods", data = @"C:\Game\Skyrim Special Edition\Data";
@@ -137,25 +137,25 @@ internal static class CompileErgonomicsProbe
             var svc = LoadOrderService.WithExplicitPaths(tData, tMods, "", 0, new UserConfigStore(tStore));
 
             var rf = svc.ResolveExplicitScriptFolder(tOut, out var warn);
-            Check(rf.OutputDir == Path.Combine(tOut, "Scripts"), "output path = output_dir\\Scripts (the chosen contract)");
+            Check(rf.OutputDir == Path.Combine(tOut, "Scripts"), "output path = out_path\\Scripts (the chosen contract)");
             Check(!rf.CreatedFresh, "the folder is USER-OWNED (CreatedFresh=false), so residue cleanup never deletes it");
-            Check(Directory.Exists(rf.OutputDir), "the Scripts\\ folder is created under output_dir");
+            Check(Directory.Exists(rf.OutputDir), "the Scripts\\ folder is created under out_path");
             Check(!Directory.EnumerateFileSystemEntries(tMods).Any(),
                   "ResolvePatchModFolder was NOT called — no houseCARL patch folder cut under ModsDir");
-            Check(warn is not null, "output_dir outside the mods tree carries the deploy warning");
+            Check(warn is not null, "out_path outside the mods tree carries the deploy warning");
             // The load-bearing bypass: on a failed compile RemoveOrNameRiderResidue must NOT delete the user's folder.
             // (Asserting it returns null alone is too weak — an EMPTY fresh folder also returns null because it gets
             // deleted; the real tooth is that a user-owned folder SURVIVES.)
             var residue = svc.RemoveOrNameRiderResidue(rf);
             Check(residue is null && Directory.Exists(rf.OutputDir),
-                  "residue cleanup never deletes a user-owned output_dir folder (CreatedFresh=false: returns null, folder survives)");
+                  "residue cleanup never deletes a user-owned out_path folder (CreatedFresh=false: returns null, folder survives)");
 
             // A path UNDER the mods tree is deployable → no warning.
             var rfIn = svc.ResolveExplicitScriptFolder(Path.Combine(tMods, "MyPatch"), out var warnIn);
             Check(rfIn.OutputDir == Path.Combine(tMods, "MyPatch", "Scripts") && warnIn is null,
-                  "an output_dir under the MO2 mods folder deploys cleanly (no warning)");
+                  "an out_path under the MO2 mods folder deploys cleanly (no warning)");
 
-            // review nit #4: if <output_dir>\Scripts already exists AS A FILE, the create throws IOException — it must be
+            // review nit #4: if <out_path>\Scripts already exists AS A FILE, the create throws IOException — it must be
             // re-stamped as a friendly InvalidOperationException (which the rider renders as a clean "error: ...") rather
             // than escaping to Guard.Tool's generic "internal failure" wording.
             var tColl = Path.Combine(bRoot, "collision");
@@ -165,7 +165,7 @@ internal static class CompileErgonomicsProbe
             try { svc.ResolveExplicitScriptFolder(tColl, out _); }
             catch (InvalidOperationException) { friendly = true; }
             catch { /* any other exception type → not friendly */ }
-            Check(friendly, "a file at <output_dir>\\Scripts yields a friendly InvalidOperationException, not a raw IOException");
+            Check(friendly, "a file at <out_path>\\Scripts yields a friendly InvalidOperationException, not a raw IOException");
         }
         finally { try { Directory.Delete(bRoot, recursive: true); } catch { /* non-fatal */ } }
 
@@ -180,7 +180,7 @@ internal static class CompileErgonomicsProbe
         Check(defaultMsg.Contains("houseCARL patch-mod folder") && defaultMsg.Contains("enable it in MO2"),
               "default destination: success names the houseCARL patch-mod folder + the MO2-enable step");
         Check(outDirMsg.Contains("output folder you chose") && !outDirMsg.Contains("houseCARL patch-mod folder"),
-              "output_dir= destination: success names the user's chosen folder, NOT a houseCARL patch folder (no over-claim)");
+              "out_path= destination: success names the user's chosen folder, NOT a houseCARL patch folder (no over-claim)");
 
         // ---------------------------------------------------------- D: missing-imports LEAD on a dominated failure (HCBR-2026-06-25)
         Console.WriteLine();

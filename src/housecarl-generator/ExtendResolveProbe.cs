@@ -325,12 +325,12 @@ internal static class ExtendResolveProbe
                       $"the rider lane still refuses in ONE sentence, naming the .esp searched ({riderErr})");
                 // The caveat is a standalone sentence spliced mid-clause, so it reads as a clause: no leading capital
                 // after the semicolon, and the acronym inside it is left alone.
-                Check(riderErr.Contains("; on this tool a bare patch= names the ARCHIVE", StringComparison.Ordinal),
+                Check(riderErr.Contains("; on this tool patch= names the ARCHIVE", StringComparison.Ordinal),
                       $"…and its spliced caveat reads as a clause, not a capitalised sentence inside one ({riderErr})");
                 Check(riderErr.Contains("patch_name=\"GhostRider\" for a fresh folder", StringComparison.Ordinal)
                       && riderErr.Contains("auto-suffixed if that name is taken", StringComparison.Ordinal),
                       "…and hands back patch_name= with the caller's own guessed name in it, qualified with the auto-suffix");
-                Check(riderErr.Contains("a bare patch= names the ARCHIVE", StringComparison.Ordinal),
+                Check(riderErr.Contains("patch= names the ARCHIVE", StringComparison.Ordinal),
                       "…and corrects patch= on the one tool where it binds to the .bsa instead");
                 Check(!riderErr.Contains("patch=\"", StringComparison.Ordinal),
                       "…and never offers patch= itself on this lane, where it would rename the caller's archive");

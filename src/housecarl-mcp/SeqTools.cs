@@ -25,8 +25,8 @@ public static class SeqTools
          "mod folder you enable in MO2. If the plugin is itself in a houseCARL patch folder, the .seq defaults into THAT " +
          "same folder (so enabling the one mod deploys both .esp and .seq); otherwise it lands in a fresh folder (pass " +
          "into= an existing houseCARL patch to keep them together, or patch= to name the new folder). After an IN-PLACE " +
-         "edit the .esp is in the MOD's own folder, so pass output_dir= that mod folder and the .seq lands beside it in " +
-         "its SEQ\\. When a LANE names the destination (output_dir=/into=, or the plugin's own houseCARL folder) and it " +
+         "edit the .esp is in the MOD's own folder, so pass out_path= that mod folder and the .seq lands beside it in " +
+         "its SEQ\\. When a LANE names the destination (out_path=/into=, or the plugin's own houseCARL folder) and it " +
          "already holds exactly these bytes, nothing is written and the response says so; with no lane named the fresh " +
          "folder is empty by construction, so that re-run always writes. " +
          "A plugin with no " +
@@ -41,10 +41,10 @@ public static class SeqTools
             string source,
         [Description("LANE: base name for a NEW patch-mod folder the .seq lands in (default: the plugin's own houseCARL folder if it's in one, else 'houseCARL_SEQ'); auto-suffixed if taken.")]
             string? patch = null,
-        [Description("LANE: filename of an existing houseCARL patch mod to write the .seq into (e.g. the patch that holds the .esp, so one mod deploys both). A .seq already there with exactly these bytes is left alone and reported 'unchanged', with only its timestamp refreshed if it was older than the plugin — the same skip the output_dir= lane states, and the reason re-running after an edit is cheap.")]
+        [Description("LANE: filename of an existing houseCARL patch mod to write the .seq into (e.g. the patch that holds the .esp, so one mod deploys both). A .seq already there with exactly these bytes is left alone and reported 'unchanged', with only its timestamp refreshed if it was older than the plugin — the same skip the out_path= lane states, and the reason re-running after an edit is cheap.")]
             string? into = null,
         [Description("LANE: land the .seq in a folder of YOUR choosing instead of a houseCARL patch folder — pass the mod-folder ROOT (typically the plugin's own mod, after an in-place edit); houseCARL appends SEQ\\ (and won't double it if you already point at a ...\\SEQ folder). When set, patch=/into= are ignored. An existing .seq at that path is OVERWRITTEN with no backup (the response says 'replaced'), and a byte-identical one is left alone with only its timestamp refreshed if it was older than the plugin. The game reads SEQ files from exactly <mods>\\<YourMod>\\SEQ, the MO2 overwrite folder, or <Data>\\SEQ — anywhere else the .seq is still written and you're warned it won't be read (a nested path like <mods>\\<YourMod>\\Sub is 'under mods' but does NOT deploy).")]
-            string? output_dir = null,
+            string? out_path = null,
         [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable).")]
             string? format = null,
         [Description("TRANSPORT: character ceiling on the render; past it trailing quest rows are dropped with an explicit notice (never silent). 0 = a safe default kept under the host's per-response limit.")]
@@ -55,18 +55,18 @@ public static class SeqTools
         if (svc.ConfigPromptOrNull() is { } cfgPrompt)
             return json ? JsonWire.RenderError(cfgPrompt, null) : cfgPrompt;
 
-        // Lane exclusivity, matching the sibling write tools. output_dir= supersedes patch=/into= and says so rather
+        // Lane exclusivity, matching the sibling write tools. out_path= supersedes patch=/into= and says so rather
         // than silently ignoring them; patch= and into= together are two ways of naming a houseCARL folder with no
         // way to choose, so that pair refuses.
         //
-        // Order matters: output_dir= is checked first, because running the pair check first would refuse a call that
-        // named all three over two parameters output_dir='s own description promises to ignore. The compile lane
-        // resolves output_dir first for the same reason.
+        // Order matters: out_path= is checked first, because running the pair check first would refuse a call that
+        // named all three over two parameters out_path='s own description promises to ignore. The compile lane
+        // resolves out_path first for the same reason.
         string? outputNote = null;
-        if (!string.IsNullOrWhiteSpace(output_dir))
+        if (!string.IsNullOrWhiteSpace(out_path))
         {
             if (!string.IsNullOrWhiteSpace(patch) || !string.IsNullOrWhiteSpace(into))
-                outputNote = "note: output_dir= was given, so patch=/into= are ignored (the .seq lands in output_dir, not a houseCARL patch folder).";
+                outputNote = "note: out_path= was given, so patch=/into= are ignored (the .seq lands in out_path, not a houseCARL patch folder).";
         }
         else if (!string.IsNullOrWhiteSpace(patch) && !string.IsNullOrWhiteSpace(into))
         {
@@ -75,7 +75,7 @@ public static class SeqTools
             return json ? JsonWire.RenderError(laneErr, null) : "error: " + laneErr;
         }
 
-        var o = svc.WriteSeq(source, patch, into, output_dir);
+        var o = svc.WriteSeq(source, patch, into, out_path);
         if (json) return JsonWire.RenderSeqOutcome(o, max_chars, outputNote);
         // The ignored-lane note rides the refusal too: a lane named and ignored still needs saying when the write
         // failed.
@@ -90,9 +90,9 @@ public static class SeqTools
         if (o.Quests.Count == 0)
             return $"no start-game-enabled quests in {o.PluginFileName}{ReadFrom(o)} — {WriteSentences.Twins.SeqNoQuests}. " +
                    "If a quest SHOULD start at game start, set its Start Game Enabled flag first, then write the .seq."
-                   // This return happens before any folder is resolved, so an unusable output_dir= was never
+                   // This return happens before any folder is resolved, so an unusable out_path= was never
                    // diagnosed: "your folder is fine" and "we never checked your folder" must not read the same.
-                   + (o.UserChoseOutput ? "\nnote: output_dir= was not resolved or checked — nothing needed writing, so no destination was touched." : "")
+                   + (o.UserChoseOutput ? "\nnote: out_path= was not resolved or checked — nothing needed writing, so no destination was touched." : "")
                    + (outputNote is { Length: > 0 } n0 ? "\n" + n0 : "");
 
         var sb = new StringBuilder();
@@ -103,7 +103,7 @@ public static class SeqTools
           .Append(o.Quests.Count == 1 ? " start-game-enabled quest" : " start-game-enabled quests")
           .Append(o.Unchanged
               ? "; " + WriteSentences.Twins.SeqUnchanged + "."
-              // "replaced" is its own word because on the output_dir lane the file that was there may be the mod's own
+              // "replaced" is its own word because on the out_path lane the file that was there may be the mod's own
               // .seq and no backup is kept. The no-backup alarm is scoped to that lane: re-generating over
               // houseCARL's own previous output is the ordinary workflow, not a loss.
               : o.Replaced
@@ -143,9 +143,9 @@ public static class SeqTools
               .Append(o.PluginPath is { Length: > 0 } p ? $" ({p})" : "").Append('\n');
         sb.Append("path: ").Append(o.SeqPath).Append('\n');
         // Where the file landed decides the next step, so the three destinations get three different sentences. An
-        // output_dir= folder is the user's own mod, so "enable this houseCARL mod" would name a mod that does not exist.
+        // out_path= folder is the user's own mod, so "enable this houseCARL mod" would name a mod that does not exist.
         sb.Append(o.UserChoseOutput
-            ? "the .seq is in the folder you named (output_dir) — no houseCARL mod folder was created; make sure that mod is enabled in MO2 so the game reads Data\\SEQ\\."
+            ? "the .seq is in the folder you named (out_path) — no houseCARL mod folder was created; make sure that mod is enabled in MO2 so the game reads Data\\SEQ\\."
             : o.WroteIntoPluginFolder
                 ? "the .seq is in the plugin's OWN houseCARL folder — enabling that one mod in MO2 deploys both the .esp and its .seq."
                 : "the .seq is in a houseCARL mod folder — enable it in MO2 (AND make sure the plugin itself is enabled) so the game reads Data\\SEQ\\.");
