@@ -30,24 +30,24 @@ public static class NifTools
          "surface: which meshes (SELECT) x whose copy (SOURCE) x how much of each mesh (PROJECT) compose in a single " +
          "call.\n\n" +
          "Every Data-relative path — typed in mesh_paths, or derived from an npc= FormID — resolves through Mod " +
-         "Organizer 2's virtual file system to the copy the game actually uses (loose beats BSA; among BSAs the " +
-         "later-loaded plugin wins), with ONE load-order resolution for the whole batch.\n\n" +
+         "Organizer 2's virtual file system to the copy the game uses (loose beats BSA; among BSAs the " +
+         "later-loaded plugin wins), with ONE load-order resolution for the batch.\n\n" +
          "WHAT A READ SEES, per mesh: the header version + whether it is a Skyrim SE stream; the block census (every " +
          "block type and count); any UNKNOWN blocks (named + preserved, never silently dropped); and the shape names " +
          "— that is the default summary. sections= expands it to each shape's flags, scale, partitions, alpha, shader " +
          "and texture-set paths, its bone list, the node tree and the header string table. Scope: data values only; " +
          "it does not read or edit geometry / visual content.\n\n" +
-         "Use it to answer 'what shapes / bones / textures / partitions / alpha does this mesh have', 'does this mesh " +
+         "Use it to answer 'what shapes / bones / textures / partitions / alpha does this mesh have', 'does it " +
          "glow / use soft lighting / subsurface skin / env-mapping', to read a facegen mesh's baked shape names and " +
          "tint path, to check a skeleton's bone names, or to see a dark-face mesh's flags/alpha/partitions — the " +
          "asset-INTERNAL companion to " + ToolNames.AssetStatus + " (which mod wins) once you know the winning " +
          "file.\n\n" +
          "Each axis's grammar is on its own parameters:\n" +
          "SELECT — mesh_paths= | npc=; one of the two is required, and the two compose into one batch.\n" +
-         "SOURCE — mod= (empty = the VFS winner).\n" +
+         "SOURCE — source_provider= (empty = the VFS winner).\n" +
          "PROJECT — sections= (empty = the summary).\n" +
          "TRANSPORT — max_chars=.\n\n" +
-         "A per-path failure — an absent path, a mod= name nothing provides, a mesh the underlying mesh library " +
+         "A per-path failure — an absent path, a source_provider= name nothing provides, a mesh the underlying mesh library " +
          "refuses — is reported LOUD by name on THAT path without aborting the rest; an unreadable archive is named " +
          "once for the batch; never a silent 'absent' or a half-answer. Read-only: resolves nothing to disk, writes " +
          "nothing, changes no load order — " + ToolNames.NifSet + " is the write counterpart.")]
@@ -93,7 +93,8 @@ public static class NifTools
                      "silent fallback to the summary). Empty = summary only (header + block census + shape names).")]
             string sections = "",
         [Description("Optional. Inspect a specific provider's copy instead of the VFS winner — the mod folder " +
-                     "name, 'overwrite', 'Data', or a BSA filename. Pass the name EXACTLY as the providers chain " +
+                     "name, 'overwrite', 'Data', or a BSA filename. The same pole " + ToolNames.Place + " takes, " +
+                     "spelled the same way. Pass the name EXACTLY as the providers chain " +
                      "shows it INSIDE the double quotes; the kind after them ('loose' / 'BSA') is not part of the name. " +
                      "Naming a MOD reaches that mod's loose files AND its own root archives, whether or not MO2 is " +
                      "loading it, so a donor mod can be read without enabling it; the response then SAYS the game is " +
@@ -101,7 +102,7 @@ public static class NifTools
                      "of a given mesh is THAT path's own named miss, listing the providers that do where any do; the " +
                      "rest of the batch still reads. Applies to every mesh " +
                      "in the batch. Empty = the winner.")]
-            string mod = "",
+            string source_provider = "",
         [Description("TRANSPORT: character CEILING on the whole response — one cap over the WHOLE batch's render, not per mesh: the mesh whose block would cross it is not written at all, and the notice says how many were held back; one mesh wider than the whole budget is named with the max_chars that clears it rather than dropped. Detail sections cut against what the batch has left, and a requested section with no room to start is counted. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.NifInspect, () =>
     {
@@ -141,7 +142,7 @@ public static class NifTools
         // A partial request proceeds, rendering the valid sections plus a warning.
         if (SectionsError(want, unknownTokens) is { } sectionsErr) return sectionsErr;
 
-        var data = svc.NifInspect(selected, string.IsNullOrWhiteSpace(mod) ? null : mod);
+        var data = svc.NifInspect(selected, string.IsNullOrWhiteSpace(source_provider) ? null : source_provider);
         return NifWire.Render(data, want, unknownTokens, max_chars > 0 ? max_chars : 80_000);
     });
 
@@ -179,7 +180,7 @@ public static class NifTools
          "ACT) x WHERE it lands (the LANE) compose in a single call. The WRITE counterpart to " + ToolNames.NifInspect +
          ", which reads the values this edits — the facegen head-mesh repairs are its canonical use; to make a DIFFERENT " +
          "existing copy win instead of editing one, use " + ToolNames.Place + ".\n\n" +
-         "Resolve the Data-relative mesh_path through Mod Organizer 2's VFS to the winning copy (or mod=), apply the op, " +
+         "Resolve the Data-relative mesh_path through Mod Organizer 2's VFS to the winning copy (or source_provider=), apply the op, " +
          "and pass it two offset-immune verification gates (only the block/value the op claims to touch changed; a reload " +
          "re-reads the new value; census + SE-stream intact) — a failure writes NOTHING and says why. Every refusal is " +
          "loud and named (Q3), never a silent half-write.\n\n" +
@@ -190,7 +191,7 @@ public static class NifTools
          "geometry / vertices / the .dds pixels.\n\n" +
          "Each axis's grammar is on its own parameters:\n" +
          "SELECT — mesh_path= (which mesh) x target= (what inside it the op edits).\n" +
-         "SOURCE — mod= (empty = the VFS winner).\n" +
+         "SOURCE — source_provider= (empty = the VFS winner).\n" +
          "ACT — op= names the write; its operands are new_name=, flags=, scale=, body_part_id= [+ partition_index=], " +
          "alpha_flags= / alpha_threshold=, path= [+ texture_slot=] (set_path with no slot is the header-string " +
          "form), and shader_value= + value=.\n" +
@@ -244,12 +245,13 @@ public static class NifTools
         [Description("set_shader_value: which lighting value — 'glossiness', 'specular_strength', 'specular_color', 'emissive_color', 'emissive_multiple', or 'alpha'.")] string shader_value = "",
         [Description("set_shader_value: the new value — one number for a scalar ('30'), or three comma-separated components for a colour ('1,0.5,0.25'). Colours and alpha are conventionally 0-1 (NOT 0-255); a value outside that is written as asked but WARNED about.")] string value = "",
         [Description("Optional. Edit a specific provider's copy instead of the VFS winner — the mod folder name, 'overwrite', " +
-                     "'Data', or a BSA filename. Pass the name EXACTLY as the providers chain shows it INSIDE the double " +
+                     "'Data', or a BSA filename. The same pole " + ToolNames.Place + " takes, spelled the same way. " +
+                     "Pass the name EXACTLY as the providers chain shows it INSIDE the double " +
                      "quotes; the kind after them ('loose' / 'BSA') is not part of the name. Naming a MOD reaches that mod's " +
                      "loose files AND its own root archives, whether or not MO2 is loading it — a copy the game is NOT " +
                      "loading is stated on the default lane and refused by in_place. '*winner' is the winner pole spelled " +
                      "out. Empty = the winner.")]
-            string mod = "",
+            string source_provider = "",
         [Description("Optional. Base name for the NEW mod folder the edited mesh is written into (default lane; auto-suffixed if taken). Ignored with in_place=true.")]
             string patch = "",
         [Description("Optional. Write into an EXISTING houseCARL-owned mod folder instead of a fresh one (default lane). Mutually exclusive with in_place.")]
@@ -268,7 +270,7 @@ public static class NifTools
         if (buildErr is not null) return "error: " + buildErr;
 
         var data = svc.NifSet(mesh_path, new[] { built! },
-            string.IsNullOrWhiteSpace(mod) ? null : mod,
+            string.IsNullOrWhiteSpace(source_provider) ? null : source_provider,
             string.IsNullOrWhiteSpace(patch) ? null : patch,
             string.IsNullOrWhiteSpace(into) ? null : into,
             in_place, acknowledge);
@@ -416,7 +418,7 @@ static class NifWire
         AppendProviders(sb, d.Providers);
         if (d.Ambiguous)
             sb.Append("  note: more than one source provides this mesh — the winner above was read (loose beats BSA). " +
-                      "Pass mod= to inspect another provider's copy.\n");
+                      "Pass source_provider= to inspect another provider's copy.\n");
 
         sb.Append("  version: ").Append(nif.VersionString.Length > 0 ? nif.VersionString : "(unknown)")
           .Append("  user ").Append(nif.UserVersion).Append(" stream ").Append(nif.StreamVersion)
@@ -465,7 +467,7 @@ static class NifWire
 
     static void AppendProviders(StringBuilder sb, IReadOnlyList<NifProvider> providers)
     {
-        // Nothing ACTIVE provides the path — routine once mod= can reach a copy the game is not loading. Say that
+        // Nothing ACTIVE provides the path — routine once source_provider= can reach a copy the game is not loading. Say that
         // rather than print a chain header with nothing after it.
         if (providers.Count == 0) { sb.Append("  providers: none — nothing in the active load order supplies this path\n"); return; }
         sb.Append("  providers (").Append(providers.Count).Append("): ");
@@ -806,7 +808,7 @@ static class NifSetWire
         if (d.Edited?.Provenance is { } prov) sb.Append("  [!] ").Append(prov).Append(".\n");
         AppendProviders(sb, d.Providers);
         if (d.Ambiguous)
-            sb.Append("  note: more than one source provides this mesh — the winner above was edited (loose beats BSA). Pass mod= to edit another copy.\n");
+            sb.Append("  note: more than one source provides this mesh — the winner above was edited (loose beats BSA). Pass source_provider= to edit another copy.\n");
 
         sb.Append("\n  applied + VERIFIED (two gates: only the op's block/header changed; reload re-reads the value; census intact):\n");
         foreach (var o in d.Report.Ops)
@@ -823,12 +825,12 @@ static class NifSetWire
             sb.Append("\n  IN-PLACE: overwrote ").Append(d.InPlacePath).Append(" (your original — no houseCARL backup).");
             sb.Append(d.EditedIsWinner
                 ? " The edit is live where the file already wins the VFS.\n"
-                : " NOTE: you edited a copy that another provider currently SHADOWS (you passed mod=), so this is not the winning copy in game until that changes.\n");
+                : " NOTE: you edited a copy that another provider currently SHADOWS (you passed source_provider=), so this is not the winning copy in game until that changes.\n");
         }
         else
         {
             sb.Append("\n  wrote the verified mesh into a new mod folder: ").Append(d.OutputModFolder).Append('\n');
-            // mod= is answered ahead of the ABSENT return, so a successful write can land with NO current winner —
+            // source_provider= is answered ahead of the ABSENT return, so a successful write can land with NO current winner —
             // the donor was off-order and nothing active supplied the path. There is nothing to sort above then, and
             // saying so would name a winner that does not exist. Same branch place_asset's render already has.
             if (d.CurrentWinner is null)

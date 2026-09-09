@@ -8,7 +8,7 @@ namespace HousecarlGenerator;
 /// over a synthetic MO2 instance whose mod names are deliberately hostile (a space, parentheses, an apostrophe).
 ///
 /// <para>#340 — ROUND TRIP. Every provider name the tool prints is taken back out of the rendered chain and fed
-/// straight into <c>mod=</c>, and each one must select that provider. A substring check would not catch the bug this
+/// straight into <c>source_provider=</c>, and each one must select that provider. A substring check would not catch the bug this
 /// guards: the old render printed <c>SomeMod (loose)</c>, which contains the accepted <c>SomeMod</c> and refuses when
 /// passed back. The chain is parsed by the DELIMITER, so the arm fails the moment the printed token stops being the
 /// accepted one.</para>
@@ -38,7 +38,7 @@ internal static class NifSourceLaneProbe
     const string OffRel = @"meshes\actors\character\facegendata\facegeom\Test.esp\00000002.nif";
 
     // #545's own fixture: a mesh whose ONLY copy is loose inside a mod MO2 is not loading, so nothing active
-    // provides the path and a successful mod= write lands with no current winner.
+    // provides the path and a successful source_provider= write lands with no current winner.
     const string SoleMod = "Sole Donor";
     const string SoleRel = @"meshes\hcprobe\sole-donor.nif";
 
@@ -46,7 +46,7 @@ internal static class NifSourceLaneProbe
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");
-        Console.WriteLine(" nif source-lane guard — mod= round trip, reach, and npc=");
+        Console.WriteLine(" nif source-lane guard — source_provider= round trip, reach, and npc=");
         Console.WriteLine("================================================================");
         Console.WriteLine();
         int fail = 0;
@@ -89,25 +89,25 @@ internal static class NifSourceLaneProbe
                   $"the names come out of the chain by DELIMITER, hostile characters intact — [{string.Join(" | ", printed)}]");
             foreach (var name in printed)
             {
-                var back = HousecarlMcp.NifTools.NifInspect(svc, new[] { FaceRel }, mod: name);
+                var back = HousecarlMcp.NifTools.NifInspect(svc, new[] { FaceRel }, source_provider: name);
                 Check(back.Contains("read from: \"" + name + "\""),
                       $"round trip: the printed '{name}' selects that provider — {Line(back, "read from") ?? Line(back, "does not supply")}");
             }
             // The old render's spelling must NOT be accepted silently as something else: it is not a provider name.
-            var annotated = HousecarlMcp.NifTools.NifInspect(svc, new[] { FaceRel }, mod: LooseMod + " (loose)");
+            var annotated = HousecarlMcp.NifTools.NifInspect(svc, new[] { FaceRel }, source_provider: LooseMod + " (loose)");
             Check(annotated.Contains("does not supply") && !annotated.Contains("read from:"),
                   "the kind annotation is NOT part of the name — passing it refuses rather than resolving anyway");
 
             // ---- #388: naming a mod reaches its own archives, ticked or not ----
             Console.WriteLine();
             Console.WriteLine("--- #388: a mod's name reaches its loose files AND its own root archives ---");
-            var byMod = HousecarlMcp.NifTools.NifInspect(svc, new[] { FaceRel }, mod: BsaOnlyMod);
+            var byMod = HousecarlMcp.NifTools.NifInspect(svc, new[] { FaceRel }, source_provider: BsaOnlyMod);
             Check(byMod.Contains("read from:") && !byMod.Contains("does not supply"),
                   $"an ENABLED mod whose only copy is in its own .bsa is reached by naming the MOD — {Line(byMod, "read from") ?? Line(byMod, "does not supply")}");
 
             var absent = HousecarlMcp.NifTools.NifInspect(svc, new[] { OffRel });
-            Check(absent.Contains("ABSENT"), "the second mesh is ABSENT with no mod= (nothing active provides it)");
-            var offRead = HousecarlMcp.NifTools.NifInspect(svc, new[] { OffRel }, mod: OffMod);
+            Check(absent.Contains("ABSENT"), "the second mesh is ABSENT with no source_provider= (nothing active provides it)");
+            var offRead = HousecarlMcp.NifTools.NifInspect(svc, new[] { OffRel }, source_provider: OffMod);
             Check(offRead.Contains("read from:") && !offRead.Contains("ABSENT"),
                   $"naming an UNTICKED mod reads out of its own root archive, and never reports the mesh ABSENT — {Line(offRead, "read from") ?? Line(offRead, "ABSENT")}");
 
@@ -115,7 +115,7 @@ internal static class NifSourceLaneProbe
             // is not, so the response has to SAY which of the two reasons applies.
             Check(offRead.Contains("NOT enabled in MO2") && offRead.Contains(OffMod),
                   $"…and SAYS the game is not loading that copy, naming the mod — {Line(offRead, "[!]") ?? "(no provenance line — BUG)"}");
-            var byModOut = HousecarlMcp.NifTools.NifInspect(svc, new[] { FaceRel }, mod: BsaOnlyMod);
+            var byModOut = HousecarlMcp.NifTools.NifInspect(svc, new[] { FaceRel }, source_provider: BsaOnlyMod);
             Check(!byModOut.Contains("[!] read from"),
                   "an ENGINE-LOADED archive reached by its mod's name carries NO off-order note — it is what the game loads");
             // in_place would overwrite an original the caller reached by naming a mod, under a handshake written
@@ -126,16 +126,16 @@ internal static class NifSourceLaneProbe
                   $"in_place refuses a copy the game is not loading — {ipOff.Error ?? "(OVERWROTE IT — BUG)"}");
 
             // The winner pole, which the refusal's own tail teaches, has to be accepted where it is taught.
-            var pole = HousecarlMcp.NifTools.NifInspect(svc, new[] { FaceRel }, mod: HousecarlCore.AssetSourceChoice.WinnerToken);
+            var pole = HousecarlMcp.NifTools.NifInspect(svc, new[] { FaceRel }, source_provider: HousecarlCore.AssetSourceChoice.WinnerToken);
             Check(pole.Contains("read from: \"" + LooseMod + "\""),
                   $"'*winner' selects the VFS winner, as the refusal's tail says it does — {Line(pole, "read from") ?? Line(pole, "does not supply")}");
 
-            var noSuch = HousecarlMcp.NifTools.NifInspect(svc, new[] { FaceRel }, mod: "NoSuchMod");
+            var noSuch = HousecarlMcp.NifTools.NifInspect(svc, new[] { FaceRel }, source_provider: "NoSuchMod");
             Check(noSuch.Contains("'NoSuchMod' does not supply") && noSuch.Contains("no MO2 mod folder of that name")
                   && !noSuch.Contains("ABSENT"),
                   $"a name with no folder behind it refuses by NAME and says where it looked — {Line(noSuch, "does not supply")}");
 
-            // nif_set answers mod= through the same lane — the pair has drifted before.
+            // nif_set answers source_provider= through the same lane — the pair has drifted before.
             var setByMod = svc.NifSet(FaceRel, new[] { new NifSetOp(NifSetOpKind.SetFlags, "GuardShape", Flags: 0x800000E) },
                                       BsaOnlyMod, "NifLane", null, inPlace: false, acknowledge: false);
             // The provider is still the ARCHIVE — that is what supplies the bytes; naming the mod is how it was
@@ -162,11 +162,11 @@ internal static class NifSourceLaneProbe
             Check(badNpc.StartsWith("error:") && badNpc.Contains("not-a-formid"),
                   $"a malformed npc FormID is refused by name — {badNpc}");
 
-            // ---- #545: the caveats a mod= answer must not suppress, and the sole-provider write ----
+            // ---- #545: the caveats a source_provider= answer must not suppress, and the sole-provider write ----
             // Its own instance: a build with an unreadable archive puts the word "ABSENT" in the batch-level
             // read-failure alarm, which the arms above assert the absence of.
             Console.WriteLine();
-            Console.WriteLine("--- #545: an incomplete scan still hedges under mod=, and a sole provider has no winner ---");
+            Console.WriteLine("--- #545: an incomplete scan still hedges under source_provider=, and a sole provider has no winner ---");
             {
                 var inst2 = Path.Combine(root, "inst-545");
                 var (mods2, _, prof2) = NifSetGuardProbe.MakeInstance(inst2);
@@ -187,30 +187,30 @@ internal static class NifSourceLaneProbe
                 NifSetGuardProbe.WriteSkyrimIni(prof2);
                 using var svc2 = HousecarlMcp.LoadOrderService.WithInstance(inst2, 0, new UserConfigStore(Path.Combine(root, "u545.json")));
 
-                // The fixture's premise, measured: the build really did fail to read an archive, and the no-mod=
+                // The fixture's premise, measured: the build really did fail to read an archive, and the no-source_provider=
                 // ABSENT already hedges on it. Without this the arm below could pass for the wrong reason.
                 var plain = HousecarlMcp.NifTools.NifInspect(svc2, new[] { SoleRel });
                 Check(plain.Contains("could NOT be read this build") && plain.Contains("may be incomplete"),
                       $"the fixture's scan really is incomplete, and a plain ABSENT hedges on it — {Line(plain, "may be incomplete") ?? "(no hedge — fixture BUG)"}");
 
-                // The bug: mod='*winner' over an empty universe is the SAME absence, and the hedge is keyed on the
-                // per-mesh Absent flag, which the mod= error path never set.
+                // The bug: source_provider='*winner' over an empty universe is the SAME absence, and the hedge is keyed on the
+                // per-mesh Absent flag, which the source_provider= error path never set.
                 var poleAbsent = HousecarlMcp.NifTools.NifInspect(svc2, new[] { SoleRel },
-                                                                  mod: HousecarlCore.AssetSourceChoice.WinnerToken);
+                                                                  source_provider: HousecarlCore.AssetSourceChoice.WinnerToken);
                 Check(poleAbsent.Contains("ABSENT — no active mod or BSA provides"),
                       $"the winner pole over an empty universe is still an ABSENT — {Line(poleAbsent, "no active mod or BSA provides")}");
                 Check(poleAbsent.Contains("may be incomplete"),
                       $"…and it carries the same scan-incomplete hedge the plain ABSENT does  [RED arm] — {Line(poleAbsent, "may be incomplete") ?? "(no hedge — the caveat was suppressed)"}");
 
                 // A NAMED miss is not an ABSENT: it says which mod, and carries its own inline scan caveat instead.
-                var namedMiss = HousecarlMcp.NifTools.NifInspect(svc2, new[] { SoleRel }, mod: "NoSuchMod545");
+                var namedMiss = HousecarlMcp.NifTools.NifInspect(svc2, new[] { SoleRel }, source_provider: "NoSuchMod545");
                 Check(!namedMiss.Contains("no active mod or BSA provides") && namedMiss.Contains("does not supply"),
                       $"…while a named miss stays a named miss, not an ABSENT — {Line(namedMiss, "does not supply")}");
 
-                // Finding 4: mod= is answered ahead of the ABSENT return, so a successful write can land with NO
+                // Finding 4: source_provider= is answered ahead of the ABSENT return, so a successful write can land with NO
                 // current winner at all. The render must not then tell the caller to sort above one.
                 var soleSet = HousecarlMcp.NifTools.NifSet(svc2, mesh_path: SoleRel, op: "set_flags", target: "GuardShape",
-                                                           flags: "0x800000E", mod: SoleMod, patch: "NifSole");
+                                                           flags: "0x800000E", source_provider: SoleMod, patch: "NifSole");
                 Check(soleSet.Contains("wrote the verified mesh into a new mod folder"),
                       $"nif_set writes a sole off-order provider's copy — {Line(soleSet, "wrote the verified") ?? Line(soleSet, "error") ?? "(no write line)"}");
                 Check(!soleSet.Contains("the current winner"),

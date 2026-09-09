@@ -183,7 +183,7 @@ internal static class NifServiceGuardProbe
         Check(abs.Contains("could NOT be read")
               && abs.IndexOf("could NOT be read", StringComparison.Ordinal) < abs.IndexOf("ABSENT", StringComparison.Ordinal),
               "the read-failure alarm renders BEFORE the ABSENT error (a Q3 alarm can't be buried)");
-        Check(abs.Contains("\"ModA\" (loose) > \"Base.bsa\" (BSA)"), "the error path still shows the winner→loser provider chain, each name inside the delimiter mod= takes");
+        Check(abs.Contains("\"ModA\" (loose) > \"Base.bsa\" (BSA)"), "the error path still shows the winner→loser provider chain, each name inside the delimiter source_provider= takes");
 
         var amb = NifWire.Render(FakeData(FakeInspect(1, 0, false, Array.Empty<string>()), null, ambiguous: true), summaryOnly, Array.Empty<string>(), 80_000);
         Check(amb.Contains("more than one source"), "ambiguity is surfaced as a note");
