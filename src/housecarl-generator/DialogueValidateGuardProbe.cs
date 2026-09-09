@@ -9,7 +9,7 @@ namespace HousecarlGenerator;
 
 /// <summary>
 /// SELF-CONTAINED CI REGRESSION GUARD for the on-demand dialogue-graph validator (nested-dialogue plan §3.6, Layer B
-/// unit C part C2 — housecarl_validate_dialogue). Drives the REAL core path (DialogueValidate.Run) against a SYNTHESIZED
+/// unit C part C2 — the dialogue findings family). Drives the REAL core path (DialogueValidate.Run) against a SYNTHESIZED
 /// master in TEMP — NO Skyrim.esm, so it runs in CI. The master carries one topic per validation shape, a quest that
 /// owns two topics (the fan-out), a weapon (the wrong-type reject) + a not-in-order FormKey (the absent reject).
 /// Run: dotnet run --project src/housecarl-generator -- dialogue-validate-guard

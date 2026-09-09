@@ -7,7 +7,7 @@ namespace HousecarlCore;
 /// <summary>
 /// The effect-chain resolver: given a MagicEffect (MGEF), find every record that APPLIES it and the
 /// magnitude/area/duration of the matching effect entry. It collapses the hand-trace
-/// "cross_plugin_query references=&lt;MGEF&gt; type=SPEL → read each hit's Effects[].Data → keep the entry whose
+/// "scan references=&lt;MGEF&gt; types=SPEL → read each hit's Effects[].Data → keep the entry whose
 /// BaseEffect is the MGEF, then repeat for ENCH/ALCH/SCRL/INGR" into one call. The inverse-by-magnitude of
 /// references=: that says WHICH carriers reference the effect; this says which entry, and at what strength.
 ///
@@ -121,7 +121,7 @@ public static class EffectChain
         {
             foreach (var (fk, _, body) in view.WinnerRecordsOfType(scope, unreadable))
             {
-                // PER-RECORD FAULT ISOLATION (twin of the cross_plugin_query scan): Match lazily parses subrecord
+                // PER-RECORD FAULT ISOLATION (twin of the records scan): Match lazily parses subrecord
                 // content, so ONE record Mutagen can't parse is excluded + accounted, not an opaque whole-call abort.
                 try
                 {

@@ -8,7 +8,7 @@ using HousecarlCore;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// Build proof for <see cref="WritePatchBuilder.RemoveRecords"/>, the core the <c>housecarl_remove_record</c> tool
+/// Build proof for <see cref="WritePatchBuilder.RemoveRecords"/>, the core the <c>housecarl_remove</c> tool
 /// calls. It must drive the same code path the tool does, or it proves nothing about it. Each check SEEDS a patch
 /// carrying real override(s) — the only records a removal can target — then removes through the core and re-reads
 /// from disk:

@@ -3,7 +3,8 @@ namespace HousecarlMcp;
 /// <summary>The retired tool names and the successor each call is redirected to in words. The old → new
 /// PARAMETER table that stood beside them was build scaffolding and was deleted at 2.0.0 (SPEC §5.4
 /// amendment 2026-09-06): a 1.x parameter name is now refused by name like any other unknown one. These rows
-/// stay, because a call to a 1.x TOOL name is the error rule applied to an unknown name, not old-name
+/// TOOL-name rows are NOT scaffolding and have no removal date — they stay past 2.0.0, because a call to a
+/// 1.x TOOL name is the error rule applied to an unknown name, not old-name
 /// acceptance — nothing is accepted, redirected or executed, the call is refused with one sentence naming its
 /// 2.0 successor. Without them the caller gets the SDK's bare "Unknown tool" and no way forward.</summary>
 internal static class AliasTable

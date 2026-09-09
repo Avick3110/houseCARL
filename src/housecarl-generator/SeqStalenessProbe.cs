@@ -6,7 +6,7 @@ using HousecarlCore;
 namespace HousecarlGenerator;
 
 /// <summary>
-/// SELF-CONTAINED CI REGRESSION GUARD for the SEQ staleness/coverage lint (1.3.1 item 7 — housecarl_validate_dialogue).
+/// SELF-CONTAINED CI REGRESSION GUARD for the SEQ staleness/coverage lint (1.3.1 item 7 — the dialogue findings family).
 /// Drives the REAL core path (DialogueValidate.Run) over a synthetic load order of base masters — each with a
 /// start-game-enabled quest — plus planted / omitted / aged .seq files under a temp Data root. NO Skyrim.esm, so it
 /// runs in CI. Asserts the per-quest SeqLintFinding the validator attaches to the report.

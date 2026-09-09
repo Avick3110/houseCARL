@@ -8,7 +8,7 @@ namespace HousecarlGenerator;
 
 /// <summary>
 /// REGRESSION GUARD (standing CI instrument) for the winner-vs-source DISPLAY fix (session-review wishlist #8):
-/// <c>cross_plugin_query</c>'s per-match render must show the body the scan FILTERED — under <c>plugins=[X]</c> the
+/// the records scan's per-match render must show the body the scan FILTERED — under <c>plugins=[X]</c> the
 /// scoped plugin's OWN override, under <c>type=</c> the load-order winner — and never silently the winner under a
 /// <c>plugins=</c> scope (the pre-existing bug: filter on X's value, display the winner's, which can CONTRADICT the
 /// filter you typed).

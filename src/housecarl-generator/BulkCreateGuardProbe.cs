@@ -14,7 +14,8 @@ namespace HousecarlGenerator;
 /// synthetic MO2 instance in temp (the write-mutex-guard synth pattern: real ModOrganizer.ini + profile + a master
 /// mod), so the wire's NEW logic (type resolution from a string, parent/collection passthrough, per-record batch
 /// aggregation, MO2 folder-per-patch output) runs end-to-end. (The MCP argument binding above the service is generic
-/// SDK + already covered by binding-shim-guard; this drives the service methods directly, as write-mutex-guard does.)
+/// SDK + covered by the binding-shim tests in housecarl-mcp-tests; this drives the service methods directly, as
+/// write-mutex-guard does.)
 /// Run: dotnet run --project src/housecarl-generator -- bulk-create-guard
 ///
 /// Arms (ALL required):

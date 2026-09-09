@@ -33,7 +33,7 @@ namespace HousecarlCore;
 ///   • its FormKey — <see cref="RemapEngine.IdentifyExternalReferencers"/>'s external-OVERRIDER test is identity-only
 ///     (a deleted override of a record about to be renumbered is still a dependent worth warning about), so it runs
 ///     BEFORE this guard, not behind it.
-///   • its EditorID — cross_plugin_query's editoridContains= filter stays live (EDID is an early subrecord, read
+///   • its EditorID — the scan's editorid-contains filter stays live (EDID is an early subrecord, read
 ///     before the deep body parse that can throw).
 ///
 /// CONSEQUENCE: a deleted record whose body DOES parse and DOES link to a searched target is not returned by

@@ -189,9 +189,9 @@ public static class ReadEngine
 
     /// <summary>The depth-1 container hint: appended to an unexpanded container/substruct summary so an agent turns
     /// the depth= knob instead of inventing a param. It names <c>depth=2</c>, which is only honest on a surface that
-    /// HAS a depth= parameter (read_record / batch_record_detail / read_plugin_file / cross_plugin_query text+json /
-    /// the CLI). A caller whose surface refuses depth passes its own redirect via <c>containerHint</c>
-    /// (cross_plugin_query's DENSE render names the text/json format hop — its positional cells refuse depth&gt;1),
+    /// HAS a depth= parameter (housecarl_records' read and scan lanes in text+json, and the CLI).
+    /// A caller whose surface refuses depth passes its own redirect via <c>containerHint</c>
+    /// (the scan's DENSE render names the text/json format hop — its positional cells refuse depth&gt;1),
     /// or null to suppress it (write read-backs, where the count IS the confirmation).</summary>
     public const string DepthExpandHint = " — pass depth=2 to expand";
 

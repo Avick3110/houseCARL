@@ -5,10 +5,10 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlCore;
 
 /// <summary>
-/// The load-order integrity sweep (housecarl_check_errors): the data-layer twin of the Creation Kit's "Check For
+/// The load-order integrity sweep (the errors family on housecarl_check): the data-layer twin of the Creation Kit's "Check For
 /// Errors" / xEdit's error check. For each plugin in scope it walks EVERY record's FormLinks (Mutagen's own
 /// <see cref="IFormLinkContainerGetter.EnumerateFormLinks"/> — the by-construction link surface, the same one
-/// cross_plugin_query references= rides) and reports three error classes:
+/// the records scan's references= filter rides) and reports three error classes:
 ///   • DANGLING — a non-null FormLink whose target NO plugin in the active order defines (<see cref="LoadOrderResolver.IndexView.ResolveWinner"/>
 ///     is null): a broken reference in the resolvable order. Engine-implicit forms (PlayerRef 000014, Player 000007 —
 ///     hardcoded refs the index can't resolve but that are never actually broken) are exempted via <see cref="EngineImplicit"/>,
@@ -20,7 +20,7 @@ namespace HousecarlCore;
 ///     (<see cref="LoadOrderResolver.IndexView.ContainsPlugin"/> is false): the plugin's dependency is not installed /
 ///     enabled, the most common load-order break (and the root cause behind a cluster of that master's refs dangling).
 ///   • PARSE failures — per-record (a body whose link walk THROWS is excluded and accounted, never a silent skip — the
-///     fault-isolation twin of the cross_plugin_query scan) and whole-plugin (plugins the index build could not parse,
+///     fault-isolation twin of the records scan) and whole-plugin (plugins the index build could not parse,
 ///     surfaced via <see cref="LoadOrderResolver.IndexView.ExcludedPlugins"/>).
 ///
 /// WHY NOT the master-TABLE diff the CK/xEdit also show (declared-vs-used) — the honest scope boundary:
@@ -266,7 +266,7 @@ public static class ErrorCheck
                              ? view.RecordsIn(new[] { plugin }, recordScope?.Types)
                              : Enumerable.Empty<(FormKey, int, IMajorRecordGetter, string)>())
                 {
-                    // PER-RECORD FAULT ISOLATION (twin of the cross_plugin_query scan): EnumerateFormLinks lazily
+                    // PER-RECORD FAULT ISOLATION (twin of the records scan): EnumerateFormLinks lazily
                     // parses subrecord content, so ONE record Mutagen can't parse is excluded and accounted, never an
                     // opaque whole-call abort and never a silent skip.
                     try

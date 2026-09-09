@@ -150,7 +150,7 @@ if (args.Length > 0 && args[0] == "remove-create-probe") return RemoveCreateProb
 // Remove-record recon: whole-record removal via mod.Remove(FormKey) — flat, nested, and not-found semantics.
 if (args.Length > 0 && args[0] == "remove-record-probe") return RemoveRecordProbe.RunProbe(args[1..]);
 
-// Drive WritePatchBuilder.RemoveRecords, the core housecarl_remove_record calls, against a real, large load order.
+// Drive WritePatchBuilder.RemoveRecords, the core housecarl_remove calls, against a real, large load order.
 if (args.Length > 0 && args[0] == "remove-proof") return RemoveProof.RunRemoveProof(args[1..]);
 
 // Create recon: generic AddNew dispatch, FormID allocation, fields-via-ApplyVerb, and the nested/abstract-T scope fork.

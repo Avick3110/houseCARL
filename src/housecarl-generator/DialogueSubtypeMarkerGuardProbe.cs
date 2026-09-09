@@ -13,7 +13,7 @@ namespace HousecarlGenerator;
 ///   • the authoritative index→marker table (DialogueSubtype) — structural shape + the reporter-confirmed anchors,
 ///   • the create-path AUTO-FILL — create a topic through the service and read the written SNAM back off disk,
 ///   • the create-path NON-OVERRIDE — an explicit SubtypeName is never clobbered,
-///   • the validator ESCALATION — housecarl_validate_dialogue reports a blank marker as a PROBLEM, not a neutral fact.
+///   • the validator ESCALATION — the dialogue validator reports a blank marker as a PROBLEM, not a neutral fact.
 /// Driven over a synthetic MO2 instance in temp (the bulk-create-guard synth pattern; no game files needed).
 /// Run: dotnet run --project src/housecarl-generator -- dialogue-subtype-marker-guard
 ///

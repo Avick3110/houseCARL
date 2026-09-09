@@ -9,12 +9,12 @@ namespace HousecarlGenerator;
 /// REGRESSION GUARD for <see cref="ToolSchemas"/>'s <c>$ref</c> flattening (#451) — the MECHANISM. Most arms run
 /// over synthetic documents; ARM 6 drives the real strict reader and ARM 7 reads every registered tool's real
 /// pre-flatten schema, so the scope is no longer synthetic throughout.
-/// <c>binding-shim-guard</c>'s SCHEMA arms cover the invariant on the real published surface, which
+/// <c>PublishedSchemaShapeTests</c> covers the no-<c>$ref</c> invariant on the real served surface, which
 /// exercises only the one shape today's DTOs generate (a positional back-reference carrying a description and an
 /// empty <c>items</c> placeholder). Three of the cases below — <c>$defs</c> recursion, mutual recursion, an
 /// unresolvable pointer — have no end-to-end producer and would otherwise ship unproven. The placeholder-sibling
 /// merge (ARM 4) DOES have one: 20 of the 30 pre-fix published refs carried that empty <c>items</c>, and deleting
-/// the merge reddens <c>binding-shim-guard</c> unaided. It is kept here because this is where the merge rule is
+/// the merge reddens that suite unaided. It is kept here because this is where the merge rule is
 /// stated, not because nothing else would catch it.
 ///
 /// These arms pin the mechanism's stated behaviour; they do NOT establish general JSON Schema conformance. What is
