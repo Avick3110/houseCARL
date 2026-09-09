@@ -189,6 +189,61 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenWorld>
     }
 
     [Fact]
+    public void ARelativeToFilePathIsRefusedBeforeAnythingIsWritten()
+    {
+        var refusal = CheckTools.CheckTool(_w.Svc, findings: new[] { "facegen" }, to_file: "facegen.jsonl");
+        Assert.Contains("must be an ABSOLUTE path", refusal, StringComparison.Ordinal);
+        Assert.False(File.Exists("facegen.jsonl"));
+    }
+
+    [Fact]
+    public void AToFileSweepWhoseOnlyFamilyRefusedSaysWhyAndWritesNothing()
+    {
+        var path = Path.Combine(_w.Root, "refused.jsonl");
+        var refusal = CheckTools.CheckTool(_w.Svc, findings: new[] { "facegen" },
+                                           exclude: new[] { "HcFgNoSuch.esp" }, to_file: path, max_chars: 60000);
+        Assert.Contains("not in the scope this facegen sweep would cover", refusal, StringComparison.Ordinal);
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public void AToFileSweepStatesARefusedFamilysGroundBesideTheFamiliesThatRan()
+    {
+        // The dialogue family refuses on cost with no seeds=; the facegen family beside it still answers, so the
+        // artifact keeps its rows and the manifest render carries the refusal rather than only the boundary.
+        var path = Path.Combine(_w.Root, "mixed.jsonl");
+        var text = CheckTools.CheckTool(_w.Svc, findings: new[] { "facegen", "dialogue" },
+                                        to_file: path, max_chars: 60000);
+        Assert.Contains("spilled:", text, StringComparison.Ordinal);
+        Assert.Contains("seeds=", text, StringComparison.Ordinal);
+        Assert.True(File.Exists(path));
+        Assert.Contains(File.ReadAllLines(path).Skip(1).Where(l => l.Length > 0),
+                        l => JsonDocument.Parse(l).RootElement.GetProperty("family").GetString() == "facegen");
+    }
+
+    [Fact]
+    public void TheDefaultSweepPointsAtTheSpellingThatListsTheWithheldBenignRows()
+    {
+        var whole = Sweep("facegen");
+        Assert.Contains("are NOT listed", whole, StringComparison.Ordinal);
+        Assert.Contains("findings=[\"family_split\"]", whole, StringComparison.Ordinal);
+        // Named explicitly, the rows are listed and the note becomes the inference caveat instead.
+        var named = Sweep("family_split");
+        Assert.DoesNotContain("are NOT listed", named, StringComparison.Ordinal);
+        Assert.Contains("NAME-BASED inference", named, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AForeignIndexMeshIsNotVouchedForByACanonicalTintOfTheSameLocalId()
+    {
+        // facegeom\...\05<id>.nif beside facetint\...\00<id>.dds: two trees, one master folder name. The .dds is
+        // not the .nif's canonical file, so the mesh is still a foreign-index bake.
+        var name = "05" + _w.Npcs["HcFgMeshAbsent"].ID.ToString("X6") + ".nif";
+        var text = Sweep("foreign_index");
+        Assert.Contains(name, text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ToFileBesideCountsOnlyIsRefusedByName()
     {
         var refusal = CheckTools.CheckTool(_w.Svc, findings: new[] { "facegen" }, counts_only: true,

@@ -125,6 +125,10 @@ public sealed class FaceGenWorld : IDisposable
         Loose(baseDir, GeomDir(OffOrderFolder) + @"\00000801.nif");             // a folder for a plugin not loaded
         Loose(baseDir, GeomDir(MasterName) + @"\notahexname.nif");              // not the eight-hex form
         Loose(baseDir, GeomDir(MasterName) + "\\05" + keys["HcFgBakeAbsent"].ID.ToString("X6") + ".nif");
+        // A foreign-index MESH whose local id has a canonical file in the TINT tree only. The two trees share a
+        // master folder name, so a canonical set keyed by folder alone would let the .dds vouch for this .nif and
+        // the bake would surface as mesh_absent — whose fix is the wrong repair for a file that needs renaming.
+        Loose(baseDir, GeomDir(MasterName) + "\\05" + keys["HcFgMeshAbsent"].ID.ToString("X6") + ".nif");
 
         File.WriteAllText(Path.Combine(profile, "loadorder.txt"),
             "# header\r\n" + MasterName + "\r\n" + OverhaulName + "\r\n");
