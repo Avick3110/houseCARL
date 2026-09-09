@@ -81,8 +81,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **A FormID token now spells its plugin the way the file is spelled on disk, in every read.** A link's plugin
   used to be spelled from the master list of whatever plugin held the link, and a token you passed in was echoed
   as you typed it, so the same record could come back as `Skyrim.esm` in one read and `skyrim.esm` in another and
-  a join of two outputs missed those rows. Every token, and the `defined_in` grouping key, now prints the load
-  order's own spelling; a plugin the active order does not carry keeps the spelling it arrived with.
+  a join of two outputs missed those rows. Every token now prints the load order's own spelling, and a
+  `defined_in` group is labelled with that spelling instead of whichever one arrived first — the counts were
+  never split, since the grouping already ignored case, but the label a caller joins on was unstable. A plugin
+  the active order does not carry keeps the spelling it arrived with.
 - **`open-animation-replacer` now states how a DAR `_conditions.txt` chain binds, and that the DAR weapon-type
   numbers convert unchanged.** Both were marked unverified in its reference, and the skill told you to convert
   under one reading and say which. Both are now read off OAR's own source; the reference's §8 carries the rule,
