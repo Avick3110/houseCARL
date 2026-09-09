@@ -355,8 +355,9 @@ public static class MergeServiceGuardProbe
                     "MERGE no header-loss notes when no donor carried any of those header properties");
                 Check(rendered.Contains("Want it light?"),
                     "MERGE keeps the closing compact pointer when no qualified ESL note replaced it");
-                Check(Path.GetFileName(Path.GetDirectoryName(o.OutputPath))!.EndsWith(" merged"),
-                    $"MERGE mod folder defaults to '<output> merged' ({Path.GetFileName(Path.GetDirectoryName(o.OutputPath))})");
+                Check(Path.GetFileName(Path.GetDirectoryName(o.OutputPath)) == "houseCARL - HcMgMerged"
+                      && Path.GetFileName(o.OutputPath) == "HcMgMerged.esp",
+                    $"MERGE folder and plugin both take patch= ({Path.GetFileName(Path.GetDirectoryName(o.OutputPath))}\\{Path.GetFileName(o.OutputPath)})");
                 // ASSETS: facegen pair + voice under the MERGED plugin-name folders; .seq regenerated (A shipped one).
                 var outDir = Path.GetDirectoryName(o.OutputPath)!;
                 var newFace = FaceGenPath.Both(new FormKey(mergedKey, 0xA20)).ToList();
@@ -485,8 +486,9 @@ public static class MergeServiceGuardProbe
                     "RENAME external-referencer remedy leads with re-point, combining offered second");
                 Check(rendered1.Contains("Rebuild them against 'HcMgRenamed.esp'"),
                     "RENAME external-overrider remedy leads with rebuild");
-                Check(Path.GetFileName(Path.GetDirectoryName(o1.OutputPath))!.EndsWith(" renamed"),
-                    $"RENAME mod folder defaults to '<output> renamed' ({Path.GetFileName(Path.GetDirectoryName(o1.OutputPath))})");
+                Check(Path.GetFileName(Path.GetDirectoryName(o1.OutputPath)) == "houseCARL - HcMgRenamed"
+                      && Path.GetFileName(o1.OutputPath) == "HcMgRenamed.esp",
+                    $"RENAME folder and plugin both take patch= ({Path.GetFileName(Path.GetDirectoryName(o1.OutputPath))}\\{Path.GetFileName(o1.OutputPath)})");
                 Check(rendered1.Contains("existing SAVES") && rendered1.Contains("deactivate the donor PLUGINS"),
                     "RENAME still carries the saves warning and the MO2 swap instruction");
 

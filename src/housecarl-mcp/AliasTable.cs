@@ -45,8 +45,9 @@ internal static class AliasTable
         // plugin_name becomes patch, else a plugin scope word. `source` goes last so a tool declaring both a
         // scope word and the pole keeps getting the scope word.
         // `patch` is suppressed on every tool where it names something other than a plugin: the output FOLDER on
-        // write_seq, place, compact_plugin, compile_script, decompile_script and nif_set, and the .bsa on
-        // bsa_repack. On all of them plugin_name= would silently name that artifact after a plugin.
+        // write_seq, place, compact_plugin, compile_script, decompile_script, nif_set and bsa_repack. On all of
+        // them plugin_name= would silently name that folder — and on bsa_repack the .bsa that takes its name —
+        // after a plugin. merge_plugins is NOT here: its folder's name IS the merged plugin's name.
         new("pluginname",  new[] { "patch", "plugins", "plugin", "pluginnames", "source" },
             ExceptTools: new[]
             {
@@ -66,9 +67,10 @@ internal static class AliasTable
         new("type",  new[] { "types" }),
         new("types", new[] { "type" }),
 
-        // One name for the new artifact: patch. merge_plugins and bsa_repack now declare patch outright (the
-        // merged plugin, the .bsa), so the retired output= and archive_name= reach it directly; the order below
-        // is kept for the tools still carrying an old spelling.
+        // One name for the new artifact: patch. On merge_plugins and bsa_repack patch= names the output mod
+        // FOLDER and the artifact inside takes that folder's name, so the two readings coincide and the retired
+        // output= and archive_name= reach patch directly rather than being suppressed as they are on the tools
+        // where the folder and the artifact carry different names.
         // `patchname` also falls through to `into` because it is the habitual output spelling on every write
         // tool, so it must reach removal's into=. `archivename`/`output` do not: each names one specific tool's
         // artifact, neither of which is a removal habit.

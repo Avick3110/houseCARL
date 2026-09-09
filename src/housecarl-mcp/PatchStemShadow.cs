@@ -17,11 +17,10 @@ namespace HousecarlMcp;
 internal static class PatchStemShadow
 {
     /// <summary>The plugin file ONE fresh-write lane will emit, and the parameter that lane's caller changes to move
-    /// it. <paramref name="PluginFor"/> maps the stem being tried to that filename; <paramref name="FollowsStem"/>
-    /// says whether the filename actually varies with the stem — true on the record lane, which writes
-    /// "<c>&lt;stem&gt;.esp</c>", and false where the caller named the file outright, where stepping the suffix could
-    /// never clear a shadow. A lane that writes no plugin has no target and takes no shadow refusal.</summary>
-    internal readonly record struct Target(Func<string, string> PluginFor, bool FollowsStem, string Param);
+    /// it. <paramref name="PluginFor"/> maps the stem being tried to that filename, so the file follows the stem and
+    /// stepping the suffix can clear a shadow. A lane that writes no plugin has no target and takes no shadow
+    /// refusal.</summary>
+    internal readonly record struct Target(Func<string, string> PluginFor, string Param);
 
     /// <summary>Where <paramref name="file"/> would be shadowed, or null when nothing on the install holds that name.
     /// Searches the same layers a plugin read reaches — the overwrite folder, every mod folder enabled, disabled or
