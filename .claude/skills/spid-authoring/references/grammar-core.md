@@ -48,6 +48,13 @@ NPCs," not for editing a record's own fields — that's SkyPatcher's job, and it
 There are no per-type subfolders (unlike SkyPatcher) — all `*_DISTR.ini` live flat in `Data/`
 (commonly shipped inside a mod managed by a mod manager, but resolved from `Data/` at runtime).
 
+**Whether the scan descends into subfolders is unverified.** "No per-type subfolders" is a statement
+about SPID's layout, not about the scan: this corpus does not say whether a `_DISTR.ini` sitting in a
+subdirectory of `Data/` is found or ignored. SPID's own source, at the directory iteration behind the
+scan, would settle it. Until it is checked, **place the file flat in `Data/`** — that path is
+documented and works either way — and when auditing someone else's mod, report a `_DISTR.ini` found
+in a subfolder as "may not be read", not as broken and not as fine.
+
 Comments: standard INI line comments with **`;`** are supported — SPID reads configs through the
 **CSimpleIniA** library, whose default line-comment character is `;`. **[source]** (The `=` split and
 comment stripping are CSimpleIniA's, not SPID's own code.)
