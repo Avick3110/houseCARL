@@ -441,7 +441,7 @@ public static class WritePatchBuilder
         // two passes: resolve + harvest per edit, then validate every staged edit against the lookup the harvest fed.
         var linkTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var harvestRulebook = rulebook.WithLinkHarvest(linkTokens);
-        var staged = new List<(int order, PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label, IMajorRecordGetter? srcBody)>(edits.Count);
+        var staged = new List<(int order, PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label, IMajorRecordGetter? srcBody, string? harvestVerdict, bool carriesLinks)>(edits.Count);
         // Ordered, so a report mixing a resolve problem with a pre-flight one still reads in the caller's edit order
         // even though the two are decided in different passes.
         var problems = new List<(int Order, string Message)>();
@@ -536,18 +536,24 @@ public static class WritePatchBuilder
                 Key = e.Key, Value = e.Value, Values = e.Values, Entries = e.Entries, Struct = e.Struct, Structs = e.Structs,
             };
             var label = Label(req);
-            harvestRulebook.CollectLinkValues(req);
-            staged.Add((order, e, body, winnerPlugin, patchLocal, req, label, srcBody));
+            // The harvest walk IS a validate, so its verdict is kept along with whether this edit put anything in the
+            // sink — an edit that put nothing in needs no second walk (see the Phase 1b note).
+            var sunk = linkTokens.Count;
+            var harvestVerdict = harvestRulebook.CollectLinkValues(req);
+            staged.Add((order, e, body, winnerPlugin, patchLocal, req, label, srcBody, harvestVerdict, linkTokens.Count != sunk));
         }
 
         // --- Phase 1b: resolve the harvested link targets ONCE, then pre-flight every staged edit through the
-        //     rulebook that can type-check them. ---
+        //     rulebook that can type-check them. Only an edit that CONTRIBUTED a value is walked again: the sink takes
+        //     one at every point the link check decides, so an edit that contributed none was walked identically
+        //     already and the harvest's verdict is the pre-flight answer. The double walk is paid by the edits that
+        //     carry links, not by every edit in a 2000-op call. ---
         var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens);
         var linkRulebook = rulebook.WithLinkTargets(linkTypes);
         var resolved = new List<(PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label, IMajorRecordGetter? srcBody)>(staged.Count);
         foreach (var s in staged)
         {
-            if (linkRulebook.Validate(s.req) is { } reject)
+            if ((s.carriesLinks ? linkRulebook.Validate(s.req) : s.harvestVerdict) is { } reject)
             { problems.Add((s.order, $"{s.req.RecordType} {FormIdToken.Of(s.edit.Target)} [{s.label}]: {reject}")); continue; }
             resolved.Add((s.edit, s.body, s.winnerPlugin, s.patchLocal, s.req, s.label, s.srcBody));
         }
@@ -905,7 +911,7 @@ public static class WritePatchBuilder
         // (it needs the record type the resolve below derives), then one lookup answers the pre-flight for all of them.
         var linkTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var harvestRulebook = rulebook.WithLinkHarvest(linkTokens);
-        var staged = new List<(int order, PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label, IMajorRecordGetter? srcBody, bool selfSource)>(edits.Count);
+        var staged = new List<(int order, PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label, IMajorRecordGetter? srcBody, bool selfSource, string? harvestVerdict, bool carriesLinks)>(edits.Count);
         var problems = new List<(int Order, string Message)>();
         int order = -1;
         void Problem(string message) => problems.Add((order, message));
@@ -967,17 +973,19 @@ public static class WritePatchBuilder
             }
             // Last, as on the patch lane: an edit already rejected above is never pre-flighted, so harvesting its
             // links would walk a plugin for a check that will not run.
-            harvestRulebook.CollectLinkValues(req);
-            staged.Add((order, e, body, req, label, srcBody, selfSource));
+            var sunk = linkTokens.Count;
+            var harvestVerdict = harvestRulebook.CollectLinkValues(req);
+            staged.Add((order, e, body, req, label, srcBody, selfSource, harvestVerdict, linkTokens.Count != sunk));
         }
 
-        // --- Phase 1b: one resolve of the harvested link targets, then pre-flight every staged edit against it. ---
+        // --- Phase 1b: one resolve of the harvested link targets, then pre-flight every staged edit against it —
+        //     re-walking only the edits that contributed a link value, exactly as the patch lane does. ---
         var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens);
         var linkRulebook = rulebook.WithLinkTargets(linkTypes);
         var resolved = new List<(PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label, IMajorRecordGetter? srcBody, bool selfSource)>(staged.Count);
         foreach (var s in staged)
         {
-            if (linkRulebook.Validate(s.req) is { } reject)
+            if ((s.carriesLinks ? linkRulebook.Validate(s.req) : s.harvestVerdict) is { } reject)
             { problems.Add((s.order, $"{s.req.RecordType} {FormIdToken.Of(s.edit.Target)} [{s.label}]: {reject}")); continue; }
             resolved.Add((s.edit, s.body, s.req, s.label, s.srcBody, s.selfSource));
         }
@@ -2948,7 +2956,17 @@ public static class WritePatchBuilder
         var linkTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var allEditorIds = specs.Select(s => s.EditorId).Where(x => !string.IsNullOrWhiteSpace(x)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var harvestRulebook = rulebook.WithLinkHarvest(linkTokens);
-        foreach (var s in specs) foreach (var req in s.Edits) harvestRulebook.CollectLinkValues(req, allEditorIds);
+        // The harvest walk IS a validate, so an edit that put nothing in the sink is already decided and Phase 1 does
+        // not walk it again (the sink takes a value at every point the check decides, and at every gate that reads the
+        // sibling set — so a '@editorid' edit, whose two passes see different sibling sets, always re-walks).
+        var harvestVerdicts = new Dictionary<WriteRequest, string?>();
+        foreach (var s in specs)
+            foreach (var req in s.Edits)
+            {
+                var sunk = linkTokens.Count;
+                var verdict = harvestRulebook.CollectLinkValues(req, allEditorIds);
+                if (linkTokens.Count == sunk) harvestVerdicts[req] = verdict;
+            }
         var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens);
         var linkRulebook = rulebook.WithLinkTargets(linkTypes);
 
@@ -3290,10 +3308,14 @@ public static class WritePatchBuilder
             }
 
             foreach (var req in s.Edits)
+            {
                 // siblingEditorIds = priorEditorIds: a "@editorid" FormLink value is accepted iff that editorid was
                 // declared in an EARLIER spec of THIS call OR is the record itself (resolved to its real FormKey in
-                // Phase 3); else rejected loud.
-                if (linkRulebook.Validate(req, priorEditorIds) is { } reject) problems.Add($"{s.RecordType} '{s.EditorId}' [{Label(req)}]: {reject}");
+                // Phase 3); else rejected loud. An edit the harvest settled (it contributed nothing to the sink, so
+                // its walk was the same walk) keeps that verdict instead of being walked a second time.
+                var reject = harvestVerdicts.TryGetValue(req, out var settled) ? settled : linkRulebook.Validate(req, priorEditorIds);
+                if (reject is not null) problems.Add($"{s.RecordType} '{s.EditorId}' [{Label(req)}]: {reject}");
+            }
         }
         if (problems.Count > 0)
             return CreateOutcome.Fail(

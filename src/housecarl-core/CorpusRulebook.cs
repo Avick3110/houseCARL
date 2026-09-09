@@ -75,13 +75,25 @@ public sealed class CorpusRulebook
 
     /// <summary>Walk one write for its FormLink values, into the sink of the rulebook
     /// <see cref="WithLinkHarvest"/> derived. The walk is <see cref="Validate"/> itself, so the slots it reads are the
-    /// slots the check reads; its verdict is discarded here because the validating pass reports it. A write the walk
-    /// refuses early yields fewer values, which is harmless: that write is refused there too.</summary>
-    public void CollectLinkValues(WriteRequest req, IReadOnlyCollection<string>? siblingEditorIds = null)
+    /// slots the check reads, and its verdict is RETURNED: a write that contributed no value to the sink was decided
+    /// by a walk identical to the checking one (the sink takes a value at every point the link check would decide, and
+    /// at every gate whose answer depends on the sibling set), so the caller keeps this verdict and skips the second
+    /// walk. A write that DID contribute is re-walked against the resolved lookup. A write the walk refuses early
+    /// yields fewer values, which is harmless: that write is refused there too.</summary>
+    public string? CollectLinkValues(WriteRequest req, IReadOnlyCollection<string>? siblingEditorIds = null)
     {
         if (_linkSink is null)
             throw new InvalidOperationException("CollectLinkValues needs a rulebook derived by WithLinkHarvest.");
-        Validate(req, siblingEditorIds);
+        return Validate(req, siblingEditorIds);
+    }
+
+    /// <summary>HARVEST pass: record a same-call '@editorid' reference in the sink. Not a FormID (the link lookup
+    /// parses it to nothing and skips it) — it is here so the sink COUNT says this write's verdict depends on the
+    /// sibling set, which the create lane offers in full to the harvest and only up to the current spec to the check.
+    /// Without it a forward reference would be settled by the harvest's more permissive answer.</summary>
+    void HarvestSibling(string? value)
+    {
+        if (_linkSink is not null && value is not null) _linkSink.Add(value);
     }
 
     /// <summary>Resolves a FormLink value (a FormID token) to the runtime type of the record it points at, or null
@@ -666,6 +678,7 @@ public sealed class CorpusRulebook
         // stay refused loud below. Both gates sit ahead of the cardinality branches.
         if (WriteEngine.IsSameCallSiblingRef(req.Value, out var sibEdid))
         {
+            HarvestSibling(req.Value);
             if (siblingEditorIds is null)
                 return $"'{req.Value}' for '{leaf.Name}': a '@editorid' reference names a record being created in the " +
                        "SAME " + ToolNames.Create + " call — when editing an existing record " +
@@ -719,6 +732,7 @@ public sealed class CorpusRulebook
             {
                 if (WriteEngine.IsSameCallSiblingRef(v, out var vEd))
                 {
+                    HarvestSibling(v);
                     if (!siblingEditorIds.Contains(vEd))
                         return $"Same-call reference '@{vEd}' for '{leaf.Name}': no record with editorid '{vEd}' is " +
                                "created EARLIER in this call (a record may also reference ITSELF by its own editorid) — " +
@@ -1093,6 +1107,7 @@ public sealed class CorpusRulebook
             // BEFORE CheckValue, which would otherwise reject the '@' token as a malformed FormLink.
             if (WriteEngine.IsSameCallSiblingRef(f.Value, out var fEd))
             {
+                HarvestSibling(f.Value);
                 if (siblingEditorIds is null)
                     return $"a '@editorid' reference for '{f.Key}' on '{spec.Type}' names a record being created in the " +
                            "SAME " + ToolNames.Create + " call — when editing an existing record " +
