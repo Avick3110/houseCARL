@@ -153,7 +153,7 @@ public static class DialogueValidate
     /// validate that one topic; a QUST → fan out to EVERY topic the quest owns (a whole-order DIAL winner scan,
     /// filtered by DialogTopic.Quest, because a topic points UP at its quest — the quest holds no topic list) plus
     /// the quest's own CK-parity gaps (ANAM / objective FNAM) as InputIssues; a DLVW or DLBR → a RECORD-LEVEL
-    /// CK-parity check (the DNAM/ENAM and TNAM subrecords DialogueCkParity fills on create — no topic graph to
+    /// CK-parity check (the DLVW's DNAM/ENAM and the DLBR's TNAM and DNAM — no topic graph to
     /// walk, so Topics stays empty and the render names the narrower scope). Builds the load-order winner
     /// <c>Resolve</c> closure (each INFO's Speaker → NPC → VoiceType, and the topic's Quest) + the asset view off
     /// the live resolvers, and opens ONE overlay session for the run. NEVER throws: a recoverable miss (not in the
