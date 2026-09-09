@@ -141,7 +141,7 @@ An enum block carries its legal values:
 
 A block's `writable` is the type's `writable/total` field count — a summary. A field's own `w` is what governs whether you can set that field.
 
-**`w` is what the write tools will accept, not merely what the library exposes a setter for.** The two differ on one class of field: an identity field, marked `id` (`FormKey`, and `ModKey` / `Master` on a header), has a setter in the library but the write pre-flight refuses it outright, because a record's identity is not free-edit content. The reference reports those as `"w":false,"id":true` and counts them out of the type's `writable/total`, so **an `id` field is never writable** and the read view and the write tools agree. Change a record's identity by creating or copying the record, never by setting the field.
+**`w` is what the write tools will accept, not merely what the library exposes a setter for.** The two differ on one class of field: an identity field, marked `id` (`FormKey` on a record, and `ModKey` / `Master` on the `SkyrimMod` and `MasterReference` structs), has a setter in the library but the write pre-flight refuses it outright, because a record's identity is not free-edit content. The reference reports those as `"w":false,"id":true` and counts them out of the type's `writable/total`, so **an `id` field is never writable** and the read view and the write tools agree. Change a record's identity by creating or copying the record, never by setting the field.
 
 ## Addressing a field & what you can write
 

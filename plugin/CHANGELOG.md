@@ -14,7 +14,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
 ## Unreleased
 
 - **The `mutagen-reference` schema reference now reports a record-identity field as not writable.** A field
-  marked `id` — `FormKey`, and a header's `ModKey` / `Master` — carries a library setter but the write
+  marked `id` — `FormKey` on a record, and `ModKey` / `Master` on the `SkyrimMod` and `MasterReference`
+  structs — carries a library setter but the write
   pre-flight refuses it, so the reference reads `"w":false` on those fields and counts them out of a type's
   `writable/total` summary (ARMO is `31/32`, not `32/32`). The read view and the write tools now agree about
   what can be set. The skill says what `w` means; how to change a record's identity is in the same section.
