@@ -160,7 +160,9 @@ public sealed class DialogueWorld : IDisposable
         var view = master.DialogViews.AddNew(); view.EditorID = "HcDvViewOk";
         DialogueCkParity.ApplyViewDefaults(view); ViewOk = view.FormKey;
         var branch = master.DialogBranches.AddNew(); branch.EditorID = "HcDvBranchOk";
-        DialogueCkParity.ApplyBranchDefaults(branch); BranchOk = branch.FormKey;
+        // Flags (DNAM) is never filled — the create path refuses instead — so the OK fixture sets it itself.
+        DialogueCkParity.ApplyBranchDefaults(branch); branch.Flags = DialogBranch.Flag.TopLevel;
+        BranchOk = branch.FormKey;
         var quest = master.Quests.AddNew(); quest.EditorID = "HcDvQuestOk";
         quest.Objectives.Add(new QuestObjective { Index = 1 });
         DialogueCkParity.ApplyQuestDefaults(quest); QuestOk = quest.FormKey;
