@@ -48,12 +48,16 @@ NPCs," not for editing a record's own fields — that's SkyPatcher's job, and it
 There are no per-type subfolders (unlike SkyPatcher) — all `*_DISTR.ini` live flat in `Data/`
 (commonly shipped inside a mod managed by a mod manager, but resolved from `Data/` at runtime).
 
-**Whether the scan descends into subfolders is unverified.** "No per-type subfolders" is a statement
-about SPID's layout, not about the scan: this corpus does not say whether a `_DISTR.ini` sitting in a
-subdirectory of `Data/` is found or ignored. SPID's own source, at the directory iteration behind the
-scan, would settle it. Until it is checked, **place the file flat in `Data/`** — that path is
-documented and works either way — and when auditing someone else's mod, report a `_DISTR.ini` found
-in a subfolder as "may not be read", not as broken and not as fine.
+**The scan does not descend into subfolders. [source]** SPID reads its configs with
+`distribution::get_configs(R"(Data\)", "_DISTR"sv)` (`Distribution::INI::GetConfigs`,
+`SPID/src/LookupConfigs.cpp`, SPID 7.3.0, commit `31e76d3`). That helper is CLibUtil's
+`clib_util::distribution::get_configs` (`include/CLIBUtil/distribution.hpp`), and it walks a plain
+`std::filesystem::directory_iterator` over the one folder it is given — not
+`recursive_directory_iterator` — keeping entries whose extension is `.ini` and whose path contains
+the `_DISTR` suffix, then sorting them. So only `Data/` itself is read: a `_DISTR.ini` one folder
+down is never found, and never logged as skipped either, because the scan never sees it. **Place the
+file flat in `Data/`**, and when auditing someone else's mod, report a `_DISTR.ini` in a subfolder as
+not read at all.
 
 Comments: standard INI line comments with **`;`** are supported — SPID reads configs through the
 **CSimpleIniA** library, whose default line-comment character is `;`. **[source]** (The `=` split and
