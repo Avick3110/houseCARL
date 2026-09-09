@@ -5781,6 +5781,10 @@ public sealed partial class LoadOrderService : IDisposable
             // out of `where`: a mod folder's name is what a following asset placement passes as its provider, and
             // the BRANCH travels with it so the sentence never calls a mod folder the layer it merely spells like.
             var layer = InstallLayerOfPath(loc.Path!, modsDir, overwriteDir, dataDir);
+            // A mod folder the profile has switched OFF travels as such, so a readback can say the game is not
+            // loading this source instead of naming the folder as though it were live.
+            if (layer is { Kind: SourceLayerKind.ModFolder } && loc.Served == ServedStanding.ModDisabled)
+                layer = layer with { OwnerEnabled = false };
             arms.Add(new SourceArm(spelling, SourceArmKind.File, where,
                 fk => cache.TryResolve(fk, out var body) ? body : null, layer));
         }
