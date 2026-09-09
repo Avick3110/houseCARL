@@ -286,7 +286,7 @@ internal static class DialogueWire
               .Append("Run " + ToolNames.WriteSeq + " against whichever plugin sets the flag.\n");
         else if (!s.SeqExists)
             sb.Append("  SEQ: [!] this quest is Start-Game-Enabled but NO .seq for ").Append(s.DefiningPlugin)
-              .Append(" lists it — on a fresh save the quest stays DORMANT and its dialogue never shows. Run " + ToolNames.WriteSeq + " plugin=")
+              .Append(" lists it — on a fresh save the quest stays DORMANT and its dialogue never shows. Run " + ToolNames.WriteSeq + " source=")
               .Append(s.DefiningPlugin).Append(".\n");
         else if (s.SeqContainsQuest == false)
             sb.Append("  SEQ: [!] ").Append(s.DefiningPlugin).Append(".seq exists but does NOT list this quest (").Append(fid)
