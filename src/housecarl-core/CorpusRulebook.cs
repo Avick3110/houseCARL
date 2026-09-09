@@ -53,14 +53,36 @@ public sealed class CorpusRulebook
     /// derived rulebook is a per-call object used on the calling thread, and the shared schema-only rulebook never
     /// fills this (a refusal needs <see cref="_linkTargets"/>).</summary>
     readonly Dictionary<string, string> _linkTargetNames = new(StringComparer.Ordinal);
-    CorpusRulebook(Corpus corpus, LinkTargetLookup? linkTargets = null)
-        => (_corpus, _linkTargets) = (corpus, linkTargets);
+    /// <summary>Non-null only on a HARVEST rulebook (<see cref="WithLinkHarvest"/>): the walk collects the FormLink
+    /// values it reaches instead of type-checking them.</summary>
+    readonly ICollection<string>? _linkSink;
+    CorpusRulebook(Corpus corpus, LinkTargetLookup? linkTargets = null, ICollection<string>? linkSink = null)
+        => (_corpus, _linkTargets, _linkSink) = (corpus, linkTargets, linkSink);
 
     /// <summary>This rulebook plus a load-order link-target resolver: the same corpus, with the FormLink TARGET TYPE
     /// check turned on. Derived ONCE per write call, not per edit — the lookup rides on the rulebook rather than
     /// through the recursion, so every value slot (a singular Set, a list element, a composed struct's field) sees it
     /// without a parameter at each hop, and the memo above spans the whole call.</summary>
     public CorpusRulebook WithLinkTargets(LinkTargetLookup linkTargets) => new(_corpus, linkTargets);
+
+    /// <summary>This rulebook in HARVEST mode: the same walk, with every FormLink value it reaches added to
+    /// <paramref name="sink"/> and nothing type-checked (there is no lookup yet — that is what the harvest feeds).
+    /// The write path runs this pass first to learn which records it must resolve, then derives the checking rulebook
+    /// with <see cref="WithLinkTargets"/>. ONE walk decides both what is resolved and what is checked, so a link slot
+    /// added to the validator is prefetched by construction — a hand-written slot list on the caller's side would
+    /// drift, and a slot it missed would go silently unchecked.</summary>
+    public CorpusRulebook WithLinkHarvest(ICollection<string> sink) => new(_corpus, null, sink);
+
+    /// <summary>Walk one write for its FormLink values, into the sink of the rulebook
+    /// <see cref="WithLinkHarvest"/> derived. The walk is <see cref="Validate"/> itself, so the slots it reads are the
+    /// slots the check reads; its verdict is discarded here because the validating pass reports it. A write the walk
+    /// refuses early yields fewer values, which is harmless: that write is refused there too.</summary>
+    public void CollectLinkValues(WriteRequest req, IReadOnlyCollection<string>? siblingEditorIds = null)
+    {
+        if (_linkSink is null)
+            throw new InvalidOperationException("CollectLinkValues needs a rulebook derived by WithLinkHarvest.");
+        Validate(req, siblingEditorIds);
+    }
 
     /// <summary>Resolves a FormLink value (a FormID token) to the runtime type of the record it points at, or null
     /// when nothing in the load order carries it. Supplied by the write path, which holds the captured view; without
@@ -1134,9 +1156,13 @@ public sealed class CorpusRulebook
     /// <paramref name="slot"/> reads "target" for a singular link and "element" for a collection one.</summary>
     string? LinkTypeRefusal(FieldSchema leaf, string? value, string slot)
     {
-        if (_linkTargets is null || value is null) return null;
+        if (value is null) return null;
         if (WriteEngine.IsFormKeyNullSynonym(value)) return null;              // a clear points at nothing
         if (leaf.FormLinkTargetAssemblyQualified is not { } aq) return null;
+        // HARVEST pass: this slot IS a FormLink one, so its value is what the check will need resolved. Collected
+        // here, at the single place the check reads a link value, so the two can't name different slots.
+        if (_linkSink is not null) { _linkSink.Add(value); return null; }
+        if (_linkTargets is null) return null;
         if (WriteEngine.ResolveType(aq) is not { } target) return null;
         if (_linkTargets(value) is not { } actual) return null;                // the order cannot say — never a guess
         if (target.IsAssignableFrom(actual)) return null;
