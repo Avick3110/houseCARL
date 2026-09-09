@@ -57,17 +57,17 @@ public static class WriteTools
          "the plugin DEFINES (its originating records — flat AND nested: cells, placed references, dialogue lines, navmesh, " +
          "landscape), repoints every reference WITHIN the plugin, and leaves its overrides of other mods at their master " +
          "FormIDs.\n\n" +
-         "The grammar is on the parameters: plugin= names the target — where it is resolved from, and its refusals; esl= " +
+         "The grammar is on the parameters: source= names the target — where it is resolved from, and its refusals; esl= " +
          "the window and the light flag — the ESL ceiling and the override-only lanes; in_place= which file is written — " +
          "the new-plugin default with its MO2 swap, the overwrite lane, and what each does to a LOCALIZED plugin; " +
          "repoint_externals= the external-referencer safety; acknowledge= the consent any in-place rewrite needs; " +
-         "patch_name= the new mod folder.\n\n" +
+         "patch= the new mod folder.\n\n" +
          "Note: references compiled into Papyrus scripts (.pex hardcoded FormIDs / GetFormFromFile) are NOT remappable — " +
          "verify scripted records after compacting.")]
     public static string CompactPlugin(
         LoadOrderService svc,
         [Description("The plugin's filename to compact (e.g. 'CoolMod.esp'). The target need NOT be active: usually it is in your load order, but a plugin on disk and not (yet) in it — the patch houseCARL just wrote, before the MO2 refresh; a plugin inside a disabled mod — is resolved by filename across ALL mod folders and compacted OFF-ORDER. Whichever lane the target came from, active or not, its declared masters must still be active: a declared master not active is refused loud and nothing is written. The compacted output keeps this EXACT basename. Refuses loud + writes nothing on: this plugin found nowhere on disk / ambiguous across folders / unparseable; a serialize fault.")]
-            string plugin,
+            string source,
         [Description("When true (default), renumber into the light/ESL range (0x800–0xFFF, 2048 IDs) and flag the result a light master (ESPFE) — the canonical 'compact for ESL', which frees a load-order slot. false = renumber contiguously from 0x800 with no light flag or 2048 ceiling (just closes FormID gaps). An override-only plugin with esl=true takes the FLAG-ONLY lane: nothing to renumber, every record copies verbatim, the ESL flag is set (always valid — the light window only constrains originating records); with esl=false there is nothing to do, and that is refused loud with nothing written. Refused loud with nothing written too: with esl=true, MORE records than the light range holds (the hard 2048 ESL ceiling — named, never truncated).")]
             bool esl = true,
         [Description("Optional, default false. IN-PLACE LANE (opt-in): OVERWRITE the original plugin with its compacted form (xEdit's norm) instead of writing a new file — NO houseCARL backup or undo (keep your own). Rides the in-place consent: requires acknowledge=true. OMIT (the default) to write a NEW plugin instead, keeping the SOURCE'S EXACT basename (so other mods that list it as a master still resolve) in a fresh houseCARL mod folder, leaving the original untouched: review the new plugin in xEdit, then in MO2 enable its folder and DISABLE the original mod (same basename — MO2 serves one). LOCALIZED PLUGINS: houseCARL does not rewrite one in place — its text lives in separate .STRINGS files it cannot swap together with the plugin — so a LOCALIZED plugin is REFUSED in this lane whatever arrangement its .STRINGS files are in. The new-plugin lane still compacts it — UNLESS its .STRINGS resolve NOWHERE (houseCARL can see them nowhere, or the folder holding them cannot be read), which that lane refuses too: every name, description and message would read back EMPTY (or, from a folder nothing could open, unknowable) in a plugin with nothing left in it to tell that text from one that never had any. Otherwise the output is DE-LOCALIZED — the text this read resolved is written into the plugin itself and the source's .STRINGS files no longer describe it — and the report says so. The review step above is where you catch that: read the output's TEXT before swapping it in. ONE MORE REFUSAL on this lane, before the consent gate and whatever acknowledge says: if the external-reference pass could not READ some plugin, houseCARL cannot tell whether it references records about to be renumbered, so any in-place rewrite (the target, its referencers, or both) is refused and nothing is written — the new-plugin lane carries that as a note instead.")]
@@ -77,12 +77,12 @@ public static class WriteTools
         [Description("Optional, default false. Confirms the in-place trade-off when in_place=true OR repoint_externals=true (your original file(s) get rewritten, no backup). The FIRST such call without it returns a CONFIRM prompt listing exactly what will be overwritten — re-call with acknowledge=true to proceed.")]
             bool acknowledge = false,
         [Description("Optional. Base name for the NEW mod folder (new-file lane only; auto-suffixed if taken). Ignored with in_place=true. The PLUGIN inside ALWAYS keeps the source's exact basename so external masters still resolve.")]
-            string? patch_name = null) => Guard.Tool(ToolNames.CompactPlugin, () =>
+            string? patch = null) => Guard.Tool(ToolNames.CompactPlugin, () =>
     {
         if (svc.ConfigPromptOrNull() is { } prompt) return prompt;
-        if (string.IsNullOrWhiteSpace(plugin))
-            return "error: plugin is empty. Name the plugin filename to compact (e.g. 'CoolMod.esp').";
-        return RenderCompact(svc.CompactPlugin(plugin, esl, in_place, repoint_externals, acknowledge, patch_name));
+        if (string.IsNullOrWhiteSpace(source))
+            return "error: source is empty. Name the plugin filename to compact (e.g. 'CoolMod.esp').";
+        return RenderCompact(svc.CompactPlugin(source, esl, in_place, repoint_externals, acknowledge, patch));
     });
 
     [McpServerTool(Name = ToolNames.MergePlugins, Title = "Merge plugins into one new plugin"),

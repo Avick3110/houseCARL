@@ -521,7 +521,7 @@ public static class ExcludedMasterWriteProbe
         svc.Stats();
 
         var targetBefore = File.ReadAllBytes(tgtPath);   // BYTES, not length: a renumber rewrites ids in place and the size is identical
-        var render = WriteTools.CompactPlugin(svc, plugin: tgtKey.FileName.String, esl: true, in_place: true,
+        var render = WriteTools.CompactPlugin(svc, source: tgtKey.FileName.String, esl: true, in_place: true,
             repoint_externals: true, acknowledge: true);
 
         Check("repoint: the per-plugin failure is NAMED — the unopenable master, the remedy, and the file left UNTOUCHED",
