@@ -741,8 +741,9 @@ public static class WritePatchBuilder
             catch (PluginUnreadableException ex)
             {
                 (skipped ??= new List<string>()).Add(
-                    $"{keys.Count} FormLink value(s) in this write resolve to '{plugin}', whose link targets were NOT " +
-                    $"type-checked: {ex.Message}");
+                    // keys is the DISTINCT FormKeys, so the note counts records, not the write's link value slots.
+                    $"this write links to {keys.Count} distinct record(s) in '{plugin}', whose types were NOT " +
+                    $"checked: {ex.Message}");
                 continue;
             }
             foreach (var kv in sink) types[kv.Key] = kv.Value.GetType();
