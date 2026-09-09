@@ -58,7 +58,8 @@ internal static class AliasTable
             }),
         new("pluginnames", new[] { "plugins", "plugin", "pluginname", "source" }),
         // Reverse: the pole spelling on not-yet-renamed tools. nexus_mod is excepted — its mod= is a Nexus mod
-        // ID, not the provider disambiguator, and the Nexus tools are not part of the rename.
+        // ID, not the provider disambiguator, and the Nexus tools are not part of the rename. The NIF tools need
+        // no exception: they declare neither spelling now, so the row is schema-gated off there by construction.
         new("source", new[] { "plugin", "mod" },
             ExceptTools: new[] { (ToolNames.NexusMod, "mod") }),
 
@@ -109,8 +110,12 @@ internal static class AliasTable
         new("target", new[] { "element" }),
 
         // from_plugin and the mod= disambiguator both become source.
+        // The NIF tools are excepted: their mod= became source_provider=, the PROVIDER pole (which mod folder's
+        // copy to read), and source= is only ever the plugin to read. Binding mod= onto source= there would name
+        // a plugin after a mod folder, so it is refused by name instead.
         new("fromplugin", new[] { "source" }),
-        new("mod", new[] { "source" }),
+        new("mod", new[] { "source" },
+            ExceptTools: new[] { (ToolNames.NifInspect, "source"), (ToolNames.NifSet, "source") }),
 
         // Set-valued file selection per substrate: paths. The per-tool spellings are disjoint, so schema-gating
         // picks the right one for the reverse row.
