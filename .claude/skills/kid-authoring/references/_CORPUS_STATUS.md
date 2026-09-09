@@ -60,10 +60,14 @@ so the corpus draws on two complementary sources:
     (30 = Head, not Head/Hair; 31 = Hair, not LongHair) and completed slots 44–61.
   - **Resistance `R(value)` numbers (39–45)** — now printed (same AV enum), replacing the earlier
     "read it from xEdit" punt.
+- **Two filter questions closed from source 2026-09-09** (`src/LookupFilters.cpp` +
+  `include/KeywordData.h`, read at tag `v3.5.0.rc1`, commit `a7a5589`):
+  - A **plugin-name Form filter is by the defining plugin**, not the winning one — the filter becomes
+    an `RE::TESFile*` and the test is `IsFormInMod` on the item's own FormID (`filters.md` §2).
+  - A **`*wildcard` tests three channels only** — EditorID, display name, and the item's own keyword
+    EditorIDs, all case-insensitive; a `.nif` term tests the model path instead. Archetype and
+    actor-value names are exact-match channels and a wildcard never reaches them (`filters.md` §3).
 - **Minor residuals to confirm at the §8 review (or if a test line fails):**
-  - The exact **Matches-vs-Wildcards** boolean: documented per the shared powerof3 `Filters<T>` model
-    (the same ALL/NOT/MATCH/ANY struct SPID uses, confirmed in `Defs.h`) + the description's
-    "progressively restricts" — `LookupFilters.cpp` was not deep-read field-by-field.
   - The **per-type Form-filter** table (Location→music type, etc.) is from the description's own list;
     not each entry was cross-checked against `LookupFilters.cpp`.
 
@@ -74,7 +78,12 @@ so the corpus draws on two complementary sources:
 consulted: `include/Defs.h` (line comment + `Filters<T>`), `include/Traits.h` (all 10 trait classes),
 `include/Cache.h` (`itemTypes`, archetype map, ActorValue map, FormType set), `include/LookupConfigs.h`
 (section enum, `Data` defaults), `src/LookupConfigs.cpp` (the parser — split, modifier dispatch, type
-switch, chance), `include/ExclusiveGroups.h` + `src/ExclusiveGroups.cpp` (the `ExclusiveGroup` feature).
+switch, chance), `include/ExclusiveGroups.h` + `src/ExclusiveGroups.cpp` (the `ExclusiveGroup` feature), and — added
+2026-09-09 at tag `v3.5.0.rc1`, commit `a7a5589` — `src/LookupFilters.cpp` (`PassedFilters`,
+`HasFormOrStringFilter`, `HasFormFilter`, `HasStringFilter`, `ContainsStringFilter`) and
+`include/KeywordData.h` (`detail::formID_to_form`, where a plugin name becomes a `TESFile*` and a
+`.nif` wildcard is sanitized). `TESFile::IsFormInMod` and `BSFixedString::contains` were read in
+CommonLibSSE-NG (`src/RE/T/TESFile.cpp`, `include/RE/B/BSFixedString.h`).
 
 The numeric enums KID forwards but doesn't define were confirmed against **`powerof3/CommonLibSSE@dev`**
 (the library KID builds on): `RE/M/MagicSystem.h` (Delivery, CastingType, SpellType), `RE/A/ActorValues.h`

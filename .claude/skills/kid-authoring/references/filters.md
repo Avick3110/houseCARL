@@ -32,6 +32,10 @@ A bare word/phrase matched against the item, by these channels: **[desc]**
   Destruction spells/books" without naming each record.
 - **Nif path** lets you tag every item sharing a mesh (`*steelmace.nif` with a wildcard is the common
   form) — explicitly **does not work for armors** [desc].
+- A bare term is an **exact** test on each channel (`Item::Data::HasStringFilter`,
+  `src/LookupFilters.cpp`, KID v3.5.0.rc1): the whole name or the whole EditorID case-insensitively,
+  the whole model path, the archetype or actor-value name as a whole. Substring matching is the
+  `*wildcard`'s job, and it reaches a different channel set — see §3.
 
 ---
 
@@ -43,13 +47,16 @@ Match specific records (or records *associated* with another form):
 - **EditorID** — `MyAwesomeSwordID`.
 - **Plugin name** — `MyMod.esp` matches **all items of that type defined in the plugin** (`[desc]`
   "To get all items in a mod: `MyAwesomeSwords.esp`"). Combine several: `ModA.esp,ModB.esp`.
-  **Defining plugin or winning plugin? — unverified.** The description says "defined in", and that is
-  the reading to compose against: `-Skyrim.esm` excludes every record whose FormID belongs to
-  `Skyrim.esm`, whoever overrides it. The other reading — the plugin that wins the record at runtime
-  — gives a different set whenever a patch overrides a master's records, and on a heavily-patched
-  order the two differ by a lot. Nothing in this corpus settles it; KID's own source would, at the
-  point where it turns a plugin-name filter into a form set. Until it is checked, say which reading
-  your count assumes and give the other number when the two diverge.
+  **It is the defining plugin, not the winning one. [source]** A plugin-name term resolves to an
+  `RE::TESFile*` (`detail::formID_to_form` → `dataHandler->LookupModByName`, `include/KeywordData.h`),
+  and the test KID runs on each item is `a_file->IsFormInMod(item->GetFormID())`
+  (`Item::Data::HasFormOrStringFilter`, `src/LookupFilters.cpp`, KID v3.5.0.rc1, commit `a7a5589`).
+  `TESFile::IsFormInMod` compares the FormID's own index against that file's load index — the
+  regular index for a full plugin, the `0xFE` light index for an ESL (CommonLibSSE-NG
+  `src/RE/T/TESFile.cpp`). So the question it answers is "does this FormID belong to that plugin",
+  never "does that plugin win the record": `-Skyrim.esm` excludes every record whose FormID belongs
+  to `Skyrim.esm`, whoever overrides it, and `MyMod.esp` catches only the records `MyMod.esp` itself
+  defines — never a vanilla record it merely overrides. Count with the defining plugin.
 
 ### Type-specific Form filters [desc]
 
@@ -96,24 +103,38 @@ into the requirement set (so `ArmorHeavy+ArmorGauntlet` is one requirement-pair)
 the **first character** of their term. Wildcards go into a strings-only bucket (they are substring
 tests, not resolved to forms).
 
-**Which channels a wildcard tests.** A `*` term is a String filter, so it is a substring test over
-string channels, and the strings-only bucket is `[source]`: a wildcard is never resolved to a form.
-Two consequences. `*Iron` cannot test a keyword *record* — only text. And `*` before a FormID,
-EditorID or plugin name is not rejected by the parser: `*0x1234~MyMod.esp` becomes a substring test
-against the string channels, which will practically never match, so it is a mis-cut filter that
-silently tags nothing, not a term KID refuses.
+**Which channels a wildcard tests. [source]** A `*` term never resolves to a form; it goes to a
+strings-only bucket and is compared in `Item::Data::ContainsStringFilter`
+(`src/LookupFilters.cpp`, KID v3.5.0.rc1, commit `a7a5589`), which tests exactly three channels, the
+same three for **every** item type — no per-type switch:
 
-**Which strings are in that bucket is unverified.** §1's channel list — item name, effect archetype,
-actor value name, nif path — is `[desc]`, and the modifier table's "name/keyword" wording is the Nexus
-description's too; neither settles whether the item's own keyword EditorIDs are among the compared
-strings. KID's source at the wildcard comparison would. Compose as if name is the channel that
-matters, and say so when a count rests on it.
+| Wildcard channel | Detail |
+|---|---|
+| **EditorID** | `string::icontains(edid, str)` — case-insensitive substring |
+| **Display name** | `string::icontains(name, str)` — case-insensitive substring |
+| **The item's own keyword EditorIDs** | `keyword->formEditorID.contains(str)` over the item's keyword array; `BSFixedString::contains` runs `_strnicmp`, so this too is case-insensitive |
 
-**Evaluation order [desc]:** `Requirements → Exclusions → Matches → Wildcards`.
+One exception routes away from all three: a term containing `.nif` is tested **only** against the
+model path (`model.contains(str)`), both sides lowercased and backslash-normalized by
+`Filter::SanitizePath` (`src/LookupFilters.cpp`; the term is sanitized at load in
+`include/KeywordData.h`). A `.nif` wildcard therefore never matches a name or a keyword.
+
+What a wildcard does **not** test: effect archetypes and actor-value names. Those live in
+`HasStringFilter`, the exact-match path used by Match, Requirement and Exclusion terms only — so
+`*Absorb` will not catch Absorb-archetype effects the way the bare term `Absorb` does. And a `*`
+before a FormID, EditorID or plugin name is not rejected by the parser: `*0x1234~MyMod.esp` becomes
+a substring test against those three channels, which will practically never match, so it is a
+mis-cut filter that silently tags nothing, not a term KID refuses.
+
+**Evaluation order:** `Requirements → Exclusions → Matches → Wildcards` [desc], and that is the order
+the four checks run in `Item::Data::PassedFilters` (`src/LookupFilters.cpp`, v3.5.0.rc1) `[source]`.
 *(The description prints "3. Matches / 3. Wildcards" — a numbering typo; Wildcards evaluate last.)*
 
-**How they combine:** an item passes when it has **all** Requirements, **none** of the Exclusions, and
-matches **at least one** of the Matches/Wildcards (when any positive terms are given). Each added filter
+**How they combine [source]:** the four groups are four independent gates, each skipped when empty —
+an item passes when it has **all** Requirements, **none** of the Exclusions, **at least one** Match,
+**and** at least one Wildcard. Matches and Wildcards are separate `and`ed groups, not one pooled OR:
+a line carrying both `Iron` and `*Steel` needs the item to satisfy each side, not either
+(`PassedFilters` tests `MATCH` and `ANY` in sequence, failing on either). Each added filter
 **narrows** the pool — "combining multiple filters will progressively restrict the pool of items"
 [desc]. To distribute to a *union* of groups, write **multiple lines** for the same keyword.
 
