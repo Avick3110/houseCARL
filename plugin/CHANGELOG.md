@@ -38,6 +38,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   and `houseCARL_Archive` folder defaults; a repack with no `patch=` names both the folder and the archive after
   the source folder. `patch=` with the `.esl` extension on a merge is still refused, because a merge does not
   constrain object ids to the light window.
+- **On those two tools a colliding `patch=` is now refused by name and nothing is written, never auto-suffixed —
+  the rule `housecarl_create_plugin` already followed, and what `patch=`'s own description promises.** Because
+  the artifact takes the folder's name, a suffix would rename the artifact too: a merged plugin written as
+  `MyMerge_001.esp` is not the name a `_DISTR.ini`, a config or a dependent's master entry resolves, and a
+  `MyMerge_001.bsa` is not a name the game auto-loads. So a mod folder of that name already under your mods
+  directory, or an active plugin of that basename, refuses and says which is in the way. `housecarl_bsa_repack`
+  also refuses `patch=` given together with `into=` — the archive takes one folder's name and the two lanes name
+  different folders — and refuses an archive already sitting at the resolved path, rather than replacing it, so
+  a second repack into one folder can no longer overwrite the first archive.
 - **On the tools whose `patch=` names the output mod FOLDER — `housecarl_compact_plugin`,
   `housecarl_compile_script`, `housecarl_decompile_script`, `housecarl_nif_set`, `housecarl_write_seq`,
   `housecarl_place` — an artifact spelling (`plugin_name=`, `output=`, `archive_name=`) is refused by name
