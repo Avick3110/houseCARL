@@ -435,26 +435,33 @@ public static class WritePatchBuilder
         //     session, never an arbitrary un-enabled plugin, so no winner-confusion hazard arises. ---
         var view = resolver.Capture();
         epoch = view.Stamp;                                               // stamped on every outcome from here down
+        // The FormLink values this call sets are harvested by the RULEBOOK's own walk (CollectLinkValues), so the set
+        // resolved below is exactly the set the check reads — no second, hand-written list of value slots to drift
+        // from it. The walk needs each edit's record TYPE, which only the resolve loop can derive, so Phase 1 runs in
+        // two passes: resolve + harvest per edit, then validate every staged edit against the lookup the harvest fed.
         var linkTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var e in edits) HarvestLinkTokens(e.Value, e.Values, e.Entries, e.Struct, e.Structs, linkTokens);
-        var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens);
-        var linkRulebook = rulebook.WithLinkTargets(linkTypes);
-        var resolved = new List<(PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label, IMajorRecordGetter? srcBody)>(edits.Count);
-        var problems = new List<string>();
+        var harvestRulebook = rulebook.WithLinkHarvest(linkTokens);
+        var staged = new List<(int order, PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label, IMajorRecordGetter? srcBody)>(edits.Count);
+        // Ordered, so a report mixing a resolve problem with a pre-flight one still reads in the caller's edit order
+        // even though the two are decided in different passes.
+        var problems = new List<(int Order, string Message)>();
         // Records the extended patch DEFINES (FormKey in the patch's own master space — created by a prior into=
         // call), built lazily ONCE on the first load-order miss, not per miss.
         // Deliberately NOT every record the patch contains: an override the patch merely CARRIES resolves via the
         // load order like any other record, so a target whose defining plugin is disabled stays a loud refusal —
         // never a silent edit of the patch's possibly-stale override copy.
         Dictionary<FormKey, IMajorRecord>? patchDefined = null;
+        int order = -1;
+        void Problem(string message) => problems.Add((order, message));
         foreach (var e in edits)
         {
+            order++;
             IMajorRecordGetter? body = null; string? winnerPlugin = null; IMajorRecord? patchLocal = null;
             var w = view.ResolveWinner(e.Target);
             if (w is not null)
             {
                 body = view.GetRecord(session, w.Value.WinnerPlugin, e.Target);
-                if (body is null) { problems.Add($"{FormIdToken.Of(e.Target)}: winner '{w.Value.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
+                if (body is null) { Problem($"{FormIdToken.Of(e.Target)}: winner '{w.Value.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
                 winnerPlugin = w.Value.WinnerPlugin;
             }
             else
@@ -471,7 +478,7 @@ public static class WritePatchBuilder
                 }
                 if (patchLocal is null)
                 {
-                    problems.Add($"{FormIdToken.Of(e.Target)}: not present in the load order ({view.PluginCount} plugins)"
+                    Problem($"{FormIdToken.Of(e.Target)}: not present in the load order ({view.PluginCount} plugins)"
                         + (extend
                             ? $", and not a record '{fileName}' (the patch being extended) itself defines — a record " +
                               "the patch merely OVERRIDES resolves via the load order, so its defining plugin must be enabled."
@@ -491,35 +498,35 @@ public static class WritePatchBuilder
                 // resolved here, where the one captured view lives, so the default reads the same build every other
                 // decision in this call reads.
                 var srcPlugin = ResolveCopyPole(e, view, out var poleErr);
-                if (poleErr is not null) { problems.Add(poleErr); continue; }
+                if (poleErr is not null) { Problem(poleErr); continue; }
 
                 if (TryOffOrderCopyBody(copyFromSources, e, view, out var offSrc))
                     srcBody = offSrc;
                 else if (string.IsNullOrWhiteSpace(srcPlugin))
-                { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom is missing from_plugin (internal — the mapper should have caught this)."); continue; }
+                { Problem($"{FormIdToken.Of(e.Target)}: CopyFrom is missing from_plugin (internal — the mapper should have caught this)."); continue; }
                 else if (string.Equals(srcPlugin, fileName, StringComparison.OrdinalIgnoreCase))
-                { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom from_plugin '{srcPlugin}' is the output patch itself — name the OTHER plugin whose version to copy from."); continue; }
+                { Problem($"{FormIdToken.Of(e.Target)}: CopyFrom from_plugin '{srcPlugin}' is the output patch itself — name the OTHER plugin whose version to copy from."); continue; }
                 else if (!view.ContainsPlugin(srcPlugin))
                 // Deliberately NO AbsenceClause here: the service pre-resolves every off-order CopyFrom source before
                 // Apply — a source that is merely unticked / in a disabled mod / shadowed is LOCATED and supplied via
                 // copyFromSources above, and one that cannot be located aborts the whole call earlier. So the only
                 // name reaching this arm has no on-disk copy at all, which the explainer cannot explain — it would pay
                 // a profile parse plus a whole-install sweep, per edit, for nothing the message does not already say.
-                { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk."); continue; }
+                { Problem($"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk."); continue; }
                 else if (view.ExcludedPlugins.TryGetValue(srcPlugin, out var why))
-                { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
+                { Problem($"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
                 else
                 {
                     srcBody = view.GetRecord(session, srcPlugin, e.CopySource);
                     if (srcBody is null)
-                    { problems.Add(CopySourceMissing(e, srcPlugin)); continue; }
+                    { Problem(CopySourceMissing(e, srcPlugin)); continue; }
                 }
                 // The same-runtime-record-type gate. A same-FormKey copy passes by construction (one record, one
                 // type); a CROSS-record pair is the case that can disagree, and a cross-type transplant is refused BY
                 // NAME here rather than reaching CopyField, where the mismatch would surface as a property-shaped
                 // "no field X on Y" that points away from the real cause.
                 if (CrossTypeRefusal(e, srcBody, patchLocal ?? (object?)body) is { } typeErr)
-                { problems.Add(typeErr); continue; }
+                { Problem(typeErr); continue; }
             }
 
             var recType = RecordNaming.StripOverlay((patchLocal ?? (object)body!).GetType().Name);
@@ -529,13 +536,28 @@ public static class WritePatchBuilder
                 Key = e.Key, Value = e.Value, Values = e.Values, Entries = e.Entries, Struct = e.Struct, Structs = e.Structs,
             };
             var label = Label(req);
-            if (linkRulebook.Validate(req) is { } reject) { problems.Add($"{recType} {FormIdToken.Of(e.Target)} [{label}]: {reject}"); continue; }
-            resolved.Add((e, body, winnerPlugin, patchLocal, req, label, srcBody));
+            harvestRulebook.CollectLinkValues(req);
+            staged.Add((order, e, body, winnerPlugin, patchLocal, req, label, srcBody));
+        }
+
+        // --- Phase 1b: resolve the harvested link targets ONCE, then pre-flight every staged edit through the
+        //     rulebook that can type-check them. ---
+        var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens);
+        var linkRulebook = rulebook.WithLinkTargets(linkTypes);
+        var resolved = new List<(PatchEdit edit, IMajorRecordGetter? body, string? winnerPlugin, IMajorRecord? patchLocal, WriteRequest req, string label, IMajorRecordGetter? srcBody)>(staged.Count);
+        foreach (var s in staged)
+        {
+            if (linkRulebook.Validate(s.req) is { } reject)
+            { problems.Add((s.order, $"{s.req.RecordType} {FormIdToken.Of(s.edit.Target)} [{s.label}]: {reject}")); continue; }
+            resolved.Add((s.edit, s.body, s.winnerPlugin, s.patchLocal, s.req, s.label, s.srcBody));
         }
         if (problems.Count > 0)
+        {
+            problems.Sort((a, b) => a.Order.CompareTo(b.Order));
             return PatchOutcome.Fail(
                 $"refused — {problems.Count} of {edits.Count} edit(s) rejected by resolve/pre-flight; NO patch written:\n  - "
-                + string.Join("\n  - ", problems));
+                + string.Join("\n  - ", problems.Select(p => p.Message)));
+        }
 
         // --- Phase 3: override each winner into the ONE patch mod, then apply. A flat record needs no link cache; a
         //     NESTED record (Cell/Placed*/INFO/Navmesh/Landscape) gets the winner overlay's cache built on demand
@@ -684,8 +706,10 @@ public static class WritePatchBuilder
     }
 
     /// <summary>The pre-flight's link-TARGET resolver: a FormLink value in, the runtime type of the record it points
-    /// at out. Every token the call could ask about is resolved UP FRONT, grouped by winner plugin, so a plugin is
-    /// walked ONCE however many links name it — a per-token seek would walk it once per link (a 200-entry leveled
+    /// at out. The tokens come from the rulebook's own harvest pass (CorpusRulebook.CollectLinkValues), which walks a
+    /// write exactly as the check does — so the set resolved here is the set the check reads, and a link slot the
+    /// validator gains is prefetched without anything being added on this side. Every token is resolved UP FRONT,
+    /// grouped by winner plugin, so a plugin is walked ONCE however many links name it — a per-token seek would walk it once per link (a 200-entry leveled
     /// list into Skyrim.esm is 200 full enumerations). Answers off the call's ONE captured view, so the type a link
     /// is checked against is the same build every other decision in the write reads. Null for a token that does not
     /// parse, that the order does not carry, or that the harvest did not offer — pre-flight then does not type-check
@@ -717,7 +741,7 @@ public static class WritePatchBuilder
             catch (PluginUnreadableException ex)
             {
                 (skipped ??= new List<string>()).Add(
-                    $"{keys.Count} FormID value(s) in this write resolve to '{plugin}', whose link targets were NOT " +
+                    $"{keys.Count} FormLink value(s) in this write resolve to '{plugin}', whose link targets were NOT " +
                     $"type-checked: {ex.Message}");
                 continue;
             }
@@ -725,31 +749,6 @@ public static class WritePatchBuilder
         }
         return (token => keyOf.TryGetValue(token, out var fk) && types.TryGetValue(fk, out var t) ? t : null,
                 skipped is null ? null : string.Join(" ", skipped));
-    }
-
-    /// <summary>Every value slot a pre-flight link check can read, harvested into one token set — the singular value,
-    /// a ReplaceAll's contents, a dict's entry values, and a composed struct's own fields and nested writes. The SAME
-    /// slots the rulebook's formlink sweeps read, so what it asks about is what was prefetched. Over-collecting costs
-    /// nothing (the plugin is walked once either way); a slot missed here leaves that one link unchecked, which is
-    /// the behaviour before the gate existed, never a wrong refusal.</summary>
-    static void HarvestLinkTokens(string? value, IReadOnlyList<string>? values, Dictionary<string, string>? entries,
-                                  StructSpec? one, IEnumerable<StructSpec>? many, HashSet<string> into)
-    {
-        if (value is not null) into.Add(value);
-        foreach (var v in values ?? Array.Empty<string>()) if (v is not null) into.Add(v);
-        if (entries is not null) foreach (var kv in entries) if (kv.Value is not null) into.Add(kv.Value);
-        if (one is not null) HarvestStructTokens(one, into);
-        foreach (var s in many ?? Array.Empty<StructSpec>()) HarvestStructTokens(s, into);
-    }
-
-    static void HarvestLinkTokens(WriteRequest req, HashSet<string> into)
-        => HarvestLinkTokens(req.Value, req.Values, req.Entries, req.Struct, req.Structs, into);
-
-    static void HarvestStructTokens(StructSpec spec, HashSet<string> into)
-    {
-        if (spec.Fields is not null) foreach (var kv in spec.Fields) if (kv.Value is not null) into.Add(kv.Value);
-        foreach (var a in spec.CtorArgs ?? Array.Empty<string>()) if (a is not null) into.Add(a);
-        foreach (var r in spec.Sets ?? new()) HarvestLinkTokens(r, into);
     }
 
     /// <summary>Does this edit's CopyFrom source need the OFF-ORDER on-disk locate — i.e. is it a CopyFrom naming a
@@ -901,20 +900,23 @@ public static class WritePatchBuilder
                 $"cannot edit '{targetName}' in place: it was EXCLUDED from this session ({excluded}) — houseCARL won't " +
                 "re-serialize a plugin it can't fully parse (that would risk dropping the record it couldn't read, Q3). The file is UNTOUCHED.");
 
+        // Two passes, exactly as the patch lane: the rulebook's own walk harvests each staged edit's FormLink values
+        // (it needs the record type the resolve below derives), then one lookup answers the pre-flight for all of them.
         var linkTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var e in edits) HarvestLinkTokens(e.Value, e.Values, e.Entries, e.Struct, e.Structs, linkTokens);
-        var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens);
-        var linkRulebook = rulebook.WithLinkTargets(linkTypes);
-        var resolved = new List<(PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label, IMajorRecordGetter? srcBody, bool selfSource)>(edits.Count);
-        var problems = new List<string>();
+        var harvestRulebook = rulebook.WithLinkHarvest(linkTokens);
+        var staged = new List<(int order, PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label, IMajorRecordGetter? srcBody, bool selfSource)>(edits.Count);
+        var problems = new List<(int Order, string Message)>();
+        int order = -1;
+        void Problem(string message) => problems.Add((order, message));
         foreach (var e in edits)
         {
+            order++;
             bool selfSource = false;   // the copy source lives in the TARGET's own file — see the lifetime note below
             var body = view.GetRecord(session, targetName, e.Target);
             if (body is null)
             {
-                problems.Add($"{FormIdToken.Of(e.Target)}: '{targetName}' does not define or override this record — in-place edits only what the " +
-                             "file OWNS. To change a record defined in another plugin, use the default patch lane (a new override) instead.");
+                Problem($"{FormIdToken.Of(e.Target)}: '{targetName}' does not define or override this record — in-place edits only what the " +
+                        "file OWNS. To change a record defined in another plugin, use the default patch lane (a new override) instead.");
                 continue;
             }
             var recType = RecordNaming.StripOverlay(body.GetType().Name);
@@ -924,7 +926,7 @@ public static class WritePatchBuilder
                 Key = e.Key, Value = e.Value, Values = e.Values, Entries = e.Entries, Struct = e.Struct, Structs = e.Structs,
             };
             var label = Label(req);
-            if (linkRulebook.Validate(req) is { } reject) { problems.Add($"{recType} {FormIdToken.Of(e.Target)} [{label}]: {reject}"); continue; }
+            harvestRulebook.CollectLinkValues(req);
 
             // CopyFrom SOURCE resolution — the same contract Apply enforces, on this lane too: the lane axis is
             // uniform, so every write verb must compose with in_place. Without this a CopyFrom op reaches ApplyVerb,
@@ -935,22 +937,22 @@ public static class WritePatchBuilder
             if (string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal))
             {
                 var srcPlugin = ResolveCopyPole(e, view, out var poleErr);
-                if (poleErr is not null) { problems.Add(poleErr); continue; }
+                if (poleErr is not null) { Problem(poleErr); continue; }
 
                 if (TryOffOrderCopyBody(copyFromSources, e, view, out var offSrc))
                     srcBody = offSrc;
                 else if (string.IsNullOrWhiteSpace(srcPlugin))
-                { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom is missing from_plugin (internal — the mapper should have caught this)."); continue; }
+                { Problem($"{FormIdToken.Of(e.Target)}: CopyFrom is missing from_plugin (internal — the mapper should have caught this)."); continue; }
                 else if (e.FromTarget is null && string.Equals(srcPlugin, targetName, StringComparison.OrdinalIgnoreCase))
-                { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom from_plugin '{srcPlugin}' is the in-place target itself — copying this record's own field onto itself is a no-op; name the OTHER plugin whose version to copy from."); continue; }
+                { Problem($"{FormIdToken.Of(e.Target)}: CopyFrom from_plugin '{srcPlugin}' is the in-place target itself — copying this record's own field onto itself is a no-op; name the OTHER plugin whose version to copy from."); continue; }
                 else if (!view.ContainsPlugin(srcPlugin))
-                { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk."); continue; }
+                { Problem($"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' is not in the load order (and no plugin file by that name was located on disk) — name an active plugin, or a plugin file present on disk."); continue; }
                 else if (view.ExcludedPlugins.TryGetValue(srcPlugin, out var cfWhy))
-                { problems.Add($"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' was excluded from this session ({cfWhy}) — its records aren't resolvable."); continue; }
+                { Problem($"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' was excluded from this session ({cfWhy}) — its records aren't resolvable."); continue; }
                 else
                 {
                     srcBody = view.GetRecord(session, srcPlugin, e.CopySource);
-                    if (srcBody is null) { problems.Add(CopySourceMissing(e, srcPlugin)); continue; }
+                    if (srcBody is null) { Problem(CopySourceMissing(e, srcPlugin)); continue; }
                     // LIFETIME: a source resolved out of the TARGET's own file comes from a session
                     // overlay that Phase 4 disposes (ReleaseOverlay, before WriteInPlace) — while CopyField's
                     // contract is that the source overlay outlives the serialize, because TransplantValue shares
@@ -961,14 +963,28 @@ public static class WritePatchBuilder
                     // Deliberately not refused: copying between two records of the same file is a legitimate job.
                     if (string.Equals(srcPlugin, targetName, StringComparison.OrdinalIgnoreCase)) selfSource = true;
                 }
-                if (CrossTypeRefusal(e, srcBody, body) is { } typeErr) { problems.Add(typeErr); continue; }
+                if (CrossTypeRefusal(e, srcBody, body) is { } typeErr) { Problem(typeErr); continue; }
             }
-            resolved.Add((e, body, req, label, srcBody, selfSource));
+            staged.Add((order, e, body, req, label, srcBody, selfSource));
+        }
+
+        // --- Phase 1b: one resolve of the harvested link targets, then pre-flight every staged edit against it. ---
+        var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens);
+        var linkRulebook = rulebook.WithLinkTargets(linkTypes);
+        var resolved = new List<(PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label, IMajorRecordGetter? srcBody, bool selfSource)>(staged.Count);
+        foreach (var s in staged)
+        {
+            if (linkRulebook.Validate(s.req) is { } reject)
+            { problems.Add((s.order, $"{s.req.RecordType} {FormIdToken.Of(s.edit.Target)} [{s.label}]: {reject}")); continue; }
+            resolved.Add((s.edit, s.body, s.req, s.label, s.srcBody, s.selfSource));
         }
         if (problems.Count > 0)
+        {
+            problems.Sort((a, b) => a.Order.CompareTo(b.Order));
             return PatchOutcome.Fail(
                 $"refused — {problems.Count} of {edits.Count} edit(s) rejected by resolve/pre-flight; '{fileName}' is UNTOUCHED:\n  - "
-                + string.Join("\n  - ", problems));
+                + string.Join("\n  - ", problems.Select(p => p.Message)));
+        }
 
         // --- Phase 2: open the TARGET mutably. EAGER, the SINGLE plugin only — NEVER the load order (eager-loading the
         //     whole order costs 12–14 GB of RAM). CreateFromBinary is the same call Apply's extend path uses; an
@@ -2922,8 +2938,14 @@ public static class WritePatchBuilder
         // The link-TARGET types this call's edits name, resolved once — the same gate the two apply lanes run, on the
         // lane that authors brand-new records. A '@editorid' sibling ref points at a record that does not exist yet,
         // so it resolves to nothing and is not type-checked; a literal FormID beside it is.
+        // Harvested by the RULEBOOK's own walk, the one that will do the checking — a create's edits are already
+        // rooted at the declared type, so the walk runs before any of Phase 1. Every editorid in the call is offered
+        // as a sibling so the walk reaches the same slots the per-spec validation will; a '@editorid' value resolves
+        // to no FormKey and is skipped by the lookup, exactly as it is skipped by the check.
         var linkTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var s in specs) foreach (var req in s.Edits) HarvestLinkTokens(req, linkTokens);
+        var allEditorIds = specs.Select(s => s.EditorId).Where(x => !string.IsNullOrWhiteSpace(x)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var harvestRulebook = rulebook.WithLinkHarvest(linkTokens);
+        foreach (var s in specs) foreach (var req in s.Edits) harvestRulebook.CollectLinkValues(req, allEditorIds);
         var (linkTypes, linkNote) = LinkTypeLookup(view, session, linkTokens);
         var linkRulebook = rulebook.WithLinkTargets(linkTypes);
 

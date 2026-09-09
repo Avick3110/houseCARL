@@ -84,6 +84,21 @@ public sealed class FormLinkTargetTypeTests : RecordsTestBase
         Refused(r, "'BaseEffect'", "is a Spell", "links to MagicEffect");
     }
 
+    /// <summary>A link two composition levels down — a composed struct's NESTED set into a sub-struct's own FormLink
+    /// field — is checked like any other. The value slots are enumerated by the rulebook's own walk, so a slot the
+    /// check reads is a slot the harvest resolved; nothing here depends on a hand-kept list of where links can sit.</summary>
+    [Fact]
+    public void ANestedComposedLinkToTheWrongRecordTypeIsRefused()
+    {
+        var r = ApplyTools.Apply(Svc,
+            ops: Je($@"[{{""formid"":""{Fid(W.NpcParent)}"",""field_path"":""Items"",""op"":""Add"",""compose"":
+                {{""type"":""ContainerEntry"",""sets"":[{{""path"":""Item.Item"",""value"":""{Fid(W.SpellA)}""}},
+                {{""path"":""Item.Count"",""value"":""1""}}]}}}}]"),
+            dry_run: true);
+
+        Refused(r, "'Item'", "is a Spell");
+    }
+
     /// <summary>Removing a link is exempt: a list may already carry a wrong-typed FormID (another mod wrote it), and
     /// the Remove that repairs it must not be refused for naming the very type it is taking out. The call still
     /// fails — this armor has no Keywords at all — but on the LIST, never on the value's type.</summary>
