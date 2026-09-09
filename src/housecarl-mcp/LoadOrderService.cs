@@ -7271,10 +7271,10 @@ public sealed class LoadOrderService : IDisposable
             // ---- output folder: a fresh houseCARL mod folder, since a merge is always a new file ----
             RiderFolder rf;
             // The plugin written here is outName, not the folder stem, so that is the name the shadow check tests and
-            // output= is the parameter its refusal names.
+            // patch= is the parameter its refusal names.
             try { rf = ResolvePatchModFolder(patchName, null,
                 Path.GetFileNameWithoutExtension(outName) + (donorInfos.Count == 1 ? " renamed" : " merged"),
-                naming: null, writesPlugin: (outName, "output")); }
+                naming: null, writesPlugin: (outName, "patch")); }
             catch (InvalidOperationException ex) { return WritePatchBuilder.MergeOutcome.Fail(ex.Message); }
             WriteOwnerMeta(rf.ModFolder, outName);
             var outPath = Path.Combine(rf.OutputDir, outName);

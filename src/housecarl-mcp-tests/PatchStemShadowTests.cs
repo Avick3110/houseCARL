@@ -140,8 +140,8 @@ public sealed class PatchStemShadowTests
     }
 
     /// <summary>A merge's folder stem and its plugin filename are different names: the folder defaults to
-    /// "&lt;output&gt; renamed" while the file written is output= itself. The shadow is on the FILE, so a foreign
-    /// disabled mod holding that filename refuses the merge, and the remedy names output=, the parameter that
+    /// "&lt;patch&gt; renamed" while the file written is patch= itself. The shadow is on the FILE, so a foreign
+    /// disabled mod holding that filename refuses the merge, and the remedy names patch=, the parameter that
     /// actually moves it.</summary>
     [Fact]
     public void AMergeIsRefusedOnTheOutputFilenameItWritesNotItsFolderStem()
@@ -154,6 +154,6 @@ public sealed class PatchStemShadowTests
         Assert.False(o.Success);
         Assert.Contains("Foreign Merge Mod", o.Error);
         Assert.Contains("HcShadowMerge.esp", o.Error);
-        Assert.Contains("output=", o.Error);
+        Assert.Contains("patch=", o.Error);
     }
 }
