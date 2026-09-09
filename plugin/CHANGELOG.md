@@ -52,6 +52,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `housecarl_place` — an artifact spelling (`plugin_name=`, `output=`, `archive_name=`) is refused by name
   with the supported list instead of being read as the folder's name.** `plugin_name=` still reaches the
   plugin parameter on the tools that have one (on `housecarl_compact_plugin`, `source=`).
+- **A 1.x parameter name is no longer mapped onto its 2.0 replacement: it is refused by name, naming the
+  parameters the tool does accept.** The table that renamed `plugin=` to `source=`, `patch_name=` to `patch=`,
+  `operations=` to `ops=` and the rest, and that turned the old `in_place=true` + `target="X.esp"` pair into
+  `in_place="X.esp"`, is gone; so are the migration hints it attached to a retired spelling. An old spelling
+  now gets the same unknown-parameter refusal as any other unrecognized argument, and an old `in_place=true`
+  is refused as the wrong type for a parameter that names the file being overwritten — nothing enters the
+  in-place lane from a call that did not spell it. Tolerance for an underscore or case variant of a parameter
+  the tool actually declares (`form_id` for `formid`) is unchanged. A call to a 1.x TOOL name is still refused
+  with one sentence naming its 2.0 successor and how to spell the call.
 - **`housecarl_skypatcher_layer` with a `filter=` that matches no INI now says so instead of returning the
   whole-layer overview.** It answers with the filter, the match count (0 of N INIs), the type folders that are
   present, and a nearest-name suggestion where there is one, so a filter typo can no longer read as the layer's
