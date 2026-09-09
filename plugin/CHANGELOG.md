@@ -15,14 +15,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 - **The `mutagen-reference` schema reference now reports a record-identity field as not writable.** A field
   marked `id` — `FormKey` on a record, and `ModKey` / `Master` on the `SkyrimMod` and `MasterReference`
-  structs — carries a library setter but the write
-  pre-flight refuses it, so the reference reads `"w":false` on those fields and counts them out of a type's
+  structs — is refused by the write pre-flight whether or not the library exposes a setter for it. The two
+  that did expose one, `MasterReference.Master` and every record's `FormKey`, flip from `"w":true` to
+  `"w":false` here, so the reference now reads `"w":false` on every `id` field and counts them out of a type's
   `writable/total` summary (ARMO is `31/32`, not `32/32`). The read view and the write tools now agree about
   what can be set. The skill says what `w` means; how to change a record's identity is in the same section.
 - **Four skills fold in what the September behavioural gate found.** `mutagen-reference` says how to resolve a
   field's `target` and blesses one whole-file grep for enumerating the modeled types; `open-animation-replacer`
   gives a legacy Form B folder's priority (0), tells you to recompute the winner table with your submod spliced
-  in rather than parking near int32 max, covers the base-clip layer and the `_1stperson` false competitor, and
+  in rather than parking near int32 max, covers the base-clip layer and says the sweep is third-person only, and
   converts a different worked folder; `kid-authoring` names the record field behind every trait, adds an
   exclusion-then-trait example, and says how a KID line differs from a SPID one; `spid-authoring` documents the
   FormLink wire form and the one-call union census, says a written-out player exclusion is inert, and labels its
