@@ -379,6 +379,15 @@ built-in roster (§6) and the value-component shapes (§4); the hand flag is §4
 | `HasPerk` / `HasSpell` / `HasMagicEffect` / `IsInFaction` / `IsRace` / `IsClass` | same name | one Form component named for the thing — the exact argument name is not published in this reference; read it off the in-game editor or an existing config that uses the condition |
 | `IsInCombat()` / `IsChild()` / `IsInInterior()` / `IsPlayerTeammate()` | same name | no parameters |
 | Form B's `<Plugin.esp>/<FormID>/` folder pair | `IsActorBase` | auto-synthesized from the folder names; write it out explicitly when converting by hand |
+| `Random(x)` | `Random` | `"requiredVersion": "2.3.0.0"`, `"State": { "scope": "Local", "shouldResetOnLoopOrEcho": <bool> }`, `"Minimum random value": { "value": 0.0 }`, `"Maximum random value": { "value": 1.0 }`, `"Comparison": "<"`, `"Numeric value": { "value": x }` |
+
+**The `Random` parameter names above are read off shipped configs, not off OAR's published docs.**
+The block appears verbatim — same six keys, same `2.3.0.0` — in *Ashe - Crystal Heart*, e.g.
+`meshes/actors/character/animations/OpenAnimationReplacer/AsheConditionalAnims/Dung_In/config.json`
+(`"<"` at `0.333`) and `.../AsheAttackAnims/Greatsword 02 - Power Attack 01/config.json` (`"<="` at
+`0.5`); read 2026-09-09. `Comparison` is the §4 operator set. The `2.3.0.0` floor means an OAR older
+than 2.3.0.0 flags the condition invalid, so the submod never wins — check the installed version
+before shipping one.
 
 **The type rows are `n → n`, verified, at 6, 9, 10 and 11 as everywhere else.** There is no second
 numbering to translate. OAR registers the DAR names `IsEquippedRightType` and `IsEquippedLeftType` as

@@ -258,8 +258,10 @@ in `AND`, so there is no `OR` group and the set is flat, but had the two middle 
 they would bind into a single `OR` term sitting inside the `AND` set, and reading such a chain flat
 left-to-right inverts what it gates on.
 
-`Random` takes a state block and a comparison rather than a bare number; the reference does not
-publish its argument names, so this is the shape to copy:
+`Random` takes a state block and a comparison rather than a bare number. Its six keys and its
+`2.3.0.0` version floor are in the reference's DAR mapping table, read off shipped configs — copy
+this shape, and check the installed OAR is at least 2.3.0.0 or the condition is flagged invalid and
+the submod never wins:
 
 ```json
 { "name": "Kaidan greatsword idle (from DAR 777000)",
