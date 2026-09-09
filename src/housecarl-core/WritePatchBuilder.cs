@@ -3338,6 +3338,20 @@ public static class WritePatchBuilder
                 var reject = harvestVerdicts.TryGetValue(req, out var settled) ? settled : linkRulebook.Validate(req, priorEditorIds);
                 if (reject is not null) problems.Add($"{s.RecordType} '{s.EditorId}' [{Label(req)}]: {reject}");
             }
+
+            // DLBR Flags (DNAM) has no honest default — vanilla carries TopLevel menu branches and deliberate 0
+            // branches, and each wrong guess is its own in-game defect (#693 dead branch, #212 stray "...") — so a
+            // branch that passes none is refused. Here, with every other pre-flight refusal, so a batch reports it
+            // together with the rest in one round trip and nothing has been allocated yet. "The author passed Flags"
+            // is an op on the Flags path, the same author-set test the DIAL Priority seed uses. The sentence names
+            // the type and the editorid itself, so it takes no prefix.
+            if (string.Equals(s.RecordType, nameof(DialogBranch), StringComparison.OrdinalIgnoreCase))
+            {
+                bool authorSetFlags = s.Edits.Any(e => e.Path.Length >= 1 &&
+                    string.Equals(e.Path[0], nameof(DialogBranch.Flags), StringComparison.OrdinalIgnoreCase));
+                if (DialogueCkParity.BranchFlagsRefusal(authorSetFlags, s.EditorId) is { } flagsRefusal)
+                    problems.Add(flagsRefusal);
+            }
         }
         if (problems.Count > 0)
             return CreateOutcome.Fail(
@@ -3513,13 +3527,8 @@ public static class WritePatchBuilder
                 foreach (var fill in DialogueCkParity.ApplyViewDefaults(viewRec))
                     ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
             }
-            else if (rec is IDialogBranch branchRec)   // DLBR Category (TNAM); Flags (DNAM) is required, never filled
+            else if (rec is IDialogBranch branchRec)   // DLBR Category (TNAM); Flags (DNAM) is required, refused in Phase 1 when unset
             {
-                // Flags (DNAM) has no honest default — vanilla carries TopLevel menu branches and 203 deliberate
-                // 0 branches, and each wrong guess is its own in-game defect (#693 dead branch, #212 stray "..."),
-                // so a branch that passed none is refused here. All-or-nothing: nothing is serialized.
-                if (DialogueCkParity.BranchFlagsRefusal(branchRec, s.EditorId) is { } flagsRefusal)
-                    return CreateOutcome.Fail(flagsRefusal + " (nothing created)");
                 foreach (var fill in DialogueCkParity.ApplyBranchDefaults(branchRec))
                     ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
             }
