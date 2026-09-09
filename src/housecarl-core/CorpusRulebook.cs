@@ -1370,15 +1370,25 @@ public sealed class CorpusRulebook
                   $"that arm: {h.Slot}='{h.Path}', key='{h.Key}' — {WriteVerbs.HowToPlaceOneAt(shape)}."
             : "Read the element first to learn its concrete arm, then target a field whose shape is unambiguous.";
 
-    /// <summary>How many field names this refusal prints before it cuts. For a type with no instance in the load
-    /// order the refusal is the only on-surface schema source, so it lists every field up to this cap — which all
-    /// but a couple of dozen modeled types are under — and past it names where the rest are.</summary>
+    /// <summary>How many field names this refusal prints before it cuts. A write call is the only place on the
+    /// surface that shows a type's schema without an instance of it in the load order, so the refusal lists every
+    /// field up to this cap and past it names where the rest are. The cap sits above every common record type
+    /// (Weapon, Armor, the Placed* family, Cell) and below the handful that are pages long (Race, Weather,
+    /// EffectShader).</summary>
     const int FieldListCap = 40;
+
+    /// <summary>How far past the cap a type may run and still print whole. The pointer costs ~90 characters to buy
+    /// back names averaging ~15, so a cut only pays once it hides about six of them — without this, a type a name
+    /// or two over the cap would hide one field behind a sentence longer than the field. Lets the cap be a
+    /// judgement about sentence length rather than a number that has to sit clear of wherever the corpus's type
+    /// sizes happen to cluster.</summary>
+    const int FieldListCapSlack = 6;
 
     string FieldNotFound(TypeSchema owner, string name)
     {
-        var sample = owner.Fields.Select(f => f.Name).Take(FieldListCap).ToList();
-        var more = owner.Fields.Count > sample.Count
+        var cuts = owner.Fields.Count > FieldListCap + FieldListCapSlack;
+        var sample = owner.Fields.Select(f => f.Name).Take(cuts ? FieldListCap : owner.Fields.Count).ToList();
+        var more = cuts
             ? $", … (+{owner.Fields.Count - sample.Count} more — the full field list for '{owner.Name}' is in the " +
               "mutagen-reference skill)"
             : "";
