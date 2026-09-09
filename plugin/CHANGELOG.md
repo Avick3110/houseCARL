@@ -58,8 +58,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `in_place="X.esp"`, is gone; so are the migration hints it attached to a retired spelling. An old spelling
   now gets the same unknown-parameter refusal as any other unrecognized argument — including when it stood in
   for a required parameter, where one sentence names both the parameter that is missing and the spelling that
-  is not one. An old `in_place=true`, and a quoted `in_place="false"` or `in_place="true"`, are refused by name
-  for a parameter that takes the file being overwritten: nothing enters the in-place lane from a call that did
+  is not one. 1.x's lane flag — `in_place=true` or `in_place=false`, bare or quoted — takes one refusal by name
+  saying the parameter names the file being overwritten: nothing enters the in-place lane from a call that did
   not name a file. Tolerance for an underscore or case variant of a parameter
   the tool actually declares (`form_id` for `formid`) is unchanged. A call to a 1.x TOOL name is still refused
   with one sentence naming its 2.0 successor and how to spell the call.
