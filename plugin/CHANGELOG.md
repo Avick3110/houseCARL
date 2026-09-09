@@ -31,6 +31,25 @@ saying it sets an expectation their install may contradict. Say what is known, a
   resolves a plugin-name filter, which strings a `*` wildcard tests, whether SPID's scan descends into
   subfolders, which version source wins when a DLL and `meta.ini` disagree — the skill now says so and says what
   would settle it, instead of leaving it to be guessed.
+- **`housecarl_check` gains a FACEGEN findings family, and the `facegen-diagnostics` skill is gone.**
+  `findings=["facegen"]` answers the dark-face question server-side, one row per NPC: which mod wins its head
+  `.nif`, which wins its face `.dds`, which plugin wins the `NPC_` record behind them, the mismatch class and a
+  fix sentence. Two independent precedences decide a face — the MO2 VFS for the files, load order for the record
+  — and the desync between them is why xEdit shows nothing; joining them by hand outside the tools took about
+  half an hour and two dozen calls. Classes: `tint_absent`, `mesh_absent`, `bake_absent`, `split_bake`,
+  `stale_bake`, `family_split` (benign — counted in the header, listed only under its own token),
+  `foreign_index` and `inert`. The population is the union of every in-scope NPC that needs a bake and every
+  facegen file on disk whose key resolves to nothing; an NPC that inherits its appearance through
+  `Template`+`Traits`, or whose race carries no `FaceGenHead` flag, is excluded and counted rather than reported
+  as broken. It is not in the default findings set, and it is allowed unscoped: a whole-order sweep of a
+  3,801-plugin order measured 45 seconds, beside the errors family's 24 to 37. The skill it replaces is deleted;
+  its causes-and-fixes reference is now `docs/facegen.md`, and its mesh-repair reference folded into
+  `housecarl_nif_set`'s own parameters.
+- **`housecarl_check` gains `to_file=`.** It writes every running family's findings to one JSONL artifact under
+  the same manifest convention `housecarl_records` uses, with a `family` and a `class` column, and renders only
+  the manifest inline. The rows are the sweep's findings rather than the render's, so nothing is missing because
+  the inline body ran out of characters. Refused beside `counts_only=true`, which returns histograms and no rows.
+
 - **`housecarl_check`'s record-type scope is now the set-valued `types=`, the same spelling and value form
   `housecarl_records` takes.** One type is a set of one, so `types=["Npc"]` sweeps what `type="Npc"` swept; a set
   sweeps the union of its types in one pass and merges the findings, and the response's narrowing line names every

@@ -26,7 +26,6 @@ The user's instructions take precedence over guidelines provided in a skill.
 
 | The user is asking about | Load | When |
 |---|---|---|
-| A dark, grey or black NPC face; a face wrong after compacting or merging | `housecarl:facegen-diagnostics` | before judging the fix |
 | What fields a record type has, or a legal enum value | `housecarl:mutagen-reference` | before the write |
 | A no-ESP edit to a record's own fields, or to one NPC | `housecarl:skypatcher-authoring` | before the INI line |
 | Spells, perks, items, outfits or factions onto NPCs by group | `housecarl:spid-authoring` | before the `_DISTR.ini` line |
@@ -36,8 +35,11 @@ The user's instructions take precedence over guidelines provided in a skill.
 | A Papyrus or SKSE function signature, or a `.psc` edit | `housecarl:papyrus-reference` | before the script edit |
 | Writing or building a native SKSE plugin DLL in C++ | `housecarl:skse-plugin-authoring` | before the first C++ |
 
+A dark, grey or black NPC face is not a skill: `housecarl_check findings=["facegen"]` reports it one row per
+NPC, and `docs/facegen.md` in the repo carries the causes behind each class.
+
 MCP tools are written bare on both hosts (`housecarl_records`); a sibling is written `housecarl:<skill>`, the
-Claude Code form — on Codex it is the bare folder name (`facegen-diagnostics`) installed beside this one.
+Claude Code form — on Codex it is the bare folder name (`mutagen-reference`) installed beside this one.
 
 ## Read before you write
 

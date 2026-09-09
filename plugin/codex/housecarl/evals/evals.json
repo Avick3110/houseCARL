@@ -30,8 +30,8 @@
       "id": 1,
       "split": "train",
       "prompt": "A bunch of NPCs from my follower mod have gone dark-faced since I compacted the plugin to ESL. What's actually winning?",
-      "expected_output": "the umbrella is loaded and routes to facegen-diagnostics before any call.",
-      "expectations": ["the skill is selected", "the route names facegen-diagnostics rather than composing a read first"]
+      "expected_output": "the umbrella is loaded and routes to housecarl_check findings=[\"facegen\"] before any other call.",
+      "expectations": ["the umbrella is selected", "the route names the facegen findings family rather than composing a read first"]
     },
     {
       "id": 2,
@@ -158,12 +158,12 @@
     "task": "On the live ARR 2.0 order (3,801 plugins), one prompt whose ROUTING is the whole difference, phrased the way a user would: \"A batch of NPCs from one of my follower mods came out grey-faced after I ESL-compacted a plugin. Sort out what actually wins and fix it.\"",
     "arms": "control (no skill in the catalogue, the houseCARL MCP server attached and its instructions injected) and with-skill (told to load this skill first). One Opus agent, 40-call cap, one run each, fresh context.",
     "beats_the_control_when": [
-      "1. The route is taken before the first call — the with-skill arm loads facegen-diagnostics and reaches for the record-versus-file precedence model before composing anything; the control does not, or reaches it late and after a wrong call.",
+      "1. The route is taken before the first call — the with-skill arm reaches for the facegen findings family and the record-versus-file precedence model before composing anything; the control does not, or reaches it late and after a wrong call.",
       "2. Every call is live — no 1.x tool name is composed in the with-skill transcript, the direct test of the seventeen dead names against the packaged tree.",
       "3. The deliverable differs measurably — something passes with the skill and fails without it."
     ],
     "gate": "All three, or the arm does not pass. A faster route to the same answer is not enough on its own: the pair is the only honest measure, and two skills in the 2026-09 audit had their self-reported value contradicted by their own controls.",
-    "if_the_control_matches": "The ruled outcome is not a smaller rewrite. It is FOLD-IN.md N9: the routing map is dropped rather than migrated, and item 27 decides whether the Codex bundle ships a router at all beside nine skills that each describe themselves.",
+    "if_the_control_matches": "The ruled outcome is not a smaller rewrite. It is FOLD-IN.md N9: the routing map is dropped rather than migrated, and item 27 decides whether the Codex bundle ships a router at all beside eight skills that each describe themselves.",
     "recorded_per_arm": ["pass rate", "total_tokens", "duration_ms", "houseCARL call count", "which skills were loaded and when"]
   }
 }

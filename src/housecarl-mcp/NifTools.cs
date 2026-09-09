@@ -219,7 +219,12 @@ public static class NifTools
                      "specular_strength, specular_color, emissive_color, emissive_multiple, alpha; the plastic-looking " +
                      "armour or over-bright glow fix. NOT set_alpha — that is the separate NiAlphaProperty). An op that " +
                      "does not APPLY to what target= names — set_partition on a shape carrying no BSDismember skin " +
-                     "instance — is refused by name, with nothing written.")]
+                     "instance — is refused by name, with nothing written. A mesh that is not a Skyrim SE stream is " +
+                     "refused too, rather than written through an untested cross-game path. WHAT A GREEN VERIFY " +
+                     "PROVES, whichever op ran: the two gates confirm the DATA VALUE landed, not that the face or the " +
+                     "armour RENDERS right — the geometry, the .dds pixels and the final render stay unseen. Report " +
+                     "what was read and written as fact and the render as unverified; a rewritten path or a renamed " +
+                     "shape still needs the in-game check.")]
             string op,
         [Description("What the op edits, as it currently reads (from " + ToolNames.NifInspect + "). For most ops the NAME of a " +
                      "shape or node; for a rename the OLD name; for set_path WITHOUT texture_slot the header STRING to " +
@@ -240,8 +245,30 @@ public static class NifTools
         [Description("set_partition: which partition to change when a shape has more than one (0-based). Omit if it has exactly one.")] string partition_index = "",
         [Description("set_alpha: the 16-bit alpha flags word — hex ('0x12ED') or decimal. Optional if only changing the threshold.")] string alpha_flags = "",
         [Description("set_alpha: the alpha test threshold, 0-255. Optional if only changing the flags word.")] string alpha_threshold = "",
-        [Description("set_path: the BSShaderTextureSet slot index (0 diffuse, 1 normal, 6 tint/skin/detail, ...). OMIT it to swap the header string target= names instead.")] string texture_slot = "",
-        [Description("set_path: the new path — a texture (Data-relative, e.g. 'textures\\...\\facetint\\Mod.esp\\00000ABC.dds') with texture_slot, or the replacement header string (a .bgsm material, a .tri, a physics xml) without it.")] string path = "",
+        [Description("set_path: the BSShaderTextureSet slot index (0 diffuse, 1 normal, 6 tint/skin/detail, ...) - " +
+                     "the BINARY index, which is what " + ToolNames.NifInspect + " prints and what this takes. " +
+                     "NifSkope numbers the same slot ONE HIGHER (binary 6 is its slot 7), so a number read off " +
+                     "NifSkope is off by one here. The '(Name)' the read prints beside a slot is DERIVED from the " +
+                     "shape's shader type and its SLSF flags, not from the index - slot 2 is glow or " +
+                     "skin-subsurface or soft-lighting and slot 7 backlight or specular depending on them, a slot " +
+                     "the shader does not determine prints bare, and on a non-Skyrim layout none is named - so pass " +
+                     "the NUMBER, never the name. TWO logically distinct references live in one block: slot 6 is the " +
+                     "per-NPC FaceTint .dds (the head shape's shader type is FaceTint, which is what names it) and " +
+                     "slots 0/1 are the base skin diffuse and normal. OMIT this to swap the header string target= " +
+                     "names instead.")] string texture_slot = "",
+        [Description("set_path: the new path - a texture (Data-relative, e.g. " +
+                     "'textures\\...\\facetint\\Mod.esp\\00000ABC.dds') with texture_slot, or the replacement header " +
+                     "string (a .bgsm material, a .tri, a physics xml) without it. WHEN SLOT 6 NEEDS REWRITING: the " +
+                     "FaceTint path is baked into each head mesh, so an ESL compaction or a merge that renumbers the " +
+                     "FormID, or a copy onto a DIFFERENT FormKey, leaves it pointing at the old id and the face " +
+                     "renders grey even after the files are renamed. FaceGenEslify and its siblings automate the " +
+                     "RENAME and leave this as a manual NifSkope step; this op is that step. A same-FormID, " +
+                     "same-defining-master placement needs NO edit here - the embedded path is a pure function of " +
+                     "(defining master, local FormID) and already resolves to the destination. SLOTS 0/1 are the " +
+                     "other repair: a head mesh hardcoding the vanilla skin while a per-race body framework gives a " +
+                     "different body is the face-versus-body mismatch, not the dark-face bug, and rewriting them is " +
+                     "what NPC Facegen Patcher does in bulk - a whole mod's meshes are still faster there. Causes " +
+                     "and repairs by class: docs/facegen.md.")] string path = "",
         [Description("set_shader_value: which lighting value — 'glossiness', 'specular_strength', 'specular_color', 'emissive_color', 'emissive_multiple', or 'alpha'.")] string shader_value = "",
         [Description("set_shader_value: the new value — one number for a scalar ('30'), or three comma-separated components for a colour ('1,0.5,0.25'). Colours and alpha are conventionally 0-1 (NOT 0-255); a value outside that is written as asked but WARNED about.")] string value = "",
         [Description("Optional. Edit a specific provider's copy instead of the VFS winner — the mod folder name, 'overwrite', " +

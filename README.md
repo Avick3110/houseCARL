@@ -173,10 +173,6 @@ Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Code
 - **`skypatcher-authoring`**, **`spid-authoring`**, **`kid-authoring`** — author SkyPatcher INI,
   SPID `_DISTR.ini`, and KID `_KID.ini` distributor files from a grammar reference rather than invented
   syntax.
-- **`facegen-diagnostics`** — walk the dark / grey / black-face NPC bug end to end: compare which plugin
-  wins the NPC record against which mod or BSA wins the facegen file, then place the correct facegen as a
-  winning override or forward the matching appearance into a new plugin, instructing the CK / NifSkope /
-  RaceMenu steps houseCARL can't perform.
 - **`dialogue-authoring`** — author or audit Skyrim dialogue at the data layer: create topics (DIAL) and
   lines (INFO) in a new plugin, wire them to a branch and quest, attach result scripts, write the
   start-game-enabled `.seq`, and validate a whole topic's or quest's dialogue graph — encoding the
