@@ -1370,10 +1370,18 @@ public sealed class CorpusRulebook
                   $"that arm: {h.Slot}='{h.Path}', key='{h.Key}' — {WriteVerbs.HowToPlaceOneAt(shape)}."
             : "Read the element first to learn its concrete arm, then target a field whose shape is unambiguous.";
 
+    /// <summary>How many field names this refusal prints before it cuts. For a type with no instance in the load
+    /// order the refusal is the only on-surface schema source, so it lists every field up to this cap — which all
+    /// but a couple of dozen modeled types are under — and past it names where the rest are.</summary>
+    const int FieldListCap = 40;
+
     string FieldNotFound(TypeSchema owner, string name)
     {
-        var sample = owner.Fields.Select(f => f.Name).Take(12).ToList();
-        var more = owner.Fields.Count > sample.Count ? $", … (+{owner.Fields.Count - sample.Count} more)" : "";
+        var sample = owner.Fields.Select(f => f.Name).Take(FieldListCap).ToList();
+        var more = owner.Fields.Count > sample.Count
+            ? $", … (+{owner.Fields.Count - sample.Count} more — the full field list for '{owner.Name}' is in the " +
+              "mutagen-reference skill)"
+            : "";
         var arms = owner is { Kind: "polymorphic-base", Arms.Count: > 0 }
             ? $" Also searched its arms ({string.Join(", ", owner.Arms!.Where(a => a != owner.Name))})."
             : "";
