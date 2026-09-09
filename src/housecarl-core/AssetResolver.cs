@@ -39,8 +39,11 @@ namespace HousecarlCore;
 public enum AssetKind { Loose, Bsa }
 
 /// <summary>One source that provides an asset. <paramref name="Source"/> is the mod folder name, "overwrite",
-/// "Data", or (for a BSA) the archive's filename.</summary>
-public sealed record AssetProvider(string Source, AssetKind Kind);
+/// "Data", or (for a BSA) the archive's filename. <paramref name="OwningMod"/> is the MO2 layer THIS source's
+/// archive file lives in — carried down from the resolved source itself, so a caller that needs the layer reads the
+/// one that actually won rather than looking a filename up in a map two archives can share. Null for a loose
+/// source, whose <paramref name="Source"/> already IS that layer.</summary>
+public sealed record AssetProvider(string Source, AssetKind Kind, string? OwningMod = null);
 
 /// <summary>The resolution of one asset path. <see cref="Winner"/> is null iff <see cref="Exists"/> is false.
 /// <see cref="Providers"/> lists every source that has the asset, winner FIRST (then the rest in precedence order).
@@ -126,16 +129,6 @@ public sealed class AssetResolver : IDisposable
     /// <see cref="PapyrusSourceRoots.Discover"/>, which puts shipped .psc source folders on the Papyrus compiler's
     /// import path in this same precedence.</summary>
     public IReadOnlyList<(string Name, string Dir)> LooseRoots => _looseRoots;
-
-    /// <summary>The MO2 layer each active archive's FILE lives in, keyed by the archive's filename — the same
-    /// <see cref="AssetProvider.Source"/> a BSA hit reports. A bulk caller that has to ask which MOD provides a hit
-    /// reads this once instead of paying <see cref="ResolveForPlacement"/> per path for the one field that carries
-    /// it. Empty values are dropped: an archive with no known layer answers nothing rather than "".</summary>
-    public IReadOnlyDictionary<string, string> ArchiveOwningMods
-        => _archiveOwners ??= _archives.Where(a => !string.IsNullOrEmpty(a.OwningMod))
-                                       .GroupBy(a => Path.GetFileName(a.Path), StringComparer.OrdinalIgnoreCase)
-                                       .ToDictionary(g => g.Key, g => g.First().OwningMod!, StringComparer.OrdinalIgnoreCase);
-    IReadOnlyDictionary<string, string>? _archiveOwners;
 
     /// <summary>Archives that could not be read this build (path: reason) — surfaced, never silently treated as empty.</summary>
     public IReadOnlyList<string> BsaFailures => _snap.Failures;
@@ -341,7 +334,7 @@ public sealed class AssetResolver : IDisposable
         if (sources.Count == 0)
             return new AssetHit(rel, false, null, Array.Empty<AssetProvider>(), false);
         // Project the concrete sources down to the display providers — the on-disk paths are placement-only.
-        var providers = sources.Select(s => new AssetProvider(s.ProviderName, s.Kind)).ToList();
+        var providers = sources.Select(s => new AssetProvider(s.ProviderName, s.Kind, s.OwningMod)).ToList();
         // Ambiguous when >1 source provides it (contention), or a loose copy coexists with a BSA copy (the edge the
         // common-rule model can't promise exactly under MO2 managed archives).
         return new AssetHit(rel, true, providers[0], providers, providers.Count > 1);
@@ -540,10 +533,6 @@ public sealed class AssetResolver : IDisposable
 
         /// <summary>Archives that could not be read this build — see <see cref="AssetResolver.BsaFailures"/>.</summary>
         public IReadOnlyList<string> BsaFailures => _s.Failures;
-
-        /// <summary>The archive-to-MO2-layer map for this build — see <see cref="AssetResolver.ArchiveOwningMods"/>.
-        /// On the view because a bulk read that pins a build must read the map off the same one.</summary>
-        public IReadOnlyDictionary<string, string> ArchiveOwningMods => _r.ArchiveOwningMods;
 
         /// <summary>The Exists=false caveat for THIS build — see <see cref="AssetResolver.ReadIncomplete"/>.</summary>
         public bool ReadIncomplete => _s.Failures.Count > 0;
