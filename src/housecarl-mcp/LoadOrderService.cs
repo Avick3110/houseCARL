@@ -7151,8 +7151,8 @@ public sealed class LoadOrderService : IDisposable
             return WritePatchBuilder.MergeOutcome.Fail(
                 "patch is required — name the NEW mod folder to create (e.g. 'MyMerge'). The merged plugin inside it takes that name ('MyMerge.esp'), and it must not already exist in your load order.");
         // patch= names the FOLDER and the plugin takes the folder's name, the rule on every tool that writes one.
-        // The requested stem is what these pre-flight refusals are about; the file finally written follows the stem
-        // ResolveOutputPath settles on below, which is this one unless a mod folder of that name already exists.
+        // The requested stem is what these pre-flight refusals are about, and it is also the file finally written:
+        // ResolveOutputPath refuses a collision on it rather than suffixing, because the basename is load-bearing.
         var outName = PatchStem(patchName) + ".esp";
         ModKey outKey;
         try { outKey = ModKey.FromFileName(outName); }
@@ -7249,10 +7249,19 @@ public sealed class LoadOrderService : IDisposable
             // ---- output folder and plugin: the same fresh-write resolver the record lanes use, so patch= names the
             //      mod folder "houseCARL - <stem>" and the merged plugin inside it is "<stem>.esp". Resolved HERE,
             //      before the remap, because the remap is keyed on the output ModKey and the stem can still be
-            //      auto-suffixed by a mod folder of that name (an active plugin of it was refused above). ----
+            //      REFUSED by a mod folder of that name (an active plugin of it was refused above). ----
+            // The merged plugin's basename is load-bearing — a _DISTR.ini, a _KID.ini, a config keyed by plugin name,
+            // another plugin listing it as a master all bind to it — so a folder collision refuses by name here, the
+            // way create_plugin does, rather than writing "<stem>_001.esp" that none of them resolve.
             string outPath;
             bool createdFolder;
-            try { outPath = ResolveOutputPath(patchName, into: null, out _, out createdFolder); }
+            try
+            {
+                outPath = ResolveOutputPath(patchName, into: null, out _, out createdFolder,
+                    refuseTaken: new StemRefusal(
+                        "the merged plugin",
+                        "Remove it in MO2, or pass patch= a name no mod folder or active plugin already carries."));
+            }
             catch (InvalidOperationException ex) { return WritePatchBuilder.MergeOutcome.Fail(ex.Message); }
             outName = Path.GetFileName(outPath);
             try { outKey = ModKey.FromFileName(outName); }
@@ -7873,10 +7882,12 @@ public sealed class LoadOrderService : IDisposable
     /// what makes a shadow on it a refusal rather than a step to the next suffix. It defaults to reading that off
     /// <paramref name="patchName"/>, and a lane that COALESCES something else into that argument — the copy lane
     /// falls back to the new EditorID — passes its own <c>patch=</c> instead, so a refusal never names a parameter
-    /// the caller left out.</summary>
+    /// the caller left out.
+    /// <paramref name="refuseTaken"/> is for a lane whose PLUGIN basename is load-bearing — merge, whose output name
+    /// a _DISTR.ini or a dependent's master entry binds to: a taken stem refuses by name instead of auto-suffixing.</summary>
     string ResolveOutputPath(string? patchName, string? into, out bool extend, out bool createdFolder, bool create = true,
                              FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? noFreshRule = null,
-                             bool? stemFromCaller = null)
+                             bool? stemFromCaller = null, StemRefusal? refuseTaken = null)
     {
         lock (_gate)
         {
@@ -7905,7 +7916,7 @@ public sealed class LoadOrderService : IDisposable
             // Every record lane that reaches here declares patch= and writes "<stem>.esp", so that is the file the
             // shadow check tests and the spelling its refusal names.
             var freeStem = UniqueStem(baseStem, stemFromCaller ?? !string.IsNullOrWhiteSpace(patchName),
-                                      new PatchStemShadow.Target(s => s + ".esp", "patch"));
+                                      new PatchStemShadow.Target(s => s + ".esp", "patch"), refuseTaken);
             var newFolder = Path.Combine(_modsDir, ModFolderName(freeStem));
             var plugin = freeStem + ".esp";
             // A dry run (create:false) resolves the would-be path only — no folder, no meta.ini — so the disk stays
@@ -7955,8 +7966,12 @@ public sealed class LoadOrderService : IDisposable
     /// <summary>How ONE rider lane names the mod folder it creates — the calling tool's own statement, the way
     /// <see cref="FreshPatchRemedy"/> is for the record lanes. <paramref name="Param"/> is the parameter that tool
     /// actually declares for the folder's name, which is <c>patch=</c> on every tool that writes one. A lane whose
-    /// <c>into=</c> can never be non-empty passes null, and keeps the weakest true remedy.</summary>
-    public readonly record struct RiderNaming(string Param);
+    /// <c>into=</c> can never be non-empty passes null, and keeps the weakest true remedy.
+    /// <paramref name="RefuseTaken"/> is set by a lane whose ARTIFACT takes the folder's name and whose exact
+    /// basename is load-bearing — the .bsa, which the game auto-loads only under its plugin's basename: a taken stem
+    /// refuses by name rather than writing an archive nothing loads. A lane whose artifact is named independently of
+    /// the folder (compiled scripts, extracted files) leaves it null and keeps auto-suffixing.</summary>
+    public readonly record struct RiderNaming(string Param, StemRefusal? RefuseTaken = null);
 
     /// <summary>Resolve a houseCARL-owned mod folder under ModsDir for a non-.esp output — compiled scripts, a packed
     /// .bsa, extracted loose files — generalising the folder-per-patch model beyond the .esp write path. Either a
@@ -7991,7 +8006,7 @@ public sealed class LoadOrderService : IDisposable
             }
 
             var newStem = UniqueStem(PatchStem(string.IsNullOrWhiteSpace(patchName) ? defaultStem : patchName!),
-                                     !string.IsNullOrWhiteSpace(patchName), writes: null);
+                                     !string.IsNullOrWhiteSpace(patchName), writes: null, naming?.RefuseTaken);
             var newFolder = Path.Combine(_modsDir, ModFolderName(newStem));
             Directory.CreateDirectory(newFolder);
             WriteOwnerMeta(newFolder, "(houseCARL output)");   // ownership marker; this folder may hold scripts / a .bsa / loose files, not an .esp
@@ -8485,8 +8500,13 @@ public sealed class LoadOrderService : IDisposable
     /// calling lane's own statement of the file it emits and the parameter that names it, so the refusal never sends
     /// a caller to a parameter their tool does not declare; a lane that writes no plugin passes none and takes no
     /// shadow refusal. <paramref name="stemFromCaller"/> says the base stem is the caller's own name rather than the
-    /// lane's default, which is what makes a shadow on it refusable.</para></summary>
-    string UniqueStem(string stem, bool stemFromCaller, PatchStemShadow.Target? writes)
+    /// lane's default, which is what makes a shadow on it refusable.</para>
+    /// <para><paramref name="refuseTaken"/> is the statement of a lane whose ARTIFACT takes this stem and whose exact
+    /// basename is load-bearing — the merged plugin, the .bsa. A suffix there writes a file under a name the caller
+    /// never asked for and nothing resolves, so those lanes REFUSE a taken stem by name, the way
+    /// <c>create_plugin</c> does, instead of stepping to the next suffix. One resolver with a mode on it, not a
+    /// second resolver, so every lane keeps the same derivation.</para></summary>
+    string UniqueStem(string stem, bool stemFromCaller, PatchStemShadow.Target? writes, StemRefusal? refuseTaken = null)
     {
         var active = ActivePluginBasenames();
         // The sweep can only tell a shadow from the active plugin the suffix loop already dodges if it knows what the
@@ -8508,7 +8528,16 @@ public sealed class LoadOrderService : IDisposable
         // a name they never chose, and the file follows the stem, so the next suffix clears it.
         bool Takeable(string s)
         {
-            if (!IsStemFree(s, active)) return false;
+            if (StemCollision(s, active) is { } taken)
+            {
+                // A lane whose artifact's basename is load-bearing refuses the name the CALLER passed rather than
+                // writing that artifact under an invented suffix.
+                if (refuseTaken is { } r && stemFromCaller && s == stem)
+                    throw new InvalidOperationException(
+                        $"{taken} — houseCARL won't auto-rename {r.Artifact}, whose exact basename is load-bearing, so " +
+                        $"nothing was written. {r.Remedy}");
+                return false;
+            }
             if (comp is null || writes is not { } w) return true;
             var file = w.PluginFor(s);
             if (PatchStemShadow.Find(comp, _modsDir, _dataDir, _overwriteDir, file, active) is not { } hit) return true;
@@ -8537,10 +8566,20 @@ public sealed class LoadOrderService : IDisposable
         catch { return null; }
     }
 
-    /// <summary>A stem is free to claim when no houseCARL mod folder for it exists AND its plugin "<c>&lt;stem&gt;.esp</c>"
-    /// isn't already an active load-order plugin (case-insensitive — Skyrim plugin basenames are).</summary>
-    bool IsStemFree(string stem, IReadOnlySet<string> activePlugins)
-        => !Directory.Exists(Path.Combine(_modsDir, ModFolderName(stem))) && !activePlugins.Contains(stem + ".esp");
+    /// <summary>Null when a stem is free to claim — no houseCARL mod folder for it exists AND its plugin
+    /// "<c>&lt;stem&gt;.esp</c>" isn't already an active load-order plugin (case-insensitive — Skyrim plugin basenames
+    /// are) — else the sentence naming WHICH of the two is in the way, so a refusing lane can say it.</summary>
+    string? StemCollision(string stem, IReadOnlySet<string> activePlugins)
+        => Directory.Exists(Path.Combine(_modsDir, ModFolderName(stem)))
+            ? $"a mod folder '{ModFolderName(stem)}' already exists"
+            : activePlugins.Contains(stem + ".esp")
+                ? $"a plugin named '{stem}.esp' is already active in your load order"
+                : null;
+
+    /// <summary>One lane's statement that its artifact's exact basename is load-bearing, so a taken stem refuses
+    /// instead of auto-suffixing. <paramref name="Artifact"/> names the file in the refusal ("the merged plugin");
+    /// <paramref name="Remedy"/> is that lane's own way out, since which parameters it declares differ.</summary>
+    public readonly record struct StemRefusal(string Artifact, string Remedy);
 
     /// <summary>The active load order's plugin filenames, case-insensitive, for the UniqueStem collision check. Read
     /// from the already-built resolver if present, else the same cheap composition it builds from — deliberately not
