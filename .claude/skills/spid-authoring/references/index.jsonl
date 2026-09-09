@@ -13,7 +13,7 @@
 {"topic": "Level Filter", "kind": "filter", "section": 3, "file": "filters.md", "aliases": ["level", "skill", "skill weight", "leveled distribution", "min max range"]}
 {"topic": "Trait Filter", "kind": "filter", "section": 4, "file": "filters.md", "aliases": ["female", "male", "unique", "summonable", "child", "leveled", "teammate", "dead", "gender"]}
 {"topic": "line syntax", "kind": "grammar", "file": "grammar-core.md", "aliases": ["pipe sections", "FormType", "FormOrEditorID", "NONE", "blank section"]}
-{"topic": "file discovery & load order", "kind": "grammar", "file": "grammar-core.md", "aliases": ["_DISTR", "Data folder", "alphabetical", "comments", "semicolon"]}
+{"topic": "file discovery & load order", "kind": "grammar", "file": "grammar-core.md", "aliases": ["_DISTR", "Data folder", "alphabetical", "comments", "semicolon", "subfolder", "subdirectory", "not recursive"]}
 {"topic": "when distribution happens", "kind": "grammar", "file": "grammar-core.md", "aliases": ["lazy", "cell load", "once per launch", "restart", "from scratch", "existing save", "new game needed", "player excluded", "never the player", "verify"]}
 {"topic": "input normalization", "kind": "grammar", "file": "grammar-core.md", "aliases": ["whitespace", "xEdit paste", "space hyphen space", "leading zeros", "0x"]}
 {"topic": "referencing a form", "kind": "grammar", "file": "grammar-core.md", "aliases": ["FormID", "EditorID", "suffix tilde", "0x123~Plugin.esp"]}

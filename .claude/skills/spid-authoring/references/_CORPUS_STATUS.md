@@ -70,6 +70,15 @@ the per-record files.
     name against that same array — is read from SKSE's own source (`ianpatt/skse64`,
     `skse64/PapyrusKeyword.cpp`), not inferred; its one-shot, never-invalidated cache is recorded as a
     caveat in `form-types.md`. The article documents dynamic creation but neither consequence.
+  - **The INI scan does not recurse** — `GetConfigs` (`SPID/src/LookupConfigs.cpp`, 7.3.0, commit
+    `31e76d3`) calls `distribution::get_configs(R"(Data\)", "_DISTR")`, and CLibUtil's helper
+    (`include/CLIBUtil/distribution.hpp`) uses a plain `directory_iterator`, so a `_DISTR.ini` in a
+    subfolder of `Data/` is never read (`grammar-core.md` §2). Read 2026-09-09.
+  - **The SKSE version manifest carries the major digit only** — `SKSEPlugin_Version` sets
+    `v.PluginVersion(Version::MAJOR)` (`SPID/src/main.cpp`, 7.3.0, commit `31e76d3`; unchanged at
+    7.3.3), so every SPID 7.x declares 7.0.0 to SKSE while the Win32 version resource
+    (`SPID/cmake/version.rc.in`) carries the full `MAJOR.MINOR.PATCH.0`. This is why the manifest and
+    MO2's `meta.ini` disagree; see `SKILL.md` and houseCARL issue #667. Read 2026-09-09.
 - **One residual confidence caveat:** comment syntax. SPID parses configs via **CSimpleIniA**
   (source-confirmed); the **`;`** line-comment character is CSimpleIni's documented *library default*
   rather than a SPID line of code we read. Stated in the corpus as "standard INI `;` comments (via
@@ -90,6 +99,10 @@ keyword declaration), `DistributePCLevelMult.cpp` and `DeathDistribution.cpp` (t
 verification-behaviour files were read at commit `6e66908` (`master`, 2026-09-02); the earlier parsing
 files at `master` as of 2026-06-02. MIT (unlike SkyPatcher's unlicensed repo) would permit vendoring,
 but the corpus documents grammar, it doesn't embed source.
+
+The file-discovery fact spans one more seam inside the repo's own build: **CLibUtil**
+(`powerof3/CLibUtil`, `include/CLIBUtil/distribution.hpp`, read 2026-09-09) supplies
+`distribution::get_configs`, and `SPID/cmake/version.rc.in` supplies the DLL's version resource.
 
 One fact reaches outside SPID's repo: **SKSE** (`ianpatt/skse64`, `master` `4cd2e34`, read 2026-09-05)
 — `skse64/PapyrusKeyword.cpp`, for how `Keyword.GetKeyword` resolves a name. Cited in `form-types.md`

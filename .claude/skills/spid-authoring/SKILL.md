@@ -169,16 +169,19 @@ Read the installed version before relying on a dated feature: `housecarl_skse` w
 manifest declares — name, author, version — without loading it. That is what the file declares, not
 what it does; treat it as the version, not as proof of behaviour.
 
-**When the DLL and MO2's `meta.ini` disagree, trust neither silently — report both.** They answer
-different questions: the DLL manifest is what the binary the game loads declares about itself, and
-`meta.ini` is what the mod manager recorded about the download it installed. They can differ for
-ordinary reasons — a mod page version that is not the plugin version, a manual update over an
-existing mod, a repack — and neither is a lie. Which to believe is **unverified**, and this is a
-standing houseCARL issue (#667), observed as `housecarl_skse` saying 7.0.0 against a `meta.ini`
-of 7.3.1.0 for the same install. So: quote both sources with their names, and when a feature gate
-turns on the answer, gate on the **lower** of the two — that is the version whose features you can
-count on either way. What would settle it is reading the DLL's own version resource directly and
-comparing it against both.
+**When the SKSE manifest and MO2's `meta.ini` disagree about SPID, `meta.ini` is the running
+version. [source]** SPID's manifest carries only the major digit: `v.PluginVersion(Version::MAJOR)`
+in the `SKSEPlugin_Version` export (`SPID/src/main.cpp`, SPID 7.3.0, commit `31e76d3`; unchanged at
+7.3.3), where `Version::MAJOR` is `PROJECT_VERSION_MAJOR` off `set(VERSION 7.3.0)` in
+`SPID/CMakeLists.txt`. Minor and patch are never written, so **every** SPID 7.x release declares
+7.0.0 to SKSE. The full number does exist in the binary, in its Win32 version resource —
+`FILEVERSION @PROJECT_VERSION_MAJOR@, @PROJECT_VERSION_MINOR@, @PROJECT_VERSION_PATCH@, 0`
+(`SPID/cmake/version.rc.in`) — which is where `7.3.1.0` comes from and why it matches what MO2
+recorded. So `housecarl_skse` reporting 7.0.0 is a truthful read of a lossy export, not a misread
+(houseCARL issue #667): treat its version as a **major-version floor only**, and take the minor and
+patch from `meta.ini`. A 7.3-only token like the `Actor [ACHR]` Form filter is gated on the
+`meta.ini` number; the manifest cannot answer that question at all. Quote both sources with their
+names when they differ, and say which one you gated on.
 
 ## Common mistakes, and the rule that replaces each
 
