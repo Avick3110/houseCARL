@@ -926,7 +926,6 @@ public static class WritePatchBuilder
                 Key = e.Key, Value = e.Value, Values = e.Values, Entries = e.Entries, Struct = e.Struct, Structs = e.Structs,
             };
             var label = Label(req);
-            harvestRulebook.CollectLinkValues(req);
 
             // CopyFrom SOURCE resolution — the same contract Apply enforces, on this lane too: the lane axis is
             // uniform, so every write verb must compose with in_place. Without this a CopyFrom op reaches ApplyVerb,
@@ -965,6 +964,9 @@ public static class WritePatchBuilder
                 }
                 if (CrossTypeRefusal(e, srcBody, body) is { } typeErr) { Problem(typeErr); continue; }
             }
+            // Last, as on the patch lane: an edit already rejected above is never pre-flighted, so harvesting its
+            // links would walk a plugin for a check that will not run.
+            harvestRulebook.CollectLinkValues(req);
             staged.Add((order, e, body, req, label, srcBody, selfSource));
         }
 
