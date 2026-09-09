@@ -356,6 +356,10 @@ follow.
 - Per-**actor-base** override (e.g. a unique follower). OAR auto-synthesizes a single
   `IsActorBase(<Plugin.esp>, <FormID>)` condition from the folder names (source `Parsing.cpp`
   ~L1310/L1380, `ConfigSource::kLegacyActorBase`).
+- **The priority is 0.** The folder name is a FormID, not a number to sort by, so OAR leaves the
+  synthesized submod at the `priority` default (`Parsing.cpp`, the `kLegacyActorBase` branch). A
+  Form B folder therefore loses to every submod with a positive priority whose conditions pass, and
+  any submod at 1 or above beats it. Say the 0 explicitly when a winner claim rests on it.
 
 ### DAR function → OAR condition
 
@@ -461,6 +465,9 @@ moveset after earning a specific perk — without touching the original mod.
 - At runtime, when the original plays on an actor, OAR walks the sorted list top-down and picks the
   **first** submod whose `conditions` are **true** for that actor. Its animation (or a random
   variant) plays. If none pass, the base-game animation plays.
+- A converted legacy **Form A** folder's priority is its folder name; a converted legacy **Form B**
+  (`<Plugin.esp>/<FormID>/`) folder's priority is **0** (§8), so it sits at the bottom of the sort
+  and anything positive that passes beats it.
 - **Equal priorities are ambiguous** (no load-order tiebreak) — keep priorities unique for
   deterministic winners. This is why authors use large, spread-out integers (`9007010`,
   `83030317`) to slot a submod cleanly between others.
