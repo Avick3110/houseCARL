@@ -281,6 +281,10 @@ public static class CheckTools
         // beside counts_only=, which returns the histograms and no rows for the file to hold.
         if (to_file?.Trim() is { Length: > 0 } path)
         {
+            // The same validator the records surface runs: absolute, .jsonl, and outside the pruned results
+            // directory. Unvalidated, a relative path writes under the SERVER's working directory and the response
+            // names an artifact the caller cannot find.
+            if (Artifacts.ValidateToFile(path) is { } verr) return Wire.Refuse(json, verr);
             if (counts_only)
                 return Wire.Refuse(json, "error: counts_only= returns the histograms with no findings, and to_file= "
                                        + "writes the findings - the two contradict; drop one.");
@@ -290,6 +294,13 @@ public static class CheckTools
                 new KeyValuePair<string, string>("plugins", plugins is { Length: > 0 } ? string.Join(",", plugins) : "<whole order>"),
                 new KeyValuePair<string, string>("limit", lim.ToString()),
             };
+            // No family answered, so there are no findings to write: the file would be empty and its manifest would
+            // read as a clean sweep. Nothing is written, and the sweep renders the way it would without to_file=,
+            // which is where every refusal's ground is already stated. Where SOME family answered, the refusal
+            // rides beside its family's boundary in the manifest render instead, so one family's refusal does not
+            // discard another family's rows.
+            if (CheckOutcome.For(sweep).Ran.Count == 0)
+                return json ? JsonWire.RenderCheck(sweep, max_chars, lim) : Wire.RenderCheck(sweep, max_chars, lim);
             var (spill, artErr) = CheckArtifact.Write(sweep, path, query);
             if (artErr is not null) return Wire.Refuse(json, "error: " + artErr);
             return CheckArtifact.RenderManifestOnly(sweep, spill!, json);

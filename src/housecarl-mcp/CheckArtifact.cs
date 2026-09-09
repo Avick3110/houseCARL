@@ -142,8 +142,14 @@ internal static class CheckArtifact
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, "to_file"), null);
     }
 
-    /// <summary>The response a <c>to_file=</c> call renders: the scope sentence, each family's boundary, and the
-    /// manifest — no rows, because the rows ARE the file. The same disposition <c>records</c> takes.</summary>
+    /// <summary>The response a <c>to_file=</c> call renders: the scope sentence, each family's refusal or boundary,
+    /// and the manifest — no rows, because the rows ARE the file. The same disposition <c>records</c> takes.
+    ///
+    /// <para>A family that refused states its ground here, as it does in the full render: the scope sentence says a
+    /// family refused but never why, so without it a typo'd <c>exclude=</c> reads as a clean sweep that happened to
+    /// find nothing. Stated beside the boundary rather than refusing the whole call, because <c>exclude=</c> is
+    /// validated against each family's own scope and one family's refusal must not discard the rows another family
+    /// already wrote to the file.</para></summary>
     internal static string RenderManifestOnly(CheckSweep s, SpillInfo spill, bool json)
     {
         var o = CheckOutcome.For(s);
@@ -159,6 +165,13 @@ internal static class CheckArtifact
                 foreach (var a in o.Sections.Zip(o.Accountings(0)))
                     w.WriteString(SweepFamilySelection.Token(a.First), a.Second.Boundary);
                 w.WriteEndObject();
+                if (o.Sections.Any(f => o.Refusal(f) is not null))
+                {
+                    w.WriteStartObject("refused");
+                    foreach (var f in o.Sections)
+                        if (o.Refusal(f) is { } refusal) w.WriteString(SweepFamilySelection.Token(f), refusal);
+                    w.WriteEndObject();
+                }
                 Artifacts.WriteSpillJson(w, spill);
                 w.WriteEndObject();
             }
@@ -169,9 +182,17 @@ internal static class CheckArtifact
         if (o.Epoch is not null) sb.Append("epoch=").Append(o.Epoch).Append('\n');
         var accts = o.Accountings(0);
         for (int i = 0; i < o.Sections.Count; i++)
-            sb.Append('\n').Append(string.Format(ReadSentences.SweepBoundaryLabelFor,
-                                                 SweepFamilySelection.Token(o.Sections[i])))
+        {
+            sb.Append('\n');
+            if (o.Refusal(o.Sections[i]) is { } refusal)
+                sb.Append(string.Format(ReadSentences.SweepFamilySectionHead,
+                                        SweepFamilySelection.Token(o.Sections[i]),
+                                        SweepFamilySelection.Title(o.Sections[i])))
+                  .Append('\n').Append(refusal).Append('\n');
+            sb.Append(string.Format(ReadSentences.SweepBoundaryLabelFor,
+                                    SweepFamilySelection.Token(o.Sections[i])))
               .Append(accts[i].Boundary).Append('\n');
+        }
         Artifacts.AppendSpillText(sb, spill);
         return sb.ToString();
     }
