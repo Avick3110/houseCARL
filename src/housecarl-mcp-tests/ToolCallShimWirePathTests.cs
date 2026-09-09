@@ -208,5 +208,6 @@ public sealed class ToolCallShimWirePathTests
         var r = _s.Call(ToolNames.Apply, """{"ops":[],"in_place":"NoSuchPlugin.esp"}""");
 
         Assert.DoesNotContain("names no file", r.Text, StringComparison.Ordinal);
+        Assert.True(r.BodyRan, r.Describe());
     }
 }
