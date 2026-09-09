@@ -59,7 +59,7 @@ internal static class AliasTable
         // rather than a finding and lives on records — a row naming only the sweep would send the caller asking
         // "why does the wrong line play" to a surface that deliberately does not answer it.
         ("housecarl_check_errors",
-         "absorbed into " + ToolNames.Check + ": the same sweep is findings=[\"errors\"], which is also the DEFAULT when findings= is omitted. type=/formids=/editorid_contains=/exclude=/counts_only=/limit=/max_chars=/format= are unchanged; the response is sectioned per family and states which families it did not run."),
+         "absorbed into " + ToolNames.Check + ": the same sweep is findings=[\"errors\"], which is also the DEFAULT when findings= is omitted. type= is SET-VALUED types= (one type is a set of one; a set sweeps their union); formids=/editorid_contains=/exclude=/counts_only=/limit=/max_chars=/format= are unchanged; the response is sectioned per family and states which families it did not run."),
         ("housecarl_validate_scripts",
          "absorbed into " + ToolNames.Check + ": findings=[\"scripts\"] (or a class inside it — 'unbound_object', 'unbound_scalar', 'unbound', 'bound_null'). property_contains= and the record scope are unchanged, exclude= now scopes this family too, and the record listing is under the max_chars bound it was not under before."),
 

@@ -8,9 +8,8 @@ namespace HousecarlCore;
 /// The RECORD-level narrowing the sweep families (housecarl_check findings=["errors"] and ["scripts"]) share.
 /// A plugin-wide sweep of a script-heavy plugin renders past the tool-result token cap, so record-level scoping is
 /// what makes "did the unbound count for THESE few records change?" askable. The knobs deliberately reuse the sibling
-/// read tools' vocabulary: <see cref="Types"/> (cross_plugin_query's <c>type=</c>), <see cref="Formids"/>
-/// (batch_record_detail's <c>formids=</c>), and <see cref="EditorIdContains"/> (cross_plugin_query's
-/// <c>editorid_contains=</c>).
+/// read tools' vocabulary: <see cref="Types"/> (the records surface's set-valued <c>types=</c>), <see cref="Formids"/>
+/// (<c>formids=</c>), and <see cref="EditorIdContains"/> (<c>editorid_contains=</c>).
 ///
 /// <para><b>Narrowing narrows the NUMBERS.</b> A scoped sweep's totals are the totals FOR THE SCOPE, exactly as
 /// <c>plugins=</c> already behaves. The render therefore carries <see cref="Label"/> on its own line whenever
@@ -30,11 +29,11 @@ public sealed class SweepScope
     /// free pass).</summary>
     public string? EditorIdContains { get; }
 
-    /// <summary>The getter Type(s) to stream, or null for every record type. Resolved by the caller from the user's
-    /// <c>type=</c> string (the shared TypeLookup), so an unknown type fails loud before the sweep starts.</summary>
+    /// <summary>The getter Type(s) to stream, or null for every record type. Resolved by the caller as the UNION of
+    /// the user's <c>types=</c> set (the shared TypeLookup), so an unknown type fails loud before the sweep starts.</summary>
     public IReadOnlyList<Type>? Types { get; }
 
-    /// <summary>The user-facing spelling of <see cref="Types"/> (the raw <c>type=</c> string), for <see cref="Label"/>.</summary>
+    /// <summary>The user-facing spelling of <see cref="Types"/> (the raw <c>types=</c> entries), for <see cref="Label"/>.</summary>
     public string? TypeLabel { get; }
 
     public SweepScope(IReadOnlySet<FormKey>? formids, string? editorIdContains,
@@ -71,7 +70,7 @@ public sealed class SweepScope
         {
             if (IsEmpty) return null;
             var parts = new List<string>(3);
-            if (Types is not null) parts.Add($"type={TypeLabel}");
+            if (Types is not null) parts.Add($"types=[{TypeLabel}]");
             if (Formids is not null) parts.Add($"{Formids.Count} formid(s)");
             if (EditorIdContains is not null) parts.Add($"editorid_contains='{EditorIdContains}'");
             return string.Join(", ", parts);
@@ -79,10 +78,10 @@ public sealed class SweepScope
     }
 
     /// <summary>An OFF-ORDER file's record stream, type-scoped when the caller asked for one — the overlay
-    /// counterpart of <c>RecordsIn</c>'s getter-type filter, so a <c>type=</c> scope costs nothing per skipped
+    /// counterpart of <c>RecordsIn</c>'s getter-type filter, so a <c>types=</c> scope costs nothing per skipped
     /// record on that lane either. One home, because both sweep families walk an off-order file the same way.
     /// Through <see cref="RecordArms"/>, the same arm re-check the in-order lanes go through: without it an arm scope
-    /// (<c>type='GlobalShort'</c>) would sweep and count the whole GRUP here.</summary>
+    /// (<c>types=['GlobalShort']</c>) would sweep and count the whole GRUP here.</summary>
     public static IEnumerable<IMajorRecordGetter> RecordsFrom(ISkyrimModGetter ov, SweepScope? scope)
         => scope?.Types is { Count: > 0 } types
             ? RecordArms.OfTypes(ov, types)

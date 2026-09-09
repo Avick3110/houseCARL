@@ -25,9 +25,9 @@ internal static class SweepSharedInput
 
     /// <summary>The whole call's refusal where a shared input is malformed, or null where every one of them parses.
     /// Checked in the order a caller reads the parameters, so a call with two bad values names the first.</summary>
-    /// <param name="svc">the service, for the record-scope parse — <c>type=</c> resolves through the same
-    /// TypeLookup <c>cross_plugin_query</c> uses, which lives there.</param>
-    internal static string? Error(LoadOrderService svc, IReadOnlyList<string>? plugins, string? type,
+    /// <param name="svc">the service, for the record-scope parse — <c>types=</c> resolves through the same
+    /// TypeLookup the records surface uses, which lives there.</param>
+    internal static string? Error(LoadOrderService svc, IReadOnlyList<string>? plugins, IReadOnlyList<string>? types,
                                   IReadOnlyList<string>? formids, string? editoridContains,
                                   IReadOnlyList<string>? exclude)
     {
@@ -36,7 +36,7 @@ internal static class SweepSharedInput
                 if ((name ?? "").Trim().Length == 0)
                     return BlankPluginName;
 
-        if (svc.SweepScopeError(formids, editoridContains, type) is { } scopeErr) return scopeErr;
+        if (svc.SweepScopeError(formids, editoridContains, types) is { } scopeErr) return scopeErr;
 
         // Syntax only — see the split above. Resolve is handed an empty implicit set deliberately: neither value it
         // can refuse depends on what `implicit` expands to, and expanding it would read the MO2 composition for a
