@@ -22,14 +22,23 @@ global), or accept that you have silenced everything else that NPC said.
 
 Any override of an existing INFO is a **re-list** — including an override that only adds a condition — and a
 re-listed INFO moves to the bottom of the merged topic order unless the override carries `PreviousDialog`
-(PNAM) naming the line immediately above it in the merged order. Vanilla lines carry no PNAM, so on the first
-override there is nothing to preserve: you have to supply it.
+(PNAM) naming the line immediately above it in the merged order. Most lines, vanilla ones included, carry no
+PNAM and there is nothing to preserve — but some do, and on those the PNAM is load-bearing: a PNAM present with
+value zero is the "I am first" marker, which pins the line to the **head** of the topic, and it is a normal shape
+in shipped plugins rather than an edge case. Overwrite one with a position-minus-one FormID and a vanilla line
+that was held ahead of the lines it guards now follows them.
 
-Read the merged order, not the defining plugin's own list:
+Read the merged order, not the defining plugin's own list, and read the placement it reports before you choose a
+PNAM:
 
 ```
 housecarl_records(formids=["02707A:Skyrim.esm"], project={"form":"info_order"})
 ```
+
+A line the order marks *pinned first by its own PNAM marker* carries that present-zero PNAM: leave it alone.
+The record read cannot answer this for you — an absent PNAM and a present-zero one both render
+`PreviousDialog = (null link)` under `project={"form":"everything"}`, and only `info_order`'s placement tells
+them apart (#697).
 
 Take the line at the target's position minus one and write that FormID into the override's `PreviousDialog`.
 Adding a **new** line re-lists nothing and needs no PNAM for the lines around it.
