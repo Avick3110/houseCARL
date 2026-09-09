@@ -130,6 +130,14 @@ public static class ReadEngine
     /// both as "no value here" (see <c>FieldsDiff.IsAbsentSentinel</c>).</summary>
     internal const string NullLinkNote = "(null link)";
 
+    /// <summary>A NULLABLE FormLink whose subrecord is PRESENT on the record and carries FormID zero — the shape
+    /// an INFO's PNAM takes as the "I am first" marker, and a QUST alias's VTCK as "no voice types". It has a null
+    /// FormKey like an ABSENT nullable link, so both used to render <see cref="NullLinkNote"/> and a modder reading
+    /// the record was told there was nothing to preserve (#697). Told apart here by <c>FormKeyNullable</c>, which is
+    /// null only when the subrecord is absent — the same test <c>DialogueInfoOrder.LineOf</c> makes. No value (the
+    /// write surface sets links to a real FormKey, never "Null"), so still a note.</summary>
+    internal const string PresentNullLinkNote = "(null link, subrecord present)";
+
     /// <summary>A present <c>TranslatedString</c> (FULL/DESC/…) whose <c>.String</c> resolves to null — a localized
     /// string whose <c>.STRINGS</c> entry for the target language is not in the workspace: genuinely absent, NOT the
     /// cleaned-masters case <see cref="LoadOrderResolver.OpenOverlay"/>'s strings source resolves. Surfaced as a
@@ -1036,7 +1044,14 @@ public static class ReadEngine
         // link (FormKey.Null) is NOT a round-trippable token (the write surface sets links to a real
         // FormKey, never "Null"), so surface it as no-value — consistent with what Coerce accepts.
         if (val is IFormLinkGetter fl)
-            return fl.FormKey.IsNull ? LeafRead.None(NullLinkNote) : LeafRead.Value(FormIdToken.Of(fl.FormKey));
+        {
+            if (!fl.FormKey.IsNull) return LeafRead.Value(FormIdToken.Of(fl.FormKey));
+            // Null FormKey: on a NULLABLE link that is two different facts. FormKeyNullable is null only when the
+            // subrecord is ABSENT; a subrecord PRESENT with FormID zero keeps a (null) FormKey there. They mean
+            // opposite things (an INFO's PNAM: append to the tail vs pin to the head), so they render apart (#697).
+            bool nullable = WriteEngine.ClosedInterface(val.GetType(), typeof(IFormLinkNullableGetter<>)) is not null;
+            return LeafRead.None(nullable && fl.FormKeyNullable is not null ? PresentNullLinkNote : NullLinkNote);
+        }
         // TranslatedString (FULL/DESC) — emit the resolved .String (the inverse of Coerce's implicit
         // `record.Name = "x"`). A genuinely-empty "" still round-trips as a value; a NULL .String is an
         // UNRESOLVED localized string (no .STRINGS entry for the target language in the workspace) and is

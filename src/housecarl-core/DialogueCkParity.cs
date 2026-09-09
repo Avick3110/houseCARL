@@ -449,9 +449,9 @@ public static class DialogueCkParity
 
     // --- QUST presence predicates: the single home for "does this Quest carry the CK-parity subrecord?", consulted
     //     by BOTH ApplyQuestDefaults (fills when absent) and MissingQuestDefaults (flags when absent), so they cannot
-    //     drift. The alias VTCK test reads FormKeyNullable, not the rendered value: an ABSENT VTCK and a present null-link
-    //     both render "(null link)" (ReadEngine.NullLinkNote — a null FormKey), so only FormKeyNullable distinguishes
-    //     "author set no voice types" (null → fill) from "author set the null link / a real list" (non-null → keep). ---
+    //     drift. The alias VTCK test reads FormKeyNullable, not the rendered value (the render tells the two apart too
+    //     since #697 — NullLinkNote vs PresentNullLinkNote — but it is a display string, not this decision's input). It
+    //     separates "author set no voice types" (null → fill) from "author set the null link / a real list" (non-null → keep). ---
     static bool HasNextAliasID(IQuestGetter quest) => quest.NextAliasID is not null;                 // ANAM
     static bool HasObjectiveFlags(IQuestObjectiveGetter objective) => objective.Flags is not null;   // FNAM
     static bool HasAliasFlags(IQuestAliasGetter alias) => alias.Flags is not null;                    // FNAM (alias)
