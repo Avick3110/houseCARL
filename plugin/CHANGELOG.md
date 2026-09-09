@@ -22,10 +22,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `src/housecarl-core/CorpusRulebook.cs`.
 - **A record read tells a present-but-zero link apart from an absent one.** A nullable link whose subrecord is
   present carrying FormID zero now reads `(null link, subrecord present)`; an absent subrecord still reads
-  `(null link)`. The two mean opposite things on an INFO's `PreviousDialog` (PNAM): present-zero is the "I am
-  first" marker that pins the line to the head of its topic, absent appends it to the tail. Check a line before
-  you re-list it — `project={"form":"fields", "fields":["PreviousDialog"]}` on the INFO says which shape it
-  carries, and `project={"form":"info_order"}` on its topic says where the line lands.
+  `(null link)`. A `where=["PreviousDialog exists"]` sweep and the conflict diff make the same split. The two shapes mean opposite
+  things on an INFO's `PreviousDialog` (PNAM), and how to re-list a line without moving it is in
+  `docs/dialogue.md`. Check a line before you re-list it —
+  `project={"form":"fields", "fields":["PreviousDialog"]}` on the INFO says which shape it carries, and
+  `project={"form":"info_order"}` on its topic says where the line lands.
 
 - **`housecarl_create` refuses a dialogue branch with no `Flags` instead of filling one.** A `DialogBranch`
   created with no `Flags` is now refused in one sentence naming both values and what each does — `TopLevel`
