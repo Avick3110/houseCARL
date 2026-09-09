@@ -9260,9 +9260,17 @@ public sealed class LoadOrderService : IDisposable
         return union;
     }
 
-    /// <summary>A user type string to its getter Types. Throws, naming the bad input and what is expected.</summary>
+    /// <summary>A user type string to its getter Types. Throws, naming the bad input and what is expected.
+    /// <para>A BLANK entry is refused as blank, in this one place, so every surface that takes a type set — the
+    /// records surface and the check sweep alike — states the same rule: an entry that names no type is refused
+    /// saying it is blank, never quoted back as an unknown type <c>''</c>. An empty or absent SET is a different
+    /// thing (no narrowing) and is handled by the callers.</para></summary>
     IReadOnlyList<Type> ResolveTypeFilter(string type)
     {
+        if (type.Trim().Length == 0)
+            throw new ArgumentException(
+                "a blank record type — pass a 4-char signature (e.g. 'WEAP') or a catalog name (e.g. 'Weapon'), " +
+                "or omit the parameter to leave the types unnarrowed.");
         if (TypeLookup.TryGetValue(type.Trim(), out var types)) return types;
         throw new ArgumentException(
             $"unknown record type '{type}'. Expected a 4-char signature (e.g. 'WEAP') or a catalog name (e.g. 'Weapon').");
