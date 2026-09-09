@@ -13,10 +13,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
-- **The note a write emits when a link target's plugin cannot be read now counts FormLink values, not
-  FormID-shaped tokens.** The values a write's link check needs are enumerated by the same schema walk that does
-  the checking, so the count is of the actual FormLink slots the write sets. What the note says about the skip is
-  unchanged: those links are not type-checked, and the write proceeds.
+- **The note a write emits when a link target's plugin cannot be read now names what it counts: the distinct
+  records the write links to in that plugin.** The values a write's link check needs are enumerated by the same
+  schema walk that does the checking, and two slots naming one record are one record here. What the note says
+  about the skip is unchanged: those links are not type-checked, and the write proceeds. An in-place edit that has
+  both a bad `field_path` and a bad `from_plugin` now reports the source problem first, as the patch lane already
+  did, and the field-path problem on the re-run.
 - **`housecarl_skypatcher_layer` with a `filter=` that matches no INI now says so instead of returning the
   whole-layer overview.** It answers with the filter, the match count (0 of N INIs), the type folders that are
   present, and a nearest-name suggestion where there is one, so a filter typo can no longer read as the layer's
