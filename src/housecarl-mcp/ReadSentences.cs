@@ -469,13 +469,19 @@ internal static class ReadSentences
     /// which plugin wins the record — and never the render, so a clean result is not a promise that a face looks
     /// right. The not-this line is here too: the classes this family cannot see are named rather than left to be
     /// mistaken for a clean answer.</summary>
+    /// <summary>Where the facegen causes-and-fixes table lives. A repo path, so it is cited by its URL: the plugin
+    /// ships no copy of docs/, and every response carrying this must resolve for an installed user. The one fix
+    /// sentence per class travels in the row itself, so the tool answers without following it.</summary>
+    [NoClaims("an address, not a sentence; the claims about the facegen family are the boundary's own")]
+    internal const string FaceGenDocUrl = "https://github.com/Avick3110/houseCARL/blob/main/docs/facegen.md";
+
     [MustState("provenance", "never the render", "purple or white face", "player-only grey", "brown weight face")]
     internal const string SweepFaceGenBoundary =
         "reports provenance — which mod wins each half of the bake and which plugin wins the record — and never " +
         "the render: it cannot read a .dds's pixels, cannot bake geometry (that is the Creation Kit's Ctrl+F4), " +
         "and a clean row is not a promise the face looks right. NOT this family: a purple or white face (a missing " +
         "texture), player-only grey (RaceMenu/SKEE runtime state), a brown weight face (save-baked weight), or an " +
-        "appearance distributed at runtime by SPID. See docs/facegen.md for the causes behind each class.";
+        "appearance distributed at runtime by SPID. See " + FaceGenDocUrl + " for the causes behind each class.";
 
     /// <summary>Which families this response answers for, composed from the outcome rather than the selection.
     /// With <c>findings=</c> omitted the sweep runs the errors family alone — an unscoped scripts sweep takes
