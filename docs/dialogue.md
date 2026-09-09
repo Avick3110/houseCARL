@@ -58,21 +58,23 @@ you want it before you write the link; if you do not, name a line from a plugin 
 position it gives you. (A PNAM that truly resolves to nothing — a target no active plugin defines — places the
 line at the HEAD, not the bottom.)
 
-## The bookkeeping create fills, and the one value they do not decide
+## The bookkeeping create fills, and the flags they do not decide
 
 `housecarl_create` fills the Creation Kit's bookkeeping on dialogue records and reports each fill, so nothing
-here is silent. A `DialogBranch`'s `Flags` fill follows its `Category`, because the two are not independent: a
-`Category = Player` branch with no `Flags` is filled to `TopLevel`, which is what the CK's own branch dialog
-ticks for a new player branch and what publishes the branch to the player's menu — a player branch that is not
-top level **never reaches that menu**, so `0` would be the one value that kills the branch and every topic
-under it (#693). Any other branch is filled to `0`. The fill is non-override as usual: pass `Flags` yourself and
-it stands, including `Flags = 0` for a player branch you mean to keep out of the menu, and including
-`Blocking` or `Exclusive`, which no fill sets for you.
+here is silent. A `DialogBranch` created with no `Flags` is filled to `TopLevel`, whatever its `Category`:
+that is what the CK's own branch dialog ticks for a new player branch, what both of Skyrim.esm's
+`Category = Command` branches (the bribe and intimidate speech challenges) carry, and what publishes a branch
+to the player's menu — a branch that is not top level **never reaches that menu**, so `0` would be the one
+value that kills the branch and every topic under it (#693). The fill is non-override as usual: pass `Flags`
+yourself and it stands, including `Flags = 0` for a branch you mean to keep out of the menu.
 
-A second value in that bookkeeping is an authoring choice rather than a default: the `Goodbye` flag, which ends
-the conversation on the line that carries it, lives inside the INFO's own `Flags` struct. The create path
-materialises that struct to all-zero, and all-zero is not `Goodbye` — a line meant to close the conversation
-needs `Flags.Flags = Goodbye` set explicitly, and nothing fills it for you.
+The flags the bookkeeping does **not** decide are authoring choices, and nothing fills them for you. On the
+branch, `Blocking` and `Exclusive`: the `TopLevel` fill sets neither, so a branch that has to block or exclude
+its siblings needs them named in the `Flags` you pass.
+
+On a line, the `Goodbye` flag, which ends the conversation on the line that carries it, and lives inside the
+INFO's own `Flags` struct. The create path materialises that struct to all-zero, and all-zero is not
+`Goodbye` — a line meant to close the conversation needs `Flags.Flags = Goodbye` set explicitly.
 
 Two things cannot be measured on a patch that is not yet enabled:
 
