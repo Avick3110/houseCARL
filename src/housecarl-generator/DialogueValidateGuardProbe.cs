@@ -38,7 +38,7 @@ namespace HousecarlGenerator;
 ///   BRANCH-CKPARITY-GAP— a bare DLBR input → kind "branch" and Warnings naming TNAM (S2 byte-parity) + DNAM (S3
 ///                  in-game behavior, #212 — an absent Flags reads as TopLevel and publishes the branch to the player's
 ///                  dialogue menu) — end-to-end through the DialogBranch input path (shared MissingBranchDefaults probe).
-///   BRANCH-CKPARITY-OK— a CK-parity-complete DLBR (ApplyBranchDefaults-filled) reports NO input issues — no-false-positive lock.
+///   BRANCH-CKPARITY-OK— a CK-parity-complete DLBR (ApplyBranchDefaults-filled + Flags set) reports NO input issues — no-false-positive lock.
 ///   QUST-CKPARITY-GAP— a QUEST input whose quest lacks ANAM and has a Flags-less objective → InputIssues warns BOTH,
 ///                  ONCE at quest level (never per topic) — the shared MissingQuestDefaults probe end-to-end.
 ///   QUST-CKPARITY-OK — a CK-parity-complete quest (ApplyQuestDefaults-filled) reports NO input issues — no-false-positive lock.
@@ -391,10 +391,12 @@ public static class DialogueValidateGuardProbe
             // CK-parity-COMPLETE one. (The shared `branch` fixture above is only ever a Branch TARGET, never an input.)
             // The OK fixture is filled via the SAME ApplyBranchDefaults the create path runs (the DLVW/QUST OK-fixture
             // pattern) rather than hand-setting each field — so a field added to the fill can't leave this fixture
-            // half-built and quietly turn the no-false-positive lock into a failure that looks like a real gap.
+            // half-built and quietly turn the no-false-positive lock into a failure that looks like a real gap. Flags
+            // (DNAM) is the exception: no fill sets it (the create path refuses instead), so it is set here.
             var brGap = m.DialogBranches.AddNew(); brGap.EditorID = "HcDvBrGap"; brGapFk = brGap.FormKey;
             var brOk = m.DialogBranches.AddNew(); brOk.EditorID = "HcDvBrOk";
-            DialogueCkParity.ApplyBranchDefaults(brOk); brOkFk = brOk.FormKey;
+            DialogueCkParity.ApplyBranchDefaults(brOk); brOk.Flags = DialogBranch.Flag.TopLevel;
+            brOkFk = brOk.FormKey;
 
             // QUST-CKPARITY (quest-level InputIssues): a quest lacking ANAM with one Flags-less objective (both
             // gaps) vs a CK-parity-complete quest (ApplyQuestDefaults-filled). Neither owns any topics — the arms
@@ -516,7 +518,7 @@ public static class DialogueValidateGuardProbe
             all &= Pass("BRANCH-CKPARITY-GAP warns TNAM+DNAM", ok, $"kind={r.InputKind} issues={InputIssues(r)}");
         }
 
-        // ---------- BRANCH-CKPARITY-OK: a CK-parity-complete DLBR (ApplyBranchDefaults-filled: TNAM + DNAM) reports
+        // ---------- BRANCH-CKPARITY-OK: a CK-parity-complete DLBR (TNAM filled, DNAM set explicitly) reports
         //            NO input issues — the no-false-positive lock ----------
         {
             var r = DialogueValidate.Run(resolver, assets, brOkFk);

@@ -13,8 +13,9 @@ namespace HousecarlGenerator;
 /// null optional subrecord on write; the Creation Kit writes it unconditionally — so an INFO created without CNAM
 /// (FavorLevel) / ENAM (Flags) crashes the CK when its topic is opened, and a bare DLVW crashes the CK Dialogue Views
 /// editor (S1); the S2 fields (DLBR Category, DIAL Priority, QUST NextAliasID + objective Flags) are byte-parity only
-/// (no crash) but complete the write the same way. The DLBR Flags (DNAM) create arms live in the test project
-/// (DialogBranchFlagsFillTests) — they are not repeated here.
+/// (no crash) but complete the write the same way. The DLBR Flags (DNAM) is the one field with NO fill — it has no
+/// honest default, so a create that passes none is refused; the end-to-end create arms for that live in the test
+/// project (DialogBranchFlagsRefusalTests) and are not repeated here.
 /// This guard pins the whole surface so it can't drift:
 ///   • the create-path AUTO-FILL — create the record through the service and read the written subrecords back off disk,
 ///   • the create-path NON-OVERRIDE — an explicit value is never clobbered,
@@ -36,7 +37,8 @@ namespace HousecarlGenerator;
 ///   DLVW-GAP-PROBE    — same anti-drift tie for the DLVW: a bare DialogView reports exactly the DNAM+ENAM gaps
 ///                       via MissingViewDefaults, none after ApplyViewDefaults (shared presence predicates).
 ///   DLBR-GAP-PROBE    — same tie for the DLBR: a bare DialogBranch reports exactly the TNAM + DNAM gaps via
-///                       MissingBranchDefaults, none after ApplyBranchDefaults.
+///                       MissingBranchDefaults, the DNAM one alone left after ApplyBranchDefaults (no fill sets
+///                       Flags), BranchFlagsRefusal refuses naming both values, and both go once Flags is set.
 ///   QUST-GAP-PROBE    — same tie for the QUST: a bare quest with one Flags-less objective AND one bare alias reports
 ///                       exactly the ANAM + objective-FNAM + alias-FNAM + alias-VTCK gaps via MissingQuestDefaults,
 ///                       none after ApplyQuestDefaults.
@@ -44,7 +46,9 @@ namespace HousecarlGenerator;
 ///   DLVW-DNAM-WINS    — an explicit DNAM=FF is NOT overridden to 00 (ENAM still auto-fills).
 ///   BNAM-LINT         — a Custom topic with no Branch → validate_dialogue raises a Warning naming Branch (BNAM); a
 ///                       Custom topic WITH a branch raises no such Warning.
-///   DLBR-TNAM-AUTOFILL — create a bare DialogBranch → written Category=Player (TNAM), REPORTED.
+///   DLBR-FLAGS-REFUSED — create a DialogBranch with no Flags → REFUSED naming the editorid and both values
+///                       (TopLevel for a menu entry, 0 for a hidden Say() topic), nothing created.
+///   DLBR-TNAM-AUTOFILL — create a DialogBranch with only Flags → written Category=Player (TNAM), REPORTED.
 ///   DLBR-TNAM-WINS     — an explicit Category=Command is NOT overridden to Player.
 ///   DIAL-PNAM-AUTOFILL — create a Custom topic with no Priority → written Priority=50 (PNAM), REPORTED.
 ///   DIAL-PNAM-WINS     — an explicit Priority=10 is NOT overridden to 50, AND an explicit Priority=0 STAYS 0 (the
@@ -238,8 +242,10 @@ internal static class DialogueCkParityGuardProbe
                     + $"— swept {remedies.Count}, missing=[{string.Join("; ", missing)}]");
             }
 
-            // ---- DLBR-GAP-PROBE: the same tie for the DialogBranch — a bare DLBR reports exactly the TNAM gap,
-            //      none after ApplyBranchDefaults. ----
+            // ---- DLBR-GAP-PROBE: the same tie for the DialogBranch — a bare DLBR reports exactly the TNAM + DNAM
+            //      gaps, only the TNAM one closed by ApplyBranchDefaults. DNAM has no fill (the create path refuses
+            //      a branch with no Flags), and the check runs on an EXISTING branch off disk, so it keeps reporting
+            //      it — that asymmetry is the arm. ----
             {
                 var br = new DialogBranch(FormKey.Factory("000802:HcCkpGapProbe.esm"), SkyrimRelease.SkyrimSE);
                 var before = DialogueCkParity.MissingBranchDefaults(br);
@@ -247,9 +253,19 @@ internal static class DialogueCkParityGuardProbe
                     && before.Any(g => g.Subrecord.Contains("TNAM", StringComparison.OrdinalIgnoreCase))
                     && before.Any(g => g.Subrecord.Contains("DNAM", StringComparison.OrdinalIgnoreCase));
                 DialogueCkParity.ApplyBranchDefaults(br);
-                int after = DialogueCkParity.MissingBranchDefaults(br).Count;
-                Check(flagged && after == 0,
-                    $"DLBR-GAP-PROBE bare DialogBranch → TNAM+DNAM gaps (before={before.Count}), none after fill (after={after}) — check/fill share one predicate");
+                var after = DialogueCkParity.MissingBranchDefaults(br);
+                bool dnamOnly = after.Count == 1 && after[0].Subrecord.Contains("DNAM", StringComparison.OrdinalIgnoreCase);
+                // The refusal is the DNAM gap's other half: no Flags on a create is refused, naming both values.
+                string? refusal = DialogueCkParity.BranchFlagsRefusal(br, "HcCkpGapProbeBr");
+                bool refuses = refusal is not null
+                    && refusal.Contains("HcCkpGapProbeBr", StringComparison.Ordinal)
+                    && refusal.Contains("TopLevel", StringComparison.Ordinal)
+                    && refusal.Contains(" 0 ", StringComparison.Ordinal);
+                br.Flags = DialogBranch.Flag.TopLevel;
+                bool clean = DialogueCkParity.MissingBranchDefaults(br).Count == 0
+                    && DialogueCkParity.BranchFlagsRefusal(br, "HcCkpGapProbeBr") is null;
+                Check(flagged && dnamOnly && refuses && clean,
+                    $"DLBR-GAP-PROBE bare DialogBranch → TNAM+DNAM gaps (before={before.Count}), DNAM alone after fill (after={after.Count}, dnamOnly={dnamOnly}), refused naming both values (refuses={refuses}), clean once Flags is set (clean={clean})");
             }
 
             // ---- QUST-GAP-PROBE: the same tie for the Quest — a bare quest with one Flags-less objective AND one bare
@@ -307,9 +323,23 @@ internal static class DialogueCkParityGuardProbe
 
             // ================================  S2 — the byte-only tier  ================================
 
-            // ---- DLBR-TNAM-AUTOFILL: create a bare DialogBranch → written Category=Player (TNAM), REPORTED. ----
+            // ---- DLBR-FLAGS-REFUSED: a DialogBranch created with no Flags is refused naming the record and both
+            //      values, and nothing is written. Flags has no honest default (#693 vs #212). ----
             {
-                var o = svc.CreateOne("DialogBranch", "HcCkpBr", Array.Empty<BulkOp>(), "HcCkpBr", null);
+                var o = svc.CreateOne("DialogBranch", "HcCkpBrNoFlags", Array.Empty<BulkOp>(), "HcCkpBrNoFlags", null);
+                bool refused = !o.Success && o.Error is not null
+                    && o.Error.Contains("HcCkpBrNoFlags", StringComparison.Ordinal)
+                    && o.Error.Contains("TopLevel", StringComparison.Ordinal)
+                    && o.Error.Contains("Say()", StringComparison.Ordinal)
+                    && o.Created.Count == 0;
+                Check(refused,
+                    $"DLBR-FLAGS-REFUSED no Flags on create → refused naming both values, nothing created — {(o.Success ? "SUCCEEDED (should have refused)" : "err=[" + o.Error + "]")}");
+            }
+
+            // ---- DLBR-TNAM-AUTOFILL: create a DialogBranch with only Flags → written Category=Player (TNAM), REPORTED. ----
+            {
+                var flagsOnly = new[] { new BulkOp { FieldPath = "Flags", Verb = "Set", Value = "TopLevel" } };
+                var o = svc.CreateOne("DialogBranch", "HcCkpBr", flagsOnly, "HcCkpBr", null);
                 var (cat, _) = o.Success ? ReadBranch(o.OutputPath, o.Created[0].FormKey) : (null, null);
                 bool reported = o.Success && o.Created[0].Ops.Any(op => op.Label.Contains("Category (TNAM", StringComparison.OrdinalIgnoreCase));
                 Check(o.Success && cat == DialogBranch.CategoryType.Player && reported,
@@ -318,7 +348,8 @@ internal static class DialogueCkParityGuardProbe
 
             // ---- DLBR-TNAM-WINS: an explicit Category=Command is NOT overridden to Player. ----
             {
-                var ops = new[] { new BulkOp { FieldPath = "Category", Verb = "Set", Value = "Command" } };
+                var ops = new[] { new BulkOp { FieldPath = "Category", Verb = "Set", Value = "Command" },
+                                 new BulkOp { FieldPath = "Flags", Verb = "Set", Value = "TopLevel" } };
                 var o = svc.CreateOne("DialogBranch", "HcCkpBrCmd", ops, "HcCkpBrCmd", null);
                 var (cat, _) = o.Success ? ReadBranch(o.OutputPath, o.Created[0].FormKey) : (null, null);
                 Check(o.Success && cat == DialogBranch.CategoryType.Command,
