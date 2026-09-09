@@ -38,7 +38,7 @@ public static class CheckTools
          "(dialogue graph validation over SEEDED topics and quests). findings= takes whole families or the classes " +
          "inside them, and carries what each family reports, what it does NOT, and what the default runs — omitted, " +
          "it runs the errors family alone. " +
-         "SCOPE: the two SWEPT families share one — plugins= (off-order files included) / type= / formids= / " +
+         "SCOPE: the two SWEPT families share one — plugins= (off-order files included) / types= / formids= / " +
          "editorid_contains= / exclude=, plus property_contains= on the scripts family. The dialogue family is " +
          "SEEDED instead: seeds= names what to validate, and no plugin scope narrows it. Narrowing narrows the " +
          "COUNTS too: they are always the counts for the scope actually swept, and the response says so. " +
@@ -61,8 +61,8 @@ public static class CheckTools
              "sweep the WHOLE active order — thorough but heavier; scope to one plugin for a fast, focused check " +
              "like the CK's per-plugin 'Check For Errors'.")]
             string[]? plugins = null,
-        [Description("Optional. Record type to sweep — a 4-char signature ('WEAP') or catalog name ('Weapon'). Applied at the record STREAM, so it is the CHEAPEST scope: skipped records cost nothing (no link walk, no .pex chain read). An unknown type is refused, naming what is expected.")]
-            string? type = null,
+        [Description("Optional. Record types to sweep — signatures ('WEAP') or catalog names ('Weapon'); one type is a set of one, and the sweep is the sweep over their UNION with the findings merged. Applied at the record STREAM, so it is the CHEAPEST scope: skipped records cost nothing (no link walk, no .pex chain read), and a two-type sweep costs the two type groups, not the order. An unknown type is refused by name, naming what is expected.")]
+            string[]? types = null,
         [Description("Optional. Sweep ONLY these records ('0BCC84:Skyrim.esm', …) — the re-check-these-few pass after a fix, which limit= cannot do. A malformed token refuses the call before the sweep runs.")]
             string[]? formids = null,
         [Description("Optional. Sweep only records whose EditorID contains this substring (case-insensitive). A record with no EditorID never matches.")]
@@ -166,7 +166,7 @@ public static class CheckTools
              "DIAL validates one topic; a QUST validates EVERY topic that quest owns (plus the quest's own " +
              "CK-parity subrecords and its .seq, checked once); a DLVW or DLBR runs a record-level CK-parity check " +
              "— a bare DLVW crashes the CK's Dialogue Views editor. This family is SEEDED, not swept — " +
-             "plugins=/type=/formids=/editorid_contains=/exclude= do not scope it — and findings=['dialogue'] with " +
+             "plugins=/types=/formids=/editorid_contains=/exclude= do not scope it — and findings=['dialogue'] with " +
              "no seeds is REFUSED on cost, never widened to the whole order (a whole-order pass is a per-topic " +
              "graph walk across every touching plugin, and the order this bound was measured on carries 82,343 " +
              "dialogue topics). limit= caps how many seeds one call expands.")]
@@ -184,7 +184,7 @@ public static class CheckTools
         // parse these in their own service entries, which a dialogue-only call never reaches. Rendered through the
         // normal refusal path rather than returned as a bare string, so format='json' still gets a document.
         // See SweepSharedInput for the split: syntax refuses here, scope matching stays family-local.
-        if (SweepSharedInput.Error(svc, plugins, type, formids, editorid_contains, exclude) is { } inputErr)
+        if (SweepSharedInput.Error(svc, plugins, types, formids, editorid_contains, exclude) is { } inputErr)
         {
             var refusal = new CheckSweep(selection, SharedInputError: inputErr);
             return json ? JsonWire.RenderCheck(refusal, max_chars, lim) : Wire.RenderCheck(refusal, max_chars, lim);
@@ -201,11 +201,11 @@ public static class CheckTools
         ErrorCheckResult? errors = null;
         ScriptCheckResult? scripts = null;
         if (selection.Ran.Contains(SweepFamily.Errors))
-            errors = svc.CheckErrors(plugins, lim, formids, editorid_contains, type,
+            errors = svc.CheckErrors(plugins, lim, formids, editorid_contains, types,
                                      SweepFindings.Tokens(selection.ErrorClasses), counts_only, exclude, offOrderMemo);
         if (selection.Ran.Contains(SweepFamily.Scripts))
             scripts = svc.ValidateScripts(plugins, lim, formids, editorid_contains,
-                                          type, property_contains, SweepFindings.Tokens(selection.ScriptClasses),
+                                          types, property_contains, SweepFindings.Tokens(selection.ScriptClasses),
                                           counts_only, exclude, offOrderMemo);
         DialogueCheckResult? dialogue = null;
         if (selection.Ran.Contains(SweepFamily.Dialogue))

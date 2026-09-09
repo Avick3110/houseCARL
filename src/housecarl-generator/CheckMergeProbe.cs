@@ -1424,8 +1424,8 @@ public static class CheckMergeProbe
 
         // …and the OTHER direction of the same rule: an input error off the SHARED trio refuses every family, so it
         // is still the whole call's answer rather than the same sentence printed twice.
-        var sharedRefusal = CheckTools.CheckTool(svc, findings: new[] { "errors", "scripts" }, type: "NOSUCHTYPE");
-        Arm("ORCH-A-SHARED-INPUT-REFUSAL-STILL-REFUSES-THE-CALL: an unknown type= is malformed input for every family that could have run, so the response is ONE error NAMING THE TYPE IT REFUSED — the arm that keeps the cell above from passing by making every refusal family-local",
+        var sharedRefusal = CheckTools.CheckTool(svc, findings: new[] { "errors", "scripts" }, types: new[] { "NOSUCHTYPE" });
+        Arm("ORCH-A-SHARED-INPUT-REFUSAL-STILL-REFUSES-THE-CALL: an unknown types= entry is malformed input for every family that could have run, so the response is ONE error NAMING THE TYPE IT REFUSED — the arm that keeps the cell above from passing by making every refusal family-local",
             sharedRefusal.StartsWith("error", StringComparison.OrdinalIgnoreCase)
             // The GROUND, not just that something began with "error". Asked without it, this cell passed on a tree
             // with no generated/corpus.json at all: the guard's own internal-failure string starts with "error" and
@@ -1435,13 +1435,13 @@ public static class CheckMergeProbe
             && Count(sharedRefusal, "\n[errors] ") == 0,
             Trim(sharedRefusal));
 
-        // ---- THE SHARED INPUTS, ON A CALL WHOSE FAMILY NONE OF THEM SCOPE. type= / formids= / exclude= were parsed
+        // ---- THE SHARED INPUTS, ON A CALL WHOSE FAMILY NONE OF THEM SCOPE. types= / formids= / exclude= were parsed
         //      inside the two SWEEP families' service entries, which the merged tool calls only where its family
         //      was selected — so findings=['dialogue'] ran with nothing ever looking at them and a typo'd
         //      narrowing came back as an ordinary dialogue answer (Aaron's review of PR #399, finding 3).
         var dlgSeeds = new[] { "0F1AC1:HcOrch.esp" };
         var dlgControl = CheckTools.CheckTool(svc, findings: new[] { "dialogue" }, seeds: dlgSeeds);
-        var dlgBadType = CheckTools.CheckTool(svc, findings: new[] { "dialogue" }, seeds: dlgSeeds, type: "NOSUCHTYPE");
+        var dlgBadType = CheckTools.CheckTool(svc, findings: new[] { "dialogue" }, seeds: dlgSeeds, types: new[] { "NOSUCHTYPE" });
         var dlgBadFormid = CheckTools.CheckTool(svc, findings: new[] { "dialogue" }, seeds: dlgSeeds,
                                                 formids: new[] { "not-a-formid" });
         var dlgBadExclude = CheckTools.CheckTool(svc, findings: new[] { "dialogue" }, seeds: dlgSeeds,
@@ -1449,7 +1449,7 @@ public static class CheckMergeProbe
         // …and the refusal is a DOCUMENT in json, not a bare string — the whole reason it renders through the
         // normal refusal path instead of returning early from the tool.
         var dlgBadTypeJson = CheckTools.CheckTool(svc, findings: new[] { "dialogue" }, seeds: dlgSeeds,
-                                                  type: "NOSUCHTYPE", format: "json");
+                                                  types: new[] { "NOSUCHTYPE" }, format: "json");
         bool refusalIsADocument;
         try
         {
@@ -1457,7 +1457,7 @@ public static class CheckMergeProbe
             refusalIsADocument = Str(d.RootElement, "error") is { } e && e.Contains("NOSUCHTYPE", StringComparison.Ordinal);
         }
         catch { refusalIsADocument = false; }
-        Arm("ORCH-SHARED-INPUT-IS-CHECKED-BEFORE-FAMILY-DISPATCH: on findings=['dialogue'] — the one family none of them scope — a bad type=, a malformed formids= token and an exclude= value that is neither a filename nor a group each refuse the WHOLE call by name, in both transports, while the same call without them answers. Parsed inside the sweep families' own entries, none of the three was ever looked at",
+        Arm("ORCH-SHARED-INPUT-IS-CHECKED-BEFORE-FAMILY-DISPATCH: on findings=['dialogue'] — the one family none of them scope — a bad types=, a malformed formids= token and an exclude= value that is neither a filename nor a group each refuse the WHOLE call by name, in both transports, while the same call without them answers. Parsed inside the sweep families' own entries, none of the three was ever looked at",
             dlgBadType.StartsWith("error", StringComparison.OrdinalIgnoreCase)
             && dlgBadType.Contains("NOSUCHTYPE", StringComparison.Ordinal)
             && dlgBadFormid.StartsWith("error", StringComparison.OrdinalIgnoreCase)

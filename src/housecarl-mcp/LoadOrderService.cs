@@ -4431,18 +4431,7 @@ public sealed class LoadOrderService : IDisposable
                 return CrossQueryOutcome.Fail(ArtifactEpochMismatch(demand, view.Epoch)) with { Stamp = view.Stamp };
 
         IReadOnlyList<Type>? types;
-        try
-        {
-            if (hasType)
-            {
-                var union = new List<Type>();
-                foreach (var ts in typeSet!)
-                    foreach (var t in ResolveTypeFilter(ts.Trim()))
-                        if (!union.Contains(t)) union.Add(t);
-                types = union;
-            }
-            else types = null;
-        }
+        try { types = ResolveTypeFilterSet(hasType ? typeSet : null); }
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }   // unknown type
 
         if (predicate is not null && hasType && QuantifierShapeRefusal(typeSet!, predicate) is { } qerr)
@@ -4912,18 +4901,7 @@ public sealed class LoadOrderService : IDisposable
                 return CrossQueryOutcome.Fail(ArtifactEpochMismatch(demand, view.Epoch)) with { Stamp = view.Stamp };
 
         IReadOnlyList<Type>? types;
-        try
-        {
-            if (typeSet is { Count: > 0 })
-            {
-                var union = new List<Type>();
-                foreach (var ts in typeSet)
-                    foreach (var t in ResolveTypeFilter(ts.Trim()))
-                        if (!union.Contains(t)) union.Add(t);
-                types = union;
-            }
-            else types = null;
-        }
+        try { types = ResolveTypeFilterSet(typeSet); }
         catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); }
 
         if (predicate is not null && typeSet is { Count: > 0 } && QuantifierShapeRefusal(typeSet, predicate) is { } qerr)
@@ -5113,11 +5091,11 @@ public sealed class LoadOrderService : IDisposable
     /// typed values.</para></summary>
     public ErrorCheckResult CheckErrors(IReadOnlyList<string>? plugins, int limit,
                                         IReadOnlyList<string>? formids = null, string? editoridContains = null,
-                                        string? type = null, IReadOnlyList<string>? findings = null,
+                                        IReadOnlyList<string>? types = null, IReadOnlyList<string>? findings = null,
                                         bool countsOnly = false, IReadOnlyList<string>? exclude = null,
                                         SweepOffOrderMemo? offOrderMemo = null)
     {
-        var (recordScope, scopeErr) = BuildSweepScope(formids, editoridContains, type);
+        var (recordScope, scopeErr) = BuildSweepScope(formids, editoridContains, types);
         if (scopeErr is not null) return ErrorCheckResult.Fail(scopeErr);
         if (!SweepFindings.TryParseErrorClasses(findings, out var classes, out var classErr))
             return ErrorCheckResult.Fail(classErr!);
@@ -5221,14 +5199,16 @@ public sealed class LoadOrderService : IDisposable
     /// (<see cref="SweepSharedInput"/>). The scope itself belongs to whichever family is about to sweep with it;
     /// what is shared is the judgement that a value is malformed, and that judgement has to be reachable without
     /// selecting a family that uses it.</summary>
-    internal string? SweepScopeError(IReadOnlyList<string>? formids, string? editoridContains, string? type)
-        => BuildSweepScope(formids, editoridContains, type).Error;
+    internal string? SweepScopeError(IReadOnlyList<string>? formids, string? editoridContains,
+                                     IReadOnlyList<string>? types)
+        => BuildSweepScope(formids, editoridContains, types).Error;
 
     /// <summary>Parse the sweep families' shared record-scope params into a <see cref="SweepScope"/>: FormID tokens,
-    /// an EditorID substring, and a record type resolved through the same type lookup the scan uses. Every malformed
-    /// input is a named refusal returned before the sweep starts, never a scope that silently matched nothing.
-    /// Returns (null, null) when nothing was narrowed, so the unscoped path stays untouched.</summary>
-    (SweepScope? Scope, string? Error) BuildSweepScope(IReadOnlyList<string>? formids, string? editoridContains, string? type)
+    /// an EditorID substring, and a record type SET resolved through the same type lookup the scan uses. Every
+    /// malformed input is a named refusal returned before the sweep starts, never a scope that silently matched
+    /// nothing. Returns (null, null) when nothing was narrowed, so the unscoped path stays untouched.</summary>
+    (SweepScope? Scope, string? Error) BuildSweepScope(IReadOnlyList<string>? formids, string? editoridContains,
+                                                       IReadOnlyList<string>? typeSet)
     {
         HashSet<FormKey>? keys = null;
         if (formids is { Count: > 0 })
@@ -5244,12 +5224,14 @@ public sealed class LoadOrderService : IDisposable
             }
         }
 
+        // The set is the union of its entries, resolved the way records= resolves types= — one type is a set of one.
         IReadOnlyList<Type>? types = null;
-        var typeLabel = type?.Trim();
-        if (!string.IsNullOrEmpty(typeLabel))
+        string? typeLabel = null;
+        if (typeSet is { Count: > 0 })
         {
-            try { types = ResolveTypeFilter(typeLabel); }
+            try { types = ResolveTypeFilterSet(typeSet); }
             catch (ArgumentException ex) { return (null, ex.Message); }
+            typeLabel = string.Join(", ", typeSet.Select(t => (t ?? "").Trim()));
         }
 
         var scope = new SweepScope(keys, editoridContains, types, typeLabel);
@@ -5270,12 +5252,12 @@ public sealed class LoadOrderService : IDisposable
     /// has just written.</para></summary>
     public ScriptCheckResult ValidateScripts(IReadOnlyList<string>? plugins, int limit,
                                              IReadOnlyList<string>? formids = null, string? editoridContains = null,
-                                             string? type = null, string? propertyContains = null,
+                                             IReadOnlyList<string>? types = null, string? propertyContains = null,
                                              IReadOnlyList<string>? findings = null, bool countsOnly = false,
                                              IReadOnlyList<string>? exclude = null,
                                              SweepOffOrderMemo? offOrderMemo = null)
     {
-        var (recordScope, scopeErr) = BuildSweepScope(formids, editoridContains, type);
+        var (recordScope, scopeErr) = BuildSweepScope(formids, editoridContains, types);
         if (scopeErr is not null) return ScriptCheckResult.Fail(scopeErr);
         if (!SweepFindings.TryParseScriptClasses(findings, out var classes, out var classErr))
             return ScriptCheckResult.Fail(classErr!);
@@ -9263,6 +9245,19 @@ public sealed class LoadOrderService : IDisposable
                     Add(ts.Name, at);
         }
         return lookup;
+    }
+
+    /// <summary>A user type SET to its getter Types: the union of each entry's resolution, in order, deduped — one
+    /// grammar with the singular form, since every entry goes through <see cref="ResolveTypeFilter"/> and an unknown
+    /// one throws naming itself. Null for an absent or empty set, so the unnarrowed path stays untouched.</summary>
+    IReadOnlyList<Type>? ResolveTypeFilterSet(IReadOnlyList<string>? types)
+    {
+        if (types is not { Count: > 0 }) return null;
+        var union = new List<Type>();
+        foreach (var ts in types)
+            foreach (var t in ResolveTypeFilter((ts ?? "").Trim()))
+                if (!union.Contains(t)) union.Add(t);
+        return union;
     }
 
     /// <summary>A user type string to its getter Types. Throws, naming the bad input and what is expected.</summary>

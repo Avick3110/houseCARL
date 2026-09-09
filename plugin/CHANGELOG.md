@@ -13,6 +13,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **`housecarl_check`'s record-type scope is now the set-valued `types=`, the same spelling and value form
+  `housecarl_records` takes.** One type is a set of one, so `types=["Npc"]` sweeps what `type="Npc"` swept; a set
+  sweeps the union of its types in one pass and merges the findings, and the response's narrowing line names every
+  type in it. An unknown type is still refused by name, and the cost is what the parameter says it is: the scope is
+  applied at the record stream, so the types you did not name cost nothing.
 - **The note a write emits when a link target's plugin cannot be read now names what it counts: the distinct
   records the write links to in that plugin.** The values a write's link check needs are enumerated by the same
   schema walk that does the checking, and two slots naming one record are one record here. What the note says

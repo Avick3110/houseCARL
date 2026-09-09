@@ -135,7 +135,7 @@ public static class ErrorCheck
         // Uncapped by limit= like the totals it decomposes; it costs one dictionary bump per dangling ref.
         var bySource = wantDangling ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) : null;
         // WHICH plugins the link walk actually examined a record in, under the scope in force. A record scope
-        // (type=/formids=/editorid_contains=) can admit nothing from a plugin the sweep opened, and "swept" has to
+        // (types=/formids=/editorid_contains=) can admit nothing from a plugin the sweep opened, and "swept" has to
         // mean examined rather than opened — otherwise the baseline line reports vanilla as covered-and-clean when
         // the scope filtered every vanilla record out. The layer that applies the filter is the layer that knows.
         var examined = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
