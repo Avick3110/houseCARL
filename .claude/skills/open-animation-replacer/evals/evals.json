@@ -188,11 +188,11 @@
     {
       "id": 19,
       "prompt": "my follower's face is dark after I gave her a new animation pack",
-      "expected_output": "Do not load open-animation-replacer; facegen-diagnostics is the fit.",
+      "expected_output": "Do not load open-animation-replacer; no skill fits — a dark face is housecarl_check findings=[\"facegen\"].",
       "expectations": ["does not pick open-animation-replacer"],
       "should_trigger": false,
-      "note": "facegen-diagnostics; 'animation pack' is a red herring.",
-      "evidence": "2026-07-28: routed to facegen-diagnostics."
+      "note": "A dark face is the facegen check, not a skill; 'animation pack' is a red herring.",
+      "evidence": "2026-07-28: routed to facegen-diagnostics, which no longer ships; the honest destination is now NONE."
     },
     {
       "id": 20,
