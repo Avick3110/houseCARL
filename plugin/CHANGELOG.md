@@ -27,9 +27,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `patch_name=` is `patch=` and `output_dir=` is `out_path=`. `housecarl_decompile_script` and
   `housecarl_nif_set`: `patch_name=` is `patch=`. `housecarl_write_seq`: `output_dir=` is `out_path=`, and
   its JSON response member `user_chose_output_dir` is `user_chose_out_path`. `housecarl_remove` is unchanged:
-  a removal edits an artifact that already exists, so its lane is `into=`. `housecarl_merge_plugins` and
-  `housecarl_bsa_repack` keep a separate `patch_name=` for the mod FOLDER, since on those two `patch=` names
-  the plugin and the archive.
+  a removal edits an artifact that already exists, so its lane is `into=`.
+- **`patch=` now names the output mod FOLDER on every tool that writes one, `housecarl_merge_plugins` and
+  `housecarl_bsa_repack` included, and the artifact inside takes that folder's name.** `patch="MyMerge"` on a
+  merge writes `houseCARL - MyMerge\MyMerge.esp`; `patch="MyArchive"` on a repack writes
+  `houseCARL - MyArchive\MyArchive.bsa`, and with `into=` the archive takes the name of the folder it lands in.
+  The second knob `patch_name=` is gone from both tools, along with the `'<patch> merged'`/`'<patch> renamed'`
+  and `houseCARL_Archive` folder defaults; a repack with no `patch=` names both the folder and the archive after
+  the source folder. `patch=` with the `.esl` extension on a merge is still refused, because a merge does not
+  constrain object ids to the light window.
 - **On the tools whose `patch=` names the output mod FOLDER — `housecarl_compact_plugin`,
   `housecarl_compile_script`, `housecarl_decompile_script`, `housecarl_nif_set`, `housecarl_write_seq`,
   `housecarl_place` — an artifact spelling (`plugin_name=`, `output=`, `archive_name=`) is refused by name
