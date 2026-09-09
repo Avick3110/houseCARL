@@ -3513,8 +3513,13 @@ public static class WritePatchBuilder
                 foreach (var fill in DialogueCkParity.ApplyViewDefaults(viewRec))
                     ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
             }
-            else if (rec is IDialogBranch branchRec)   // DLBR Category (TNAM) + Flags (DNAM)
+            else if (rec is IDialogBranch branchRec)   // DLBR Category (TNAM); Flags (DNAM) is required, never filled
             {
+                // Flags (DNAM) has no honest default — vanilla carries TopLevel menu branches and 203 deliberate
+                // 0 branches, and each wrong guess is its own in-game defect (#693 dead branch, #212 stray "..."),
+                // so a branch that passed none is refused here. All-or-nothing: nothing is serialized.
+                if (DialogueCkParity.BranchFlagsRefusal(branchRec, s.EditorId) is { } flagsRefusal)
+                    return CreateOutcome.Fail(flagsRefusal + " (nothing created)");
                 foreach (var fill in DialogueCkParity.ApplyBranchDefaults(branchRec))
                     ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
             }
