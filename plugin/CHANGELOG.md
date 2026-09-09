@@ -30,6 +30,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `Goodbye` flag nothing fills for you, and the two lanes that cannot see an unenabled plugin. `housecarl_create`
   and `housecarl_check` cite it by URL, the way the facegen page is cited, so a session authoring or checking
   dialogue reaches it from the tool description.
+- **A write refusal now names and counts every rejected op, including several that name the same record.** The
+  pre-flight harvests the FormID values a call sets into a deduplicating set, and decided whether an op needed
+  the link type-check by whether that set had grown — so the second and later ops pointing at one FormID were
+  taken for link-free, kept the verdict reached before the check existed, and were neither listed nor counted.
+  Four illegal ops on one armor refused as "2 of 4 edit(s) rejected", naming two, which reads as the other two
+  having passed. Every op is now checked and reported, and the count is the number rejected. Nothing was ever
+  written: the refusal was already all-or-nothing, so a hidden op could not reach a plugin.
 - **The `mutagen-reference` schema reference now reports a record-identity field as not writable.** A field
   marked `id` — `FormKey` on a record, and `ModKey` / `Master` on the `SkyrimMod` and `MasterReference`
   structs — is refused by the write pre-flight whether or not the library exposes a setter for it. The two
