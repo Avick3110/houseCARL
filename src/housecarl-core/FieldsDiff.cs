@@ -63,7 +63,10 @@ public static class FieldsDiff
     /// <summary>True when a CleanLines value is a read-engine "no value here" note sentinel — the field is
     /// modeled but the contributor carries nothing (absent optional, or a present-but-null link). Treated as a
     /// first-class state, never compared as if it were a real token value. References the <see cref="ReadEngine"/>
-    /// constants directly (same assembly) — single source of truth, compile-time coupling, no drift.</summary>
+    /// constants directly (same assembly) — single source of truth, compile-time coupling, no drift.
+    /// <para><see cref="ReadEngine.PresentNullLinkNote"/> is deliberately NOT here: a nullable link whose subrecord
+    /// is present with FormID zero is a carried fact (an INFO's "I am first" PNAM), so it must delta against a side
+    /// that carries nothing rather than collapse into the same "no value here" state.</para></summary>
     static bool IsAbsentSentinel(string val) =>
         val == ReadEngine.AbsentNote || val == ReadEngine.NullLinkNote || val == ReadEngine.UnresolvedStringNote;
 
