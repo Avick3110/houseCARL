@@ -39,6 +39,11 @@ public static class FaceGenCheck
     /// baked head geometry and tint do not carry it.</summary>
     public const string HairColorPath = "HairColor";
 
+    /// <summary>The marker <see cref="FieldsDiff"/> puts on a list whose items are the SAME but in a different
+    /// order. Not a stale bake: the Creation Kit bakes from the values, not from the order a plugin wrote them in,
+    /// and on the measured order this alone accounted for most of the class.</summary>
+    public const string OrderOnlyDelta = "ORDER DIFFERS from";
+
     /// <summary>The two Data-relative folder trees a facegen bake lives under, for the file half of the union.</summary>
     public const string GeomRoot = @"meshes\actors\character\facegendata\facegeom";
     public const string TintRoot = @"textures\actors\character\facegendata\facetint";
@@ -65,7 +70,9 @@ public static class FaceGenCheck
         var findings = new List<FaceGenFinding>();
         var byClass = new Dictionary<string, int>(StringComparer.Ordinal);
         var byMod = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        int totalFound = 0, npcsScanned = 0, templated = 0, noPole = 0;
+        int totalFound = 0, npcsScanned = 0, templated = 0, noPole = 0, noFaceGenRace = 0, raceUnresolved = 0;
+        var raceMemo = new Dictionary<FormKey, bool?>();
+        var archiveLayers = assets.ArchiveOwningMods;   // archive filename -> the MO2 layer its file lives in, read once
         bool listFamilySplit = classes != FaceGenFindingClass.All && classes.HasFlag(FaceGenFindingClass.FamilySplit);
 
         // The scope's plugin targets. An off-order file is swept as its own overlay, exactly as the errors family
@@ -106,8 +113,30 @@ public static class FaceGenCheck
             if (recordScope is not null && !recordScope.Matches(fk, body)) return;
             if (!judged.Add(fk)) return;
             npcsScanned++;
-            if (body is INpcGetter npc && InheritsAppearance(npc)) { templated++; return; }
+            if (body is not INpcGetter npc) return;
+            if (InheritsAppearance(npc)) { templated++; return; }
+            // A race without the FaceGenHead flag has no baked head at all — a horse, a dragon, a draugr shell.
+            // The flag is Mutagen's own (Race.Flag.FaceGenHead), so this is not a hand-kept race list, and without
+            // it a whole-order sweep reports every creature actor as missing a bake it never had.
+            switch (RaceBakes(npc.Race.FormKey))
+            {
+                case false: noFaceGenRace++; return;
+                case null: raceUnresolved++; return;
+            }
             Classify(fk, body, winnerPlugin, offOrderFile);
+        }
+
+        // Does this race bake a head? Memoized per race, so a 66,000-NPC order pays one record read per race.
+        // null = the race could not be read, which is NOT the same as "does not bake": the NPC is left out and
+        // counted, so a race nobody could resolve never reads as a clean or a broken bake.
+        bool? RaceBakes(FormKey raceKey)
+        {
+            if (raceMemo.TryGetValue(raceKey, out var had)) return had;
+            bool? answer = null;
+            if (view.ResolveWinner(raceKey) is { } rw
+                && view.GetRecord(session, rw.WinnerPlugin, raceKey, typeof(IRaceGetter)) is IRaceGetter race)
+                answer = race.Flags.HasFlag(Race.Flag.FaceGenHead);
+            return raceMemo[raceKey] = answer;
         }
 
         try
@@ -215,14 +244,14 @@ public static class FaceGenCheck
                 if (view.ResolveWinner(fk) is not { } w)
                 {
                     Emit(FaceGenFindingClass.Inert, fk, folder, null, null, null,
-                         "no plugin in this order defines this FormID, so no NPC reads this bake");
+                         $@"{folder}\{name} — no plugin in this order defines this FormID, so no NPC reads this bake");
                     continue;
                 }
                 // Resolves to something that is not an NPC at all — the PlacedNpc case both gate arms got wrong.
                 var body = view.GetRecord(session, w.WinnerPlugin, fk);
                 if (body is not INpcGetter)
                     Emit(FaceGenFindingClass.Inert, fk, folder, w.WinnerPlugin, null, null,
-                         $"this FormID is a {TypeNameOf(body)}, not an NPC — no actor reads this bake");
+                         $@"{folder}\{name} — this FormID is a {TypeNameOf(body)}, not an NPC, so no actor reads this bake");
             }
         }
 
@@ -238,58 +267,67 @@ public static class FaceGenCheck
         return new FaceGenCheckResult(findings, npcsScanned, templated, filesSeen, totalFound, noPole,
                                       histClass, histMod, countsOnly, view.ExcludedPlugins, null,
                                       offOrderScanned, filterNote, classes, view.Epoch, limit, scanError,
-                                      assets.ReadIncomplete, wholeOrder);
+                                      assets.ReadIncomplete, wholeOrder, noFaceGenRace, raceUnresolved);
 
         // ---- the per-NPC join ---------------------------------------------------------------------
         void Classify(FormKey fk, IMajorRecordGetter body, string winnerPlugin, bool offOrderFile)
         {
             var meshPath = FaceGenPath.For(fk, FaceGenSlot.Mesh);
             var tintPath = FaceGenPath.For(fk, FaceGenSlot.Tint);
-            var mesh = assets.Resolve(meshPath);
-            var tint = assets.Resolve(tintPath);
+            var mesh = Half(meshPath);
+            var tint = Half(tintPath);
             string master = fk.ModKey.FileName.String;
 
             FaceGenFindingClass cls;
             string? detail = null;
-            if (mesh.Exists && tint.Exists)
+            if (mesh is { } mw && tint is { } tw)
             {
-                var mw = mesh.Winner!;
-                var tw = tint.Winner!;
-                if (SameSource(mw, tw))
+                if (string.Equals(mw.Layer, tw.Layer, StringComparison.OrdinalIgnoreCase))
                 {
-                    // A clean pair. The remaining question is the RECORD one: does the winning record still agree
-                    // with the plugin whose mod baked these files?
-                    var (stale, why, pole) = StaleAgainstOwner(fk, body, winnerPlugin, mw);
+                    // A clean pair: both halves come out of ONE MO2 layer. The layer, not the provider name, is
+                    // what makes a pair clean - vanilla ships the head in Skyrim - Meshes0.bsa and the tint in
+                    // Skyrim - Textures0.bsa, two archives of one product, and a mod's loose file over its own
+                    // archive is one mod too. The remaining question is the RECORD one: does the winning record
+                    // still agree with the plugin whose mod baked these files?
+                    var (stale, why, pole) = StaleAgainstOwner(fk, body, winnerPlugin, mw.Layer);
                     if (pole is null) { noPole++; return; }
                     if (!stale) return;
                     cls = FaceGenFindingClass.StaleBake;
                     detail = why;
                 }
-                else cls = OneProduct(mw, tw) ? FaceGenFindingClass.FamilySplit : FaceGenFindingClass.SplitBake;
+                else cls = OneProduct(mw.Layer, tw.Layer) ? FaceGenFindingClass.FamilySplit
+                                                         : FaceGenFindingClass.SplitBake;
             }
-            else if (mesh.Exists) cls = FaceGenFindingClass.TintAbsent;
-            else if (tint.Exists) cls = FaceGenFindingClass.MeshAbsent;
+            else if (mesh is not null) cls = FaceGenFindingClass.TintAbsent;
+            else if (tint is not null) cls = FaceGenFindingClass.MeshAbsent;
             else cls = FaceGenFindingClass.BakeAbsent;
 
-            var winnerName = mesh.Winner?.Source ?? tint.Winner?.Source;
             Add(new FaceGenFinding(fk.ToString(), body.EditorID, master,
                                    winnerPlugin + (offOrderFile ? " (off-order)" : ""),
                                    WinnerText(mesh), WinnerText(tint), Token(cls), Fix(cls), detail,
-                                   winnerName));
+                                   (mesh ?? tint)?.Layer));
         }
 
-        // A pair is CLEAN when both halves come from the same provider. A loose half and a BSA half of the same
-        // name are not the same provider — the archive is a different artifact from the folder.
-        static bool SameSource(AssetProvider a, AssetProvider b)
-            => a.Kind == b.Kind && string.Equals(a.Source, b.Source, StringComparison.OrdinalIgnoreCase);
-
-        // Two providers of ONE product, as far as their NAMES can say. This is a heuristic and the response says so:
-        // a repack of a mod's own archive, or an update folder beside its base folder, is structurally identical to
-        // a genuine cross-bake, and the only signal available at the data layer is the provider names.
-        static bool OneProduct(AssetProvider a, AssetProvider b)
+        // One half of the pair: the winning provider plus the MO2 LAYER it physically lives in. A loose provider IS
+        // its layer; a BSA's layer is looked up in the build's archive map, which is read once for the whole sweep —
+        // ResolveForPlacement carries the same field but builds a concrete descriptor per provider per path, which
+        // a whole-order sweep pays 20,000 times over for one string.
+        FaceGenHalf? Half(string relPath)
         {
-            var x = Normalize(a.Source);
-            var y = Normalize(b.Source);
+            var hit = assets.Resolve(relPath);
+            if (hit is not { Exists: true, Winner: { } w }) return null;
+            return new FaceGenHalf(w.Source, w.Kind,
+                                   w.Kind == AssetKind.Bsa && archiveLayers.TryGetValue(w.Source, out var mod)
+                                       ? mod : w.Source);
+        }
+
+        // Two layers of ONE product, as far as their NAMES can say. This is a heuristic and the response says so:
+        // an update folder beside its base folder is structurally identical to a genuine cross-bake, and the only
+        // signal available at the data layer is the folder names.
+        static bool OneProduct(string a, string b)
+        {
+            var x = Normalize(a);
+            var y = Normalize(b);
             if (x.Length == 0 || y.Length == 0) return false;
             if (x == y) return true;                                       // the same mod, loose over its own BSA
             var (shorter, longer) = x.Length <= y.Length ? (x, y) : (y, x);
@@ -312,28 +350,47 @@ public static class FaceGenCheck
         // from it; `previous_provider` is the plugin one step below the winner, which is a different question and
         // was ~25% false on the measured order.
         (bool Stale, string? Why, string? Pole) StaleAgainstOwner(FormKey fk, IMajorRecordGetter winnerBody,
-                                                                 string winnerPlugin, AssetProvider provider)
+                                                                 string winnerPlugin, string layer)
         {
-            foreach (var candidate in pluginsInMod(provider.Source))
+            var shipped = pluginsInMod(layer);
+            if (shipped.Count == 0) return (false, null, null);
+            // The pole is a plugin that both ships in the bake's own layer AND actually touches this record. Asking
+            // the touching list first is what keeps a whole-order sweep affordable: a mod folder can hold dozens of
+            // plugins, and opening each to find it does not define this NPC is a read per plugin per NPC.
+            var touching = view.TouchingPlugins(fk);
+            if (touching is null) return (false, null, null);
+            string? pole = null;
+            foreach (var name in touching)                                  // priority order, so the last match wins
             {
-                if (string.Equals(candidate, winnerPlugin, StringComparison.OrdinalIgnoreCase)) return (false, null, candidate);
-                if (!view.ContainsPlugin(candidate)) continue;
-                var ownerBody = view.GetRecord(session, candidate, fk, typeof(INpcGetter));
-                if (ownerBody is null) continue;
-                var theirs = ReadEngine.ReadFields(ownerBody, FaceFields, depth: 4);
-                var winner = ReadEngine.ReadFields(winnerBody, FaceFields, depth: 4);
-                var diff = FieldsDiff.Compare(theirs, winner, referenceLabel: "winner");
-                var real = diff.Deltas.Where(d => !d.StartsWith(HairColorPath, StringComparison.Ordinal)).ToList();
-                if (real.Count == 0) return (false, null, candidate);
-                return (true, $"winner {winnerPlugin} disagrees with the bake's own plugin {candidate} on "
-                            + string.Join(", ", real.Take(3)) + (real.Count > 3 ? $" (+{real.Count - 3} more)" : ""),
-                        candidate);
+                if (!shipped.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
+                // The bake's own layer ships the winner: record and files agree by construction, no read needed.
+                if (string.Equals(name, winnerPlugin, StringComparison.OrdinalIgnoreCase)) return (false, null, name);
+                pole = name;
             }
-            return (false, null, null);
+            if (pole is null) return (false, null, null);
+
+            var ownerBody = view.GetRecord(session, pole, fk, typeof(INpcGetter));
+            if (ownerBody is null) return (false, null, null);
+            var theirs = ReadEngine.ReadFields(ownerBody, FaceFields, depth: 4);
+            var winner = ReadEngine.ReadFields(winnerBody, FaceFields, depth: 4);
+            var diff = FieldsDiff.Compare(theirs, winner, referenceLabel: "winner");
+            // Two deltas are not a stale bake. HairColor is applied at runtime and the baked files do not carry it;
+            // a list whose items are the SAME but in a different ORDER is a subrecord-ordering difference, and the
+            // Creation Kit bakes from the values, not from the order it wrote them in.
+            var real = diff.Deltas
+                           .Where(d => !d.StartsWith(HairColorPath, StringComparison.Ordinal)
+                                    && !d.Contains(OrderOnlyDelta, StringComparison.Ordinal))
+                           .ToList();
+            if (real.Count == 0) return (false, null, pole);
+            return (true, $"winner {winnerPlugin} disagrees with the bake's own plugin {pole} on "
+                        + string.Join(", ", real.Take(3)) + (real.Count > 3 ? $" (+{real.Count - 3} more)" : ""),
+                    pole);
         }
 
-        static string? WinnerText(AssetHit hit)
-            => hit is { Exists: true, Winner: { } w } ? w.Source + (w.Kind == AssetKind.Loose ? " (loose)" : " (BSA)") : null;
+        static string? WinnerText(FaceGenHalf? h)
+            => h is null ? null
+             : h.Provider + (h.Kind == AssetKind.Loose ? " (loose)" : " (BSA)")
+             + (string.Equals(h.Provider, h.Layer, StringComparison.OrdinalIgnoreCase) ? "" : " in " + h.Layer);
 
         void Emit(FaceGenFindingClass cls, FormKey? fk, string master, string? winner, string? mesh, string? tint,
                   string detail)
@@ -433,6 +490,12 @@ public static class FaceGenCheck
     public static string Vocabulary => string.Join(", ", Registered.Select(c => "'" + Token(c) + "'"));
 }
 
+/// <summary>One half of an NPC's bake as the VFS resolves it: the winning provider, whether it is loose or in an
+/// archive, and the MO2 <paramref name="Layer"/> that provider physically lives in — a mod folder, "overwrite" or
+/// "Data". The layer is what decides whether two halves are one bake: vanilla splits the head and the tint across
+/// two archives of one product, and a mod's loose file over its own archive is still one mod.</summary>
+public sealed record FaceGenHalf(string Provider, AssetKind Kind, string Layer);
+
 /// <summary>The facegen family's finding classes. <see cref="FamilySplit"/> is BENIGN and is counted in the header
 /// but listed only under its own class token: on the measured order 268 of 408 pair mismatches were one product's
 /// two halves, and listing them by default drowns the 126 real ones.</summary>
@@ -492,7 +555,9 @@ public sealed record FaceGenCheckResult(
     int Limit = 0,
     string? ScanError = null,
     bool ReadIncomplete = false,
-    bool WholeOrder = false)
+    bool WholeOrder = false,
+    int NpcsNoFaceGenRace = 0,
+    int NpcsRaceUnresolved = 0)
 {
     public bool Success => Error is null;
 
