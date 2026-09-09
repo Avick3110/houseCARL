@@ -26,7 +26,7 @@ namespace HousecarlGenerator;
 /// record with an EMPTY body — the clean case, not the wild one), so both are written normally and then patched on
 /// disk via <see cref="ProbeBytes"/>: the Deleted header flag OR-ed on, and (crash arm) one EPFT byte corrupted.
 ///
-///   check_errors — HcDlwGhost.esm (on disk, NOT loaded → every ref into it fails to resolve) + HcDlwErr.esp:
+///   errors family — HcDlwGhost.esm (on disk, NOT loaded → every ref into it fails to resolve) + HcDlwErr.esp:
 ///     LiveDangler (NPC, Race → the ghost race)  — CONTROL: a live dangling ref the sweep must STILL report.
 ///     DeadDangler (NPC, same link, Deleted)     — SEMANTIC arm: must NOT be reported dangling.
 ///     DeadThrower (PERK, EPFT corrupt, Deleted) — CRASH arm: must NOT be accounted unscannable.
@@ -80,7 +80,7 @@ public static class DeletedLinkWalkProbe
     }
 
     // =====================================================================================
-    //  housecarl_check_errors — ErrorCheck.Run
+    //  the errors family — ErrorCheck.Run
     // =====================================================================================
     static int CheckErrorsArms(string tmpDir, Action<string, bool, string?> Check)
     {
