@@ -384,8 +384,8 @@ public static class CheckMergeProbe
                 Str(root, "findings_scope") == FirstLineWith(defText, "findings=")
                 && Str(root, "findings_scope")?.Contains("did NOT run", StringComparison.Ordinal) == true
                 && Bool(root, "findings_defaulted") == true
-                // TWO registered families the default does not run — the fixture-known count, not Registered.Count-1:
-                // a fourth family landing must turn this red so somebody decides what the default means, rather than
+                // THREE registered families the default does not run — the fixture-known count, not Registered.Count-1:
+                // a fifth family landing must turn this red so somebody decides what the default means, rather than
                 // sliding through on arithmetic that agrees with whatever the list happens to hold.
                 && notRun?.GetArrayLength() == 3
                 && Str(At(notRun, 0), "family") == "scripts"
@@ -1630,7 +1630,7 @@ public static class CheckMergeProbe
             retiredBad.Add("housecarl_validate_dialogue has no retired-name row at all");
         else if (!dialogueHint.Contains("info_order", StringComparison.Ordinal))
             retiredBad.Add("the housecarl_validate_dialogue row names no destination for class 8 (the effective merged INFO order), which this surface deliberately does not carry");
-        Arm($"ORCH-EVERY-ABSORBED-ANCESTOR-HAS-A-RETIRED-NAME-ROW: each of the 3 families this surface ABSORBED has exactly ONE retired-name row pointing at it, reachable by the ancestor's own name, and the dialogue row names BOTH destinations — the sweep for classes 1-7 and records project=info_order for class 8. Asked off the family registry, so a family added with no row for its ancestor reddens this",
+        Arm($"ORCH-EVERY-ABSORBED-ANCESTOR-HAS-A-RETIRED-NAME-ROW: each of the 3 families this surface ABSORBED has exactly ONE retired-name row pointing at it, reachable by the ancestor's own name, and the dialogue row names BOTH destinations — the sweep for classes 1-7 and records project=info_order for class 8. Asked off the three families named here, not off the registry: a family absorbed later needs its own name adding to that list",
             retiredBad.Count == 0,
             retiredBad.Count == 0 ? $"{SweepFamilySelection.Registered.Count} families, {AliasTable.AllRetiredTools.Count} rows in the table"
                                   : string.Join("; ", retiredBad));
