@@ -61,16 +61,21 @@ line at the HEAD, not the bottom.)
 ## The bookkeeping create fills, and the flags they do not decide
 
 `housecarl_create` fills the Creation Kit's bookkeeping on dialogue records and reports each fill, so nothing
-here is silent. A `DialogBranch` created with no `Flags` is filled to `TopLevel`, whatever its `Category`:
-that is what the CK's own branch dialog ticks for a new player branch, what both of Skyrim.esm's
-`Category = Command` branches (the bribe and intimidate speech challenges) carry, and what publishes a branch
-to the player's menu — a branch that is not top level **never reaches that menu**, so `0` would be the one
-value that kills the branch and every topic under it (#693). The fill is non-override as usual: pass `Flags`
-yourself and it stands, including `Flags = 0` for a branch you mean to keep out of the menu.
+here is silent. A `DialogBranch`'s `Flags` is the one field it will not fill: a branch created with no `Flags`
+is **refused**, and nothing is written.
 
-The flags the bookkeeping does **not** decide are authoring choices, and nothing fills them for you. On the
-branch, `Blocking` and `Exclusive`: the `TopLevel` fill sets neither, so a branch that has to block or exclude
-its siblings needs them named in the `Flags` you pass.
+That is because the two shapes are both real, and each is fatal in the other's place. `TopLevel` is what
+publishes a branch to the player's menu, so a menu branch without it — and every topic under it — is dead
+(#693). But `0` is exactly what a scripted `Say()` topic needs: a branch left at `TopLevel` when it should
+have been hidden puts a nameless line in the player's menu as a selectable `...` (#212). Skyrim.esm carries
+both on purpose — 2117 branches at `TopLevel`, and 203 `Player` branches at exactly `0` — so there is no
+honest default to fill, and houseCARL asks instead of guessing. Pass `TopLevel` for a menu entry the player
+can pick, or `0` for a scripted `Say()` topic that must stay hidden. A value you pass always wins, an
+explicit `0` included.
+
+The other branch flags are authoring choices too, and nothing fills them for you: `Blocking` and `Exclusive`
+are never added to the `Flags` you pass, so a branch that has to block or exclude its siblings needs them
+named there.
 
 On a line, the `Goodbye` flag, which ends the conversation on the line that carries it, and lives inside the
 INFO's own `Flags` struct. The create path materialises that struct to all-zero, and all-zero is not

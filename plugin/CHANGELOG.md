@@ -13,20 +13,20 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
-- **`housecarl_create` fills a dialogue branch's `Flags` to `TopLevel`, not `0`.** A `DialogBranch` created
-  with no `Flags` used to get `0`, and a branch that is not top level never reaches the player's dialogue
-  menu, so the branch and every topic under it were dead. The fill is now `TopLevel` for both branch
-  categories — what the Creation Kit ticks for a new player branch, and what both of Skyrim.esm's
-  `Category = Command` branches carry — and is reported by name in the auto-fill list, so you can read back
-  what it wrote. It stays non-override: a `Flags` you pass wins, including `Flags = 0` for a branch you mean
-  to keep out of the menu. What the fill does and does not decide is in `docs/dialogue.md`.
+- **`housecarl_create` refuses a dialogue branch with no `Flags` instead of filling one.** A `DialogBranch`
+  created with no `Flags` is now refused in one sentence naming both values and what each does — `TopLevel`
+  for a menu entry the player can pick, `0` for a scripted `Say()` topic that must stay hidden — and nothing
+  is written. Neither value can be filled: `TopLevel` is what publishes a branch to the player's menu, so `0`
+  on a menu branch kills it and every topic under it, while `TopLevel` on a hidden branch puts a nameless line
+  in the menu as a selectable `...`. Skyrim.esm carries both shapes. A `Flags` you pass always wins, an
+  explicit `0` included. Both cases and how to pick are in `docs/dialogue.md`.
 - **The `dialogue-authoring` skill is gone; seven skills ship.** It tied its no-skill control on the September
   behavioural gate, so the dialogue tools are the whole surface now. What it held that was measured in game
   moves to `docs/dialogue.md`: which topic a generic greeting enters is decided by quest priority across quests
   before intra-topic order, so a gate that always passes replaces the NPC's whole greeting pool; and a
   re-listed INFO — any override of an existing one, including one that only adds a condition — falls to the
   bottom of the merged topic order unless it carries `PreviousDialog` naming the line above it, read from
-  `project={"form":"info_order"}`. That page also names the `DialogBranch.Flags` default, the
+  `project={"form":"info_order"}`. That page also names the `DialogBranch.Flags` refusal, the
   `Goodbye` flag nothing fills for you, and the two lanes that cannot see an unenabled plugin. `housecarl_create`
   and `housecarl_check` cite it by URL, the way the facegen page is cited, so a session authoring or checking
   dialogue reaches it from the tool description.
