@@ -38,7 +38,9 @@ A dark, grey or black NPC face is not a skill: `housecarl_check findings=["faceg
 NPC, and [docs/facegen.md](https://github.com/Avick3110/houseCARL/blob/main/docs/facegen.md) carries the causes behind each class.
 Dialogue is not a skill either: `housecarl_create` reports the bookkeeping it fills, and
 [docs/dialogue.md](https://github.com/Avick3110/houseCARL/blob/main/docs/dialogue.md) carries the greeting-priority
-and PNAM order rules a new or re-listed line has to respect.
+and PNAM order rules a new or re-listed line has to respect. For a line that never plays, read the topic's merged
+order first: `housecarl_records` with `project={"form":"info_order"}` is the sequence the game walks, and it names
+which line moved and which plugin moved it.
 
 MCP tools are written bare on both hosts (`housecarl_records`); a sibling is written `housecarl:<skill>`, the
 Claude Code form — on Codex it is the bare folder name (`mutagen-reference`) installed beside this one.
