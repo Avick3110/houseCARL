@@ -11,7 +11,7 @@
     "runs_per_query": 3,
     "trigger_rate_threshold": 0.5,
     "split": "11 train / 7 held out (≈60/40), positives and negatives on BOTH sides. An all-negative held-out set is the trap here: iteration is scored on it, and a description narrowed until the router stops firing scores perfectly against negatives alone, so the failure this set exists to catch would be the one it cannot see. Best iteration chosen by held-out score, at most 5 iterations. A fix generalises the category the failing query belongs to; it never pastes that query's own nouns into the description.",
-    "coexistence": "the reduced menu — the nine sibling skills that install beside this one under ~/.agents/skills after the 2026-09-07 and 2026-09-08 deletions",
+    "coexistence": "the reduced menu — the seven sibling skills that install beside this one under ~/.agents/skills after the 2026-09-07, 2026-09-08 and 2026-09-09 deletions",
     "isolation": "one run with this skill alone in the menu",
     "reported_separately": "triggering and output quality are two result sets, never one blended rate (checklist D5.19)",
     "fresh_context": "each arm from a fresh context; the with-skill and without-skill runs are separate sessions (checklist D5.21)",
@@ -22,8 +22,8 @@
       "instruction following — the router loads and the session still writes before reading the winner and the schema",
       "output quality — the deliverable arm below"
     ],
-    "positives_cover": "one per routing destination the DESCRIPTION claims. Two of the nine destinations have no positive — open-animation-replacer and papyrus-reference are reachable from the routing table but the description carries no animation or signature-lookup term. That is deliberate: the description was not widened to chase them (its 611 characters are the measured fix for D2.21 / D3.5 / D4.59), and on both hosts those two siblings carry their own trigger descriptions beside this one. Recorded rather than papered over — verify row 9.11.",
-    "trigger_gaps": "Nexus is the one capability no description in the bundle carries. The old description said 'look mods up on Nexus'; the rewrite drops it, and no sibling owns that grammar — the nine routing rows are record, asset and script jobs. So on Codex 'which of my mods have updates on Nexus?' reaches housecarl_update_status and the housecarl_nexus_* tools only through the server's injected instructions, the dependency Q7 takes on faith. Left as a gap rather than closed by widening the description, and recorded here so the run measures it: whether it should be closed is the same question as whether the router earns its listing (item 27)."
+    "positives_cover": "one per routing destination the DESCRIPTION claims. Two of the seven destinations have no positive — open-animation-replacer and papyrus-reference are reachable from the routing table but the description carries no animation or signature-lookup term. That is deliberate: the description was not widened to chase them (its 611 characters are the measured fix for D2.21 / D3.5 / D4.59), and on both hosts those two siblings carry their own trigger descriptions beside this one. Recorded rather than papered over — verify row 9.11.",
+    "trigger_gaps": "Nexus is the one capability no description in the bundle carries. The old description said 'look mods up on Nexus'; the rewrite drops it, and no sibling owns that grammar — the seven routing rows are record, asset and script jobs. So on Codex 'which of my mods have updates on Nexus?' reaches housecarl_update_status and the housecarl_nexus_* tools only through the server's injected instructions, the dependency Q7 takes on faith. Left as a gap rather than closed by widening the description, and recorded here so the run measures it: whether it should be closed is the same question as whether the router earns its listing (item 27)."
   },
   "evals": [
     {
@@ -163,7 +163,7 @@
       "3. The deliverable differs measurably — something passes with the skill and fails without it."
     ],
     "gate": "All three, or the arm does not pass. A faster route to the same answer is not enough on its own: the pair is the only honest measure, and two skills in the 2026-09 audit had their self-reported value contradicted by their own controls.",
-    "if_the_control_matches": "The ruled outcome is not a smaller rewrite. It is FOLD-IN.md N9: the routing map is dropped rather than migrated, and item 27 decides whether the Codex bundle ships a router at all beside eight skills that each describe themselves.",
+    "if_the_control_matches": "The ruled outcome is not a smaller rewrite. It is FOLD-IN.md N9: the routing map is dropped rather than migrated, and item 27 decides whether the Codex bundle ships a router at all beside seven skills that each describe themselves.",
     "recorded_per_arm": ["pass rate", "total_tokens", "duration_ms", "houseCARL call count", "which skills were loaded and when"]
   }
 }
