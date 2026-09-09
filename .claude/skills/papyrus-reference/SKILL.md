@@ -30,7 +30,7 @@ machine call the houseCARL MCP server, and a lookup never has to wait on one.
 This covers the **API surface**. Reading a modlist's actual `.psc` source is a file job (ask
 `housecarl_asset_status` which mod or BSA wins a `Scripts\...` path first, then read it with your
 own file tool — or, when the winner is inside an archive, which is where most framework scripts
-ship, `housecarl_bsa_extract` with `archive=` and `dest=` first and read the extracted path);
+ship, `housecarl_bsa_extract` with `archive=` and `out_path=` first and read the extracted path);
 compiling is `housecarl_compile_script`.
 
 The corpus is the cheap route to a signature, not the only one and not the proof. The deterministic
@@ -156,7 +156,7 @@ Then work the checks, in cost order:
    these functions, and the absence of a token proves nothing.
 3. **The declaration itself.** `housecarl_decompile_script` with `pex=` recovers the real
    declaration — names, types, properties, states, events and docstrings all survive. For a class
-   inside an archive, `housecarl_bsa_extract` with `archive=` and `dest=` first, then decompile the
+   inside an archive, `housecarl_bsa_extract` with `archive=` and `out_path=` first, then decompile the
    extracted path. **Parameter defaults do not survive a decompile** — they never existed in the
    `.pex` — so a decompiled declaration answers arity and types and cannot answer a default.
 4. **Compile it.** `housecarl_compile_script` with `script=` is the deterministic answer: it puts

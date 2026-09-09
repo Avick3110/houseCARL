@@ -19,6 +19,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
   about the skip is unchanged: those links are not type-checked, and the write proceeds. An in-place edit that has
   both a bad `field_path` and a bad `from_plugin` now reports the source problem first, as the patch lane already
   did, and the field-path problem on the re-run.
+- **The tools no earlier wave renamed now take the 2.0 parameter names, and an old spelling the tool no
+  longer declares is refused by name.** `housecarl_compact_plugin`: `plugin=` is `source=`, `patch_name=` is
+  `patch=`. `housecarl_create_plugin`: `plugin_name=` is `patch=`. `housecarl_merge_plugins`: `output=` is
+  `patch=`. `housecarl_bsa_repack`: `archive_name=` is `patch=`. `housecarl_bsa_extract`: `dest=` is
+  `out_path=`. `housecarl_load_order_status`: `lookup=` is `filter=`. `housecarl_compile_script`:
+  `patch_name=` is `patch=` and `output_dir=` is `out_path=`. `housecarl_decompile_script` and
+  `housecarl_nif_set`: `patch_name=` is `patch=`. `housecarl_write_seq`: `output_dir=` is `out_path=`, and
+  its JSON response member `user_chose_output_dir` is `user_chose_out_path`. `housecarl_remove` is unchanged:
+  a removal edits an artifact that already exists, so its lane is `into=`. `housecarl_merge_plugins` and
+  `housecarl_bsa_repack` keep a separate `patch_name=` for the mod FOLDER, since on those two `patch=` names
+  the plugin and the archive.
 - **`housecarl_skypatcher_layer` with a `filter=` that matches no INI now says so instead of returning the
   whole-layer overview.** It answers with the filter, the match count (0 of N INIs), the type folders that are
   present, and a nearest-name suggestion where there is one, so a filter typo can no longer read as the layer's

@@ -53,12 +53,12 @@ correct — that is `housecarl_check(findings=["dialogue"], …)`'s job.
 By default the `.seq` goes into a houseCARL mod folder — the plugin's own if it lives in one (so enabling
 that single mod deploys `.esp` and `.seq` together), otherwise a fresh one you enable in MO2.
 
-After an **in-place** edit the `.esp` is in the *mod's own* folder, so pass `output_dir=` that mod folder
-and the `.seq` lands in its `SEQ\`, where the mod's own copy already lives. `output_dir=` wins over
+After an **in-place** edit the `.esp` is in the *mod's own* folder, so pass `out_path=` that mod folder
+and the `.seq` lands in its `SEQ\`, where the mod's own copy already lives. `out_path=` wins over
 `patch=` / `into=` (the response says so), and it never touches the `.esp` — a `.seq` is a new sidecar
 file, not an in-place record edit.
 
-When the destination is one a **lane names** — `output_dir=`, `into=`, or the plugin's own houseCARL
+When the destination is one a **lane names** — `out_path=`, `into=`, or the plugin's own houseCARL
 folder — and it already holds exactly the bytes houseCARL would write, nothing is written and the
 response says `unchanged`, so re-running after every edit costs nothing. (With *no* lane named the
 destination is a freshly cut folder, empty by construction, so that call always writes — and cuts
@@ -69,4 +69,4 @@ file stale. (That check lints the `.seq` your load order *serves*, so the refres
 the folder you wrote to is the one that wins the `SEQ\` conflict.)
 
 If a `.seq` is already at the path, it is **overwritten with no backup** and the response says
-`replaced` rather than `wrote` — on `output_dir=` that file can be the mod's own shipped copy.
+`replaced` rather than `wrote` — on `out_path=` that file can be the mod's own shipped copy.

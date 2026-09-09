@@ -359,7 +359,7 @@ else** — every other subrecord the CK writes, houseCARL had already written.
    winner.
 7. **The `.seq`, if the quest starts at game start.** Set the flag, then run `housecarl_write_seq`
    against the plugin. After an in-place edit the `.esp` sits in the mod's own folder, so pass
-   `output_dir=` that folder and the `.seq` lands beside it.
+   `out_path=` that folder and the `.seq` lands beside it.
 
 **Player-choice topics have their own semantics, and they are easy to get backwards** — `Prompt` is
 the *player's* button, `Responses` is the *NPC's* reply to it, and `LinkTo` sets the player's next

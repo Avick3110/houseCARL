@@ -105,7 +105,8 @@ public sealed class ToolCallShimWirePathTests
 
         var old = _s.Call(ToolNames.CreatePlugin, """{"plugin":"MyTrigger"}""");
         Assert.True(old.IsError, old.Describe());
-        Assert.Contains("unknown parameter: plugin", old.Text, StringComparison.Ordinal);
+        Assert.Contains("patch", old.Text, StringComparison.Ordinal);
+        Assert.False(old.BodyRan, old.Describe());
     }
 
     /// <summary><c>compact_plugin</c>'s subject is the SOURCE pole, so <c>source=</c> reaches the body and the
