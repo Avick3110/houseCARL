@@ -13,16 +13,6 @@ A write produces a new plugin in a new MO2 mod folder. Editing an existing plugi
 | Record coverage | 133 record types, 242 sub-structures, 497 polymorphic arms, 280 enums, generated at build time |
 | Licence | GPL-3.0-only |
 
-## Scope
-
-houseCARL is not a patcher framework. There is no build step and no pipeline to re-run when the load order changes. Synthesis is that.
-
-houseCARL is not an xEdit replacement. It has no user interface, and it does not model what Mutagen does not model. See [Coverage](#coverage).
-
-houseCARL is not a mod manager. It does not download, install, enable or sort. Nexus access is read-only.
-
-houseCARL has no runtime component. Nothing is injected into or loaded by the game. Reads of the SKSE and SkyPatcher layers are static.
-
 ## Design
 
 Four rules. The surface follows from them.
@@ -198,11 +188,18 @@ The script regenerates the rulebook, publishes the server framework-dependent wi
 > which line answers Hulda's greeting, and which plugin moved it
   records: types=["DIAL"], where=["Quest = <quest>"], project={"form": "info_order"}
 
-> drop iron sword damage to 12 in every mod that touches it, into a patch called IronRebalance
-  records: types=["WEAP"], where=["editorid contains IronSword"]
-  apply:   ops=[...], patch="IronRebalance", dry_run=true
-  apply:   ops=[...], patch="IronRebalance"
+> set the iron sword's damage to 12, into a patch called IronRebalance
+  records: formids=["013989:Skyrim.esm"], project={"form": "fields", "fields": ["BasicStats.Damage"]}
+  apply:   ops=[{"formid": "013989:Skyrim.esm", "field_path": "BasicStats.Damage", "op": "Set", "value": "12"}],
+           patch="IronRebalance", dry_run=true
+  apply:   the same call without dry_run
+
+> every weapon in the order whose winning damage is 50 or more, as a table
+  records: types=["WEAP"], where=["BasicStats.Damage >= 50"],
+           project={"form": "fields", "fields": ["BasicStats.Damage"]}, format="dense"
 ```
+
+A write resolves the record's load-order winner and overrides it into the patch. The edit is made once, on that record; which plugins touched it before is what `project={"form": "tree"}` shows, not something the write repeats per plugin.
 
 Each write lands as its own MO2 mod folder, `houseCARL - <patch>`. Refresh MO2, review the plugin, sort it, enable it. houseCARL does none of those.
 
