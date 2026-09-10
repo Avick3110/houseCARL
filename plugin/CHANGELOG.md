@@ -42,6 +42,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   and the package are the install's, so only an install needs them; refusing at the detection block left a
   machine missing a runtime, or holding a half-unzipped download, with no way to reach `[4] Uninstall`. The
   detection block still reports both runtimes before anything is chosen.
+- **The detection block and the host menu read in colour.** A host that is here, and a houseCARL already
+  installed for it, are green; anything absent or unchecked — a host that is not on the machine, a runtime
+  that was not found or was skipped — is dim. Nothing in the block is red: a refusal is what says a run is
+  stopping, in its own red, after the choice. The text is the same either way, and when it is not coloured,
+  and why, is on `Ui` in `src/housecarl-setup/Ui.cs`.
 
 - **The plugin's own `README.md` describes the 2.0 surface.** This is the file the installer copies to
   `~/.claude/skills/housecarl/README.md` and the marketplace shows. It is now the installed-copy subset of

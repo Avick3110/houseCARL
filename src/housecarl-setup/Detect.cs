@@ -19,16 +19,7 @@ public static class Detect
     /// <param name="Present">True when the host itself is on this machine.</param>
     /// <param name="Installed">True when houseCARL is already installed for it.</param>
     /// <param name="InstalledVersion">The installed version, or null when it is installed but unreadable.</param>
-    public sealed record HostState(string Name, bool Present, bool Installed, string? InstalledVersion)
-    {
-        /// <summary>The right-hand side of this host's row in the detection block and the menu: the host being
-        /// here, and what houseCARL is to it. A host that is not here is not a problem, so it reads plain.</summary>
-        public Ui.StatusWord[] Summary =>
-            !Present    ? [Ui.StatusWord.Plain("not found")]
-            : !Installed ? [Ui.StatusWord.Good("found"), Ui.StatusWord.Plain("houseCARL not installed")]
-            : InstalledVersion is null ? [Ui.StatusWord.Good("found"), Ui.StatusWord.Good("houseCARL installed")]
-            :                            [Ui.StatusWord.Good("found"), Ui.StatusWord.Good("houseCARL " + InstalledVersion + " installed")];
-    }
+    public sealed record HostState(string Name, bool Present, bool Installed, string? InstalledVersion);
 
     /// <summary>Claude Code: the desktop app keeps ~/.claude.json and ~/.claude, and either one is it being here.
     /// Installed is a FILE the install writes - the server exe or the copied manifest - never the destination

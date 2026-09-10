@@ -24,16 +24,15 @@ public static class Ui
     // What sits between two status words in one status cell.
     private const string StatusSeparator = "  ·  ";
 
-    /// <summary>How a status word reads: something that is there, something that is simply absent, something
-    /// the install needs and cannot find.</summary>
+    /// <summary>How a status word reads: something that is there and wanted, or something absent or unchecked.
+    /// Nothing this block prints refuses a run on its own - a refusal says so itself, in its own red - so there
+    /// is no kind for a problem here.</summary>
     public enum Status
     {
         /// <summary>There, and what the run wants.</summary>
         Good,
         /// <summary>Absent, or not looked at, with nothing riding on it.</summary>
         Plain,
-        /// <summary>Missing something the install needs.</summary>
-        Missing,
     }
 
     /// <summary>One status word and how it reads. A status cell is one or more of these, joined by the
@@ -45,9 +44,6 @@ public static class Ui
 
         /// <summary>A status word for something absent or unchecked that nothing rides on.</summary>
         public static StatusWord Plain(string text) => new(text, Status.Plain);
-
-        /// <summary>A status word for something the install needs and cannot find.</summary>
-        public static StatusWord Missing(string text) => new(text, Status.Missing);
     }
 
     private static readonly bool NoColor =
@@ -90,8 +86,9 @@ public static class Ui
         Console.WriteLine();
     }
 
-    /// <summary>One thing that was looked for, and what was found - the rows of the detection block.</summary>
-    public static void Row(string label, params StatusWord[] status)
+    /// <summary>One thing that was looked for, and what was found - the rows of the detection block. The status
+    /// is a plain array rather than params: every row has one, and leaving it off should not compile.</summary>
+    public static void Row(string label, StatusWord[] status)
     {
         Console.Write("    " + label.PadRight(RowLabelWidth));
         WriteStatus(status);
@@ -118,11 +115,10 @@ public static class Ui
         Console.WriteLine();
     }
 
-    // Green is the same green a finished run closes with, red the same red a refusal opens with.
+    // Green is the same green a finished run closes with; everything else is dim like the rest of the furniture.
     private static ConsoleColor StatusColor(Status kind) => kind switch
     {
         Status.Good => ConsoleColor.Green,
-        Status.Missing => ConsoleColor.Red,
         _ => ConsoleColor.DarkGray,
     };
 
