@@ -218,16 +218,26 @@ public static class Program
         string aspName  = "ASP.NET Core Runtime " + ServerRuntimeMajor;
         Ui.Row(baseName, RuntimeStatus(skipped, missingRuntimes.Contains("Microsoft.NETCore.App")));
         Ui.Row(aspName,  RuntimeStatus(skipped, missingRuntimes.Contains("Microsoft.AspNetCore.App")));
-        Ui.Row(claude.Name, claude.Summary);
-        Ui.Row(codex.Name,  codex.Summary);
+        Ui.Row(claude.Name, HostStatus(claude));
+        Ui.Row(codex.Name,  HostStatus(codex));
     }
 
-    /// <summary>A runtime row's status: a runtime the install needs and cannot find is the one thing in this
-    /// block that stops it, so it reads as a problem; one that was not looked at reads plain.</summary>
-    private static Ui.StatusWord RuntimeStatus(bool skipped, bool missing)
-        => skipped ? Ui.StatusWord.Plain("not checked (--skip-runtime-check)")
-         : missing ? Ui.StatusWord.Missing("not found")
-         :           Ui.StatusWord.Good("found");
+    /// <summary>A runtime row's status. A missing runtime does not read as a problem here: this block prints
+    /// before the menu, and only an install needs the runtimes, so whether a missing one stops the run is not
+    /// known yet - the refusal after the choice is what says so.</summary>
+    private static Ui.StatusWord[] RuntimeStatus(bool skipped, bool missing)
+        => skipped ? [Ui.StatusWord.Plain("not checked (--skip-runtime-check)")]
+         : missing ? [Ui.StatusWord.Plain("not found")]
+         :           [Ui.StatusWord.Good("found")];
+
+    /// <summary>A host row's status: the host being here, and what houseCARL is to it. A host that is not here
+    /// is not a problem - either mode has the other host to work on - so it reads plain.</summary>
+    private static Ui.StatusWord[] HostStatus(Detect.HostState host)
+        => !host.Present    ? [Ui.StatusWord.Plain("not found")]
+         : !host.Installed  ? [Ui.StatusWord.Good("found"), Ui.StatusWord.Plain("houseCARL not installed")]
+         : host.InstalledVersion is null
+                            ? [Ui.StatusWord.Good("found"), Ui.StatusWord.Good("houseCARL installed")]
+         :                     [Ui.StatusWord.Good("found"), Ui.StatusWord.Good("houseCARL " + host.InstalledVersion + " installed")];
 
     /// <summary>What came back from a question setup had to ask a person.</summary>
     private enum Answer
@@ -586,8 +596,8 @@ public static class Program
         if (mode == Mode.Install)
         {
             Ui.Heading("Install houseCARL for which agent?");
-            Ui.MenuItem("1", claude.Name, claude.Summary);
-            Ui.MenuItem("2", codex.Name,  codex.Summary);
+            Ui.MenuItem("1", claude.Name, HostStatus(claude));
+            Ui.MenuItem("2", codex.Name,  HostStatus(codex));
             Ui.MenuItem("3", "Both");
             Ui.MenuItem("4", "Uninstall", Ui.StatusWord.Plain("remove houseCARL instead"));
             Console.WriteLine();
@@ -595,8 +605,8 @@ public static class Program
         else
         {
             Ui.Heading("Remove houseCARL from which agent?");
-            Ui.MenuItem("1", claude.Name, claude.Summary);
-            Ui.MenuItem("2", codex.Name,  codex.Summary);
+            Ui.MenuItem("1", claude.Name, HostStatus(claude));
+            Ui.MenuItem("2", codex.Name,  HostStatus(codex));
             Ui.MenuItem("3", "Both");
             Console.WriteLine();
         }
