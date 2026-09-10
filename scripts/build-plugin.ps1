@@ -257,7 +257,9 @@ Copy-Item (Join-Path $PackagingSrc 'marketplace.json') (Join-Path $MpDir 'market
 # Windows) and say exactly which is missing. Trimming is safe HERE (setup uses only the
 # System.Text.Json DOM, no reflection serialization) - the server's trimming ban is untouched.
 Step '9/12' 'Publish the setup utility (houseCARL-Setup.exe) into dist/'
-dotnet publish $SetupProj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=true -p:EnableCompressionInSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o $PkgRoot
+# -p:Version stamps the plugin.json version into the exe, which the setup banner reads back off its own
+# assembly (one version home; an unstamped dev build says 0.0.0-dev), exactly as step 2 does for the server.
+dotnet publish $SetupProj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=true -p:EnableCompressionInSingleFile=true -p:Version=$Version -p:DebugType=None -p:DebugSymbols=false -o $PkgRoot
 if ($LASTEXITCODE -ne 0) { throw "setup-utility publish failed (exit $LASTEXITCODE)" }
 $SetupExe = Join-Path $PkgRoot 'houseCARL-Setup.exe'
 if (-not (Test-Path $SetupExe)) { throw "setup utility not produced at $SetupExe" }

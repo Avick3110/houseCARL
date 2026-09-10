@@ -19,6 +19,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>HousecarlSetup</RootNamespace>
     <AssemblyName>houseCARL-Setup</AssemblyName>
+    <!-- What Explorer's file-properties pane shows. The version is stamped at publish by build-plugin.ps1
+         (-p:Version from plugin.json), and the banner reads it back off this assembly - one version home. -->
+    <AssemblyTitle>houseCARL Setup</AssemblyTitle>
+    <Product>houseCARL</Product>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
