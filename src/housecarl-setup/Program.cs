@@ -19,6 +19,8 @@ namespace HousecarlSetup;
 ///                     a fresh Codex install was confirmed to scan), and registers the server as
 ///                     [mcp_servers.housecarl] in ~/.codex/config.toml.
 ///   [3] Both        - both of the above.
+///   [4] Uninstall   - takes back what an install wrote, for either host or both. It is its own file,
+///                     <see cref="Uninstall"/>, which says exactly what comes off per host.
 ///
 /// The MO2 folder is intentionally NOT set here; houseCARL asks for it in chat on first use and stores
 /// it in user.json beside whichever server copy is running.
@@ -74,6 +76,8 @@ public static class Program
             Console.WriteLine("    --both     install for both");
             Console.WriteLine("    --yes      skip the confirm at the plan (it still asks which host,");
             Console.WriteLine("               so an unattended run needs a host flag as well)");
+            Console.WriteLine("    --uninstall   remove houseCARL instead of installing it, from the host");
+            Console.WriteLine("                  named by --claude/--codex/--both");
             Console.WriteLine("    --skip-runtime-check   skip the .NET runtime preflight (custom DOTNET_ROOT etc.)");
             Console.WriteLine();
             Console.WriteLine("  Setup asks two questions - which host, and the confirm at the plan - and it");
@@ -95,7 +99,10 @@ public static class Program
             // The skills folder is checked with the manifest and the exe: a package always ships one, and a
             // package missing it is a broken unzip, not a version that dropped every skill.
             string srcSkills   = Path.Combine(pluginSrc, "skills");
-            if (!File.Exists(srcManifest) || !File.Exists(srcExe) || !Directory.Exists(srcSkills))
+            // A removal reads nothing out of the package — what it takes off the machine is what the install put
+            // there — so a --uninstall run is not held to having one beside it.
+            bool needsPackage = !args.Contains("--uninstall");
+            if (needsPackage && (!File.Exists(srcManifest) || !File.Exists(srcExe) || !Directory.Exists(srcSkills)))
             {
                 if (!Directory.Exists(pluginSrc))
                 {
@@ -146,50 +153,69 @@ public static class Program
             Detect.HostState codex  = Detect.Codex(home, homeOverride);
             ReportDetected(claude, codex, missingRuntimes, skipRuntimeCheck);
 
-            if (missingRuntimes.Count > 0)
+            Answer chose = ResolveChoice(args, claude, codex, out Mode mode, out Target target);
+            if (chose == Answer.NoOneToAsk) return Finish(1);
+            if (chose == Answer.Quit)
+            {
+                Console.WriteLine("Cancelled - nothing was changed.");
+                return Finish(0);
+            }
+
+            // The runtimes are the SERVER's, so only an install needs them. The refusal is therefore made after
+            // the choice rather than before it: a machine missing a runtime is exactly a machine somebody may
+            // want to remove houseCARL from, and refusing at the detection block would leave no way to.
+            if (mode == Mode.Install && missingRuntimes.Count > 0)
             {
                 ReportMissingRuntimes(missingRuntimes);
                 return Finish(1);
             }
 
-            Answer chose = ResolveTarget(args, claude, codex, out Target target);
-            if (chose == Answer.NoOneToAsk) return Finish(1);
-            if (chose == Answer.Quit)
-            {
-                Console.WriteLine("Cancelled - nothing was installed.");
-                return Finish(0);
-            }
-
             // ---- the plan, before anything is written ------------------------
-            Plan.Print(Plan.For(target, home, homeOverride, claude, codex),
-                       Detect.PluginVersion(srcManifest) ?? SetupVersion());
-            Answer confirmed = Confirm(args);
+            string version = Detect.PluginVersion(srcManifest) ?? SetupVersion();
+            List<Plan.HostPlan> plans = mode == Mode.Install
+                ? Plan.For(target, home, homeOverride, claude, codex)
+                : Plan.ForRemoval(target, home, homeOverride, claude, codex);
+            Plan.Print(plans, version, removing: mode == Mode.Uninstall);
+            Answer confirmed = Confirm(args, mode);
             if (confirmed == Answer.NoOneToAsk) return Finish(1);
             if (confirmed == Answer.Quit)
             {
-                Console.WriteLine("Cancelled - nothing was installed.");
+                Console.WriteLine(mode == Mode.Install
+                    ? "Cancelled - nothing was installed."
+                    : "Cancelled - nothing was removed.");
                 return Finish(0);
             }
 
             Console.WriteLine();
+
+            if (mode == Mode.Uninstall)
+            {
+                Uninstall.Result removal = Uninstall.TryUninstall(target, home, homeOverride);
+                if (removal.What == Uninstall.Outcome.ServerInUse)
+                {
+                    ReportServerInUse(removal.Message, removal.RefusedBeforeAnyDelete
+                        ? "A houseCARL server file is in use, so setup stopped before removing anything — fully "
+                          + "quit Claude Code and Codex, then run this setup again."
+                        : "A houseCARL file went into use partway through the removal, so setup stopped — fully "
+                          + "quit Claude Code and Codex, then run this setup again to finish it.");
+                    return Finish(1);
+                }
+                Plan.PrintSummary(plans, version, removing: true);
+                return Finish(0);
+            }
+
             InstallResult result = TryInstall(target, pluginSrc, home, homeOverride);
             if (result.Outcome == InstallOutcome.ServerInUse)
             {
-                string sentence = result.RefusedBeforeAnyCopy
+                ReportServerInUse(result.Message, result.RefusedBeforeAnyCopy
                     ? "A houseCARL server file is in use, so setup stopped before changing anything — fully quit "
                       + "Claude Code and Codex, then run this setup again."
                     : "A houseCARL file went into use partway through the update, so setup stopped — fully quit "
-                      + "Claude Code and Codex, then run this setup again to finish it.";
-                List<string> detail = new();
-                if (result.Message is not null) detail.Add(result.Message);
-                detail.Add("");
-                detail.Add("\"Fully\" means every desktop window, every terminal session, and any");
-                detail.Add("background session.");
-                Ui.Problem(sentence, detail.ToArray());
+                      + "Claude Code and Codex, then run this setup again to finish it.");
                 return Finish(1);
             }
 
-            PrintNext(target);
+            Plan.PrintSummary(plans, version, removing: false);
             return Finish(0);
         }
         catch (Exception ex)
@@ -234,24 +260,27 @@ public static class Program
     /// whose input is redirected has nobody to press a key, so without that flag it is refused rather than read
     /// as a yes: the same rule as the host menu, which is the other question setup asks.
     /// </summary>
-    private static Answer Confirm(string[] args)
+    private static Answer Confirm(string[] args, Mode mode)
     {
         if (args.Contains("--yes")) return Answer.Yes;
+        string go = mode == Mode.Install ? "install" : "remove";
         while (true)
         {
-            string? s = Console.IsInputRedirected ? null : Ui.Prompt("  Press Enter to install, or q to quit.  > ");
+            string? s = Console.IsInputRedirected
+                ? null
+                : Ui.Prompt("  Press Enter to " + go + ", or q to quit.  > ");
             if (s is null)
             {
                 Ui.Problem(
                     "Setup cannot ask you to confirm the plan above, because its input is redirected and there "
-                    + "is nobody to press a key — re-run with --yes to install without stopping at the plan.",
-                    "Nothing was installed.");
+                    + "is nobody to press a key — re-run with --yes to " + go + " without stopping at the plan.",
+                    "Nothing was changed.");
                 return Answer.NoOneToAsk;
             }
             string answer = s.Trim().ToLowerInvariant();
             if (answer.Length == 0) return Answer.Yes;
             if (answer is "q" or "quit") return Answer.Quit;
-            Console.WriteLine("  Press Enter to install, or type q to quit.");
+            Console.WriteLine("  Press Enter to " + go + ", or type q to quit.");
         }
     }
 
@@ -368,6 +397,13 @@ public static class Program
     internal static string ClaudeDestManifest(string home)
         => Path.Combine(ClaudeSkillsDest(home), ".claude-plugin", "plugin.json");
 
+    /// <summary>Where the Claude install records the skill folders it put under its own skills root, so a later
+    /// uninstall takes back exactly those rather than every folder it finds. It sits at the root of the tree the
+    /// install owns, beside the copied manifest. An install made before this file existed leaves none, and the
+    /// uninstall says which route it took instead — see <see cref="Uninstall"/>.</summary>
+    internal static string ClaudeSkillRecord(string home)
+        => Path.Combine(ClaudeSkillsDest(home), "installed-skills.txt");
+
     /// <summary>The shared, cross-agent skills root the Codex install copies skill folders into, flat.</summary>
     internal static string CodexSkillsRoot(string home)
         => Path.Combine(home, ".agents", "skills");
@@ -416,7 +452,7 @@ public static class Program
     /// re-run"; a false negative is the exact mid-copy corruption this exists to prevent. Do NOT "tighten"
     /// this (e.g. to FileShare.Read) into a false-negative.
     /// </summary>
-    private static bool ServerExeInUse(string destExe)
+    internal static bool ServerExeInUse(string destExe)
     {
         if (!File.Exists(destExe)) return false;
         try
@@ -434,7 +470,7 @@ public static class Program
     private const int HrSharingViolation = unchecked((int)0x80070020);
     private const int HrLockViolation    = unchecked((int)0x80070021);
 
-    private static bool IsSharingViolation(IOException ex)
+    internal static bool IsSharingViolation(IOException ex)
         => ex.HResult == HrSharingViolation || ex.HResult == HrLockViolation;
 
     // ---- server runtime preflight ------------------------------------------
@@ -505,41 +541,60 @@ public static class Program
 
     // ---- target selection (flag or interactive prompt) --------------------
 
+    /// <summary>Whether this run puts houseCARL on the machine or takes it off.</summary>
+    public enum Mode { Install, Uninstall }
+
     /// <summary>
-    /// Which host(s) to install for: the flag if one was passed, else the menu. A run whose input is redirected
-    /// has nobody to pick, so it is refused naming the flags rather than defaulting to a host — the same rule
-    /// the plan's confirm follows.
+    /// What this run does and to which host(s): the flags if any were passed, else the menu. A run whose input is
+    /// redirected has nobody to pick, so it is refused naming the flags rather than defaulting to a host — the
+    /// same rule the plan's confirm follows. <c>--uninstall</c> takes the same host flags, so an unattended
+    /// removal is <c>--uninstall --both --yes</c>.
     /// </summary>
-    private static Answer ResolveTarget(
-        string[] args, Detect.HostState claude, Detect.HostState codex, out Target target)
+    private static Answer ResolveChoice(
+        string[] args, Detect.HostState claude, Detect.HostState codex, out Mode mode, out Target target)
     {
+        mode   = args.Contains("--uninstall") ? Mode.Uninstall : Mode.Install;
         target = Target.Claude;
         if (args.Contains("--both"))   { target = Target.Both;   return Answer.Yes; }
         if (args.Contains("--codex"))  { target = Target.Codex;  return Answer.Yes; }
         if (args.Contains("--claude")) { target = Target.Claude; return Answer.Yes; }
 
+        string verb = mode == Mode.Install ? "install houseCARL for" : "remove houseCARL from";
         if (Console.IsInputRedirected)
         {
             Ui.Problem(
-                "Setup cannot ask which agent to install houseCARL for, because its input is redirected and "
+                "Setup cannot ask which agent to " + verb + ", because its input is redirected and "
                 + "there is nobody to answer — re-run with --claude, --codex or --both to say which.",
-                "Nothing was installed.");
+                "Nothing was changed.");
             return Answer.NoOneToAsk;
         }
 
-        Ui.Heading("Install houseCARL for which agent?");
-        Ui.MenuItem("1", claude.Name, claude.Summary);
-        Ui.MenuItem("2", codex.Name,  codex.Summary);
-        Ui.MenuItem("3", "Both", "");
-        Console.WriteLine();
+        if (mode == Mode.Install)
+        {
+            Ui.Heading("Install houseCARL for which agent?");
+            Ui.MenuItem("1", claude.Name, claude.Summary);
+            Ui.MenuItem("2", codex.Name,  codex.Summary);
+            Ui.MenuItem("3", "Both", "");
+            Ui.MenuItem("4", "Uninstall", "remove houseCARL instead");
+            Console.WriteLine();
+        }
+        else
+        {
+            Ui.Heading("Remove houseCARL from which agent?");
+            Ui.MenuItem("1", claude.Name, claude.Summary);
+            Ui.MenuItem("2", codex.Name,  codex.Summary);
+            Ui.MenuItem("3", "Both", "");
+            Console.WriteLine();
+        }
 
         // Exactly one host on this machine leaves nothing to choose between, so a bare Enter takes it.
         Target? onlyHost = claude.Present && !codex.Present  ? Target.Claude
                          : codex.Present  && !claude.Present ? Target.Codex
                          :                                     null;
+        string keys     = mode == Mode.Install ? "1, 2, 3, or 4" : "1, 2, or 3";
         string question = onlyHost is null
-            ? "  Enter 1, 2, or 3 (or q to quit): "
-            : "  Enter 1, 2, or 3, or press Enter for "
+            ? "  Enter " + keys + " (or q to quit): "
+            : "  Enter " + keys + ", or press Enter for "
               + (onlyHost == Target.Claude ? claude.Name : codex.Name) + " (q to quit): ";
 
         while (true)
@@ -549,9 +604,9 @@ public static class Program
             {
                 // The stream ended mid-question: nobody to ask, same as a redirected run.
                 Ui.Problem(
-                    "Setup cannot ask which agent to install houseCARL for, because its input ended — re-run "
+                    "Setup cannot ask which agent to " + verb + ", because its input ended — re-run "
                     + "with --claude, --codex or --both to say which.",
-                    "Nothing was installed.");
+                    "Nothing was changed.");
                 return Answer.NoOneToAsk;
             }
             string answer = s.Trim().ToLowerInvariant();
@@ -561,8 +616,12 @@ public static class Program
                 case "1": target = Target.Claude; return Answer.Yes;
                 case "2": target = Target.Codex;  return Answer.Yes;
                 case "3": target = Target.Both;   return Answer.Yes;
+                // The menu's fourth key is the removal, and it asks the same host question over again, because
+                // which host to remove from is a different answer from which host to install for.
+                case "4" when mode == Mode.Install:
+                    return ResolveChoice(args.Append("--uninstall").ToArray(), claude, codex, out mode, out target);
                 case "q": case "quit": return Answer.Quit;
-                default: Console.WriteLine("  Please type 1, 2, 3, or q."); break;
+                default: Console.WriteLine("  Please type " + keys + ", or q."); break;
             }
         }
     }
@@ -597,6 +656,11 @@ public static class Program
                     .ToList()
                 : new List<string>();
             ReportRemoved("Claude Code", installedSkills, RemoveSkillDirs(installedSkills, stale, keptBack).Removed);
+
+            // What this install put under its own skills root, so an uninstall removes those by name. The prune
+            // above is a directory diff because this root is houseCARL's outright; the record is for the removal,
+            // which has no package to diff against.
+            File.WriteAllLines(ClaudeSkillRecord(home), shipped);
         }
 
         Ui.Step("Claude Code", "registering the MCP server", claudeJson);
@@ -678,21 +742,16 @@ public static class Program
         Console.WriteLine();
     }
 
-    // ---- NEXT steps --------------------------------------------------------
-
-    private static void PrintNext(Target target)
+    /// <summary>The held-file refusal, shared by the install and the removal: the caller's sentence, the path the
+    /// seam named, and what "fully" means.</summary>
+    private static void ReportServerInUse(string? detailFromSeam, string sentence)
     {
-        Console.WriteLine("houseCARL is installed.");
-        Console.WriteLine();
-        Console.WriteLine("  NEXT:");
-        if (target is Target.Claude or Target.Both)
-            Console.WriteLine("   - Claude Code: fully quit and reopen the Claude desktop app.");
-        if (target is Target.Codex or Target.Both)
-            Console.WriteLine("   - Codex: fully restart Codex (close every session), then check /mcp and /skills.");
-        Console.WriteLine("   - On first use of a houseCARL tool it will ask you to point it at your");
-        Console.WriteLine("     Mod Organizer 2 folder (the one containing ModOrganizer.ini).");
-        if (target is Target.Both)
-            Console.WriteLine("   - (Each host runs its own server copy, so you'll set the MO2 folder once per host.)");
+        List<string> detail = new();
+        if (detailFromSeam is not null) detail.Add(detailFromSeam);
+        detail.Add("");
+        detail.Add("\"Fully\" means every desktop window, every terminal session, and any");
+        detail.Add("background session.");
+        Ui.Problem(sentence, detail.ToArray());
     }
 
     /// <summary>This exe's own stamped version, with any "+sha" metadata trimmed. build-plugin.ps1 passes
@@ -732,7 +791,7 @@ public static class Program
 
     /// <summary>The skill folder names a previous Codex install recorded. Anything that is not a bare folder
     /// name is dropped, so a hand-edited record can never point the delete below at another path.</summary>
-    private static List<string> ReadSkillRecord(string recordPath)
+    internal static List<string> ReadSkillRecord(string recordPath)
     {
         if (!File.Exists(recordPath)) return new List<string>();
         return File.ReadAllLines(recordPath)
@@ -747,7 +806,7 @@ public static class Program
     /// <paramref name="keptBack"/> for the report at the end, and the install continues to the MCP
     /// registration. Cleanup cannot fail an install that otherwise worked — before the prune existed, the
     /// leftover simply survived and the install succeeded.</summary>
-    private static (List<string> Removed, List<string> Failed) RemoveSkillDirs(
+    internal static (List<string> Removed, List<string> Failed) RemoveSkillDirs(
         string skillsRoot, IEnumerable<string> names, List<string> keptBack)
     {
         List<string> removed = new();
@@ -813,7 +872,7 @@ public static class Program
 
     // ---- ~/.claude.json registration (JSON splice) ------------------------
 
-    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
+    internal static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
 
     /// <summary>
     /// Insert/replace mcpServers.<paramref name="name"/> WITHOUT reparsing the whole file. ~/.claude.json
@@ -864,7 +923,7 @@ public static class Program
     }
 
     /// <summary>Finds the `{ ... }` value of a DEPTH-1 (root-level) member named <paramref name="key"/>. String-aware.</summary>
-    private static (int start, int end)? FindRootMemberObject(string text, string key)
+    internal static (int start, int end)? FindRootMemberObject(string text, string key)
     {
         string token = "\"" + key + "\"";
         int depth = 0;
@@ -923,7 +982,7 @@ public static class Program
         return null;
     }
 
-    private static string LeadingIndentOfLineAt(string text, int index)
+    internal static string LeadingIndentOfLineAt(string text, int index)
     {
         int lineStart = text.LastIndexOf('\n', index) + 1;
         int j = lineStart;
@@ -931,7 +990,7 @@ public static class Program
         return text.Substring(lineStart, j - lineStart);
     }
 
-    private static string Reindent(string json, string indent)
+    internal static string Reindent(string json, string indent)
     {
         if (indent.Length == 0) return json;
         string[] lines = json.Split('\n');
@@ -940,6 +999,10 @@ public static class Program
     }
 
     // ---- ~/.codex/config.toml registration (TOML splice) ------------------
+
+    /// <summary>The line written above a [mcp_servers.housecarl] table setup created the file for. The removal
+    /// splice takes it back with the table, so the two spellings are one const.</summary>
+    internal const string TomlComment = "# houseCARL MCP server (added by houseCARL-Setup)";
 
     /// <summary>
     /// Insert/replace [mcp_servers.<paramref name="name"/>] in a TOML config.toml, leaving everything
@@ -954,7 +1017,7 @@ public static class Program
 
         if (!File.Exists(configTomlPath))
         {
-            string fresh = "# houseCARL MCP server (added by houseCARL-Setup)\n"
+            string fresh = TomlComment + "\n"
                          + "[mcp_servers." + name + "]\n"
                          + "command = '" + command + "'\n";
             File.WriteAllText(configTomlPath, fresh);
@@ -1005,7 +1068,7 @@ public static class Program
         {
             string trimmed = string.Join(nl, outLines).TrimEnd('\r', '\n');
             return trimmed.Length == 0
-                ? "# houseCARL MCP server (added by houseCARL-Setup)" + nl + string.Join(nl, body) + nl
+                ? TomlComment + nl + string.Join(nl, body) + nl
                 : trimmed + nl + nl + string.Join(nl, body) + nl;
         }
 

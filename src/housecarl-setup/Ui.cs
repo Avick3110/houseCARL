@@ -76,12 +76,18 @@ public static class Ui
         Paint(OutColor, ConsoleColor.DarkGray, () => Console.WriteLine(note));
     }
 
-    /// <summary>A host's heading in the plan, and whether this run installs or upgrades it.</summary>
+    /// <summary>A host's heading in the plan, and whether this run installs, upgrades or removes it. An empty
+    /// action is the summary's use of this line, where the run is over and there is nothing left to say about it.</summary>
     public static void PlanHost(string host, string action)
     {
         Paint(OutColor, ConsoleColor.Cyan, () => Console.Write("    " + host));
+        if (action.Length == 0) { Console.WriteLine(); return; }
         Paint(OutColor, ConsoleColor.DarkGray, () => Console.WriteLine("  ·  " + action));
     }
+
+    /// <summary>The one sentence that closes a run that did what it was asked.</summary>
+    public static void Done(string sentence)
+        => Paint(OutColor, ConsoleColor.Green, () => Console.WriteLine("  " + sentence));
 
     /// <summary>One destination in the plan: the exact path, and what goes there.</summary>
     public static void PlanLine(string path, string what, int pathWidth)
