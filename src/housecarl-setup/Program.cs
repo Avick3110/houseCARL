@@ -104,28 +104,7 @@ public static class Program
             bool needsPackage = !args.Contains("--uninstall");
             if (needsPackage && (!File.Exists(srcManifest) || !File.Exists(srcExe) || !Directory.Exists(srcSkills)))
             {
-                if (!Directory.Exists(pluginSrc))
-                {
-                    Ui.Problem(
-                        "The houseCARL plugin folder is not next to this program, so there is nothing to "
-                        + "install — keep this program beside the unzipped 'housecarl' folder and run it again.",
-                        "Looked in:  " + pluginSrc);
-                }
-                else
-                {
-                    // The folder is there, so this is an incomplete unzip: name the piece that is missing.
-                    string missingWhat = !File.Exists(srcManifest) ? "manifest"
-                                       : !File.Exists(srcExe)      ? "server"
-                                       :                             "skills folder";
-                    string missingPath = !File.Exists(srcManifest) ? srcManifest
-                                       : !File.Exists(srcExe)      ? srcExe
-                                       :                             srcSkills;
-                    Ui.Problem(
-                        "The houseCARL plugin folder beside this program is missing its " + missingWhat
-                        + ", so the download did not unzip completely — unzip it again and run this setup.",
-                        "Looked in:  " + pluginSrc,
-                        "Missing:    " + missingPath);
-                }
+                ReportBrokenPackage(pluginSrc, srcManifest, srcExe, srcSkills);
                 return Finish(1);
             }
 
@@ -200,7 +179,7 @@ public static class Program
                           + "quit Claude Code and Codex, then run this setup again to finish it.");
                     return Finish(1);
                 }
-                Plan.PrintSummary(plans, version, removing: true);
+                Plan.PrintRemovalSummary(removal.Hosts);
                 return Finish(0);
             }
 
@@ -215,7 +194,7 @@ public static class Program
                 return Finish(1);
             }
 
-            Plan.PrintSummary(plans, version, removing: false);
+            Plan.PrintSummary(plans, version);
             return Finish(0);
         }
         catch (Exception ex)
@@ -289,6 +268,33 @@ public static class Program
     /// two-installer trap is the hard-won part and stays, but below the sentence: the ASP.NET Core installer
     /// does NOT carry the base .NET Runtime, so a machine can have one and not the other.
     /// </summary>
+    /// <summary>Said when the package beside this exe cannot be installed from: either the plugin folder is not
+    /// there at all, or it is there and missing a piece, which is a partial unzip and names the piece.</summary>
+    private static void ReportBrokenPackage(string pluginSrc, string srcManifest, string srcExe, string srcSkills)
+    {
+        if (!Directory.Exists(pluginSrc))
+        {
+            Ui.Problem(
+                "The houseCARL plugin folder is not next to this program, so there is nothing to "
+                + "install — keep this program beside the unzipped 'housecarl' folder and run it again.",
+                "Looked in:  " + pluginSrc);
+            return;
+        }
+
+        // The folder is there, so this is an incomplete unzip: name the piece that is missing.
+        string missingWhat = !File.Exists(srcManifest) ? "manifest"
+                           : !File.Exists(srcExe)      ? "server"
+                           :                             "skills folder";
+        string missingPath = !File.Exists(srcManifest) ? srcManifest
+                           : !File.Exists(srcExe)      ? srcExe
+                           :                             srcSkills;
+        Ui.Problem(
+            "The houseCARL plugin folder beside this program is missing its " + missingWhat
+            + ", so the download did not unzip completely — unzip it again and run this setup.",
+            "Looked in:  " + pluginSrc,
+            "Missing:    " + missingPath);
+    }
+
     private static void ReportMissingRuntimes(List<string> missing)
     {
         bool baseMissing = missing.Contains("Microsoft.NETCore.App");
