@@ -90,11 +90,12 @@ public static class Ui
         Paint(OutColor, ConsoleColor.DarkGray, () => Console.WriteLine("   " + what));
     }
 
-    /// <summary>A plain line of prose at the body indent, with a blank line before it.</summary>
-    public static void Body(string text)
+    /// <summary>Prose at the body indent, one line each, with a single blank line before the first.</summary>
+    public static void Body(params string[] lines)
     {
         Console.WriteLine();
-        Console.WriteLine("  " + text);
+        foreach (string line in lines)
+            Console.WriteLine("  " + line);
     }
 
     /// <summary>One step of the run: what is being done for which host, and the paths it touches.</summary>
@@ -108,13 +109,6 @@ public static class Ui
 
     /// <summary>An item under the step above it.</summary>
     public static void Bullet(string text) => Console.WriteLine("      - " + text);
-
-    /// <summary>A check that passed.</summary>
-    public static void Ok(string text)
-    {
-        Paint(OutColor, ConsoleColor.Green, () => Console.Write("[check] "));
-        Console.WriteLine(text);
-    }
 
     /// <summary>
     /// A run that did not do what was asked: one plain sentence saying what went wrong and what to try, then
