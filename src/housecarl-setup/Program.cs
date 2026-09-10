@@ -90,10 +90,28 @@ public static class Program
             string srcSkills   = Path.Combine(pluginSrc, "skills");
             if (!File.Exists(srcManifest) || !File.Exists(srcExe) || !Directory.Exists(srcSkills))
             {
-                Ui.Problem(
-                    "The houseCARL plugin folder is not next to this program, so there is nothing to install — "
-                    + "keep this program beside the unzipped 'housecarl' folder and run it again.",
-                    "Looked in:  " + pluginSrc);
+                if (!Directory.Exists(pluginSrc))
+                {
+                    Ui.Problem(
+                        "The houseCARL plugin folder is not next to this program, so there is nothing to "
+                        + "install — keep this program beside the unzipped 'housecarl' folder and run it again.",
+                        "Looked in:  " + pluginSrc);
+                }
+                else
+                {
+                    // The folder is there, so this is an incomplete unzip: name the piece that is missing.
+                    string missingWhat = !File.Exists(srcManifest) ? "manifest"
+                                       : !File.Exists(srcExe)      ? "server"
+                                       :                             "skills folder";
+                    string missingPath = !File.Exists(srcManifest) ? srcManifest
+                                       : !File.Exists(srcExe)      ? srcExe
+                                       :                             srcSkills;
+                    Ui.Problem(
+                        "The houseCARL plugin folder beside this program is missing its " + missingWhat
+                        + ", so the download did not unzip completely — unzip it again and run this setup.",
+                        "Looked in:  " + pluginSrc,
+                        "Missing:    " + missingPath);
+                }
                 return Finish(1);
             }
 
