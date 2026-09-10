@@ -99,14 +99,6 @@ public static class Program
             // The skills folder is checked with the manifest and the exe: a package always ships one, and a
             // package missing it is a broken unzip, not a version that dropped every skill.
             string srcSkills   = Path.Combine(pluginSrc, "skills");
-            // A removal reads nothing out of the package — what it takes off the machine is what the install put
-            // there — so a --uninstall run is not held to having one beside it.
-            bool needsPackage = !args.Contains("--uninstall");
-            if (needsPackage && (!File.Exists(srcManifest) || !File.Exists(srcExe) || !Directory.Exists(srcSkills)))
-            {
-                ReportBrokenPackage(pluginSrc, srcManifest, srcExe, srcSkills);
-                return Finish(1);
-            }
 
             // HOUSECARL_SETUP_HOME overrides the home dir (testing / unusual setups).
             string? homeOverride = Environment.GetEnvironmentVariable("HOUSECARL_SETUP_HOME");
@@ -146,6 +138,16 @@ public static class Program
             if (mode == Mode.Install && missingRuntimes.Count > 0)
             {
                 ReportMissingRuntimes(missingRuntimes);
+                return Finish(1);
+            }
+
+            // The package is the install's, for the same reason and after the same choice: a removal reads
+            // nothing out of it — what it takes off the machine is what the install put there — and refusing
+            // before the menu would leave a broken or half-unzipped package with no way to reach [4] Uninstall.
+            if (mode == Mode.Install
+                && (!File.Exists(srcManifest) || !File.Exists(srcExe) || !Directory.Exists(srcSkills)))
+            {
+                ReportBrokenPackage(pluginSrc, srcManifest, srcExe, srcSkills);
                 return Finish(1);
             }
 
