@@ -23,9 +23,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
   reports. Each refusal — the plugin folder not being beside the program, a missing .NET runtime, a server
   file in use — now opens with one plain sentence saying what went wrong and what to try, with the paths,
   download links and the two-installer note indented below it; the runtime refusal names only the runtime
-  that is actually missing rather than listing both. Output is coloured unless it is redirected or
-  `NO_COLOR` is set.
-
+  that is actually missing rather than listing both. Output is coloured; when it is not, and why, is on `Ui`
+  in `src/housecarl-setup/Ui.cs`.
 - **A refusal for an unknown field now names every field the record type has.** `housecarl_apply` and
   `housecarl_create` run the same pre-flight, and it used to name twelve fields and then `(+N more)` with no
   route from the call to the rest — a write call is the only place the surface shows a type's schema without
