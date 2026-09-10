@@ -72,6 +72,7 @@ public static class Program
             Console.WriteLine("    --claude   install for Claude Code only");
             Console.WriteLine("    --codex    install for Codex only");
             Console.WriteLine("    --both     install for both");
+            Console.WriteLine("    --yes      install without stopping at the plan (unattended runs)");
             Console.WriteLine("    --skip-runtime-check   skip the .NET runtime preflight (custom DOTNET_ROOT etc.)");
             return 0;
         }
@@ -115,7 +116,17 @@ public static class Program
                 return Finish(1);
             }
 
-            // ---- server runtime preflight ------------------------------------
+            // HOUSECARL_SETUP_HOME overrides the home dir (testing / unusual setups).
+            string? homeOverride = Environment.GetEnvironmentVariable("HOUSECARL_SETUP_HOME");
+            string home = string.IsNullOrWhiteSpace(homeOverride)
+                ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+                : homeOverride;
+
+            // ---- detection ---------------------------------------------------
+            // Read the machine before writing to it: which hosts are here, what houseCARL each already has,
+            // and the runtimes the bundled server needs. Reading only, so a run cancelled at the plan below
+            // leaves everything as it found it.
+            //
             // The bundled server is framework-dependent net9.0 + ASP.NET Core: it needs BOTH the
             // base .NET Runtime (Microsoft.NETCore.App) and the ASP.NET Core Runtime
             // (Microsoft.AspNetCore.App). On Windows those are TWO separate installers, and the
@@ -123,26 +134,29 @@ public static class Program
             // This exe ships self-contained precisely so it still runs on a machine with neither
             // and can say exactly what's missing, instead of the install "succeeding" into a
             // server that never starts.
-            if (!args.Contains("--skip-runtime-check"))
+            bool skipRuntimeCheck = args.Contains("--skip-runtime-check");
+            List<string> missingRuntimes = skipRuntimeCheck ? new List<string>() : MissingServerRuntimes();
+            Detect.HostState claude = Detect.Claude(home);
+            Detect.HostState codex  = Detect.Codex(home, homeOverride);
+            ReportDetected(claude, codex, missingRuntimes, skipRuntimeCheck);
+
+            if (missingRuntimes.Count > 0)
             {
-                List<string> missing = MissingServerRuntimes();
-                if (missing.Count > 0)
-                {
-                    ReportMissingRuntimes(missing);
-                    return Finish(1);
-                }
-                Ui.Ok(".NET Runtime " + ServerRuntimeMajor + " + ASP.NET Core Runtime " + ServerRuntimeMajor + ": found.");
-                Console.WriteLine();
+                ReportMissingRuntimes(missingRuntimes);
+                return Finish(1);
             }
 
-            // HOUSECARL_SETUP_HOME overrides the home dir (testing / unusual setups).
-            string? homeOverride = Environment.GetEnvironmentVariable("HOUSECARL_SETUP_HOME");
-            string home = string.IsNullOrWhiteSpace(homeOverride)
-                ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
-                : homeOverride;
-
-            Target? target = ResolveTarget(args);
+            Target? target = ResolveTarget(args, claude, codex);
             if (target is null)
+            {
+                Console.WriteLine("Cancelled - nothing was installed.");
+                return Finish(0);
+            }
+
+            // ---- the plan, before anything is written ------------------------
+            Plan.Print(Plan.For(target.Value, home, homeOverride, claude, codex),
+                       Detect.PluginVersion(srcManifest) ?? SetupVersion());
+            if (!Confirmed(args))
             {
                 Console.WriteLine("Cancelled - nothing was installed.");
                 return Finish(0);
@@ -176,6 +190,39 @@ public static class Program
                 + "line below is what the failure reported, and the steps above it are how far it got.",
                 ex.Message);
             return Finish(1);
+        }
+    }
+
+    /// <summary>The detection block: one row per thing setup looked for, printed before any choice is offered.</summary>
+    private static void ReportDetected(
+        Detect.HostState claude, Detect.HostState codex, List<string> missingRuntimes, bool skipped)
+    {
+        Ui.Heading("Checking your machine");
+        string baseName = ".NET Runtime " + ServerRuntimeMajor;
+        string aspName  = "ASP.NET Core Runtime " + ServerRuntimeMajor;
+        string skipNote = "not checked (--skip-runtime-check)";
+        Ui.Row(baseName, skipped ? skipNote : missingRuntimes.Contains("Microsoft.NETCore.App") ? "not found" : "found");
+        Ui.Row(aspName,  skipped ? skipNote : missingRuntimes.Contains("Microsoft.AspNetCore.App") ? "not found" : "found");
+        Ui.Row(claude.Name, claude.Summary);
+        Ui.Row(codex.Name,  codex.Summary);
+    }
+
+    /// <summary>
+    /// The plan's confirm. It stands on every attended run, including one started with a host flag, because the
+    /// paths are the thing worth reading before they are written. An unattended run - <c>--yes</c>, or a run whose
+    /// input is redirected and so has nobody to press a key - goes straight on.
+    /// </summary>
+    private static bool Confirmed(string[] args)
+    {
+        if (args.Contains("--yes") || Console.IsInputRedirected) return true;
+        while (true)
+        {
+            string? s = Ui.Prompt("  Press Enter to install, or q to quit.  > ");
+            if (s is null) return true; // no interactive input after all
+            string answer = s.Trim().ToLowerInvariant();
+            if (answer.Length == 0) return true;
+            if (answer is "q" or "quit") return false;
+            Console.WriteLine("  Press Enter to install, or type q to quit.");
         }
     }
 
@@ -274,13 +321,38 @@ public static class Program
         return new InstallResult(InstallOutcome.Installed, null);
     }
 
+    // ---- destination paths (one source of truth for pre-flight, plan and installer) ----
+
+    /// <summary>Where the Claude install puts the plugin tree.</summary>
+    internal static string ClaudeSkillsDest(string home)
+        => Path.Combine(home, ".claude", "skills", PluginFolderName);
+
+    /// <summary>The Claude config file the MCP server is registered in.</summary>
+    internal static string ClaudeJson(string home)
+        => Path.Combine(home, ".claude.json");
+
     /// <summary>The Claude install's server exe path. Single source of truth so pre-flight == installer.</summary>
-    private static string ClaudeDestExe(string home)
-        => Path.Combine(home, ".claude", "skills", PluginFolderName, "server", "housecarl-mcp.exe");
+    internal static string ClaudeDestExe(string home)
+        => Path.Combine(ClaudeSkillsDest(home), "server", "housecarl-mcp.exe");
+
+    /// <summary>The shared, cross-agent skills root the Codex install copies skill folders into, flat.</summary>
+    internal static string CodexSkillsRoot(string home)
+        => Path.Combine(home, ".agents", "skills");
+
+    /// <summary>Codex's own config dir, honouring CODEX_HOME if the user set it.</summary>
+    internal static string CodexConfigHome(string home)
+    {
+        string? codexHomeEnv = Environment.GetEnvironmentVariable("CODEX_HOME");
+        return string.IsNullOrWhiteSpace(codexHomeEnv) ? Path.Combine(home, ".codex") : codexHomeEnv;
+    }
+
+    /// <summary>The Codex config file the MCP server is registered in.</summary>
+    internal static string CodexConfigToml(string home)
+        => Path.Combine(CodexConfigHome(home), "config.toml");
 
     /// <summary>The Codex install's server dir. Under a test home (HOUSECARL_SETUP_HOME) it hangs off that
     /// home so tests never touch the real LOCALAPPDATA; otherwise it lives under %LOCALAPPDATA%.</summary>
-    private static string CodexServerDir(string home, string? homeOverride)
+    internal static string CodexServerDir(string home, string? homeOverride)
     {
         string dataBase = string.IsNullOrWhiteSpace(homeOverride)
             ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
@@ -289,7 +361,7 @@ public static class Program
     }
 
     /// <summary>The Codex install's server exe path. Single source of truth so pre-flight == installer.</summary>
-    private static string CodexDestExe(string home, string? homeOverride)
+    internal static string CodexDestExe(string home, string? homeOverride)
         => Path.Combine(CodexServerDir(home, homeOverride), "housecarl-mcp.exe");
 
     /// <summary>
@@ -393,22 +465,34 @@ public static class Program
 
     // ---- target selection (flag or interactive prompt) --------------------
 
-    private static Target? ResolveTarget(string[] args)
+    private static Target? ResolveTarget(string[] args, Detect.HostState claude, Detect.HostState codex)
     {
         if (args.Contains("--both"))   return Target.Both;
         if (args.Contains("--codex"))  return Target.Codex;
         if (args.Contains("--claude")) return Target.Claude;
 
-        Console.WriteLine("Install houseCARL for which agent?");
-        Console.WriteLine("  [1] Claude Code");
-        Console.WriteLine("  [2] Codex");
-        Console.WriteLine("  [3] Both");
+        Ui.Heading("Install houseCARL for which agent?");
+        Ui.MenuItem("1", claude.Name, claude.Summary);
+        Ui.MenuItem("2", codex.Name,  codex.Summary);
+        Ui.MenuItem("3", "Both", "");
         Console.WriteLine();
+
+        // Exactly one host on this machine leaves nothing to choose between, so a bare Enter takes it.
+        Target? onlyHost = claude.Present && !codex.Present  ? Target.Claude
+                         : codex.Present  && !claude.Present ? Target.Codex
+                         :                                     null;
+        string question = onlyHost is null
+            ? "  Enter 1, 2, or 3 (or q to quit): "
+            : "  Enter 1, 2, or 3, or press Enter for "
+              + (onlyHost == Target.Claude ? claude.Name : codex.Name) + " (q to quit): ";
+
         while (true)
         {
-            string? s = Ui.Prompt("Enter 1, 2, or 3 (or q to quit): ");
+            string? s = Ui.Prompt(question);
             if (s is null) return null;        // no interactive input (redirected) - treat as cancel
-            switch (s.Trim().ToLowerInvariant())
+            string answer = s.Trim().ToLowerInvariant();
+            if (answer.Length == 0 && onlyHost is not null) return onlyHost;
+            switch (answer)
             {
                 case "1": return Target.Claude;
                 case "2": return Target.Codex;
@@ -423,9 +507,9 @@ public static class Program
 
     private static void InstallForClaude(string pluginSrc, string home, List<string> keptBack)
     {
-        string skillsDest = Path.Combine(home, ".claude", "skills", PluginFolderName);
+        string skillsDest = ClaudeSkillsDest(home);
         string destExe    = ClaudeDestExe(home);
-        string claudeJson = Path.Combine(home, ".claude.json");
+        string claudeJson = ClaudeJson(home);
 
         Ui.Step("Claude Code", "installing skills + server", skillsDest);
         CopyDirectory(pluginSrc, skillsDest);
@@ -467,14 +551,10 @@ public static class Program
         string destExe    = CodexDestExe(home, homeOverride);
 
         // Skills go FLAT under ~/.agents/skills/ (the cross-agent, user-scope skills dir).
-        string skillsRoot = Path.Combine(home, ".agents", "skills");
+        string skillsRoot = CodexSkillsRoot(home);
 
         // ~/.codex/config.toml, honoring CODEX_HOME if the user set it.
-        string? codexHomeEnv = Environment.GetEnvironmentVariable("CODEX_HOME");
-        string codexHome = string.IsNullOrWhiteSpace(codexHomeEnv)
-            ? Path.Combine(home, ".codex")
-            : codexHomeEnv;
-        string configToml = Path.Combine(codexHome, "config.toml");
+        string configToml = CodexConfigToml(home);
 
         Ui.Step("Codex", "installing the server", serverDest);
         CopyDirectory(Path.Combine(pluginSrc, "server"), serverDest);
