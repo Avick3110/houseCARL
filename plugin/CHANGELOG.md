@@ -13,6 +13,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+## 2.0.0 — 2026-09-11
+
+houseCARL 2.0.0 replaces the 1.x tool surface with 31 tools built from one grammar. A read is one call composed from four axes (SELECT × SOURCE × PROJECT × TRANSPORT); a write is one call composed from an op list, a lane and a transport; one record is a set of one. Record coverage is generated from Mutagen.Bethesda.Skyrim 0.54.4 at build time, 1,174 types, and the write pre-flight and the `mutagen-reference` skill are two renderings of that one artifact. The 1.x tool and parameter names are deleted, not deprecated: a retired name is refused with one sentence naming its successor, from `AliasTable.cs`. Seven skills ship. `housecarl_check` gains the facegen family. The installer shows what it will write before writing, and uninstalls. The entries below are in the order they landed.
+
 - **Setup can take houseCARL back off the machine.** `[4] Uninstall` on the menu, or `--uninstall` with
   `--claude`, `--codex` or `--both`, removes what an install wrote: the skill folders setup recorded
   installing, the server with the saved MO2 instance beside it, the rest of the files a houseCARL package
