@@ -18,6 +18,9 @@ public static class Ui
 {
     private const int RuleWidth = 63;
 
+    // The label column of the detection block and the menu, wide enough for the longest label either prints.
+    private const int RowLabelWidth = 31;
+
     private static readonly bool NoColor =
         !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NO_COLOR"));
 
@@ -49,6 +52,50 @@ public static class Ui
     /// <summary>A horizontal divider the width of the banner.</summary>
     public static void Rule()
         => Paint(OutColor, ConsoleColor.DarkGray, () => Console.WriteLine("  " + new string('─', RuleWidth)));
+
+    /// <summary>A section title: the detection block, the plan.</summary>
+    public static void Heading(string text)
+    {
+        Console.WriteLine();
+        Paint(OutColor, ConsoleColor.White, () => Console.WriteLine("  " + text));
+        Console.WriteLine();
+    }
+
+    /// <summary>One thing that was looked for, and what was found - the rows of the detection block.</summary>
+    public static void Row(string label, string value)
+    {
+        Console.Write("    " + label.PadRight(RowLabelWidth));
+        Paint(OutColor, ConsoleColor.DarkGray, () => Console.WriteLine(value));
+    }
+
+    /// <summary>One option in the pick-a-host menu, with what was detected beside it.</summary>
+    public static void MenuItem(string key, string label, string note)
+    {
+        if (note.Length == 0) { Console.WriteLine("    [" + key + "] " + label); return; }
+        Console.Write("    [" + key + "] " + label.PadRight(RowLabelWidth - 4));
+        Paint(OutColor, ConsoleColor.DarkGray, () => Console.WriteLine(note));
+    }
+
+    /// <summary>A host's heading in the plan, and whether this run installs or upgrades it.</summary>
+    public static void PlanHost(string host, string action)
+    {
+        Paint(OutColor, ConsoleColor.Cyan, () => Console.Write("    " + host));
+        Paint(OutColor, ConsoleColor.DarkGray, () => Console.WriteLine("  ·  " + action));
+    }
+
+    /// <summary>One destination in the plan: the exact path, and what goes there.</summary>
+    public static void PlanLine(string path, string what, int pathWidth)
+    {
+        Console.Write("      " + path.PadRight(pathWidth));
+        Paint(OutColor, ConsoleColor.DarkGray, () => Console.WriteLine("   " + what));
+    }
+
+    /// <summary>A plain line of prose at the body indent, with a blank line before it.</summary>
+    public static void Body(string text)
+    {
+        Console.WriteLine();
+        Console.WriteLine("  " + text);
+    }
 
     /// <summary>One step of the run: what is being done for which host, and the paths it touches.</summary>
     public static void Step(string host, string what, params string[] paths)
