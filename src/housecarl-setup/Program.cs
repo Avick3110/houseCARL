@@ -78,10 +78,7 @@ public static class Program
 
         try
         {
-            Console.WriteLine();
-            Console.WriteLine("  houseCARL " + SetupVersion() + "  ·  setup");
-            Console.WriteLine("  " + new string('─', 63));
-            Console.WriteLine();
+            Ui.Banner(SetupVersion());
 
             // Locate the plugin shipped beside this program.
             string pkgDir      = AppContext.BaseDirectory;
@@ -133,7 +130,7 @@ public static class Program
                     Console.Error.WriteLine("  with --skip-runtime-check.)");
                     return Finish(1);
                 }
-                Console.WriteLine("[check] .NET Runtime " + ServerRuntimeMajor + " + ASP.NET Core Runtime " + ServerRuntimeMajor + ": found.");
+                Ui.Ok(".NET Runtime " + ServerRuntimeMajor + " + ASP.NET Core Runtime " + ServerRuntimeMajor + ": found.");
                 Console.WriteLine();
             }
 
@@ -362,8 +359,7 @@ public static class Program
         Console.WriteLine();
         while (true)
         {
-            Console.Write("Enter 1, 2, or 3 (or q to quit): ");
-            string? s = Console.ReadLine();
+            string? s = Ui.Prompt("Enter 1, 2, or 3 (or q to quit): ");
             if (s is null) return null;        // no interactive input (redirected) - treat as cancel
             switch (s.Trim().ToLowerInvariant())
             {
@@ -384,8 +380,7 @@ public static class Program
         string destExe    = ClaudeDestExe(home);
         string claudeJson = Path.Combine(home, ".claude.json");
 
-        Console.WriteLine("[Claude Code] installing skills + server");
-        Console.WriteLine("      -> " + skillsDest);
+        Ui.Step("Claude Code", "installing skills + server", skillsDest);
         CopyDirectory(pluginSrc, skillsDest);
 
         // CopyDirectory only overwrites, so a skill dropped since the installed version would survive an
@@ -409,8 +404,7 @@ public static class Program
             ReportRemoved("Claude Code", installedSkills, RemoveSkillDirs(installedSkills, stale, keptBack).Removed);
         }
 
-        Console.WriteLine("[Claude Code] registering the MCP server");
-        Console.WriteLine("      -> " + claudeJson);
+        Ui.Step("Claude Code", "registering the MCP server", claudeJson);
         RegisterClaudeMcpServer(claudeJson, McpServerName, destExe);
         Console.WriteLine();
     }
@@ -435,12 +429,10 @@ public static class Program
             : codexHomeEnv;
         string configToml = Path.Combine(codexHome, "config.toml");
 
-        Console.WriteLine("[Codex] installing the server");
-        Console.WriteLine("      -> " + serverDest);
+        Ui.Step("Codex", "installing the server", serverDest);
         CopyDirectory(Path.Combine(pluginSrc, "server"), serverDest);
 
-        Console.WriteLine("[Codex] installing skills");
-        Console.WriteLine("      -> " + skillsRoot);
+        Ui.Step("Codex", "installing skills", skillsRoot);
         string skillsSrc = Path.Combine(pluginSrc, "skills");
         if (Directory.Exists(skillsSrc))
             foreach (string skillDir in Directory.GetDirectories(skillsSrc))
@@ -457,8 +449,7 @@ public static class Program
         if (shipsUmbrella)
         {
             string umbrellaDest = Path.Combine(skillsRoot, PluginFolderName);
-            Console.WriteLine("[Codex] installing the houseCARL umbrella skill");
-            Console.WriteLine("      -> " + umbrellaDest);
+            Ui.Step("Codex", "installing the houseCARL umbrella skill", umbrellaDest);
             CopyDirectory(umbrellaSrc, umbrellaDest);
         }
 
@@ -491,8 +482,7 @@ public static class Program
             File.WriteAllLines(recordPath, installedNames.Concat(prune.Failed));
         }
 
-        Console.WriteLine("[Codex] registering the MCP server");
-        Console.WriteLine("      -> " + configToml);
+        Ui.Step("Codex", "registering the MCP server", configToml);
         RegisterCodexMcpServer(configToml, McpServerName, destExe);
         Console.WriteLine();
     }
@@ -598,10 +588,9 @@ public static class Program
     private static void ReportRemoved(string host, string skillsRoot, List<string> removed)
     {
         if (removed.Count == 0) return;
-        Console.WriteLine("[" + host + "] removed skills this version no longer ships");
-        Console.WriteLine("      -> " + skillsRoot);
+        Ui.Step(host, "removed skills this version no longer ships", skillsRoot);
         foreach (string name in removed)
-            Console.WriteLine("      - " + name);
+            Ui.Bullet(name);
     }
 
     /// <summary>Said when the package has no skills folder: the prune is refused, and the reason is stated
