@@ -54,14 +54,15 @@ internal static class SetupUpdateLockProbe
         string src  = Path.Combine(pkg, "housecarl");  // pluginSrc (beside it lives codex/skills/housecarl)
         string home = Path.Combine(root, "home");      // stand-in for the user profile
 
-        // The destinations TryInstall computes (mirrored here for the lock-holding + assertions).
-        string claudeExe = Path.Combine(home, ".claude", "skills", "housecarl", "server", "housecarl-mcp.exe");
-        string claudeDll = Path.Combine(home, ".claude", "skills", "housecarl", "server", "Mutagen.Bethesda.dll");
-        string codexExe  = Path.Combine(home, "houseCARL", "server", "housecarl-mcp.exe");
-        string sentinel  = Path.Combine(home, ".claude", "skills", "housecarl", "skills", "demo-skill", "SKILL.md");
+        // The destinations TryInstall computes, asked of the installer's OWN path helpers rather than rebuilt
+        // here: a guard holding a second copy of the paths would follow the installer wherever it went.
+        string claudeExe = SetupProgram.ClaudeDestExe(home);
+        string claudeDll = Path.Combine(Path.GetDirectoryName(claudeExe)!, "Mutagen.Bethesda.dll");
+        string codexExe  = SetupProgram.CodexDestExe(home, home);
+        string sentinel  = Path.Combine(SetupProgram.ClaudeSkillsDest(home), "skills", "demo-skill", "SKILL.md");
         // The Codex umbrella's install destination: the packager path and the installer path must agree,
         // or InstallForCodex's Directory.Exists guard skips the copy and says nothing.
-        string umbrella  = Path.Combine(home, ".agents", "skills", "housecarl", "SKILL.md");
+        string umbrella  = Path.Combine(SetupProgram.CodexSkillsRoot(home), "housecarl", "SKILL.md");
         // Where the PACKAGER puts it, read from the packaging script rather than restated here - restating
         // it would pin the installer against this file's opinion, not against what actually ships.
         var (codexPkgPath, codexPathWhy) = CodexPackagePath();

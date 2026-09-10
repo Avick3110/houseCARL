@@ -50,8 +50,10 @@ internal static class SetupSkillPruneProbe
         string src  = Path.Combine(pkg, "housecarl");
         string home = Path.Combine(root, "home");
 
-        string claudeSkills = Path.Combine(home, ".claude", "skills", "housecarl", "skills");
-        string codexSkills  = Path.Combine(home, ".agents", "skills");
+        // Asked of the installer's own path helpers, not rebuilt here, so the guard cannot certify a
+        // destination the installer has since moved away from.
+        string claudeSkills = Path.Combine(SetupProgram.ClaudeSkillsDest(home), "skills");
+        string codexSkills  = SetupProgram.CodexSkillsRoot(home);
 
         // Where the packager puts the umbrella, read out of scripts/build-plugin.ps1 — the same authority the
         // setup-update-lock probe reads, so the fixture ships it where the installer looks for it.
@@ -107,7 +109,7 @@ internal static class SetupSkillPruneProbe
             // ---- T5: a leftover the prune cannot delete ----
             Console.WriteLine();
             Console.WriteLine("--- T5: a read-only leftover cannot be deleted, and the install finishes anyway ---");
-            string recordPath = Path.Combine(home, "houseCARL", "installed-skills.txt");
+            string recordPath = SetupProgram.CodexSkillRecord(home, home);
             Check(File.Exists(recordPath), "the Codex install recorded what it put in the shared dir");
             Check(File.ReadAllLines(recordPath).Contains("housecarl"), "the umbrella folder is on the record");
 
@@ -119,8 +121,8 @@ internal static class SetupSkillPruneProbe
 
             // Delete both host configs first, so their reappearance proves the registration ran AFTER the
             // failed prune rather than surviving from the earlier install.
-            string claudeJson = Path.Combine(home, ".claude.json");
-            string codexToml  = Path.Combine(home, ".codex", "config.toml");
+            string claudeJson = SetupProgram.ClaudeJson(home);
+            string codexToml  = SetupProgram.CodexConfigToml(home);
             File.Delete(claudeJson);
             File.Delete(codexToml);
 
