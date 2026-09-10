@@ -90,9 +90,10 @@ public static class Program
             string srcSkills   = Path.Combine(pluginSrc, "skills");
             if (!File.Exists(srcManifest) || !File.Exists(srcExe) || !Directory.Exists(srcSkills))
             {
-                Console.Error.WriteLine("ERROR: couldn't find the houseCARL plugin next to this program.");
-                Console.Error.WriteLine("  Looked in: " + pluginSrc);
-                Console.Error.WriteLine("  Keep this program in the same folder as the unzipped 'housecarl' folder, then run it again.");
+                Ui.Problem(
+                    "The houseCARL plugin folder is not next to this program, so there is nothing to install — "
+                    + "keep this program beside the unzipped 'housecarl' folder and run it again.",
+                    "Looked in:  " + pluginSrc);
                 return Finish(1);
             }
 
@@ -109,25 +110,7 @@ public static class Program
                 List<string> missing = MissingServerRuntimes();
                 if (missing.Count > 0)
                 {
-                    Console.Error.WriteLine("ERROR: the houseCARL server needs .NET runtime(s) that are not installed:");
-                    if (missing.Contains("Microsoft.NETCore.App"))
-                        Console.Error.WriteLine("    - .NET Runtime " + ServerRuntimeMajor + ".x           (Microsoft.NETCore.App)");
-                    if (missing.Contains("Microsoft.AspNetCore.App"))
-                        Console.Error.WriteLine("    - ASP.NET Core Runtime " + ServerRuntimeMajor + ".x   (Microsoft.AspNetCore.App)");
-                    Console.Error.WriteLine();
-                    Console.Error.WriteLine("  Both come from the same page:");
-                    Console.Error.WriteLine("    https://dotnet.microsoft.com/download/dotnet/" + ServerRuntimeMajor + ".0");
-                    Console.Error.WriteLine("  NOTE: they are two separate installers, and the ASP.NET Core Runtime");
-                    Console.Error.WriteLine("  installer does NOT include the base .NET Runtime -- you need both.");
-                    Console.Error.WriteLine("  Or via winget:");
-                    if (missing.Contains("Microsoft.NETCore.App"))
-                        Console.Error.WriteLine("    winget install Microsoft.DotNet.Runtime." + ServerRuntimeMajor);
-                    if (missing.Contains("Microsoft.AspNetCore.App"))
-                        Console.Error.WriteLine("    winget install Microsoft.DotNet.AspNetCore." + ServerRuntimeMajor);
-                    Console.Error.WriteLine();
-                    Console.Error.WriteLine("  Install the missing runtime(s), then run this setup again. (If you're sure");
-                    Console.Error.WriteLine("  your setup is fine -- e.g. a custom dotnet location -- re-run this setup");
-                    Console.Error.WriteLine("  with --skip-runtime-check.)");
+                    ReportMissingRuntimes(missing);
                     return Finish(1);
                 }
                 Ui.Ok(".NET Runtime " + ServerRuntimeMajor + " + ASP.NET Core Runtime " + ServerRuntimeMajor + ": found.");
@@ -151,16 +134,17 @@ public static class Program
             InstallResult result = TryInstall(target.Value, pluginSrc, home, homeOverride);
             if (result.Outcome == InstallOutcome.ServerInUse)
             {
-                Console.Error.WriteLine("ERROR: houseCARL is already installed and a server file is in use, so it");
-                Console.Error.WriteLine("       can't be updated right now.");
-                if (result.Message is not null)
-                    Console.Error.WriteLine("  " + result.Message);
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("  Fully quit Claude Code AND Codex -- every desktop window, every terminal");
-                Console.Error.WriteLine("  session, and any background session -- then run this setup again.");
-                Console.Error.WriteLine(result.RefusedBeforeAnyCopy
-                    ? "  Nothing was changed."
-                    : "  The update was stopped partway; re-running after you quit will finish it.");
+                string sentence = result.RefusedBeforeAnyCopy
+                    ? "A houseCARL server file is in use, so setup stopped before changing anything — fully quit "
+                      + "Claude Code and Codex, then run this setup again."
+                    : "A houseCARL file went into use partway through the update, so setup stopped — fully quit "
+                      + "Claude Code and Codex, then run this setup again to finish it.";
+                List<string> detail = new();
+                if (result.Message is not null) detail.Add(result.Message);
+                detail.Add("");
+                detail.Add("\"Fully\" means every desktop window, every terminal session, and any");
+                detail.Add("background session.");
+                Ui.Problem(sentence, detail.ToArray());
                 return Finish(1);
             }
 
@@ -169,11 +153,56 @@ public static class Program
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine();
-            Console.Error.WriteLine("ERROR: houseCARL setup did not complete.");
-            Console.Error.WriteLine("  " + ex.Message);
+            Ui.Problem(
+                "houseCARL setup stopped on an error it did not expect — the line below is what Windows "
+                + "reported, and running the setup again is the first thing to try.",
+                ex.Message);
             return Finish(1);
         }
+    }
+
+    /// <summary>
+    /// The runtime refusal, sentence-first and naming only the runtime that is actually missing. The
+    /// two-installer trap is the hard-won part and stays, but below the sentence: the ASP.NET Core installer
+    /// does NOT carry the base .NET Runtime, so a machine can have one and not the other.
+    /// </summary>
+    private static void ReportMissingRuntimes(List<string> missing)
+    {
+        bool baseMissing = missing.Contains("Microsoft.NETCore.App");
+        bool aspMissing  = missing.Contains("Microsoft.AspNetCore.App");
+        string dotnetName = ".NET Runtime " + ServerRuntimeMajor;
+        string aspName    = "ASP.NET Core Runtime " + ServerRuntimeMajor;
+
+        string sentence = baseMissing && aspMissing
+            ? "houseCARL needs the " + dotnetName + " and the " + aspName + ", and neither is installed on this "
+              + "machine — install them and run this setup again."
+            : "houseCARL needs the " + (baseMissing ? dotnetName : aspName) + ", which is not installed on this "
+              + "machine — install it and run this setup again.";
+
+        List<string> detail = new()
+        {
+            "https://dotnet.microsoft.com/download/dotnet/" + ServerRuntimeMajor + ".0",
+        };
+        if (baseMissing) detail.Add("or:  winget install Microsoft.DotNet.Runtime." + ServerRuntimeMajor);
+        if (aspMissing)  detail.Add("or:  winget install Microsoft.DotNet.AspNetCore." + ServerRuntimeMajor);
+        detail.Add("");
+
+        if (baseMissing && aspMissing)
+        {
+            detail.Add("They are two separate installers, and the ASP.NET Core one does not include");
+            detail.Add("the base .NET Runtime, so you need both.");
+        }
+        else
+        {
+            detail.Add("The " + (baseMissing ? aspName : dotnetName) + " is already here. They are two separate");
+            detail.Add("installers and the ASP.NET Core one does not include the base .NET Runtime,");
+            detail.Add("so this is the only piece missing.");
+        }
+
+        detail.Add("");
+        detail.Add("(Custom dotnet location? Re-run with --skip-runtime-check.)");
+
+        Ui.Problem(sentence, detail.ToArray());
     }
 
     // ---- non-interactive install (the probeable seam under the prompt) -----
@@ -203,7 +232,7 @@ public static class Program
         foreach (string destExe in destExes)
             if (ServerExeInUse(destExe))
                 return new InstallResult(InstallOutcome.ServerInUse,
-                        "Can't update the server here — it looks like it's running (or the file is locked/read-only): " + destExe)
+                        "In use, or locked / read-only:  " + destExe)
                     { RefusedBeforeAnyCopy = true };
 
         // Leftover skill folders the prune could not delete. Cleanup never fails an otherwise good install, so
@@ -220,7 +249,7 @@ public static class Program
             // The try wraps the copy AND the host-config registration, so the locked file may be the server
             // exe/DLL or a config file (e.g. ~/.codex/config.toml open in an editor) — name both honestly.
             return new InstallResult(InstallOutcome.ServerInUse,
-                "A houseCARL file was in use during the update (the server, or a config file it writes).");
+                "The file was the server, or a config file setup writes.");
         }
 
         ReportKeptBack(keptBack);
@@ -597,19 +626,22 @@ public static class Program
     /// rather than left as a silently skipped step.</summary>
     private static void ReportNoSkillsShipped(string host)
     {
-        Console.WriteLine("[" + host + "] this package has no skills folder, so no installed skill was removed");
-        Console.WriteLine("      (a package ships skills; unzip the download again if this is not what you expect)");
+        Ui.Note(
+            "This package has no skills folder, so setup removed no installed " + host + " skill.",
+            "A package always ships skills, so unzip the download again if this is not",
+            "what you expect.");
     }
 
     /// <summary>Said at the end of an otherwise finished install: the folders the prune could not delete.</summary>
     private static void ReportKeptBack(List<string> keptBack)
     {
         if (keptBack.Count == 0) return;
-        Console.WriteLine("NOTE: houseCARL installed, but these old skill folders could not be deleted (a file in");
-        Console.WriteLine("      them is read-only or open) — delete them by hand so they stop loading:");
-        foreach (string dir in keptBack)
-            Console.WriteLine("      - " + dir);
-        Console.WriteLine();
+        List<string> detail = new(keptBack.Select(dir => "- " + dir)) { "" };
+        detail.Add("A file in each is read-only or held open. Nothing else was affected.");
+        Ui.Note(
+            "houseCARL is installed, but these old skill folders could not be deleted — delete them by "
+            + "hand so they stop loading:",
+            detail.ToArray());
     }
 
     // ---- file copy --------------------------------------------------------
