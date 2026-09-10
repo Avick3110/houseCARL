@@ -1,133 +1,183 @@
 # houseCARL
 
-**Comprehensive, data-layer access to your Skyrim Special Edition load order — in plain English, through Claude or Codex.**
+houseCARL is an MCP server that exposes a Skyrim Special Edition load order at the data layer. It reads a Mod Organizer 2 instance's profile and presents every plugin record, every Data-relative asset, the compiled Papyrus, the SKSE plugin layer and the SkyPatcher INI layer to an AI assistant as a set of tools. It is built on [Mutagen](https://github.com/Mutagen-Modding/Mutagen). The host is [Claude Code](https://claude.com/claude-code) or OpenAI Codex.
 
-houseCARL runs a local MCP server with [Mutagen](https://github.com/Mutagen-Modding/Mutagen) — the
-Bethesda-format library — kept warm in memory, giving your AI assistant direct access to every plugin
-record across your Mod Organizer 2 load order, at the **true load-order winner**, with the full conflict
-tree on request. You describe what you want in plain English; houseCARL does the mechanical work and, by
-default, writes results into a **new** plugin you review and enable in MO2 — your originals untouched. When
-you ask for it, an opt-in **in-place lane** edits an existing plugin directly instead (see below).
+A write produces a new plugin in a new MO2 mod folder. Editing an existing plugin in place is an opt-in that names the file. MO2 does not need to be running. No plugin file handle is held between calls.
 
-Coverage is **reflection-driven**: a build-time generator walks Mutagen's record interfaces and emits
-houseCARL's schema automatically, so the set of record types houseCARL understands *is* the set Mutagen
-models — by construction, not a hand-maintained subset.
+| | |
+|---|---|
+| Process | One C#/.NET 9 executable, MCP over stdio |
+| Substrate | Mutagen.Bethesda.Skyrim 0.54.4 |
+| Tools | 31 |
+| Skills | 7 |
+| Record coverage | 133 record types, 242 sub-structures, 497 polymorphic arms, 280 enums, generated at build time |
+| Licence | GPL-3.0-only |
 
-## What it can do
+## Scope
 
-- **Read any record** at the true load-order winner, with the full conflict tree on request — plus batch
-  record detail and cross-plugin queries. Read a plugin that *isn't* in your active order too — even one
-  inside a disabled mod — with a raw, clearly OUT-OF-LOAD-ORDER-flagged look at its own records, so you can
-  inspect a donor mod before you enable it.
-- **Author patches** — set / add / remove fields, edit leveled lists and containers, retune records,
-  re-target conditions — emitted as a new MO2 mod folder (`houseCARL - <name>`). Or **forward a named
-  plugin's version of a record** as a winning override (xEdit's "copy as override into"), or revert a record
-  to vanilla.
-- **Create new records** (new FormIDs) and **remove** records or individual entries; unused masters are
-  cleaned automatically. Author a whole nested dialogue conversation in one call, validate a dialogue
-  graph on demand, catch script (VMAD) properties a record declares but never binds (a silent `None` at
-  runtime), and write the `.seq` file a plugin's start-game-enabled quests need. Author an empty
-  header-only **trigger plugin** when a mod just needs `Foo.esp` to exist.
-- **Edit an existing plugin in place** — when you ask, houseCARL edits, creates, and removes records
-  directly inside an existing plugin (including one it didn't author) instead of writing a separate patch.
-  Opt-in, gated by a per-plugin consent prompt, and it keeps **no backup** — so the default
-  new-patch lane above stays the default.
-- **Compact and merge plugins** — ESL-compact a plugin into the light-master FormID window, carrying its
-  FormID-keyed assets (facegen, voice) along so a compacted mod's faces don't go dark; or merge several
-  plugins into one, renumbering only on collision and dropping now-unused masters — or name a single
-  plugin to rename it, the same operation with nothing to combine — then guides the MO2 swap: enable the
-  merged output, deactivate the donor plugins, and keep their asset folders enabled; originals remain
-  intact.
-- **Copy an NPC's appearance into a standalone** — lift a face (head parts, tints, the FaceGen mesh and
-  textures) from a donor NPC into a fresh record that carries no dependency on the donor's plugin — the
-  build behind a portable follower or a face transplanted between mods.
-- **Trace a magic effect** — resolve a MagicEffect to every spell, enchantment, potion, scroll, and
-  ingredient that carries it, with each one's magnitude, in a single call.
-- **Answer bulk / fleet questions** — resolve many FormIDs to their identity in one call, diff two plugins'
-  versions of a record down to just the changed fields, and aggregate a cross-plugin query (define-vs-touch
-  scope, multi-target reverse lookups, group-by counts, winner-value columns, JSON output) — the surface a
-  catalogue, conflict survey, or patch rebuild runs on.
-- **VFS asset layer** — read which copy of any Data-relative file (mesh, texture, script, sound,
-  interface) actually wins your load order (the overwrite folder, a specific mod, Data, or inside a BSA),
-  and place a file as a winning override into a new MO2 mod folder; loose-vs-BSA aware, with FaceGen as the
-  headline use case. "Wrote it" is reported honestly as not yet "it wins" — you still enable and sort the
-  new mod in MO2.
-- **Read and write a mesh's internals** — open the winning copy of a `.nif` and read the values baked
-  inside it — shape names, embedded skin / FaceTint texture paths, flags, alpha, partitions — and write a
-  whitelisted value back (fix a wrong texture path, rename a shape), verified against a two-gate read-back.
-  The mesh half of the dark-face fix, beside the record half.
-- **See the SKSE-plugin layer** — inventory the DLLs and their config files under `Data\SKSE\Plugins`, each
-  resolved to the mod that wins it (with the full conflict chain), and read each winning DLL's declared version
-  metadata — name, author, target runtime, Address-Library flag — statically, without loading it.
-- **Audit that layer for what's actually broken** — cross-check the native Papyrus functions your scripts
-  declare against the DLLs that must implement them (catching a mod whose scripts are installed but whose DLL
-  is missing, 32-bit, built for the wrong game version, or a debug build that won't load — so its calls
-  silently no-op), and cross-check the form references your SKSE configs declare against your real load order
-  (a dangling FormID caught here, instead of by a silent in-game failure). Or peek inside a single DLL's
-  image — its imports and the config paths and plugin names it embeds — to see what an unfamiliar plugin
-  touches. Static and report-only.
-- **See through the SkyPatcher layer** — inventory every SkyPatcher INI in your load order at once (apply
-  order, VFS shadows, INI-vs-INI conflicts, and dead / duplicate / no-op writes), or read one record's
-  *true* state after the whole SkyPatcher layer has replayed over it — so a runtime INI edit is as visible
-  as a plugin override. Report-only.
-- **Drive the external toolchain** — compile Papyrus scripts through the Creation Kit's compiler, and
-  list / extract / repack BSA archives via BSArch; each tool's path is auto-detected or set once.
-- **Decompile compiled scripts** — reconstruct reviewable `.psc` source from any `.pex` (Mutagen-native,
-  no external tool needed), measured at 98.8% byte-exact recompile round-trips across every provable
-  script in a 3,400-plugin load order; anything it can't prove fails loudly in the output, never
-  silently wrong.
-- **Look mods up on Nexus — and check your load order for updates.** Search the Skyrim SE catalogue and
-  pull any mod's version, requirements, file list, per-version changelog, and *true* latest release straight
-  from Nexus Mods, without opening a browser. Check your whole load order for updates **at the exact-file
-  level** — reading MO2's own local cache first to narrow the list, then confirming live — so an old-version
-  compatibility patch installed on purpose isn't misread as out of date; trace a file to its mod by MD5
-  hash; and a raw GraphQL backstop reaches any field the curated tools don't surface yet. All keyless and
-  read-only: it finds and informs; downloading stays your mod manager's "Mod Manager Download" handoff.
-- **Look things up and author distributor files** through 7 bundled, namespaced skills:
-  record schemas (every type Mutagen models), Papyrus / SKSE signatures, SkyPatcher / SPID / KID
-  distributor grammars, Open Animation Replacer config authoring, and SKSE plugin
-  (C++/CommonLibSSE-NG) authoring.
+houseCARL is not a patcher framework. There is no build step and no pipeline to re-run when the load order changes. Synthesis is that.
+
+houseCARL is not an xEdit replacement. It has no user interface, and it does not model what Mutagen does not model. See [Coverage](#coverage).
+
+houseCARL is not a mod manager. It does not download, install, enable or sort. Nexus access is read-only.
+
+houseCARL has no runtime component. Nothing is injected into or loaded by the game. Reads of the SKSE and SkyPatcher layers are static.
+
+## Design
+
+Four rules. The surface follows from them.
+
+1. **Record coverage is generated.** A build-time generator reflects over Mutagen's record interfaces and emits the schema and validation data. The set of record types houseCARL handles is the set Mutagen models. Where Mutagen lags xEdit, the tools report the gap.
+2. **One grammar, closed under composition.** Every operation is one call composed from orthogonal axes: select a set of records, project what to read, apply one of a fixed set of write verbs. There is no verb per job and no single/bulk tool pair. One record is a set of one.
+3. **Errors are one sentence: what went wrong and what to try.** A tool does not return a wrong answer or a degraded answer without stating so. An unknown field, an illegal verb, an illegal enum value, or a FormLink at a record of the wrong type is refused by name before any file is opened for writing.
+4. **Reads are lazy; freshness is a cheap check.** Records parse on access from a binary overlay. The load order is not held in memory. A change on disk is detected by a last-write-plus-size check on the next call.
+
+## The tool surface
+
+All 31 tools carry the `housecarl_` prefix.
+
+| Substrate | Tools |
+|---|---|
+| Records | `records` `check` `apply` `create` `remove` `forward` `copy` `write_seq` `create_plugin` `compact_plugin` `merge_plugins` |
+| Assets | `asset_status` `place` |
+| NIF | `nif_inspect` `nif_set` |
+| Papyrus | `compile_script` `decompile_script` |
+| BSA | `bsa_list` `bsa_extract` `bsa_repack` |
+| SkyPatcher | `skypatcher_layer` |
+| SKSE | `skse` |
+| Nexus | `nexus_search` `nexus_mod` `nexus_graphql` `nexus_check_updates` `nexus_identify` |
+| Session | `set_mo2_instance` `set_tool_path` `load_order_status` `update_status` |
+
+`records` is the read surface for the record plane. A read is composed from four axes:
+
+| Axis | Decides | Values |
+|---|---|---|
+| SELECT | which records | `formids` `types` `plugins` (with `defined_in`) `conflicts_only` `where` `references` `walk` |
+| SOURCE | whose version | the winner (default), a plugin filename active or not, a `{file, mod}` pair, the SkyPatcher overlay pre or post replay; `versus` names a second pole for `delta` and `tree` |
+| PROJECT | the shape of the answer | `identity` `summary` `fields` `rows` `everything` `aggregate` `delta` `tree` `chain` `info_order` |
+| TRANSPORT | the rendering | `format` (text, json, dense) `limit` `offset` `max_chars` `counts_only` `to_file` |
+
+A write is composed from the op list, the lane and the transport:
+
+| Axis | Values |
+|---|---|
+| Verb | `Set` `Add` `Remove` `SetAtIndex` `InsertAtIndex` `ReplaceAll` `Merge` `CopyFrom` |
+| Lane | `patch=` a new plugin (default), `into=` an existing houseCARL patch, `in_place=` a named plugin overwritten, `dry_run=` |
+| Transport | `readback` `format` `max_chars` |
+
+One read. Every WEAP Requiem.esp touches whose damage, as Requiem.esp sets it, is 50 or more, reading two fields from that plugin. `where_source="winner"` and `fields_source="winner"` ask the same question of the load-order winner.
+
+```jsonc
+housecarl_records(
+  plugins = {"names": ["Requiem.esp"]},
+  types   = ["WEAP"],
+  where   = ["BasicStats.Damage >= 50"],
+  project = {"form": "fields", "fields": ["BasicStats.Damage", "Keywords"]})
+```
+
+One write. Two ops on one record, validated and stopped before disk.
+
+```jsonc
+housecarl_apply(
+  ops = [
+    {"formid": "013989:Skyrim.esm", "field_path": "BasicStats.Damage", "op": "Set", "value": "12"},
+    {"formid": "013989:Skyrim.esm", "field_path": "Keywords", "op": "Add", "value": "0A8668:Skyrim.esm"}],
+  patch   = "IronSwordRebalance",
+  dry_run = true)
+```
+
+`dry_run` runs the full pipeline (winner resolution, schema pre-flight, every op applied in memory, the reference check) and stops before disk. It returns what would change, or the refusal the real call would return.
+
+**Predicates.** `where=` accepts comparisons (`BasicStats.Damage >= 50`), EditorID tests (`editorid startswith REQ_`), flag tests over bit fields (`BodyTemplate.FirstPersonFlags has Body`, `has_any`, `has_none`), presence (`VirtualMachineAdapter exists`), membership from a file (`formid not in @<path>`), one link step (`Perks->editorid startswith REQ_NULL_`), a provenance term (`winner = X.esp`), a containment step (`*parent.EditorID`), and quantified steps over a list (`Effects[*none].BaseEffect->editorid startswith REQ_`, `Effects[*count] > 2`). Predicates are ANDed.
+
+**FormIDs.** A record is addressed as `XXXXXX:Plugin.esp`, or in the runtime form the console, Papyrus log and crash log print (`FExxxYYY`, `XX######`), resolved against the current order. Reads accept both forms. Writes accept the plugin form only; a runtime form is refused with the plugin form to use.
+
+**Large results.** Every response carries an `epoch` stamp identifying the index build it was answered from. A result over the render limit is written in full to a JSONL file whose first line is a manifest, and the response names the file. The file re-enters a later call as `formids=["@<path>"]`, epoch-checked.
+
+**Findings.** `check` runs derived-findings families over the order: `errors` (dangling FormLinks, missing masters, unparseable records), `scripts` (script properties the VMAD does not bind), `dialogue` (a topic's graph as the game resolves it), `facegen` (per NPC: the mod winning the head `.nif`, the mod winning the face `.dds`, the plugin winning the record, the mismatch class). Each family's description states what it does not cover.
+
+## Coverage
+
+The schema is generated from Mutagen.Bethesda.Skyrim 0.54.4 by reflection at build time: 1,174 types, at full field depth, with per-field type, cardinality, writability, nullability and xEdit signature. The `mutagen-reference` skill carries the same generated data for offline lookup.
+
+A record type Mutagen does not model is absent from the reference and from the tools. A request for it is refused by name as a library coverage gap. The server is published with trimming off: trimming a reflection-driven server strips types and loses coverage without an error.
+
+Record identity is not writable. `FormKey` on a record, and `ModKey` and `Master` on the mod header and master references, are refused by the write pre-flight and reported as not writable by the reference.
+
+## Runtime layers
+
+Four layers below the plugin plane decide what the game runs. houseCARL reads all four.
+
+- **The MO2 virtual file system.** Which copy of a Data-relative path wins: the overwrite folder, a mod folder, game Data, or a BSA, with the conflict chain. `place` writes a winning override into a new mod folder and reports that the file is written and not yet winning.
+- **NIF internals.** Shape names, embedded skin and FaceTint texture paths, flags, alpha, partitions, read from the winning copy. A whitelisted subset is written back with readback verification.
+- **The SKSE plugin layer.** Every DLL and configuration file under `Data\SKSE\Plugins`, resolved to its winning mod, with each DLL's declared version metadata read without loading it. Two audits: native Papyrus functions declared by scripts against the DLLs that must implement them; form references declared in SKSE configuration files against the load order.
+- **The SkyPatcher INI layer.** Every INI in apply order, with VFS shadows, INI-versus-INI conflicts and no-op writes; or one record's state after the layer has replayed over it. A draft INI not yet in a mod folder can be included in the replay.
+
+The SKSE and SkyPatcher tools report what a file declares. They do not observe the running game.
+
+Two independent precedences decide an NPC's face: the VFS for the baked files, the load order for the record. `check findings=["facegen"]` joins them. Causes and fixes: [docs/facegen.md](docs/facegen.md).
+
+## Writing
+
+Three lanes, mutually exclusive.
+
+| Lane | Parameter | Target | Existing files |
+|---|---|---|---|
+| New patch (default) | `patch=` | A new mod folder `houseCARL - <name>` holding one plugin whose masters span every referenced plugin | Untouched |
+| Extend | `into=` | An existing houseCARL patch; a record already in it is edited, one not in it is copied in from the winner first | The named patch only |
+| In place | `in_place=` | The named plugin, including one houseCARL did not author; re-laid out on save as xEdit and the CK do | The named plugin is overwritten |
+
+A patch name already taken by an earlier houseCARL patch is suffixed. A name matching a plugin on disk that the order is not loading is refused, naming the place and the file.
+
+The in-place lane keeps no backup and has no undo. The first in-place write to a given plugin returns a confirmation instead of writing; the call is repeated with `acknowledge=true`. The acknowledgement covers the overwrite of that plugin only. The pre-flight and record verify run on every call.
+
+**Pre-flight.** Every op is checked before any file is opened for writing: record type, field path, enum value, verb against cardinality, value range, writability, record identity, the target type of every FormLink. Each failing op is named and counted. One failing op refuses the whole call.
+
+**Readback.** Each edited field is read back from the written file. `readback=true` deep-reads every touched record. The readback reports the file's content. The patch has no effect until it is enabled and sorted in MO2.
+
+**Beyond field edits.** Create records with fresh FormIDs, including nested dialogue structures. Remove records and list entries. Forward a named plugin's version of a record as a winning override, or revert a record to vanilla. Copy an NPC's appearance closure into a standalone record with no dependency on the donor. Create an empty plugin. ESL-compact a plugin, carrying its FormID-keyed FaceGen and voice files. Merge plugins with collision-only renumbering. Unused masters are trimmed on every write.
+
+Dialogue records have bookkeeping that a byte-valid insert does not satisfy: [docs/dialogue.md](docs/dialogue.md).
+
+## Skills
+
+Seven skills ship with the plugin: `/housecarl:<name>` in Claude Code, `$housecarl` in Codex. Each is a `SKILL.md` and a `references/` tree. Reference corpora are indexed by `index.jsonl` (name to file and line range) and read by grep, never loaded whole.
+
+| Skill | Carries |
+|---|---|
+| `mutagen-reference` | The schema of every modelled record type: fields, types, cardinality, writability, enum values. Emitted by the same generator pass as the server's rulebook. |
+| `papyrus-reference` | Papyrus, SKSE and shipped SKSE-plugin API signatures (PapyrusUtil, JContainers, MCMHelper, po3, SkyUI), 7,345 entries, from [papyrus-index](https://github.com/BellCubeDev/papyrus-index). A function the corpus does not carry is reported as absent. |
+| `skypatcher-authoring` | SkyPatcher 6.4.1 INI grammar and the offline check of a draft INI through the overlay. |
+| `spid-authoring` | SPID 7.3.0 `_DISTR.ini` grammar. |
+| `kid-authoring` | KID 3.5.0 `_KID.ini` grammar. |
+| `open-animation-replacer` | OAR 3.0.0 `config.json` / `user.json` conditions, submod priorities, DAR `_conditions.txt` conversion. |
+| `skse-plugin-authoring` | Native SKSE plugin DLLs on CommonLibSSE-NG: lifecycle, event sinks, trampoline and Address Library hooks, native Papyrus functions, SE + AE + VR from one DLL. |
+
+Dialogue and facegen are not skills. Their tools carry the bookkeeping, and the measured facts are in [docs/dialogue.md](docs/dialogue.md) and [docs/facegen.md](docs/facegen.md), cited from the tool descriptions.
 
 ## Requirements
 
-- **Windows.**
-- **.NET 9 — both the .NET Runtime 9.0 *and* the ASP.NET Core Runtime 9.0**, from the same
-  [download page](https://dotnet.microsoft.com/download/dotnet/9.0). houseCARL ships framework-dependent
-  (the runtime is not bundled), and the server needs the ASP.NET Core shared framework *on top of* the
-  base .NET runtime. On Windows these are **two separate installers** — the ASP.NET Core Runtime
-  installer does **not** include the base .NET Runtime — so install both. The setup utility checks for
-  both and tells you exactly which is missing.
-- **[Mod Organizer 2](https://www.modorganizer.org/)** with a modlist. houseCARL reads the instance's
-  profile files statically — **MO2 does not need to be running.**
-- **An AI host:** [Claude Code](https://claude.com/claude-code) (v2.1.143 or newer) — either the terminal
-  CLI or the Claude desktop app, which has Claude Code built in (houseCARL runs in Claude Code sessions,
-  not the plain chat) — **or** OpenAI Codex.
+- Windows.
+- .NET Runtime 9.0 and ASP.NET Core Runtime 9.0, from the [.NET 9 download page](https://dotnet.microsoft.com/download/dotnet/9.0). Both are required. The ASP.NET Core installer does not include the base runtime. The setup utility checks for both and names the one that is missing.
+- [Mod Organizer 2](https://www.modorganizer.org/) with a profile. MO2 does not need to be running.
+- Claude Code v2.1.143 or newer (the terminal CLI, or the Claude desktop app's Code tab), or OpenAI Codex. houseCARL runs inside the host.
 
 ## Install
 
-### Download — recommended (modders)
+### From a release
 
-1. Download **`houseCARL-1.9.0.zip`** from the [latest release](https://github.com/Avick3110/houseCARL/releases).
-2. Unzip it and run **`houseCARL-Setup.exe`**.
-3. Pick your host — **`[1] Claude Code`**, **`[2] Codex`**, or **`[3] Both`**. The installer wires
-   everything up:
-   - **Claude** → installs the skills to `~/.claude/skills/housecarl/` and registers the server in
-     `~/.claude.json` (both the Claude Code CLI and the desktop app read these). Persistent — no
-     per-session flag.
-   - **Codex** → installs the server under `%LOCALAPPDATA%\houseCARL\server\`, installs the skills (with a
-     `$housecarl` umbrella entry point) under `~/.agents/skills/`, and registers the server in
-     `~/.codex/config.toml`.
-4. Fully restart your host (quit and reopen the Claude desktop app / restart every Codex session), then
-   tell houseCARL your **MO2 instance folder** — the one containing `ModOrganizer.ini`. It prompts you on
-   first use; you can switch instances anytime by asking it to set a new one.
+1. Download `houseCARL-<version>.zip` from the [latest release](https://github.com/Avick3110/houseCARL/releases).
+2. Extract it and run `houseCARL-Setup.exe`.
+3. Select the host: `[1] Claude Code`, `[2] Codex`, `[3] Both`.
+   - Claude Code: skills to `~/.claude/skills/housecarl/`, server registered in `~/.claude.json`. The CLI and the desktop app both read these.
+   - Codex: server under `%LOCALAPPDATA%\houseCARL\server\`, skills flat under `~/.agents/skills/` with a `$housecarl` entry point, server registered as `[mcp_servers.housecarl]` in `~/.codex/config.toml`.
+4. Restart the host. On first use, houseCARL asks for the MO2 instance folder, the one containing `ModOrganizer.ini`. The instance can be changed at any time by asking.
 
-> **Updating an existing install?** Fully quit Claude Code (and Codex) before re-running
-> `houseCARL-Setup.exe` — it can't replace the server while a session is running it. If one is, it stops and
-> tells you to quit and re-run.
+Updating: quit Claude Code and Codex first. Setup cannot replace a server a session is running; if one is, it stops and says so.
 
-### Build from source (developers / verifiers)
+### From source
 
-Requires the **.NET 9 SDK** (not just the runtime), Windows, and PowerShell.
+Requires the .NET 9 SDK, Windows and PowerShell.
 
 ```powershell
 git clone https://github.com/Avick3110/houseCARL.git
@@ -135,72 +185,72 @@ cd houseCARL
 ./scripts/build-plugin.ps1
 ```
 
-The script regenerates the reflection rulebook, publishes the server framework-dependent (trimming **off**
-— houseCARL is reflection-driven, so trimming would strip types and silently lose coverage), bundles the
-skills, builds the setup utility, and packs `release/houseCARL-1.9.0.zip`. Install the output with
-`houseCARL-Setup.exe`, `claude --plugin-dir ./dist/housecarl`, or the bundled local-marketplace
-descriptor — see the script header for details.
+The script regenerates the rulebook, publishes the server framework-dependent with trimming off, bundles the skills, builds the setup utility, and packs `release/houseCARL-<version>.zip`. Install the output with `houseCARL-Setup.exe`, with `claude --plugin-dir ./dist/housecarl`, or through the bundled local marketplace descriptor. The script header has the details.
 
 ## Usage
 
-Talk to it.
+```
+> point houseCARL at D:\Modding\ARR
 
-houseCARL writes each patch as its own MO2 mod folder (refresh mo2 required)
+> which plugins override Hulda's NPC record, and what does each change
+  records: formids=[<Hulda>], project={"form": "tree"}
+
+> which line answers Hulda's greeting, and which plugin moved it
+  records: types=["DIAL"], where=["Quest = <quest>"], project={"form": "info_order"}
+
+> drop iron sword damage to 12 in every mod that touches it, into a patch called IronRebalance
+  records: types=["WEAP"], where=["editorid contains IronSword"]
+  apply:   ops=[...], patch="IronRebalance", dry_run=true
+  apply:   ops=[...], patch="IronRebalance"
+```
+
+Each write lands as its own MO2 mod folder, `houseCARL - <patch>`. Refresh MO2, review the plugin, sort it, enable it. houseCARL does none of those.
 
 ## How it works
 
-houseCARL is a single C# process running an MCP server, with Mutagen kept warm for both reading and
-writing. Reads use Mutagen's lazy binary overlay — records parse on access, so the load order isn't held
-fully in memory. Writes go through a small set of generic op verbs over the same reflection layer, always
-into a new plugin. The active load order is read **statically** from your MO2 profile's `loadorder.txt` /
-`modlist.txt` / `plugins.txt` (no USVFS, no live MO2 hooking) and refreshes automatically on the next tool
-call via cheap last-write-plus-size checks. No plugin file handles are held at rest, so MO2 and xEdit can
-move or delete plugins freely while houseCARL is running.
+One process, MCP over stdio. The load order is read from the MO2 profile's `loadorder.txt`, `modlist.txt` and `plugins.txt`. No USVFS, no hook into MO2. Records parse on access from Mutagen's lazy binary overlay. A structural index (FormKey to winning plugin and override count, plus the touching-plugin list for contested records) is built by opening each plugin once and disposing it; measured at 125–185 MB on a 3,400-plugin order. A call that needs record bodies opens each plugin at most once for the call. No plugin handle is held between calls, so MO2, xEdit and Explorer operate on the plugins normally while houseCARL runs.
 
-The only outbound network use is the read-only **Nexus Mods lookups** (catalogue search + mod detail).
-They're **keyless** — the public Nexus catalogue API needs no account or API key — and offline-tolerant: if
-there's no connection they say so plainly and every local capability keeps working. houseCARL reads Nexus;
-it never downloads or installs (that stays your mod manager's `nxm` "Mod Manager Download" handoff).
+Freshness is a last-write-plus-size check on every call. A rebuild is an immutable snapshot swapped in as one reference. A plugin the build cannot read is excluded whole with the reason, and every response from that build says which plugins are missing.
 
-## Bundled skills
+Writes are verified by an oracle harness: each mutation is performed through the reflection engine and through a hand-written typed Mutagen setter, and the two output plugins must be byte-identical. Around 150 further probe harnesses run in CI against real plugins.
 
-Namespaced under `/housecarl:` in Claude (and reachable via `$housecarl` in Codex):
+The only outbound network use is the Nexus lookups. They need no account or API key. Offline, they say so, and every local tool keeps working. `update_status` reads MO2's local cache first and checks at the exact-file level.
 
-- **`mutagen-reference`** — every record type's schema (fields, types, writability, enums, polymorphic
-  arms), generated by reflection over Mutagen.
-- **`papyrus-reference`** — Papyrus + SKSE function signatures (vanilla Skyrim, SKSE, and ~45 popular
-  SKSE-plugin sources), from [BellCube's papyrus-index](https://github.com/BellCubeDev/papyrus-index).
-- **`skypatcher-authoring`**, **`spid-authoring`**, **`kid-authoring`** — author SkyPatcher INI,
-  SPID `_DISTR.ini`, and KID `_KID.ini` distributor files from a grammar reference rather than invented
-  syntax.
-- **`open-animation-replacer`** — author or interpret Open Animation Replacer (OAR) configs: `config.json` /
-  `user.json`, condition sets, submod priorities (OAR ignores load order — higher priority wins), the
-  source-verified `IsEquippedType` enum, addon conditions (Math / RaySense / IED / …), and DAR legacy
-  folders. File-based; uses houseCARL only to resolve the forms a condition references. (DrHeisen.)
-- **`skse-plugin-authoring`** — author, build, or audit a native **SKSE plugin DLL** (C++ on CommonLibSSE-NG:
-  the layer beneath every SPID / KID / SkyPatcher distributor, framework, and crash logger) — scaffold the
-  MSVC / CMake / vcpkg toolchain, write a plugin from scratch (lifecycle, event sinks, hooks), expose new
-  native Papyrus functions from C++, target SE + AE + VR from one DLL, or read an open-source plugin's source
-  to explain what it does. Distinct from ESP/record work and from `.psc` Papyrus (owned by `papyrus-reference`);
-  its runtime claims still await an in-game validation pass.
+`decompile_script` reconstructs `.psc` from `.pex` without an external tool. Measured on a 3,400-plugin order: 98.80% of 10,189 provable script pairs decompile and recompile byte-exact. A script it cannot prove is reported as such in the output.
 
-Dialogue is not a skill: the dialogue tools carry their own bookkeeping, and [docs/dialogue.md](docs/dialogue.md)
-carries the two order rules a new line has to respect.
+## Development
 
-## License
+| Path | What |
+|---|---|
+| `src/housecarl-mcp/` | The MCP server and tool surface |
+| `src/housecarl-core/` | Record, asset, read and write engines; the load-order resolver |
+| `src/housecarl-generator/` | Build-time schema generator; the probe runner |
+| `src/housecarl-mcp-tests/` | xUnit tests against the built server |
+| `src/housecarl-setup/` | Installer |
+| `plugin/` | Plugin manifest, changelog, notices; skills are copied in at build |
+| `.claude/skills/` | Skill sources |
+| `docs/` | Architecture notes and decision records |
+| `standards/` | Testing and naming |
 
-houseCARL is licensed **GPL-3.0-only** — see [LICENSE](LICENSE). This is required by Mutagen (GPL-3.0-only,
-no linking exception), which houseCARL is built on and bundles. Every third-party component and its license
-is listed in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt), along with the corresponding-source
-pointers.
+```powershell
+dotnet build housecarl.sln -c Release
+dotnet test src/housecarl-mcp-tests -c Release --no-build --filter "tier!=bridge"
+dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll ci-all
+```
+
+Read [CLAUDE.md](CLAUDE.md) before changing anything, then the note in `docs/architecture/` for the subsystem. Decisions are recorded one per file in `docs/decisions/`. Contribution process: [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Upgrading from 1.x
+
+2.0.0 replaces the 1.x tool surface with 31 tools built from one grammar. There is no alias layer and no deprecation window. A 1.x tool name is refused with one sentence naming its successor. The old-to-new table is in the [changelog](plugin/CHANGELOG.md).
+
+## Licence
+
+GPL-3.0-only. See [LICENSE](LICENSE). Required by Mutagen (GPL-3.0-only, no linking exception), which houseCARL is built on and bundles. Third-party components and licences are listed in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt) with corresponding-source pointers.
 
 ## Credits
 
-- **[Mutagen](https://github.com/Mutagen-Modding/Mutagen)** by Noggog — the Bethesda-format library
-  houseCARL is built on.
-- **[papyrus-index](https://github.com/BellCubeDev/papyrus-index)** by **BellCube** — the source corpus
-  for the bundled `papyrus-reference` skill. Thank you.
-- **Zzyxzz** (SkyPatcher) and **powerofthree** (SPID and KID) — whose public documentation the
-  distributor-authoring grammar facts were drawn from.
-- **DrHeisen** — contributed the `open-animation-replacer` skill (Open Animation Replacer config authoring), along
-  with two earlier community-contributed skills that have since been retired. Thank you.
+- [Mutagen](https://github.com/Mutagen-Modding/Mutagen), Noggog. The Bethesda-format library houseCARL is built on.
+- [papyrus-index](https://github.com/BellCubeDev/papyrus-index), BellCube. Source corpus for `papyrus-reference`.
+- Zzyxzz (SkyPatcher) and powerofthree (SPID, KID). Public documentation the distributor grammars were drawn from.
+- DrHeisen. The `open-animation-replacer` skill, and two earlier skills since retired.
