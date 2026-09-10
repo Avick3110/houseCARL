@@ -21,6 +21,35 @@ public static class Ui
     // The label column of the detection block and the menu, wide enough for the longest label either prints.
     private const int RowLabelWidth = 31;
 
+    // What sits between two status words in one status cell.
+    private const string StatusSeparator = "  ·  ";
+
+    /// <summary>How a status word reads: something that is there, something that is simply absent, something
+    /// the install needs and cannot find.</summary>
+    public enum Status
+    {
+        /// <summary>There, and what the run wants.</summary>
+        Good,
+        /// <summary>Absent, or not looked at, with nothing riding on it.</summary>
+        Plain,
+        /// <summary>Missing something the install needs.</summary>
+        Missing,
+    }
+
+    /// <summary>One status word and how it reads. A status cell is one or more of these, joined by the
+    /// separator, and the kind is what decides its colour - no caller sets a colour itself.</summary>
+    public readonly record struct StatusWord(string Text, Status Kind)
+    {
+        /// <summary>A status word for something that is there.</summary>
+        public static StatusWord Good(string text) => new(text, Status.Good);
+
+        /// <summary>A status word for something absent or unchecked that nothing rides on.</summary>
+        public static StatusWord Plain(string text) => new(text, Status.Plain);
+
+        /// <summary>A status word for something the install needs and cannot find.</summary>
+        public static StatusWord Missing(string text) => new(text, Status.Missing);
+    }
+
     private static readonly bool NoColor =
         !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NO_COLOR"));
 
@@ -62,19 +91,40 @@ public static class Ui
     }
 
     /// <summary>One thing that was looked for, and what was found - the rows of the detection block.</summary>
-    public static void Row(string label, string value)
+    public static void Row(string label, params StatusWord[] status)
     {
         Console.Write("    " + label.PadRight(RowLabelWidth));
-        Paint(OutColor, ConsoleColor.DarkGray, () => Console.WriteLine(value));
+        WriteStatus(status);
     }
 
     /// <summary>One option in the pick-a-host menu, with what was detected beside it.</summary>
-    public static void MenuItem(string key, string label, string note)
+    public static void MenuItem(string key, string label, params StatusWord[] status)
     {
-        if (note.Length == 0) { Console.WriteLine("    [" + key + "] " + label); return; }
+        if (status.Length == 0) { Console.WriteLine("    [" + key + "] " + label); return; }
         Console.Write("    [" + key + "] " + label.PadRight(RowLabelWidth - 4));
-        Paint(OutColor, ConsoleColor.DarkGray, () => Console.WriteLine(note));
+        WriteStatus(status);
     }
+
+    // The status cell: each word in the colour its kind asks for, the separator between them dim like the
+    // rest of the furniture.
+    private static void WriteStatus(StatusWord[] status)
+    {
+        for (int i = 0; i < status.Length; i++)
+        {
+            if (i > 0) Paint(OutColor, ConsoleColor.DarkGray, () => Console.Write(StatusSeparator));
+            StatusWord word = status[i];
+            Paint(OutColor, StatusColor(word.Kind), () => Console.Write(word.Text));
+        }
+        Console.WriteLine();
+    }
+
+    // Green is the same green a finished run closes with, red the same red a refusal opens with.
+    private static ConsoleColor StatusColor(Status kind) => kind switch
+    {
+        Status.Good => ConsoleColor.Green,
+        Status.Missing => ConsoleColor.Red,
+        _ => ConsoleColor.DarkGray,
+    };
 
     /// <summary>A host's heading in the plan, and whether this run installs, upgrades or removes it. An empty
     /// action is the summary's use of this line, where the run is over and there is nothing left to say about it.</summary>
