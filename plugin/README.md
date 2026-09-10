@@ -52,7 +52,7 @@ Dialogue and facegen are not skills. Their tools carry the bookkeeping: `check f
 - Windows.
 - .NET Runtime 9.0 and ASP.NET Core Runtime 9.0, from the [.NET 9 download page](https://dotnet.microsoft.com/download/dotnet/9.0). Both are required. houseCARL ships framework-dependent, and the ASP.NET Core installer does not include the base runtime. The setup utility checks for both and names the one that is missing.
 - [Mod Organizer 2](https://www.modorganizer.org/) with a profile. MO2 does not need to be running.
-- Claude Code v2.1.143 or newer (the terminal CLI, or the Claude desktop app's Code tab), or OpenAI Codex. Earlier Claude Code builds ignore the plugin's `displayName`; loading a zipped plugin with `--plugin-dir ./x.zip` needs v2.1.128 or newer.
+- Claude Code v2.1.143 or newer (the terminal CLI, or the Claude desktop app's Code tab), or OpenAI Codex.
 
 ## Install
 
@@ -65,7 +65,7 @@ Dialogue and facegen are not skills. Their tools carry the bookkeeping: `check f
    - Codex: server under `%LOCALAPPDATA%\houseCARL\server\`, skills flat under `~/.agents/skills/` with a `$housecarl` entry point, server registered as `[mcp_servers.housecarl]` in `~/.codex/config.toml`.
 4. Restart the host.
 
-Updating: quit Claude Code and Codex first. Setup cannot replace a server a session is running; if one is, it stops and says so.
+Updating: quit Claude Code and Codex first. Setup cannot replace a server a session is running; if one is, it stops and says so. Setup overwrites only the files in the package, so the saved MO2 instance and tool paths in `houseCARL.user.json` survive a re-run.
 
 ### From source
 
@@ -77,11 +77,11 @@ cd houseCARL
 ./scripts/build-plugin.ps1
 ```
 
-The script regenerates the rulebook, publishes the server framework-dependent with trimming off, bundles the skills, builds the setup utility, and packs `release/houseCARL-<version>.zip`. Install the output with `houseCARL-Setup.exe`, with `claude --plugin-dir ./dist/housecarl`, or through the bundled local marketplace descriptor.
+The script regenerates the rulebook, publishes the server framework-dependent with trimming off, bundles the skills, builds the setup utility, and packs `release/houseCARL-<version>.zip`. Install the output with `houseCARL-Setup.exe`, with `claude --plugin-dir ./dist/housecarl`, or through the bundled local marketplace descriptor. The `--plugin-dir` and marketplace routes read the plugin manifest: builds before v2.1.143 ignore the plugin's `displayName`, and loading a zipped plugin with `--plugin-dir ./x.zip` needs v2.1.128 or newer.
 
 ## Pointing it at a modlist
 
-On first use, houseCARL asks for the MO2 instance folder, the one containing `ModOrganizer.ini`. Everything else follows from it: the mods folder, the active profile, and the load order. The instance can be changed at any time by asking.
+On first use, houseCARL asks for the MO2 instance folder, the one containing `ModOrganizer.ini`. On the `--plugin-dir` and marketplace routes the folder is a required plugin setting instead, so Claude Code shows a folder picker when the plugin is enabled and the server boots already pointed at it. Everything else follows from the folder: the mods folder, the active profile, and the load order. The instance can be changed at any time by asking.
 
 ```
 > point houseCARL at D:\Modding\ARR
