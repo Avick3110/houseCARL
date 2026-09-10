@@ -30,6 +30,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
   download links and the two-installer note indented below it; the runtime refusal names only the runtime
   that is actually missing rather than listing both. Output is coloured; when it is not, and why, is on `Ui`
   in `src/housecarl-setup/Ui.cs`.
+- **The setup program says what it found, then what it is about to write, and waits for a yes.** Before it
+  copies anything it prints what is on the machine — each host, whether houseCARL is installed for it and at
+  what version, and the .NET runtimes — and then the plan: one line per destination, naming the exact path,
+  labelled install or upgrade per host. The plan reads the destinations from the same path helpers the
+  install writes to, on `Program` in `src/housecarl-setup/Program.cs`, so the plan and the install cannot
+  disagree. Enter proceeds and `q` quits, on `--claude`, `--codex` and `--both` runs too; `--yes` goes
+  straight on, and what else skips the stop is on `Confirmed` in that file. Where exactly one host is found,
+  Enter at the menu picks it.
 - **A refusal for an unknown field now names every field the record type has.** `housecarl_apply` and
   `housecarl_create` run the same pre-flight, and it used to name twelve fields and then `(+N more)` with no
   route from the call to the rest — a write call is the only place the surface shows a type's schema without
