@@ -14,27 +14,34 @@ saying it sets an expectation their install may contradict. Say what is known, a
 ## Unreleased
 
 - **Setup can take houseCARL back off the machine.** `[4] Uninstall` on the menu, or `--uninstall` with
-  `--claude`, `--codex` or `--both`, removes what an install wrote: the houseCARL tree at each install
-  location, the skill folders setup recorded installing, the record itself, and the `housecarl` entry in
-  `~/.claude.json` and `~/.codex/config.toml`. Each config file is copied to a `.houseCARL.bak` beside it
-  first and then spliced, so the entry goes and every other byte in the file stays where it was — the
-  `setup-uninstall` CI guard installs over two configs that already carry another MCP server and asserts both
-  are byte-identical afterwards. The saved MO2 instance in `houseCARL.user.json` sits beside the server and
-  goes with it; the patches houseCARL wrote live in your MO2 mods folder and are not touched. The shared
-  `~/.agents/skills` holds other agents' skills, so only folders the record names are removed there; what an
-  install with no record removes instead, per host, is on `Uninstall` in `src/housecarl-setup/Uninstall.cs`.
+  `--claude`, `--codex` or `--both`, removes what an install wrote: the skill folders setup recorded
+  installing, the server with the saved MO2 instance beside it, the rest of the files a houseCARL package
+  ships, the record itself, and the `housecarl` entry in `~/.claude.json` and `~/.codex/config.toml`. A file
+  or folder under those locations that houseCARL did not install is left where it is and named, and so is the
+  folder holding it. Each config file is copied to a `.houseCARL.uninstall.bak` beside it — a name of its own,
+  so the copy the install took is still there — and then spliced, so the entry goes and every other byte in
+  the file stays where it was, its BOM and each line's own newline included. A config that carries no entry
+  setup recognises is reported as not found and is not written to at all. The `setup-uninstall` CI guard
+  drives the splices over a table of config shapes and asserts the byte-for-byte result of each. The patches
+  houseCARL wrote live in your MO2 mods folder and are not touched. The shared `~/.agents/skills` holds other
+  agents' skills, so only folders the record names are removed there; what an install with no record removes
+  instead, per host, is on `Uninstall` in `src/housecarl-setup/Uninstall.cs`.
 - **The Claude install records which skills it wrote.** `installed-skills.txt` at the root of the installed
   tree, mirroring the one the Codex install has kept since it started sharing `~/.agents/skills`. It is what
   the uninstall reads to name the skills it is taking back. An install made before this version left none, and
   an uninstall of one says which route it took instead.
 - **A run says what it did when it is over.** Install and uninstall both close with the same block: the paths
   that were written or removed, host by host, then what to do next — restart the host, and for an install that
-  houseCARL asks for your Mod Organizer 2 folder the first time a tool is used. The block is the plan the
-  confirm was given for, printed again, on `Plan.PrintSummary` in `src/housecarl-setup/Plan.cs`, so it cannot
-  name a path the run never touched.
-- **The .NET runtime refusal now comes after the menu rather than before it.** The runtimes are the server's,
-  so only an install needs them; refusing at the detection block left a machine missing one with no way to
-  uninstall. The detection block still reports both runtimes before anything is chosen.
+  houseCARL asks for your Mod Organizer 2 folder the first time a tool is used. An install writes every line
+  of its plan, so its block is that plan printed again; a removal's is not, because a host with nothing
+  installed or a config with no entry of ours is a line the run does not act on. Each removal line is what
+  that step actually did, carried back from the run, on `Plan.PrintRemovalSummary` in
+  `src/housecarl-setup/Plan.cs` — a removal that took nothing off says so rather than claiming the paths it
+  intended to touch.
+- **The .NET runtime and broken-package refusals now come after the menu rather than before it.** The runtimes
+  and the package are the install's, so only an install needs them; refusing at the detection block left a
+  machine missing a runtime, or holding a half-unzipped download, with no way to reach `[4] Uninstall`. The
+  detection block still reports both runtimes before anything is chosen.
 
 - **The plugin's own `README.md` describes the 2.0 surface.** This is the file the installer copies to
   `~/.claude/skills/housecarl/README.md` and the marketplace shows. It is now the installed-copy subset of

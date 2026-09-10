@@ -70,7 +70,7 @@ Flags, for an unattended run: `--claude` / `--codex` / `--both` pick the host, `
 
 Updating: quit Claude Code and Codex first. Setup cannot replace a server a session is running; if one is, it stops and says so. Setup overwrites only the files in the package, so the saved MO2 instance and tool paths in `houseCARL.user.json` survive a re-run.
 
-Uninstalling: `[4] Uninstall`, or `--uninstall` with a host flag. It removes the houseCARL trees it installed, the skill folders it recorded installing, and the `housecarl` entry in `~/.claude.json` and `~/.codex/config.toml` — each config copied to a `.houseCARL.bak` beside it first, and every other byte in it left as it was. `houseCARL.user.json` sits beside the server and goes with it; the patches houseCARL wrote live in the MO2 mods folder and are left alone.
+Uninstalling: `[4] Uninstall`, or `--uninstall` with a host flag. It removes the skill folders it recorded installing, the server, the rest of the files a houseCARL package ships, and the `housecarl` entry in `~/.claude.json` and `~/.codex/config.toml` — each config copied to a `.houseCARL.uninstall.bak` beside it first, and every other byte in it left as it was. Anything under those locations that houseCARL did not install stays where it is, and the run names it. `houseCARL.user.json` sits beside the server and goes with it; the patches houseCARL wrote live in the MO2 mods folder and are left alone.
 
 ### From source
 
