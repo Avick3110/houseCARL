@@ -92,9 +92,9 @@ housecarl_apply(
 
 **FormIDs.** A record is addressed as `XXXXXX:Plugin.esp`, or in the runtime form the console, Papyrus log and crash log print (`FExxxYYY`, `XX######`), resolved against the current order. Reads accept both forms. Writes accept the plugin form only; a runtime form is refused with the plugin form to use.
 
-**Large results.** Every response carries an `epoch` stamp identifying the index build it was answered from. A result over the render limit is written in full to a JSONL file whose first line is a manifest, and the response names the file. The file re-enters a later call as `formids=["@<path>"]`, epoch-checked.
+**Large results.** Every response on the record plane carries an `epoch` stamp identifying the index build it was answered from. A result over the render limit is written in full to a JSONL file whose first line is a manifest, and the response names the file. The file re-enters a later call as `formids=["@<path>"]`, epoch-checked.
 
-**Findings.** `check` runs derived-findings families over the order: `errors` (dangling FormLinks, missing masters, unparseable records), `scripts` (script properties the VMAD does not bind), `dialogue` (a topic's graph as the game resolves it), `facegen` (per NPC: the mod winning the head `.nif`, the mod winning the face `.dds`, the plugin winning the record, the mismatch class). Each family's description states what it does not cover.
+**Findings.** `check` runs derived-findings families over the order: `errors` (dangling FormLinks, missing masters, unparseable records), `scripts` (script properties the VMAD does not bind), `dialogue` (dialogue graph validation over seeded topics and quests — this family takes seeds, it does not sweep), `facegen` (per NPC: the mod winning the head `.nif`, the mod winning the face `.dds`, the plugin winning the record, the mismatch class). Each family's description states what it does not cover.
 
 ## Coverage
 
@@ -141,7 +141,7 @@ Dialogue records have bookkeeping that a byte-valid insert does not satisfy: [do
 
 ## Skills
 
-Seven skills ship with the plugin: `/housecarl:<name>` in Claude Code, `$housecarl` in Codex. Each is a `SKILL.md` and a `references/` tree. Reference corpora are indexed by `index.jsonl` (name to file and line range) and read by grep, never loaded whole.
+Seven skills ship with the plugin: `/housecarl:<name>` in Claude Code, `$housecarl` in Codex. Each is a `SKILL.md` and a `references/` tree. Reference corpora are read by grep, never loaded whole. Four of the seven — `mutagen-reference`, `papyrus-reference`, `spid-authoring`, `kid-authoring` — carry a `references/index.jsonl` mapping a name to the file that holds it; the two generated corpora carry the line as well.
 
 | Skill | Carries |
 |---|---|
@@ -212,7 +212,7 @@ One process, MCP over stdio. The load order is read from the MO2 profile's `load
 
 Freshness is a last-write-plus-size check on every call. A rebuild is an immutable snapshot swapped in as one reference. A plugin the build cannot read is excluded whole with the reason, and every response from that build says which plugins are missing.
 
-Writes are verified by an oracle harness: each mutation is performed through the reflection engine and through a hand-written typed Mutagen setter, and the two output plugins must be byte-identical. Around 150 further probe harnesses run in CI against real plugins.
+Writes are verified by a per-kind oracle: 17 cells, each performing one mutation two ways — through the reflection engine, and through a hand-written typed Mutagen setter — with the two output plugins required to be byte-identical. The engine is blind to which record it edits, so proving a kind proves every record carrying that kind. The oracle is run by hand against a real `Skyrim.esm`. 134 probe harnesses run in CI against real plugins.
 
 The only outbound network use is the Nexus lookups. They need no account or API key. Offline, they say so, and every local tool keeps working. `update_status` reads MO2's local cache first and checks at the exact-file level.
 
@@ -242,7 +242,7 @@ Read [CLAUDE.md](CLAUDE.md) before changing anything, then the note in `docs/arc
 
 ## Upgrading from 1.x
 
-2.0.0 replaces the 1.x tool surface with 31 tools built from one grammar. There is no alias layer and no deprecation window. A 1.x tool name is refused with one sentence naming its successor. The old-to-new table is in the [changelog](plugin/CHANGELOG.md).
+2.0.0 replaces the 1.x tool surface with 31 tools built from one grammar. There is no alias layer and no deprecation window. A 1.x tool name is refused with one sentence naming its successor and the call shape to use. The rows those sentences come from are in `src/housecarl-mcp/AliasTable.cs`.
 
 ## Licence
 
