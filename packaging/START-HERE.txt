@@ -53,12 +53,14 @@ REMOVING HOUSECARL
   to remove it from. FULLY QUIT Claude (and Codex) first, same as an
   update. It shows the removal plan and waits for the same Enter.
 
-  It removes the houseCARL folders it installed, the skills it recorded
-  installing, and the houseCARL entry in Claude's and Codex's config
-  files -- each config is copied to a  .houseCARL.bak  beside it first,
-  and nothing else in either file is changed. The MO2 folder you set is
-  stored beside the server, so it goes too. The patches houseCARL wrote
-  live in your MO2 mods folder and are left alone.
+  It removes the skills it recorded installing, the server, the rest of
+  the files a houseCARL package ships, and the houseCARL entry in
+  Claude's and Codex's config files -- each config is copied to a
+  .houseCARL.uninstall.bak  beside it first, and nothing else in either
+  file is changed. Anything you put in those folders yourself stays, and
+  the run names it. The MO2 folder you set is stored beside the server,
+  so it goes too. The patches houseCARL wrote live in your MO2 mods
+  folder and are left alone.
 
 
 COMMAND-LINE FLAGS  (you don't need these to install)
