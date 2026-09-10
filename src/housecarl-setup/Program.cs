@@ -72,8 +72,14 @@ public static class Program
             Console.WriteLine("    --claude   install for Claude Code only");
             Console.WriteLine("    --codex    install for Codex only");
             Console.WriteLine("    --both     install for both");
-            Console.WriteLine("    --yes      install without stopping at the plan (unattended runs)");
+            Console.WriteLine("    --yes      skip the confirm at the plan (it still asks which host,");
+            Console.WriteLine("               so an unattended run needs a host flag as well)");
             Console.WriteLine("    --skip-runtime-check   skip the .NET runtime preflight (custom DOTNET_ROOT etc.)");
+            Console.WriteLine();
+            Console.WriteLine("  Setup asks two questions - which host, and the confirm at the plan - and it");
+            Console.WriteLine("  never answers one for you. A run whose input is redirected has nobody to ask,");
+            Console.WriteLine("  so it refuses and names the flag it needed: --claude/--codex/--both for the");
+            Console.WriteLine("  host, --yes for the confirm.");
             return 0;
         }
 
@@ -146,24 +152,27 @@ public static class Program
                 return Finish(1);
             }
 
-            Target? target = ResolveTarget(args, claude, codex);
-            if (target is null)
+            Answer chose = ResolveTarget(args, claude, codex, out Target target);
+            if (chose == Answer.NoOneToAsk) return Finish(1);
+            if (chose == Answer.Quit)
             {
                 Console.WriteLine("Cancelled - nothing was installed.");
                 return Finish(0);
             }
 
             // ---- the plan, before anything is written ------------------------
-            Plan.Print(Plan.For(target.Value, home, homeOverride, claude, codex),
+            Plan.Print(Plan.For(target, home, homeOverride, claude, codex),
                        Detect.PluginVersion(srcManifest) ?? SetupVersion());
-            if (!Confirmed(args))
+            Answer confirmed = Confirm(args);
+            if (confirmed == Answer.NoOneToAsk) return Finish(1);
+            if (confirmed == Answer.Quit)
             {
                 Console.WriteLine("Cancelled - nothing was installed.");
                 return Finish(0);
             }
 
             Console.WriteLine();
-            InstallResult result = TryInstall(target.Value, pluginSrc, home, homeOverride);
+            InstallResult result = TryInstall(target, pluginSrc, home, homeOverride);
             if (result.Outcome == InstallOutcome.ServerInUse)
             {
                 string sentence = result.RefusedBeforeAnyCopy
@@ -180,7 +189,7 @@ public static class Program
                 return Finish(1);
             }
 
-            PrintNext(target.Value);
+            PrintNext(target);
             return Finish(0);
         }
         catch (Exception ex)
@@ -207,21 +216,41 @@ public static class Program
         Ui.Row(codex.Name,  codex.Summary);
     }
 
+    /// <summary>What came back from a question setup had to ask a person.</summary>
+    private enum Answer
+    {
+        /// <summary>They answered it: go on.</summary>
+        Yes,
+        /// <summary>They said no: stop, having changed nothing.</summary>
+        Quit,
+        /// <summary>There was nobody to ask (redirected input) and no flag that answered it in advance. The
+        /// refusal has already been printed; the run stops.</summary>
+        NoOneToAsk,
+    }
+
     /// <summary>
     /// The plan's confirm. It stands on every attended run, including one started with a host flag, because the
-    /// paths are the thing worth reading before they are written. An unattended run - <c>--yes</c>, or a run whose
-    /// input is redirected and so has nobody to press a key - goes straight on.
+    /// paths are the thing worth reading before they are written. <c>--yes</c> is the one way past it. A run
+    /// whose input is redirected has nobody to press a key, so without that flag it is refused rather than read
+    /// as a yes: the same rule as the host menu, which is the other question setup asks.
     /// </summary>
-    private static bool Confirmed(string[] args)
+    private static Answer Confirm(string[] args)
     {
-        if (args.Contains("--yes") || Console.IsInputRedirected) return true;
+        if (args.Contains("--yes")) return Answer.Yes;
         while (true)
         {
-            string? s = Ui.Prompt("  Press Enter to install, or q to quit.  > ");
-            if (s is null) return true; // no interactive input after all
+            string? s = Console.IsInputRedirected ? null : Ui.Prompt("  Press Enter to install, or q to quit.  > ");
+            if (s is null)
+            {
+                Ui.Problem(
+                    "Setup cannot ask you to confirm the plan above, because its input is redirected and there "
+                    + "is nobody to press a key — re-run with --yes to install without stopping at the plan.",
+                    "Nothing was installed.");
+                return Answer.NoOneToAsk;
+            }
             string answer = s.Trim().ToLowerInvariant();
-            if (answer.Length == 0) return true;
-            if (answer is "q" or "quit") return false;
+            if (answer.Length == 0) return Answer.Yes;
+            if (answer is "q" or "quit") return Answer.Quit;
             Console.WriteLine("  Press Enter to install, or type q to quit.");
         }
     }
@@ -335,6 +364,10 @@ public static class Program
     internal static string ClaudeDestExe(string home)
         => Path.Combine(ClaudeSkillsDest(home), "server", "housecarl-mcp.exe");
 
+    /// <summary>The plugin manifest the Claude install copies, which carries the installed version.</summary>
+    internal static string ClaudeDestManifest(string home)
+        => Path.Combine(ClaudeSkillsDest(home), ".claude-plugin", "plugin.json");
+
     /// <summary>The shared, cross-agent skills root the Codex install copies skill folders into, flat.</summary>
     internal static string CodexSkillsRoot(string home)
         => Path.Combine(home, ".agents", "skills");
@@ -363,6 +396,13 @@ public static class Program
     /// <summary>The Codex install's server exe path. Single source of truth so pre-flight == installer.</summary>
     internal static string CodexDestExe(string home, string? homeOverride)
         => Path.Combine(CodexServerDir(home, homeOverride), "housecarl-mcp.exe");
+
+    /// <summary>Where the Codex install records the skill folders it put in the shared ~/.agents/skills, so a
+    /// later upgrade can take back exactly those and nothing else. It sits in houseCARL's own data dir, beside
+    /// the server dir, not in the shared skills dir. The plan names it, because it is a file the install
+    /// writes outside the three roots the other lines cover.</summary>
+    internal static string CodexSkillRecord(string home, string? homeOverride)
+        => Path.Combine(Path.GetDirectoryName(CodexServerDir(home, homeOverride))!, "installed-skills.txt");
 
     /// <summary>
     /// True if <paramref name="destExe"/> already exists AND can't be opened for writing — i.e. a live
@@ -465,11 +505,27 @@ public static class Program
 
     // ---- target selection (flag or interactive prompt) --------------------
 
-    private static Target? ResolveTarget(string[] args, Detect.HostState claude, Detect.HostState codex)
+    /// <summary>
+    /// Which host(s) to install for: the flag if one was passed, else the menu. A run whose input is redirected
+    /// has nobody to pick, so it is refused naming the flags rather than defaulting to a host — the same rule
+    /// the plan's confirm follows.
+    /// </summary>
+    private static Answer ResolveTarget(
+        string[] args, Detect.HostState claude, Detect.HostState codex, out Target target)
     {
-        if (args.Contains("--both"))   return Target.Both;
-        if (args.Contains("--codex"))  return Target.Codex;
-        if (args.Contains("--claude")) return Target.Claude;
+        target = Target.Claude;
+        if (args.Contains("--both"))   { target = Target.Both;   return Answer.Yes; }
+        if (args.Contains("--codex"))  { target = Target.Codex;  return Answer.Yes; }
+        if (args.Contains("--claude")) { target = Target.Claude; return Answer.Yes; }
+
+        if (Console.IsInputRedirected)
+        {
+            Ui.Problem(
+                "Setup cannot ask which agent to install houseCARL for, because its input is redirected and "
+                + "there is nobody to answer — re-run with --claude, --codex or --both to say which.",
+                "Nothing was installed.");
+            return Answer.NoOneToAsk;
+        }
 
         Ui.Heading("Install houseCARL for which agent?");
         Ui.MenuItem("1", claude.Name, claude.Summary);
@@ -489,15 +545,23 @@ public static class Program
         while (true)
         {
             string? s = Ui.Prompt(question);
-            if (s is null) return null;        // no interactive input (redirected) - treat as cancel
+            if (s is null)
+            {
+                // The stream ended mid-question: nobody to ask, same as a redirected run.
+                Ui.Problem(
+                    "Setup cannot ask which agent to install houseCARL for, because its input ended — re-run "
+                    + "with --claude, --codex or --both to say which.",
+                    "Nothing was installed.");
+                return Answer.NoOneToAsk;
+            }
             string answer = s.Trim().ToLowerInvariant();
-            if (answer.Length == 0 && onlyHost is not null) return onlyHost;
+            if (answer.Length == 0 && onlyHost is not null) { target = onlyHost.Value; return Answer.Yes; }
             switch (answer)
             {
-                case "1": return Target.Claude;
-                case "2": return Target.Codex;
-                case "3": return Target.Both;
-                case "q": case "quit": return null;
+                case "1": target = Target.Claude; return Answer.Yes;
+                case "2": target = Target.Codex;  return Answer.Yes;
+                case "3": target = Target.Both;   return Answer.Yes;
+                case "q": case "quit": return Answer.Quit;
                 default: Console.WriteLine("  Please type 1, 2, 3, or q."); break;
             }
         }
@@ -665,12 +729,6 @@ public static class Program
             ? Directory.GetDirectories(skillsSrc).Select(d => Path.GetFileName(d)!).ToList()
             : null;
     }
-
-    /// <summary>Where the Codex install records the skill folders it put in the shared ~/.agents/skills, so a
-    /// later upgrade can take back exactly those and nothing else. It sits in houseCARL's own data dir, beside
-    /// the server dir, not in the shared skills dir.</summary>
-    private static string CodexSkillRecord(string home, string? homeOverride)
-        => Path.Combine(Path.GetDirectoryName(CodexServerDir(home, homeOverride))!, "installed-skills.txt");
 
     /// <summary>The skill folder names a previous Codex install recorded. Anything that is not a bare folder
     /// name is dropped, so a hand-edited record can never point the delete below at another path.</summary>
