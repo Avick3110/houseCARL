@@ -13,8 +13,12 @@ INSTALL  (about 30 seconds, no command line)
 ------------------------------------------------------------------------
 
   1.  Double-click   houseCARL-Setup.exe   in this folder.
-      Let it finish. It adds houseCARL to Claude (the skills + the
-      local server) -- it does not touch your game or your mods.
+      It says what it found on your machine, asks which agent to
+      install for, then prints every path it is about to write and
+      waits: press Enter to go ahead, or q to quit. Nothing is
+      written before that keypress -- and it does not touch your
+      game or your mods. At the end it lists what it wrote and what
+      to do next.
 
   2.  FULLY restart Claude.
       Close and reopen the Claude desktop app, or restart the `claude`
@@ -41,6 +45,33 @@ UPDATING  (installing a newer houseCARL over an older one)
   Same as installing -- but FULLY QUIT Claude (and Codex) FIRST. The
   setup can't replace the houseCARL server while a session is running
   it; if one is, it stops and tells you to quit and re-run.
+
+
+REMOVING HOUSECARL
+------------------------------------------------------------------------
+  Run  houseCARL-Setup.exe  and pick  [4] Uninstall,  then which agent
+  to remove it from. FULLY QUIT Claude (and Codex) first, same as an
+  update. It shows the removal plan and waits for the same Enter.
+
+  It removes the houseCARL folders it installed, the skills it recorded
+  installing, and the houseCARL entry in Claude's and Codex's config
+  files -- each config is copied to a  .houseCARL.bak  beside it first,
+  and nothing else in either file is changed. The MO2 folder you set is
+  stored beside the server, so it goes too. The patches houseCARL wrote
+  live in your MO2 mods folder and are left alone.
+
+
+COMMAND-LINE FLAGS  (you don't need these to install)
+------------------------------------------------------------------------
+  --claude / --codex / --both   pick the agent without the menu
+  --yes                         skip the confirm at the plan
+  --uninstall                   remove instead of install
+  --skip-runtime-check          skip the .NET runtime check
+  --help                        the full list
+
+  Setup never answers its own questions: a run whose input is
+  redirected has nobody to press a key, so it stops and names the flag
+  that answers the question instead.
 
 
 REQUIREMENTS
