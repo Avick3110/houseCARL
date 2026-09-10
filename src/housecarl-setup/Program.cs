@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -77,8 +78,9 @@ public static class Program
 
         try
         {
-            Console.WriteLine("houseCARL setup");
-            Console.WriteLine("===============");
+            Console.WriteLine();
+            Console.WriteLine("  houseCARL " + SetupVersion() + "  ·  setup");
+            Console.WriteLine("  " + new string('─', 63));
             Console.WriteLine();
 
             // Locate the plugin shipped beside this program.
@@ -510,6 +512,18 @@ public static class Program
         Console.WriteLine("     Mod Organizer 2 folder (the one containing ModOrganizer.ini).");
         if (target is Target.Both)
             Console.WriteLine("   - (Each host runs its own server copy, so you'll set the MO2 folder once per host.)");
+    }
+
+    /// <summary>This exe's own stamped version, with any "+sha" metadata trimmed. build-plugin.ps1 passes
+    /// -p:Version from plugin.json at publish, so the banner and the shipped server report the same number;
+    /// an unstamped dev build says 0.0.0-dev rather than the 1.0.0 the SDK defaults to.</summary>
+    private static string SetupVersion()
+    {
+        string? info = typeof(Program).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (string.IsNullOrWhiteSpace(info)) return "0.0.0-dev";
+        int plus = info.IndexOf('+');
+        return plus > 0 ? info[..plus] : info;
     }
 
     private static int Finish(int exitCode)
