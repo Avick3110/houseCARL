@@ -24,7 +24,7 @@ public static class Plan
             plans.Add(new HostPlan(claude, new List<Line>
             {
                 new(Program.ClaudeSkillsDest(home), "skills + server"),
-                new(Program.ClaudeJson(home),       "registers the server  (backed up first)"),
+                new(Program.ClaudeJson(home),       BacksUpFirst),
             }));
 
         if (target is Program.Target.Codex or Program.Target.Both)
@@ -33,11 +33,15 @@ public static class Plan
                 new(Program.CodexServerDir(home, homeOverride),    "server"),
                 new(Program.CodexSkillsRoot(home),                 "skills"),
                 new(Program.CodexSkillRecord(home, homeOverride),  "records which skills were installed"),
-                new(Program.CodexConfigToml(home),                 "registers the server  (backed up first)"),
+                new(Program.CodexConfigToml(home),                 BacksUpFirst),
             }));
 
         return plans;
     }
+
+    /// <summary>What a host-config line puts there. The install copies the file to a ".houseCARL.bak"
+    /// beside it before editing it, and that copy is a file the plan would otherwise not name.</summary>
+    private const string BacksUpFirst = "registers the server  (a .houseCARL.bak copy is made first)";
 
     /// <summary>Print the plan: a heading per host saying install or upgrade, then one line per destination.</summary>
     public static void Print(List<HostPlan> plans, string version)
