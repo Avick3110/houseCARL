@@ -13,6 +13,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **The plugin's own `README.md` describes the 2.0 surface.** This is the file the installer copies to
+  `~/.claude/skills/housecarl/README.md` and the marketplace shows. It carries the 31 tools by substrate,
+  the seven skills, the requirements, both install paths, how to point the server at an MO2 instance, and
+  the three write lanes. It was still the 1.x text, including a claim that Mutagen is kept warm in memory,
+  which the lazy-read design contradicts. The grammar, the predicate language, the runtime layers and the
+  internals stay in the top-level `README.md`, which it links to.
 - **The top-level `README.md` describes the 2.0 surface.** It names the tool surface and the axes a call is
   composed from, states what houseCARL is not, and carries the install, requirements and upgrade-from-1.x
   notes. The 1.x-to-2.0 tool-name mapping is the refusal
