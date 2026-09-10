@@ -216,12 +216,18 @@ public static class Program
         Ui.Heading("Checking your machine");
         string baseName = ".NET Runtime " + ServerRuntimeMajor;
         string aspName  = "ASP.NET Core Runtime " + ServerRuntimeMajor;
-        string skipNote = "not checked (--skip-runtime-check)";
-        Ui.Row(baseName, skipped ? skipNote : missingRuntimes.Contains("Microsoft.NETCore.App") ? "not found" : "found");
-        Ui.Row(aspName,  skipped ? skipNote : missingRuntimes.Contains("Microsoft.AspNetCore.App") ? "not found" : "found");
+        Ui.Row(baseName, RuntimeStatus(skipped, missingRuntimes.Contains("Microsoft.NETCore.App")));
+        Ui.Row(aspName,  RuntimeStatus(skipped, missingRuntimes.Contains("Microsoft.AspNetCore.App")));
         Ui.Row(claude.Name, claude.Summary);
         Ui.Row(codex.Name,  codex.Summary);
     }
+
+    /// <summary>A runtime row's status: a runtime the install needs and cannot find is the one thing in this
+    /// block that stops it, so it reads as a problem; one that was not looked at reads plain.</summary>
+    private static Ui.StatusWord RuntimeStatus(bool skipped, bool missing)
+        => skipped ? Ui.StatusWord.Plain("not checked (--skip-runtime-check)")
+         : missing ? Ui.StatusWord.Missing("not found")
+         :           Ui.StatusWord.Good("found");
 
     /// <summary>What came back from a question setup had to ask a person.</summary>
     private enum Answer
@@ -582,8 +588,8 @@ public static class Program
             Ui.Heading("Install houseCARL for which agent?");
             Ui.MenuItem("1", claude.Name, claude.Summary);
             Ui.MenuItem("2", codex.Name,  codex.Summary);
-            Ui.MenuItem("3", "Both", "");
-            Ui.MenuItem("4", "Uninstall", "remove houseCARL instead");
+            Ui.MenuItem("3", "Both");
+            Ui.MenuItem("4", "Uninstall", Ui.StatusWord.Plain("remove houseCARL instead"));
             Console.WriteLine();
         }
         else
@@ -591,7 +597,7 @@ public static class Program
             Ui.Heading("Remove houseCARL from which agent?");
             Ui.MenuItem("1", claude.Name, claude.Summary);
             Ui.MenuItem("2", codex.Name,  codex.Summary);
-            Ui.MenuItem("3", "Both", "");
+            Ui.MenuItem("3", "Both");
             Console.WriteLine();
         }
 
