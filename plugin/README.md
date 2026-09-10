@@ -60,12 +60,17 @@ Dialogue and facegen are not skills. Their tools carry the bookkeeping: `check f
 
 1. Download `houseCARL-<version>.zip` from the [latest release](https://github.com/Avick3110/houseCARL/releases).
 2. Extract it and run `houseCARL-Setup.exe`.
-3. Select the host: `[1] Claude Code`, `[2] Codex`, `[3] Both`.
+3. Select the host: `[1] Claude Code`, `[2] Codex`, `[3] Both`, `[4] Uninstall`.
    - Claude Code: skills to `~/.claude/skills/housecarl/`, server registered in `~/.claude.json`. The CLI and the desktop app both read these.
    - Codex: server under `%LOCALAPPDATA%\houseCARL\server\`, skills flat under `~/.agents/skills/` with a `$housecarl` entry point, server registered as `[mcp_servers.housecarl]` in `~/.codex/config.toml`.
-4. Restart the host.
+4. Read the plan. Setup prints what it found on the machine and then every path it is about to write, and writes nothing until Enter; `q` quits.
+5. Restart the host. The closing block says what was written and what to do next.
+
+Flags, for an unattended run: `--claude` / `--codex` / `--both` pick the host, `--yes` skips the confirm at the plan, `--uninstall` removes instead of installing, `--skip-runtime-check` skips the .NET check. A run whose input is redirected has nobody to answer a question, so it stops and names the flag that answers it rather than assuming one.
 
 Updating: quit Claude Code and Codex first. Setup cannot replace a server a session is running; if one is, it stops and says so. Setup overwrites only the files in the package, so the saved MO2 instance and tool paths in `houseCARL.user.json` survive a re-run.
+
+Uninstalling: `[4] Uninstall`, or `--uninstall` with a host flag. It removes the houseCARL trees it installed, the skill folders it recorded installing, and the `housecarl` entry in `~/.claude.json` and `~/.codex/config.toml` — each config copied to a `.houseCARL.bak` beside it first, and every other byte in it left as it was. `houseCARL.user.json` sits beside the server and goes with it; the patches houseCARL wrote live in the MO2 mods folder and are left alone.
 
 ### From source
 
