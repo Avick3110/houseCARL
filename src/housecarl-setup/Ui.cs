@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace HousecarlSetup;
 
 /// <summary>
@@ -21,6 +23,16 @@ public static class Ui
 
     private static readonly bool OutColor = !NoColor && !Console.IsOutputRedirected;
     private static readonly bool ErrColor = !NoColor && !Console.IsErrorRedirected;
+
+    // A double-clicked console runs an OEM code page, which has no em dash, so the sentences below would go
+    // out best-fit mapped. A redirected stream is left alone (its reader chose the encoding), and a run with
+    // no console handle throws here, which is not a reason to stop installing.
+    static Ui()
+    {
+        if (Console.IsOutputRedirected && Console.IsErrorRedirected) return;
+        try { Console.OutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false); }
+        catch (Exception) { }
+    }
 
     /// <summary>The header: the product name, its version and what this program is.</summary>
     public static void Banner(string version)
