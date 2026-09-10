@@ -30,27 +30,55 @@ public static class Detect
     }
 
     /// <summary>Claude Code: the desktop app keeps ~/.claude.json and ~/.claude, and either one is it being here.
+    /// Installed is a FILE the install writes - the server exe or the copied manifest - never the destination
+    /// directory existing, which an emptied or half-deleted install leaves behind with nothing to upgrade from.
     /// The installed version is the copied plugin's own manifest, which is the file that shipped it.</summary>
     public static HostState Claude(string home)
     {
         bool present = File.Exists(Program.ClaudeJson(home)) || Directory.Exists(Path.Combine(home, ".claude"));
-        string dest  = Program.ClaudeSkillsDest(home);
-        bool installed = File.Exists(Program.ClaudeDestExe(home)) || Directory.Exists(dest);
-        string? version = installed
-            ? PluginVersion(Path.Combine(dest, ".claude-plugin", "plugin.json"))
-            : null;
+        string manifest = Program.ClaudeDestManifest(home);
+        bool installed = File.Exists(Program.ClaudeDestExe(home)) || File.Exists(manifest);
+        string? version = installed ? PluginVersion(manifest) : null;
         return new HostState("Claude Code", present, installed, version);
     }
 
-    /// <summary>Codex: ~/.codex (or CODEX_HOME) is it being here. A Codex install copies the server but not the
-    /// plugin manifest, so the version comes off the installed server exe, which build-plugin.ps1 stamps.</summary>
+    /// <summary>Codex: its config file (~/.codex/config.toml, or CODEX_HOME's) or the codex command on PATH is
+    /// it being here. A bare ~/.codex directory is not - an uninstalled Codex, or any tool that has touched
+    /// that path, leaves one, and the menu's bare-Enter default keys on this. A Codex install copies the
+    /// server but not the plugin manifest, so the version comes off the installed server exe, which
+    /// build-plugin.ps1 stamps.</summary>
     public static HostState Codex(string home, string? homeOverride)
     {
-        bool present = Directory.Exists(Program.CodexConfigHome(home));
+        bool present = File.Exists(Program.CodexConfigToml(home)) || OnPath("codex");
         string destExe = Program.CodexDestExe(home, homeOverride);
         bool installed = File.Exists(destExe);
         string? version = installed ? ExeVersion(destExe) : null;
         return new HostState("Codex", present, installed, version);
+    }
+
+    /// <summary>True when <paramref name="command"/> is an executable on PATH. Each PATH entry is tried bare
+    /// and with every PATHEXT extension, the way the shell resolves it. An entry that cannot be read is not
+    /// a match and is not an error.</summary>
+    private static bool OnPath(string command)
+    {
+        string[] dirs = (Environment.GetEnvironmentVariable("PATH") ?? "")
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        string[] exts = (Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT")
+            .Split(';', StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (string entry in dirs)
+        {
+            string dir = entry.Trim().Trim('"');
+            if (dir.Length == 0) continue;
+            try
+            {
+                if (File.Exists(Path.Combine(dir, command))) return true;
+                foreach (string ext in exts)
+                    if (File.Exists(Path.Combine(dir, command + ext))) return true;
+            }
+            catch (ArgumentException) { /* a malformed PATH entry is not a match */ }
+        }
+        return false;
     }
 
     /// <summary>The "version" of a plugin.json, or null when the file is absent, unreadable or has no version.</summary>
