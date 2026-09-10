@@ -33,11 +33,19 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **The setup program says what it found, then what it is about to write, and waits for a yes.** Before it
   copies anything it prints what is on the machine — each host, whether houseCARL is installed for it and at
   what version, and the .NET runtimes — and then the plan: one line per destination, naming the exact path,
-  labelled install or upgrade per host. The plan reads the destinations from the same path helpers the
-  install writes to, on `Program` in `src/housecarl-setup/Program.cs`, so the plan and the install cannot
-  disagree. Enter proceeds and `q` quits, on `--claude`, `--codex` and `--both` runs too; `--yes` goes
-  straight on, and what else skips the stop is on `Confirmed` in that file. Where exactly one host is found,
-  Enter at the menu picks it.
+  and a per-host label from `Plan.HostAction` in `src/housecarl-setup/Plan.cs`, which compares the installed
+  version against the package's rather than only testing them for equality. The plan reads the destinations
+  from the same path helpers the install writes to, on `Program` in `src/housecarl-setup/Program.cs`, so the
+  plan and the install cannot disagree, and it says that an upgrade deletes the skill folders this version no
+  longer ships. Enter proceeds and `q` quits, on `--claude`, `--codex` and `--both` runs too; `--yes` is the
+  one way past the confirm, on `Confirm` in that file. Where exactly one host is found, Enter at the menu
+  picks it.
+- **Setup refuses a question it has nobody to ask instead of answering it.** A run whose input is redirected
+  used to take the missing keypress as a yes at the plan and as a cancel at the host menu. Both now refuse
+  with one sentence naming the flag that answers the question in advance — `--claude`, `--codex` or `--both`
+  for the host, `--yes` for the confirm — and `--help` says so. A host is also reported found only on a file
+  the host itself writes, not on a directory bearing its name; which files those are is on `Detect` in
+  `src/housecarl-setup/Detect.cs`.
 - **A refusal for an unknown field now names every field the record type has.** `housecarl_apply` and
   `housecarl_create` run the same pre-flight, and it used to name twelve fields and then `(+N more)` with no
   route from the call to the rest — a write call is the only place the surface shows a type's schema without
