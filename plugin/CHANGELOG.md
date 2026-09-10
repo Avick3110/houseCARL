@@ -13,6 +13,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **The top-level `README.md` describes the 2.0 surface.** It names the 31 tools and the axes a call is
+  composed from, states what houseCARL is not, and carries the install, requirements and upgrade-from-1.x
+  notes. The old-to-new tool-name table stays in this file.
 - **A refusal for an unknown field now names every field the record type has.** `housecarl_apply` and
   `housecarl_create` run the same pre-flight, and it used to name twelve fields and then `(+N more)` with no
   route from the call to the rest — a write call is the only place the surface shows a type's schema without
