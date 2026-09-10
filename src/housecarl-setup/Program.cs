@@ -172,8 +172,8 @@ public static class Program
         catch (Exception ex)
         {
             Ui.Problem(
-                "houseCARL setup stopped on an error it did not expect — the line below is what Windows "
-                + "reported, and running the setup again is the first thing to try.",
+                "houseCARL setup hit an error it does not have a fix for and stopped before finishing — the "
+                + "line below is what the failure reported, and the steps above it are how far it got.",
                 ex.Message);
             return Finish(1);
         }
