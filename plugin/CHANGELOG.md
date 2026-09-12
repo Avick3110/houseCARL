@@ -31,6 +31,18 @@ saying it sets an expectation their install may contradict. Say what is known, a
   is on the PER-SEED reading of the budget, which the parameter's own description separates: the forward walk and
   the reverse carrier walk. The transitive reverse walk, where one budget is shared across every seed and every
   hop, is unchanged, and so is `walk.depth`.
+- **A `where=` predicate leading with `*parent` no longer holds the records it hopped to.** It shared the
+  `->` link step's target cache, so every containing record it ever climbed to stayed held until the call
+  returned — and a record body is a slice of its whole record group's byte array, which it keeps alive, the
+  same cost the walk entry above describes. The hop now climbs the containment map in keys, so a record in the
+  middle of a `*parent.*parent` chain is not read at all; only the record the terms are read ON costs a body,
+  and that body is released when the candidate that read it is decided. What carries across candidates is the
+  verdict, so a containing record is still read once per call however many children sit under it. Measured on
+  a synthetic 21-plugin order, 20,000 placed references in 4,000 cells whose winners are spread across
+  20 plugins, `where=["*parent.EditorID = <a cell>"]` with `counts_only`: 635 MB peak working set becomes
+  289 MB, and the 580 MB that was still held 35 s after the call returned becomes 209 MB. Elapsed and the
+  answer are unchanged. The per-candidate cost that remains is a clock, not a live set: the hop reads the
+  containing record's body with an untyped whole-plugin seek, one per distinct parent.
 
 ## 2.0.0 — 2026-09-11
 
