@@ -141,13 +141,48 @@ public sealed class FieldPredicateSet
     // itself. A pathological whole-order high-fan-out path is bounded by the scope the grammar already requires
     // (types= / plugins=).
     //
-    // The '*parent' hop shares this cache and does NOT share that bound, which is stated here rather than left
-    // for a reader to infer: types= bounds the CHILD type, not the parent population, so
-    // types=["PlacedObject"] where=["*parent.EditorID startswith Whiterun"] retains one getter per distinct CELL —
-    // five figures on vanilla Skyrim before any mod — and a '*parent.*parent' chain adds every worldspace on top.
-    // Still one call's lifetime and still bodies the scan would have fetched anyway, so it is retention, not
-    // repeated work; the declared cost of the step, not a hidden one.
+    // The '*parent' hop does NOT share this cache, and must not: types= bounds the CHILD type, not the parent
+    // population, so types=["PlacedObject"] where=["*parent.EditorID startswith Whiterun"] would retain one getter
+    // per distinct CELL — five figures on vanilla Skyrim before any mod. A Mutagen getter is a slice over the whole
+    // GRUP it was read from and keeps that array alive, which made that ~0.8 MB per parent held for the call and
+    // took a 32 GB machine down over a REFR-sized scope (#720). What carries across candidates instead is the
+    // VERDICT (_parentVerdicts below), which is a bool and costs nothing.
     readonly Dictionary<FormKey, IMajorRecordGetter?> _targetCache = new();
+
+    // The '*parent' hop's memo: every child under one containing record gets the SAME verdict for the same
+    // predicate, so the parent is read once per call and its body is released with the candidate that read it.
+    // Keyed by the predicate and by WHICH SIDE hopped — a link predicate can hop on both its left path and its
+    // right one, and the two ask different questions of the same containing record.
+    readonly Dictionary<(int Index, bool LinkSide, FormKey Parent), (bool Satisfied, EvalKind Kind)> _parentVerdicts = new();
+
+    // Which predicate Matches is evaluating right now — the memo's key, stashed the way the rollup's own
+    // _last* notes are rather than threaded through the link step's folds.
+    int _evalIndex;
+
+    // Every containing record this set has fetched a body for, and the one the CURRENT candidate is being judged
+    // on. Together they are what ParentBodiesHeld counts: a parent body reachable from this set past the candidate
+    // that read it is the #720 retention, and it is invisible in the answer — only a counter can hold it.
+    readonly HashSet<FormKey> _parentsFetched = new();
+    IMajorRecordGetter? _parentInFlight;
+
+    /// <summary>Parent bodies this set holds a reference to RIGHT NOW: the one the current candidate is being
+    /// judged on, plus any that ended up in the target cache. Zero between candidates is the #720 invariant.</summary>
+    internal int ParentBodiesHeld
+    {
+        get
+        {
+            int held = _parentInFlight is null ? 0 : 1;
+            foreach (var k in _parentsFetched) if (_targetCache.ContainsKey(k)) held++;
+            return held;
+        }
+    }
+
+    /// <summary>The most parent bodies this set ever held at once — one, once the hop stopped caching them.</summary>
+    internal int ParentBodyHighWater { get; private set; }
+
+    /// <summary>Distinct containing records this set fetched a body for: the hop's read count, which the memo holds
+    /// to one per parent per call however many children sit under it.</summary>
+    internal int ParentBodyFetches => _parentsFetched.Count;
 
     /// <summary>Whether any predicate needs the scan's resolution context (<c>winner</c> term or a <c>-&gt;</c>
     /// link step) — the call site checks this to bind <see cref="BindResolution"/> (and open the body-fetch
@@ -731,6 +766,7 @@ public sealed class FieldPredicateSet
         for (int k = 0; k < _predicates.Count; k++)
         {
             var p = _predicates[k];
+            _evalIndex = k;   // the containment memo's key: a verdict belongs to the predicate that reached it
 
             EvalKind kind;
             bool sat;
@@ -825,12 +861,15 @@ public sealed class FieldPredicateSet
         // That is what makes it a step — the winner term, editorid, formid membership, leaves and folds all read
         // the parent without a second rule each.
         if (p.ParentHops > 0)
-        {
-            var (hopped, miss) = HopToParent(body, p.ParentHops);
-            if (miss is { } m) return (false, m);
-            body = hopped!;
-        }
+            return EvalAtParent(p, body, p.ParentHops, linkSide: false, parent => EvalTerms(p, parent));
+        return EvalTerms(p, body);
+    }
 
+    /// <summary>One predicate's own terms against one in-hand body — the provenance term, the identity terms, or
+    /// the body-leaf walk. Split from <see cref="EvalCore"/> so the containment hop can run exactly these terms on
+    /// the CONTAINING record and release its body afterwards.</summary>
+    (bool Satisfied, EvalKind Kind) EvalTerms(Predicate p, IMajorRecordGetter body)
+    {
         // The `winner` provenance term: reads the record's RESOLUTION off the bound view — never its body.
         if (p.Pseudo == PseudoPath.Winner)
         {
@@ -1083,35 +1122,67 @@ public sealed class FieldPredicateSet
             return (false, EvalKind.Definite);
         }
         if (p.LinkParentHops > 0)
-        {
-            var (hopped, miss) = HopToParent(body, p.LinkParentHops);
-            if (miss is { } m) return (false, m);
-            body = hopped!;
-        }
+            return EvalAtParent(p, body, p.LinkParentHops, linkSide: true, parent => EvalLinkPath(p, parent, 0));
         return EvalLinkPath(p, body, 0);
     }
 
-    /// <summary>Climb <paramref name="hops"/> containment steps from one record to the record that contains it,
-    /// fetching each parent's winner body through the same bound view the <c>-&gt;</c> step resolves through. A
-    /// record with no containing record is a NAMED no-verdict, never a silent non-match: the rollup says which
-    /// properties own children at all.</summary>
-    (IMajorRecordGetter? Body, EvalKind? Miss) HopToParent(IMajorRecordGetter body, int hops)
+    /// <summary>Run <paramref name="below"/> — the rest of one side of one predicate — on the record that CONTAINS
+    /// <paramref name="child"/>, <paramref name="hops"/> containment steps up. The climb itself is index-only (see
+    /// <see cref="ClimbToParentKey"/>); only the record the terms are read ON costs a body, that body is fetched
+    /// through the same bound view the <c>-&gt;</c> step resolves through, and it is released as this returns.
+    /// <para>What carries across candidates is the VERDICT, not the body: the terms below the hop read the parent
+    /// and nothing else, so every child under one containing record decides the same way, and one memo entry does
+    /// what a cached getter used to do at a bool's cost instead of a pinned GRUP array's (#720).</para></summary>
+    (bool Satisfied, EvalKind Kind) EvalAtParent(Predicate p, IMajorRecordGetter child, int hops, bool linkSide,
+                                                 Func<IMajorRecordGetter, (bool Satisfied, EvalKind Kind)> below)
+    {
+        var (key, miss) = ClimbToParentKey(child, hops);
+        if (miss is { } m) return (false, m);
+        if (_parentVerdicts.TryGetValue((_evalIndex, linkSide, key!.Value), out var memo)) return memo;
+
+        var parent = _fetchWinnerBody!(key.Value);
+        _parentsFetched.Add(key.Value);
+        (bool Satisfied, EvalKind Kind) verdict;
+        if (parent is null)
+            verdict = (false, EvalKind.Unreadable);              // the parent is indexed but its body would not fetch
+        else
+        {
+            _parentInFlight = parent;
+            if (ParentBodiesHeld > ParentBodyHighWater) ParentBodyHighWater = ParentBodiesHeld;
+            try { verdict = below(parent); }
+            finally { _parentInFlight = null; }
+            if (_fatal is not null) return (false, EvalKind.Definite);   // a typed predicate error is the call's, not this parent's verdict
+        }
+        _parentVerdicts[(_evalIndex, linkSide, key.Value)] = verdict;
+        return verdict;
+    }
+
+    /// <summary>Climb <paramref name="hops"/> containment steps from one record and hand back the KEY of the record
+    /// it lands on — the containment map answers in keys, so an intermediate record on a chain
+    /// (<c>*parent.*parent</c>) is never read at all, only the one the terms run on. A record with no containing
+    /// record is a NAMED no-verdict, never a silent non-match: the rollup says which properties own children at
+    /// all, and names the type when it has one — the candidate's is in hand, and an intermediate's is fetched only
+    /// here, on the miss, which is the one place a chain pays for a body it does not read terms on.</summary>
+    (FormKey? Key, EvalKind? Miss) ClimbToParentKey(IMajorRecordGetter body, int hops)
     {
         if (_parentOf is null || _fetchWinnerBody is null)
         {
             _fatal = $"internal: a '{ContainmentIndex.ParentToken}' containment predicate was evaluated without a bound resolution context — this scan surface does not support it.";
             return (null, EvalKind.Definite);
         }
+        var at = body.FormKey;
         for (int i = 0; i < hops; i++)
         {
-            var pk = _parentOf(body.FormKey);
-            if (pk is null) { _lastNoParent = RecordNaming.StripOverlay(body.GetType().Name); return (null, EvalKind.NoParent); }
-            if (!_targetCache.TryGetValue(pk.Value, out var parent))
-                _targetCache[pk.Value] = parent = _fetchWinnerBody(pk.Value);
-            if (parent is null) return (null, EvalKind.Unreadable);   // the parent is indexed but its body would not fetch
-            body = parent;
+            var pk = _parentOf(at);
+            if (pk is null)
+            {
+                var of = i == 0 ? body : _fetchWinnerBody(at);
+                _lastNoParent = of is null ? null : RecordNaming.StripOverlay(of.GetType().Name);
+                return (null, EvalKind.NoParent);
+            }
+            at = pk.Value;
         }
-        return (body, null);
+        return (at, null);
     }
 
     /// <summary>The link step's left path from segment <paramref name="from"/> down. A quantified step there folds
