@@ -64,8 +64,15 @@ public static class RecordsTools
         [Description("Maximum hops from a seed (default 16). Nodes AT the cap are recorded, not entered, and the response says the cap cut the walk — never a silent stop.")]
         public int? depth { get; set; }
 
-        [Description("The node budget (default 2000, the read-expansion budget). Per seed on a forward walk and on the reverse carrier walk (each seed's carrier rows); ONE budget shared across every seed and every hop on the transitive reverse walk, whose hops are one frontier and not a per-seed expansion. A breach keeps what was proved and says which reading it spent. A reading form (summary/fields/rows/everything/aggregate) then renders the whole reached set — seeds times this budget at the worst — and reads a body per row, so it is held to the same render bound a scan is on EVERY walk lane, and refuses up front naming that lane's own levers: its seeds, this budget, and — on the forward and carrier walks, the two chain can draw — project.form='chain', which lists the same set without reading a body per rendered row (the walk reads one per reached node whatever the form).")]
+        [Description("The node budget (default 2000, the read-expansion budget; 250000 is the hard upper bound and a higher value is refused). Per seed on a forward walk and on the reverse carrier walk (each seed's carrier rows); ONE budget shared across every seed and every hop on the transitive reverse walk, whose hops are one frontier and not a per-seed expansion. A breach keeps what was proved and says which reading it spent. A reading form (summary/fields/rows/everything/aggregate) then renders the whole reached set — seeds times this budget at the worst — and reads a body per row, so it is held to the same render bound a scan is on EVERY walk lane, and refuses up front naming that lane's own levers: its seeds, this budget, and — on the forward and carrier walks, the two chain can draw — project.form='chain', which lists the same set without reading a body per rendered row (the walk reads one per reached node whatever the form).")]
         public int? max_nodes { get; set; }
+
+        /// <summary>The hard upper bound on <see cref="max_nodes"/> (Aaron, 2026-09-12). FIXED, not derived from the
+        /// machine: a reached node costs a row of a few KB wherever it runs, so the arithmetic is the same
+        /// everywhere, and a bound that moved with the machine would make one call succeed on one box and refuse on
+        /// another. 250,000 is above the whole forward closure a single seed reaches — 195,848 nodes measured on a
+        /// 3,801-plugin order — so it bounds the budget without bounding an answer.</summary>
+        internal const int Ceiling = 250_000;
 
         [Description("Node classes the walk must not enter, as data: [{\"match\": \"Race\", \"severity\": \"stop\"|\"refuse\"}] — match is the record type name a read reports; stop prunes there (recorded as a boundary), refuse fails the whole call loud.")]
         public RecordsWalkExclusion[]? exclusions { get; set; }
@@ -312,6 +319,8 @@ public static class RecordsTools
             if (walk.max_nodes is { } wn)
             {
                 if (wn < 1) return Wire.Refuse(json, $"error: walk.max_nodes={wn} — the node budget must be >= 1.");
+                if (wn > RecordsWalk.Ceiling)
+                    return Wire.Refuse(json, $"error: walk.max_nodes={wn} — the node budget's hard upper bound is {RecordsWalk.Ceiling}; pass that or less, which is above the whole forward closure a single seed reaches on a large order.");
                 walkMaxNodes = wn;
             }
             foreach (var x in walk.exclusions ?? Array.Empty<RecordsWalkExclusion>())
