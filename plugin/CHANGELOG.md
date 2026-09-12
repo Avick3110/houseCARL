@@ -15,14 +15,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 - **A forward `walk=` no longer holds every record it reached.** A record body read from a plugin is a slice
   of that record group's whole byte array and keeps it alive, so caching one body per reached node until the
-  call returned pinned one array per source group per plugin: 230 KB per reached node, and a raised
+  call returned pinned one array per source group per plugin: 270 KB per reached node, and a raised
   `walk.max_nodes` ran the process out of memory. A reached node now costs its row — its identity, its links,
   its pull chain — and a body lives only for the gather pass that read it, so the reached set is gone before
   anything renders. Measured on a 3,801-plugin order, the forward closure from one NPC: at
   `walk.max_nodes: 10000`, 3,528 MB peak working set becomes 1,480 MB; at 40,000, 9,469 MB becomes 1,516 MB;
   at 1,000,000 — which used to die with `OutOfMemoryException` at 55,875 MB private after 471 s — the walk
-  now finishes, reaching the closure's full 195,848 nodes in 289 s at 1,656 MB. What the walk reports is
-  unchanged. The bound on `walk.max_nodes` itself is unchanged, and is the open half of this: see #719.
+  now finishes, reaching the closure's full 195,848 nodes in 287 s at 1,694 MB. What the walk reports is
+  unchanged, and so is what `walk.max_nodes` accepts: the parameter still takes any budget at or above 1.
 
 ## 2.0.0 — 2026-09-11
 
