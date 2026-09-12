@@ -164,10 +164,7 @@ public sealed class RecordsWalkCostTests
         var seeks = LoadOrderResolver.BodySeeks - before;
 
         Assert.Contains($"seeds={WalkCostWorld.Seeds + 2}", response);
-        // The gather, plus the template report's own re-read of the chain, which the walk no longer pins (#719).
-        // That re-read is the CHAIN's length, not the seed count — the reports share one cache — so the claim this
-        // test makes is unchanged: a constant, not one walk per seed.
-        Assert.True(seeks <= 3, $"{WalkCostWorld.Seeds + 2} walk seeds cost {seeks} per-record plugin walks.");
+        Assert.True(seeks <= 1, $"{WalkCostWorld.Seeds + 2} walk seeds cost {seeks} per-record plugin walks.");
     }
 
     /// <summary>Every seed advances one hop together, so a hop's reached nodes are one gather too. Before, a closure
@@ -298,6 +295,39 @@ public sealed class RecordsWalkCostTests
         Assert.StartsWith("error:", response);
         Assert.Contains("walk.max_nodes=" + (RecordsTools.RecordsWalk.Ceiling + 1), response);
         Assert.Contains(RecordsTools.RecordsWalk.Ceiling.ToString(), response);
+    }
+
+    /// <summary>The template report costs no read of its own: on a template walk the reached nodes ARE the chain
+    /// nodes, so the report takes its facts off the bodies the walk already read. It re-read every chain node from
+    /// disk once the walk stopped pinning bodies, which is the seed-count-times-whole-plugin-seek shape of
+    /// #556.</summary>
+    [Fact]
+    public void ATemplateReportReadsNoChainNodeTheWalkAlreadyRead()
+    {
+        var before = LoadOrderResolver.BodySeeks;
+        var response = RecordsTools.Records(Svc, types: Npc, plugins: Scope(), walk: TemplateWalk(),
+                                            project: Chain(), counts_only: true);
+        var seeks = LoadOrderResolver.BodySeeks - before;
+
+        Assert.DoesNotContain("error:", response);
+        Assert.True(seeks <= 1, $"the template report over {WalkCostWorld.Seeds + 2} seeds cost {seeks} per-record plugin walks.");
+    }
+
+    /// <summary>The bound is on the PER-SEED reading of the budget. On the transitive reverse walk the same
+    /// parameter is one budget shared across every seed and every hop — a different quantity, on the lane where the
+    /// retention this PR fixes never existed — so this gate leaves it alone.</summary>
+    [Fact]
+    public void ATransitiveReverseWalkIsNotHeldToTheForwardCeiling()
+    {
+        var response = RecordsTools.Records(Svc, formids: new[] { _w.RevisitSeed },
+                                            walk: new RecordsTools.RecordsWalk
+                                            {
+                                                direction = "reverse", follow = "*", depth = 1,
+                                                max_nodes = RecordsTools.RecordsWalk.Ceiling + 1,
+                                            },
+                                            project: Fields(), counts_only: true);
+
+        Assert.DoesNotContain("hard upper bound", response);
     }
 
     /// <summary>And the bound itself is a legal budget, not one off it — the refusal is above, not at.</summary>
