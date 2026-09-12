@@ -13,6 +13,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **A forward `walk=` no longer holds every record it reached.** A record body read from a plugin is a slice
+  of that record group's whole byte array and keeps it alive, so caching one body per reached node until the
+  call returned pinned one array per source group per plugin: 230 KB per reached node, and a raised
+  `walk.max_nodes` ran the process out of memory. A reached node now costs its row — its identity, its links,
+  its pull chain — and a body lives only for the gather pass that read it, so the reached set is gone before
+  anything renders. Measured on a 3,801-plugin order, the forward closure from one NPC: at
+  `walk.max_nodes: 10000`, 3,528 MB peak working set becomes 1,480 MB; at 40,000, 9,469 MB becomes 1,516 MB;
+  at 1,000,000 — which used to die with `OutOfMemoryException` at 55,875 MB private after 471 s — the walk
+  now finishes, reaching the closure's full 195,848 nodes in 289 s at 1,656 MB. What the walk reports is
+  unchanged. The bound on `walk.max_nodes` itself is unchanged, and is the open half of this: see #719.
+
 ## 2.0.0 — 2026-09-11
 
 houseCARL 2.0.0 replaces the 1.x tool surface with 31 tools. The record plane is one grammar: a read is one call composed from four axes (SELECT × SOURCE × PROJECT × TRANSPORT); a write is one call composed from an op list, a lane and a transport; one record is a set of one. Record coverage is generated from Mutagen.Bethesda.Skyrim 0.54.4 at build time, 1,174 types, and the write pre-flight and the `mutagen-reference` skill are two renderings of that one artifact. The 1.x tool and parameter names are deleted, not deprecated: a retired tool name is refused with a refusal naming its successor, from `AliasTable.cs`; a retired parameter name is refused as an unknown parameter, with the parameters the tool does take. Seven skills ship. `housecarl_check` gains the facegen family. The installer shows what it will write before writing, and uninstalls. The entries below are in the order they landed.
