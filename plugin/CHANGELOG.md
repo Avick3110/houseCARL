@@ -19,16 +19,18 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `walk.max_nodes` ran the process out of memory. A reached node now costs its row — its identity, its links,
   its pull chain — and a body lives only for the gather pass that read it, so the reached set is gone before
   anything renders. Measured on a 3,801-plugin order, the forward closure from one NPC: at
-  `walk.max_nodes: 10000`, 3,528 MB peak working set becomes 1,480 MB; at 40,000, 9,469 MB becomes 1,516 MB;
-  at 1,000,000 — which used to die with `OutOfMemoryException` at 55,875 MB private after 471 s — the walk
-  now finishes, reaching the closure's full 195,848 nodes in 287 s at 1,694 MB. What the walk reports is
-  unchanged.
+  `walk.max_nodes: 10000`, 3,528 MB peak working set becomes 1,430 MB; at 40,000, 9,469 MB becomes 1,490 MB;
+  and at a budget big enough to exhaust the closure — which used to die with `OutOfMemoryException` at
+  55,875 MB private after 471 s — the walk now finishes, reaching that seed's full 195,848 nodes in 308 s at
+  1,808 MB. What the walk reports is unchanged.
 - **`walk.max_nodes` now has a hard upper bound of 250,000, and a higher budget is refused naming it.** Fixed,
   not derived from the machine: a reached node costs a row of a few KB wherever the walk runs, so the arithmetic
   is the same on every box, and a bound that moved with the machine would let one call succeed on one and be
   refused on another. It bounds the budget without bounding an answer — the whole forward closure a single seed
   reaches, measured on a 3,801-plugin order, is 195,848 nodes, so a walk that finishes still finishes. The bound
-  is on `walk.max_nodes`; `walk.depth` is unchanged.
+  is on the PER-SEED reading of the budget, which the parameter's own description separates: the forward walk and
+  the reverse carrier walk. The transitive reverse walk, where one budget is shared across every seed and every
+  hop, is unchanged, and so is `walk.depth`.
 
 ## 2.0.0 — 2026-09-11
 
