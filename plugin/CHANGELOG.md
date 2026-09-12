@@ -22,7 +22,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `walk.max_nodes: 10000`, 3,528 MB peak working set becomes 1,480 MB; at 40,000, 9,469 MB becomes 1,516 MB;
   at 1,000,000 — which used to die with `OutOfMemoryException` at 55,875 MB private after 471 s — the walk
   now finishes, reaching the closure's full 195,848 nodes in 287 s at 1,694 MB. What the walk reports is
-  unchanged, and so is what `walk.max_nodes` accepts: the parameter still takes any budget at or above 1.
+  unchanged.
+- **`walk.max_nodes` now has a hard upper bound of 250,000, and a higher budget is refused naming it.** Fixed,
+  not derived from the machine: a reached node costs a row of a few KB wherever the walk runs, so the arithmetic
+  is the same on every box, and a bound that moved with the machine would let one call succeed on one and be
+  refused on another. It bounds the budget without bounding an answer — the whole forward closure a single seed
+  reaches, measured on a 3,801-plugin order, is 195,848 nodes, so a walk that finishes still finishes. The bound
+  is on `walk.max_nodes`; `walk.depth` is unchanged.
 
 ## 2.0.0 — 2026-09-11
 

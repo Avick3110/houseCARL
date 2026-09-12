@@ -284,6 +284,34 @@ public sealed class RecordsWalkCostTests
         Assert.Equal(0, LoadOrderService.WalkBodiesHeldAtReturn);
     }
 
+    // ---- the node budget's hard upper bound ---------------------------------------------------------
+
+    /// <summary>The budget has a hard upper bound, so "no cap" cannot be spelled as a huge number and walked into
+    /// the ground. The refusal names the bound and what to pass instead.</summary>
+    [Fact]
+    public void ANodeBudgetPastTheCeilingIsRefusedNamingTheBound()
+    {
+        var response = RecordsTools.Records(Svc, types: Npc, plugins: Scope(),
+                                            walk: new RecordsTools.RecordsWalk { max_nodes = RecordsTools.RecordsWalk.Ceiling + 1 },
+                                            project: Chain(), counts_only: true);
+
+        Assert.StartsWith("error:", response);
+        Assert.Contains("walk.max_nodes=" + (RecordsTools.RecordsWalk.Ceiling + 1), response);
+        Assert.Contains(RecordsTools.RecordsWalk.Ceiling.ToString(), response);
+    }
+
+    /// <summary>And the bound itself is a legal budget, not one off it — the refusal is above, not at.</summary>
+    [Fact]
+    public void ANodeBudgetAtTheCeilingWalks()
+    {
+        var response = RecordsTools.Records(Svc, types: Npc, plugins: Scope(),
+                                            walk: new RecordsTools.RecordsWalk { depth = 1, max_nodes = RecordsTools.RecordsWalk.Ceiling },
+                                            project: Chain(), counts_only: true);
+
+        Assert.DoesNotContain("error:", response);
+        Assert.Contains($"reached={WalkCostWorld.Seeds * (WalkCostWorld.ItemsPerSeed + 1) + 1}", response);
+    }
+
     /// <summary>A seed at its node budget reads no further. The gather used to take every seed's whole hop frontier
     /// before the budget was consulted on dequeue, so a walk capped at one node still read — and pinned — every
     /// link off every seed to keep one of them. The budget now rides into the gather, and the cap itself is
