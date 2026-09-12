@@ -211,7 +211,7 @@ public sealed class RecordsWalkCostTests
 
     /// <summary>A reached node costs its row, not its body. A record getter is a slice of its whole GRUP's byte
     /// array and pins it, so caching every reached node's body until the call ended pinned one array per source
-    /// GRUP per plugin — 230 KB a reached node on a real order, and an OOM at a raised budget (#719). Bodies now
+    /// GRUP per plugin — 270 KB a reached node on a real order, and an OOM at a raised budget (#719). Bodies now
     /// live for the gather pass that read them, and the reached set is gone before anything renders.</summary>
     [Fact]
     public void AWalkHoldsNoReachedBodiesPastTheGatherThatReadThem()
@@ -225,6 +225,63 @@ public sealed class RecordsWalkCostTests
         Assert.Equal(0, LoadOrderService.WalkBodiesHeldAtReturn);
         Assert.True(LoadOrderService.WalkBodyHighWater <= BodyPrefetch.ChunkRows,
                     $"the walk held {LoadOrderService.WalkBodyHighWater} bodies at once — past the {BodyPrefetch.ChunkRows} one gather pass allows.");
+    }
+
+    /// <summary>The same walk with a pass small enough to SPLIT — every seed slice and every hop runs several
+    /// passes, so the release, the level snapshot, a seed skipped because an earlier one filled the pass, and the
+    /// per-pass node budget are all exercised. Building a world with a 2,000-link hop to meet the real pass size is
+    /// not a test; the pass size is the knob, the same way the render bound is.</summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(7)]
+    [InlineData(64)]
+    public void AWalkSplitAcrossPassesReachesTheSameSetAndHoldsOnePass(int passRows)
+    {
+        var reached = WalkCostWorld.Seeds * (WalkCostWorld.ItemsPerSeed + 1) + 1;
+        string Walk() => RecordsTools.Records(Svc, types: Npc, plugins: Scope(),
+                                              walk: new RecordsTools.RecordsWalk { depth = 1 },
+                                              project: Chain(), counts_only: true);
+
+        var whole = Walk();
+        var split = WithPassRows(passRows, Walk);
+
+        Assert.Equal(whole, split);
+        Assert.Contains($"reached={reached}", split);
+        Assert.Equal(0, LoadOrderService.WalkBodiesHeldAtReturn);
+        Assert.True(LoadOrderService.WalkBodyHighWater <= passRows,
+                    $"a walk passing {passRows} keys at a time held {LoadOrderService.WalkBodyHighWater} bodies at once.");
+    }
+
+    /// <summary>The node budget is spent across passes, not per pass: a seed capped at one node records one node and
+    /// says the cap cut it, whether the hop it cut ran in one pass or twenty.</summary>
+    [Fact]
+    public void ASeedsNodeBudgetIsSpentAcrossPassesNotPerPass()
+    {
+        var response = WithPassRows(3, () =>
+            RecordsTools.Records(Svc, types: Npc, plugins: Scope(),
+                                 walk: new RecordsTools.RecordsWalk { depth = 2, max_nodes = 1 },
+                                 project: Chain(), counts_only: true));
+
+        Assert.Contains($"reached={WalkCostWorld.Seeds + 1}", response);
+        Assert.Equal(0, LoadOrderService.WalkBodiesHeldAtReturn);
+    }
+
+    /// <summary>A severity 'refuse' still names the first seed in seed order at the shallowest hop, and the pass it
+    /// abandoned is released rather than left to the collector, now that a hop is interleaved across passes.</summary>
+    [Fact]
+    public void ARefusingWalkSplitAcrossPassesRefusesTheSameWayAndHoldsNothing()
+    {
+        var refuse = new[] { new RecordsTools.RecordsWalkExclusion { match = "Ammunition", severity = "refuse" } };
+        string Walk() => RecordsTools.Records(Svc, types: Npc, plugins: Scope(),
+                                              walk: new RecordsTools.RecordsWalk { depth = 1, exclusions = refuse },
+                                              project: Chain(), counts_only: true);
+
+        var whole = Walk();
+        var split = WithPassRows(5, Walk);
+
+        Assert.StartsWith("error:", whole);
+        Assert.Equal(whole, split);
+        Assert.Equal(0, LoadOrderService.WalkBodiesHeldAtReturn);
     }
 
     /// <summary>A seed at its node budget reads no further. The gather used to take every seed's whole hop frontier
@@ -394,6 +451,15 @@ public sealed class RecordsWalkCostTests
         RenderBudget.MaxRenderRows = rows;
         try { return call(); }
         finally { RenderBudget.MaxRenderRows = prior; }
+    }
+
+    /// <summary>Run one call with the walk's gather pass shrunk, restored whatever happens.</summary>
+    static string WithPassRows(int rows, Func<string> call)
+    {
+        var prior = LoadOrderService.WalkPassRows;
+        LoadOrderService.WalkPassRows = rows;
+        try { return call(); }
+        finally { LoadOrderService.WalkPassRows = prior; }
     }
 
     /// <summary>Every NPC in the world, as walk seeds.</summary>

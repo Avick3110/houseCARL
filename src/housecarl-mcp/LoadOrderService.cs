@@ -3859,10 +3859,33 @@ public sealed partial class LoadOrderService : IDisposable
     /// that claim to (#719). Set by <see cref="WalkForwardBatch"/>, which resets it on entry.</summary>
     internal static int WalkBodyHighWater;
 
-    /// <summary>How many record bodies the last forward walk was STILL holding when its hops finished — the other
-    /// half of the same claim, and the one the reported bug was: the reached set has to be gone before the render,
-    /// not at the end of the call. Zero on every walk.</summary>
+    /// <summary>How many record bodies the last forward walk was STILL holding when it returned — the other half of
+    /// the same claim, and the one the reported bug was: the reached set has to be gone before the render, not at
+    /// the end of the call. Zero on every walk, the refusal and the no-frontier returns included.</summary>
     internal static int WalkBodiesHeldAtReturn;
+
+    /// <summary>How many record bodies one forward-walk gather pass reads before it releases them — the seed slice
+    /// and the hop slice alike. <see cref="BodyPrefetch.ChunkRows"/>, so a plugin is enumerated exactly as often as
+    /// the gather already enumerated it; a test lowers it to split a hop the way a real order's does.</summary>
+    internal static int WalkPassRows = BodyPrefetch.ChunkRows;
+
+    /// <summary>Everything a walk takes from one reached node: its identity and its links, as values. It is what a
+    /// key is remembered by once its body is gone, so a node two seeds both reach is still ONE read per call —
+    /// which is what the body cache used to buy before it was the retention (#719).</summary>
+    sealed class WalkNodeFact
+    {
+        public bool Resolved;
+        public string? Type;
+        public string? EditorId;
+        public List<FormKey>? Links;
+    }
+
+    static readonly List<FormKey> EmptyKeys = new();
+
+    /// <summary>What the NPC template report needs from one node — values, never a getter, so reading a chain pins
+    /// no record group's bytes. Reused across seeds, which is what keeps a shared chain one read per call.</summary>
+    readonly record struct WalkTemplateFact(string TypeName, string? EditorId, FormKey Template, bool HasTemplate,
+                                            NpcConfiguration.TemplateFlag Flags, bool IsNpc, bool IsLeveled);
 
     /// <summary>One record the walk reached: its identity, its provenance (<see cref="PulledBy"/> — the parent
     /// node's label) and whether the walk entered it or recorded it as a boundary. A boundary's reason — an
@@ -3889,12 +3912,11 @@ public sealed partial class LoadOrderService : IDisposable
     /// advances every seed one hop at a time, so a hop's bodies can be gathered together; this holds what used to be
     /// locals of a per-seed loop.
     /// <para>It holds the seed's IDENTITY, never its body — a record getter is a slice of its whole GRUP's byte array
-    /// and pins it (#719). <see cref="SeedBody"/> is the one exception, kept only for the NPC template report, which
-    /// needs the seed record itself.</para></summary>
+    /// and pins it (#719). The NPC template report rides on <see cref="SeedTemplateFact"/>, which is values.</para></summary>
     sealed class WalkSeedState
     {
         public FormKey Key;
-        public INpcGetter? SeedBody;
+        public WalkTemplateFact? SeedTemplateFact;
         public string? EditorId;
         public string Type = "";
         public string Label = "";
@@ -3949,6 +3971,32 @@ public sealed partial class LoadOrderService : IDisposable
             IMajorRecordGetter? g = view.ResolveWinner(k) is { } w ? view.GetRecord(session, w.WinnerPlugin, k) : null;
             bodyCache[k] = g;
             return g;
+        }
+        // The same read WITHOUT the cache — for the template chain, whose nodes are read once, reduced to values,
+        // and dropped. Caching them would put the retention this walk exists to remove back on that one lane.
+        IMajorRecordGetter? FetchTransient(FormKey k)
+            => bodyCache.TryGetValue(k, out var c) ? c
+             : view.ResolveWinner(k) is { } w ? view.GetRecord(session, w.WinnerPlugin, k) : null;
+
+        // One node's template facts, memoised BY VALUE: shared chains stay one read per call (the seeds of a
+        // template walk mostly share theirs) and nothing is pinned between seeds.
+        var templateFacts = new Dictionary<FormKey, WalkTemplateFact?>();
+        WalkTemplateFact? TemplateFactOf(FormKey k)
+        {
+            if (templateFacts.TryGetValue(k, out var have)) return have;
+            var body = FetchTransient(k);
+            WalkTemplateFact? fact = body is null ? null : FactOf(body);
+            templateFacts[k] = fact;
+            return fact;
+        }
+        static WalkTemplateFact FactOf(IMajorRecordGetter b)
+        {
+            var npc = b as INpcGetter;
+            var t = npc?.Template;
+            return new WalkTemplateFact(RecordNaming.StripOverlay(b.GetType().Name), b.EditorID,
+                                        t is null || t.IsNull ? default : t.FormKey, t is not null && !t.IsNull,
+                                        npc?.Configuration.TemplateFlags ?? default, npc is not null,
+                                        b is ILeveledNpcGetter);
         }
         // The hop's bodies, one enumeration per source plugin. A key the gather does not return stays UNCACHED, so
         // Fetch still raises whatever the per-record read raises: the gather is an optimisation, not an error path.
@@ -4006,19 +4054,53 @@ public sealed partial class LoadOrderService : IDisposable
             return links ?? new List<FormKey>();
         }
 
+        // What each reached key yielded, by value. Bodies no longer outlive their pass, so without this a key two
+        // seeds both reach would be READ once per seed rather than once per call. Kept only for a MULTI-seed walk:
+        // one seed's own visited set already stops it reading a key twice, so the memo would be pure cost there.
+        var nodeFacts = seeds.Count > 1 ? new Dictionary<FormKey, WalkNodeFact>() : null;
+
+        // The node's identity and, unless it is at the depth cap or an excluded class, its links — off the memo when
+        // the memo already holds what this row needs, off a body read otherwise.
+        WalkNodeFact FactFor(FormKey k, bool atCap)
+        {
+            var fact = nodeFacts is not null && nodeFacts.TryGetValue(k, out var f) ? f : null;
+            if (fact is not null && (!fact.Resolved || atCap || fact.Links is not null || Excluded(fact.Type))) return fact;
+
+            var body = Fetch(k);
+            fact = body is null
+                 ? new WalkNodeFact { Resolved = false }
+                 : new WalkNodeFact { Resolved = true, Type = TypeOf(body), EditorId = body.EditorID };
+            if (body is not null && !atCap && !Excluded(fact.Type)) fact.Links = LinksOf(body, followSegs, out _);
+            if (nodeFacts is not null) nodeFacts[k] = fact;
+            return fact;
+        }
+        bool Excluded(string? type)
+            => type is not null && exclusions.Any(x => x.Match.Equals(type, StringComparison.OrdinalIgnoreCase));
+
+        // Is this queued item's row already answerable from the memo? Then its body is not worth a gather slot.
+        bool Memoised(FormKey k, int hop)
+            => nodeFacts is not null && nodeFacts.TryGetValue(k, out var f)
+               && (!f.Resolved || hop >= depth || f.Links is not null || Excluded(f.Type));
+
         // ---- the seeds: parsed, then gathered together, then started on their first hop ----
+        // In SLICES of a pass, for the reason the hops are: a walk can be seeded from a spilled artifact holding
+        // thousands of FormIDs, and gathering them all first held one body — one pinned record group — per seed
+        // before a single hop had run.
         var rows = new WalkSeedResult?[seeds.Count];
         var states = new WalkSeedState?[seeds.Count];
         var seedKeys = new FormKey[seeds.Count];
-        var seedGather = new List<FormKey>(seeds.Count);
-        for (int i = 0; i < seeds.Count; i++)
+        for (int s0 = 0; s0 < seeds.Count; s0 += WalkPassRows)
+        {
+        int s1 = Math.Min(s0 + WalkPassRows, seeds.Count);
+        var seedGather = new List<FormKey>(s1 - s0);
+        for (int i = s0; i < s1; i++)
         {
             try { seedKeys[i] = view.ParseFormId(seeds[i]); seedGather.Add(seedKeys[i]); }
             catch (Exception ex) { rows[i] = new WalkSeedResult(seeds[i]?.Trim() ?? "", null, null, Array.Empty<WalkNodeRow>(), Array.Empty<string>(), null, null, $"bad FormID '{seeds[i]}': {ex.Message}"); }
         }
         Prefetch(seedGather);
 
-        for (int i = 0; i < seeds.Count; i++)
+        for (int i = s0; i < s1; i++)
         {
             if (rows[i] is not null) continue;
             ct.ThrowIfCancellationRequested();
@@ -4039,9 +4121,9 @@ public sealed partial class LoadOrderService : IDisposable
             var st = new WalkSeedState
             {
                 Key = seedFk,
-                // Only the template report needs the seed's own body past its first hop; every other consumer wants
-                // its identity, so nothing else keeps a getter alive (and with it a whole GRUP's bytes).
-                SeedBody = templateFollow ? seedBody as INpcGetter : null,
+                // The template report takes the seed's facts, not its body: a getter kept per seed would pin one
+                // record group per seed, which is the retention this walk exists to remove.
+                SeedTemplateFact = templateFollow && seedBody is INpcGetter ? FactOf(seedBody) : null,
                 EditorId = seedBody.EditorID,
                 Type = seedType,
                 Label = $"{seedType} {FormIdToken.Of(seedFk)} ({seedBody.EditorID ?? "<no editorid>"})",
@@ -4067,14 +4149,18 @@ public sealed partial class LoadOrderService : IDisposable
             }
             states[i] = st;
         }
+        // The slice's seed bodies have given up their identity and their first-hop links; they go now.
+        if (bodyCache.Count > WalkBodyHighWater) WalkBodyHighWater = bodyCache.Count;
+        bodyCache.Clear();
+        }
 
         // ---- the hops: every seed advances one hop together, so the hop's bodies are ONE gather ----
         // A node at the depth cap is recorded and not entered, so nothing is ever queued past `depth`.
         //
-        // A hop is worked in PASSES of at most BodyPrefetch.ChunkRows keys, and every body the pass gathered is
+        // A hop is worked in PASSES of at most WalkPassRows keys, and every body the pass gathered is
         // RELEASED when the pass ends (#719): a record getter is a slice of its whole GRUP's byte array and pins it,
         // so caching the bodies of a whole walk pinned one array per source GRUP per plugin for the life of the call
-        // — 230 KB a node on a real order, and an OOM on a raised budget. A reached node now costs its row: its
+        // — 270 KB a node on a real order, and an OOM on a raised budget. A reached node now costs its row: its
         // identity, its links, its provenance. The pass size IS the gather's own chunk size, so a plugin is
         // enumerated exactly as many times as before and no read gets slower.
         var atLevel = new int[states.Length];
@@ -4111,11 +4197,12 @@ public sealed partial class LoadOrderService : IDisposable
                 int took = 0, seenItems = 0;
                 foreach (var q in s.Frontier)
                 {
-                    if (seenItems >= atLevel[i] || frontier.Count >= BodyPrefetch.ChunkRows) break;
+                    if (seenItems >= atLevel[i] || frontier.Count >= WalkPassRows) break;
                     seenItems++;
                     // A key this seed already visited is dropped at dequeue, so gathering it would spend a slot on a
                     // body no row ever shows and push a node the seed DOES record back onto the per-record seek.
-                    if (q.Key.IsNull || s.Visited.Contains(q.Key) || bodyCache.ContainsKey(q.Key) || !gatherSeen.Add(q.Key)) continue;
+                    if (q.Key.IsNull || s.Visited.Contains(q.Key) || bodyCache.ContainsKey(q.Key)
+                        || Memoised(q.Key, q.Depth) || !gatherSeen.Add(q.Key)) continue;
                     frontier.Add(q.Key);
                     if (++took >= room) break;
                 }
@@ -4149,14 +4236,15 @@ public sealed partial class LoadOrderService : IDisposable
                         atLevel[si] = 0;
                         break;
                     }
-                    var body = Fetch(key);
-                    if (body is null)
+                    bool atCap = hop >= depth;
+                    var fact = FactFor(key, atCap);
+                    if (!fact.Resolved)
                     {
                         st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), null, null, hop, pulledBy, "kept",
                                                      "unresolved — no active plugin defines this target (a missing endpoint)"));
                         continue;
                     }
-                    var type = TypeOf(body);
+                    var type = fact.Type!;
                     var excl = exclusions.FirstOrDefault(x => x.Match.Equals(type, StringComparison.OrdinalIgnoreCase));
                     if (excl.Match is not null)
                     {
@@ -4165,13 +4253,17 @@ public sealed partial class LoadOrderService : IDisposable
                         if (excl.Refuse)
                         {
                             refusal = $"the walk reached a {type} ({FormIdToken.Of(key)}, via {pulledBy}) — a node class this call excludes with severity 'refuse'. Nothing is returned for this call.";
+                            // A refusal returns nothing, so the pass in hand is dead: release it here rather than
+                            // leaving it to the collector, on the path that returns no rows to release it with.
+                            if (bodyCache.Count > WalkBodyHighWater) WalkBodyHighWater = bodyCache.Count;
+                            bodyCache.Clear();
+                            WalkBodiesHeldAtReturn = 0;
                             return Array.Empty<WalkSeedResult>();
                         }
-                        st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), type, body.EditorID, hop, pulledBy, "kept", $"excluded ({type}, severity stop) — recorded as a boundary, not entered"));
+                        st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), type, fact.EditorId, hop, pulledBy, "kept", $"excluded ({type}, severity stop) — recorded as a boundary, not entered"));
                         continue;
                     }
-                    bool atCap = hop >= depth;
-                    st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), type, body.EditorID, hop, pulledBy,
+                    st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), type, fact.EditorId, hop, pulledBy,
                                                  atCap ? "kept" : "expanded",
                                                  atCap ? $"at the walk.depth cap ({depth}) — not entered" : null));
                     if (atCap)
@@ -4179,8 +4271,8 @@ public sealed partial class LoadOrderService : IDisposable
                         st.Truncation ??= $"walk reached its depth cap ({depth}) on at least one chain — nodes at the cap are recorded, not entered; raise walk.depth to walk deeper.";
                         continue;
                     }
-                    var label = $"{type} {FormIdToken.Of(key)} ({body.EditorID ?? "<no editorid>"})";
-                    foreach (var l in LinksOf(body, followSegs, out _))
+                    var label = $"{type} {FormIdToken.Of(key)} ({fact.EditorId ?? "<no editorid>"})";
+                    foreach (var l in fact.Links ?? EmptyKeys)
                         if (!l.IsNull) st.Frontier.Enqueue((l, hop + 1, label));
                 }
                 // An empty frontier means this seed is finished — nothing but its own turn ever enqueues into it —
@@ -4194,34 +4286,33 @@ public sealed partial class LoadOrderService : IDisposable
             }
         }
 
-        WalkBodiesHeldAtReturn = bodyCache.Count;
-
         var results = new List<WalkSeedResult>(seeds.Count);
         for (int i = 0; i < seeds.Count; i++)
         {
             if (states[i] is not { } st) { results.Add(rows[i]!); continue; }
             IReadOnlyList<NpcTemplateCategory>? templateReport = null;
-            if (st.SeedBody is { } seedNpc) templateReport = NpcTemplateReport(Fetch, seedNpc, st.Key);
+            if (st.SeedTemplateFact is { } seedFact) templateReport = NpcTemplateReport(TemplateFactOf, seedFact, st.Key);
             results.Add(new WalkSeedResult(FormIdToken.Of(st.Key), st.Type, st.EditorId, st.Nodes, st.Cycles, st.Truncation, templateReport, null));
         }
-        bodyCache.Clear();
+        WalkBodiesHeldAtReturn = bodyCache.Count;
         return results;
     }
 
     /// <summary>The NPC_ TemplateFlags interpreter: a SET flag means the category is inherited and the seed's own
     /// local data for it is masked; the provider is the first record down the template chain whose flag for that
     /// category is CLEAR, so its own data is active. A chain ending in a leveled actor resolves at runtime, and a
-    /// broken or missing link is reported rather than guessed.</summary>
-    static IReadOnlyList<NpcTemplateCategory> NpcTemplateReport(Func<FormKey, IMajorRecordGetter?> fetch,
-                                                                INpcGetter seed, FormKey seedFk)
+    /// broken or missing link is reported rather than guessed. It walks FACTS, not bodies, so reporting a chain
+    /// pins no record group's bytes (#719).</summary>
+    static IReadOnlyList<NpcTemplateCategory> NpcTemplateReport(Func<FormKey, WalkTemplateFact?> factOf,
+                                                                WalkTemplateFact seed, FormKey seedFk)
     {
         var report = new List<NpcTemplateCategory>();
         foreach (NpcConfiguration.TemplateFlag flag in Enum.GetValues(typeof(NpcConfiguration.TemplateFlag)))
         {
             var name = flag.ToString();
-            if (!seed.Configuration.TemplateFlags.HasFlag(flag))
+            if (!seed.Flags.HasFlag(flag))
             {
-                report.Add(new NpcTemplateCategory(name, false, FormIdToken.Of(seedFk), seed.EditorID,
+                report.Add(new NpcTemplateCategory(name, false, FormIdToken.Of(seedFk), seed.EditorId,
                                                    "local data ACTIVE (flag clear)"));
                 continue;
             }
@@ -4231,19 +4322,17 @@ public sealed partial class LoadOrderService : IDisposable
             var hops = new HashSet<FormKey> { seedFk };
             while (true)
             {
-                var t = cur.Template;
-                if (t is null || t.IsNull) { note = "flag SET but the template link is empty — the category inherits from nothing (worth a look)"; break; }
-                var nextKey = t.FormKey;
+                if (!cur.HasTemplate) { note = "flag SET but the template link is empty — the category inherits from nothing (worth a look)"; break; }
+                var nextKey = cur.Template;
                 if (!hops.Add(nextKey)) { note = $"template chain CYCLES at {nextKey} — no provider is reachable"; break; }
-                var body = fetch(nextKey);
-                if (body is null) { note = $"template target {nextKey} is unresolved — the chain is broken here"; break; }
-                if (body is ILeveledNpcGetter lvln)
-                { provKey = FormIdToken.Of(nextKey); provEid = lvln.EditorID; note = "a LEVELED actor — the concrete provider is rolled at runtime"; break; }
-                if (body is not INpcGetter npc)
-                { note = $"template target {nextKey} is a {RecordNaming.StripOverlay(body.GetType().Name)}, not an NPC or leveled actor"; break; }
-                if (!npc.Configuration.TemplateFlags.HasFlag(flag))
-                { provKey = FormIdToken.Of(nextKey); provEid = npc.EditorID; break; }
-                cur = npc;
+                if (factOf(nextKey) is not { } next) { note = $"template target {nextKey} is unresolved — the chain is broken here"; break; }
+                if (next.IsLeveled)
+                { provKey = FormIdToken.Of(nextKey); provEid = next.EditorId; note = "a LEVELED actor — the concrete provider is rolled at runtime"; break; }
+                if (!next.IsNpc)
+                { note = $"template target {nextKey} is a {next.TypeName}, not an NPC or leveled actor"; break; }
+                if (!next.Flags.HasFlag(flag))
+                { provKey = FormIdToken.Of(nextKey); provEid = next.EditorId; break; }
+                cur = next;
             }
             report.Add(new NpcTemplateCategory(name, true, provKey, provEid, note));
         }
