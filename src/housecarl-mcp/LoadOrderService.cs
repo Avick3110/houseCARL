@@ -3853,6 +3853,17 @@ public sealed partial class LoadOrderService : IDisposable
 
     // ---- the traversal construct (walk=) ---------------------------------------------------------------
 
+    /// <summary>The most record bodies one forward walk held at once. Counted for the reason
+    /// <see cref="LoadOrderResolver.BodySeeks"/> is: whether the walk released a reached node's body or held the
+    /// whole reached set is invisible in the answer and only the memory differs, so this is what a test can hold
+    /// that claim to (#719). Set by <see cref="WalkForwardBatch"/>, which resets it on entry.</summary>
+    internal static int WalkBodyHighWater;
+
+    /// <summary>How many record bodies the last forward walk was STILL holding when its hops finished — the other
+    /// half of the same claim, and the one the reported bug was: the reached set has to be gone before the render,
+    /// not at the end of the call. Zero on every walk.</summary>
+    internal static int WalkBodiesHeldAtReturn;
+
     /// <summary>One record the walk reached: its identity, its provenance (<see cref="PulledBy"/> — the parent
     /// node's label) and whether the walk entered it or recorded it as a boundary. A boundary's reason — an
     /// exclusion stop, the depth cap, an unresolved link — rides in <see cref="Note"/>.</summary>
@@ -3876,11 +3887,15 @@ public sealed partial class LoadOrderService : IDisposable
 
     /// <summary>One seed's walk in progress: the rows it has proved and the frontier it has still to enter. The walk
     /// advances every seed one hop at a time, so a hop's bodies can be gathered together; this holds what used to be
-    /// locals of a per-seed loop.</summary>
+    /// locals of a per-seed loop.
+    /// <para>It holds the seed's IDENTITY, never its body — a record getter is a slice of its whole GRUP's byte array
+    /// and pins it (#719). <see cref="SeedBody"/> is the one exception, kept only for the NPC template report, which
+    /// needs the seed record itself.</para></summary>
     sealed class WalkSeedState
     {
         public FormKey Key;
-        public IMajorRecordGetter Body = null!;
+        public INpcGetter? SeedBody;
+        public string? EditorId;
         public string Type = "";
         public string Label = "";
         public List<WalkNodeRow> Nodes = new();
@@ -3923,8 +3938,11 @@ public sealed partial class LoadOrderService : IDisposable
             followSegs = follow!.Trim().Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (followSegs.Length == 0) { refusal = $"walk.follow '{follow}' is not a usable field path."; return Array.Empty<WalkSeedResult>(); }
         }
+        bool templateFollow = followSegs is { Length: 1 } && followSegs[0].Equals("Template", StringComparison.OrdinalIgnoreCase);
 
         var bodyCache = new Dictionary<FormKey, IMajorRecordGetter?>();
+        WalkBodyHighWater = 0;
+        WalkBodiesHeldAtReturn = 0;
         IMajorRecordGetter? Fetch(FormKey k)
         {
             if (bodyCache.TryGetValue(k, out var c)) return c;
@@ -4021,7 +4039,10 @@ public sealed partial class LoadOrderService : IDisposable
             var st = new WalkSeedState
             {
                 Key = seedFk,
-                Body = seedBody,
+                // Only the template report needs the seed's own body past its first hop; every other consumer wants
+                // its identity, so nothing else keeps a getter alive (and with it a whole GRUP's bytes).
+                SeedBody = templateFollow ? seedBody as INpcGetter : null,
+                EditorId = seedBody.EditorID,
                 Type = seedType,
                 Label = $"{seedType} {FormIdToken.Of(seedFk)} ({seedBody.EditorID ?? "<no editorid>"})",
                 Visited = new HashSet<FormKey> { seedFk },
@@ -4049,8 +4070,28 @@ public sealed partial class LoadOrderService : IDisposable
 
         // ---- the hops: every seed advances one hop together, so the hop's bodies are ONE gather ----
         // A node at the depth cap is recorded and not entered, so nothing is ever queued past `depth`.
+        //
+        // A hop is worked in PASSES of at most BodyPrefetch.ChunkRows keys, and every body the pass gathered is
+        // RELEASED when the pass ends (#719): a record getter is a slice of its whole GRUP's byte array and pins it,
+        // so caching the bodies of a whole walk pinned one array per source GRUP per plugin for the life of the call
+        // — 230 KB a node on a real order, and an OOM on a raised budget. A reached node now costs its row: its
+        // identity, its links, its provenance. The pass size IS the gather's own chunk size, so a plugin is
+        // enumerated exactly as many times as before and no read gets slower.
+        var atLevel = new int[states.Length];
         for (int d = 1; d <= depth; d++)
         {
+            ct.ThrowIfCancellationRequested();
+            // How many queued items belong to THIS hop, snapshotted before anything is enqueued for the next one.
+            bool pending = false;
+            for (int i = 0; i < states.Length; i++)
+            {
+                atLevel[i] = states[i] is { } s0 ? s0.Frontier.Count : 0;
+                if (atLevel[i] > 0) pending = true;
+            }
+            if (!pending) break;
+
+            while (true)
+            {
             ct.ThrowIfCancellationRequested();
             // The gather is bounded by what each seed can still RECORD, not by the size of its frontier: a seed
             // whose node budget is spent reads nothing more, and a seed near its cap reads only what it can still
@@ -4058,32 +4099,39 @@ public sealed partial class LoadOrderService : IDisposable
             // itself is still enforced below — recorded and not entered, with the same sentence.
             var frontier = new List<FormKey>();
             var gatherSeen = new HashSet<FormKey>();
-            bool pending = false;
-            foreach (var s in states)
+            var take = new int[states.Length];
+            bool more = false;
+            for (int i = 0; i < states.Length; i++)
             {
-                if (s is null || s.Frontier.Count == 0) continue;
-                pending = true;
+                var s = states[i];
+                if (s is null || atLevel[i] == 0) continue;
+                more = true;
                 int room = maxNodes - s.Nodes.Count;
-                if (room <= 0) continue;                                  // at its cap: its turn below records the cut
-                int took = 0;
+                if (room <= 0) { take[i] = atLevel[i]; continue; }        // at its cap: its turn below records the cut
+                int took = 0, seenItems = 0;
                 foreach (var q in s.Frontier)
                 {
+                    if (seenItems >= atLevel[i] || frontier.Count >= BodyPrefetch.ChunkRows) break;
+                    seenItems++;
                     // A key this seed already visited is dropped at dequeue, so gathering it would spend a slot on a
                     // body no row ever shows and push a node the seed DOES record back onto the per-record seek.
-                    if (q.Key.IsNull || s.Visited.Contains(q.Key) || !gatherSeen.Add(q.Key)) continue;
+                    if (q.Key.IsNull || s.Visited.Contains(q.Key) || bodyCache.ContainsKey(q.Key) || !gatherSeen.Add(q.Key)) continue;
                     frontier.Add(q.Key);
                     if (++took >= room) break;
                 }
+                take[i] = seenItems;
             }
-            if (!pending) break;
+            if (!more) break;
             if (frontier.Count > 0) Prefetch(frontier);
 
-            foreach (var st in states)
+            for (int si = 0; si < states.Length; si++)
             {
-                if (st is null) continue;
+                var st = states[si];
+                if (st is null || take[si] == 0) continue;
                 ct.ThrowIfCancellationRequested();
-                int atLevel = st.Frontier.Count;
-                for (int q = 0; q < atLevel; q++)
+                int thisPass = take[si];
+                atLevel[si] -= thisPass;
+                for (int q = 0; q < thisPass; q++)
                 {
                     var (key, hop, pulledBy) = st.Frontier.Dequeue();
                     if (key.IsNull) continue;
@@ -4098,6 +4146,7 @@ public sealed partial class LoadOrderService : IDisposable
                     {
                         st.Truncation = $"walk truncated: the {maxNodes}-node cap was reached — what is listed IS reached and proved; raise walk.max_nodes to walk further.";
                         st.Frontier.Clear();
+                        atLevel[si] = 0;
                         break;
                     }
                     var body = Fetch(key);
@@ -4138,18 +4187,24 @@ public sealed partial class LoadOrderService : IDisposable
                 // and the results loop reads neither of these, so the bookkeeping goes back now rather than at return.
                 if (st.Frontier.Count == 0) { st.Visited = new(); st.Frontier = new(); }
             }
+            // The pass is over: the bodies it gathered have given up their identity and their links, so they go
+            // now rather than at the end of the call. This is the release the #719 retention was missing.
+            if (bodyCache.Count > WalkBodyHighWater) WalkBodyHighWater = bodyCache.Count;
+            bodyCache.Clear();
+            }
         }
+
+        WalkBodiesHeldAtReturn = bodyCache.Count;
 
         var results = new List<WalkSeedResult>(seeds.Count);
         for (int i = 0; i < seeds.Count; i++)
         {
             if (states[i] is not { } st) { results.Add(rows[i]!); continue; }
             IReadOnlyList<NpcTemplateCategory>? templateReport = null;
-            if (followSegs is { Length: 1 } && followSegs[0].Equals("Template", StringComparison.OrdinalIgnoreCase)
-                && st.Body is INpcGetter seedNpc)
-                templateReport = NpcTemplateReport(Fetch, seedNpc, st.Key);
-            results.Add(new WalkSeedResult(FormIdToken.Of(st.Key), st.Type, st.Body.EditorID, st.Nodes, st.Cycles, st.Truncation, templateReport, null));
+            if (st.SeedBody is { } seedNpc) templateReport = NpcTemplateReport(Fetch, seedNpc, st.Key);
+            results.Add(new WalkSeedResult(FormIdToken.Of(st.Key), st.Type, st.EditorId, st.Nodes, st.Cycles, st.Truncation, templateReport, null));
         }
+        bodyCache.Clear();
         return results;
     }
 

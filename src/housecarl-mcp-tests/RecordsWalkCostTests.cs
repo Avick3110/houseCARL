@@ -164,7 +164,10 @@ public sealed class RecordsWalkCostTests
         var seeks = LoadOrderResolver.BodySeeks - before;
 
         Assert.Contains($"seeds={WalkCostWorld.Seeds + 2}", response);
-        Assert.True(seeks <= 1, $"{WalkCostWorld.Seeds + 2} walk seeds cost {seeks} per-record plugin walks.");
+        // The gather, plus the template report's own re-read of the chain, which the walk no longer pins (#719).
+        // That re-read is the CHAIN's length, not the seed count — the reports share one cache — so the claim this
+        // test makes is unchanged: a constant, not one walk per seed.
+        Assert.True(seeks <= 3, $"{WalkCostWorld.Seeds + 2} walk seeds cost {seeks} per-record plugin walks.");
     }
 
     /// <summary>Every seed advances one hop together, so a hop's reached nodes are one gather too. Before, a closure
@@ -204,6 +207,24 @@ public sealed class RecordsWalkCostTests
         var ceiling = perSeedCeiling * (WalkCostWorld.Seeds + 2);
         Assert.True(allocated < ceiling,
                     $"the walk allocated {allocated / 1048576} MB over {WalkCostWorld.Seeds + 2} seeds — past the {ceiling / 1048576} MB this world's seed count allows.");
+    }
+
+    /// <summary>A reached node costs its row, not its body. A record getter is a slice of its whole GRUP's byte
+    /// array and pins it, so caching every reached node's body until the call ended pinned one array per source
+    /// GRUP per plugin — 230 KB a reached node on a real order, and an OOM at a raised budget (#719). Bodies now
+    /// live for the gather pass that read them, and the reached set is gone before anything renders.</summary>
+    [Fact]
+    public void AWalkHoldsNoReachedBodiesPastTheGatherThatReadThem()
+    {
+        var response = RecordsTools.Records(Svc, types: Npc, plugins: Scope(),
+                                            walk: new RecordsTools.RecordsWalk { depth = 1 },
+                                            project: Chain(), counts_only: true);
+
+        var reached = WalkCostWorld.Seeds * (WalkCostWorld.ItemsPerSeed + 1) + 1;
+        Assert.Contains($"reached={reached}", response);
+        Assert.Equal(0, LoadOrderService.WalkBodiesHeldAtReturn);
+        Assert.True(LoadOrderService.WalkBodyHighWater <= BodyPrefetch.ChunkRows,
+                    $"the walk held {LoadOrderService.WalkBodyHighWater} bodies at once — past the {BodyPrefetch.ChunkRows} one gather pass allows.");
     }
 
     /// <summary>A seed at its node budget reads no further. The gather used to take every seed's whole hop frontier
