@@ -3978,8 +3978,9 @@ public sealed partial class LoadOrderService : IDisposable
             => bodyCache.TryGetValue(k, out var c) ? c
              : view.ResolveWinner(k) is { } w ? view.GetRecord(session, w.WinnerPlugin, k) : null;
 
-        // One node's template facts, memoised BY VALUE: shared chains stay one read per call (the seeds of a
-        // template walk mostly share theirs) and nothing is pinned between seeds.
+        // One node's template facts, memoised BY VALUE: nothing is pinned between seeds, shared chains stay one
+        // read per call, and the walk fills this as it reads, so the report only ever reads a chain node the walk
+        // did not reach itself — a node past this seed's depth or node cap.
         var templateFacts = new Dictionary<FormKey, WalkTemplateFact?>();
         WalkTemplateFact? TemplateFactOf(FormKey k)
         {
@@ -4070,6 +4071,10 @@ public sealed partial class LoadOrderService : IDisposable
             fact = body is null
                  ? new WalkNodeFact { Resolved = false }
                  : new WalkNodeFact { Resolved = true, Type = TypeOf(body), EditorId = body.EditorID };
+            // On a template walk the reached nodes ARE the chain nodes, so the report takes its facts off the body
+            // in hand here. Without this it re-read every chain node from disk — a whole-plugin seek each — after
+            // the walk had already held that body and let it go.
+            if (templateFollow && body is not null) templateFacts.TryAdd(k, FactOf(body));
             if (body is not null && !atCap && !Excluded(fact.Type)) fact.Links = LinksOf(body, followSegs, out _);
             if (nodeFacts is not null) nodeFacts[k] = fact;
             return fact;
@@ -4129,6 +4134,8 @@ public sealed partial class LoadOrderService : IDisposable
                 Label = $"{seedType} {FormIdToken.Of(seedFk)} ({seedBody.EditorID ?? "<no editorid>"})",
                 Visited = new HashSet<FormKey> { seedFk },
             };
+            // The seed's facts go in the shared memo too, for the seed that sits on another seed's chain.
+            if (st.SeedTemplateFact is { } sf) templateFacts.TryAdd(seedFk, sf);
 
             // First hop: seed_paths (each path's links) or every link on the seed.
             if (seedPaths is { Count: > 0 })
