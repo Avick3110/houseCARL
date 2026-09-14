@@ -70,6 +70,17 @@ public static class ReverseWalkBatch
         var linksOf = new Dictionary<FormKey, IReadOnlySet<FormKey>?>();
         var noLink = new HashSet<FormKey>();
         using var session = pin.Resolver.OpenSession();
+        // The bodies the check reads are gathered a block of candidates at a time, one enumeration per winner plugin
+        // in the block, instead of the whole-overlay seek per record GetRecord costs (#251): a hop's candidates
+        // nearly all win in a handful of large masters, and per record that seek was the walk. Only the block the
+        // walk is about to judge is gathered, so a spent node budget stops the gather too.
+        Dictionary<FormKey, IMajorRecordGetter> gathered = new();
+        var gatheredKeys = new HashSet<FormKey>();
+        void Gather(IReadOnlyList<FormKey> block)
+        {
+            gathered = WinnerBodies.For(view, session, block, null, out _);
+            gatheredKeys = new HashSet<FormKey>(block);
+        }
         // The index answers in candidates — it says SOME plugin's copy carries the link. references= then re-tests
         // each candidate against the body it judges, and so does this: a record whose winner dropped the link is
         // neither listed nor expanded, so the two spellings of the reverse question cannot disagree and a false
@@ -87,9 +98,12 @@ public static class ReverseWalkBatch
                     bool threw = false;
                     // Any throw out of the lazy overlay seek — an unreadable plugin, a malformed subrecord — is a
                     // coverage gap on that one record, counted and skipped, never the end of the whole walk. The
-                    // same rule references= keeps.
-                    try { body = view.GetRecord(session, w.Value.WinnerPlugin, candidate); }
-                    catch (Exception) { threw = true; }
+                    // same rule references= keeps. The block gather swallows an unreadable winner the same way, so
+                    // a candidate it did not produce lands here as the coverage gap it was before.
+                    if (gatheredKeys.Contains(candidate)) gathered.TryGetValue(candidate, out body);
+                    else
+                        try { body = view.GetRecord(session, w.Value.WinnerPlugin, candidate); }
+                        catch (Exception) { threw = true; }
                     if (threw || body is null) unreadable++;
                     else if (DeletedRecordRule.HasNoLiveBody(body) || body is not IFormLinkContainerGetter flc) noLiveBody++;
                     else
@@ -108,7 +122,7 @@ public static class ReverseWalkBatch
             return false;
         }
 
-        var hops = ReverseSelection.Transitive(view.ReverseIndex!, seedKeys, depth, maxNodes, Verify, out var capped);
+        var hops = ReverseSelection.Transitive(view.ReverseIndex!, seedKeys, depth, maxNodes, Verify, out var capped, Gather);
 
         // Seeds first, then each hop in order: the selection reads in walk order, and the render says the seeds
         // are in it.
