@@ -2726,11 +2726,23 @@ public static class WritePatchBuilder
             var seenLink = new HashSet<FormKey>();
             foreach (var rec in ov.EnumerateMajorRecords())
             {
+                // Identity first: it is read from the record HEADER, so it is safe on the records the link walk below
+                // cannot touch, and every record the merge carries has to be classified.
                 if (rec.FormKey.ModKey == modKey) originating.Add(rec.FormKey);
                 else if (donorKeys.Contains(rec.FormKey.ModKey)) carried.Add(rec.FormKey);
-                foreach (var link in rec.EnumerateFormLinks())
-                    if (!link.FormKey.IsNull && donorKeys.Contains(link.FormKey.ModKey) && seenLink.Add(link.FormKey))
-                        links.Add((rec.FormKey, link.FormKey));
+                // A deleted record's links are not live, and reaching for them throws on the engine-authored bodies
+                // DeletedRecordRule describes — the rule every other link walker here follows.
+                if (DeletedRecordRule.HasNoLiveBody(rec)) continue;
+                try
+                {
+                    foreach (var link in rec.EnumerateFormLinks())
+                        if (!link.FormKey.IsNull && donorKeys.Contains(link.FormKey.ModKey) && seenLink.Add(link.FormKey))
+                            links.Add((rec.FormKey, link.FormKey));
+                }
+                // One record Mutagen cannot parse costs this pre-flight that record's links, never the whole merge:
+                // the identity halves above are already in hand, and MergeBuild's post-remap walk over the clean
+                // in-memory copy still refuses a donor reference that survived the renumber.
+                catch { /* per-record isolation, as the sibling walkers do */ }
             }
             scan = new MergeDonorScan(originating, carried, links);
             return true;

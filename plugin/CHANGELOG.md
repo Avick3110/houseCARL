@@ -100,6 +100,7 @@ saying it sets an expectation their install may contradict. Say what is known, a
   publishes one, so such a client does not refuse a null verb the server reads as `Set`.
 
 
+
 - **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
   byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the
   literal escape text and every tool refused with "the active profile's folder is missing". Both INI readers —
@@ -275,15 +276,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   one plugin and leave the mods they patch alone and active — and marks the mod-plus-its-patches shape as the narrow case it
   is. A record whose FormID sits in one donor's space while another donor defines it (an injected record) is now renumbered
   into the merged plugin like any other record; before, it was copied at its old identity and the write failed with a raw
-  Mutagen missing-mod fault after the whole merge had been built. An injected record whose definer is NOT in the merge, and
-  a donor reference no donor defines, are both refused in one sentence naming the record and the plugin involved, before any
-  work starts.
-
-- **`housecarl_merge_plugins` refuses a donor whose master is not active before it walks the load order.** The merge
-  reads each donor's declared masters from the plugin headers and checks them against the active order first, so the
-  refusal — the same sentence the write already gave, naming the master to enable — arrives in the time a header read
-  takes rather than after the whole-order pass that lists external referencers. Nothing else about the merge changes,
-  and the write still makes the same check before serializing.
+  Mutagen missing-mod fault after the whole merge had been built. A plugin outside the merge that carries that record too is
+  named in the external-overrider warning, as any other dependent is. A donor reference into donor space that no donor holds
+  is refused in one sentence naming the referencing record, before anything is written.
 
 ## 2.0.0 — 2026-09-11
 
