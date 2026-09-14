@@ -20,9 +20,9 @@ namespace HousecarlCore;
 //    • Values stored as QByteArray are wrapped @ByteArray(...) — but a plain
 //      QString value (gameName) is NOT. So we unwrap WHEN PRESENT, per value,
 //      never assume it. @Invalid() means "unset".
-//    • Backslashes inside a value are doubled (\\). We unescape \\ → \. We do
-//      NOT attempt the full Qt escape grammar — a path/profile name only ever
-//      carries \\, and anything exotic fails the existence check loud.
+//    • Values are Qt-escaped: backslashes doubled (\\), and any non-ASCII
+//      byte written as \xHH — so a CJK profile name or game path is a run of
+//      hex escapes. QtIniEscapes undoes the whole grammar.
 //
 //  Derivation (base = base_directory if set+real, else the instance dir):
 //      ModsDir      = base\mods
@@ -173,7 +173,7 @@ public static class Mo2Instance
     }
 
     /// <summary>Unwrap a QSettings value: strip an <c>@ByteArray(...)</c> wrapper if present (a plain QString value has
-    /// none), treat <c>@Invalid()</c> as unset, and unescape doubled backslashes (<c>\\</c> → <c>\</c>). Trimmed.</summary>
+    /// none), treat <c>@Invalid()</c> as unset, and undo Qt's escaping (<see cref="QtIniEscapes"/>). Trimmed.</summary>
     static string? CleanValue(string? raw)
     {
         if (raw is null) return null;
@@ -182,7 +182,7 @@ public static class Mo2Instance
         const string wrap = "@ByteArray(";
         if (v.StartsWith(wrap, StringComparison.Ordinal) && v.EndsWith(")", StringComparison.Ordinal))
             v = v[wrap.Length..^1];
-        v = v.Replace(@"\\", @"\");
+        v = QtIniEscapes.Unescape(v);
         return v.Length == 0 ? null : v;
     }
 }
