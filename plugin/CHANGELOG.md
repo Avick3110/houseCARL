@@ -13,6 +13,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
+  byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the
+  literal escape text and every tool refused with "the active profile's folder is missing". Both INI readers —
+  `ModOrganizer.ini` and a mod's `meta.ini` — now undo Qt's escaping: `\xHH` runs (UTF-8 bytes, or a UTF-16 code
+  unit for a value above 0xFF), the named escapes, and a surrounding pair of quotes. A backslash MO2 wrote
+  unescaped is left as it stands. If a tool still reports the folder missing, the name it prints is now the
+  decoded one — compare it with the folder under `profiles\`.
+
 - **A forward `walk=` no longer holds every record it reached.** A record body read from a plugin is a slice
   of that record group's whole byte array and keeps it alive, so caching one body per reached node until the
   call returned pinned one array per source group per plugin: 270 KB per reached node, and a raised

@@ -109,8 +109,8 @@ public static class Mo2ModMeta
         return null;
     }
 
-    /// <summary>Clean a QSettings value: strip an <c>@ByteArray(...)</c> wrapper, treat <c>@Invalid()</c> as unset,
-    /// unescape doubled backslashes, and strip a surrounding pair of double quotes. Empty ⇒ null.</summary>
+    /// <summary>Clean a QSettings value: strip an <c>@ByteArray(...)</c> wrapper, treat <c>@Invalid()</c> as unset, and
+    /// undo Qt's escaping, including a surrounding pair of double quotes (<see cref="QtIniEscapes"/>). Empty ⇒ null.</summary>
     static string? Clean(string? raw)
     {
         if (raw is null) return null;
@@ -119,8 +119,7 @@ public static class Mo2ModMeta
         const string wrap = "@ByteArray(";
         if (v.StartsWith(wrap, StringComparison.Ordinal) && v.EndsWith(")", StringComparison.Ordinal))
             v = v[wrap.Length..^1];
-        if (v.Length >= 2 && v[0] == '"' && v[^1] == '"') v = v[1..^1];
-        v = v.Replace(@"\\", @"\").Trim();
+        v = QtIniEscapes.Unescape(v).Trim();
         return v.Length == 0 ? null : v;
     }
 }
