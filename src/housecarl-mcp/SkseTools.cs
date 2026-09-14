@@ -841,27 +841,50 @@ static class SkseInventoryWire
     /// plugin declaration — which is routinely stale or coarse: SPID 7.3.3 declares 7.0.0, and 51 of the 313 DLLs on
     /// the order this was measured against declare something other than their file version. So the DLL's build-stamped
     /// file version and the mod's meta.ini version ride the same line wherever they differ, and an agreeing one stays
-    /// silent rather than tripling the width of every row.</summary>
+    /// silent rather than tripling the width of every row. Everything after the leading number is parenthesised, so a
+    /// row that joins its own fields with " — " (the pairing audit's fate line) keeps one separator.</summary>
     internal static string VersionText(SksePluginReader.SksePluginInfo? p, string? modVersion)
     {
         string declared = p?.Version?.PluginVersion ?? "";
         string file = p?.FileVersion ?? "";
         string mod = modVersion ?? "";
-        // No manifest (a legacy or non-SKSE DLL): the file version IS the answer, labelled for what it is.
+        // No manifest (a legacy, non-SKSE or unreadable DLL): whatever version WAS read is the answer, labelled for
+        // what it is — the file version, or meta.ini when that is the only number in sight.
         if (declared.Length == 0)
-            return file.Length == 0 ? "" : $"{file} (DLL file version)";
+        {
+            if (file.Length == 0) return mod.Length == 0 ? "" : $"{mod} (mod meta.ini)";
+            return Differs(file, mod) ? $"{file} (DLL file version; meta.ini {mod})" : $"{file} (DLL file version)";
+        }
         var others = new List<string>();
         if (Differs(declared, file)) others.Add($"DLL file version {file}");
         if (Differs(declared, mod) && Differs(file, mod)) others.Add($"meta.ini {mod}");
         return others.Count == 0
             ? $"{declared} (SKSE manifest)"
-            : $"{declared} (SKSE manifest) — {string.Join(", ", others)}";
+            : $"{declared} (SKSE manifest; {string.Join(", ", others)})";
     }
 
-    /// <summary>Two version strings that are both present and NOT numerically equal ("7.0.0" vs "7.0.0.0" agree). A
-    /// missing one is not a disagreement — an unread version says nothing about the one that was read.</summary>
-    static bool Differs(string? a, string? b) =>
-        a is { Length: > 0 } && b is { Length: > 0 } && !SksePluginReader.VersionsEqual(a, b);
+    /// <summary>Two version strings that are both present and NOT the same version. Compared on their numeric prefix,
+    /// because a version is routinely written with a tag a modder added: MO2's meta.ini carries "7.0.19.0-AIO",
+    /// "5.2SE", "v1.2" for what the DLL stamps as the plain number. A tag is UNKNOWN, not different, so it is not
+    /// reported as a disagreement; a pair with no numeric prefix to compare has nothing to disagree about either.</summary>
+    static bool Differs(string? a, string? b)
+    {
+        if (a is not { Length: > 0 } || b is not { Length: > 0 }) return false;   // an unread version says nothing about the one that was read
+        string na = NumericPrefix(a), nb = NumericPrefix(b);
+        if (na.Length == 0 || nb.Length == 0) return false;
+        return !SksePluginReader.VersionsEqual(na, nb);
+    }
+
+    /// <summary>The dotted numeric head of a version string, with a leading "v" dropped and any trailing tag cut
+    /// ("v7.0.19.0-AIO" → "7.0.19.0"). Empty when the string does not start with a number at all.</summary>
+    static string NumericPrefix(string s)
+    {
+        var t = s.Trim();
+        if (t.Length > 0 && (t[0] == 'v' || t[0] == 'V')) t = t[1..];
+        int end = 0;
+        while (end < t.Length && (char.IsAsciiDigit(t[end]) || t[end] == '.')) end++;
+        return t[..end].Trim('.');
+    }
 
     static string Provider(SkseFileEntry e) =>
         e.WinningProvider is null ? "  (no active provider)" : $"  ← {e.WinningProvider}";

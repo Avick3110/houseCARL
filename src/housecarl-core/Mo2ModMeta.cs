@@ -61,18 +61,18 @@ public static class Mo2ModMeta
             ReadInstalledFileIds(lines));
     }
 
-    /// <summary>The meta.ini <c>version</c> of the mod that ships a loose file, or null when there is none to read (a
-    /// Stock Game / overwrite / hand-installed provider carries no meta.ini). The mod root is the file's path with its
-    /// Data-relative tail removed, which is where MO2 keeps meta.ini — no mods-folder scan, and no guess when the path
-    /// does not end in the tail it was resolved for.</summary>
-    public static string? VersionForLooseFile(string looseFilePath, string dataRelativePath)
+    /// <summary>The folder MO2 would keep a loose file's meta.ini in: the file's path with its Data-relative tail
+    /// removed. Null when the path does not end in that tail (nothing to strip, so nothing to claim) or when what is
+    /// left is a bare drive ("C:"), which <see cref="Path.Combine"/> would resolve against the process's current
+    /// directory on that drive rather than the drive root. Separate from the read so a caller inventorying many files
+    /// can read each mod's meta.ini once.</summary>
+    public static string? ModRootForLooseFile(string looseFilePath, string dataRelativePath)
     {
         var tail = dataRelativePath.Replace('/', Path.DirectorySeparatorChar);
         var full = looseFilePath.Replace('/', Path.DirectorySeparatorChar);
         if (!full.EndsWith(tail, StringComparison.OrdinalIgnoreCase)) return null;
         var root = full[..(full.Length - tail.Length)].TrimEnd(Path.DirectorySeparatorChar);
-        if (root.Length == 0) return null;
-        return Read(Path.Combine(root, "meta.ini"))?.Version;
+        return root.Length == 0 || root.EndsWith(':') ? null : root;
     }
 
     /// <summary>The <c>N\fileid</c> values from the <c>[installedFiles]</c> section, in index (N) order — the exact Nexus

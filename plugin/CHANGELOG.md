@@ -64,10 +64,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   mod's meta.ini version beside it wherever they disagree.** The version it reads is the SKSE manifest's own
   declaration, which authors routinely leave stale: Spell Perk Item Distributor 7.3.3 declares 7.0.0, and 51 of the
   313 DLLs on the order this was measured against declare something other than their file version. A row now reads
-  `v7.0.0 (SKSE manifest) — DLL file version 7.3.3.0`, so a version floor (SPID's 7.3-only INI tokens, say) is
-  decided against both numbers rather than against the declaration alone. `format='json'` carries them as
-  `file_version` and `mod_version`, each null when the DLL carries no version resource / the provider has no
-  meta.ini. Agreeing versions are not repeated.
+  `v7.0.0 (SKSE manifest; DLL file version 7.3.3.0)`, so a version floor (SPID's 7.3-only INI tokens, say) is
+  decided against both numbers rather than against the declaration alone. A DLL with no manifest to declare anything
+  shows whichever version was read — the file version, or the mod's meta.ini when that is the only one. `format='json'`
+  carries them as `file_version` and `mod_version`, each null when the DLL carries no version resource / the provider
+  has no meta.ini. Versions that agree are not repeated, and versions are compared on their numbers, so a meta.ini
+  tag ("7.0.19.0-AIO", "5.2SE") is not reported as a disagreement.
 
 - **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
   byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the
