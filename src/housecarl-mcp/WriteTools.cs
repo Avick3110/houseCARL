@@ -257,9 +257,10 @@ public static class WriteTools
                     return;
                 }
                 sb.Append("    ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note);
-                // The display-only annotation, exactly as the read lane renders it: an opaque blob must not appear as
-                // unannotated hex here either, since this dump IS the read of the record just written.
-                if (f.Display is not null) sb.Append("   (").Append(f.Display).Append(')');
+                // The BLOB annotation only: an opaque blob must not appear as unannotated hex here either, since this
+                // dump IS the read of the record just written. Gated on the bytes marker, not on Display, so the
+                // flags decode that also rides Display does not silently widen every flags line in this lane.
+                if (f.Bytes is not null && f.Display is not null) sb.Append("   (").Append(f.Display).Append(')');
                 sb.Append('\n');
             }
         }
@@ -311,15 +312,22 @@ public static class WriteTools
     /// the known case) as raw bytes it never parses — so a blob whose layout does not suit the record's FormVersion
     /// re-reads without complaint and the game crashes on it. The verify must not claim a structure it never looked
     /// at, so it names those fields in the SAME sentence and says they were re-read as bytes only (#529). Empty when
-    /// the record carries no such field, which is the common case.</summary>
+    /// the record carries no such field, which is the common case.
+    /// <para>BOUNDED, because a few record types carry a LIST of blobs (DialogView.TNAMs, MaterialObject.DNAMs) whose
+    /// every element is its own leaf at the read-back's depth: an unbounded list would overshoot the very cap this
+    /// compact lane exists to respect. Past <see cref="OpaqueFieldsNamed"/> the rest is a count. Each path carries its
+    /// OWN byte count rather than one sum, which a reader attaches to the last field named.</para></summary>
     static string OpaqueBytesCaveat(RecordFields rec)
     {
-        var opaque = rec.Fields.Where(f => f.Bytes is not null).Select(f => f.Path).ToList();
+        var opaque = rec.Fields.Where(f => f.Bytes is not null).ToList();
         if (opaque.Count == 0) return "";
-        int bytes = rec.Fields.Where(f => f.Bytes is not null).Sum(f => f.Bytes!.Value);
-        return ", except " + string.Join(", ", opaque) + " — re-read as " + bytes
-             + " opaque byte(s) only, structure NOT checked";
+        var named = string.Join(", ", opaque.Take(OpaqueFieldsNamed).Select(f => f.Path + " (" + f.Bytes + " byte(s))"));
+        var more = opaque.Count > OpaqueFieldsNamed ? " and " + (opaque.Count - OpaqueFieldsNamed) + " more" : "";
+        return ", except " + named + more + " — re-read as bytes only, structure NOT checked";
     }
+
+    /// <summary>How many opaque fields the verify caveat names before it falls back to a count.</summary>
+    const int OpaqueFieldsNamed = 3;
 
     /// <summary>The op's apply-time note, as a trailing clause on its line — what the write DID that the file cannot
     /// say afterwards (a duplicate Add). Empty when there is nothing to say.</summary>
