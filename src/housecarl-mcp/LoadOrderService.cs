@@ -7612,6 +7612,36 @@ public sealed partial class LoadOrderService : IDisposable
             }
             donorInfos.Sort((a, b) => a.Order.CompareTo(b.Order));
             var donorNames = donorInfos.Select(d => d.Name).ToList();
+            var transformSet = new HashSet<string>(donorNames, StringComparer.OrdinalIgnoreCase);
+
+            // ---- 2. masters = union(donor declared masters) − donors, load-order sorted (each donor's own header order
+            //      is already load-order-consistent; the union sorts by the active order so the merged header is too).
+            //      This reads the donor HEADERS only — the same read check's missing_masters pass makes — and it runs
+            //      HERE, before the record reads and the identify pass, because a master the active order does not
+            //      carry refuses the whole merge and the caller should hear that in seconds (#729). ----
+            var masterSet = new List<string>();
+            var seenMasters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (dName, _, _, _) in donorInfos)
+            {
+                IReadOnlyList<string> declared;
+                try { declared = view.DeclaredMasters(dName); }
+                catch (Exception ex)
+                {
+                    return WritePatchBuilder.MergeOutcome.Fail($"cannot read donor '{dName}' masters ({ex.Message}) — nothing written.");
+                }
+                foreach (var mfn in declared)
+                    if (!transformSet.Contains(mfn) && seenMasters.Add(mfn)) masterSet.Add(mfn);
+            }
+            masterSet.Sort((a, b) =>
+                (orderIndex.TryGetValue(a, out var ia) ? ia : int.MaxValue).CompareTo(orderIndex.TryGetValue(b, out var ib) ? ib : int.MaxValue));
+            // The same predicate the serialize applies (MergeBuild resolves each master to an overlay and refuses when
+            // one is absent), asked from the headers instead of after the walk. MergeBuild still asks it: a master can
+            // go away between here and the write.
+            foreach (var mfn in masterSet)
+                if (view.PluginPath(mfn) is null)
+                    return WritePatchBuilder.MergeOutcome.Fail(
+                        $"cannot merge: donor master '{mfn}' is not active in the load order, so the references into it can't " +
+                        "resolve for the serialize. Enable that master first. Nothing was written.");
 
             // ---- the donors' strings, read once and used twice. A donor whose .STRINGS resolve NOWHERE reads every
             //      value EMPTY, and the merge would copy those blanks into M — refused here, before a rider folder
@@ -7630,7 +7660,7 @@ public sealed partial class LoadOrderService : IDisposable
                 if (LocalizedStrings.ConfirmedLocalized(shape.Shape)) localizedDonors.Add(dName);
             }
 
-            // ---- 2. originating keys per donor + the collision-only remap (first donor keeps its ids — zMerge default) ----
+            // ---- 3. originating keys per donor + the collision-only remap (first donor keeps its ids — zMerge default) ----
             var donorKeys = new List<(string Donor, IReadOnlyList<FormKey> Keys)>();
             foreach (var (dName, dPath, dKey, _) in donorInfos)
             {
@@ -7670,34 +7700,15 @@ public sealed partial class LoadOrderService : IDisposable
             var plan = RemapEngine.BuildMergeRemap(donorKeys, outKey, RemapEngine.EslFloor, FormIdRange.ObjectIdMax);
             if (!plan.Success) return FailAfterFolder(plan.Error!);
 
-            // ---- 3. identify-pass — WARN-and-proceed (the A4 posture; unlike compact this NEVER refuses: the donors stay
+            // ---- 4. identify-pass — WARN-and-proceed (the A4 posture; unlike compact this NEVER refuses: the donors stay
             //      installed and ACTIVE until the user swaps in MO2, so nothing breaks at write time. The report names each
             //      affected plugin with the remedy — include it in the merge set, or handle it before disabling the donors.) ----
             var targets = plan.Dict.Keys.ToHashSet();
-            var transformSet = new HashSet<string>(donorNames, StringComparer.OrdinalIgnoreCase);
             // readDeclaredMasters: a merge RENAMES the donors' records into a new plugin, so a dependent that only
             // lists a donor as a master loses it at the swap. Sound here because BuildMergeRemap enters every
             // originating key of every donor into the dict, so a referencer is always a declarer too and the
             // declarer-only filter cannot hide one.
             var id = RemapEngine.IdentifyExternalReferencers(resolver, targets, transformSet, readDeclaredMasters: true);
-
-            // ---- 4. masters = union(donor declared masters) − donors, load-order sorted (each donor's own header order
-            //      is already load-order-consistent; the union sorts by the active order so the merged header is too) ----
-            var masterSet = new List<string>();
-            var seenMasters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var (dName, _, _, _) in donorInfos)
-            {
-                IReadOnlyList<string> declared;
-                try { declared = view.DeclaredMasters(dName); }
-                catch (Exception ex)
-                {
-                    return FailAfterFolder($"cannot read donor '{dName}' masters ({ex.Message}) — nothing written.");
-                }
-                foreach (var mfn in declared)
-                    if (!transformSet.Contains(mfn) && seenMasters.Add(mfn)) masterSet.Add(mfn);
-            }
-            masterSet.Sort((a, b) =>
-                (orderIndex.TryGetValue(a, out var ia) ? ia : int.MaxValue).CompareTo(orderIndex.TryGetValue(b, out var ib) ? ib : int.MaxValue));
 
             // ---- build and write the merged plugin ----
             var build = WritePatchBuilder.MergeBuild(

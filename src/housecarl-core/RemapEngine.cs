@@ -47,6 +47,10 @@ public static class RemapEngine
     //  1. IDENTIFY-PASS — the per-operation reverse-walk
     // ======================================================================
 
+    /// <summary>How many identify passes have run — the pass's own counter, so a test can say a refusal reached the
+    /// caller without one (the whole-order walk is the expensive part of a merge).</summary>
+    internal static int IdentifyPasses;
+
     /// <summary>One external reference into the transform set: a record in a plugin OUTSIDE the set whose outgoing link
     /// points at a FormKey being remapped. After the transform that link resolves wrong / dangles unless the referencer
     /// is repointed too (<see cref="RepointInPlace"/>).</summary>
@@ -131,6 +135,7 @@ public static class RemapEngine
         LoadOrderResolver resolver, IReadOnlySet<FormKey> targets, IReadOnlySet<string> transformSet,
         bool readDeclaredMasters = false)
     {
+        System.Threading.Interlocked.Increment(ref IdentifyPasses);        // the pass's own counter, so a test can say a refusal skipped it
         var view = resolver.Capture();
         var refs = new List<ExternalRef>();
         var externalPlugins = new List<string>();        // load-order order, distinct

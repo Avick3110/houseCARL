@@ -89,6 +89,7 @@ saying it sets an expectation their install may contradict. Say what is known, a
   no longer be told an explicit null satisfies it — and, the other way, a verb slot the server DEFAULTS still
   publishes one, so such a client does not refuse a null verb the server reads as `Set`.
 
+
 - **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
   byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the
   literal escape text and every tool refused with "the active profile's folder is missing". Both INI readers —
@@ -232,6 +233,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   carries them as `file_version` and `mod_version`, each null when the DLL carries no version resource / the provider
   has no meta.ini. Versions that agree are not repeated, and versions are compared on their numbers, so a meta.ini
   tag ("7.0.19.0-AIO", "5.2SE") is not reported as a disagreement.
+
+- **`housecarl_merge_plugins` refuses a donor whose master is not active before it walks the load order.** The merge
+  reads each donor's declared masters from the plugin headers and checks them against the active order first, so the
+  refusal — the same sentence the write already gave, naming the master to enable — arrives in the time a header read
+  takes rather than after the whole-order pass that lists external referencers. Nothing else about the merge changes,
+  and the write still makes the same check before serializing.
 
 ## 2.0.0 — 2026-09-11
 
