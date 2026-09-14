@@ -124,10 +124,12 @@ public static class Program
             // base runtime present and ASP.NET Core missing, which would install a server that
             // never starts.
             bool skipRuntimeCheck = args.Contains("--skip-runtime-check");
-            List<string> missingRuntimes = skipRuntimeCheck ? new List<string>() : MissingServerRuntimes();
+            (List<string> missingRuntimes, string? runtimeOwnRoot) = skipRuntimeCheck
+                ? (new List<string>(), null)
+                : MissingServerRuntimes();
             Detect.HostState claude = Detect.Claude(home);
             Detect.HostState codex  = Detect.Codex(home, homeOverride);
-            ReportDetected(claude, codex, missingRuntimes, skipRuntimeCheck);
+            ReportDetected(claude, codex, missingRuntimes, skipRuntimeCheck, runtimeOwnRoot);
 
             Answer chose = ResolveChoice(args, claude, codex, out Mode mode, out Target target);
             if (chose == Answer.NoOneToAsk) return Finish(1);
@@ -216,7 +218,8 @@ public static class Program
 
     /// <summary>The detection block: one row per thing setup looked for, printed before any choice is offered.</summary>
     private static void ReportDetected(
-        Detect.HostState claude, Detect.HostState codex, List<string> missingRuntimes, bool skipped)
+        Detect.HostState claude, Detect.HostState codex, List<string> missingRuntimes, bool skipped,
+        string? runtimeOwnRoot)
     {
         Ui.Heading("Checking your machine");
         string baseName = ".NET Runtime " + ServerRuntimeMajor;
@@ -225,6 +228,13 @@ public static class Program
         Ui.Row(aspName,  RuntimeStatus(skipped, missingRuntimes.Contains("Microsoft.AspNetCore.App")));
         Ui.Row(claude.Name, HostStatus(claude));
         Ui.Row(codex.Name,  HostStatus(codex));
+
+        // A framework only setup's own runtime could see is one the host may not see: the host is launched
+        // from Explorer or the Start menu and does not inherit a DOTNET_ROOT set in this shell.
+        if (runtimeOwnRoot is not null)
+            Ui.Note("That runtime was found where setup is running from, not in the machine-wide install, so "
+                  + "the server may not start if your agent is launched without it.",
+                    runtimeOwnRoot);
     }
 
     /// <summary>A runtime row's status. A missing runtime does not read as a problem here: this block prints
@@ -505,18 +515,58 @@ public static class Program
     // ---- server runtime preflight ------------------------------------------
 
     /// <summary>
-    /// Which of the server's required shared frameworks are missing at the required major version.
-    /// Asks `dotnet --list-runtimes` first (covers custom install locations on PATH); falls back to
-    /// scanning shared-framework roots, which also covers a console whose PATH predates a just-finished
-    /// runtime install. Two roots are scanned: the default machine-wide one, and the root this process
-    /// is itself running out of -- a DOTNET_ROOT or portable install with `dotnet` off PATH is invisible
-    /// to both of the others, and setup would otherwise report the base runtime missing while running on it.
+    /// Which of the server's required shared frameworks are missing at the required major version, and
+    /// the root that answered if it was this process's own.
+    ///
+    /// Three sources. `dotnet --list-runtimes` covers custom install locations on PATH; the machine-wide
+    /// shared-framework folder covers a console whose PATH predates a just-finished runtime install; and
+    /// the root this process is itself running out of covers a DOTNET_ROOT or portable install with
+    /// `dotnet` off PATH, which is invisible to both of the others and would otherwise have setup report
+    /// the base runtime missing while running on it.
+    ///
+    /// Only the own root is known to be the SERVER's architecture. On Windows-on-ARM the arm64 `dotnet`
+    /// host and the arm64 machine-wide folder both describe frameworks the win-x64 server cannot use
+    /// (x64 .NET lives under its own root there), so when the process and the OS disagree on
+    /// architecture the other two sources get no say.
     /// </summary>
-    private static List<string> MissingServerRuntimes()
+    private static (List<string> Missing, string? OwnRoot) MissingServerRuntimes()
     {
         string[] required = { "Microsoft.NETCore.App", "Microsoft.AspNetCore.App" };
-        HashSet<string> found = new(StringComparer.Ordinal);
+        string machineWide = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "shared");
+        string? ownRoot = OwnSharedFrameworkRoot();
+        bool ownRootOnly = RuntimeInformation.OSArchitecture != RuntimeInformation.ProcessArchitecture;
 
+        HashSet<string> fromOwn = ownRoot is null
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : ScanSharedRoot(ownRoot, required);
+        HashSet<string> fromElsewhere = new(StringComparer.Ordinal);
+        if (!ownRootOnly)
+        {
+            fromElsewhere.UnionWith(DotnetListRuntimes(required));
+            fromElsewhere.UnionWith(ScanSharedRoot(machineWide, required));
+        }
+
+        List<string> missing = required
+            .Where(fx => !fromOwn.Contains(fx) && !fromElsewhere.Contains(fx))
+            .ToList();
+
+        // The own root is worth naming only when it is what decided the answer and is not the machine-wide
+        // install: a framework only it can see is a framework the HOST may not see either, because the host
+        // does not inherit a DOTNET_ROOT set in the shell that launched setup.
+        bool ownRootDecided = ownRoot is not null
+            && !string.Equals(Path.TrimEndingDirectorySeparator(ownRoot),
+                              Path.TrimEndingDirectorySeparator(machineWide),
+                              StringComparison.OrdinalIgnoreCase)
+            && required.Any(fx => fromOwn.Contains(fx) && !fromElsewhere.Contains(fx));
+
+        return (missing, ownRootDecided ? ownRoot : null);
+    }
+
+    /// <summary>The required frameworks `dotnet --list-runtimes` reports at the required major version.</summary>
+    private static HashSet<string> DotnetListRuntimes(string[] required)
+    {
+        HashSet<string> found = new(StringComparer.Ordinal);
         try
         {
             ProcessStartInfo psi = new("dotnet", "--list-runtimes")
@@ -551,41 +601,40 @@ public static class Program
                 }
             }
         }
-        catch { /* dotnet not on PATH -- the folder scan below still gets a say */ }
+        catch { /* dotnet not on PATH -- the folder scans still get a say */ }
+        return found;
+    }
 
-        foreach (string sharedDir in SharedFrameworkRoots())
+    /// <summary>The required frameworks present under one shared-framework root at the required major
+    /// version. A version folder must actually contain assemblies - an empty 9.x dir left behind by an
+    /// aborted install/uninstall must not count as "installed".</summary>
+    private static HashSet<string> ScanSharedRoot(string sharedDir, string[] required)
+    {
+        HashSet<string> found = new(StringComparer.Ordinal);
         foreach (string fx in required)
         {
-            if (found.Contains(fx)) continue;
             string fxDir = Path.Combine(sharedDir, fx);
-            // A version folder must actually contain assemblies - an empty 9.x dir left behind by an
-            // aborted install/uninstall must not count as "installed".
             if (Directory.Exists(fxDir) &&
                 Directory.GetDirectories(fxDir, ServerRuntimeMajor + ".*")
                     .Any(d => Directory.EnumerateFiles(d, "*.dll").Any()))
                 found.Add(fx);
         }
-
-        return required.Where(fx => !found.Contains(fx)).ToList();
+        return found;
     }
 
-    /// <summary>The shared-framework roots to scan: the default machine-wide install, and the one this
-    /// process is running out of. GetRuntimeDirectory() is ...\shared\Microsoft.NETCore.App\&lt;version&gt;\,
-    /// so its grandparent is that install's shared root.</summary>
-    private static IEnumerable<string> SharedFrameworkRoots()
+    /// <summary>The shared-framework root this process is running out of, or null if the layout is not the
+    /// expected one. GetRuntimeDirectory() is ...\shared\Microsoft.NETCore.App\&lt;version&gt;\, so its
+    /// grandparent is that install's shared root.</summary>
+    private static string? OwnSharedFrameworkRoot()
     {
-        yield return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "shared");
-
-        string? own = null;
         try
         {
-            own = Path.GetDirectoryName(
+            string? own = Path.GetDirectoryName(
                 Path.GetDirectoryName(
                     Path.TrimEndingDirectorySeparator(RuntimeEnvironment.GetRuntimeDirectory())));
+            return string.IsNullOrEmpty(own) ? null : own;
         }
-        catch { /* an unexpected layout just leaves the machine-wide scan to answer */ }
-        if (!string.IsNullOrEmpty(own)) yield return own;
+        catch { return null; /* an unexpected layout just leaves the machine-wide scan to answer */ }
     }
 
     // ---- target selection (flag or interactive prompt) --------------------
