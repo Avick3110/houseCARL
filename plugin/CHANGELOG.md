@@ -122,13 +122,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
   opaque blob with the record's FormVersion.** The forced in-place verify is a record-library re-read, and the
   library models a `bytes` field — `Model.Data` (MODT) is the case that bites — as raw bytes it never decodes, so a
   blob whose internal layout belongs to a different FormVersion re-reads byte-identical and the game crashes on it.
-  The verify line now names those fields in the same sentence and says they were re-read as bytes only with their
-  structure not checked, and every read (and the `readback=true` dump, and the json `display` / `opaque_bytes`
-  fields) renders a blob as `opaque bytes, N byte(s) — layout follows this record's FormVersion V; not parsed`, so a
-  blob copied between records at different FormVersions is visible on the line. The annotation is display-only: the
-  hex token still round-trips to a write. Nothing here decodes MODT — the layout is not modeled, and houseCARL does
-  not hand-write per-record-type decoders — so a blob is only safe to copy between records at the same FormVersion,
-  which the two lines now let you check.
+  The verify line now names those fields in the same sentence, each with its own byte count, and says they were
+  re-read as bytes only with their structure not checked; a record carrying a list of blobs names the first few and
+  counts the rest, so the compact line stays compact. A read renders a blob as `opaque bytes, N byte(s) — layout
+  follows this record's FormVersion V; not parsed` — in the text read, the `readback=true` dump, and as `display`
+  beside `opaque_bytes` / `opaque_form_version` in json — so a blob copied between records at different FormVersions
+  is visible on the line. The version named is the one of the record the blob was READ off, which a `*parent` hop
+  makes different from the record you asked about. The folded `rows` and `dense` renders take a short form,
+  `[opaque 12B @FV40]`, because a cell there is positional and width-bounded. The annotation is display-only: the hex
+  token still round-trips to a write, and no other line of any render changed. Nothing here decodes MODT — the layout
+  is not modeled, and houseCARL does not hand-write per-record-type decoders — so a blob is only safe to copy between
+  records at the same FormVersion, which these lines now let you check.
 
 ## 2.0.0 — 2026-09-11
 
