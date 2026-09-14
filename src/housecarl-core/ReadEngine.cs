@@ -44,9 +44,14 @@ namespace HousecarlCore;
 /// note is prose, and neither resolve_names nor a consumer may parse it to reach the FormID the line shows — the
 /// json lane emits it as a <c>note_ref</c> sibling of the note. Null on every line whose note renders no form
 /// reference.</param>
+/// <param name="Bytes">Byte LENGTH when this leaf is an opaque blob (a <c>MemorySlice&lt;byte&gt;</c> field such as
+/// <c>Model.Data</c>/MODT) — the one leaf family whose token is raw hex houseCARL never parses. Null on every other
+/// leaf. Carried structurally because a consumer deciding whether a value was actually JUDGED must not have to match
+/// a hex-looking token or parse the display annotation: a blob is layout-versioned by the record's FormVersion, so
+/// "it re-read fine" says nothing about whether the bytes suit the record they now sit on (#529).</param>
 public sealed record FieldValue(string Path, bool HasValue, string? Token, string? Note, string? Display = null, ResolvedRef? Link = null,
                                 bool Present = true, int? Count = null, bool Readable = true,
-                                IReadOnlyList<FieldValue>? Cells = null, string? NoteRef = null);
+                                IReadOnlyList<FieldValue>? Cells = null, string? NoteRef = null, int? Bytes = null);
 
 /// <summary>The resolved identity of a form reference — the shared contract behind housecarl_resolve (a full row)
 /// and the resolve_names field annotation. <see cref="Resolved"/> false ⇒ the FormKey is valid but not present in
@@ -89,10 +94,14 @@ public static class ReadEngine
     /// (named bits → "Body"; an unnamed modder slot → "8388608"). The <see cref="Token"/> is unchanged — the
     /// round-trip oracle still drives the same display token — so this is invisible to read/write/diff.</para></summary>
     internal readonly record struct LeafRead(bool HasValue, string Token, string? Note, FlagBits? Flags = null, int? ContainerCount = null,
-                                             bool Present = true, bool Readable = true)
+                                             bool Present = true, bool Readable = true, int? ByteLength = null)
     {
         public static LeafRead Value(string token) => new(true, token, null);
         public static LeafRead FlagsValue(string token, FlagBits bits) => new(true, token, null, bits);
+        /// <summary>An opaque BLOB leaf: the hex token plus its byte length. Additive metadata only — the token is
+        /// the same hex <c>Convert.FromHexString</c> writes back, so the oracle drives it unchanged — but it marks
+        /// the one family houseCARL renders without ever parsing, which a verify must not call clean (#529).</summary>
+        public static LeafRead Bytes(string token, int length) => new(true, token, null, null, null, ByteLength: length);
         /// <summary>NOTHING is there — an absent optional substruct, a field the type does not have, an unreadable
         /// leaf. The ONE no-value shape that is not <see cref="Container"/>, and the difference matters to any caller
         /// deciding presence: both render as a parenthesised note, so telling them apart from the note text alone
@@ -242,7 +251,8 @@ public static class ReadEngine
                 // The hint text is the caller's (containerHint): depth=2 is only a real knob on some surfaces.
                 if (note is { Length: > 0 } && note[0] == '[' && !string.IsNullOrEmpty(containerHint)) note += containerHint;
                 fields.Add(new FieldValue(p, r.HasValue, r.HasValue ? r.Token : null, note, FlagDisplay(r),
-                                          Present: r.Present, Count: r.ContainerCount, Readable: r.Readable));
+                                          Present: r.Present, Count: r.ContainerCount, Readable: r.Readable,
+                                          Bytes: r.ByteLength));
             }
         }
         else
@@ -262,8 +272,31 @@ public static class ReadEngine
                 EmitWithDepth(on, string.Join(".", tail), d, fields, ref budget, p);
             }
         }
+        AnnotateOpaqueBytes(fields, record.FormVersion);
         return new RecordFields(typeName, FormIdToken.Of(record.FormKey), record.EditorID, fields);
     }
+
+    /// <summary>Hang the opaque-blob annotation on every byte-slice leaf this read emitted — generic over every
+    /// <c>bytes</c> field, never a per-record-type note. Rides <see cref="FieldValue.Display"/>, so the round-trip
+    /// hex token is untouched and write / read-proof / diff never see it.</summary>
+    static void AnnotateOpaqueBytes(List<FieldValue> fields, ushort? formVersion)
+    {
+        for (int i = 0; i < fields.Count; i++)
+            if (fields[i] is { Bytes: int n, Display: null })
+                fields[i] = fields[i] with { Display = BytesDisplay(n, formVersion) };
+    }
+
+    /// <summary>The DISPLAY-ONLY annotation on an opaque blob leaf: how many bytes, and the FormVersion of the record
+    /// they were read off. A blob like <c>Model.Data</c> (MODT) is laid out per the record's FormVersion, and Mutagen
+    /// models it as raw bytes it never parses — so unannotated hex hides the one thing that decides whether the bytes
+    /// suit the record carrying them. Naming the FormVersion beside the blob makes a mismatch visible to the reader:
+    /// bytes lifted off a FormVersion-39 record and rendered here under FormVersion 44 are a mismatch nothing else
+    /// reports (#529). It says "not parsed" because houseCARL does not parse it — there is no hand-written decoder
+    /// and no per-type layout table.</summary>
+    public static string BytesDisplay(int length, ushort? formVersion) =>
+        "opaque bytes, " + length + " byte(s) — layout follows this record's "
+        + (formVersion is { } fv ? "FormVersion " + fv : "FormVersion, which this record does not carry")
+        + "; not parsed";
 
     /// <summary>The <c>*parent</c> containment step on a read path: strip the leading hops, climb to the record
     /// that CONTAINS this one, and hand back what the rest of the path should be read on. The parent set is
@@ -652,7 +685,7 @@ public static class ReadEngine
     {
         if (budget < 0) return;
         var leaf = EmitToken(val, declaredType, parent);
-        if (leaf.HasValue) { Emit(sink, ref budget, new FieldValue(path, true, leaf.Token, null, FlagDisplay(leaf))); return; }
+        if (leaf.HasValue) { Emit(sink, ref budget, new FieldValue(path, true, leaf.Token, null, FlagDisplay(leaf), Bytes: leaf.ByteLength)); return; }
         if (val is null) { Emit(sink, ref budget, new FieldValue(path, false, null, leaf.Note, Present: false)); return; }
         // a link (incl. a null FormKey, or an FLOI) is a note, not an openable container/substruct. Both flags
         // travel with it: an FLOI whose mode or index could not be read is a fault, not an absence.
@@ -1066,8 +1099,10 @@ public static class ReadEngine
             var s = ReflectString(val, "String");
             return s is null ? LeafRead.None(UnresolvedStringNote) : LeafRead.Value(s);
         }
-        // value types (inverse of TryValueType)
-        if (TryEmitValueType(val, out var vt)) return LeafRead.Value(vt);
+        // value types (inverse of TryValueType). A byte-slice blob emits the same hex token, marked as the opaque
+        // leaf it is so a render can annotate it and a verify cannot call it clean.
+        if (TryEmitValueType(val, out var vt))
+            return IsByteMemorySlice(val.GetType()) ? LeafRead.Bytes(vt, vt.Length / 2) : LeafRead.Value(vt);
 
         // Not a single-token VALUE leaf: a substruct / collection / arm container. The oracle never
         // drives these AS leaves — their sub-leaves are driven individually (exactly like write-proof).
