@@ -37,7 +37,9 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
         var depths = new List<int>(Paths.Length);
         for (int i = 0; i < Paths.Length; i++)
         {
-            int d = Folds[i] is { Fold: PathFold.Set } ? Depth : CallerDepth;
+            // A [*count] column renders the list's own count line and nothing under it, so it reads at depth 1
+            // whatever the caller asked for: expanding it would build every element for lines the fold discards.
+            int d = Folds[i] switch { { Fold: PathFold.Set } => Depth, { Fold: PathFold.Count } => 1, _ => CallerDepth };
             if (at.TryGetValue(Paths[i], out int j)) { depths[j] = Math.Max(depths[j], d); continue; }
             at[Paths[i]] = paths.Count; paths.Add(Paths[i]); depths.Add(d);
         }
