@@ -4699,10 +4699,11 @@ public sealed partial class LoadOrderService : IDisposable
                 // limit= tile exactly as before.
                 const int SetGatherChunk = 10_000;
                 var setPending = new List<FormKey>(SetGatherChunk);
+                var faultedSetWinners = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 bool setStopped = false;
                 foreach (var fk in formidSet!)
                 {
-                    ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record
+                    ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan between records, and the gather stops it between plugin walks
                     if (!seenSet.Add(fk)) continue;
                     if (view.ResolveWinner(fk) is null) continue;             // not in the order — a clean non-match for a scan; per-item errors belong to the formids= list lane
                     setPending.Add(fk);
@@ -4714,7 +4715,11 @@ public sealed partial class LoadOrderService : IDisposable
                 // universe's own order. Returns false when the scan must stop.
                 bool DrainSet()
                 {
-                    var bodies = WinnerBodies.For(view, sess, setPending, null, out var faults);
+                    var bodies = WinnerBodies.For(view, sess, setPending, null, out var faults, ct);
+                    // A winner plugin that would not open is a whole-plugin coverage gap, named once in the response
+                    // rather than only sampled three rows deep — the same disclosure the winner-source lane makes.
+                    foreach (var (plugin, fault) in faults)
+                        if (faultedSetWinners.Add(plugin)) unreadablePlugins.Add(fault);
                     bool go = true;
                     foreach (var fk in setPending)
                     {

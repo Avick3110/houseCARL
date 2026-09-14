@@ -342,8 +342,9 @@ public static class ReverseSelection
     /// count is a prefix, not a finding.</summary>
     public sealed record Hop(int Depth, IReadOnlyList<FormKey> Reached, bool Cut);
 
-    /// <summary>How many candidates a <c>prepare</c> block covers: big enough that a large master is walked a few
-    /// times a hop rather than once a candidate, small enough that the bodies it pins stay bounded.</summary>
+    /// <summary>The most candidates a <c>prepare</c> block covers, before the node budget clamps it: big enough
+    /// that a large master is walked a few times a hop rather than once a candidate, small enough that the bodies
+    /// it pins stay bounded.</summary>
     const int PrepareBlock = 2000;
 
     /// <summary>The transitive reverse walk: who references the seeds, then who references those, hop after hop.
@@ -358,7 +359,9 @@ public static class ReverseSelection
     /// <see cref="Hop.Cut"/> rather than reading as a hop that reached nothing.
     /// <para><paramref name="prepare"/> is handed each block of candidates just before they are verified, so a
     /// verifier that reads bodies can gather a block at a time instead of one at a time. It is called only for
-    /// candidates the walk is about to verify, so a spent budget stops the gather with the reads.</para></summary>
+    /// candidates the walk is about to verify, and the block is never larger than the nodes the budget could still
+    /// record — so a spent budget stops the gather with the reads, and a small one keeps them near its own size
+    /// rather than a block ahead of it.</para></summary>
     public static IReadOnlyList<Hop> Transitive(ReverseReferenceIndex index, IReadOnlyList<FormKey> seeds,
                                                 int depth, int maxNodes,
                                                 Func<FormKey, IReadOnlySet<FormKey>, bool>? verify, out bool capped,
@@ -385,7 +388,12 @@ public static class ReverseSelection
                 if (reached >= maxNodes) { capped = true; cut = true; break; }
                 if (prepare is not null && i >= prepared)
                 {
-                    int end = Math.Min(candidates.Count, i + PrepareBlock);
+                    // The block never runs further ahead than the budget could still record, so a deliberately small
+                    // max_nodes reads few bodies: a spent budget breaks above before a block is ever asked for, and
+                    // a nearly-spent one asks for a block that size. Candidates the check drops do not spend the
+                    // budget, so a drop-heavy hop asks again rather than reading past it.
+                    int span = Math.Max(1, Math.Min(PrepareBlock, maxNodes - reached));
+                    int end = Math.Min(candidates.Count, i + span);
                     var block = new List<FormKey>(end - i);
                     for (int j = i; j < end; j++) if (!visited.Contains(candidates[j])) block.Add(candidates[j]);
                     prepare(block);

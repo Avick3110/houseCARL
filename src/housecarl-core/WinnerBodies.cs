@@ -25,11 +25,13 @@ public static class WinnerBodies
     /// underlying cause, so the caller reports the held-open file — or the plugin that changed under the index —
     /// rather than guessing at index staleness.
     /// <paramref name="getterTypes"/> is the caller's own type scope when it has one, which narrows each plugin's
-    /// walk to the GRUPs those types live in.</summary>
+    /// walk to the GRUPs those types live in. <paramref name="ct"/> is checked between plugin walks, so a client
+    /// that aborted stops the gather one walk later rather than at the end of the chunk.</summary>
     public static Dictionary<FormKey, IMajorRecordGetter> For(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
         IReadOnlyCollection<FormKey> candidates, IReadOnlyList<Type>? getterTypes,
-        out Dictionary<string, PluginUnreadableException> unreadable)
+        out Dictionary<string, PluginUnreadableException> unreadable,
+        CancellationToken ct = default)
     {
         unreadable = new Dictionary<string, PluginUnreadableException>(StringComparer.OrdinalIgnoreCase);
         var bodies = new Dictionary<FormKey, IMajorRecordGetter>(candidates.Count);
@@ -44,6 +46,7 @@ public static class WinnerBodies
         }
         foreach (var (plugin, wanted) in byPlugin)
         {
+            ct.ThrowIfCancellationRequested();   // a client that aborted stops the gather between plugin walks
             // A winner plugin the gather cannot read leaves its candidates absent rather than ending the scan, which
             // is what the per-record fetch this replaces did — but the CAUSE travels with it, and the two causes are
             // told apart: CollectRecords names an OPEN failure itself, so a file another program is holding open
