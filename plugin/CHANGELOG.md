@@ -13,6 +13,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **`housecarl_records` `project.form="chain"` now reports the cycles a forward walk actually found.** A cycle was
+  only ever recorded when `walk.follow` named a single chain; a closure walk deduped its revisits on its visited set
+  and reported none, so a leveled item pointing at itself, and a pair pointing at each other, both came back
+  `cycles: 0`. The walk now records the edges it crossed and finds the cycles from them once it is done, which is
+  also what tells a real loop apart from two paths meeting on one record. Each one is listed under its seed as the
+  loop itself (`A -> B -> A`), and the response carries a `cycles` count beside `seeds` and `reached`. What a cycle
+  means, and the bound on it, are in the `project.form` description.
+
 - **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
   byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the
   literal escape text and every tool refused with "the active profile's folder is missing". Both INI readers —
