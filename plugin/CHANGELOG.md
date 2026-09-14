@@ -176,6 +176,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   token still round-trips to a write, and no other line of any render changed. Nothing here decodes MODT — the layout
   is not modeled, and houseCARL does not hand-write per-record-type decoders — so a blob is only safe to copy between
   records at the same FormVersion, which these lines now let you check.
+- **A forward `walk=` that reaches a record Mutagen cannot parse now records it and carries on.** Such a record
+  used to be entered, and the parse fault came back as an internal houseCARL failure naming no record. The walk
+  now keeps it as a boundary — its FormID, its type, its EditorID, and the exception on one line, the same
+  "could not be scanned" account the `check` and merge lanes already give — and every other chain the walk was
+  following still finishes. The boundary line is in the `chain` form's node list; a seed whose own content will
+  not parse says so on its own line instead, and reaches nothing.
 
 ## 2.0.0 — 2026-09-11
 

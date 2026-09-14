@@ -3913,6 +3913,9 @@ public sealed partial class LoadOrderService : IDisposable
         public string? Type;
         public string? EditorId;
         public List<FormKey>? Links;
+        /// <summary>Set when Mutagen could not parse the node's content, so its links never read — the exception type
+        /// and message, the same fact the scan lanes account as an unscannable record.</summary>
+        public string? Unscannable;
     }
 
     static readonly List<FormKey> EmptyKeys = new();
@@ -4162,7 +4165,7 @@ public sealed partial class LoadOrderService : IDisposable
         WalkNodeFact FactFor(FormKey k, bool atCap)
         {
             var fact = nodeFacts is not null && nodeFacts.TryGetValue(k, out var f) ? f : null;
-            if (fact is not null && (!fact.Resolved || atCap || fact.Links is not null || Excluded(fact.Type))) return fact;
+            if (fact is not null && (!fact.Resolved || atCap || fact.Links is not null || fact.Unscannable is not null || Excluded(fact.Type))) return fact;
 
             var body = Fetch(k);
             fact = body is null
@@ -4172,7 +4175,11 @@ public sealed partial class LoadOrderService : IDisposable
             // in hand here. Without this it re-read every chain node from disk — a whole-plugin seek each — after
             // the walk had already held that body and let it go.
             if (templateFollow && body is not null) templateFacts.TryAdd(k, FactOf(body));
-            if (body is not null && !atCap && !Excluded(fact.Type)) fact.Links = LinksOf(body, followSegs, out _);
+            // PER-RECORD FAULT ISOLATION, the twin of the scan lanes': reading a node's links parses its content
+            // lazily, so one record Mutagen cannot parse is recorded as a boundary and the walk goes on.
+            if (body is not null && !atCap && !Excluded(fact.Type))
+                try { fact.Links = LinksOf(body, followSegs, out _); }
+                catch (Exception ex) { fact.Unscannable = $"{ex.GetType().Name}: {ex.Message}"; }
             if (nodeFacts is not null) nodeFacts[k] = fact;
             return fact;
         }
@@ -4182,7 +4189,7 @@ public sealed partial class LoadOrderService : IDisposable
         // Is this queued item's row already answerable from the memo? Then its body is not worth a gather slot.
         bool Memoised(FormKey k, int hop)
             => nodeFacts is not null && nodeFacts.TryGetValue(k, out var f)
-               && (!f.Resolved || hop >= depth || f.Links is not null || Excluded(f.Type));
+               && (!f.Resolved || hop >= depth || f.Links is not null || f.Unscannable is not null || Excluded(f.Type));
 
         // ---- the seeds: parsed, then gathered together, then started on their first hop ----
         // In SLICES of a pass, for the reason the hops are: a walk can be seeded from a spilled artifact holding
@@ -4235,6 +4242,20 @@ public sealed partial class LoadOrderService : IDisposable
             // The seed's facts go in the shared memo too, for the seed that sits on another seed's chain.
             if (st.SeedTemplateFact is { } sf) templateFacts.TryAdd(seedFk, sf);
 
+            // Reading the seed's own links parses its content, so a seed Mutagen cannot parse is named as a
+            // boundary row like any other unscannable node rather than raised out of the call.
+            List<FormKey> SeedLinks(string[]? segs, out string? note)
+            {
+                try { return LinksOf(seedBody, segs, out note); }
+                catch (Exception ex)
+                {
+                    note = null;
+                    st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(seedFk), seedType, seedBody.EditorID, 0, st.Label, "kept",
+                                                 $"could not be scanned (Mutagen could not parse its content) and was not entered — {ex.GetType().Name}: {ex.Message}"));
+                    return new List<FormKey>();
+                }
+            }
+
             // First hop: seed_paths (each path's links) or every link on the seed.
             if (seedPaths is { Count: > 0 })
             {
@@ -4242,7 +4263,7 @@ public sealed partial class LoadOrderService : IDisposable
                 {
                     var segs = p.Trim().Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                     if (segs.Length == 0) continue;
-                    var links = LinksOf(seedBody, segs, out var note);
+                    var links = SeedLinks(segs, out var note);
                     if (links.Count == 0 && note is not null)
                         st.Nodes.Add(new WalkNodeRow($"(seed path '{p}')", null, null, 0, st.Label, "no links", note));   // a wrong path fails loudly in the rows
                     foreach (var l in links) { st.Edge(seedFk, l); st.Frontier.Enqueue((l, 1, $"{st.Label}.{p}")); }
@@ -4250,7 +4271,7 @@ public sealed partial class LoadOrderService : IDisposable
             }
             else
             {
-                foreach (var l in LinksOf(seedBody, null, out _)) { st.Edge(seedFk, l); st.Frontier.Enqueue((l, 1, st.Label)); }
+                foreach (var l in SeedLinks(null, out _)) { st.Edge(seedFk, l); st.Frontier.Enqueue((l, 1, st.Label)); }
             }
             states[i] = st;
         }
@@ -4362,6 +4383,14 @@ public sealed partial class LoadOrderService : IDisposable
                             return Array.Empty<WalkSeedResult>();
                         }
                         st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), type, fact.EditorId, hop, pulledBy, "kept", $"excluded ({type}, severity stop) — recorded as a boundary, not entered"));
+                        continue;
+                    }
+                    // A node Mutagen could not parse: named, kept as a boundary, and the walk continues — the same
+                    // answer the scan lanes give, never a raw exception out of the whole call.
+                    if (fact.Unscannable is { } unscannable)
+                    {
+                        st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), type, fact.EditorId, hop, pulledBy, "kept",
+                                                     $"could not be scanned (Mutagen could not parse its content) and was not entered — {unscannable}"));
                         continue;
                     }
                     st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), type, fact.EditorId, hop, pulledBy,
