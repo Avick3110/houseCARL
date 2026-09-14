@@ -10,7 +10,8 @@ namespace HousecarlMcp;
 /// The published-schema layer: rewrites each tool's <c>inputSchema</c> once at registration, after the assembly
 /// scan has built it. Three passes — the <c>@file</c> union on the parameters listed in
 /// <see cref="FileListParams"/>, then <see cref="FlattenRefs"/> over every tool, then
-/// <see cref="NestedSchemaConstraints"/> stamping <c>required</c>/<c>enum</c> inside each parameter.
+/// <see cref="NestedSchemaConstraints"/> stamping <c>required</c>/<c>enum</c> inside each parameter — and then
+/// <see cref="SchemaDepthCap"/>, which does nothing unless its environment variable is set.
 ///
 /// <para>Changes only what is PUBLISHED, never what is ACCEPTED. Neither reader of a call's arguments is moved by
 /// it: <see cref="ToolCallShim"/> coerces and refuses off the published schema but reads only its top-level
@@ -70,7 +71,10 @@ internal static class ToolSchemas
     /// as a factory. A tool or parameter not found is skipped; <c>PublishedSchemaShapeTests</c> names every union
     /// row and asserts the published shape, so a stale <see cref="FileListParams"/> row fails there rather than
     /// degrading quietly.</summary>
-    internal static void PublishSchemas(IServiceCollection services) =>
+    /// <param name="maxSchemaDepth">The published nesting depth from <see cref="SchemaDepthCap"/>, or null — the
+    /// default — to publish uncut. Read and judged at startup, never here: a bad value must refuse the server's
+    /// start in its own sentence, not throw out of a post-configure.</param>
+    internal static void PublishSchemas(IServiceCollection services, int? maxSchemaDepth = null) =>
         services.PostConfigure<McpServerOptions>(options =>
         {
             if (options.ToolCollection is not { } tools) return;
@@ -86,6 +90,9 @@ internal static class ToolSchemas
                 // Last, so a recursion-expanded copy of a shape carries the same stamps its first occurrence does.
                 changed |= NestedSchemaConstraints.Stamp(
                     root, roots.Where(r => r.Tool == tool.ProtocolTool.Name).Select(r => (r.Parameter, r.Type)));
+                // Last of all, over the finished document: the cut is measured on what is actually published.
+                // Unconfigured it does nothing, which is why an unset variable publishes today's bytes.
+                changed |= SchemaDepthCap.Cut(root, maxSchemaDepth);
                 if (changed) tool.ProtocolTool.InputSchema = JsonSerializer.Deserialize<JsonElement>(root.ToJsonString());
             }
         });
@@ -277,8 +284,9 @@ internal static class ToolSchemas
 
     /// <summary>Close a recursive chain at the bound: keep the node's own description and the target's <c>type</c>,
     /// and constrain nothing further. Says exactly what is true — nesting deeper is still accepted, and this
-    /// document stops spelling it out.</summary>
-    static JsonObject Terminator(JsonObject refNode, JsonObject target)
+    /// document stops spelling it out. Internal because <see cref="SchemaDepthCap"/> closes its own cut with the
+    /// SAME node: a caller reading one of them learns what the other means too.</summary>
+    internal static JsonObject Terminator(JsonObject refNode, JsonObject target)
     {
         const string continues = "Nesting continues below this level with the same shape shown above; it is accepted but not spelled out again here.";
         var open = new JsonObject();
