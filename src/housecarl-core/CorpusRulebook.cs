@@ -1133,6 +1133,14 @@ public sealed class CorpusRulebook
         if (spec.CtorArgs is null && WriteEngine.TryRecognizeInstantiable(spec.Type, spec.Fields) is { } buildErr)
             return buildErr;
         foreach (var s in spec.Sets ?? new())
+        {
+            // The one verb a nested set cannot take. The rest run through the verb engine itself (BuildStruct
+            // replays them with ApplyVerb), but CopyFrom reads a SOURCE RECORD the nested shape has no slot to
+            // name, so it would pass the leaf gate and then throw as an unknown verb at apply.
+            if (string.Equals(s.Verb, WriteVerbs.Transplanting, StringComparison.Ordinal))
+                return $"'{WriteVerbs.Transplanting}' is not a verb a compose's nested sets take — it copies a field " +
+                       "from ANOTHER record, which only an op can name (from= / from_source=), so make it its own op " +
+                       $"on the field itself. Legal here: {string.Join(", ", WriteVerbs.InCompose)}.";
             // siblingEditorIds threads through — a same-call @editorid ref inside a COMPOSED struct's nested Sets
             // (e.g. a VMAD quest-fragment's Property.Object=@<own quest>) validates by the SAME gates as a top-level
             // value (formlink-only + declared-earlier-or-self), recursively; on the edit path (null) it still rejects
@@ -1140,6 +1148,7 @@ public sealed class CorpusRulebook
             // …and the slot name goes with it: these paths are rooted at the STRUCT, and the caller typed them in the
             // nested 'path' slot, not the record-level 'field_path'. Any remedy naming a path must say which.
             if (ValidateFromType(structSchema, s, siblingEditorIds, "path") is { } e) return e;
+        }
         return null;
     }
 

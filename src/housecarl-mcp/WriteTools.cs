@@ -1280,7 +1280,7 @@ public sealed record NestedSet
     [SchemaRequired, JsonPropertyName("path"), Description("Dotted path within the struct, e.g. 'Data.Level'.")]
     public string? Path { get; init; }
 
-    [JsonPropertyName("verb"), Description("Set (default) | Add | Remove | SetAtIndex | InsertAtIndex.")]
+    [SchemaValues(SchemaVocabulary.ComposeVerbs), JsonPropertyName("verb"), Description(WriteVerbs.InComposeRecital + ". The nested write runs through the same verb engine an op does, so the verb is chosen by the nested target's own cardinality. There is no CopyFrom here — it reads a SOURCE RECORD and a nested set has no slot to name one; make it its own op on the field itself.")]
     public string Verb { get; init; } = "Set";
 
     [JsonPropertyName("value"), Description("The value (coerced).")]

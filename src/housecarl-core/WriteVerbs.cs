@@ -120,6 +120,17 @@ public static class WriteVerbs
     /// <c>INV4-CREATEHOMES</c> holds it against <see cref="OnCreate"/> and an independently written list.</summary>
     public const string OnCreateRecital = "Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge";
 
+    /// <summary>The verbs a compose's nested <c>sets</c> accept. The nested writes are applied through the verb
+    /// engine itself, so every verb that acts on a path from a root works there — except the transplanting one,
+    /// which reads a SOURCE RECORD and the nested shape has no slot to name one. That is the same subtraction
+    /// <see cref="OnCreate"/> makes for a sibling reason, so this IS that list rather than a second identical
+    /// derivation; the two names exist because each surface refuses the verb for its own reason.</summary>
+    public static readonly IReadOnlyList<string> InCompose = OnCreate;
+
+    /// <summary>The caller-facing recital for a compose's nested sets — <see cref="OnCreateRecital"/> under this
+    /// surface's name, for the reason above.</summary>
+    public const string InComposeRecital = OnCreateRecital;
+
     static IReadOnlyList<string> BuildOnCreate()
     {
         if (!All.Contains(Transplanting, StringComparer.Ordinal))
