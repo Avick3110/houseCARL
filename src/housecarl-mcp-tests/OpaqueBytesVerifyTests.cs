@@ -28,7 +28,11 @@ public sealed class OpaqueBytesVerifyTests : IDisposable
     readonly string _priorCorpusPath;
     readonly LoadOrderService _svc;
     readonly FormKey _stat;
-    readonly FormKey _cell, _refr;
+    readonly FormKey _cell, _refr, _matObject;
+
+    /// <summary>How many blobs the list-carrying fixture record holds — more than the caveat names, so the bound is
+    /// exercised rather than assumed.</summary>
+    const int MatBlobCount = 8;
 
     /// <summary>The FormVersion the containing CELL is stamped at — deliberately NOT the 44 its placed reference
     /// carries, so a '*parent'-hopped read annotated off the wrong record would be visibly wrong.</summary>
@@ -49,6 +53,14 @@ public sealed class OpaqueBytesVerifyTests : IDisposable
         st.EditorID = "HcBlobStatic";
         st.Model = new Model { File = "meshes\\hcblob.nif", Data = new Noggog.MemorySlice<byte>(Blob) };
         _stat = st.FormKey;
+
+        // A record carrying a LIST of blobs — every element is its own leaf at the read-back's depth, which is what
+        // the caveat's bound is for.
+        var mo = mod.MaterialObjects.AddNew();
+        mo.EditorID = "HcBlobMat";
+        for (int i = 0; i < MatBlobCount; i++)
+            mo.DNAMs.Add(new Noggog.MemorySlice<byte>(new byte[] { (byte)i, 1, 2, 3 }));
+        _matObject = mo.FormKey;
 
         // An interior cell carrying its OWN blob at a DIFFERENT FormVersion from the reference inside it: the
         // '*parent' hop reads the blob off the cell, so the annotation must name the cell's stamp, not the REFR's.
@@ -106,10 +118,40 @@ public sealed class OpaqueBytesVerifyTests : IDisposable
     {
         var r = EditInPlace();
         Assert.DoesNotContain("error:", r);
-        var line = r.Split('\n').Single(l => l.Contains("re-read clean", StringComparison.Ordinal));
-        Assert.Contains("Model.Data", line);
-        Assert.Contains("opaque byte(s) only", line);
+        var line = r.Split('\n').Single(l => l.Contains("re-read clean", StringComparison.Ordinal)
+                                          && l.Contains("Model.Data", StringComparison.Ordinal));
+        Assert.Contains("Model.Data (" + Blob.Length + " byte(s))", line);
+        Assert.Contains("re-read as bytes only", line);
         Assert.Contains("NOT checked", line);
+    }
+
+    /// <summary>A record carrying a LIST of blobs (MaterialObject.DNAMs, DialogView.TNAMs) expands to one leaf per
+    /// element at the read-back's depth, so the caveat names the first few and counts the rest — the compact lane
+    /// exists to stay under the host's cap and must not be the thing that blows it.</summary>
+    [Fact]
+    public void ARecordWithManyBlobsNamesAFewAndCountsTheRest()
+    {
+        var r = ApplyTools.Apply(_svc,
+            ops: Je($@"[{{""formid"":""{Fid(_matObject)}"",""field_path"":""EditorID"",""op"":""Set"",""value"":""HcBlobMatEdited""}}]"),
+            in_place: PluginName, acknowledge: true);
+        Assert.DoesNotContain("error:", r);
+        var line = r.Split('\n').Single(l => l.Contains("re-read clean", StringComparison.Ordinal)
+                                          && l.Contains("DNAMs[0]", StringComparison.Ordinal));
+        Assert.Contains("DNAMs[0] (4 byte(s))", line);
+        Assert.Contains("and " + (MatBlobCount - 3) + " more", line);
+        Assert.DoesNotContain("DNAMs[" + (MatBlobCount - 1) + "]", line);
+    }
+
+    /// <summary>The folded row/dense render takes the SHORT form: a cell there is positional and width-bounded, and
+    /// the sentence the read lane renders would cut a scan far shorter than it used to.</summary>
+    [Fact]
+    public void TheFoldedRowRenderUsesTheShortAnnotation()
+    {
+        var r = RecordsTools.Records(_svc, formids: new[] { Fid(_matObject) },
+            project: new RecordsTools.RecordsProject { form = "rows", fields = new[] { "DNAMs" }, depth = 4 });
+        Assert.DoesNotContain("error:", r);
+        Assert.Contains("[opaque 4B @FV44]", r);
+        Assert.DoesNotContain("layout follows this record", r);
     }
 
     /// <summary>The caveat is carried by the blob, not pinned to a record type: a leaf with no bytes field gets no
