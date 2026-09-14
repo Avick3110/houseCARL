@@ -7711,11 +7711,11 @@ public sealed partial class LoadOrderService : IDisposable
                 scans.Add((dName, scan.Originating, scan.Carried));       // a pure-override donor (0 originating keys) is a legit patch donor
                 donorLinks.Add((dName, scan.DonorLinks));
             }
-            // An injected record belongs to the donor that DEFINES it, which is the first plugin touching that FormID in
-            // the active order; one no donor defines is refused here rather than at the write (#715).
-            var injection = MergeInjection.Classify(scans, fk => view.TouchingPlugins(fk) is { Count: > 0 } t ? t[0] : null);
-            if (injection.Refusal is not null) return WritePatchBuilder.MergeOutcome.Fail(injection.Refusal);
-            var donorKeys = injection.DonorKeys;
+            // An injected record — one whose FormID names a donor while another plugin carries it — is renumbered with
+            // the donor carrying it, instead of being copied at an identity the merge is about to remove (#715). A
+            // plugin outside the merge that carries it too is warned about by the identify pass below, like any other
+            // external overrider, because the key is now in the dict.
+            var donorKeys = MergeInjection.Renumberable(scans);
             // ---- output folder and plugin: the same fresh-write resolver the record lanes use, so patch= names the
             //      mod folder "houseCARL - <stem>" and the merged plugin inside it is "<stem>.esp". Resolved HERE,
             //      before the remap, because the remap is keyed on the output ModKey and the stem can still be
