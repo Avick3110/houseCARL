@@ -14,15 +14,18 @@ public class PlaceRenderTests
     /// <summary>A place outcome on the DEFAULT lane unless <paramref name="fresh"/> says otherwise — the lane a caller
     /// who names nothing gets, so the cap cases exercise it rather than into=.</summary>
     static PlaceOutcome Outcome(int ok, int failed, bool fresh = true, bool contended = true,
-                                bool overwriteWinner = false, bool destinationWinner = false) => new(
+                                bool overwriteWinner = false, bool destinationWinner = false,
+                                bool bsaWinner = false) => new(
         Enumerable.Range(0, ok)
             .Select(i => new PlaceResult($"meshes/hc/ok{i}.nif", true, 42, "SomeMod (loose)",
                                          !contended ? null
                                          : overwriteWinner ? "overwrite (loose)"
                                          : destinationWinner ? "houseCARL - MyFixes (loose)"
+                                         : bsaWinner ? "Skyrim - Meshes0.bsa (BSA)"
                                          : "OtherMod (loose)", null)
                        { WinnerIsOverwrite = contended && overwriteWinner,
-                         WinnerIsDestination = contended && destinationWinner })
+                         WinnerIsDestination = contended && destinationWinner,
+                         WinnerLosesOnEnable = contended && bsaWinner })
             .Concat(Enumerable.Range(0, failed)
                 .Select(i => new PlaceResult($"meshes/hc/bad{i}.nif", false, 0, null, null, "nothing supplies this path")))
             .ToList(),
@@ -151,6 +154,49 @@ public class PlaceRenderTests
         Assert.Contains("'houseCARL - MyFixes' already provided this path", text);
         Assert.DoesNotContain("sort 'houseCARL - MyFixes' ABOVE it", text);
         Assert.DoesNotContain("SORT it (left pane)", text);
+        // And the closer may not fall through to an enable: that folder is enabled already — it is how it wins.
+        Assert.Contains("there is nothing to enable or sort", text);
+        Assert.DoesNotContain("Nothing else provided these path(s)", text);
+        Assert.DoesNotContain("Enable the mod 'houseCARL - MyFixes' in MO2", text);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ABsaOrDataWinnerIsBeatenOnEnableOnBothLanes_NoSortIsAsked(bool fresh)
+    {
+        // A BSA wins only where no loose copy exists, so the placed loose copy beats it at any mod priority — and
+        // "sort above Skyrim - Meshes0.bsa" names no row in MO2's left pane.
+        var text = PlaceWire.Render(Outcome(ok: 1, failed: 0, fresh: fresh, bsaWinner: true), 80_000);
+
+        Assert.Contains("currently wins the VFS: Skyrim - Meshes0.bsa (BSA)", text);
+        Assert.Contains("a loose file in an enabled mod beats it at any priority", text);
+        Assert.Contains("a loose file beats a BSA", text);
+        Assert.DoesNotContain("SORT it (left pane)", text);
+        Assert.DoesNotContain("sort 'houseCARL - MyFixes' ABOVE it", text);
+        // It is contended, so the sentence claiming nothing provided the path would be false.
+        Assert.DoesNotContain("Nothing else provided these path(s)", text);
+    }
+
+    [Fact]
+    public void AnOverwriteRowMaxCharsCutIsNotPointedAtAsListedAbove()
+    {
+        // Same hazard the contended arm already handles: the remedy names rows this render never wrote. The overwrite
+        // row sits LAST, so a cap that stops the list early leaves it unnamed.
+        var rows = Enumerable.Range(0, 39)
+            .Select(i => new PlaceResult($"meshes/hc/ok{i}.nif", true, 42, "SomeMod (loose)", "OtherMod (loose)", null))
+            .Append(new PlaceResult("meshes/hc/last.nif", true, 42, "SomeMod (loose)", "overwrite (loose)", null)
+                    { WinnerIsOverwrite = true })
+            .ToList();
+        var o = new PlaceOutcome(rows, @"C:\mods\houseCARL - MyFixes", Array.Empty<string>(), null, null)
+                { FreshFolder = true };
+
+        var text = PlaceWire.Render(o, 1_600);
+
+        Assert.Contains("truncated=true", text);
+        Assert.DoesNotContain("meshes/hc/last.nif", text);
+        Assert.Contains("max_chars cut the row(s) naming them from this render", text);
+        Assert.DoesNotContain("whose winner reads 'overwrite (loose)' above", text);
     }
 
     /// <summary>The two laned strings out of a json place document, read as data rather than matched against the

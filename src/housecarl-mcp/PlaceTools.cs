@@ -305,19 +305,31 @@ static class PlaceWire
     /// document never shows.</para></summary>
     internal static string EnableAndSort(PlaceOutcome o, string? modFolder, int rendered)
     {
-        bool anyContended = false, shownContended = false, anyOverwrite = false;
+        bool anyContended = false, shownContended = false, anyOverwrite = false, shownOverwrite = false, anyLosesOnEnable = false;
+        int placedRows = 0, destinationRows = 0;
         for (int i = 0; i < o.Results.Count; i++)
         {
             var r = o.Results[i];
-            if (!r.Placed || r.CurrentWinner is null) continue;
+            if (!r.Placed) continue;
+            placedRows++;
+            if (r.CurrentWinner is null) continue;
             // A row the destination folder itself won owes no instruction: the placement replaces that folder's own
             // earlier copy and keeps winning, so counting it as contention would ask for a sort above this folder.
-            if (r.WinnerIsDestination) continue;
+            if (r.WinnerIsDestination) { destinationRows++; continue; }
             // An overwrite winner is not reachable by enabling or sorting, so it is counted apart and answered apart.
-            if (r.WinnerIsOverwrite) { anyOverwrite = true; continue; }
+            if (r.WinnerIsOverwrite) { anyOverwrite = true; if (i < rendered) shownOverwrite = true; continue; }
+            // A BSA or Data winner loses to any enabled mod's loose copy, so it owes no sort on either lane.
+            if (r.WinnerLosesOnEnable) { anyLosesOnEnable = true; continue; }
             anyContended = true;
             if (i < rendered) shownContended = true;
         }
+        var folder = modFolder ?? "(the new folder)";
+        // Every placed row won by the destination folder: it is enabled already — that is how it wins — so naming an
+        // enable would be the one action there is nothing left to do.
+        if (placedRows > 0 && destinationRows == placedRows)
+            return "the placed file(s) went into '" + folder + "', which already provided these path(s) and already "
+                 + "wins the VFS for them — it is enabled, so there is nothing to enable or sort (sort it above any "
+                 + "mod you later add that also provides them).";
         var sort = anyContended
             ? (o.FreshFolder
                 ? ". MO2 registers a folder it has not seen at the highest priority, so once enabled the placed copy " +
@@ -328,13 +340,18 @@ static class PlaceWire
                       "this render, so raise max_chars and re-read to see which. Only then does the placed copy win.")
             : anyOverwrite
                 ? "."
-                : ". Nothing else provided these path(s), so once enabled the placed copy wins (sort it above any mod you later add that also provides them).";
+                : anyLosesOnEnable
+                    ? ". Once enabled the placed copy wins — a loose file beats a BSA, and any enabled mod beats the " +
+                      "game's Data folder (sort it above any mod you later add that also provides these path(s))."
+                    : ". Nothing else provided these path(s), so once enabled the placed copy wins (sort it above any mod you later add that also provides them).";
         if (anyOverwrite)
-            sort += " MO2's overwrite folder sits ABOVE every mod in the VFS, so for the path(s) it currently wins " +
-                    "neither enabling nor sorting is enough — move or delete the overwrite copy of each path whose " +
-                    "winner reads 'overwrite (loose)' above.";
+            sort += " MO2's overwrite folder sits ABOVE every mod in the VFS, so for the path(s) it currently wins "
+                  + "neither enabling nor sorting is enough — move or delete the overwrite copy of "
+                  + (shownOverwrite
+                        ? "each path whose winner reads 'overwrite (loose)' above."
+                        : "the path(s) it wins — max_chars cut the row(s) naming them from this render, so raise max_chars and re-read to see which.");
         return "IMPORTANT — \"wrote it\" is not \"it wins\": the placed file(s) do NOT win the VFS yet. Enable the mod '"
-             + (modFolder ?? "(the new folder)") + "' in MO2" + sort;
+             + folder + "' in MO2" + sort;
     }
 
     static void AppendResult(StringBuilder sb, PlaceResult r, string? modFolder, bool freshFolder, bool poleWithheld)
@@ -360,11 +377,12 @@ static class PlaceWire
         sb.Append("        ").Append(WinnerLine(r, modFolder, freshFolder)).Append('\n');
     }
 
-    /// <summary>What this destination's current VFS winner means for the caller, in four arms: nothing else provides
+    /// <summary>What this destination's current VFS winner means for the caller, in five arms: nothing else provides
     /// the path; the destination folder itself already provides it (a re-place, which keeps winning); MO2's overwrite
-    /// folder provides it (above every mod, so only moving that copy helps); or another mod does, which a fresh folder
-    /// out-ranks on enable and an into= folder has to be sorted above. One home, because the json twin's
-    /// <c>winner_note</c> has to say exactly this.</summary>
+    /// folder provides it (above every mod, so only moving that copy helps); a BSA or the game's Data folder does
+    /// (the bottom of the root list, beaten by any enabled mod); or another mod does, which a fresh folder out-ranks
+    /// on enable and an into= folder has to be sorted above. One home, because the json twin's <c>winner_note</c> has
+    /// to say exactly this.</summary>
     internal static string WinnerLine(PlaceResult r, string? modFolder, bool freshFolder)
     {
         var folder = modFolder ?? (freshFolder ? "(the new folder)" : "(the patch folder)");
@@ -375,6 +393,9 @@ static class PlaceWire
         if (r.WinnerIsOverwrite)
             return $"currently wins the VFS: {r.CurrentWinner} — MO2's overwrite folder is ABOVE every mod, so no enable "
                  + $"and no sort out-ranks it; move or delete the overwrite copy of this path, then '{folder}' wins";
+        if (r.WinnerLosesOnEnable)
+            return $"currently wins the VFS: {r.CurrentWinner} — a loose file in an enabled mod beats it at any priority, "
+                 + $"so once '{folder}' is enabled the placed copy wins";
         return freshFolder
             ? $"currently wins the VFS: {r.CurrentWinner} — a folder MO2 has not seen registers at the highest priority, so '{folder}' out-ranks it once enabled"
             : $"currently wins the VFS: {r.CurrentWinner} — sort '{folder}' ABOVE it";
