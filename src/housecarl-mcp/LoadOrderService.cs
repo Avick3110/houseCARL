@@ -1381,13 +1381,13 @@ public sealed partial class LoadOrderService : IDisposable
     /// <see cref="NifService.Set"/>, which applies and verifies or refuses loudly — nothing reaches disk unless it
     /// verified — then place the verified bytes. Two lanes, mirroring the record write lanes:
     ///   • DEFAULT (non-destructive): write into a new houseCARL-owned MO2 mod folder at the same relative path, which
-    ///     the modder enables and sorts above the current winner so the edited copy wins the VFS. Originals untouched,
+    ///     the modder enables — and, on the into= lane, sorts above the current winner — so the edited copy wins the VFS. Originals untouched,
     ///     and a BSA-packed source becomes a loose winning override this way.
     ///   • IN-PLACE (opt-in): overwrite the winning loose file where it sits, behind the same persistent first-touch
     ///     consent handshake as the record in-place lane, keyed on the resolved file path. No backup. A BSA-only winner
     ///     has no loose file to edit and is refused with the default-lane guidance.
-    /// Serialized on the write gate. For the default lane, "wrote it" is not "it wins": the render says to enable and
-    /// sort the fresh mod, and this never claims the fix took effect on write.</summary>
+    /// Serialized on the write gate. For the default lane, "wrote it" is not "it wins": the render says to enable the
+    /// mod (and to sort it, on the into= lane), and this never claims the fix took effect on write.</summary>
     public NifSetResult NifSet(string relPath, IReadOnlyList<NifSetOp> ops, string? sourceProvider, string? patchName, string? into, bool inPlace, bool acknowledge)
     {
         var rel = (relPath ?? "").Trim();
@@ -1501,7 +1501,7 @@ public sealed partial class LoadOrderService : IDisposable
             }
 
             string? winner = providers.Count > 0 ? providers[0].Text : null;
-            return NifSetResult.OkNewFolder(rel, chosenProv, providers, place.Ambiguous, report, rf.ModFolder, winner, MergeWarnings(report.Warnings, warnings, null), profileName);
+            return NifSetResult.OkNewFolder(rel, chosenProv, providers, place.Ambiguous, report, rf.ModFolder, rf.CreatedFresh, winner, MergeWarnings(report.Warnings, warnings, null), profileName);
         }
     }
 
@@ -1536,8 +1536,8 @@ public sealed partial class LoadOrderService : IDisposable
     /// in process (a loose file, or a single entry out of a BSA), and write them crash-atomically under the owned
     /// folder. Originals are untouched: only a fresh or houseCARL-owned folder is ever written. On failure a fresh
     /// folder that ended up with nothing placed is removed, and a partial one is kept and named. "Wrote it" is not
-    /// "it wins": the fresh mod must be enabled and sorted above the current winner, which the render says, and this
-    /// never claims the fix took effect on write. Serialized on the write gate.</summary>
+    /// "it wins": the mod must be enabled — and, on the into= lane only, sorted above the current winner — which the
+    /// render says, and this never claims the fix took effect on write. Serialized on the write gate.</summary>
     public PlaceOutcome PlaceAssets(IReadOnlyList<PlaceRequest> requests, string? patchName, string? into)
     {
         if (requests is null || requests.Count == 0) return PlaceOutcome.Fail("no assets to place.");
@@ -1576,14 +1576,16 @@ public sealed partial class LoadOrderService : IDisposable
             // Nothing placed into a fresh folder → remove the orphan. A reused into= folder belongs to the user and is
             // never touched. A partial fresh folder is kept and its path surfaced.
             string? leftover = placed == 0 ? RemoveOrNameRiderResidue(rf) : null;
-            return new PlaceOutcome(results, placed > 0 ? rf.ModFolder : null, warnings, leftover, null);
+            return new PlaceOutcome(results, placed > 0 ? rf.ModFolder : null, warnings, leftover, null)
+                { FreshFolder = rf.CreatedFresh };
         }
     }
 
     /// <summary>Place one asset: validate the destination rel-path (drive-rooted and '..' paths are rejected by the
     /// resolver's own check), get the source bytes (explicit source= or auto-resolve), and write them atomically under
-    /// <paramref name="outDir"/>. Reports the CURRENT VFS winner so the caller knows what to sort the fresh mod above —
-    /// the placed file does NOT win until the mod is enabled + sorted (the fresh folder isn't in the active profile yet).
+    /// <paramref name="outDir"/>. Reports the CURRENT VFS winner, because the placed file does NOT win until the mod is
+    /// enabled (the folder isn't in the active profile yet) — and on the into= lane, whose folder already has a fixed
+    /// priority, until it is also sorted above that winner.
     /// A per-asset failure is a recoverable named error, never a thrown batch abort.</summary>
     PlaceResult PlaceOne(PlaceRequest req, AssetResolver.AssetView view, string outDir)
     {
@@ -2409,7 +2411,7 @@ public sealed partial class LoadOrderService : IDisposable
             var tail = (cause is not null
                 ? ""
                 : " houseCARL reads load-order truth only and does not open disabled " +
-                  "plugins off disk. If this is a freshly written houseCARL patch, it isn't enabled yet: enable + sort it in " +
+                  "plugins off disk. If this is a freshly written houseCARL patch, it isn't enabled yet: enable it in " +
                   "MO2, then re-read.") + verify;
             return ReadOutcome.Fail(fk,
                 $"Plugin '{plugin}' is not in the load order ({view.PluginCount} plugins; names match the plugin FILENAME " +
@@ -10069,9 +10071,9 @@ public sealed record NifInspectBatchData(
 /// <summary>The data behind housecarl_nif_set: the VFS resolution joined to the verified write outcome. Exactly one of
 /// {<see cref="Report"/> (a verified write happened)}, {<see cref="Error"/> (a named refusal — NOTHING written)},
 /// and {<see cref="NeedsAcknowledge"/> (the in-place first-touch consent prompt — a required confirmation, not an
-/// error)} describes the result. <see cref="OutputModFolder"/> is set on the default-lane success (enable + sort it above
-/// <see cref="CurrentWinner"/>); <see cref="InPlacePath"/> is set on the in-place success (the file overwritten in
-/// place).</summary>
+/// error)} describes the result. <see cref="OutputModFolder"/> is set on the default-lane success (enable it; on the
+/// into= lane also sort it above <see cref="CurrentWinner"/>); <see cref="InPlacePath"/> is set on the in-place success
+/// (the file overwritten in place).</summary>
 public sealed record NifSetResult(
     string RelPath,
     NifProvider? Edited,
@@ -10095,9 +10097,15 @@ public sealed record NifSetResult(
     public static NifSetResult NeedsAck(string prompt, NifProvider edited, IReadOnlyList<NifProvider> providers, string profileName)
         => new("", edited, providers, false, null, null, true, prompt, true, false, null, null, null, Array.Empty<string>(), profileName);
 
+    /// <summary>True when the edited mesh landed in a mod folder this call CREATED, false when into= added it to an
+    /// existing one. MO2 registers an unseen folder at the highest priority, so a fresh folder out-ranks the current
+    /// winner on enable while an into= folder has to be sorted above it.</summary>
+    public bool FreshFolder { get; init; }
+
     public static NifSetResult OkNewFolder(string rel, NifProvider edited, IReadOnlyList<NifProvider> providers, bool ambiguous,
-        HousecarlCore.NifSetReport report, string modFolder, string? winner, IReadOnlyList<string> warnings, string profileName)
-        => new(rel, edited, providers, ambiguous, report, null, false, null, false, true, modFolder, null, winner, warnings, profileName);
+        HousecarlCore.NifSetReport report, string modFolder, bool freshFolder, string? winner, IReadOnlyList<string> warnings, string profileName)
+        => new(rel, edited, providers, ambiguous, report, null, false, null, false, true, modFolder, null, winner, warnings, profileName)
+            { FreshFolder = freshFolder };
 
     public static NifSetResult OkInPlace(string rel, NifProvider edited, IReadOnlyList<NifProvider> providers, bool ambiguous, bool editedIsWinner,
         HousecarlCore.NifSetReport report, string inPlacePath, IReadOnlyList<string> warnings, string profileName)
@@ -10116,8 +10124,9 @@ public sealed record NifSetResult(
 public sealed record PlaceRequest(string AssetPath, string? Source, string? SourceProvider = null);
 
 /// <summary>One placed asset's outcome. <see cref="Placed"/> false ⇒ <see cref="Error"/> names why (recoverable, per-asset
-/// per asset). <see cref="CurrentWinner"/> is the source that currently wins the VFS for this path (the sort target — the placed
-/// copy does NOT win until the fresh mod is enabled + sorted above it), or null if nothing provided it before.</summary>
+/// per asset). <see cref="CurrentWinner"/> is the source that currently wins the VFS for this path (the placed copy does
+/// NOT win until the mod is enabled; on the into= lane it must also be sorted above this winner, while a fresh folder
+/// out-ranks it on enable), or null if nothing provided it before.</summary>
 public sealed record PlaceResult(string AssetPath, bool Placed, long Bytes, string? SourceDesc, string? CurrentWinner, string? Error)
 {
     /// <summary>The mod folder these bytes were read out of when it is NOT one the active profile includes — the
@@ -10138,10 +10147,17 @@ public sealed record PlaceResult(string AssetPath, bool Placed, long Bytes, stri
 /// before any placement (unconfigured, an into= folder houseCARL doesn't own, the asset layer wouldn't build). Else
 /// <see cref="Results"/> is per-asset; <see cref="ModFolder"/> is the houseCARL mod the placed files landed in (null when
 /// none placed); <see cref="Warnings"/> carries the asset-discovery caveats; <see cref="LeftoverFolder"/> names a
-/// fresh folder kept because it holds a partial result (no orphan is left for an all-failed fresh batch).</summary>
+/// fresh folder kept because it holds a partial result (no orphan is left for an all-failed fresh batch);
+/// <see cref="FreshFolder"/> says which LANE ran.</summary>
 public sealed record PlaceOutcome(
     IReadOnlyList<PlaceResult> Results, string? ModFolder, IReadOnlyList<string> Warnings, string? LeftoverFolder, string? Error)
 {
+    /// <summary>True when the files landed in a mod folder this call CREATED (the default lane), false when they were
+    /// added to an existing folder (into=). MO2 registers a folder it has not seen at the highest priority, so a fresh
+    /// folder out-ranks the current winner the moment it is ticked; an into= folder's priority is already fixed and has
+    /// to be sorted. The two lanes therefore owe the caller different instructions.</summary>
+    public bool FreshFolder { get; init; }
+
     /// <summary>Whether the CALL was served at all — not whether every destination placed. A served call with
     /// failed rows is a success carrying per-row errors, the way every other write outcome reads.</summary>
     public bool Success => Error is null;

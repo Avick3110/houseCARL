@@ -14,7 +14,7 @@ namespace HousecarlMcp;
 /// auto-resolves only when exactly one copy exists; which copy is correct is the caller's judgement, never the
 /// tool's. Source bytes are read in process (a loose file, or one BSA entry through Mutagen — no BSArch), the write
 /// is crash-atomic, and a placement never wins on write: the response always states the current winner and the
-/// required MO2 enable + sort.</summary>
+/// required MO2 enable, plus the sort an into= placement also needs.</summary>
 [McpServerToolType]
 public static class PlaceTools
 {
@@ -33,7 +33,9 @@ public static class PlaceTools
          "LANE — patch= names the NEW mod folder | into= adds to an EXISTING houseCARL patch folder.\n" +
          "TRANSPORT — format= | max_chars=.\n\n" +
          "The write is crash-atomic and originals are never touched. IMPORTANT (and reported back): the placed copies " +
-         "do NOT win on write — you must ENABLE the new mod in MO2 and SORT it above the current winner.")]
+         "do NOT win on write — you must ENABLE the mod in MO2. A NEW folder registers at MO2's highest priority, so " +
+         "enabling it is the whole job; an into= placement lands in a folder whose priority is already fixed and must " +
+         "also be SORTED above the current winner.")]
     public static string Place(
         LoadOrderService svc,
         [Description("SELECT: the destinations, all placed into ONE reviewable mod folder. Each: { formid?: 'XXXXXX:Plugin.esp', kind?: 'mesh'|'tint' (omit with formid to place BOTH FaceGen files), path?: 'meshes/...', source?: '<loose path>' | '<archive.bsa>|<entry>' | '<archive.bsa>' | '<Data-relative path>', source_provider?: 'SomeMod' | 'X - Textures.bsa' | '" + AssetSourceChoice.WinnerToken + "' } — or \"@<absolute path>\" to read that SAME array from a JSON file. Set-valued at every size — one destination is a set of one. A member the shape does not declare is refused BY NAME at its element, never silently dropped. A malformed member — a bad FormID, a bad kind, neither or both of formid and path, or a formid member with no kind whose source= is not a FULL '.bsa' path — refuses the WHOLE call with per-member reasons and places nothing; a source that is ambiguous, absent or unreadable is a PER-MEMBER error and the rest still place. Each member's own description says what it takes.")]
@@ -212,8 +214,8 @@ public static class PlaceTools
 
 /// <summary>Renders a <see cref="PlaceOutcome"/> through the shared batch skeleton: the count and mod folder as the
 /// header, the discovery caveats as the alarms block, one capped row per destination (its source and the current VFS
-/// winner to sort above, or a per-destination error), then the §2.1 accounting and the explicit "this does not win
-/// until you enable + sort the mod in MO2" instruction. Those last two are always written and are charged INSIDE the
+/// winner it has to out-rank, or a per-destination error), then the §2.1 accounting and the explicit "this does not
+/// win until you enable the mod in MO2" instruction, which names a sort only on the into= lane. Those last two are always written and are charged INSIDE the
 /// cap (<see cref="PlaceWire.TrailerReserve"/>): a truncated list must still say how much it dropped and what the
 /// caller has to do next, and max_chars still bounds the whole response.</summary>
 static class PlaceWire
@@ -248,7 +250,7 @@ static class PlaceWire
                     if (!lines.TryAppend(sb, "[!] discovery: " + o.Warnings[w] + "\n")) break;
                 if (w < o.Warnings.Count) sb.Append(WarningsOmitted(o.Warnings.Count - w, cap));
             },
-            (sb, r, _) => AppendResult(sb, r, modFolder, poleWithheld?.Contains(r.AssetPath) == true),
+            (sb, r, _) => AppendResult(sb, r, modFolder, o.FreshFolder, poleWithheld?.Contains(r.AssetPath) == true),
             out int rendered,
             reserve: TrailerReserve(o, modFolder, placed, failed));
 
@@ -289,8 +291,12 @@ static class PlaceWire
         => $"the fresh folder at '{leftoverFolder}' holds a partial result — delete it or retry with into=.";
 
     /// <summary>The instruction a placement is incomplete without: written bytes do not win the VFS until the mod is
-    /// enabled, and sorted above the current winner when one exists. One home, because both transports have to carry
-    /// it verbatim — a json caller told only that the write succeeded would enable nothing.
+    /// enabled, and — on the into= lane, whose folder already sits somewhere in the priority order — sorted above the
+    /// current winner when one exists. One home, because both transports have to carry it verbatim — a json caller
+    /// told only that the write succeeded would enable nothing.
+    /// <para>The LANE decides as much as contention does: MO2 registers a folder it has not seen at the highest
+    /// priority, so a fresh folder out-ranks the current winner the moment it is ticked and asking for a sort would be
+    /// work the caller does not need to do.</para>
     /// <para><paramref name="rendered"/> is how many rows the render actually got onto the page. Rows come out in
     /// order, so those are the first <paramref name="rendered"/> results — and a contended row max_chars cut cannot
     /// be pointed at with "listed above", so the sentence says the row was cut instead of naming a winner the
@@ -304,17 +310,22 @@ static class PlaceWire
             anyContended = true;
             if (i < rendered) { shownContended = true; break; }
         }
-        var sort = shownContended
-            ? " and SORT it (left pane) ABOVE the current winner(s) listed above. Only then does the placed copy win."
-            : anyContended
-                ? " and SORT it (left pane) ABOVE the current winner(s) — max_chars cut the row(s) naming them from " +
-                  "this render, so raise max_chars and re-read to see which. Only then does the placed copy win."
-                : ". Nothing else provided these path(s), so once enabled the placed copy wins (sort it above any mod you later add that also provides them).";
+        var sort = o.FreshFolder
+            ? (anyContended
+                ? ". MO2 registers a folder it has not seen at the highest priority, so once enabled the placed copy " +
+                  "out-ranks the current winner(s) with no sorting (sort it above any mod you later add that also provides these path(s))."
+                : ". Nothing else provided these path(s), so once enabled the placed copy wins (sort it above any mod you later add that also provides them).")
+            : shownContended
+                ? " and SORT it (left pane) ABOVE the current winner(s) listed above. Only then does the placed copy win."
+                : anyContended
+                    ? " and SORT it (left pane) ABOVE the current winner(s) — max_chars cut the row(s) naming them from " +
+                      "this render, so raise max_chars and re-read to see which. Only then does the placed copy win."
+                    : ". Nothing else provided these path(s), so once enabled the placed copy wins (sort it above any mod you later add that also provides them).";
         return "IMPORTANT — \"wrote it\" is not \"it wins\": the placed file(s) do NOT win the VFS yet. Enable the mod '"
              + (modFolder ?? "(the new folder)") + "' in MO2" + sort;
     }
 
-    static void AppendResult(StringBuilder sb, PlaceResult r, string? modFolder, bool poleWithheld)
+    static void AppendResult(StringBuilder sb, PlaceResult r, string? modFolder, bool freshFolder, bool poleWithheld)
     {
         // An input the call carried but this destination could not use is SAID, not dropped: the pole's own refusal
         // sentence is that a provider which cannot apply is stated, so withholding it silently would read as honoured.
@@ -335,7 +346,9 @@ static class PlaceWire
         // Name the destination folder rather than saying "the mod": the off-order line above can put a SECOND mod in
         // scope, and it ends by saying enabling THAT one is not required.
         sb.Append(r.CurrentWinner is not null
-            ? $"        currently wins the VFS: {r.CurrentWinner} — sort the new mod ABOVE it\n"
+            ? freshFolder
+                ? $"        currently wins the VFS: {r.CurrentWinner} — a folder MO2 has not seen registers at the highest priority, so '{modFolder ?? "(the new folder)"}' out-ranks it once enabled\n"
+                : $"        currently wins the VFS: {r.CurrentWinner} — sort '{modFolder ?? "(the patch folder)"}' ABOVE it\n"
             : $"        nothing else provides this path — once '{modFolder ?? "(the new folder)"}' is enabled, the placed copy wins\n");
     }
 }

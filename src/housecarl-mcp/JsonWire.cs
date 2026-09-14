@@ -3017,7 +3017,7 @@ static class JsonWire
     // ---- housecarl_place (S2 write) -----------------------------------------------------------------
     /// <summary>The machine-readable twin of <see cref="PlaceWire"/>'s render — the SAME data on the write
     /// surface's contract: <c>ok</c> on both outcomes, a refusal is a document, and the "this does not win until
-    /// you enable and sort the mod" instruction rides in-band as <c>next_step</c>. It is written from the same
+    /// you enable the mod" instruction rides in-band as <c>next_step</c>. It is written from the same
     /// helper the text lane calls, because a truncated json document that dropped the instruction would be the
     /// silently degraded mode json is not allowed to be.</summary>
     public static string RenderPlaceOutcome(PlaceOutcome o, int maxChars, IReadOnlySet<string>? poleWithheld = null)
@@ -3053,7 +3053,7 @@ static class JsonWire
                 // rendered > 0: the FIRST row always renders, as it does on the text lane — and on this document it
                 // is the only place current_winner, the mod the caller has to sort above, is stated.
                 if (rendered > 0 && Over(w, ms, cap)) { truncated = true; break; }
-                WritePlaceRow(w, r, modFolder, poleWithheld?.Contains(r.AssetPath) == true);
+                WritePlaceRow(w, r, modFolder, o.FreshFolder, poleWithheld?.Contains(r.AssetPath) == true);
                 rendered++;
             }
             w.WriteEndArray();
@@ -3081,7 +3081,7 @@ static class JsonWire
         return Finish(ms);
     }
 
-    static void WritePlaceRow(Utf8JsonWriter w, PlaceResult r, string? modFolder, bool poleWithheld)
+    static void WritePlaceRow(Utf8JsonWriter w, PlaceResult r, string? modFolder, bool freshFolder, bool poleWithheld)
     {
         w.WriteStartObject();
         w.WriteString("path", r.AssetPath);
@@ -3093,7 +3093,9 @@ static class JsonWire
             WriteNullable(w, "source", r.SourceDesc);
             WriteNullable(w, "current_winner", r.CurrentWinner);
             w.WriteString("winner_note", r.CurrentWinner is not null
-                ? $"{r.CurrentWinner} currently wins the VFS — sort the new mod ABOVE it"
+                ? freshFolder
+                    ? $"{r.CurrentWinner} currently wins the VFS — a folder MO2 has not seen registers at the highest priority, so '{modFolder ?? "(the new folder)"}' out-ranks it once enabled"
+                    : $"{r.CurrentWinner} currently wins the VFS — sort '{modFolder ?? "(the patch folder)"}' ABOVE it"
                 : $"nothing else provides this path — once '{modFolder ?? "(the new folder)"}' is enabled, the placed copy wins");
             // Bytes served out of a mod MO2 does not load are a fact of the SOURCE, and look like any other
             // placement without it.

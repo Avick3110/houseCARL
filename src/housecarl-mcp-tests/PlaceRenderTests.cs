@@ -5,18 +5,20 @@ namespace HousecarlMcpTests;
 
 /// <summary>housecarl_place's render: the §2.1 accounting is in band on every response, and the two things a
 /// caller cannot act without — how much was left out, and that a placed file does not win until the mod is enabled
-/// and sorted — survive a cap that cuts the list. place is the batch skeleton's third caller, so the cut marker is
-/// the same one asset_status and nif_inspect print.</summary>
+/// (and, on the into= lane, sorted) — survive a cap that cuts the list. place is the batch skeleton's third caller,
+/// so the cut marker is the same one asset_status and nif_inspect print. The lane decides which of those two
+/// instructions is true, so it is asserted on both arms.</summary>
 [Trait("tier", "unit")]
 public class PlaceRenderTests
 {
-    static PlaceOutcome Outcome(int ok, int failed) => new(
+    static PlaceOutcome Outcome(int ok, int failed, bool fresh = false, bool contended = true) => new(
         Enumerable.Range(0, ok)
-            .Select(i => new PlaceResult($"meshes/hc/ok{i}.nif", true, 42, "SomeMod (loose)", "OtherMod (loose)", null))
+            .Select(i => new PlaceResult($"meshes/hc/ok{i}.nif", true, 42, "SomeMod (loose)",
+                                         contended ? "OtherMod (loose)" : null, null))
             .Concat(Enumerable.Range(0, failed)
                 .Select(i => new PlaceResult($"meshes/hc/bad{i}.nif", false, 0, null, null, "nothing supplies this path")))
             .ToList(),
-        @"C:\mods\houseCARL - MyFixes", Array.Empty<string>(), null, null);
+        @"C:\mods\houseCARL - MyFixes", Array.Empty<string>(), null, null) { FreshFolder = fresh };
 
     [Fact]
     public void EveryResponseCarriesTheAccountingInBand()
@@ -53,5 +55,68 @@ public class PlaceRenderTests
 
         Assert.Contains("total=2 rendered=2 placed=0 failed=2", text);
         Assert.DoesNotContain("\"wrote it\" is not \"it wins\"", text);
+    }
+
+    [Fact]
+    public void AFreshFolderOverAnExistingProviderIsToldToEnableOnly_MO2RanksAnUnseenFolderHighest()
+    {
+        var text = PlaceWire.Render(Outcome(ok: 1, failed: 0, fresh: true), 80_000);
+
+        Assert.Contains("Enable the mod 'houseCARL - MyFixes' in MO2", text);
+        // The sort is the bug: a folder MO2 has not seen already out-ranks the winner once it is ticked.
+        Assert.DoesNotContain("SORT it (left pane)", text);
+        Assert.DoesNotContain("sort the new mod ABOVE it", text);
+        Assert.Contains("out-ranks the current winner(s) with no sorting", text);
+        // The tail stays: a mod added LATER can still outrank this one.
+        Assert.Contains("sort it above any mod you later add", text);
+        // The per-row line says the same thing, and still names the winner it out-ranks.
+        Assert.Contains("currently wins the VFS: OtherMod (loose)", text);
+        Assert.Contains("'houseCARL - MyFixes' out-ranks it once enabled", text);
+    }
+
+    [Fact]
+    public void AnIntoPlacementOverAnExistingProviderIsStillToldToSortAboveIt()
+    {
+        var text = PlaceWire.Render(Outcome(ok: 1, failed: 0, fresh: false), 80_000);
+
+        Assert.Contains("Enable the mod 'houseCARL - MyFixes' in MO2", text);
+        Assert.Contains("SORT it (left pane) ABOVE the current winner(s) listed above", text);
+        Assert.Contains("sort 'houseCARL - MyFixes' ABOVE it", text);
+        Assert.DoesNotContain("with no sorting", text);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void WithNoContentionBothLanesSayTheSameThing_EnableAndItWins(bool fresh)
+    {
+        var text = PlaceWire.Render(Outcome(ok: 1, failed: 0, fresh: fresh, contended: false), 80_000);
+
+        Assert.Contains("Nothing else provided these path(s), so once enabled the placed copy wins", text);
+        Assert.Contains("sort it above any mod you later add", text);
+        Assert.DoesNotContain("SORT it (left pane)", text);
+    }
+
+    [Fact]
+    public void TheJsonTwinCarriesTheSameLanedInstruction_AJsonCallerActsOnNextStepAlone()
+    {
+        var fresh = Doc(JsonWire.RenderPlaceOutcome(Outcome(ok: 1, failed: 0, fresh: true), 80_000));
+        var into = Doc(JsonWire.RenderPlaceOutcome(Outcome(ok: 1, failed: 0, fresh: false), 80_000));
+
+        Assert.Contains("out-ranks the current winner(s) with no sorting", fresh.NextStep);
+        Assert.DoesNotContain("SORT it (left pane)", fresh.NextStep);
+        Assert.Contains("out-ranks it once enabled", fresh.WinnerNote);
+
+        Assert.Contains("SORT it (left pane) ABOVE", into.NextStep);
+        Assert.Contains("sort 'houseCARL - MyFixes' ABOVE it", into.WinnerNote);
+    }
+
+    /// <summary>The two laned strings out of a json place document, read as data rather than matched against the
+    /// wire's escaping.</summary>
+    static (string NextStep, string WinnerNote) Doc(string json)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        return (doc.RootElement.GetProperty("next_step").GetString()!,
+                doc.RootElement.GetProperty("results")[0].GetProperty("winner_note").GetString()!);
     }
 }
