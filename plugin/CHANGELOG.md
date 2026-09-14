@@ -16,10 +16,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
   byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the
   literal escape text and every tool refused with "the active profile's folder is missing". Both INI readers —
-  `ModOrganizer.ini` and a mod's `meta.ini` — now undo Qt's escaping: `\xHH` runs (UTF-8 bytes, or a UTF-16 code
-  unit for a value above 0xFF), the named escapes, and a surrounding pair of quotes. A backslash MO2 wrote
-  unescaped is left as it stands. If a tool still reports the folder missing, the name it prints is now the
-  decoded one — compare it with the folder under `profiles\`.
+  `ModOrganizer.ini` and a mod's `meta.ini` — now read a value the way Qt wrote it: the quote pair Qt puts around
+  the whole value, wrapper included, when it holds `;` `,` `=` or an edge space (so a profile named `Requiem, AE`
+  also resolves now), then the `@ByteArray(...)` wrapper, then the escapes — `\xHH` runs (UTF-8 bytes, or a UTF-16
+  code unit for a value above 0xFF) and the named ones. Qt doubles every backslash, so a value carrying a lone one
+  was not written by Qt and is left exactly as it stands rather than half-decoded. If a tool still reports the
+  folder missing, the name it prints is now the decoded one — compare it with the folder under `profiles\`.
 
 - **A forward `walk=` no longer holds every record it reached.** A record body read from a plugin is a slice
   of that record group's whole byte array and keeps it alive, so caching one body per reached node until the
