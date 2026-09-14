@@ -633,11 +633,15 @@ static class JsonWire
     /// counted apart so they are never silently dropped from a census.</summary>
     /// <param name="bodyCost">What reading this list's bodies cost — aggregate reads one leaf off a body per id
     /// before it counts anything, so it reports the same accounting the other body forms do (#607).</param>
+    /// <param name="maxChars">The ceiling this table holds itself to, the same one the scan lane's count table
+    /// holds: group rows stop at the cap and the document says how many of them it rendered.</param>
     public static string RenderListAggregate(string groupBy, IReadOnlyList<KeyValuePair<string, int>> rows,
                                              int count, int errors, OrderStamp? epoch,
                                              (int RowsRead, long Millis) bodyCost,
-                                             IReadOnlyList<KeyValuePair<string, string>>? envelope = null)
+                                             IReadOnlyList<KeyValuePair<string, string>>? envelope = null,
+                                             int maxChars = 0)
     {
+        int cap = Cap(maxChars);
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -651,14 +655,20 @@ static class JsonWire
             if (errors > 0) w.WriteNumber("errors", errors);
             WriteEpoch(w, epoch);
             w.WriteStartArray("groups");
+            int rendered = 0; bool truncated = false;
             foreach (var (key, n) in rows.Select(r => (r.Key, r.Value)))
             {
+                w.Flush();
+                if (ms.Length >= cap) { truncated = true; break; }
                 w.WriteStartObject();
                 w.WriteString("key", key);
                 w.WriteNumber("count", n);
                 w.WriteEndObject();
+                rendered++;
             }
             w.WriteEndArray();
+            w.WriteNumber("rendered", rendered);
+            w.WriteBoolean("truncated", truncated);
             w.WriteEndObject();
         }
         return Finish(ms);

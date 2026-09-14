@@ -162,6 +162,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   is not modeled, and houseCARL does not hand-write per-record-type decoders — so a blob is only safe to copy between
   records at the same FormVersion, which these lines now let you check.
 
+- **`housecarl_records` `project={form:'aggregate'}` on a `formids=` list now holds `max_chars`.** The count table
+  rendered every group row whatever the ceiling said and stated nothing; it now stops at the cap and says how many
+  of its groups it laid, the same notice the scan lane's count table carries. The counts themselves are unchanged —
+  only the rendering is cut, so the table's totals stay exact. The json shape gains `rendered` and `truncated`
+  alongside `groups`, as the scan lane's already has. Raise `max_chars` to see the rest.
+
 ## 2.0.0 — 2026-09-11
 
 houseCARL 2.0.0 replaces the 1.x tool surface with 31 tools. The record plane is one grammar: a read is one call composed from four axes (SELECT × SOURCE × PROJECT × TRANSPORT); a write is one call composed from an op list, a lane and a transport; one record is a set of one. Record coverage is generated from Mutagen.Bethesda.Skyrim 0.54.4 at build time, 1,174 types, and the write pre-flight and the `mutagen-reference` skill are two renderings of that one artifact. The 1.x tool and parameter names are deleted, not deprecated: a retired tool name is refused with a refusal naming its successor, from `AliasTable.cs`; a retired parameter name is refused as an unknown parameter, with the parameters the tool does take. Seven skills ship. `housecarl_check` gains the facegen family. The installer shows what it will write before writing, and uninstalls. The entries below are in the order they landed.
