@@ -88,8 +88,10 @@ REQUIREMENTS
         https://dotnet.microsoft.com/download/dotnet/9.0
         or:  winget install Microsoft.DotNet.Runtime.9
              winget install Microsoft.DotNet.AspNetCore.9
-    houseCARL-Setup.exe checks for both and tells you which one is
-    missing, so when in doubt just run it.
+    houseCARL-Setup.exe needs the base .NET Runtime itself, so when it
+    is missing Windows says so and links the download page; when it is
+    there, setup checks the ASP.NET Core one and tells you if that is
+    what you are missing. When in doubt just run it.
   - A recent Claude Code  (v2.1.143 or newer) -- the terminal CLI, or
     the Claude desktop app (Claude Code is built in; houseCARL runs in
     Claude Code sessions, not the plain chat).

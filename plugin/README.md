@@ -50,7 +50,7 @@ Dialogue and facegen are not skills. Their tools carry the bookkeeping: `check f
 ## Requirements
 
 - Windows.
-- .NET Runtime 9.0 and ASP.NET Core Runtime 9.0, from the [.NET 9 download page](https://dotnet.microsoft.com/download/dotnet/9.0). Both are required. houseCARL ships framework-dependent, and the ASP.NET Core installer does not include the base runtime. The setup utility checks for both and names the one that is missing.
+- .NET Runtime 9.0 and ASP.NET Core Runtime 9.0, from the [.NET 9 download page](https://dotnet.microsoft.com/download/dotnet/9.0). Both are required. houseCARL ships framework-dependent — the server and the setup utility both — and the ASP.NET Core installer does not include the base runtime. Setup needs the base runtime to start at all; without it Windows says so and links the download page. With it, setup checks the ASP.NET Core one and names it if that is what is missing.
 - [Mod Organizer 2](https://www.modorganizer.org/) with a profile. MO2 does not need to be running.
 - Claude Code v2.1.143 or newer (the terminal CLI, or the Claude desktop app's Code tab), or OpenAI Codex.
 
@@ -69,6 +69,17 @@ Dialogue and facegen are not skills. Their tools carry the bookkeeping: `check f
 Flags, for an unattended run: `--claude` / `--codex` / `--both` pick the host, `--yes` skips the confirm at the plan, `--uninstall` removes instead of installing, `--skip-runtime-check` skips the .NET check. A run whose input is redirected has nobody to answer a question, so it stops and names the flag that answers it rather than assuming one.
 
 Updating: quit Claude Code and Codex first. Setup cannot replace a server a session is running; if one is, it stops and says so. Setup overwrites only the files in the package, so the saved MO2 instance and tool paths in `houseCARL.user.json` survive a re-run.
+
+### By hand
+
+The package is plain enough to install without the setup utility, which is the way out if the exe will not run on a machine.
+
+1. Extract `housecarl/` somewhere permanent.
+2. Register the server: point the host's MCP entry at `server/housecarl-mcp.dll`, run with `dotnet`.
+3. Copy `housecarl/skills/` into `~/.claude/skills/`.
+4. Restart the host.
+
+The Claude desktop app reads its MCP servers from `%APPDATA%\Claude\claude_desktop_config.json`, not from `~/.claude/claude_mcp_config.json`. Editing the latter changes nothing the desktop app spawns, and the app goes on starting whatever server it had registered before.
 
 Uninstalling: `[4] Uninstall`, or `--uninstall` with a host flag. It removes the skill folders it recorded installing, the server, the rest of the files a houseCARL package ships, and the `housecarl` entry in `~/.claude.json` and `~/.codex/config.toml` — each config copied to a `.houseCARL.uninstall.bak` beside it first, and every other byte in it left as it was. Anything under those locations that houseCARL did not install stays where it is, and the run names it. `houseCARL.user.json` sits beside the server and goes with it; the patches houseCARL wrote live in the MO2 mods folder and are left alone.
 
