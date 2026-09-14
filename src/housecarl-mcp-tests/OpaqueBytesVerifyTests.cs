@@ -28,6 +28,11 @@ public sealed class OpaqueBytesVerifyTests : IDisposable
     readonly string _priorCorpusPath;
     readonly LoadOrderService _svc;
     readonly FormKey _stat;
+    readonly FormKey _cell, _refr;
+
+    /// <summary>The FormVersion the containing CELL is stamped at — deliberately NOT the 44 its placed reference
+    /// carries, so a '*parent'-hopped read annotated off the wrong record would be visibly wrong.</summary>
+    const ushort CellFormVersion = 43;
 
     /// <summary>The MODT-shaped blob the fixture record carries: real length, arbitrary content. Its BYTES never
     /// matter to any assertion here — only that houseCARL says it did not judge them.</summary>
@@ -44,6 +49,24 @@ public sealed class OpaqueBytesVerifyTests : IDisposable
         st.EditorID = "HcBlobStatic";
         st.Model = new Model { File = "meshes\\hcblob.nif", Data = new Noggog.MemorySlice<byte>(Blob) };
         _stat = st.FormKey;
+
+        // An interior cell carrying its OWN blob at a DIFFERENT FormVersion from the reference inside it: the
+        // '*parent' hop reads the blob off the cell, so the annotation must name the cell's stamp, not the REFR's.
+        _cell = new FormKey(mod.ModKey, 0xC01);
+        _refr = new FormKey(mod.ModKey, 0xC10);
+        var cell = new Cell(_cell, SkyrimRelease.SkyrimSE)
+        {
+            EditorID = "HcBlobCell",
+            Flags = Cell.Flag.IsInteriorCell,
+            FormVersion = CellFormVersion,
+            OcclusionData = new Noggog.MemorySlice<byte>(Blob),
+        };
+        cell.Temporary.Add(new PlacedObject(_refr, SkyrimRelease.SkyrimSE) { EditorID = "HcBlobRef" });
+        var block = new CellBlock { BlockNumber = 1, GroupType = GroupTypeEnum.InteriorCellBlock };
+        var sub = new CellSubBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellSubBlock };
+        sub.Cells.Add(cell);
+        block.SubBlocks.Add(sub);
+        mod.Cells.Records.Add(block);
 
         var instance = Path.Combine(_root, "inst");
         var mods = Path.Combine(instance, "mods");
@@ -122,6 +145,23 @@ public sealed class OpaqueBytesVerifyTests : IDisposable
         Assert.Contains(Convert.ToHexString(Blob), r);
     }
 
+    /// <summary>A '*parent'-hopped blob is annotated off the record the leaf was READ on, not the record the read
+    /// started from. Stamping it with the entry record's FormVersion would make a real mismatch read as a match,
+    /// which is worse than no annotation at all.</summary>
+    [Fact]
+    public void AParentHoppedBlobCarriesTheContainingRecordsFormVersion()
+    {
+        var direct = RecordsTools.Records(_svc, formids: new[] { Fid(_cell) },
+            project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "OcclusionData" }, depth = 4 });
+        Assert.Contains("FormVersion " + CellFormVersion, direct);
+
+        var hopped = RecordsTools.Records(_svc, formids: new[] { Fid(_refr) },
+            project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "*parent.OcclusionData" }, depth = 4 });
+        Assert.DoesNotContain("error:", hopped);
+        Assert.Contains("FormVersion " + CellFormVersion, hopped);
+        Assert.DoesNotContain("FormVersion 44", hopped);
+    }
+
     /// <summary>The blob is marked STRUCTURALLY, so a consumer deciding whether a value was judged never has to match
     /// a hex-looking token or parse the prose.</summary>
     [Fact]
@@ -132,6 +172,20 @@ public sealed class OpaqueBytesVerifyTests : IDisposable
         st.Model = new Model { File = "meshes\\mem.nif", Data = new Noggog.MemorySlice<byte>(Blob) };
         var read = ReadEngine.ReadFields(st, new[] { "Model.Data" }, 4);
         Assert.Equal(Blob.Length, read.Fields.Single(x => x.Path == "Model.Data").Bytes);
+    }
+
+    /// <summary>…and it reaches the json read lane, which is the one a field-level blob copy would be driven from:
+    /// the length is a NUMBER there, so a consumer never regexes the prose to learn a value went unjudged.</summary>
+    [Fact]
+    public void TheJsonReadLaneCarriesTheByteLengthAsANumber()
+    {
+        var r = RecordsTools.Records(_svc, formids: new[] { Fid(_stat) },
+            project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Model.Data" }, depth = 4 },
+            format: "json");
+        using var doc = JsonDocument.Parse(r);
+        var field = doc.RootElement.GetProperty("records")[0].GetProperty("fields")
+            .EnumerateArray().Single(f => f.GetProperty("path").GetString() == "Model.Data");
+        Assert.Equal(Blob.Length, field.GetProperty("opaque_bytes").GetInt32());
     }
 
     public void Dispose()
