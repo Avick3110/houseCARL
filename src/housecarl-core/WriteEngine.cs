@@ -124,7 +124,7 @@ public static class WriteEngine
         Console.WriteLine();
 
         var shaBefore = Sha(source);
-        var sourceMod = SkyrimMod.CreateFromBinaryOverlay(source, SkyrimRelease.SkyrimSE);
+        var sourceMod = SkyrimMod.CreateFromBinaryOverlay(source, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
 
         // Resolve the getter interface for the named type — absent => a real coverage gap, surfaced, never guessed.
         var iface = typeof(SkyrimMod).Assembly.GetType("Mutagen.Bethesda.Skyrim.I" + type + "Getter");
@@ -193,7 +193,7 @@ public static class WriteEngine
         Console.WriteLine($"Wrote patch ({new FileInfo(outPath).Length} bytes).");
 
         // Re-open the patch: surface its masters (cross-master cleanliness) + read every edited field back.
-        var patchBack = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
+        var patchBack = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
         var masters = patchBack.ModHeader.MasterReferences.Select(m => m.Master.ToString()).ToList();
         Console.WriteLine($"  masters: {(masters.Count == 0 ? "(none)" : string.Join(", ", masters))}");
         var patched = patchBack.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == target.FormKey);
@@ -297,7 +297,7 @@ public static class WriteEngine
         for (int i = 0; i < args.Length - 1; i++)
             if (string.Equals(args[i], "--path", StringComparison.OrdinalIgnoreCase)) paths.Add(args[i + 1]);
 
-        var sourceMod = SkyrimMod.CreateFromBinaryOverlay(source, SkyrimRelease.SkyrimSE);
+        var sourceMod = SkyrimMod.CreateFromBinaryOverlay(source, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
         Type? iface = type is null ? null : typeof(SkyrimMod).Assembly.GetType("Mutagen.Bethesda.Skyrim.I" + type + "Getter");
         if (type is not null && iface is null) { Console.Error.WriteLine($"error: unknown record type '{type}'"); return 1; }
         FormKey? wantFk = null;
@@ -344,7 +344,7 @@ public static class WriteEngine
         if (!File.Exists(source)) { Console.Error.WriteLine($"error: source plugin not found: {source}"); return 1; }
 
         var shaBefore = Sha(source);
-        var sourceMod = SkyrimMod.CreateFromBinaryOverlay(source, SkyrimRelease.SkyrimSE);
+        var sourceMod = SkyrimMod.CreateFromBinaryOverlay(source, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
         var cache = sourceMod.ToImmutableLinkCache();
 
         // Scan for the first FORM-mode condition target (UseAliases=UsePackageData=false, a populated FormKey) —
@@ -424,7 +424,7 @@ public static class WriteEngine
         Console.WriteLine($"Wrote patch ({new FileInfo(outPath).Length} bytes).");
 
         // Reopen + read the new target back off the written patch; confirm masters + source untouched.
-        var back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
+        var back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
         var masters = back.ModHeader.MasterReferences.Select(m => m.Master.ToString()).ToList();
         var patched = back.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == owner.FormKey);
         FormKey? readBack = null;
@@ -1756,6 +1756,7 @@ public static class WriteEngine
                 .WithLoadOrder(ordered)
                 .WithExtraIncludedMasters(baseline)
                 .NoNextFormIDProcessing()
+                .WithEmbeddedEncodings(PluginTextEncoding.Write)
                 .Write();
             return tmpPath;
         }
@@ -1857,7 +1858,7 @@ public static class WriteEngine
         ISkyrimModGetter? ov = null;
         try
         {
-            ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
+            ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
             return ov.ModHeader.Flags.HasFlag(SkyrimModHeader.HeaderFlag.Localized)
                 ? LocalizedFlagRead.Localized
                 : LocalizedFlagRead.NotLocalized;
@@ -1881,6 +1882,7 @@ public static class WriteEngine
                 .ToPath(tmpPath)
                 .WithLoadOrder(ordered)            // the target's OWN masters — no whole-order, no baseline
                 .NoNextFormIDProcessing()          // persist the author's NextObjectID verbatim (no EnsureFormIdFloor)
+                .WithEmbeddedEncodings(PluginTextEncoding.Write)
                 .Write();
             return tmpPath;
         }

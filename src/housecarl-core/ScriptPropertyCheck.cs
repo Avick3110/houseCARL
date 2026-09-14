@@ -357,7 +357,7 @@ public static class ScriptPropertyCheck
         {
             offOrderScanned.Add(name);
             ISkyrimModGetter ov;
-            try { ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE); }
+            try { ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read); }
             catch (Exception ex)
             {
                 reports.Add(RecordScriptFindings.PluginScanError(name,
