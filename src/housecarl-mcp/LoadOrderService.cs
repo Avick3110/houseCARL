@@ -2585,8 +2585,9 @@ public sealed partial class LoadOrderService : IDisposable
             foreach (var (i, field) in hits)
             {
                 var u = unions?[field];
-                // These fields are containers and owned records; the only other producer of Display is the flags
-                // decode, which fires on [Flags] enum leaves alone — so there is no annotation here to displace.
+                // These fields are containers and owned records; the other producers of Display are the flags decode,
+                // which fires on [Flags] enum leaves alone, and the opaque-blob annotation, which fires on bytes
+                // leaves alone — so there is no annotation here to displace.
                 rebuilt[i] = rebuilt[i] with { Display = u is null ? ReadSentences.NotReadNote(others) : ReadSentences.UnionNote(u) };
                 map[rebuilt[i].Path] = u;
             }
