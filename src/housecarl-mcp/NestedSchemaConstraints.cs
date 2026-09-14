@@ -168,11 +168,21 @@ internal static class NestedSchemaConstraints
         return changed;
     }
 
-    /// <summary>Drop <c>"null"</c> from a member's published type. Generic: it reads the DOCUMENT, so every member
-    /// marked required loses the null arm without anything here naming one. A type that is null and nothing else is
-    /// left alone — narrowing that publishes a member no value can satisfy.</summary>
+    /// <summary>Drop the null arm from a member's published type, in BOTH spellings the generator uses: a
+    /// <c>type</c> array, and an <c>anyOf</c> union whose arms carry their own types. Generic: it reads the
+    /// DOCUMENT, so every member marked required loses the arm without anything here naming one. A shape that is
+    /// null and nothing else is left alone — narrowing that publishes a member no value can satisfy.</summary>
     static bool DropNull(JsonObject member)
     {
+        if (member["anyOf"] is JsonArray arms)
+        {
+            var keptArms = arms.Where(a => a is not JsonObject o || !IsNullOnly(o)).ToList();
+            bool inner = false;
+            foreach (var arm in keptArms) if (arm is JsonObject o) inner |= DropNull(o);
+            if (keptArms.Count == 0 || keptArms.Count == arms.Count) return inner;
+            member["anyOf"] = new JsonArray(keptArms.Select(a => a?.DeepClone()).ToArray());
+            return true;
+        }
         if (member["type"] is not JsonArray types) return false;
         var kept = new List<JsonNode?>();
         foreach (var t in types)
@@ -182,14 +192,21 @@ internal static class NestedSchemaConstraints
         return true;
     }
 
+    /// <summary>Is this union arm the null arm — the <c>{"type":"null"}</c> the generator pairs a value arm with?</summary>
+    static bool IsNullOnly(JsonObject arm)
+        => arm["type"] is JsonValue v && v.TryGetValue<string>(out var s) && s == "null";
+
     /// <summary>Does the published type of this member accept a JSON null? Read off the DOCUMENT, so the answer is
     /// whatever the generator actually emitted rather than a second reading of the CLR type's nullability.</summary>
-    static bool AdmitsNull(JsonObject member) => member["type"] switch
-    {
-        JsonArray types => types.Any(t => t is JsonValue v && v.TryGetValue<string>(out var s) && s == "null"),
-        JsonValue single => single.TryGetValue<string>(out var s) && s == "null",
-        _ => false,
-    };
+    static bool AdmitsNull(JsonObject member) =>
+        member["anyOf"] is JsonArray arms
+            ? arms.Any(a => a is JsonObject o && AdmitsNull(o))
+            : member["type"] switch
+            {
+                JsonArray types => types.Any(t => t is JsonValue v && v.TryGetValue<string>(out var s) && s == "null"),
+                JsonValue single => single.TryGetValue<string>(out var s) && s == "null",
+                _ => false,
+            };
 
     /// <summary>The element type of a published ARRAY shape, or null when the type is not one. Arrays only: every
     /// list-valued wire shape on this surface is <c>T[]</c>, and a dictionary publishes

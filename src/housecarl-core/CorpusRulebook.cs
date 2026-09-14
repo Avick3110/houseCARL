@@ -1137,10 +1137,16 @@ public sealed class CorpusRulebook
             // The one verb a nested set cannot take. The rest run through the verb engine itself (BuildStruct
             // replays them with ApplyVerb), but CopyFrom reads a SOURCE RECORD the nested shape has no slot to
             // name, so it would pass the leaf gate and then throw as an unknown verb at apply.
+            // The remedy splits by LANE on the same signal the @editorid gate below reads: the create surface has no
+            // CopyFrom op to send the caller to, so naming one there would route them into a second refusal.
             if (string.Equals(s.Verb, WriteVerbs.Transplanting, StringComparison.Ordinal))
                 return $"'{WriteVerbs.Transplanting}' is not a verb a compose's nested sets take — it copies a field " +
-                       "from ANOTHER record, which only an op can name (from= / from_source=), so make it its own op " +
-                       $"on the field itself. Legal here: {string.Join(", ", WriteVerbs.InCompose)}.";
+                       "from ANOTHER record, which only an op naming the source can do, so "
+                     + (siblingEditorIds is null
+                           ? "make it its own op on the field itself (from= / from_source=)."
+                           : $"create the record here and copy the field in with a second {ToolNames.Apply} call "
+                             + "(op='CopyFrom') into the same patch.")
+                     + $" Legal here: {string.Join(", ", WriteVerbs.InCompose)}.";
             // siblingEditorIds threads through — a same-call @editorid ref inside a COMPOSED struct's nested Sets
             // (e.g. a VMAD quest-fragment's Property.Object=@<own quest>) validates by the SAME gates as a top-level
             // value (formlink-only + declared-earlier-or-self), recursively; on the edit path (null) it still rejects
