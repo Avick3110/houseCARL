@@ -2704,6 +2704,51 @@ public static class WritePatchBuilder
     //  on opt-in.
     // ======================================================================
 
+    /// <summary>What one merge donor holds, read in ONE enumeration: the records it defines under its own name
+    /// (<paramref name="scan"/>.Originating, what the remap renumbers), the records it carries whose FormID names a
+    /// DIFFERENT donor (Carried — an injected record is one of these, see <see cref="MergeInjection"/>), and every
+    /// outgoing link into any donor's FormID space (DonorLinks, which the remap must be able to carry). The overlay is
+    /// disposed before returning, so no handle is held at rest.
+    /// Returns false with a named reason if the plugin can't be parsed — houseCARL won't merge a plugin it can't fully
+    /// read, lest it drop a record it couldn't parse.</summary>
+    public static bool TryScanMergeDonor(
+        string srcPath, ModKey modKey, IReadOnlySet<ModKey> donorKeys, out MergeDonorScan scan, out string? error)
+    {
+        scan = new MergeDonorScan(Array.Empty<FormKey>(), Array.Empty<FormKey>(), Array.Empty<(FormKey, FormKey)>());
+        error = null;
+        ISkyrimModGetter? ov = null;
+        try
+        {
+            ov = SkyrimMod.CreateFromBinaryOverlay(srcPath, SkyrimRelease.SkyrimSE);
+            var originating = new List<FormKey>();
+            var carried = new List<FormKey>();
+            var links = new List<(FormKey, FormKey)>();
+            var seenLink = new HashSet<FormKey>();
+            foreach (var rec in ov.EnumerateMajorRecords())
+            {
+                if (rec.FormKey.ModKey == modKey) originating.Add(rec.FormKey);
+                else if (donorKeys.Contains(rec.FormKey.ModKey)) carried.Add(rec.FormKey);
+                foreach (var link in rec.EnumerateFormLinks())
+                    if (!link.FormKey.IsNull && donorKeys.Contains(link.FormKey.ModKey) && seenLink.Add(link.FormKey))
+                        links.Add((rec.FormKey, link.FormKey));
+            }
+            scan = new MergeDonorScan(originating, carried, links);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"cannot parse '{modKey.FileName}' to renumber it ({WriteEngine.Describe(ex)}) — houseCARL won't renumber a " +
+                    "plugin it can't fully read (it would risk dropping a record it couldn't parse, Q3).";
+            return false;
+        }
+        finally { (ov as IDisposable)?.Dispose(); }
+    }
+
+    /// <summary>One donor's merge-relevant contents: the records it defines, the donor-space records it carries but does
+    /// not define, and its outgoing links into donor space (one entry per distinct target, with a referencing record).</summary>
+    public sealed record MergeDonorScan(
+        IReadOnlyList<FormKey> Originating, IReadOnlyList<FormKey> Carried, IReadOnlyList<(FormKey Source, FormKey Target)> DonorLinks);
+
     /// <summary>Read a plugin's ORIGINATING record FormKeys (<c>FormKey.ModKey == modKey</c>) in document order — the set
     /// a compaction renumbers (overrides, which reference a master's record, are NOT renumbered). Opens the plugin as a
     /// binary overlay (the lazy read path) and disposes it before returning, so no handle is held at rest.
