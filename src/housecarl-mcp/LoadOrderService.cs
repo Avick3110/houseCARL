@@ -5185,7 +5185,18 @@ public sealed partial class LoadOrderService : IDisposable
         // A legal editorid= that matched nothing on the WINNER lane: the name may be real and simply carried by a
         // losing copy the winner renames, which a bare "0 matches" cannot say. One sentence when there is such a
         // candidate, nothing when there is not (EditorIdNearMiss owns the rule and the budget).
-        if (total == 0 && groups is null && !hasPlugins && predicate?.ExactEditorId is { } wantedEid
+        //
+        // The gate is the shape the sentence can EXPLAIN, not merely the shape that reaches here. The hint asserts
+        // one cause — the winner renamed the record — so it may only fire when the editorid= term is the only
+        // reason for the zero: a types=-bounded winner-lane scan with no other selection term. A formids= set (its
+        // own bound, including the universe an unbounded references= installs), a references=/references_none=
+        // filter, editorid_contains=, conflicts_only= or a plugins= scope each give the zero a different cause,
+        // and the first of them would also hand the walk a null type scope, making the budget the stop rather than
+        // the backstop.
+        bool nearMissShape = total == 0 && groups is null && !hasPlugins && !hasFormidSet && !conflictsOnly
+                             && refSet is null && refNone is null && string.IsNullOrEmpty(editoridContains)
+                             && types is { Count: > 0 };
+        if (nearMissShape && predicate?.ExactEditorId is { } wantedEid
             && EditorIdNearMiss.Sentence(resolver, view, types, wantedEid, ct) is { } nearMiss)
             scanNote = scanNote is null ? nearMiss : scanNote + " " + nearMiss;
         // group_by= aggregation is not limit-capped, so Capped is a match-line concern only.

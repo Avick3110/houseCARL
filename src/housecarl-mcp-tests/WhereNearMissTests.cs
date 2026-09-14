@@ -47,4 +47,30 @@ public sealed class WhereNearMissTests : RecordsTestBase
                                      where: new[] { $"editorid contains {RecordsWorld.RenamedArmorOldEid}" });
         Assert.DoesNotContain("near miss", r);
     }
+
+    // ---- the gate: only where the sentence's one cause is the only cause ---------------------------
+
+    [Fact]
+    public void ASecondPredicateGetsNoSentence_TheZeroHasAnotherCandidateCause()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "ARMO" },
+                                     where: new[] { $"editorid = {RecordsWorld.RenamedArmorOldEid}", "Value > 9000" });
+        Assert.DoesNotContain("near miss", r);
+    }
+
+    [Fact]
+    public void AFormidSetGetsNoSentence_TheCallerAskedAboutNamedRecords()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Armor) },
+                                     where: new[] { $"editorid = {RecordsWorld.RenamedArmorOldEid}" });
+        Assert.DoesNotContain("near miss", r);
+    }
+
+    [Fact]
+    public void APluginScopeGetsNoSentence_TheScopedLaneAlreadyReadsEachPluginsOwnBody()
+    {
+        var r = RecordsTools.Records(Svc, plugins: Scope(W.MasterName), types: new[] { "ARMO" },
+                                     where: new[] { $"editorid = {RecordsWorld.RenamedArmorNewEid}" });
+        Assert.DoesNotContain("near miss", r);
+    }
 }
