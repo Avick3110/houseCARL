@@ -176,8 +176,8 @@ public static class CopyParserProbe
             var badShape = CopyTools.Copy(svc, from, null, new[] { "HeadParts", "Factions" }, null, null, "PShape", "PShape");
             Check(Has(badShape, "error:") && Has(badShape, "Factions") && Has(badShape, "RankPlacement"),
                 "an unsupported list seed refuses BY NAME, naming the field and what its ENTRIES actually are");
-            Check(Has(badShape, "housecarl_apply") && Has(badShape, "Merge") && Has(badShape, "ReplaceAll"),
-                "…and names the ROUTE — apply's zip, where replace-vs-merge is the caller's choice");
+            Check(Has(badShape, "housecarl_apply") && Has(badShape, "CopyFrom") && Has(badShape, "WHOLE"),
+                "…and names the ROUTE — apply's zip, which transplants each field whole (one CopyFrom per target)");
             Check(Has(badShape, "Nothing was written"), "…and writes nothing");
 
             // ---- 2. Exactly one destination ------------------------------------------------------------------

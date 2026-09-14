@@ -315,14 +315,13 @@ internal static class WriteSentences
     // ---- the seed-shape boundary ---------------------------------------------------------------------
     /// <summary>What <c>seed_paths</c> supports, and the ROUTE for what it does not. A walk seeds from record
     /// LINKS; a field whose entries are link-bearing structures is a field-bundle copy, which <c>housecarl_apply</c>
-    /// already does — and there the caller picks replace-vs-merge with the grammar that lane already has, rather
-    /// than this one inventing a second answer.</summary>
+    /// already does — as a whole-field transplant per target, which is the only thing that zip does.</summary>
     [MustState("seed_paths takes a record link or a list of record links", ToolNames.Apply)]
     internal const string CopySeedShapeRoute =
         " — seed_paths takes a record link or a list of record links, and nothing else. Copying a field whose " +
         "entries carry links INSIDE them is a field-bundle copy: use " + ToolNames.Apply + "'s bundle=/assignments= zip, " +
-        "where op=Merge and op=ReplaceAll are your choice between merging into the target's entries and replacing " +
-        "them. Nothing was written.";
+        "which transplants each named field WHOLE onto the target — one CopyFrom per target, replacing what the " +
+        "target had rather than merging into it. Nothing was written.";
 
     /// <summary>An off-order link on a record that was ALREADY in the patch. The serialization failure is real and
     /// this call did not cause it, so the remedy is about the patch and the mod — never about `exclude_types`,
