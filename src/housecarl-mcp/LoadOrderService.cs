@@ -4764,6 +4764,31 @@ public sealed partial class LoadOrderService : IDisposable
         // The caller's own build when its FormID door already captured one, so the tokens it parsed and the
         // records this scan matches come from ONE build; otherwise one build for the scan and every fill it makes.
         var view = pinnedView ?? resolver.Capture();
+        // A plugins= scope naming a plugin the order does not carry answers for the ones it does: the other named
+        // plugins' reads are valid, and failing them with it would throw away a whole answer over one bad name. The
+        // missing names ride the scan note so the result says what was left out; only an ALL-missing scope is refused,
+        // because then there is nothing to scan.
+        string? scopeMissingNote = null;
+        if (plugins is { Count: > 0 })
+        {
+            var present = new List<string>(plugins.Count);
+            var missing = new List<string>();
+            foreach (var p in plugins)
+                (view.ContainsPlugin(p.Trim()) ? present : missing).Add(p.Trim());
+            if (missing.Count > 0)
+            {
+                if (present.Count == 0)
+                    return CrossQueryOutcome.Fail(
+                        $"plugins= names {(missing.Count == 1 ? "a plugin" : "plugins")} the load order does not carry and nothing else to scan: "
+                        + string.Join(", ", missing) + "."
+                        + (missing.Count == 1 ? view.AbsenceClause(missing[0]) : "")
+                        + " Drop the name(s), or scope to plugins that are loaded.");
+                scopeMissingNote =
+                    $"note: plugins= named {string.Join(", ", missing)}, which the load order does not carry — "
+                  + $"this answer covers the {present.Count} named plugin(s) that are loaded, and nothing from the missing one(s).";
+                plugins = present;
+            }
+        }
         bool hasPlugins = plugins is { Count: > 0 };
         bool hasType = typeSet is { Count: > 0 };
         bool hasWhere = where is { Count: > 0 };
@@ -5286,6 +5311,9 @@ public sealed partial class LoadOrderService : IDisposable
         if (nearMissShape && predicate?.ExactEditorId is { } wantedEid
             && EditorIdNearMiss.Sentence(resolver, view, types, wantedEid, ct) is { } nearMiss)
             scanNote = scanNote is null ? nearMiss : scanNote + " " + nearMiss;
+        // The scope's own gap leads: it says which of the plugins the caller named are not in this answer at all.
+        if (scopeMissingNote is not null)
+            scanNote = scanNote is null ? scopeMissingNote : scopeMissingNote + " " + scanNote;
         // group_by= aggregation is not limit-capped, so Capped is a match-line concern only.
         var groupRows = groups?.Select(kv => new GroupCount(kv.Key, kv.Value))
                               .OrderByDescending(g => g.Count).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
