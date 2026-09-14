@@ -4797,8 +4797,9 @@ public sealed partial class LoadOrderService : IDisposable
         // Harmless for group_by=type, since record type names never differ only by case, so one comparer covers all
         // three keys.
         Dictionary<string, int>? groups = groupBy is not null ? new(StringComparer.OrdinalIgnoreCase) : null;   // group_by= aggregation (bumped per match, over ALL matches — not limit-capped)
+        SeedRequestedTypes(groups, groupBy, types);
         int total = 0;
-        int unscannable = 0;                                                  // records whose body tests threw (Mutagen-unparseable content) — excluded and accounted, never silent
+        int unscannable = 0;                                                // records whose body tests threw (Mutagen-unparseable content) — excluded and accounted, never silent
         var unscannableSamples = new List<string>();
         // Plugins the winner scan could not open at all — a whole-plugin coverage gap, named in the response rather
         // than left to read as a clean whole-order scan.
@@ -5319,6 +5320,7 @@ public sealed partial class LoadOrderService : IDisposable
         List<string?>? matched = multiTarget ? new() : null;
         var prefilled = new List<RecordSummary>();
         Dictionary<string, int>? groups = groupBy is not null ? new(StringComparer.OrdinalIgnoreCase) : null;
+        SeedRequestedTypes(groups, groupBy, types);
         int total = 0, unscannable = 0;
         var unscannableSamples = new List<string>();
         LoadOrderResolver.OverlaySession? session = null;
@@ -9643,6 +9645,30 @@ public sealed partial class LoadOrderService : IDisposable
     /// grammar with the singular form, since every entry goes through <see cref="ResolveTypeFilter"/> and an unknown
     /// one throws naming itself. Null for an absent or empty set, so the unnarrowed path stays untouched.</summary>
     IReadOnlyList<Type>? ResolveTypeFilterSet(IReadOnlyList<string>? types) => ResolveTypeFilterSet(types, out _);
+
+    /// <summary>The display names a type SET resolves to — the same spelling a matched body's type renders as, so a
+    /// caller can seat a requested type in a count table whether or not any record landed in it. Null for an absent
+    /// set, and null for an unknown entry too: the surfaces that call this have already refused one by name, and a
+    /// census is not the place to raise it a second time.</summary>
+    public IReadOnlyList<string>? TypeDisplayNames(IReadOnlyList<string>? types)
+    {
+        try { return TypeDisplayNames(ResolveTypeFilterSet(types)); }
+        catch (ArgumentException) { return null; }
+    }
+
+    /// <summary>Seat every type the scan NAMED in a group_by=type census at zero, before a single match is counted.
+    /// A requested type with no records then reads as a 0 row rather than being absent from the table, which a
+    /// caller could only read by diffing the request against the response. No-op for the other count keys and for a
+    /// scan that named no types.</summary>
+    static void SeedRequestedTypes(Dictionary<string, int>? groups, string? groupBy, IReadOnlyList<Type>? types)
+    {
+        if (groups is null || groupBy != "type") return;
+        foreach (var name in TypeDisplayNames(types) ?? Array.Empty<string>()) groups.TryAdd(name, 0);
+    }
+
+    /// <summary>The same names off the already-resolved getter Types.</summary>
+    static IReadOnlyList<string>? TypeDisplayNames(IReadOnlyList<Type>? types) =>
+        types is { Count: > 0 } ? types.Select(t => RecordNaming.StripGetterInterface(t.Name)).Distinct(StringComparer.Ordinal).ToList() : null;
 
     /// <summary>The same resolution, also spelling each entry with the arms it expanded to
     /// (<see cref="SweepScope.SpellTypeEntry"/>) — the label a response needs when it has to name the types that

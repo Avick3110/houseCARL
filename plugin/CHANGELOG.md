@@ -199,6 +199,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   only the rendering is cut, so the table's totals stay exact. The json shape gains `rendered` and `truncated`
   alongside `groups`, as the scan lane's already has. Raise `max_chars` to see the rest.
 
+- **A type named in `types=` with no records now gets a `0` row in a `group_by=type` count table.** The type was
+  simply absent before, so reading "no PARW records" meant diffing the request against the response. Both lanes
+  state it: a scan, and the `formids=` list lane's carrier walk, where `types=` narrows the carrier types. A type
+  name the tool does not know is still refused by name, which is a different answer from a known type with nothing
+  in it.
+
 ## 2.0.0 — 2026-09-11
 
 houseCARL 2.0.0 replaces the 1.x tool surface with 31 tools. The record plane is one grammar: a read is one call composed from four axes (SELECT × SOURCE × PROJECT × TRANSPORT); a write is one call composed from an op list, a lane and a transport; one record is a set of one. Record coverage is generated from Mutagen.Bethesda.Skyrim 0.54.4 at build time, 1,174 types, and the write pre-flight and the `mutagen-reference` skill are two renderings of that one artifact. The 1.x tool and parameter names are deleted, not deprecated: a retired tool name is refused with a refusal naming its successor, from `AliasTable.cs`; a retired parameter name is refused as an unknown parameter, with the parameters the tool does take. Seven skills ship. `housecarl_check` gains the facegen family. The installer shows what it will write before writing, and uninstalls. The entries below are in the order they landed.
