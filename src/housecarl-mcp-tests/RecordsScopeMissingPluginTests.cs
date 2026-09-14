@@ -72,6 +72,19 @@ public sealed class RecordsScopeMissingPluginTests : RecordsTestBase
         Assert.DoesNotContain("internal houseCARL failure", text);
     }
 
+    /// <summary>A body form reads the same scan, so it carries the same coverage note — the scan lane printed it and
+    /// this one did not, which answered one question two ways.</summary>
+    [Fact]
+    public void ABodyFormCarriesTheScopeNoteToo()
+    {
+        var text = RecordsTools.Records(Svc, plugins: Scope(W.MasterName, Missing), types: new[] { "WEAP" },
+                                        project: Fields("EditorID"), limit: 2);
+
+        Served(text);
+        Assert.Contains(Missing, text);
+        Assert.Contains("nothing from the 1 it does not", text);
+    }
+
     /// <summary>The off-order lane takes the same shape: a scope with one absent name used to fail the whole call
     /// there while the identical scope answered on the in-order scan, so the same input behaved two ways depending
     /// on an unrelated axis.</summary>
