@@ -201,7 +201,10 @@ public static class SkseTools
             "content is counted, never dropped. For every modern plugin it also reads the STATIC manifest the SKSE " +
             "loader itself reads — name, author, version, whether it uses Address Library (version-independent) or is " +
             "LOCKED to specific game runtimes, and the XSE floor — by parsing the DLL's SKSEPlugin_Version data export " +
-            "WITHOUT loading or running it. Leads with the diagnostics: version-LOCKED plugins (won't load on a " +
+            "WITHOUT loading or running it. That version is the AUTHOR'S OWN DECLARATION and is routinely stale or " +
+            "coarse (SPID 7.3.3 declares 7.0.0), so every version is labelled with the source it came from, and the " +
+            "DLL's build-stamped file version and the mod's MO2 meta.ini version are printed on the same line wherever " +
+            "they disagree with it. Leads with the diagnostics: version-LOCKED plugins (won't load on a " +
             "mismatched game version), legacy query-only plugins (metadata set at runtime, not statically readable), " +
             "non-plugin DLLs (bundled dependencies), subfolder DLLs (not on SKSE's loader path), DLLs contested by more " +
             "than one mod, and DEBUG-BUILD plugins — a DLL importing the debug C runtime fails with error 126 for " +
@@ -454,7 +457,7 @@ static class SkseInventoryWire
         AppendCapped(sb, modern.OrderBy(e => e.FileName, StringComparer.OrdinalIgnoreCase).ToList(), rosterCeil, e =>
         {
             var v = e.Plugin!.Version!;
-            return $"  - {e.FileName}  \"{v.Name}\" v{v.PluginVersion}  {CompatTag(v)}{Provider(e)}";
+            return $"  - {e.FileName}  \"{v.Name}\" v{VersionText(e.Plugin, e.ModVersion)}  {CompatTag(v)}{Provider(e)}";
         }, tally);
 
         // ── Config folders, grouped by the derived subfolder and sorted by size. ──
@@ -618,6 +621,9 @@ static class SkseInventoryWire
             case SksePluginReader.SksePluginKind.NotSkse:
             case SksePluginReader.SksePluginKind.Unreadable:
                 sb.Append("  ").Append(p.Note).Append('\n');
+                // No manifest to declare a version, but the image's own file version is still readable and is what a
+                // "which build is this?" question is after.
+                if (VersionText(p, e.ModVersion) is { Length: > 0 } other) sb.Append("  version ").Append(other).Append('\n');
                 if (p.Is64Bit == false) sb.Append("  [!] NOT an x64 image — a 32-bit DLL cannot load in Skyrim SE/AE.\n");
                 // The import-table verdict rides every kind: a bundled dependency or an unreadable-manifest DLL still
                 // has an import table, and a debug-CRT build often shows up as a DLL nobody can classify.
@@ -628,7 +634,7 @@ static class SkseInventoryWire
         var v = p.Version!;
         sb.Append("  \"").Append(v.Name).Append("\" by ").Append(v.Author.Length > 0 ? v.Author : "(no author)");
         if (v.SupportEmail.Length > 0) sb.Append(" <").Append(v.SupportEmail).Append('>');
-        sb.Append("\n  version ").Append(v.PluginVersion).Append('\n');
+        sb.Append("\n  version ").Append(VersionText(p, e.ModVersion)).Append('\n');
         if (p.Is64Bit == false) sb.Append("  [!] NOT an x64 image — a 32-bit DLL cannot load in Skyrim SE/AE.\n");
 
         if (v.VersionIndependent)
@@ -830,6 +836,33 @@ static class SkseInventoryWire
     /// <summary>The chars a capped row list must hold back for that notice.</summary>
     internal static int CutRoom(int total, string noun = "", string hint = "") => Showing(total, total, noun, hint).Length;
 
+    /// <summary>A plugin's version with the SOURCE it was read from, and every other version in sight that disagrees
+    /// with it. The number houseCARL reads is the SKSE manifest's own declaration — what the author typed into the
+    /// plugin declaration — which is routinely stale or coarse: SPID 7.3.3 declares 7.0.0, and 51 of the 313 DLLs on
+    /// the order this was measured against declare something other than their file version. So the DLL's build-stamped
+    /// file version and the mod's meta.ini version ride the same line wherever they differ, and an agreeing one stays
+    /// silent rather than tripling the width of every row.</summary>
+    internal static string VersionText(SksePluginReader.SksePluginInfo? p, string? modVersion)
+    {
+        string declared = p?.Version?.PluginVersion ?? "";
+        string file = p?.FileVersion ?? "";
+        string mod = modVersion ?? "";
+        // No manifest (a legacy or non-SKSE DLL): the file version IS the answer, labelled for what it is.
+        if (declared.Length == 0)
+            return file.Length == 0 ? "" : $"{file} (DLL file version)";
+        var others = new List<string>();
+        if (Differs(declared, file)) others.Add($"DLL file version {file}");
+        if (Differs(declared, mod) && Differs(file, mod)) others.Add($"meta.ini {mod}");
+        return others.Count == 0
+            ? $"{declared} (SKSE manifest)"
+            : $"{declared} (SKSE manifest) — {string.Join(", ", others)}";
+    }
+
+    /// <summary>Two version strings that are both present and NOT numerically equal ("7.0.0" vs "7.0.0.0" agree). A
+    /// missing one is not a disagreement — an unread version says nothing about the one that was read.</summary>
+    static bool Differs(string? a, string? b) =>
+        a is { Length: > 0 } && b is { Length: > 0 } && !SksePluginReader.VersionsEqual(a, b);
+
     static string Provider(SkseFileEntry e) =>
         e.WinningProvider is null ? "  (no active provider)" : $"  ← {e.WinningProvider}";
 
@@ -996,6 +1029,9 @@ static class SkseInventoryWire
         SkseJsonDoc.Nullable(w, "kind", p is null ? null : p.Kind.ToString().ToLowerInvariant());
         if (p?.Is64Bit is { } bits) w.WriteBoolean("is_64bit", bits); else w.WriteNull("is_64bit");
         SkseJsonDoc.Strings(w, "debug_crt_imports", p?.DebugCrtImports ?? Array.Empty<string>());
+        // The two versions that are NOT the manifest's declaration, each null when there was none to read.
+        SkseJsonDoc.Nullable(w, "file_version", p?.FileVersion);
+        SkseJsonDoc.Nullable(w, "mod_version", e.ModVersion);
         // Null, not [], when the import walk never ran or failed: absence of evidence is not evidence of absence.
         if (p?.Imports is { } imports) SkseJsonDoc.Strings(w, "imports", imports); else w.WriteNull("imports");
         if (p?.Version is { } v)
@@ -1735,7 +1771,7 @@ static class NativePairingWire
         var sb = new StringBuilder();
         sb.Append(fate switch { DllFate.Dead => "[DEAD] ", DllFate.Verify => "[VERIFY] ", _ => "[LOADS] " })
           .Append(dll.Group.Length > 0 ? dll.Group + "\\" : "").Append(dll.FileName);
-        if (withVersion && dll.Info?.Version is { } v) sb.Append("  \"").Append(v.Name).Append("\" v").Append(v.PluginVersion);
+        if (withVersion && dll.Info?.Version is { } v) sb.Append("  \"").Append(v.Name).Append("\" v").Append(SkseInventoryWire.VersionText(dll.Info, null));
         sb.Append(" — ").Append(detail);
         return sb.ToString();
     }
@@ -1921,6 +1957,7 @@ static class NativePairingWire
                     w.WriteString("detail", detail);
                     SkseJsonDoc.Nullable(w, "plugin_name", dll.Info?.Version?.Name);
                     SkseJsonDoc.Nullable(w, "plugin_version", dll.Info?.Version?.PluginVersion);
+                    SkseJsonDoc.Nullable(w, "file_version", dll.Info?.FileVersion);
                     SkseJsonDoc.Strings(w, "debug_crt_imports", dll.Info?.DebugCrtImports ?? Array.Empty<string>());
                     w.WriteEndObject();
                 }

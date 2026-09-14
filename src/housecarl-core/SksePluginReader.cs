@@ -72,8 +72,15 @@ public static class SksePluginReader
         bool? Is64Bit,
         SkseVersionInfo? Version,
         string? Note,
-        IReadOnlyList<string>? Imports = null)
+        IReadOnlyList<string>? Imports = null,
+        string? FileVersion = null)
     {
+        /// <summary>The Win32 version resource's file version ("7.3.3.0"), or null when the image carries none. A
+        /// SECOND, INDEPENDENT number: the SKSE manifest's <see cref="SkseVersionInfo.PluginVersion"/> is what the
+        /// author typed into the plugin declaration and is routinely stale or coarse (SPID 7.3.3 declares 7.0.0),
+        /// while this one is stamped by the build. Neither is the truth about the other, so both are reported.</summary>
+        public string? FileVersion { get; init; } = FileVersion;
+
         /// <summary>The DLL names this image statically imports — import AND delay-load directories, lower-cased and
         /// deduplicated. Tri-state on purpose, like <see cref="Is64Bit"/>: a NON-EMPTY list is what it imports; EMPTY
         /// means the directories were walked and it genuinely imports nothing; <c>null</c> means the walk never
@@ -143,10 +150,13 @@ public static class SksePluginReader
         // Walk the imports BEFORE the export classification, so even a DLL that goes on to be Unreadable (corrupt EAT)
         // still reports what it imports — the Debug-CRT verdict does not depend on the SKSE manifest being readable.
         var imports = ReadImportNames(pe);
+        // The build-stamped version resource, read on every DLL: it is the number the mod page and MO2's meta.ini
+        // agree with, and it rides the PE open the manifest read already pays for.
+        var fileVersion = ReadFileVersionResource(pe);
 
         var exports = ReadExportRvas(pe);
         if (exports is null)   // export directory present but CORRUPT — a parse failure, not "no exports": a corrupt DLL must not classify as a bundled dependency
-            return new SksePluginInfo(file, SksePluginKind.Unreadable, is64, null, "corrupt PE export directory — could not enumerate exports", imports);
+            return new SksePluginInfo(file, SksePluginKind.Unreadable, is64, null, "corrupt PE export directory — could not enumerate exports", imports, fileVersion);
 
         bool hasVersion = exports.TryGetValue("SKSEPlugin_Version", out int versionRva) && versionRva != 0;
         bool hasQuery = exports.ContainsKey("SKSEPlugin_Query");
@@ -154,11 +164,11 @@ public static class SksePluginReader
 
         if (!hasVersion && !hasQuery && !hasLoad)
             return new SksePluginInfo(file, SksePluginKind.NotSkse, is64, null,
-                "no SKSE export (SKSEPlugin_Version/Query/Load) — a bundled dependency DLL, not a plugin", imports);
+                "no SKSE export (SKSEPlugin_Version/Query/Load) — a bundled dependency DLL, not a plugin", imports, fileVersion);
 
         if (!hasVersion)
             return new SksePluginInfo(file, SksePluginKind.LegacyQuery, is64, null,
-                "legacy SE/VR plugin: exports SKSEPlugin_Query (metadata is filled at runtime), so name/version are not statically readable", imports);
+                "legacy SE/VR plugin: exports SKSEPlugin_Query (metadata is filled at runtime), so name/version are not statically readable", imports, fileVersion);
 
         // Modern: slice the version blob out of its section and decode. A real SKSEPluginVersionData is a FULL
         // 0x350-byte struct whose dataVersion (0x000) is kVersion (>= 1); a version export whose RVA maps to no
@@ -168,9 +178,9 @@ public static class SksePluginReader
         byte[] blob = block.GetReader().ReadBytes(Math.Min(0x350, block.Length));
         if (blob.Length < 0x350 || BitConverter.ToUInt32(blob, 0) == 0)
             return new SksePluginInfo(file, SksePluginKind.Unreadable, is64, null,
-                "exports SKSEPlugin_Version but its RVA does not resolve to a readable version blob (a forwarded or corrupt export)", imports);
+                "exports SKSEPlugin_Version but its RVA does not resolve to a readable version blob (a forwarded or corrupt export)", imports, fileVersion);
         var ver = DecodeVersionBlob(blob);
-        return new SksePluginInfo(file, SksePluginKind.Modern, is64, ver, null, imports);
+        return new SksePluginInfo(file, SksePluginKind.Modern, is64, ver, null, imports, fileVersion);
     }
 
     /// <summary>Decode the raw <c>SKSEPlugin_Version</c> blob bytes into the manifest. Pure and bounds-checked, so the
@@ -437,6 +447,87 @@ public static class SksePluginReader
             catch { return false; /* bad RVA / truncated table / unterminated string → parse failure, not an empty answer */ }
         }
     }
+
+    /// <summary>The image's Win32 version resource, as "maj.min.build.rev" — the number the mod page, the installer and
+    /// MO2's meta.ini agree with, and the one the SKSE manifest routinely disagrees with. Null when the image carries
+    /// no version resource, or when the resource tree does not lead to a well-formed <c>VS_FIXEDFILEINFO</c>: this is a
+    /// second opinion, so an unreadable one is UNKNOWN, never a guessed number. Never throws.
+    ///
+    /// The path is fixed by the resource format: the .rsrc directory is a three-level tree (type → name → language),
+    /// type id 16 is <c>RT_VERSION</c>, and its leaf is an <c>IMAGE_RESOURCE_DATA_ENTRY</c> pointing at a
+    /// <c>VS_VERSIONINFO</c> block — a WORD header, the UTF-16 key "VS_VERSION_INFO", 4-byte alignment padding, then
+    /// <c>VS_FIXEDFILEINFO</c>, whose 0xFEEF04BD signature is checked before any field is believed.</summary>
+    static string? ReadFileVersionResource(PEReader pe)
+    {
+        try
+        {
+            var dir = pe.PEHeaders.PEHeader!.ResourceTableDirectory;
+            if (dir.RelativeVirtualAddress == 0) return null;             // no resources at all — the common case for a lean DLL
+            var block = pe.GetSectionData(dir.RelativeVirtualAddress);
+            if (block.Length == 0) return null;
+            var res = block.GetContent();                                 // offsets inside the tree are relative to this base
+            // type → name → language: the first two hops pick RT_VERSION, the third takes whatever language is there.
+            // An entry value's HIGH BIT marks a subdirectory, so every hop is unsigned; 0 is this walk's "no such child"
+            // (offset 0 is the root directory itself, never a child).
+            uint typeEntry = FindEntry(res, 0, 16);
+            if ((typeEntry & 0x80000000u) == 0) return null;               // a type node's child is always a subdirectory
+            uint nameEntry = FirstChild(res, (int)(typeEntry & 0x7FFFFFFF));
+            if ((nameEntry & 0x80000000u) == 0) return null;
+            uint leaf = FirstChild(res, (int)(nameEntry & 0x7FFFFFFF));
+            if (leaf == 0 || (leaf & 0x80000000u) != 0) return null;       // a language node's child is the data entry
+            int entry = (int)leaf;
+            if (entry + 8 > res.Length) return null;
+            int dataRva = ReadI32(res, entry);
+            int dataSize = ReadI32(res, entry + 4);
+            // The data entry addresses its bytes by RVA, not by an offset into the resource block.
+            var data = pe.GetSectionData(dataRva);
+            if (data.Length == 0) return null;
+            var b = data.GetContent(0, Math.Min(dataSize, data.Length));
+
+            // VS_VERSIONINFO: wLength, wValueLength, wType, then the UTF-16 key.
+            const string Key = "VS_VERSION_INFO";
+            int keyBytes = (Key.Length + 1) * 2;
+            if (b.Length < 6 + keyBytes) return null;
+            for (int i = 0; i < Key.Length; i++)
+                if (b[6 + i * 2] != (byte)Key[i] || b[6 + i * 2 + 1] != 0) return null;
+            int fixedAt = (6 + keyBytes + 3) & ~3;                        // VS_FIXEDFILEINFO is 4-byte aligned after the key
+            if (fixedAt + 16 > b.Length) return null;
+            if ((uint)ReadI32(b, fixedAt) != 0xFEEF04BDu) return null;    // not the struct the layout promised → no answer
+            uint ms = (uint)ReadI32(b, fixedAt + 8), ls = (uint)ReadI32(b, fixedAt + 12);
+            return $"{ms >> 16}.{ms & 0xFFFF}.{ls >> 16}.{ls & 0xFFFF}";
+        }
+        catch { return null; /* corrupt or truncated resource tree → UNKNOWN, like every other failure here */ }
+    }
+
+    /// <summary>The entry value for a resource directory's child with the given id, or 0 when there is none. The high
+    /// bit of the value marks a subdirectory (the rest is an offset into the resource block), as the format stores it.</summary>
+    static uint FindEntry(System.Collections.Immutable.ImmutableArray<byte> res, int dirOff, int id)
+    {
+        if (dirOff + 16 > res.Length) return 0;
+        int named = ReadU16(res, dirOff + 12), ids = ReadU16(res, dirOff + 14);
+        for (int i = named; i < named + ids; i++)                         // id-keyed entries follow the name-keyed ones
+        {
+            int e = dirOff + 16 + i * 8;
+            if (e + 8 > res.Length) return 0;
+            if (ReadI32(res, e) == id) return (uint)ReadI32(res, e + 4);
+        }
+        return 0;
+    }
+
+    /// <summary>The first child entry of a resource directory (any id or name), or 0 — how the name and language hops
+    /// are taken: which one a build stamped is arbitrary, and a version resource carries exactly one.</summary>
+    static uint FirstChild(System.Collections.Immutable.ImmutableArray<byte> res, int dirOff)
+    {
+        if (dirOff + 16 > res.Length) return 0;
+        int count = ReadU16(res, dirOff + 12) + ReadU16(res, dirOff + 14);
+        if (count == 0 || dirOff + 24 > res.Length) return 0;
+        return (uint)ReadI32(res, dirOff + 16 + 4);
+    }
+
+    static int ReadI32(System.Collections.Immutable.ImmutableArray<byte> b, int off) =>
+        b[off] | b[off + 1] << 8 | b[off + 2] << 16 | b[off + 3] << 24;
+
+    static int ReadU16(System.Collections.Immutable.ImmutableArray<byte> b, int off) => b[off] | b[off + 1] << 8;
 
     /// <summary>Read a null-terminated ASCII string at an RVA (an imported DLL's name), lower-cased for comparison.
     /// Bounded — a name is short, and an unterminated run means corruption, so it stops rather than reading a section.</summary>

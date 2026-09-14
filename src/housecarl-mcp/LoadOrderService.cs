@@ -470,14 +470,18 @@ public sealed partial class LoadOrderService : IDisposable
             if (isDll)
             {
                 SksePluginReader.SksePluginInfo? info = null;
+                string? modVersion = null;
                 string? note = null;
                 if (winner is { Kind: AssetKind.Loose, LooseFilePath: { } path })
+                {
                     info = SksePluginReader.Read(path);           // the winning loose copy
+                    modVersion = Mo2ModMeta.VersionForLooseFile(path, rel);   // what MO2 recorded for the mod that ships it
+                }
                 else if (winner is null) note = "no active mod provides this DLL";
                 else note = "provided ONLY inside a BSA — the SKSE loader scans loose Data\\SKSE\\Plugins only, so this DLL will not load";
                 if (group.Length > 0 && note is null)
                     note = $"in subfolder '{group}' — NOT on SKSE's loader path (scans SKSE\\Plugins\\*.dll top-level only); a bundled/parent-loaded DLL, not a plugin SKSE loads";
-                var entry = new SkseFileEntry(rel, Path.GetFileName(rel), group, providers, info, note);
+                var entry = new SkseFileEntry(rel, Path.GetFileName(rel), group, providers, info, note, ModVersion: modVersion);
                 // String peek only for a filter-matched DLL with a loose winner — the copy SKSE would load. A BSA-only
                 // DLL never loads, so peeking it would describe an image the game never reads.
                 if (peekFilter is { Length: > 0 } && entry.MatchesDll(peekFilter)
@@ -9804,8 +9808,14 @@ public sealed record SkseFileEntry(
     IReadOnlyList<SkseProvider> Providers,
     SksePluginReader.SksePluginInfo? Plugin,
     string? Note,
-    SksePeekResult? Peek = null)
+    SksePeekResult? Peek = null,
+    string? ModVersion = null)
 {
+    /// <summary>The version the winning mod's MO2 meta.ini records, or null when the provider has no meta.ini (Stock
+    /// Game, overwrite, a hand-installed mod). The THIRD number for a DLL — what the modder installed — next to the
+    /// SKSE manifest's declaration and the DLL's own file version, which routinely disagree with it.</summary>
+    public string? ModVersion { get; init; } = ModVersion;
+
     /// <summary>The string peek of this DLL's image (<c>peek=true</c>), or null when not requested / not a loose
     /// DLL. Computed ONLY for entries the peek filter matched — the scan reads the whole image, so it is opt-in per-DLL
     /// by design. The import half needs no flag and lives on <see cref="SksePluginReader.SksePluginInfo.Imports"/>.</summary>

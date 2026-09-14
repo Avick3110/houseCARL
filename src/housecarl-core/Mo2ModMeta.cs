@@ -61,6 +61,20 @@ public static class Mo2ModMeta
             ReadInstalledFileIds(lines));
     }
 
+    /// <summary>The meta.ini <c>version</c> of the mod that ships a loose file, or null when there is none to read (a
+    /// Stock Game / overwrite / hand-installed provider carries no meta.ini). The mod root is the file's path with its
+    /// Data-relative tail removed, which is where MO2 keeps meta.ini — no mods-folder scan, and no guess when the path
+    /// does not end in the tail it was resolved for.</summary>
+    public static string? VersionForLooseFile(string looseFilePath, string dataRelativePath)
+    {
+        var tail = dataRelativePath.Replace('/', Path.DirectorySeparatorChar);
+        var full = looseFilePath.Replace('/', Path.DirectorySeparatorChar);
+        if (!full.EndsWith(tail, StringComparison.OrdinalIgnoreCase)) return null;
+        var root = full[..(full.Length - tail.Length)].TrimEnd(Path.DirectorySeparatorChar);
+        if (root.Length == 0) return null;
+        return Read(Path.Combine(root, "meta.ini"))?.Version;
+    }
+
     /// <summary>The <c>N\fileid</c> values from the <c>[installedFiles]</c> section, in index (N) order — the exact Nexus
     /// file(s) MO2 recorded as installed for this mod. A mod can have several (<c>1\fileid</c>, <c>2\fileid</c>, …); a
     /// FOMOD/manual install has <c>size=0</c> and none (⇒ empty list). Scoped to the section (a stray <c>fileid=</c>
