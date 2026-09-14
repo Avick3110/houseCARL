@@ -69,7 +69,8 @@ internal static class ReadSentences
         "plugin and the game assembles the parent's from every plugin that declares any, so one body's list is " +
         "not the whole content. A scan answers many rows, so it did not open the other plugins' bodies and their " +
         "declarations were not read. For the " + UnionLabel + " on a record you name: " +
-        ToolNames.Records + " with formids=, which states it on every child-bearing field it emits.";
+        ToolNames.Records + " with formids= and the field named WITHOUT a quantifier — a '[*count]' column renders " +
+        "one number and takes this tier too — which states it on every child-bearing field it emits.";
 
     /// <summary>The index-only tier's per-field line: the count the index knows, and the honest limit.</summary>
     internal static string NotReadNote(int others) => $"{others} {NotRead}";

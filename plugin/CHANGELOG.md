@@ -13,14 +13,16 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
-- **A `[*count]` column costs the number, not the list.** `project.fields=["Temporary[*count]"]` read the
-  child-bearing list the way naming it does — building every element to count them, and assembling the additive
-  union, which opens a body per plugin touching the record — then rendered the number and threw both away. The
-  count column now reads the list under its own `[*count]` spelling: the element count comes off the collection's
-  own Count, and the union annotation stays with the line that shows it (name the list, without the token, to get
-  it). The number rendered is unchanged, and it is the same number `where=["Temporary[*count] > 200"]` compares.
-  Measured over 60 contested placed-reference-dense CELL records on a 3,245-plugin order: 2.1 s / 1,185 MB peak
-  working set before, 0.3 s / no rise above the idle set after.
+- **A `[*count]` column costs the number, not the list.** `project.fields=["Temporary[*count]"]` read the list the
+  way naming it does: building every element to count them, and — on a field that holds CHILD RECORDS — assembling
+  the additive union, which opens a body per plugin touching the record. The element count now comes off the
+  collection's own count with no element built, the column reads at depth 1 whatever depth was asked for, and a
+  field read only for a count takes the child union's index-only tier: the number carries the sentence saying other
+  plugins declare children here that were not read, and the response states that tier's clause. Name the list
+  without the token for the assembled union. The number rendered is unchanged, and it is the same number
+  `where=["Temporary[*count] > 200"]` compares — that predicate no longer builds the elements either. Measured over
+  60 contested placed-reference-dense CELL records on a 3,245-plugin order: 2.1 s / 1,185 MB peak working set
+  before, 0.3 s / no rise above the idle set after.
 - **`housecarl_records` `project.form="chain"` now reports the cycles a forward walk actually found.** A cycle was
   only ever recorded when `walk.follow` named a single chain; a closure walk deduped its revisits on its visited set
   and reported none, so a leveled item pointing at itself, and a pair pointing at each other, both came back

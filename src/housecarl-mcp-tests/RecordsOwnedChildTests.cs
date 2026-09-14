@@ -416,16 +416,25 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.DoesNotContain("HcOcCellB", miss);
     }
 
-    /// <summary>A count is not the union: the annotation opens a body per touching plugin to state something a
-    /// number does not show, so a <c>[*count]</c> column must not earn it — while naming the list still does.</summary>
+    /// <summary>A count number is this body's own list, and it says so: a <c>[*count]</c> column takes the child
+    /// union's INDEX-ONLY tier — the sentence naming how many other plugins declare children here, which costs an
+    /// index lookup — instead of the assembled union, which opens a body per touching plugin. Naming the list is
+    /// what asks for the assembled one.</summary>
     [Fact]
-    public void ACountColumnDoesNotPayForTheChildUnion()
+    public void ACountColumnStatesTheIndexOnlyTierOfTheChildUnion()
     {
         var count = Read(_w.CellA, new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Temporary[*count]" } });
         Assert.Contains("Temporary[*count] = 0", count);
-        Assert.DoesNotContain(ReadSentences.UnionLabel, count);
+        Assert.Contains(ReadSentences.NotRead, FieldLine(count, "Temporary[*count]"));
+        // The assembled union is what it did NOT pay for: that sentence names the children across plugins.
+        Assert.DoesNotContain(ReadSentences.UnionLabel, FieldLine(count, "Temporary[*count]"));
+        // And the response states the clause for the tier it used, over the count's own spelling.
+        Assert.Contains("Temporary[*count]", ClauseLine(count, ReadSentences.ClauseFraming(false)));
         var list = Read(_w.CellA, new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Temporary" } });
         Assert.Contains(ReadSentences.UnionLabel, list);
+        // A count beside the list itself does not cost the list its union: the tier is per field, not per call.
+        var both = Read(_w.CellA, new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Temporary", "Persistent[*count]" } });
+        Assert.Contains(ReadSentences.UnionLabel, both);
     }
 
     /// <summary>The value beside the union is still the read body's OWN list, in its own order — those are the
