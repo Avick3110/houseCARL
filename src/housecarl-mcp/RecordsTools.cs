@@ -2618,9 +2618,13 @@ public static class RecordsTools
             };
             groups[key] = groups.GetValueOrDefault(key) + 1;
         }
-        var rows = groups.OrderByDescending(g => g.Value).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
+        var all = groups.OrderByDescending(g => g.Value).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
+        // A zero row is a type the call ASKED for that matched nothing. It sorts last, which is what a cap discards
+        // first, so it is stated apart from the counted table rather than as the row a cut takes.
+        var empties = all.Where(g => g.Value == 0).Select(g => g.Key).ToList();
+        var rows = empties.Count == 0 ? all : all.Where(g => g.Value > 0).ToList();
         if (json || dense)
-            return JsonWire.RenderListAggregate(gb, rows, outcomes.Count, errors, epoch, bodyCost, envelope, cap);
+            return JsonWire.RenderListAggregate(gb, rows, outcomes.Count, errors, epoch, bodyCost, envelope, cap, empties);
         var sb = new StringBuilder();
         sb.Append(headerLine).Append("  group_by=").Append(gb).Append('\n');
         sb.Append(outcomes.Count).Append(" record(s)");
@@ -2631,7 +2635,10 @@ public static class RecordsTools
         // the same shape the scan lane's count table holds itself to.
         string Notice(int r) => "... [truncated: rendered " + r + " of " + rows.Count +
                                 " groups before hitting max_chars=" + cap + "; the counts above are exact — raise max_chars]\n";
-        int budget = cap - Notice(rows.Count).Length - RenderBudget.AccountingReserve;
+        // The empty-type line is charged with the notice and the accounting line, ahead of the counted rows, so the
+        // one answer a caller cannot infer from the table is not what the cap takes first.
+        var emptyLine = Wire.EmptyGroupsLine(empties, Math.Max(cap / 2, 120));
+        int budget = cap - Notice(rows.Count).Length - emptyLine.Length - RenderBudget.AccountingReserve;
         int renderedGroups = 0;
         foreach (var (key, count) in rows.Select(r => (r.Key, r.Value)))
         {
@@ -2644,6 +2651,7 @@ public static class RecordsTools
             sb.Append(row);
             renderedGroups++;
         }
+        sb.Append(emptyLine);
         // What reading the bodies this table counted cost, stated on text as it is on json.
         sb.Append(RenderBudget.BodiesLine(bodyCost.RowsRead, bodyCost.Millis));
         return RenderCap.Settle(sb.ToString(), cap);

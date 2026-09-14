@@ -169,11 +169,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   alongside `groups`, as the scan lane's already has, and both json count tables now carry `groups_total` — how
   many groups the table has, so a cut document says what it was cut from. Raise `max_chars` to see the rest.
 
-- **A type named in `types=` with no records now gets a `0` row in a `group_by=type` count table.** The type was
-  simply absent before, so reading "no PARW records" meant diffing the request against the response. Both lanes
-  state it: a scan, and the `formids=` list lane's carrier walk, where `types=` narrows the carrier types. A type
-  name the tool does not know is still refused by name, which is a different answer from a known type with nothing
-  in it.
+- **A `group_by=type` count table now names the types that were asked for and matched nothing.** They were simply
+  absent before, so reading "no PARW records" meant diffing the request against the response. The counted rows are
+  followed by one `no records: …` line naming them (json: an `empty_groups` array beside `groups`), which is charged
+  against `max_chars` ahead of the counted rows so a cut table still carries it; past the room that line has, it
+  says how many names it did not print. Both lanes state it: a scan, and the `formids=` list lane's carrier walk,
+  where `types=` narrows the carrier types. A type name the tool does not know is still refused by name, which is a
+  different answer from a known type with nothing in it.
 
 ## 2.0.0 — 2026-09-11
 
