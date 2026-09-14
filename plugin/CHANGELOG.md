@@ -27,15 +27,21 @@ saying it sets an expectation their install may contradict. Say what is known, a
   during CLR startup on some machines — a CET / hardware-shadow-stack interaction, asserting before any app
   code ran, so the window opened and closed and nothing was written. The exe now uses the same installed
   .NET 9 the server already requires: it is single-file still, 0.22 MB instead of 10.7 MB, and untrimmed
-  (trimming is a self-contained-only option). A machine with no .NET 9 at all now gets Windows' own "You
-  must install .NET to run this application" message and its download link rather than the setup banner;
-  setup's preflight still names a missing ASP.NET Core Runtime, the half that the base runtime's installer
-  does not carry.
-- **The README says how to install by hand, and which file the Claude desktop app actually reads.** Extract,
-  point the host's MCP entry at `server/housecarl-mcp.dll`, copy `skills/` into `~/.claude/skills/`, restart
-  — the way out if the exe will not run on a machine. The desktop app reads its MCP servers from
-  `%APPDATA%\Claude\claude_desktop_config.json`; editing `~/.claude/claude_mcp_config.json` leaves it
-  spawning whatever server it had before.
+  (trimming is a self-contained-only option). Setup now needs that runtime to start at all, and a console
+  app's missing-framework message goes to stderr, which a double-clicked window closes over: the
+  requirements block in the README and in `START-HERE.txt` therefore names the flash-and-close itself as
+  the diagnosis, and says to take the x64 runtime builds, which is what a `win-x64` apphost needs. Setup's
+  preflight still names a missing ASP.NET Core Runtime, the half the base runtime's installer does not
+  carry, and it no longer calls the base runtime missing while running on it — a runtime reached through
+  `DOTNET_ROOT` with `dotnet` off PATH is now found, because the shared-framework root the setup process
+  is itself running out of is scanned alongside the machine-wide one.
+- **The README says how to install by hand, and which file each Claude surface reads.** Move the whole
+  `housecarl` folder to `~/.claude/skills/housecarl` and add an `mcpServers` entry in `~/.claude.json`
+  pointing at `server/housecarl-mcp.exe` — the layout setup produces, and the way out if the exe will not
+  run on a machine. `~/.claude.json` is Claude Code's file, the terminal CLI and the desktop app's Code
+  tab; the desktop app's plain chat is a separate surface reading
+  `%APPDATA%\Claude\claude_desktop_config.json`. Neither reads `~/.claude/claude_mcp_config.json`, so a
+  hand-migration that edits only that file leaves the host spawning the server it had before.
 - **A forward `walk=` no longer holds every record it reached.** A record body read from a plugin is a slice
   of that record group's whole byte array and keeps it alive, so caching one body per reached node until the
   call returned pinned one array per source group per plugin: 270 KB per reached node, and a raised
