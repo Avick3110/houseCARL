@@ -162,6 +162,16 @@ saying it sets an expectation their install may contradict. Say what is known, a
   is not modeled, and houseCARL does not hand-write per-record-type decoders — so a blob is only safe to copy between
   records at the same FormVersion, which these lines now let you check.
 
+- **The reverse lane no longer walks a whole plugin per match.** An unbounded `references=` and a reverse
+  `walk=` both read the winner's body of every candidate the reverse-reference index names, and each of those
+  reads enumerated the winner plugin from the top to find one record — so a common target cost minutes after
+  an index that was already built. Both now gather the candidates they are about to judge a block at a time,
+  one enumeration per winner plugin, which is what the forward walk and the winner-source scan already did.
+  The answers are unchanged: the same matches, in the same order, with the same per-cause drop counts. On a
+  3,244-plugin order a warm unbounded `references=` on IronIngot (1,988 matches) went from 223 s to 5 s, and
+  the reverse walk from it at the default budget from 275 s to 13 s. The index build itself is unchanged —
+  the response still reports what it cost.
+
 ## 2.0.0 — 2026-09-11
 
 houseCARL 2.0.0 replaces the 1.x tool surface with 31 tools. The record plane is one grammar: a read is one call composed from four axes (SELECT × SOURCE × PROJECT × TRANSPORT); a write is one call composed from an op list, a lane and a transport; one record is a set of one. Record coverage is generated from Mutagen.Bethesda.Skyrim 0.54.4 at build time, 1,174 types, and the write pre-flight and the `mutagen-reference` skill are two renderings of that one artifact. The 1.x tool and parameter names are deleted, not deprecated: a retired tool name is refused with a refusal naming its successor, from `AliasTable.cs`; a retired parameter name is refused as an unknown parameter, with the parameters the tool does take. Seven skills ship. `housecarl_check` gains the facegen family. The installer shows what it will write before writing, and uninstalls. The entries below are in the order they landed.
