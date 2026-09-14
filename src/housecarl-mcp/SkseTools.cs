@@ -857,7 +857,9 @@ static class SkseInventoryWire
         }
         var others = new List<string>();
         if (Differs(declared, file)) others.Add($"DLL file version {file}");
-        if (Differs(declared, mod) && Differs(file, mod)) others.Add($"meta.ini {mod}");
+        // meta.ini is held back only when the file version already carries it — a DLL with NO file version must still
+        // show it, which is where the manifest is the only other number there is.
+        if (Differs(declared, mod) && (file.Length == 0 || Differs(file, mod))) others.Add($"meta.ini {mod}");
         return others.Count == 0
             ? $"{declared} (SKSE manifest)"
             : $"{declared} (SKSE manifest; {string.Join(", ", others)})";

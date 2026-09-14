@@ -477,8 +477,11 @@ public sealed partial class LoadOrderService : IDisposable
                 {
                     info = SksePluginReader.Read(path);           // the winning loose copy
                     // What MO2 recorded for the mod that ships it, read once per mod: a mod shipping several DLLs
-                    // (an AIO) would otherwise re-read the same meta.ini for each of them.
-                    if (Mo2ModMeta.ModRootForLooseFile(path, rel) is { } modRoot)
+                    // (an AIO) would otherwise re-read the same meta.ini for each of them. Carried only for a DLL that
+                    // IS an SKSE plugin: a mod's version describes the plugin it ships, not the redistributable
+                    // (tbb.dll, msdia140.dll) bundled beside it, where it would read as a false disagreement.
+                    if (info.Kind is SksePluginReader.SksePluginKind.Modern or SksePluginReader.SksePluginKind.LegacyQuery
+                        && Mo2ModMeta.ModRootForLooseFile(path, rel) is { } modRoot)
                     {
                         if (!modVersions.TryGetValue(modRoot, out modVersion))
                             modVersions[modRoot] = modVersion = Mo2ModMeta.Read(Path.Combine(modRoot, "meta.ini"))?.Version;

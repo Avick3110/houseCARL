@@ -88,6 +88,17 @@ public sealed class SkseVersionSourceTests
         Assert.DoesNotContain("meta.ini", text);
     }
 
+    /// <summary>The same disagreement on a DLL carrying no version resource at all — 61 of the 313 DLLs on the order
+    /// this was measured against carry none. The manifest and meta.ini are then the only two numbers there are, so the
+    /// disagreement between them must still be shown.</summary>
+    [Fact]
+    public void AModVersionDisagreeingWithTheManifestIsShownWithNoFileVersion()
+    {
+        var text = SkseInventoryWire.Render(Layer(manifest: "7.0.0", fileVersion: null, modVersion: "7.3.3"), null, 80_000);
+
+        Assert.Contains("7.0.0 (SKSE manifest; meta.ini 7.3.3)", text);
+    }
+
     /// <summary>A DLL with no manifest at all and no version resource still has the version MO2 recorded for the mod
     /// that ships it, and that is the only number in sight — so it is the one printed.</summary>
     [Fact]
@@ -126,14 +137,14 @@ public sealed class SkseVersionSourceTests
 
     static SkseInventoryData Layer(string? manifest, string? fileVersion, string? modVersion)
     {
-        // manifest null = a DLL with no SKSE manifest to declare a version (a bundled dependency), which is the case
-        // the mod's own meta.ini version has to carry.
+        // manifest null = a plugin whose metadata is not statically readable (the legacy SE/VR export), which is the
+        // case the mod's own meta.ini version has to carry.
         var version = manifest is null ? null : new SksePluginReader.SkseVersionInfo("Spell Perk Item Distributor", "powerofthree", "", manifest,
             UsesAddressLibrary: true, UsesSignatureScanning: false, UsesUpdatedStructs: false, DeclaresNoStructs: false,
             new[] { "1.6.1170.0" }, null);
         var plugin = new SksePluginReader.SksePluginInfo("spid.dll",
-            manifest is null ? SksePluginReader.SksePluginKind.NotSkse : SksePluginReader.SksePluginKind.Modern, true, version,
-            manifest is null ? "no SKSE export — a bundled dependency DLL, not a plugin" : null,
+            manifest is null ? SksePluginReader.SksePluginKind.LegacyQuery : SksePluginReader.SksePluginKind.Modern, true, version,
+            manifest is null ? "legacy SE/VR plugin: metadata is filled at runtime" : null,
             new[] { "kernel32.dll" }, fileVersion);
         var entry = new SkseFileEntry("SKSE/Plugins/spid.dll", "spid.dll", "", new[] { new SkseProvider("SPID", "loose") },
             plugin, null, ModVersion: modVersion);
