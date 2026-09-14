@@ -650,6 +650,36 @@ public static class WriteTools
     // shipped .seq goes stale; carrying them is what stops a dark-faced NPC, a mute voiced mod, and SGE quests that
     // never start. Reported, never silent. inPlace is always false for merge — it has no in-place lane.
 
+    /// <summary>Where the merged plugin has to load, from the positions, masters and dependents the merge already
+    /// computed — the question a caller otherwise answers by scanning the order by hand (#718).</summary>
+    static void AppendPlacement(StringBuilder sb, WritePatchBuilder.MergeOutcome o)
+    {
+        if (o.Placement is not { } p) return;
+        sb.Append("placement: ");
+        if (p.FirstPosition == p.LastPosition)
+            sb.Append("the donor sat at load-order position ").Append(p.LastPosition).Append(". ");
+        else
+            sb.Append("the donors sat at load-order positions ").Append(p.FirstPosition).Append('–').Append(p.LastPosition)
+              .Append(" (").Append(p.FirstDonor).Append(" … ").Append(p.LastDonor).Append("). ");
+        sb.Append("Load ").Append(o.OutputName);
+        if (p.LastMaster is not null)
+            sb.Append(" after its last master ").Append(p.LastMaster).Append(" (position ").Append(p.LastMasterPosition).Append(')').Append(", and");
+        sb.Append(" at or after position ").Append(p.LastPosition)
+          .Append(" — the merge resolved the donors' conflicts as they stood there, so anything earlier lets content the ")
+          .Append("donors used to beat win over the merge instead.\n");
+        if (p.Intervening.Count == 0)
+            sb.Append("  no plugin between the first and last donor also touches these records.\n");
+        else
+        {
+            sb.Append("  ").Append(p.Intervening.Count)
+              .Append(p.Intervening.Count == 1 ? " plugin between the first and last donor also touches" : " plugins between the first and last donor also touch")
+              .Append(" these records, so where the merge sits relative to each one decides which version wins: ")
+              .Append(string.Join(", ", p.Intervening.Take(25)));
+            if (p.Intervening.Count > 25) sb.Append(" (+").Append(p.Intervening.Count - 25).Append(" more)");
+            sb.Append('\n');
+        }
+    }
+
     static void AppendFacegenCarry(StringBuilder sb, AssetRenameOutcome? outcome, bool inPlace)
     {
         if (outcome is not { } ar) return;
@@ -729,6 +759,7 @@ public static class WriteTools
             sb.Append("wrote merged ").Append(file).Append(" (new plugin; ").Append(o.Bytes).Append(" bytes) from ")
               .Append(o.Donors.Count).Append(" donors: ").Append(string.Join(", ", o.Donors)).Append('\n');
         sb.Append("mod folder: ").Append(modFolder).Append("  — review in xEdit, then enable it in MO2 (MO2 adds a newly activated plugin at the END of the load order).\n");
+        AppendPlacement(sb, o);
         // The swap is PLUGIN-level, not mod-level (merge is a RECORDS op): the merged records still reference the donors'
         // meshes/textures/scripts/BSA contents BY PATH, and those files live in the donor mod folders — only the
         // FormID-keyed facegen/voice/seq were carried. "Disable the donor mods" (compact's instruction, where the output

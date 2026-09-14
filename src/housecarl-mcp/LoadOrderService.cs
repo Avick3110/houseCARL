@@ -7828,12 +7828,19 @@ public sealed partial class LoadOrderService : IDisposable
                   "auto-starting before; they will now."
                 : null;
 
+            // Where the output has to sit, off the positions, masters and dependents this call already computed.
+            var placement = MergeLoadPosition.Derive(
+                donorInfos.Select(d => (d.Name, d.Order)).ToList(), build.Masters,
+                id.ExternalOverriders.Concat(id.ExternalPlugins),
+                p => orderIndex.TryGetValue(p, out var i) ? i : null);
+
             return new WritePatchBuilder.MergeOutcome(
                 true, null, outPath, outName, donorNames, build.Masters, build.RecordsCopied, build.RecordsRenumbered,
                 plan.Donors, build.Conflicts, id.ExternalPlugins, id.ExternalOverriders,
                 id.PluginsScanned, id.UnscannableRecords, id.UnscannableSamples, build.Bytes, note,
                 assetRename, voiceRename, seqRegen, build.LightDonors, build.HeaderMetaDonors, build.MasterDonors,
-                id.UnscannablePlugins, localizedDonors, id.MasterDeclarers, build.LightCarried, build.OriginatingRecords);
+                id.UnscannablePlugins, localizedDonors, id.MasterDeclarers, build.LightCarried, build.OriginatingRecords,
+                placement);
         }
     }
 
