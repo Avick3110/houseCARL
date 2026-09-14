@@ -137,7 +137,11 @@ public static class WriteTools
         int absent = o.Ops.Count(op => op.RecordAbsentFromFile);
         if (absent > 0)
             sb.Append("! ").Append(absent).Append(absent == 1 ? " edit did NOT land: " : " edits did NOT land: ")
-              .Append(WriteSentences.RecordAbsentFromWrittenFile).Append(". Each is marked below.\n");
+              .Append(WriteSentences.RecordAbsentFromWrittenFile).Append(". ")
+              .Append(WriteSentences.AbsentRecordList(
+                  o.Ops.Where(op => op.RecordAbsentFromFile).Select(op => FormIdToken.Of(op.Target))
+                       .Distinct(StringComparer.OrdinalIgnoreCase).ToList()))
+              .Append('\n');
         sb.Append(o.Ops.Count).Append(o.Ops.Count == 1 ? " edit:\n" : " edits:\n");
         // Budgeted like every sibling render: applying edits is set-valued, so a few hundred ops is the expected case,
         // and the json render budgets the same array — unbounded here, the HOST cuts the response instead of max_chars.
@@ -148,7 +152,7 @@ public static class WriteTools
             {
                 sb.Append("  ... [truncated: ").Append(i).Append(" of ").Append(o.Ops.Count)
                   .Append(" edit(s) listed at max_chars=").Append(opCap).Append("; ")
-                  .Append(WriteSentences.RowsCutOperationIntact(false, "applied"))
+                  .Append(WriteSentences.RowsCutOperationIntact(false, "applied", absent > 0))
                   .Append(" — ").Append(ApplyAgainRemedy(o, file)).Append("]\n");
                 break;
             }
@@ -971,6 +975,10 @@ public static class WriteTools
                 sb.Append("      ").Append(op.Label).Append(op.After is not null ? "  -> " + op.After : "  -> applied")
                   .Append(ApplyNote(op)).Append('\n');
         }
+        // The provenance the edit lane's lines now carry, and this lane's do not: a create's field values are the
+        // applied edit's own reading, taken before the serialize. Said once rather than per line, because an edit
+        // line here reads exactly like a verified one on the apply lane (#763).
+        if (o.Created.Any(c => c.Ops.Count > 0)) sb.Append(WriteSentences.CreateValuesNotReRead).Append('\n');
         AppendVoiceReport(sb, o.Voice, maxChars);
         AppendScriptBindingReport(sb, o.ScriptBinding, maxChars);
         AppendCellShellReport(sb, o.CellShell, maxChars);

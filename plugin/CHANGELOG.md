@@ -45,11 +45,20 @@ saying it sets an expectation their install may contradict. Say what is known, a
   Where the file cannot judge a value at all the line says `not-checked` and prints no value instead of the
   in-memory one; a leaf the file could not read is the case that reaches it. Many ops into one field still
   print the file's reading on every line, the field as the file now holds it, marked on the lines a later op in
-  the same call wrote too. In `format: "json"` the file's reading is `after_on_disk` and `landed_source` names
-  where each clause came from, with `record_absent` for the record the file does not hold; `after` stays the
-  in-memory reading, so the two are never confused for one another. A 500-op apply pays one more reflective
-  read per op: measured 175 ms before against 226 ms after, best of five runs each, on a synthetic 500-record
-  order.
+  the same call wrote too — marked as the field's final state, since it is not that op's own result. In
+  `format: "json"` the file's reading is `after_on_disk` (with `after_on_disk_is_final_leaf` on the ops that
+  marking applies to) and `landed_source` names where each clause came from, with `record_absent` for the
+  record the file does not hold; `after` stays the in-memory reading, so the two are never confused for one
+  another. The absent count and the records it names sit outside the row budget on both transports —
+  `ops_record_absent` and `record_absent_formids` in json — so a `max_chars` cut cannot leave a response
+  claiming every edit applied. A 500-op apply pays one more reflective read per op: measured 175 ms before
+  against 226 ms after, best of five runs each, on a synthetic 500-record order.
+
+- **`housecarl_create` says that its reported values were not re-read from the written file.** Unlike an edit's,
+  a create's per-field lines are the applied edit's own reading taken before the file was written, and after the
+  change above the two lanes' lines look identical. The create response now says which it is, and points at
+  `readback=true` to read every created record back off the file. Making that lane report from the file, as the
+  edit lanes now do, is #763.
 
 - **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
   byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the

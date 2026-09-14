@@ -2486,6 +2486,21 @@ static class JsonWire
             // it, and a consumer needs to tell that from "it ran and everything came off the file". Outside the ops
             // budget, because that is the one fact a max_chars cut must not remove.
             w.WriteBoolean("verify_ran", o.Ops.Any(op => op.VerifyAttempted));
+            // …and the stronger fact beside it, for the same reason and outside the same budget: how many edits
+            // targeted a record the written file does not contain, and which records those were. Inside the ops array
+            // a cut could drop every one of them and leave a document reading ok + everything applied.
+            int absent = o.Ops.Count(op => op.RecordAbsentFromFile);
+            w.WriteNumber("ops_record_absent", absent);
+            if (absent > 0)
+            {
+                var absentIds = o.Ops.Where(op => op.RecordAbsentFromFile).Select(op => FormIdToken.Of(op.Target))
+                                  .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                w.WriteStartArray("record_absent_formids");
+                foreach (var id in absentIds.Take(WriteSentences.AbsentRecordsShown)) w.WriteStringValue(id);
+                w.WriteEndArray();
+                // The array is bounded; the count above is not, so a consumer can always tell it was cut.
+                w.WriteNumber("record_absent_formids_total", absentIds.Count);
+            }
 
             w.WriteNumber("total_ops", o.Ops.Count);
             w.WriteStartArray("ops");
@@ -2502,9 +2517,17 @@ static class JsonWire
                 WriteNullable(w, "error", op.Error);
                 WriteNullable(w, "after", op.After);
                 // The leaf as the WRITTEN FILE holds it — what the text render's per-edit line prints. Null when the
-                // file could not answer for this op, which `landed_source` names; `after` beside it stays the applied
-                // edit's own in-memory reading, so the two are never confused for one another.
+                // file could not read that leaf, or when it does not contain the record at all; `landed_source` names
+                // which. `after` beside it stays the applied edit's own in-memory reading, so the two are never
+                // confused for one another.
+                //
+                // ON A SUPERSEDED OP IT IS NOT NULL, and it is not this op's result: a later op in the same call wrote
+                // the same leaf, so this is the leaf's FINAL state after all of them — the same value that op's own
+                // row carries. `after_on_disk_is_final_leaf` below marks it, because `landed_source` alone reads as a
+                // reason the value is missing rather than a caveat on a value that is present.
                 WriteNullable(w, "after_on_disk", op.AfterOnDisk);
+                if (op.AfterOnDisk is not null && op.SupersededInCall)
+                    w.WriteBoolean("after_on_disk_is_final_leaf", true);
                 WriteNullable(w, "landed", op.Landed);
                 // What the write DID that the file cannot say afterwards — today only the duplicate Add (the list
                 // already carried this element). Its own key, not folded into `landed`, which is compared against
@@ -2546,7 +2569,7 @@ static class JsonWire
             // file on in_place.
             if (truncated)
                 w.WriteString("truncated_note",
-                    $"{WriteSentences.JsonRowsCut(cap)}; {WriteSentences.RowsCutOperationIntact(o.DryRun, "applied")} — "
+                    $"{WriteSentences.JsonRowsCut(cap)}; {WriteSentences.RowsCutOperationIntact(o.DryRun, "applied", absent > 0)} — "
                     + WriteTools.ApplyAgainRemedy(o, Path.GetFileName(o.OutputPath)) + ".");
             w.WriteEndObject();
         }

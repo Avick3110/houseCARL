@@ -3653,7 +3653,9 @@ public static class WritePatchBuilder
         ISkyrimModGetter? back = null;
         try
         {
-            back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
+            // The strings-aware factory, like the two apply lanes: a localized plugin opened bare reads every
+            // TranslatedString empty, which would report a Name this call just wrote as missing.
+            back = LoadOrderResolver.OpenOverlay(outPath, resolver.DataDir);
             masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
             bytes = new FileInfo(outPath).Length;
             if (fullReadback) readBack = ReadBackInFull(back, created.Select(c => c.FormKey));

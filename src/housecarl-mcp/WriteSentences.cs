@@ -50,6 +50,14 @@ internal static class WriteSentences
     /// <summary>The one reading that says an edit did not land: the file this call just wrote was re-opened and
     /// walked, and the record the edit targeted is not in it. Said once, on the op line and in the summary above the
     /// ops, so the two cannot drift.</summary>
+    /// <summary>The create lane's provenance line. Its per-field values are read off the in-memory record before the
+    /// serialize, while the edit lane's are re-read off the written file, and the two lines are identical in shape —
+    /// so the one that was not checked says so rather than passing for the one that was.</summary>
+    [MustState("were not re-read", "readback=true")]
+    internal const string CreateValuesNotReRead =
+        "note: the values above are the applied edits' own readings, taken before the file was written — they were not re-read "
+      + "from it. Pass readback=true to read every created record back off the written file.";
+
     [MustState("does not contain this record", "this edit is not in it")]
     internal const string RecordAbsentFromWrittenFile =
         "the written file was re-opened and does not contain this record, so this edit is not in it. "
@@ -464,8 +472,22 @@ internal static class WriteSentences
     /// <summary>What a cut row list says about the OPERATION rather than the render: the rows shown were cut, the
     /// work was not. Dry-run aware on purpose — a truncated dry run must not assert a write, which is the confusion
     /// <see cref="DryRunHeader"/> exists to prevent.</summary>
-    internal static string RowsCutOperationIntact(bool dryRun, string pastParticiple) =>
-        dryRun ? "the dry run covered every one" : $"every one WAS {pastParticiple}";
+    internal static string RowsCutOperationIntact(bool dryRun, string pastParticiple, bool someDidNotLand = false) =>
+        dryRun ? "the dry run covered every one"
+        : someDidNotLand ? "every one was attempted, and the ones that did NOT land are named outside this cut"
+        : $"every one WAS {pastParticiple}";
+
+    /// <summary>How many absent records a response names before it counts the rest. Bounded because the list is
+    /// hoisted OUT of the row budget, where nothing else would cut it.</summary>
+    internal const int AbsentRecordsShown = 10;
+
+    /// <summary>The records a write reports as missing from the file it wrote, named rather than deferred to a row
+    /// list a cut may drop. Bounded by <see cref="AbsentRecordsShown"/>, with the remainder counted.</summary>
+    internal static string AbsentRecordList(IReadOnlyList<string> tokens) =>
+        tokens.Count <= AbsentRecordsShown
+            ? "Record(s): " + string.Join(", ", tokens)
+            : "Record(s): " + string.Join(", ", tokens.Take(AbsentRecordsShown))
+              + $", and {tokens.Count - AbsentRecordsShown} more";
 
     /// <summary>The opening of a json <c>truncated_note</c>: which ceiling was hit and what it dropped. json-only —
     /// the text renders state the same two facts inside their own truncation bracket, where the counts sit.</summary>
