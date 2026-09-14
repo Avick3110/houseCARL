@@ -342,6 +342,10 @@ public static class ReverseSelection
     /// count is a prefix, not a finding.</summary>
     public sealed record Hop(int Depth, IReadOnlyList<FormKey> Reached, bool Cut);
 
+    /// <summary>How many candidates a <c>prepare</c> block covers: big enough that a large master is walked a few
+    /// times a hop rather than once a candidate, small enough that the bodies it pins stay bounded.</summary>
+    const int PrepareBlock = 2000;
+
     /// <summary>The transitive reverse walk: who references the seeds, then who references those, hop after hop.
     /// The follow rule — every link — is the same at every hop, which is what <c>depth</c> means here and
     /// everywhere. Records already reached are not re-reported and not re-expanded, so a reference cycle
@@ -351,10 +355,14 @@ public static class ReverseSelection
     /// bounds the TOTAL reached across all hops; the budget is tested BEFORE the candidate is verified or
     /// consumed, so a spent budget bounds the body reads as well as the reach, a raised budget on a retry sees
     /// the same graph, and the hop the cut landed on is marked
-    /// <see cref="Hop.Cut"/> rather than reading as a hop that reached nothing.</summary>
+    /// <see cref="Hop.Cut"/> rather than reading as a hop that reached nothing.
+    /// <para><paramref name="prepare"/> is handed each block of candidates just before they are verified, so a
+    /// verifier that reads bodies can gather a block at a time instead of one at a time. It is called only for
+    /// candidates the walk is about to verify, so a spent budget stops the gather with the reads.</para></summary>
     public static IReadOnlyList<Hop> Transitive(ReverseReferenceIndex index, IReadOnlyList<FormKey> seeds,
                                                 int depth, int maxNodes,
-                                                Func<FormKey, IReadOnlySet<FormKey>, bool>? verify, out bool capped)
+                                                Func<FormKey, IReadOnlySet<FormKey>, bool>? verify, out bool capped,
+                                                Action<IReadOnlyList<FormKey>>? prepare = null)
     {
         capped = false;
         var hops = new List<Hop>();
@@ -366,12 +374,23 @@ public static class ReverseSelection
             var frontierSet = new HashSet<FormKey>(frontier);
             var next = new List<FormKey>();
             bool cut = false;
-            foreach (var k in index.ReferencersOf(frontier))
+            var candidates = index.ReferencersOf(frontier);
+            int prepared = 0;
+            for (int i = 0; i < candidates.Count; i++)
             {
+                var k = candidates[i];
                 if (visited.Contains(k)) continue;
                 // The budget is spent before the candidate is verified, so a spent budget stops the body reads
                 // too — verification has no ordering effect, so a raised budget on a retry still sees this graph.
                 if (reached >= maxNodes) { capped = true; cut = true; break; }
+                if (prepare is not null && i >= prepared)
+                {
+                    int end = Math.Min(candidates.Count, i + PrepareBlock);
+                    var block = new List<FormKey>(end - i);
+                    for (int j = i; j < end; j++) if (!visited.Contains(candidates[j])) block.Add(candidates[j]);
+                    prepare(block);
+                    prepared = end;
+                }
                 if (verify is not null && !verify(k, frontierSet)) continue;
                 visited.Add(k);
                 next.Add(k);
