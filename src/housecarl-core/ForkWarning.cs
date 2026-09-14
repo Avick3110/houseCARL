@@ -51,9 +51,12 @@ public static class ForkWarning
 
         var names = forkers.OrderBy(kv => kv.Value).Select(kv => kv.Key).ToList();
         var last = names[^1];                                   // the last-loaded of them: the copy that currently applies
+        // The remedy names its own bound: into= extends a patch houseCARL wrote, and the plugin named here may be
+        // anyone's — a vanilla master, a third-party mod — so the sentence says which lane each case takes.
         return $"{(forkedRecords == 1 ? "this record is" : $"{forkedRecords} of the records written here are")} already " +
                $"overridden by {Names(names)} — only the last-loaded copy of a record applies, so this write forks it " +
-               $"rather than adding to that copy; pass into=\"{last}\" to build on it instead.";
+               $"rather than adding to that copy; to build on that copy instead, pass into=\"{last}\" if it is a " +
+               $"houseCARL patch, else in_place=\"{last}\".";
     }
 
     /// <summary>"A.esp", "A.esp and B.esp", "A.esp, B.esp and C.esp".</summary>

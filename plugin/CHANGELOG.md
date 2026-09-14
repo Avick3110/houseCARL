@@ -133,7 +133,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `housecarl_forward` and a nested `housecarl_create` (which overrides its parent in) all land an override in a
   patch, and Skyrim applies only the last-loaded copy of a record — so a second patch overriding the same record
   splits it in two and one half never applies, which used to happen with every call reporting success. The
-  response now carries one `warning:` line naming the other plugin(s) and the `into=<that plugin>` to use instead.
+  response now carries one `warning:` line naming the other plugin(s) and the lane that builds on that copy instead —
+  `into=` for a patch houseCARL wrote, `in_place=` for one it did not.
   It is a warning, not a refusal: a deliberate fork still writes. Its bound is which plugins count — the write
   path's own provider list for the record, minus the patch being written and the record's defining plugin, and
   only those at or below the patch in the load order (a patch not yet enabled has no position, so every other
