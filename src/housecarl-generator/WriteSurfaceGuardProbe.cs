@@ -2422,6 +2422,12 @@ public static class WriteSurfaceGuardProbe
             cap => JsonWire.RenderPatchOutcome(applyOutcome, cap, false, "patch"),
             "total_ops", $"{applyOutcome.Ops.Count} edits");
         Observe(WriteTools.Render(applyOutcome, 60), JsonWire.RenderPatchOutcome(applyOutcome, 60, false, "patch"));
+        // The one apply state a real write cannot be driven into: an edit whose record the written file turns out not
+        // to contain (#683's failure mode, which the write no longer produces). The outcome is constructed and handed
+        // to the REAL renderer — same shape as copy's defensive branches above.
+        var absentOutcome = applyOutcome with
+            { Ops = applyOutcome.Ops.Select(o => o with { RecordAbsentFromFile = true, VerifyAttempted = true }).ToList() };
+        Observe(WriteTools.Render(absentOutcome), JsonWire.RenderPatchOutcome(absentOutcome, 0, false, "patch"));
 
         var rmOutcome = fx.Svc.RemoveRecords(new[] { fx.SubjectFid, fx.MasterOnlyFid }, "W2TwinFwd.esp");
         BudgetParity("remove", rmOutcome.Removed.Count,

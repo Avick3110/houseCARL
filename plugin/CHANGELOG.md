@@ -38,13 +38,18 @@ saying it sets an expectation their install may contradict. Say what is known, a
   did the response reported the edit as applied — an Add on a leveled list answering `-> [list: 11 item(s)]`
   over a file still holding 10 — while `full_readback: true`, which did read the file, contradicted it in the
   same response. Every edit line is now re-read off the written file, for every verb, out of the re-open the
-  lane was already doing; the in-place lane, which already re-read, is unchanged. Where the file cannot answer
-  for one op the line says `not-checked` and prints no value instead of the in-memory one: the two cases are a
-  later op in the same call having written the same field (that op's own line carries the file's reading) and a
-  leaf the re-opened file did not yield. In `format: "json"` the file's reading is `after_on_disk` and
-  `landed_source` names where each clause came from; `after` stays the in-memory reading, so the two are never
-  confused for one another. A 500-op apply pays one more reflective read per op: measured 175 ms before against
-  226 ms after, best of five runs each, on a synthetic 500-record order.
+  lane was already doing. `in_place=` writes get the same change: only their read-back clause came from the
+  file before, while their edit lines came from memory like the patch lane's. Where an edit targeted a record
+  the re-opened file does not contain, the line says so outright — that is the reading that means the edit is
+  not in the file — and the count is repeated above the edit list, where a `max_chars` cut cannot drop it.
+  Where the file cannot judge a value at all the line says `not-checked` and prints no value instead of the
+  in-memory one; a leaf the file could not read is the case that reaches it. Many ops into one field still
+  print the file's reading on every line, the field as the file now holds it, marked on the lines a later op in
+  the same call wrote too. In `format: "json"` the file's reading is `after_on_disk` and `landed_source` names
+  where each clause came from, with `record_absent` for the record the file does not hold; `after` stays the
+  in-memory reading, so the two are never confused for one another. A 500-op apply pays one more reflective
+  read per op: measured 175 ms before against 226 ms after, best of five runs each, on a synthetic 500-record
+  order.
 
 - **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
   byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the

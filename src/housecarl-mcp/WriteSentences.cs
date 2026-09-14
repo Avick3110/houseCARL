@@ -47,6 +47,14 @@ internal static class WriteSentences
     /// Empty when the outcome consulted no build.</summary>
     internal static string Epoch(OrderStamp? stamp) => Wire.EpochLine(stamp);
 
+    /// <summary>The one reading that says an edit did not land: the file this call just wrote was re-opened and
+    /// walked, and the record the edit targeted is not in it. Said once, on the op line and in the summary above the
+    /// ops, so the two cannot drift.</summary>
+    [MustState("does not contain this record", "this edit is not in it")]
+    internal const string RecordAbsentFromWrittenFile =
+        "the written file was re-opened and does not contain this record, so this edit is not in it. "
+        + "Re-read the record and re-issue the edit; if it reports the same thing again, capture this response in a bug report";
+
     // ---- artifact headers (text lane; json states these as typed fields) -----------------------------
     /// <summary>The IN-PLACE hazard clause — the one sentence telling a caller their own file was rewritten with
     /// nothing kept back. Every text write render (apply / create / remove / forward / compact) states it.</summary>

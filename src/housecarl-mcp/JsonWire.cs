@@ -2518,6 +2518,8 @@ static class JsonWire
                 //   "written_file"  the file answered for this op — `landed_on_disk` is its reading
                 //   "superseded"    a later op in this call wrote the same field, so the file's final state is that
                 //                   op's result and cannot speak for this one
+                //   "record_absent" the file was re-opened and WALKED and does not contain this op's record at all —
+                //                   the one reading here that says the edit is not in the file
                 //   "no_answer"     the file was re-opened and did not yield this op's leaf (or the read failed)
                 //   "not_checked"   this op was never asked — a lane that runs no per-op file check (a dry run, which
                 //                   writes nothing), or an op appended after the resolved edits (the SNAM topic-marker sync)
@@ -2525,7 +2527,8 @@ static class JsonWire
                 // reliably from a representational one (a byte-quantised Percent, an overlay's type name), and the
                 // attempt tells callers to re-issue writes that did land. Both readings are here; the caller decides.
                 w.WriteString("landed_source",
-                    op.SupersededInCall ? "superseded"
+                    op.RecordAbsentFromFile ? "record_absent"
+                    : op.SupersededInCall ? "superseded"
                     : op.LandedOnDisk is not null ? "written_file"
                     : op.VerifyAttempted ? "no_answer" : "not_checked");
                 w.WriteEndObject();
