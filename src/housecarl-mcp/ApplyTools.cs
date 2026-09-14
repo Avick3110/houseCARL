@@ -150,6 +150,13 @@ public static class ApplyTools
                 problems.Add($"{where}: from= names the SOURCE RECORD of a copy and is only valid with op='CopyFrom' (got op='{e.Op ?? "Set"}').");
                 continue;
             }
+            // The same gate on the other half of the copy source. Every consumer downstream requires the verb, so an
+            // accepted from_source= on another verb would write off the load-order winner and report success.
+            if (e.FromSource is not null && !string.Equals(e.Op ?? "Set", "CopyFrom", StringComparison.OrdinalIgnoreCase))
+            {
+                problems.Add($"{where}: from_source= names the PLUGIN a copy reads its source from and is only valid with op='CopyFrom' (got op='{e.Op ?? "Set"}').");
+                continue;
+            }
             wire.Add(new BulkOp
             {
                 Formid = e.Formid, FieldPath = e.FieldPath, Verb = e.Op ?? "Set", Value = e.Value, Key = e.Key,
