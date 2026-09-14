@@ -567,14 +567,14 @@ public static class NifService
 
         // ---- apply each op; record the exact block(s)/header each is allowed to touch ----
         var applied = new List<NifOpResult>(ops.Count);
-        var expectedBlocks = new HashSet<int>();
+        var touched = new List<object>();
         bool expectHeader = false;
         foreach (var op in ops)
         {
             var r = ApplyOp(nif, op);
             if (r.Error is not null) return NifSetOutcome.Fail(r.Error);   // target-not-found / ambiguous / not-applicable → nothing written
             applied.Add(new NifOpResult(op.Kind.ToString(), r.Target!, r.Before!, r.After!));
-            if (r.TouchedBlock is { } b) expectedBlocks.Add(b);
+            if (r.TouchedBlock is { } b) touched.Add(b);
             if (r.TouchedHeader) expectHeader = true;
         }
 
@@ -587,6 +587,13 @@ public static class NifService
             edited = outMs.ToArray();
         }
         catch (Exception ex) { return NifSetOutcome.Fail($"saving the edited mesh threw — {ex.GetType().Name}: {ex.Message}. Nothing was written."); }
+
+        // The block ids the diff compares are the ids of the SAVED file, and NiflySharp's save re-sorts the block list
+        // into its own canonical tree order — so a mesh whose on-disk order was not already that order is renumbered.
+        // Resolve each touched block's id only now, from the post-save list, or the gate compares the right block
+        // against the wrong index and refuses a correct edit.
+        var expectedBlocks = new HashSet<int>();
+        foreach (var b in touched) expectedBlocks.Add(BlockIndexOf(nif, b));
 
         // ---- GATE 1: block-content diff (offset-immune) ----
         var g1 = VerifyBlockContent(bytes, edited, expectedBlocks, expectHeader);
@@ -612,12 +619,13 @@ public static class NifService
         return new NifSetOutcome(edited, report, null);
     }
 
-    /// <summary>Apply one op to <paramref name="nif"/>, returning the target's before/after value, the single block index
-    /// it is allowed to change (or header for a rename), or a named error that aborts the whole call. Two NiflySharp
+    /// <summary>Apply one op to <paramref name="nif"/>, returning the target's before/after value, the single block
+    /// it is allowed to change (or header for a rename), or a named error that aborts the whole call. The block comes
+    /// back as the object, not an index: its id is only settled by the save that re-sorts the block list. Two NiflySharp
     /// rules bind here: bitfield sub-values (alpha flags) are structs, so read-modify-write then re-assign; and a
     /// block must be resolved and mutated via its OWNING ref, never a freshly-built one, which does not persist on
     /// save.</summary>
-    static (string? Error, string? Target, string? Before, string? After, int? TouchedBlock, bool TouchedHeader) ApplyOp(NifFile nif, NifSetOp op)
+    static (string? Error, string? Target, string? Before, string? After, object? TouchedBlock, bool TouchedHeader) ApplyOp(NifFile nif, NifSetOp op)
     {
         switch (op.Kind)
         {
@@ -654,7 +662,7 @@ public static class NifService
                 if (err is not null) return (err, null, null, null, null, false);
                 string before = $"0x{av!.Flags_ui:X}";
                 av.Flags_ui = flags;
-                return (null, op.Target, before, $"0x{flags:X}", BlockIndexOf(nif, av), false);
+                return (null, op.Target, before, $"0x{flags:X}", av, false);
             }
             case NifSetOpKind.SetScale:
             {
@@ -663,7 +671,7 @@ public static class NifService
                 if (err is not null) return (err, null, null, null, null, false);
                 string before = av!.Scale.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 av.Scale = scale;
-                return (null, op.Target, before, scale.ToString(System.Globalization.CultureInfo.InvariantCulture), BlockIndexOf(nif, av), false);
+                return (null, op.Target, before, scale.ToString(System.Globalization.CultureInfo.InvariantCulture), av, false);
             }
             case NifSetOpKind.SetAlpha:
             {
@@ -675,7 +683,7 @@ public static class NifService
                 string before = $"0x{ap.Flags.Value:X4}/thr{ap.Threshold}";
                 if (op.AlphaFlags is { } fw) { var fl = ap.Flags; fl.Value = fw; ap.Flags = fl; }   // AlphaFlags is a STRUCT — reassign
                 if (op.AlphaThreshold is { } th) ap.Threshold = th;
-                return (null, op.Target, before, $"0x{ap.Flags.Value:X4}/thr{ap.Threshold}", BlockIndexOf(nif, ap), false);
+                return (null, op.Target, before, $"0x{ap.Flags.Value:X4}/thr{ap.Threshold}", ap, false);
             }
             case NifSetOpKind.SetPartition:
             {
@@ -692,7 +700,7 @@ public static class NifService
                 else return ($"shape '{op.Target}' has {list.Count} partitions — pass partition_index to say which. Nothing was written.", null, null, null, null, false);
                 string before = $"[{idx}]={(int)list[idx].BodyPart}";
                 var p = list[idx]; p.BodyPart = (NiflySharp.Enums.BSDismemberBodyPartType)bp; list[idx] = p; dis.Partitions = list;   // list of STRUCT — reassign
-                return (null, op.Target, before, $"[{idx}]={bp}", BlockIndexOf(nif, dis), false);
+                return (null, op.Target, before, $"[{idx}]={bp}", dis, false);
             }
             case NifSetOpKind.SetPath:
             {
@@ -710,7 +718,7 @@ public static class NifService
                 var tex = ts.Textures[slot] ?? new NiflySharp.NiString4();
                 string before = tex.Content ?? "";
                 tex.Content = op.Path; ts.Textures[slot] = tex;
-                return (null, op.Target, $"tex[{slot}]={before}", $"tex[{slot}]={op.Path}", BlockIndexOf(nif, ts), false);
+                return (null, op.Target, $"tex[{slot}]={before}", $"tex[{slot}]={op.Path}", ts, false);
             }
             case NifSetOpKind.SetShaderValue:
             {
@@ -773,7 +781,7 @@ public static class NifService
                 }
                 pi.SetValue(shader, boxed);
                 return (null, op.Target, $"{WireName(prop)}={before}",
-                        $"{WireName(prop)}={DescribeShaderValue(pi.GetValue(shader), components)}", BlockIndexOf(nif, shader), false);
+                        $"{WireName(prop)}={DescribeShaderValue(pi.GetValue(shader), components)}", shader, false);
             }
             default:
                 return ($"unsupported op '{op.Kind}'.", null, null, null, null, false);
@@ -803,7 +811,7 @@ public static class NifService
     ///
     /// <para>Touches the header only. The string table is authored, exactly as a rename's is; a block carries the
     /// table INDEX, which a same-order content swap leaves alone.</para></summary>
-    static (string? Error, string? Target, string? Before, string? After, int? TouchedBlock, bool TouchedHeader)
+    static (string? Error, string? Target, string? Before, string? After, object? TouchedBlock, bool TouchedHeader)
         SetHeaderString(NifFile nif, NifSetOp op)
     {
         var target = op.Target;
@@ -879,7 +887,8 @@ public static class NifService
     static string ShapeNames(NifFile nif) => string.Join(", ", nif.GetShapes().Select(s => "'" + (s.Name?.String ?? "") + "'"));
 
     /// <summary>The block id of a block within the file (parallel to Header.GetBlockSize/TypeName), by reference identity —
-    /// the index the block-content diff will compare. -1 (never expected) if the block isn't in the list.</summary>
+    /// the index the block-content diff will compare. Call it AFTER the save, which re-sorts the list into the order the
+    /// saved file carries. -1 (never expected) if the block isn't in the list.</summary>
     static int BlockIndexOf(NifFile nif, object block)
     {
         var blocks = nif.Blocks;
