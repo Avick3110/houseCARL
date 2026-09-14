@@ -1024,6 +1024,11 @@ public sealed class LoadOrderResolver : IDisposable
         /// pinned to THIS view's build — so a render that stamps this view's epoch fills its trees from the same
         /// build the stamp names.</summary>
         public ConflictTree? ResolveTree(OverlaySession session, FormKey fk) => _r.ResolveTree(session, fk, _s);
+
+        /// <summary>The conflict tree one body at a time, holding none of them
+        /// (<see cref="LoadOrderResolver.StreamTree"/>), pinned to THIS view's build.</summary>
+        public IEnumerable<ConflictNode>? StreamTree(OverlaySession session, FormKey fk, bool winnerFirst = false)
+            => _r.StreamTree(session, fk, _s, winnerFirst);
     }
 
     // ---- Queries -------------------------------------------------------
@@ -1067,6 +1072,34 @@ public sealed class LoadOrderResolver : IDisposable
             nodes[n] = new ConflictNode(_names[oi], rec);
         }
         return new ConflictTree(fk, recType ?? "?", nodes);
+    }
+
+    /// <summary>The same walk as <see cref="ResolveTree(OverlaySession, FormKey, IndexSnapshot)"/>, yielding one
+    /// provider's body at a time and holding none of them. A record getter is a slice of its whole GRUP's byte array
+    /// and pins it, so a tree over a record hundreds of plugins touch — a worldspace — pins hundreds of those arrays
+    /// at once when every node is retained; a caller that reads each body and moves on takes this instead and pays
+    /// one held body. null when the FormKey is not in the order, the same as the eager walk; an empty sequence never
+    /// happens (an indexed key has at least one provider). <paramref name="winnerFirst"/> walks the same providers in
+    /// reverse — winner first, lowest priority last — for a caller whose reference pole is the winner and which
+    /// therefore has to read it before it can release anything.</summary>
+    internal IEnumerable<ConflictNode>? StreamTree(OverlaySession session, FormKey fk, IndexSnapshot s, bool winnerFirst = false)
+    {
+        if (!s.Index.TryGetValue(fk, out var e)) return null;
+        return Walk(e.count == 1 ? new[] { e.winner } : s.Overriders[fk]);
+
+        IEnumerable<ConflictNode> Walk(int[] overlayIdxs)
+        {
+            // The FIRST body is fetched blind; every one after it seeks by the type that body turned out to be, the
+            // same as the eager walk.
+            Type? getterType = null;
+            for (int n = 0; n < overlayIdxs.Length; n++)
+            {
+                int oi = overlayIdxs[winnerFirst ? overlayIdxs.Length - 1 - n : n];
+                var rec = FetchBody(session, oi, fk, getterType);
+                getterType ??= WriteEngine.SeekTypeFor(rec);
+                yield return new ConflictNode(_names[oi], rec);
+            }
+        }
     }
 
     /// <summary>Every record in one plugin with its whole-order conflict status (no bodies fetched). Drives "what is
