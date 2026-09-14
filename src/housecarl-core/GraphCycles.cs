@@ -33,10 +33,19 @@ public static class GraphCycles
     /// outgoing edges, and so closes nothing. Edges into those are skipped rather than treated as dead ends.</para>
     /// <para>One cycle per (from, to) pair: a record linking the same target twice is one cycle stated twice, not
     /// two facts.</para></summary>
-    public static List<IReadOnlyList<FormKey>> Find(IReadOnlyDictionary<FormKey, List<FormKey>> edges)
+    /// <param name="limit">Stop collecting after this many loops and say so through <paramref name="capped"/>. A
+    /// strongly connected region of n nodes carries up to n-squared back edges, each holding a path of up to n keys,
+    /// so an uncapped collection is quadratic in the region and not linear in the walk's node cap — an OOM on a read.
+    /// The cap costs the claim nothing: the count was already a lower bound.</param>
+    /// <param name="capped">True when <paramref name="limit"/> stopped the search, so the caller can say so rather
+    /// than pass a stopped search off as a finished one.</param>
+    public static List<IReadOnlyList<FormKey>> Find(IReadOnlyDictionary<FormKey, List<FormKey>> edges,
+                                                    int limit, out bool capped)
     {
         const int Unvisited = 0, OnStack = 1, Finished = 2;
+        capped = false;
         var cycles = new List<IReadOnlyList<FormKey>>();
+        if (limit <= 0) { capped = edges.Count > 0; return cycles; }
         var state = new Dictionary<FormKey, int>();
         var path = new List<FormKey>();
         var reported = new HashSet<(FormKey From, FormKey To)>();
@@ -71,6 +80,9 @@ public static class GraphCycles
                     {
                         var at = path.IndexOf(next);
                         cycles.Add(path.Skip(at).ToList());
+                        // The whole search stops here, not just the collecting: walking on would pay the quadratic
+                        // cost to find loops nothing will keep.
+                        if (cycles.Count >= limit) { capped = true; return cycles; }
                     }
                     continue;
                 }

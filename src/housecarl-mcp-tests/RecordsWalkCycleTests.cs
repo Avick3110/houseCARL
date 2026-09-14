@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
@@ -29,8 +30,9 @@ public sealed class WalkCycleWorld : IDisposable
     /// included, so the walk finds cycles by the hundred off one seed.</summary>
     public string DenseSeed { get; }
 
-    /// <summary>Hubs in the dense fan.</summary>
-    public const int Hubs = 12;
+    /// <summary>Hubs in the dense fan. A DFS over n mutually-linking records reports n(n+1)/2 back edges, so this
+    /// is set past what it takes to trip the per-seed cycle-search cap.</summary>
+    public const int Hubs = 22;
 
     readonly string _priorCorpusPath;
 
@@ -197,6 +199,33 @@ public sealed class RecordsWalkCycleTests
         Assert.DoesNotContain("rendered 0 of 1 seeds", response);
     }
 
+    /// <summary>The json lane owns the same unbounded list and had no guard: it wrote every cycle whole, so one
+    /// oversized row returned past max_chars with truncated=false — no artifact written, and nothing saying
+    /// anything had been left out.</summary>
+    [Fact]
+    public void AJsonChainRowHoldsItsCyclesToMaxCharsAndSaysTheResponseWasCut()
+    {
+        var response = RecordsTools.Records(Svc, formids: new[] { _w.DenseSeed }, walk: Deep, project: Chain,
+                                            format: "json", max_chars: 4000);
+
+        using var doc = JsonDocument.Parse(response);
+        Assert.True(doc.RootElement.GetProperty("truncated").GetBoolean());
+        var cycles = doc.RootElement.GetProperty("rows")[0].GetProperty("cycles");
+        Assert.Contains(cycles.EnumerateArray(), e => e.GetString()!.Contains("more cycle(s) held back"));
+    }
+
+    /// <summary>The search itself is capped, and a seed that hit the cap says so rather than passing a stopped
+    /// search off as a finished one — the count is a floor, and this is when the reader must know it.</summary>
+    [Fact]
+    public void ASeedWhoseCycleSearchHitItsCapSaysSo()
+    {
+        var response = RecordsTools.Records(Svc, formids: new[] { _w.DenseSeed }, walk: Deep, project: Chain,
+                                            counts_only: true);
+
+        Assert.Contains($"cycles={LoadOrderService.WalkCycleCap}", response);
+        Assert.Contains($"{LoadOrderService.WalkCycleCap}-cycle search cap", response);
+    }
+
     /// <summary>counts_only lists no seed, so it must not tell the reader to look under one.</summary>
     [Fact]
     public void ACountsOnlyChainDoesNotPointAtSeedsItDoesNotList()
@@ -206,6 +235,20 @@ public sealed class RecordsWalkCycleTests
 
         Assert.Contains("cycles=2", response);
         Assert.DoesNotContain("listed under its seed", response);
+    }
+
+    /// <summary>"None means none" holds only over a walk that finished. A seed cut at its depth cap reports
+    /// cycles=0 for a graph it never read to the end, and zero is exactly the answer that reads as proof — so the
+    /// cut is stated beside the count, on counts_only too, where no seed row carries the cap note.</summary>
+    [Fact]
+    public void ACutWalkDoesNotLetItsZeroCycleCountReadAsProofOfNone()
+    {
+        var response = RecordsTools.Records(Svc, formids: new[] { _w.DenseSeed },
+                                            walk: new RecordsTools.RecordsWalk { depth = 1 },
+                                            project: Chain, counts_only: true);
+
+        Assert.Contains("cycles=0", response);
+        Assert.Contains("not proof of none", response);
     }
 
     /// <summary>Two paths to one record is a re-convergence, not a loop: an acyclic walk still reports none.</summary>

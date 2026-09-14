@@ -19,8 +19,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `cycles: 0`. The walk now records the edges it crossed and finds the cycles from them once it is done, which is
   also what tells a real loop apart from two paths meeting on one record. Each one is listed under its seed as the
   loop itself (`A -> B -> A`), and the response carries a `cycles` count beside `seeds` and `reached`. What a cycle
-  means, and the two bounds on the count — which nodes it is found over, and that it counts closing links rather
-  than distinct loops, so none reported means none — are in the `project.form` description.
+  means, and every bound on the count — which nodes it is found over, that it counts closing links rather than
+  distinct loops, and that the search stops at 200 loops per seed — are in the `project.form` description. A count of
+  zero means acyclic only over a walk that finished: a response whose walk was cut at `walk.depth` or
+  `walk.max_nodes` says so beside the count, including on `counts_only`, because zero is the answer that reads as
+  proof. Both renders hold the cycle list to `max_chars` and say how many they held back.
 
 - **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
   byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the

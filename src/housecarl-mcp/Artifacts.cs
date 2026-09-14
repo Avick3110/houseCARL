@@ -335,7 +335,7 @@ internal static class Artifacts
     {
         using var writer = new ResultArtifact.Writer();
         foreach (var row in rows)
-            writer.WriteRow((w, ms) => JsonWire.WriteChainRow(w, row, ms, int.MaxValue),
+            writer.WriteRow((w, ms) => { JsonWire.WriteChainRow(w, row, ms, int.MaxValue); },
                             row.Error is null ? row.Type : null);
         var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
                                           new[] { "formid", "type", "editorid", "nodes", "cycles?", "truncation?", "template_inheritance?" },

@@ -3908,7 +3908,14 @@ public sealed partial class LoadOrderService : IDisposable
     public sealed record WalkSeedResult(string Seed, string? Type, string? EditorId,
                                         IReadOnlyList<WalkNodeRow> Nodes, IReadOnlyList<string> Cycles,
                                         string? TruncationNote, IReadOnlyList<NpcTemplateCategory>? TemplateReport,
-                                        string? Error);
+                                        string? Error, bool CyclesCapped = false);
+
+    /// <summary>How many loops one seed's cycle search collects. A strongly connected region of n entered nodes
+    /// carries up to n-squared back edges, each holding a path of up to n keys, so an uncapped search is quadratic
+    /// in the region rather than linear in walk.max_nodes — an OOM on a read. The render shows far fewer than this,
+    /// and the count is documented as a lower bound either way, so the cap costs the claim nothing; it is stated
+    /// wherever it bites.</summary>
+    public const int WalkCycleCap = 200;
 
     /// <summary>One seed's walk in progress: the rows it has proved and the frontier it has still to enter. The walk
     /// advances every seed one hop at a time, so a hop's bodies can be gathered together; this holds what used to be
@@ -3929,6 +3936,12 @@ public sealed partial class LoadOrderService : IDisposable
         public Dictionary<FormKey, List<FormKey>> Edges = new();
         /// <summary>This seed's cycles, found once at <see cref="Settle"/>.</summary>
         public IReadOnlyList<string>? Cycles;
+        /// <summary>Whether <see cref="WalkCycleCap"/> stopped the search, so the render says the count is not all of them.</summary>
+        public bool CyclesCapped;
+        /// <summary>Whether this walk will be READ for its cycles. A reading form consumes the reached set and
+        /// never looks at them, so it records no edges and settles none — the whole cost belongs to the form that
+        /// renders it.</summary>
+        public bool WantCycles;
         public string? Truncation;
         public HashSet<FormKey> Visited = new();
         public Queue<(FormKey Key, int Depth, string PulledBy)> Frontier = new();
@@ -3936,7 +3949,7 @@ public sealed partial class LoadOrderService : IDisposable
         /// <summary>Record one walked edge. Every link off an entered node is recorded, cycle or not.</summary>
         public void Edge(FormKey from, FormKey to)
         {
-            if (to.IsNull) return;
+            if (!WantCycles || to.IsNull) return;
             if (!Edges.TryGetValue(from, out var outgoing)) Edges[from] = outgoing = new List<FormKey>();
             outgoing.Add(to);
         }
@@ -3947,7 +3960,7 @@ public sealed partial class LoadOrderService : IDisposable
         /// this seed's own turn enqueues into it — which is all the labels need.</summary>
         public void Settle()
         {
-            Cycles ??= CyclesFound();
+            Cycles ??= WantCycles ? CyclesFound() : Array.Empty<string>();
             Edges = new();
         }
 
@@ -3957,7 +3970,8 @@ public sealed partial class LoadOrderService : IDisposable
         /// between siblings. One per back edge: see <see cref="GraphCycles.Find"/> for what that count claims.</summary>
         IReadOnlyList<string> CyclesFound()
         {
-            var found = GraphCycles.Find(Edges);
+            var found = GraphCycles.Find(Edges, WalkCycleCap, out var capped);
+            CyclesCapped = capped;
             if (found.Count == 0) return Array.Empty<string>();
             var editorIds = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
             {
@@ -3987,7 +4001,8 @@ public sealed partial class LoadOrderService : IDisposable
     public IReadOnlyList<WalkSeedResult> WalkForwardBatch(
         IReadOnlyList<string> seeds, IReadOnlyList<string>? seedPaths, string? follow,
         int depth, int maxNodes, IReadOnlyList<(string Match, bool Refuse)> exclusions,
-        ArtifactDemand? demand, out string? refusal, out OrderStamp? epoch, CancellationToken ct = default)
+        ArtifactDemand? demand, out string? refusal, out OrderStamp? epoch, CancellationToken ct = default,
+        bool wantCycles = false)
     {
         refusal = null;
         var resolver = Resolver;
@@ -4180,6 +4195,7 @@ public sealed partial class LoadOrderService : IDisposable
                 Type = seedType,
                 Label = $"{seedType} {FormIdToken.Of(seedFk)} ({seedBody.EditorID ?? "<no editorid>"})",
                 Visited = new HashSet<FormKey> { seedFk },
+                WantCycles = wantCycles,
             };
             // The seed's facts go in the shared memo too, for the seed that sits on another seed's chain.
             if (st.SeedTemplateFact is { } sf) templateFacts.TryAdd(seedFk, sf);
@@ -4344,7 +4360,7 @@ public sealed partial class LoadOrderService : IDisposable
             if (st.SeedTemplateFact is { } seedFact) templateReport = NpcTemplateReport(TemplateFactOf, seedFact, st.Key);
             // A seed that never ran a pass — no links off it at all — has not settled yet; one that did settled there.
             st.Settle();
-            results.Add(new WalkSeedResult(FormIdToken.Of(st.Key), st.Type, st.EditorId, st.Nodes, st.Cycles!, st.Truncation, templateReport, null));
+            results.Add(new WalkSeedResult(FormIdToken.Of(st.Key), st.Type, st.EditorId, st.Nodes, st.Cycles!, st.Truncation, templateReport, null, st.CyclesCapped));
         }
         WalkBodiesHeldAtReturn = bodyCache.Count;
         return results;
