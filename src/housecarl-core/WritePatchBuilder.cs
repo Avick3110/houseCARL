@@ -894,7 +894,8 @@ public static class WritePatchBuilder
     /// whole plugin back over itself — the user's original file IS the output. Three deliberate divergences from
     /// <see cref="Apply"/>, each load-bearing:
     /// <list type="bullet">
-    /// <item>CONTENT SOURCE: the body is the TARGET's own record (<c>view.GetRecord(session, target, fk)</c>), NEVER
+    /// <item>CONTENT SOURCE: the body is the TARGET's own record (read out of the target's own plugin through
+    /// <see cref="BodyGather"/>, which walks it once for the whole call), NEVER
     /// the load-order winner — and the call REFUSES loud if the target doesn't itself define/override the FormKey
     /// ("in-place edits only what the file OWNS"). So pre-flight validates the body actually mutated, and another
     /// mod's content can never be injected into the user's file.</item>
@@ -1785,10 +1786,20 @@ public static class WritePatchBuilder
         var absenceMemo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         // One walk per SOURCE plugin for the whole call, not one per record (#723): the per-record fetch enumerated
         // from_plugin from the top each time, so 2,484 records out of one plugin cost 2,484 whole-plugin walks.
+        // Declared under the SAME guards the loop below refuses on before it fetches — a repeated target, a source
+        // that is the file being written, an origin master that is not active — so a refusal that used to cost
+        // nothing still costs nothing.
         var gather = new BodyGather(view, session);
+        var wantSeen = new HashSet<FormKey>();
         foreach (var s in specs)
-            if (!IsOffOrderSource(offOrder, s, view) && view.ContainsPlugin(s.FromPlugin))
-                gather.Want(s.FromPlugin, s.Target);
+        {
+            if (!wantSeen.Add(s.Target)) continue;
+            if (IsOffOrderSource(offOrder, s, view)) continue;                       // pre-fetched off the file's own overlay
+            if (string.Equals(s.FromPlugin, fileName, StringComparison.OrdinalIgnoreCase)) continue;
+            var wantOrigin = s.Target.ModKey.FileName.String;
+            if (!string.Equals(wantOrigin, fileName, StringComparison.OrdinalIgnoreCase) && !view.ContainsPlugin(wantOrigin)) continue;
+            if (view.ContainsPlugin(s.FromPlugin)) gather.Want(s.FromPlugin, s.Target);
+        }
         gather.Gather();
         string Absence(string plugin)
         {
