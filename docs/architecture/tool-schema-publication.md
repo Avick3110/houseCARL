@@ -1,15 +1,17 @@
 # Tool schema publication
 
-**Class:** LIVING. Subsystem: `src/housecarl-mcp/ToolSchemas.cs` and
-`src/housecarl-mcp/NestedSchemaConstraints.cs`, registered from `Program.cs`. Pinned by
-`PublishedSchemaShapeTests` and `PublishedNestedConstraintTests` in `src/housecarl-mcp-tests`
+**Class:** LIVING. Subsystem: `src/housecarl-mcp/ToolSchemas.cs`,
+`src/housecarl-mcp/NestedSchemaConstraints.cs` and `src/housecarl-mcp/SchemaDepthCap.cs`, registered
+from `Program.cs`. Pinned by
+`PublishedSchemaShapeTests`, `PublishedNestedConstraintTests` and `PublishedSchemaDepthTests` in `src/housecarl-mcp-tests`
 (the real published surface) and `schema-flatten-guard` (the flattening mechanism, over synthetic
 documents for the shapes the real surface cannot produce, and over the real pre-flatten surface
 for the emission grammar and the strict reader).
 
 houseCARL's MCP tools are discovered by an assembly scan, and the SDK generates each tool's
 `inputSchema` from its C# method signature. Three things that generator cannot get right on its
-own are corrected once, at registration, before anything is served. All three change only what is
+own are corrected once, at registration, before anything is served, and a fourth pass cuts the
+result to a configured nesting depth when one is set. All four change only what is
 **published**. The argument-binding shim does read a published schema, but only its top-level
 `properties` — never the nested part these passes rewrite — and the composed payloads are then
 read by `ListParams.Read<T>`, which consults no schema and is stricter than the SDK binder.
@@ -119,3 +121,36 @@ call site, not by a collection anything else can read; publishing an enum for on
 inventing a second home rather than exposing the first. `compose.sets[].verb` is a narrower case
 of the same thing: its description names five verbs while the request it builds is validated by
 the same rulebook switch an op is, which accepts all eight — so nothing backs the five.
+
+## Pass 4 — the optional depth cut (`HOUSECARL_MAX_SCHEMA_DEPTH`)
+
+`src/housecarl-mcp/SchemaDepthCap.cs`, pinned by `PublishedSchemaDepthTests`. **Unset — the default —
+it does nothing, and the published schemas are byte for byte what the three passes above leave.** The
+variable is spelled the way houseCARL's others are (`HOUSECARL_DATA_DIR`, and the installer's
+`HOUSECARL_SETUP_HOME`).
+
+Pass 2 removed the recursion but inlined the compose chain to its full depth, so `housecarl_create` and
+`housecarl_apply` publish at 24 and 21 levels. A provider that enforces a nesting cap — 10, in the
+report — then refuses the **whole server** at `tools/list`, naming no tool: the same user-facing shape
+as the `$ref` case, and the same posture applies (issue #730).
+
+Set the variable to that provider's cap and every published schema is cut there. Depth is **raw JSON
+container nesting** — the schema object is level 1, every object or array below it one more, whatever
+it holds — because that is the measure the refusing providers report and the one the issue measured
+with. A branch that cannot be spelled out that shallow is replaced by the node pass 2 already closes a
+recursion with: the node's own `type` and description, and the clause saying nesting continues below
+with the same shape and is accepted. Nothing is narrowed, and `tools/call` is untouched — the binder
+never consulted the schema — so a call nested deeper than the cut is bound and answered exactly as
+before. The schema is less descriptive below the cut, never wrong.
+
+`properties`, `patternProperties` and `$defs` are name-to-schema **dictionaries, not schemas**. The cut
+recurses into their values and never replaces the container: a terminator in place of a `properties`
+object turns it into a property named `type` and a property named `description`, and the document stops
+validating — which a strict provider reports as an `anyOf` failure rather than as a depth error.
+(`additionalProperties` *is* a schema, and is cut as one.)
+
+A value that is not a whole number of 1 or more refuses the server's start, in one sentence on stderr
+naming the variable. Ignoring it would boot a server publishing the schemas the caller set the variable
+to get away from, under a provider error naming neither houseCARL nor the variable. The cap applies to
+the server entry, not to a model, so every model behind that entry gets the cut schemas; two entries
+split them.
