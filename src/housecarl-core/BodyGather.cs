@@ -32,6 +32,12 @@ public sealed class BodyGather
     readonly Dictionary<string, HashSet<FormKey>> _declared = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<string, Dictionary<FormKey, IMajorRecordGetter>> _held = new(StringComparer.OrdinalIgnoreCase);
     readonly HashSet<string> _walked = new(StringComparer.OrdinalIgnoreCase);
+    readonly SortedSet<string> _faulted = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The plugins whose walk faulted, so every record declared for them is answered by the per-record
+    /// fetch instead — the answers are the same, the cost is the one this class exists to remove. Empty in the
+    /// normal case; non-empty means the call ran the slow path and a caller that reports cost can say so.</summary>
+    public IReadOnlyCollection<string> Faulted => _faulted;
 
     public BodyGather(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session)
     { _view = view; _session = session; }
@@ -50,12 +56,16 @@ public sealed class BodyGather
         {
             if (_walked.Contains(plugin)) continue;
             if (!_held.TryGetValue(plugin, out var sink)) _held[plugin] = sink = new Dictionary<FormKey, IMajorRecordGetter>();
-            // Any fault — a plugin that opened at index time but cannot be opened now, or a record the walk cannot
-            // parse — leaves this plugin unwalked, so Body falls back to the per-record fetch and the caller sees the
-            // same fault, from the same place in its own loop, that it saw before this existed. Swallowing it here
-            // would move a named per-record refusal to an up-front throw that names no record.
+            // A fault reading the PLUGIN — one that opened at index time but cannot be opened now, or a record the
+            // walk cannot parse — leaves this plugin unwalked, so Body falls back to the per-record fetch and the
+            // caller sees the same fault, from the same place in its own loop, that it saw before this existed.
+            // Swallowing it here would move a named per-record refusal to an up-front throw that names no record.
+            // OutOfMemoryException is NOT a fault of this plugin and is rethrown: the fallback costs one whole-plugin
+            // walk per declared record, which is the exact load this class exists to remove, and paying it because
+            // memory already ran out makes the failure worse rather than recovering from it.
             try { _view.CollectRecords(_session, plugin, keys, null, sink); }
-            catch (Exception) { continue; }
+            catch (OutOfMemoryException) { throw; }
+            catch (Exception) { _faulted.Add(plugin); continue; }
             _walked.Add(plugin);
         }
     }
