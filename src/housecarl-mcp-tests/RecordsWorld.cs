@@ -50,6 +50,13 @@ public sealed class RecordsWorld : IDisposable
     public IReadOnlyList<FormKey> Weapons { get; }
     public FormKey NoEidWeapon { get; }
     public FormKey Armor { get; }
+
+    /// <summary>An armor the master names <see cref="RenamedArmorOldEid"/> and the winning override RENAMES to
+    /// <see cref="RenamedArmorNewEid"/> — the shape a winner-lane 'editorid =' scan cannot see, and the near-miss
+    /// hint's whole subject.</summary>
+    public FormKey RenamedArmor { get; }
+    public const string RenamedArmorOldEid = "HcRecArmoOldName";
+    public const string RenamedArmorNewEid = "HcRecArmoWinnerName";
     public FormKey MgefA { get; }
     public FormKey MgefB { get; }
     public FormKey SpellA { get; }
@@ -113,6 +120,7 @@ public sealed class RecordsWorld : IDisposable
         NoEidWeapon = noEid.FormKey;
 
         var armo = master.Armors.AddNew(); armo.EditorID = "HcRecA0"; Armor = armo.FormKey;
+        var renamed = master.Armors.AddNew(); renamed.EditorID = RenamedArmorOldEid; RenamedArmor = renamed.FormKey;
         var mgefA = master.MagicEffects.AddNew(); mgefA.EditorID = "HcRecMgefFire"; MgefA = mgefA.FormKey;
         var mgefB = master.MagicEffects.AddNew(); mgefB.EditorID = "OtherMgef"; MgefB = mgefB.FormKey;
         // A condition stack: a struct list whose polymorphic arm carries the value, one row Or-flagged and one
@@ -193,6 +201,8 @@ public sealed class RecordsWorld : IDisposable
             .BasicStats = new WeaponBasicStats { Damage = 99, Weight = 1 };
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(ovMod, master.Weapons.First(w => w.FormKey == weapons[2])))
             .IsDeleted = true;
+        // The winner RENAMES the record: the master's EditorID is real and only a losing copy carries it.
+        WriteEngine.GenericGetOrAddAsOverride(ovMod, renamed).EditorID = RenamedArmorNewEid;
 
         var oldMod = new SkyrimMod(oldKey, SkyrimRelease.SkyrimSE);
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(oldMod, master.Weapons.First(w => w.FormKey == weapons[1])))

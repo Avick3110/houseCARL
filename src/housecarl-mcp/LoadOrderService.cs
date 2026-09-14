@@ -5182,6 +5182,12 @@ public sealed partial class LoadOrderService : IDisposable
                        + string.Join("; ", unreadablePlugins.Select(u => u.Message));
             scanNote = scanNote is null ? gap : scanNote + " " + gap;
         }
+        // A legal editorid= that matched nothing on the WINNER lane: the name may be real and simply carried by a
+        // losing copy the winner renames, which a bare "0 matches" cannot say. One sentence when there is such a
+        // candidate, nothing when there is not (EditorIdNearMiss owns the rule and the budget).
+        if (total == 0 && groups is null && !hasPlugins && predicate?.ExactEditorId is { } wantedEid
+            && EditorIdNearMiss.Sentence(resolver, view, types, wantedEid, ct) is { } nearMiss)
+            scanNote = scanNote is null ? nearMiss : scanNote + " " + nearMiss;
         // group_by= aggregation is not limit-capped, so Capped is a match-line concern only.
         var groupRows = groups?.Select(kv => new GroupCount(kv.Key, kv.Value))
                               .OrderByDescending(g => g.Count).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
