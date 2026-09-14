@@ -24,6 +24,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
   zero means acyclic only over a walk that finished: a response whose walk was cut at `walk.depth` or
   `walk.max_nodes` says so beside the count, including on `counts_only`, because zero is the answer that reads as
   proof. Both renders hold the cycle list to `max_chars` and say how many they held back.
+- **`housecarl_place` and `housecarl_nif_set` no longer tell you to sort a new mod above a winner it already
+  out-ranks.** Both pick their closing instruction on the LANE now, not only on whether something else provides
+  the path. A placement into a folder houseCARL creates (the default lane) says to enable it and stops: MO2
+  registers a folder it has not seen at the highest priority, so the placed copy out-ranks the current winner
+  the moment it is ticked. A placement into an existing folder (`into=`) still says to sort it above the current
+  winner, because that folder's priority is already fixed. Both keep the note that a mod you add later can
+  out-rank this one. The same laning reaches the "enable + sort it in MO2" line the write tools print after
+  creating a patch, which now says "enable it in MO2".
 
 - **A bulk `housecarl_apply` or `housecarl_forward` no longer costs megabytes of memory per operation.** Each op
   fetched its record by enumerating that record's plugin from the top, so a call paid (records in that plugin) per
