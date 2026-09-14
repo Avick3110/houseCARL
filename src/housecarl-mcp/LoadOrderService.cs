@@ -4691,67 +4691,95 @@ public sealed partial class LoadOrderService : IDisposable
                         : null,
                     predicate.NeedsContainment ? fk => view.ParentOf(fk) : null);
                 var seenSet = new HashSet<FormKey>();
+                // The universe's bodies are gathered a CHUNK at a time, one enumeration per winner plugin in the
+                // chunk, instead of the whole-overlay seek per record GetRecord costs (#251, the shape the
+                // where_source=winner lane above already uses). An unbounded references= is thousands of keys whose
+                // winners sit in a handful of large masters, so per record that seek was the whole call. The chunk is
+                // the memory bound, and the rows are still scanned in the universe's own order, so offset= and
+                // limit= tile exactly as before.
+                const int SetGatherChunk = 10_000;
+                var setPending = new List<FormKey>(SetGatherChunk);
+                bool setStopped = false;
                 foreach (var fk in formidSet!)
                 {
                     ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record
                     if (!seenSet.Add(fk)) continue;
-                    var w = view.ResolveWinner(fk);
-                    if (w is null) continue;                                  // not in the order — a clean non-match for a scan; per-item errors belong to the formids= list lane
-                    try
+                    if (view.ResolveWinner(fk) is null) continue;             // not in the order — a clean non-match for a scan; per-item errors belong to the formids= list lane
+                    setPending.Add(fk);
+                    if (setPending.Count == SetGatherChunk && !DrainSet()) { setStopped = true; break; }
+                }
+                if (!setStopped && setPending.Count > 0) DrainSet();
+
+                // Gather one chunk's winner bodies — one enumeration per winner plugin — and scan its keys in the
+                // universe's own order. Returns false when the scan must stop.
+                bool DrainSet()
+                {
+                    var bodies = WinnerBodies.For(view, sess, setPending, null, out var faults);
+                    bool go = true;
+                    foreach (var fk in setPending)
                     {
-                        var body = view.GetRecord(setSession, w.Value.WinnerPlugin, fk);
-                        if (body is null)
+                        ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record
+                        var w = view.ResolveWinner(fk);
+                        if (w is null) continue;
+                        try
+                        {
+                            if (!bodies.TryGetValue(fk, out var body))
+                            {
+                                unscannable++;
+                                if (unscannableSamples.Count < 3)
+                                    unscannableSamples.Add(faults.TryGetValue(w.Value.WinnerPlugin, out var f)
+                                        ? $"{FormIdToken.Of(fk)} — {f.GetType().Name}: {f.Message}"
+                                        : $"{FormIdToken.Of(fk)} — winner '{w.Value.WinnerPlugin}' did not yield the record on fetch");
+                                continue;
+                            }
+                            if (conflictsOnly && (view.TouchingPlugins(fk)?.Count ?? 0) <= 1) continue;
+                            if (DeletedRecordRule.HasNoLiveBody(body)
+                                && (refSet is not null || predicate is { NeedsLiveBody: true })) continue;
+                            if (!string.IsNullOrEmpty(editoridContains)
+                                && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
+                                continue;
+                            List<FormKey>? hitTargets = null;
+                            if (refSet is not null)
+                            {
+                                if (body is not IFormLinkContainerGetter flc) continue;
+                                var hitSet = new HashSet<FormKey>();
+                                foreach (var l in flc.EnumerateFormLinks()) if (refSet.Contains(l.FormKey)) hitSet.Add(l.FormKey);
+                                if (hitSet.Count == 0) continue;
+                                if (multiTarget && groups is null) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();
+                            }
+                            if (refNone is not null && ExcludedByReference(body, refNone)) continue;
+                            if (predicate is not null && !predicate.Matches(body))
+                            {
+                                if (predicate.FatalError is not null) { go = false; break; }
+                                continue;
+                            }
+                            total++;
+                            if (groups is not null)
+                            {
+                                var gk = groupBy == "type" ? RecordNaming.StripOverlay(body.GetType().Name)
+                                       : groupBy == "defined_in" ? FormIdToken.Plugin(fk.ModKey.FileName.String)
+                                       : w.Value.WinnerPlugin;
+                                groups[gk] = groups.GetValueOrDefault(gk) + 1;
+                            }
+                            else if (total > offset && keys.Count < limit)
+                            {
+                                keys.Add(fk);
+                                sources.Add(null);                            // the winner body is what matched and displays
+                                matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);
+                                prefilled?.Add(new RecordSummary(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
+                                                                 w.Value.WinnerPlugin, w.Value.OverrideDepth, null)
+                                               .WithRuntime(view.RuntimeAddressOf(fk)));
+                            }
+                        }
+                        catch (Exception ex)
                         {
                             unscannable++;
                             if (unscannableSamples.Count < 3)
-                                unscannableSamples.Add($"{FormIdToken.Of(fk)} — winner '{w.Value.WinnerPlugin}' did not yield the record on fetch");
-                            continue;
-                        }
-                        if (conflictsOnly && (view.TouchingPlugins(fk)?.Count ?? 0) <= 1) continue;
-                        if (DeletedRecordRule.HasNoLiveBody(body)
-                            && (refSet is not null || predicate is { NeedsLiveBody: true })) continue;
-                        if (!string.IsNullOrEmpty(editoridContains)
-                            && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
-                            continue;
-                        List<FormKey>? hitTargets = null;
-                        if (refSet is not null)
-                        {
-                            if (body is not IFormLinkContainerGetter flc) continue;
-                            var hitSet = new HashSet<FormKey>();
-                            foreach (var l in flc.EnumerateFormLinks()) if (refSet.Contains(l.FormKey)) hitSet.Add(l.FormKey);
-                            if (hitSet.Count == 0) continue;
-                            if (multiTarget && groups is null) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();
-                        }
-                        if (refNone is not null && ExcludedByReference(body, refNone)) continue;
-                        if (predicate is not null && !predicate.Matches(body))
-                        {
-                            if (predicate.FatalError is not null) break;
-                            continue;
-                        }
-                        total++;
-                        if (groups is not null)
-                        {
-                            var gk = groupBy == "type" ? RecordNaming.StripOverlay(body.GetType().Name)
-                                   : groupBy == "defined_in" ? FormIdToken.Plugin(fk.ModKey.FileName.String)
-                                   : w.Value.WinnerPlugin;
-                            groups[gk] = groups.GetValueOrDefault(gk) + 1;
-                        }
-                        else if (total > offset && keys.Count < limit)
-                        {
-                            keys.Add(fk);
-                            sources.Add(null);                                // the winner body is what matched and displays
-                            matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);
-                            prefilled?.Add(new RecordSummary(fk, RecordNaming.StripOverlay(body.GetType().Name), body.EditorID,
-                                                             w.Value.WinnerPlugin, w.Value.OverrideDepth, null)
-                                           .WithRuntime(view.RuntimeAddressOf(fk)));
+                                unscannableSamples.Add($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}");
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        unscannable++;
-                        if (unscannableSamples.Count < 3)
-                            unscannableSamples.Add($"{FormIdToken.Of(fk)} — {ex.GetType().Name}: {ex.Message}");
-                    }
+                    setPending.Clear();
+                    return go;
                 }
             }
             finally { setSession?.Dispose(); }
