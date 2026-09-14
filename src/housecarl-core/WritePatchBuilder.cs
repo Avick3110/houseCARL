@@ -74,6 +74,11 @@ public static class WritePatchBuilder
         /// content, never silently substitute one for the other.</summary>
         public string? LandedOnDisk { get; init; }
 
+        /// <summary>The same leaf reading as <see cref="After"/>, re-derived from the record as it was RE-READ off the
+        /// written file — the one a response's per-edit line may print. Null on exactly the cases
+        /// <see cref="LandedOnDisk"/> is null for, and a renderer must then say the value was not checked rather than
+        /// print the in-memory reading under a file's authority (#683).</summary>
+        public string? AfterOnDisk { get; init; }
 
         /// <summary>A LATER op in the same call wrote into this op's leaf, so the written file cannot answer for this
         /// one: <see cref="After"/>/<see cref="Landed"/> were read the instant it applied, and the file holds the
@@ -83,7 +88,7 @@ public static class WritePatchBuilder
         public bool SupersededInCall { get; init; }
 
         /// <summary>The file-verify actually examined this op. False means it was never asked: a lane that runs no
-        /// verify (patch, dry run), or an op APPENDED after the resolved edits (the SNAM topic-marker sync), which has
+        /// verify (a dry run, which writes nothing), or an op APPENDED after the resolved edits (the SNAM topic-marker sync), which has
         /// no request to re-read. Without it a renderer has to infer the state from the lane and gets it wrong in both
         /// directions — an in-place dry run claiming a file was re-opened and could not answer, and a synced marker
         /// reported as unanswered rather than unchecked.</summary>
@@ -667,26 +672,41 @@ public static class WritePatchBuilder
         catch (Exception ex)
             { return PatchOutcome.Fail(SerializeFailure("writing the patch failed (serialize or commit; the existing file is untouched): ", ex, session)); }
 
-        // --- Phase 5: re-open the written patch and report its master header — and, on request, each touched
-        //     record's FULL read-back off that same re-opened file (the on-disk bytes, not the in-memory mod — the
-        //     strongest pre-enable confirmation). Dispose the overlay so the patch file isn't left mmap'd (a later
-        //     extend re-opens it; the server writes many over its lifetime). ---
+        // --- Phase 5: re-open the written patch ONCE and report its master header, each op's own leaf re-read off
+        //     that file (always), and, on request, each touched record's FULL read-back off the same open (the
+        //     on-disk bytes, not the in-memory mod — the strongest pre-enable confirmation). Dispose the overlay so
+        //     the patch file isn't left mmap'd (a later extend re-opens it; the server writes many over its
+        //     lifetime). ---
         IReadOnlyList<string> masters = Array.Empty<string>();
         IReadOnlyList<FullReadback>? readBack = null;
+        IReadOnlyList<OpResult> reported = ops;
         long bytes = 0;
         ISkyrimModGetter? back = null;
         try
         {
-            back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE);
+            // The strings-aware factory, the same one the in-place lane uses: the per-op verify below COMPARES what it
+            // reads, and a localized plugin opened bare reads every TranslatedString empty.
+            back = LoadOrderResolver.OpenOverlay(outPath, resolver.DataDir);
             masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
             bytes = new FileInfo(outPath).Length;
             if (fullReadback) readBack = ReadBackInFull(back, resolved.Select(r => r.edit.Target));
+            // The per-op file reading every response's per-edit line prints. Unconditional, like the in-place lane's:
+            // the line is rendered on every patch response, so it is exactly the half that must not be a memory
+            // reading wearing a file's authority (#683). Its own try — the file is written and re-opened by here, so
+            // a fault in the compare pass is not "could not be re-opened" and leaves the ops unverified, which the
+            // render states per op instead of turning a completed write into a failure.
+            try { reported = VerifyLandedAgainstFile(back, resolved.Select(r => (r.edit.Target, r.req)).ToList(), ops); }
+            catch
+            {
+                int asked = resolved.Count;
+                reported = ops.Select((o, k) => k < asked ? o with { VerifyAttempted = true } : o).ToList();
+            }
         }
         catch (Exception ex)
             { return PatchOutcome.Fail($"patch written but could not be re-opened to confirm masters: {ex.Message}"); }
         finally { (back as IDisposable)?.Dispose(); }
 
-        return new PatchOutcome(true, null, outPath, extend, masters, ops, bytes)
+        return new PatchOutcome(true, null, outPath, extend, masters, reported, bytes)
             { ReadBack = readBack, Note = JoinNotes(linkNote, mastersBefore is null ? null : MasterGrowNote(fileName, mastersBefore, masters)) };
     }
 
@@ -3854,7 +3874,7 @@ public static class WritePatchBuilder
             // NOT landed — whose remedy, re-issuing the op, is the duplicate-Add trap. The file has ONE final state,
             // so only the LAST op touching a leaf is answerable by it.
             if (LaterOpTouchesSameLeaf(perOp, i)) { verified.Add(op with { SupersededInCall = true, VerifyAttempted = true }); continue; }
-            var (_, landedDisk, diskReadable) = DescribeApplied(rec, perOp[i].Req);
+            var (afterDisk, landedDisk, diskReadable) = DescribeApplied(rec, perOp[i].Req);
             // ONE comparison, on the leaf. Deliberately NOT a second pass over `Landed` (the touched ELEMENT) to catch
             // a struct that lands but serializes with fewer fields than supplied: such a pass is inert, because
             // `Landed` differs from `After` only for a container leaf and for a container both presences carry counts,
@@ -3867,6 +3887,9 @@ public static class WritePatchBuilder
                 // non-null — so presenting it would stamp the op "verified" and print a read failure as the file's
                 // content. Null routes it to the state that already exists for this: attempted, no answer.
                 LandedOnDisk = diskReadable ? landedDisk : null,
+                // The leaf reading travels with it, for the same reason and on the same condition: the per-edit line
+                // prints this one, and a null there is what makes it say not-checked instead of the memory value.
+                AfterOnDisk = diskReadable ? afterDisk : null,
                 VerifyAttempted = true,
             });
         }
