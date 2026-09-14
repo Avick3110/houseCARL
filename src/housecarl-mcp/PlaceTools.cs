@@ -110,10 +110,15 @@ public static class PlaceTools
         for (int i = 0; i < assets.Length; i++)
         {
             var a = assets[i];
-            // A raw path into the mods tree goes around the VFS on either axis — the destination it writes at, or the
-            // copy it reads. Refused with the address form rather than honoured, on the member that carries it.
-            if (RawModsPathProblem($"assets[{i}]: ", "path", a.Path, modsRoot) is { } destErr) { problems.Add(destErr); continue; }
-            if (RawModsPathProblem($"assets[{i}]: ", "source", a.Source, modsRoot) is { } srcErr) { problems.Add(srcErr); continue; }
+            // A raw mods path as the DESTINATION is a malformed member like a bad FormID or a bad kind, so it refuses
+            // the whole call with them. The same path as a SOURCE is a source-axis problem and stays per-member,
+            // where the placer reports it beside the other source failures.
+            if (ModsPathAddress.Split(a.Path, modsRoot) is { } dest)
+            {
+                problems.Add(ModsPathAddress.Refusal($"assets[{i}]: ", a.Path!.Trim(),
+                    ModsPathAddress.Address(dest.ModFolder, dest.RelPath, "path", "source_provider")));
+                continue;
+            }
             var reqs = MapTarget(door.Parse, a, source_provider, kind, $"assets[{i}]: ", out var err, out var withheld);
             if (err is not null) problems.Add(err);
             else
@@ -129,19 +134,6 @@ public static class PlaceTools
         int cap = max_chars > 0 ? max_chars : 80_000;
         return json ? JsonWire.RenderPlaceOutcome(outcome, cap, poleWithheld)
                     : PlaceWire.Render(outcome, cap, poleWithheld);
-    }
-
-    /// <summary>The refusal for one member's raw mods path, or null when the value is not one. A '&lt;archive.bsa&gt;|&lt;entry&gt;'
-    /// source is split at the pipe first, so an archive inside a mod folder is judged on the archive's own path.</summary>
-    static string? RawModsPathProblem(string where, string param, string? value, string? modsRoot)
-    {
-        var v = NullIfBlank(value)?.Trim('"');
-        if (v is null) return null;
-        int pipe = v.IndexOf('|');
-        var probe = pipe >= 0 ? v.Substring(0, pipe) : v;
-        return ModsPathAddress.Split(probe, modsRoot) is not { } hit
-            ? null
-            : ModsPathAddress.Refusal(where, v, hit.ModFolder, hit.RelPath, param, "source_provider");
     }
 
     /// <summary>Map one destination to its placement request(s): path → one request; formid+kind → one request (the
@@ -198,7 +190,9 @@ public static class PlaceTools
             return null;
         }
         var reqs = new List<PlaceRequest>(2);
-        foreach (var (_, rel) in FaceGenPath.Both(fk)) reqs.Add(new PlaceRequest(rel, src, prov));
+        // Flagged, because a refusal about this member's source= has to hand back a form this member will accept:
+        // two slots are two files, so a Data-relative source is not one of them.
+        foreach (var (_, rel) in FaceGenPath.Both(fk)) reqs.Add(new PlaceRequest(rel, src, prov) { BothSlots = true });
         return reqs;
     }
 
