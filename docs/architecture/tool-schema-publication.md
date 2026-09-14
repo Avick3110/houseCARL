@@ -138,10 +138,10 @@ Set the variable to that provider's cap and every published schema is cut there.
 container nesting** — the schema object is level 1, every object or array below it one more, whatever
 it holds — because that is the measure the refusing providers report and the one the issue measured
 with. A branch that cannot be spelled out that shallow is replaced by the node pass 2 already closes a
-recursion with: the node's own `type` and description, and the clause saying nesting continues below
-with the same shape and is accepted. Nothing is narrowed, and `tools/call` is untouched — the binder
-never consulted the schema — so a call nested deeper than the cut is bound and answered exactly as
-before. The schema is less descriptive below the cut, never wrong.
+recursion with — the node's own `type` and description — under a clause of its own. Nothing is narrowed,
+and `tools/call` is untouched at every accepted cap: the binder consults no schema, and the floor below
+keeps the two members the shim does read, so a call nested deeper than the cut is bound and answered
+exactly as before. The schema is less descriptive below the cut, never wrong.
 
 `properties`, `patternProperties` and `$defs` are name-to-schema **dictionaries, not schemas**. The cut
 recurses into their values and never replaces the container: a terminator in place of a `properties`
@@ -149,18 +149,23 @@ object turns it into a property named `type` and a property named `description`,
 validating — which a strict provider reports as an `anyOf` failure rather than as a depth error.
 (`additionalProperties` *is* a schema, and is cut as one.)
 
-The terminator carries one sentence the recursion bound's does not: where it was cut, and at what depth.
-The bound's own wording — "the same shape shown above" — is true where a cycle repeated a shape and
-false at a cut, where the truncated shape is in no part of the document. What the node CLAIMS is
-identical either way: nesting continues below and is accepted.
+The two terminators are the same NODE under two clauses, one constant each. The bound's says the shape is
+"shown above", which is there because a cycle repeated it; below a cut the shape is in no part of the
+document, so the cut's says nesting continues and is accepted but is **not spelled out in this
+document**, naming the depth and the variable that cut it. A reader sent looking for a shape that is not
+there invents one. What the node claims is identical either way.
 
-**The floor is 3, and a value below it is refused.** A schema's root is level 1, its `properties`
-dictionary level 2, each parameter level 3 — so a cap of 1 or 2 closes the ROOT, and a root without
-`properties` is not merely less descriptive: `ToolCallShim` reads that member, so argument coercion, the
-named missing-parameter refusal and the undeclared-key refusal would all quietly stop happening. A cut
-may say less about a nested shape; it may not change what a call gets back.
+**The floor is 4, and a value below it is refused.** `ToolCallShim` reads two members of a published
+schema and nothing else: the top-level `properties`, and each parameter's `type`. A schema's root is
+level 1, its `properties` dictionary level 2, a parameter level 3, and that parameter's `type` list
+(`["array","null"]`, the spelling most of them carry) level 4. So a cap of 1 or 2 closes the ROOT and
+takes `properties` with it, and a cap of 3 closes each PARAMETER with a node that has no room for the
+type list — either way argument coercion, the named missing-parameter refusal, the typed-mismatch
+refusal, the undeclared-key refusal and the in-place filename refusal quietly stop happening. At 4 every
+parameter keeps its type and only the shapes below a parameter are cut. A cut may say less about a
+nested shape; it may not change what a call gets back.
 
-A value that is not a whole number of 3 or more refuses the server's start, in one sentence on stderr
+A value that is not a whole number of 4 or more refuses the server's start, in one sentence on stderr
 naming the variable. Ignoring it would boot a server publishing the schemas the caller set the variable
 to get away from, under a provider error naming neither houseCARL nor the variable. Two more refusals
 have the same shape and the same reason: a member at a cut point that the pass has no rule for (these

@@ -34,13 +34,15 @@ internal static class SchemaDepthCap
     /// HOUSECARL_SETUP_HOME).</summary>
     internal const string Variable = "HOUSECARL_MAX_SCHEMA_DEPTH";
 
-    /// <summary>The shallowest cap that still publishes a tool's own parameters. A schema's root is level 1, its
-    /// <c>properties</c> dictionary level 2 and each parameter level 3, so below 3 the root itself is the node
-    /// that gets closed — and <see cref="ToolCallShim"/> READS a schema's top-level <c>properties</c>, so a root
-    /// without one silently drops argument coercion, the named missing-parameter refusal and the undeclared-key
-    /// refusal. A cut is allowed to say less about a nested shape; it is not allowed to change what a call
-    /// gets back.</summary>
-    internal const int Minimum = 3;
+    /// <summary>The shallowest cap that leaves the call path exactly as it was. <see cref="ToolCallShim"/> reads
+    /// two members of a published schema and nothing else: the top-level <c>properties</c>, and each parameter's
+    /// <c>type</c>. A schema's root is level 1, its <c>properties</c> dictionary level 2, a parameter level 3 and
+    /// that parameter's <c>type</c> list (<c>["array","null"]</c>, the spelling most of them carry) level 4 — so
+    /// at 3 a parameter is closed by a node with no room for the list, and dropping it takes argument coercion,
+    /// the typed-mismatch refusal and the in-place filename refusal off the server in silence. At 4 every
+    /// parameter keeps its <c>type</c>, and only the shapes BELOW a parameter are cut. A cut may say less about a
+    /// nested shape; it may not change what a call gets back.</summary>
+    internal const int Minimum = 4;
 
     /// <summary>Members whose value is a NAME-TO-SCHEMA DICTIONARY. Each value is a schema to cut on its own; the
     /// container is never replaced.</summary>
@@ -81,7 +83,7 @@ internal static class SchemaDepthCap
             && depth >= Minimum) return depth;
         throw new ArgumentException(
             $"{Variable} is \"{raw}\" — set it to a whole number of {Minimum} or more (the JSON nesting depth to " +
-            $"publish the tool schemas at; below {Minimum} a schema cannot carry its own parameters, which every " +
+            $"publish the tool schemas at; below {Minimum} a schema loses the parameters and parameter types every " +
             "call is checked against), or leave it unset to publish them in full.");
     }
 
@@ -181,13 +183,20 @@ internal static class SchemaDepthCap
     /// as a list needs a level of its own, which the shallowest budget does not have.</summary>
     static JsonObject Terminator(JsonObject node, int budget, Cutting cut)
     {
-        var open = ToolSchemas.Terminator(node, node);
-        open["description"] = open["description"]!.GetValue<string>() +
-            $" Nesting was cut here at depth {cut.Cap} by {Variable}: the tool accepts the full shape, and this " +
-            "parameter's description carries its members.";
+        var open = ToolSchemas.Terminator(node, node, CutContinues(cut.Cap));
         if (Depth(open) > budget) open.Remove("type");
         return open;
     }
+
+    /// <summary>What a CUT node says about the nesting below it. The recursion bound's clause sends the reader to
+    /// the shape "shown above", which is there because a cycle repeated it; below a cut the shape is in no part of
+    /// this document, and a reader sent looking for it invents one instead. The claim is the same either way:
+    /// nesting continues and is accepted.</summary>
+    internal static string CutContinues(int cap) =>
+        // No apostrophe: the serializer escapes one as ' in the published document, for no reader's benefit.
+        $"Nesting continues below this level and is accepted, but is not spelled out in this document: it was cut " +
+        $"at depth {cap} by {Variable}. The tool accepts the full shape, and the members are named in the " +
+        "description of this parameter.";
 
     /// <summary>Raw JSON container nesting: an object or array is one level plus its deepest member, a scalar is
     /// none. An empty container is still a level.</summary>

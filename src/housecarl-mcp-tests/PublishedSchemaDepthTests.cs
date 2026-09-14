@@ -139,6 +139,22 @@ public sealed class PublishedSchemaDepthTests : IClassFixture<CappedSchemaServer
         Assert.Equal(Array.Empty<string>(), faults.ToArray());
     }
 
+    /// <summary>The served surface carries no schema member the cut has no rule for. The cut's member sets are
+    /// hand-written — the coverage the design says not to carry — so this is the guard on them: a keyword a
+    /// future SDK starts emitting is named HERE, at a depth the cut happens not to reach on today's surface,
+    /// rather than reaching a user's server as a startup refusal. Read at schema positions only, so a parameter
+    /// or a <c>$defs</c> entry named after a keyword is not mistaken for one.</summary>
+    [Fact]
+    public void TheServedSurfaceCarriesNoSchemaMemberOutsideTheKnownSets()
+    {
+        var unknown = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var server in new[] { _plain, _capped, _shallowest })
+            foreach (var name in server.PublishedNames)
+                SchemaShape.CollectMemberNames(Schema(server, name), unknown);
+
+        Assert.Equal(Array.Empty<string>(), unknown.Except(SchemaShape.Known).ToArray());
+    }
+
     /// <summary>The same walk over the UNCAPPED surface, so a green result above says the cut kept the document
     /// valid rather than that the check passes anything.</summary>
     [Fact]
@@ -167,27 +183,26 @@ public sealed class PublishedSchemaDepthTests : IClassFixture<CappedSchemaServer
         Assert.True(r.BodyRan, r.Describe());
     }
 
-    /// <summary>A node the cut closed says so, and says where: the recursion bound's sentence reads "the same
-    /// shape shown above", which is true where a cycle repeated a shape and false at a cut, where the shape is
-    /// nowhere in the document. Every node the capped surface closed carries the cut's own clause; no node on the
-    /// uncapped surface does.</summary>
+    /// <summary>A node the cut closed says what is true of a CUT: nesting continues and is accepted, and is not
+    /// spelled out in this document. The recursion bound's own clause sends the reader to the shape "shown
+    /// above" — there because a cycle repeated it, and nowhere at all below a cut, where a reader sent looking
+    /// for it invents one instead. So the capped surface carries the cut's clause and never the bound's
+    /// "shown above", and the uncapped surface carries the bound's and never the cut's.</summary>
     [Fact]
-    public void EveryNodeTheCutClosedSaysItWasCutAndAtWhatDepth()
+    public void ACutNodeSaysTheShapeIsNotInThisDocumentAndTheBoundsWordingIsGone()
     {
-        const string clause = "Nesting was cut here at depth";
+        var clause = SchemaDepthCap.CutContinues(Cap);
 
-        var cut = _capped.PublishedNames.Count(n => Schema(_capped, n).GetRawText().Contains(clause, StringComparison.Ordinal));
-        Assert.True(cut > 0, "No published schema carries the cut's clause — nothing was cut.");
+        var carrying = _capped.PublishedNames
+            .Where(n => Schema(_capped, n).GetRawText().Contains(clause, StringComparison.Ordinal)).ToArray();
+        Assert.NotEmpty(carrying);
 
         foreach (var name in _capped.PublishedNames)
-        {
-            var raw = Schema(_capped, name).GetRawText();
-            if (raw.Contains(clause, StringComparison.Ordinal))
-                Assert.Contains($"{clause} {Cap} by {SchemaDepthCap.Variable}", raw, StringComparison.Ordinal);
-        }
+            Assert.DoesNotContain(ToolSchemas.RecursionContinues, Schema(_capped, name).GetRawText(),
+                                  StringComparison.Ordinal);
 
         foreach (var name in _plain.PublishedNames)
-            Assert.DoesNotContain(clause, Schema(_plain, name).GetRawText(), StringComparison.Ordinal);
+            Assert.DoesNotContain("was cut at depth", Schema(_plain, name).GetRawText(), StringComparison.Ordinal);
     }
 
     // ---- what a cut may not cost, at the shallowest cap there is --------------------------------------------
@@ -226,6 +241,42 @@ public sealed class PublishedSchemaDepthTests : IClassFixture<CappedSchemaServer
                         "Supplied: (none).", r.Text, StringComparison.Ordinal);
     }
 
+    /// <summary>At the shallowest accepted cap every parameter still publishes the <c>type</c> it published
+    /// uncut. <c>ToolCallShim.DeclaredTypes</c> reads exactly that member, so a parameter closed by a node with
+    /// no room for its <c>["array","null"]</c> list would silently take argument coercion, the typed-mismatch
+    /// refusal and the in-place filename refusal off the server. It is why the floor is
+    /// <see cref="SchemaDepthCap.Minimum"/> and not one less.</summary>
+    [Fact]
+    public void AtTheShallowestCapEveryParameterStillPublishesTheTypeItPublishedUncut()
+    {
+        var lost = new List<string>();
+        foreach (var name in _plain.PublishedNames)
+        {
+            var cut = Schema(_shallowest, name).GetProperty("properties");
+            foreach (var parameter in Schema(_plain, name).GetProperty("properties").EnumerateObject())
+            {
+                if (!parameter.Value.TryGetProperty("type", out var was)) continue;
+                if (!cut.TryGetProperty(parameter.Name, out var now) || !now.TryGetProperty("type", out var has))
+                    lost.Add($"{name}.{parameter.Name}: {was} became nothing");
+                else if (has.GetRawText() != was.GetRawText())
+                    lost.Add($"{name}.{parameter.Name}: {was} became {has}");
+            }
+        }
+
+        Assert.Equal(Array.Empty<string>(), lost.ToArray());
+    }
+
+    /// <summary>The same cap, on the wire, on the shim pass that reads a parameter's type: a bare string where an
+    /// array is declared is still wrapped and the call still runs, rather than failing in the SDK binder.</summary>
+    [Fact]
+    public void AtTheShallowestCapABareStringIsStillCoercedIntoADeclaredArray()
+    {
+        var r = _shallowest.Call(ToolNames.Forward, """{"formids":"013989:Skyrim.esm"}""");
+
+        Assert.DoesNotContain(ServerFixture.GenericError, r.Text, StringComparison.Ordinal);
+        Assert.True(r.BodyRan, r.Describe());
+    }
+
     /// <summary>Every tool declaring a required parameter, off the pre-flatten surface — the same population the
     /// uncapped shim tests take, since MemberData cannot read an injected fixture.</summary>
     public static IEnumerable<object[]> ToolsWithRequiredParameters()
@@ -246,6 +297,7 @@ public sealed class PublishedSchemaDepthTests : IClassFixture<CappedSchemaServer
     [InlineData("0")]
     [InlineData("1")]
     [InlineData("2")]
+    [InlineData("3")]
     [InlineData("-3")]
     [InlineData("10.5")]
     [InlineData("ten")]
@@ -331,6 +383,43 @@ static class SchemaShape
 
     static readonly HashSet<string> Types =
         new(StringComparer.Ordinal) { "object", "array", "string", "number", "integer", "boolean", "null" };
+
+    /// <summary>Members the cut has a rule for: the schema-bearing keywords it walks, and the annotations it can
+    /// carry or drop because they hold no schema. A served member outside this set is one the cut would meet with
+    /// no rule.</summary>
+    internal static readonly HashSet<string> Known =
+        new(StringComparer.Ordinal)
+        {
+            "properties", "patternProperties", "$defs", "definitions", "dependentSchemas",
+            "items", "additionalProperties", "not", "contains", "propertyNames",
+            "if", "then", "else", "unevaluatedItems", "unevaluatedProperties",
+            "additionalItems", "contentSchema",
+            "anyOf", "oneOf", "allOf", "prefixItems",
+            // annotations and scalar constraints: no schema below them
+            "type", "enum", "const", "default", "examples", "required", "dependentRequired",
+            "title", "description", "format", "pattern", "deprecated", "readOnly", "writeOnly",
+            "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+            "minLength", "maxLength", "minItems", "maxItems", "uniqueItems",
+            "minProperties", "maxProperties", "$schema", "$id", "$comment", "$ref",
+        };
+
+    /// <summary>Every member name at a SCHEMA position in the document — never the keys of a name-to-schema
+    /// dictionary, which are parameter and definition names rather than keywords.</summary>
+    internal static void CollectMemberNames(JsonElement node, ISet<string> into)
+    {
+        if (node.ValueKind != JsonValueKind.Object) return;
+        foreach (var member in node.EnumerateObject())
+        {
+            into.Add(member.Name);
+            if (Dictionaries.Contains(member.Name) && member.Value.ValueKind == JsonValueKind.Object)
+                foreach (var entry in member.Value.EnumerateObject()) CollectMemberNames(entry.Value, into);
+            else if (SubSchemas.Contains(member.Name)) CollectMemberNames(member.Value, into);
+            else if (SchemaLists.Contains(member.Name) && member.Value.ValueKind == JsonValueKind.Array)
+                foreach (var arm in member.Value.EnumerateArray()) CollectMemberNames(arm, into);
+            else if (member.Name == "items" && member.Value.ValueKind == JsonValueKind.Array)
+                foreach (var arm in member.Value.EnumerateArray()) CollectMemberNames(arm, into);
+        }
+    }
 
     internal static void Check(JsonElement node, string path, List<string> faults)
     {
