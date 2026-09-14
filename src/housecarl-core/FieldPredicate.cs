@@ -71,7 +71,12 @@ public sealed class FieldPredicateSet
     /// <c>formid</c> (the record's own identity, not a body leaf — deliberately outside the read walk, matching the
     /// read cleave where identity sits beside Fields) and a list operand: inline comma-separated FormIDs, or
     /// <c>@&lt;absolute path&gt;</c> naming a file of them. Restricted to <c>formid</c> at parse (a named refusal on any
-    /// other path) so a future generalization to leaf-value membership is an extension, not a behavior change.</summary>
+    /// other path) so a future generalization to leaf-value membership is an extension, not a behavior change.
+    /// <para>A leading <c>not</c> NEGATES a string operator — <c>not contains</c>, <c>not startswith</c> — rather
+    /// than being a member of this enum: one parse rule over the string ops, so a third one would inherit the
+    /// complement without a fourth enum value. It is the same word <c>not in</c> leads with, and the other ops keep
+    /// the complements they already have (<c>!=</c> for <c>=</c>, <c>missing</c> for <c>exists</c>,
+    /// <c>has_none</c> for <c>has</c>), which a <c>not</c> in front of them is refused by name and pointed at.</para></summary>
     enum Op { Eq, Ne, Gt, Ge, Lt, Le, Contains, StartsWith, Has, HasAny, HasNone, Exists, Missing, In, NotIn }
 
     /// <summary>One parsed predicate: the split path segments (fed straight to <see cref="ReadEngine.ReadLeaf"/>),
@@ -92,14 +97,18 @@ public sealed class FieldPredicateSet
     /// null for every other operand.
     /// <paramref name="RuntimeKeys"/> is the same resolution for the bare runtime-FormID entries of a membership
     /// list — the keys those entries name, tested first against a FormKey leaf; the other entries keep their own
-    /// comparison.</summary>
+    /// comparison.
+    /// <paramref name="Negate"/> is the leading <c>not</c> on a string operator: the operator's own verdict,
+    /// flipped, and only where that verdict is DEFINITE — a candidate the path reads no value on stays a
+    /// no-verdict, so a mistyped path under <c>not contains</c> cannot match everything.</summary>
     sealed record Predicate(string Text, string[] PathSegments, string PathDisplay, Op Op, string Operand, double NumericOperand,
                             HashSet<FormKey>? FormIds = null, ArtifactDemand? Artifact = null,
                             string[]? LinkPath = null, string? LinkPathDisplay = null,
                             PseudoPath Pseudo = PseudoPath.None, IReadOnlyList<string>? RawMembers = null,
                             Fold[]? PathFolds = null, Fold[]? LinkFolds = null,
                             int ParentHops = 0, int LinkParentHops = 0,
-                            FormKey? RuntimeKey = null, HashSet<FormKey>? RuntimeKeys = null);
+                            FormKey? RuntimeKey = null, HashSet<FormKey>? RuntimeKeys = null,
+                            bool Negate = false);
 
     /// <summary>The identity pseudo-paths a predicate may name instead of a body leaf. <c>editorid</c> reads the
     /// record's EditorID (always available off the early EDID subrecord — never a reflection walk, and live even on
@@ -257,6 +266,14 @@ public sealed class FieldPredicateSet
     /// <summary>Candidate bodies tested so far — the denominator the accounting reports against.</summary>
     public long Scanned => _scanned;
 
+    /// <summary>The EditorID an exact, un-negated <c>editorid = &lt;name&gt;</c> term asks for, read on the
+    /// candidate itself (not behind a <c>-&gt;</c> or a <c>*parent</c> hop), or null when the set carries no such
+    /// term. The near-miss hint keys on it: that one spelling is the term a rename in the winner makes invisible
+    /// (<see cref="EditorIdNearMiss"/>).</summary>
+    public string? ExactEditorId =>
+        _predicates.FirstOrDefault(p => p.Pseudo == PseudoPath.EditorId && p.Op == Op.Eq && !p.Negate
+                                        && p.LinkPath is null && p.ParentHops == 0)?.Operand;
+
     /// <summary>One quantified step of one predicate: the segments of the side it sits on, which one carries the
     /// fold, how it is spelled, and the predicate's own text for the message. A scan with a NAMED type scope walks
     /// these against the schema, so "that step is not a list on this type" refuses the call rather than becoming a
@@ -337,9 +354,10 @@ public sealed class FieldPredicateSet
         if (i >= text.Length)
             return (null, $"predicate '{raw}': no operator. Use one of = != > >= < <= contains startswith has has_any has_none exists missing in 'not in', e.g. \"{path} = <value>\" or \"{path} exists\".");
 
-        // 3. operator — symbolic (longest match) or the 'contains' word.
+        // 3. operator — symbolic (longest match) or the 'contains' word, optionally led by 'not'.
         Op op;
         int after;
+        bool negate = false;   // the leading 'not' on a string operator
         if (IsOpChar(text[i]))
         {
             if (StartsWith(text, i, "!=")) { op = Op.Ne; after = i + 2; }
@@ -355,26 +373,26 @@ public sealed class FieldPredicateSet
             int w = i;
             while (w < text.Length && !char.IsWhiteSpace(text[w])) w++;
             var word = text.Substring(i, w - i);
-            if (word.Equals("contains", StringComparison.OrdinalIgnoreCase)) op = Op.Contains;
-            else if (word.Equals("startswith", StringComparison.OrdinalIgnoreCase)) op = Op.StartsWith;
-            else if (word.Equals("has", StringComparison.OrdinalIgnoreCase)) op = Op.Has;
-            else if (word.Equals("has_any", StringComparison.OrdinalIgnoreCase)) op = Op.HasAny;
-            else if (word.Equals("has_none", StringComparison.OrdinalIgnoreCase)) op = Op.HasNone;
-            else if (word.Equals("exists", StringComparison.OrdinalIgnoreCase)) op = Op.Exists;
-            else if (word.Equals("missing", StringComparison.OrdinalIgnoreCase)) op = Op.Missing;
-            else if (word.Equals("in", StringComparison.OrdinalIgnoreCase)) op = Op.In;
-            else if (word.Equals("not", StringComparison.OrdinalIgnoreCase))
+            if (word.Equals("not", StringComparison.OrdinalIgnoreCase))
             {
-                // 'not' is only the first half of 'not in' — consume the second word or refuse loud.
+                // 'not' LEADS an operator: it is the membership complement's own spelling ('not in') and the
+                // negation of a string operator ('not contains', 'not startswith'). One rule over the word table,
+                // so the complement follows the string ops rather than being a value per op. Every other operator
+                // already HAS a complement, and 'not' in front of one is refused by name, pointing at it.
                 while (w < text.Length && char.IsWhiteSpace(text[w])) w++;
                 int w2 = w;
                 while (w2 < text.Length && !char.IsWhiteSpace(text[w2])) w2++;
-                if (!text.AsSpan(w, w2 - w).Equals("in", StringComparison.OrdinalIgnoreCase))
-                    return (null, $"predicate '{raw}': 'not' must be followed by 'in' (the membership complement) — write \"{path} not in <formid list>\".");
-                op = Op.NotIn; w = w2;
+                var second = text.Substring(w, w2 - w);
+                if (second.Equals("in", StringComparison.OrdinalIgnoreCase)) op = Op.NotIn;
+                else if (TryWordOp(second, out var inner) && inner is Op.Contains or Op.StartsWith) { op = inner; negate = true; }
+                else
+                    return (null, $"predicate '{raw}': 'not' negates a string operator or leads the membership complement — write \"{path} not contains <text>\", " +
+                                  $"\"{path} not startswith <text>\", or \"{path} not in <formid list>\". The other operators have their own complement: '!=' for '=', 'missing' for 'exists', 'has_none' for 'has'.");
+                w = w2;
             }
+            else if (TryWordOp(word, out var wop)) op = wop;
             else
-                return (null, $"predicate '{raw}': unrecognized operator '{word}'. Use = != > >= < <= contains startswith has has_any has_none exists missing in or 'not in'.");
+                return (null, $"predicate '{raw}': unrecognized operator '{word}'. Use = != > >= < <= contains startswith has has_any has_none exists missing in, 'not in', or 'not' before contains/startswith.");
             after = w;
         }
 
@@ -436,7 +454,7 @@ public sealed class FieldPredicateSet
         segs = psegs;
         if (pathFolds is not null && pathFolds[^1] == Fold.Count
             && op is not (Op.Eq or Op.Ne or Op.Gt or Op.Ge or Op.Lt or Op.Le or Op.In or Op.NotIn))
-            return (null, $"predicate '{raw}': '[*count]' yields the number of elements — compare it with = != > >= < <= or in / 'not in' (got '{OpStr(op)}').");
+            return (null, $"predicate '{raw}': '[*count]' yields the number of elements — compare it with = != > >= < <= or in / 'not in' (got '{OpStr(op, negate)}').");
 
         // Pseudo-path classification: 'editorid' (the record's EditorID), 'winner' (the provenance term — which
         // plugin WINS the record, resolution not content), 'formid' (the membership ops' identity path).
@@ -469,7 +487,7 @@ public sealed class FieldPredicateSet
                 return (null, $"predicate '{raw}': 'winner' is the provenance term (which plugin WINS the record) and takes '=' or '!=' with a plugin filename — e.g. \"winner = Requiem.esp\".");
         }
         if (pseudo == PseudoPath.EditorId && op is Op.Gt or Op.Ge or Op.Lt or Op.Le or Op.Has or Op.HasAny or Op.HasNone)
-            return (null, $"predicate '{raw}': 'editorid' is a text term — use = != contains startswith exists missing in 'not in' (got '{OpStr(op)}').");
+            return (null, $"predicate '{raw}': 'editorid' is a text term — use = != contains startswith 'not contains' 'not startswith' exists missing in 'not in' (got '{OpStr(op, negate)}').");
 
         // A presence op (exists/missing) takes NO operand — a trailing value is a mistake, refused loud rather than
         // silently ignored. Every other op REQUIRES an operand.
@@ -483,7 +501,7 @@ public sealed class FieldPredicateSet
         }
 
         if (operand.Length == 0)
-            return (null, $"predicate '{raw}': no value after '{OpStr(op)}'.");
+            return (null, $"predicate '{raw}': no value after '{OpStr(op, negate)}'.");
 
         // The membership ops (in / not in). On the identity path 'formid' the list must be FormIDs and the test is
         // the record's own identity (or, behind a link step, each reached target's identity) — the artifact @file
@@ -538,7 +556,7 @@ public sealed class FieldPredicateSet
         if (IsNumericOp(op) && !TryNum(operand, out num))
             return (null, $"predicate '{raw}': operator '{OpStr(op)}' needs a numeric value, got '{operand}'.");
 
-        return (new Predicate(text, segs, path, op, operand, num, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops, RuntimeKey: runtimeKey), null);
+        return (new Predicate(text, segs, path, op, operand, num, LinkPath: linkSegs, LinkPathDisplay: linkDisplay, Pseudo: pseudo, PathFolds: pathFolds, LinkFolds: linkFolds, ParentHops: parentHops, LinkParentHops: linkParentHops, RuntimeKey: runtimeKey, Negate: negate), null);
     }
 
     /// <summary>Split one side's segments into bare field names plus their fold tokens: a bracket key beginning
@@ -906,6 +924,10 @@ public sealed class FieldPredicateSet
                 Op.NotIn => eid is null || !p.RawMembers!.Any(m => string.Equals(eid, m, StringComparison.OrdinalIgnoreCase)),
                 _ => false,
             };
+            // A leading 'not' flips the string op's verdict, which puts a record with NO EditorID on the matching
+            // side exactly as '!=' and 'not in' already put it there — a complement that dropped them would be the
+            // same silent loss that polarity note guards against.
+            if (p.Negate) ok = !ok;
             return (ok, EvalKind.Definite);
         }
 
@@ -1133,7 +1155,9 @@ public sealed class FieldPredicateSet
 
         var (satisfied, err) = Compare(p, leaf);
         if (err is not null) { _fatal ??= err; return (false, EvalKind.Definite); }
-        return (satisfied, EvalKind.Definite);
+        // The leading 'not' flips a DEFINITE verdict only — the no-value returns above have already left, so a
+        // mistyped path under 'not contains' stays a loud no-verdict instead of matching every record.
+        return (p.Negate ? !satisfied : satisfied, EvalKind.Definite);
     }
 
     /// <summary>The <c>-&gt;</c> link step on one candidate: links under the LEFT path → each target's winner body (from
@@ -1571,6 +1595,9 @@ public sealed class FieldPredicateSet
     /// <summary>The genuinely-unset remainder: the no-value candidates none of the named causes accounts for.</summary>
     long UnsetCount(int k) => _noValue[k] - _noField[k] - _container[k] - _unreadable[k] - _unresolved[k];
 
+    /// <summary>How an operator is spelled back to the caller, with its leading <c>not</c> when it carries one.</summary>
+    static string OpStr(Op op, bool negate) => negate ? "not " + OpStr(op) : OpStr(op);
+
     static string OpStr(Op op) => op switch
     {
         Op.Eq => "=", Op.Ne => "!=", Op.Gt => ">", Op.Ge => ">=", Op.Lt => "<", Op.Le => "<=",
@@ -1578,6 +1605,20 @@ public sealed class FieldPredicateSet
         Op.Exists => "exists", Op.Missing => "missing",
         Op.In => "in", Op.NotIn => "not in", _ => "?",
     };
+
+    /// <summary>The word-spelled operators, as one table — so the plain form and the <c>not</c>-led form read the
+    /// same list and cannot drift apart.</summary>
+    static bool TryWordOp(string word, out Op op)
+    {
+        op = word.ToLowerInvariant() switch
+        {
+            "contains" => Op.Contains, "startswith" => Op.StartsWith,
+            "has" => Op.Has, "has_any" => Op.HasAny, "has_none" => Op.HasNone,
+            "exists" => Op.Exists, "missing" => Op.Missing, "in" => Op.In,
+            _ => (Op)(-1),
+        };
+        return op != (Op)(-1);
+    }
 
     static string Trunc(string s) => s.Length > 60 ? s.Substring(0, 60) + "…" : s;
 }

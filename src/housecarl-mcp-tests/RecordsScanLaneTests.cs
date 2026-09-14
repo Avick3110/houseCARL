@@ -40,6 +40,14 @@ public sealed class RecordsScanLaneTests : RecordsTestBase
                "HcRecW0", "HcRecW1");
 
     [Fact]
+    public void TheNegatedStringOperatorRidesWhereEndToEnd()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, where: new[] { "editorid not contains W1" });
+        Served(r, "HcRecW0");
+        Assert.DoesNotContain("HcRecW1", r);
+    }
+
+    [Fact]
     public void FormScoping_DepthOutsideTheFieldsAndEverythingFormsRefusesNamingTheRule() =>
         Refused(RecordsTools.Records(Svc, types: new[] { "WEAP" },
                                      project: new RecordsTools.RecordsProject { form = "summary", depth = 3 }), "fields");
