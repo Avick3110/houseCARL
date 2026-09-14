@@ -148,7 +148,7 @@ public static class WriteTools
             }
             var op = o.Ops[i];
             sb.Append("  ").Append(op.RecordType).Append(' ').Append(FormIdToken.Of(op.Target)).Append("  ").Append(op.Label)
-              .Append(op.After is not null ? "  -> " + op.After : "  -> applied").Append(ApplyNote(op)).Append('\n');
+              .Append(EditLineValue(op)).Append(ApplyNote(op)).Append('\n');
         }
         // The .fuz/.lip and result-script checks run on CREATE of dialogue lines, not on edits to existing ones, so an
         // edit that adds a response or result script carries the same hazard unflagged — say so, and point at the sweep.
@@ -304,6 +304,17 @@ public static class WriteTools
     /// <summary>The op's apply-time note, as a trailing clause on its line — what the write DID that the file cannot
     /// say afterwards (a duplicate Add). Empty when there is nothing to say.</summary>
     static string ApplyNote(WritePatchBuilder.OpResult op) => op.ApplyNote is { } n ? "  [" + n + "]" : "";
+
+    /// <summary>The value clause on a completed write's per-edit line: what the WRITTEN FILE holds at that op's leaf,
+    /// re-read after the serialize. Never the in-memory reading — a record that exists in memory and serializes to
+    /// nothing rendered as an applied value under a response that had not looked at the file (#683). Where the file
+    /// cannot answer for this op the line says so and prints no value, because the only value available there is the
+    /// one the file does not vouch for.</summary>
+    static string EditLineValue(WritePatchBuilder.OpResult op) =>
+        op.AfterOnDisk is { } disk ? "  -> " + disk
+        : op.SupersededInCall ? "  -> not-checked [a later op in this call wrote the same field; that op's line carries the file's reading]"
+        : op.VerifyAttempted ? "  -> not-checked [the re-opened file did not answer for this op]"
+        : "  -> not-checked [no file check ran for this op]";
 
     /// <summary>Where a per-op "what landed" clause came from, when it is not the plain file answer. Silence means the
     /// file was re-read for this op and agreed; the two marked cases are a file that could not answer for the op, and

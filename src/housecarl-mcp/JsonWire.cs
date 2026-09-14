@@ -2470,7 +2470,7 @@ static class JsonWire
             foreach (var m in o.Masters) w.WriteStringValue(m);
             w.WriteEndArray();
 
-            // Did the per-op file check RUN at all? A patch-lane or dry-run document has no per-op file readings in
+            // Did the per-op file check RUN at all? A dry-run document has no per-op file readings in
             // it, and a consumer needs to tell that from "it ran and everything came off the file". Outside the ops
             // budget, because that is the one fact a max_chars cut must not remove.
             w.WriteBoolean("verify_ran", o.Ops.Any(op => op.VerifyAttempted));
@@ -2489,6 +2489,10 @@ static class JsonWire
                 w.WriteBoolean("applied", op.Applied);
                 WriteNullable(w, "error", op.Error);
                 WriteNullable(w, "after", op.After);
+                // The leaf as the WRITTEN FILE holds it — what the text render's per-edit line prints. Null when the
+                // file could not answer for this op, which `landed_source` names; `after` beside it stays the applied
+                // edit's own in-memory reading, so the two are never confused for one another.
+                WriteNullable(w, "after_on_disk", op.AfterOnDisk);
                 WriteNullable(w, "landed", op.Landed);
                 // What the write DID that the file cannot say afterwards — today only the duplicate Add (the list
                 // already carried this element). Its own key, not folded into `landed`, which is compared against
@@ -2503,8 +2507,8 @@ static class JsonWire
                 //   "superseded"    a later op in this call wrote the same field, so the file's final state is that
                 //                   op's result and cannot speak for this one
                 //   "no_answer"     the file was re-opened and did not yield this op's leaf (or the read failed)
-                //   "not_checked"   this op was never asked — a lane that runs no per-op file check (patch, dry run),
-                //                   or an op appended after the resolved edits (the SNAM topic-marker sync)
+                //   "not_checked"   this op was never asked — a lane that runs no per-op file check (a dry run, which
+                //                   writes nothing), or an op appended after the resolved edits (the SNAM topic-marker sync)
                 // Deliberately NOT a judgement about whether the write "landed": a real difference cannot be told
                 // reliably from a representational one (a byte-quantised Percent, an overlay's type name), and the
                 // attempt tells callers to re-issue writes that did land. Both readings are here; the caller decides.
