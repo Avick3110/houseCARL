@@ -18,21 +18,27 @@ namespace HousecarlMcpTests;
 /// </summary>
 [Collection("server")]
 [Trait("tier", "stdio")]
-public sealed class PublishedSchemaDepthTests : IDisposable
+public sealed class PublishedSchemaDepthTests : IClassFixture<CappedSchemaServers>
 {
-    const int Cap = 10;
+    const int Cap = CappedSchemaServers.Cap;
 
     /// <summary>The shared server — the plain environment, which is what "unset" means.</summary>
     readonly ServerFixture _plain;
 
-    /// <summary>This class's own server, started with the cap. Never the shared one: the variable it sets is the
+    /// <summary>The capped server, started once for the class. Never the shared one: the variable it sets is the
     /// subject, and every other stdio test reads the uncapped surface.</summary>
-    readonly ServerFixture _capped =
-        new(new Dictionary<string, string> { [SchemaDepthCap.Variable] = Cap.ToString() });
+    readonly ServerFixture _capped;
 
-    public PublishedSchemaDepthTests(ServerFixture plain) { _plain = plain; }
+    /// <summary>The server at the SHALLOWEST cap the variable accepts — where what a cut may not cost is
+    /// decided.</summary>
+    readonly ServerFixture _shallowest;
 
-    public void Dispose() => _capped.Dispose();
+    public PublishedSchemaDepthTests(ServerFixture plain, CappedSchemaServers capped)
+    {
+        _plain = plain;
+        _capped = capped.AtTen;
+        _shallowest = capped.AtMinimum;
+    }
 
     /// <summary>Raw JSON container nesting: an object or array is one level plus its deepest member, a scalar is
     /// none.</summary>
@@ -60,7 +66,7 @@ public sealed class PublishedSchemaDepthTests : IDisposable
             var before = Schema(_plain, name).GetRawText();
             var document = (JsonObject)JsonNode.Parse(before)!;
 
-            Assert.False(SchemaDepthCap.Cut(document, null), $"{name}: the uncapped cut reported a change.");
+            Assert.False(SchemaDepthCap.Cut(document, null, name), $"{name}: the uncapped cut reported a change.");
             Assert.Equal(before, document.ToJsonString());
         }
     }
@@ -161,13 +167,85 @@ public sealed class PublishedSchemaDepthTests : IDisposable
         Assert.True(r.BodyRan, r.Describe());
     }
 
+    /// <summary>A node the cut closed says so, and says where: the recursion bound's sentence reads "the same
+    /// shape shown above", which is true where a cycle repeated a shape and false at a cut, where the shape is
+    /// nowhere in the document. Every node the capped surface closed carries the cut's own clause; no node on the
+    /// uncapped surface does.</summary>
+    [Fact]
+    public void EveryNodeTheCutClosedSaysItWasCutAndAtWhatDepth()
+    {
+        const string clause = "Nesting was cut here at depth";
+
+        var cut = _capped.PublishedNames.Count(n => Schema(_capped, n).GetRawText().Contains(clause, StringComparison.Ordinal));
+        Assert.True(cut > 0, "No published schema carries the cut's clause — nothing was cut.");
+
+        foreach (var name in _capped.PublishedNames)
+        {
+            var raw = Schema(_capped, name).GetRawText();
+            if (raw.Contains(clause, StringComparison.Ordinal))
+                Assert.Contains($"{clause} {Cap} by {SchemaDepthCap.Variable}", raw, StringComparison.Ordinal);
+        }
+
+        foreach (var name in _plain.PublishedNames)
+            Assert.DoesNotContain(clause, Schema(_plain, name).GetRawText(), StringComparison.Ordinal);
+    }
+
+    // ---- what a cut may not cost, at the shallowest cap there is --------------------------------------------
+
+    /// <summary>At the shallowest accepted cap every tool still publishes its own parameters. That member is what
+    /// <c>ToolCallShim</c> reads, so a cut that closed a schema's ROOT would take argument coercion, the named
+    /// missing-parameter refusal and the undeclared-key refusal off the server in silence — the degraded mode the
+    /// cut must never buy depth with. It is also why the variable refuses a value below
+    /// <see cref="SchemaDepthCap.Minimum"/>.</summary>
+    [Fact]
+    public void AtTheShallowestCapEveryToolStillPublishesItsOwnParameters()
+    {
+        var bare = _shallowest.PublishedNames
+            .Where(n => !Schema(_shallowest, n).TryGetProperty("properties", out var p)
+                        || p.EnumerateObject().Any() == false)
+            .ToArray();
+
+        Assert.Equal(Array.Empty<string>(), bare);
+    }
+
+    /// <summary>The same cap, on the wire: a call missing a required parameter is still refused in houseCARL's
+    /// own sentence naming it, not by the SDK's generic binding error. Every tool that declares one, so the
+    /// subject cannot go stale.</summary>
+    [Theory]
+    [MemberData(nameof(ToolsWithRequiredParameters))]
+    public void AtTheShallowestCapAMissingRequiredParameterIsStillRefusedByName(string tool)
+    {
+        var required = Schema(_shallowest, tool).GetProperty("required")
+                                                .EnumerateArray().Select(e => e.GetString()!).ToArray();
+        var r = _shallowest.Call(tool, "{}");
+
+        Assert.True(r.IsError, r.Describe());
+        Assert.DoesNotContain(ServerFixture.GenericError, r.Text, StringComparison.Ordinal);
+        var plural = required.Length > 1 ? "s" : "";
+        Assert.Contains($"error: {tool}: required parameter{plural} missing: {string.Join(", ", required)}. " +
+                        "Supplied: (none).", r.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>Every tool declaring a required parameter, off the pre-flatten surface — the same population the
+    /// uncapped shim tests take, since MemberData cannot read an injected fixture.</summary>
+    public static IEnumerable<object[]> ToolsWithRequiredParameters()
+    {
+        foreach (var tool in PreFlattenSchemas.Read())
+            if (tool.Schema["required"] is JsonArray required && required.Count > 0)
+                yield return new object[] { tool.Name };
+    }
+
     // ---- a value that is not a depth ------------------------------------------------------------------------
 
-    /// <summary>A value that is not a whole number of 1 or more is REFUSED at startup, in one sentence on
-    /// stderr. Ignoring it would boot a server publishing the schemas the caller set the variable to avoid, and
-    /// the provider's refusal names neither houseCARL nor the variable.</summary>
+    /// <summary>A value that is not a whole number of <see cref="SchemaDepthCap.Minimum"/> or more is REFUSED at
+    /// startup, in one sentence on stderr. Ignoring it would boot a server publishing the schemas the caller set
+    /// the variable to avoid, and the provider's refusal names neither houseCARL nor the variable. The rows below
+    /// the minimum are refused for what they would COST: a schema cut that shallow carries no top-level
+    /// <c>properties</c>, and the call path reads that member.</summary>
     [Theory]
     [InlineData("0")]
+    [InlineData("1")]
+    [InlineData("2")]
     [InlineData("-3")]
     [InlineData("10.5")]
     [InlineData("ten")]
@@ -209,6 +287,28 @@ public sealed class PublishedSchemaDepthTests : IDisposable
                         "unusable value must refuse the start, not boot and serve.");
         }
         return (proc.ExitCode, stderr.GetAwaiter().GetResult());
+    }
+}
+
+/// <summary>The capped servers this class measures, started once for the class rather than once per test: a
+/// server is a process, a data dir and a handshake, and the rows that boot their own server need neither.</summary>
+public sealed class CappedSchemaServers : IDisposable
+{
+    /// <summary>The cap #730 reported — the depth the strict provider enforces.</summary>
+    internal const int Cap = 10;
+
+    /// <summary>The surface at that provider's cap.</summary>
+    internal ServerFixture AtTen { get; } =
+        new(new Dictionary<string, string> { [SchemaDepthCap.Variable] = Cap.ToString() });
+
+    /// <summary>The surface at the shallowest cap the variable accepts.</summary>
+    internal ServerFixture AtMinimum { get; } =
+        new(new Dictionary<string, string> { [SchemaDepthCap.Variable] = SchemaDepthCap.Minimum.ToString() });
+
+    public void Dispose()
+    {
+        AtTen.Dispose();
+        AtMinimum.Dispose();
     }
 }
 

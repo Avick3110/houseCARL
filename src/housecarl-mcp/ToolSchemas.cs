@@ -92,7 +92,18 @@ internal static class ToolSchemas
                     root, roots.Where(r => r.Tool == tool.ProtocolTool.Name).Select(r => (r.Parameter, r.Type)));
                 // Last of all, over the finished document: the cut is measured on what is actually published.
                 // Unconfigured it does nothing, which is why an unset variable publishes today's bytes.
-                changed |= SchemaDepthCap.Cut(root, maxSchemaDepth);
+                try
+                {
+                    changed |= SchemaDepthCap.Cut(root, maxSchemaDepth, tool.ProtocolTool.Name);
+                }
+                catch (InvalidOperationException bad)
+                {
+                    // A cut that cannot deliver the depth it was asked for stops the server here, in its own
+                    // sentence. Throwing would surface as a host stack trace naming neither houseCARL nor the
+                    // variable — the very failure shape this feature exists to end.
+                    Console.Error.WriteLine(bad.Message);
+                    Environment.Exit(1);
+                }
                 if (changed) tool.ProtocolTool.InputSchema = JsonSerializer.Deserialize<JsonElement>(root.ToJsonString());
             }
         });
