@@ -18,12 +18,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   Windows-1252 with no UTF-8 lane — which is the setup the Japanese community ships: `sLanguage=ENGLISH` with the
   `*_English.STRINGS` tables replaced by UTF-8 translations, and UTF-8 in the inline `FULL` fields of non-localized
   ESPs. Every such name came back as mojibake, and because the Windows-1252 encoder has no spelling for a character
-  outside 1252, an in-place edit or a copy of that record wrote `?` over the text. Every read and every write now
-  decodes and encodes as strict UTF-8, falling back to what Mutagen would have chosen for the language for any byte
-  sequence that is not valid UTF-8 — so a Windows-1252 name still reads exactly as it did. The one case this cannot
-  tell apart is a Windows-1252 string whose bytes also happen to be valid UTF-8; it is read as UTF-8. Nothing else
-  moves: which language is selected, and which language's table is read, are unchanged. In `format="json"` the
-  characters ride as `\uXXXX` escapes, json's own spelling for non-ASCII, and parse back to the same string.
+  outside 1252, an in-place edit or a copy of that record wrote `?` over the text. A read now decodes valid UTF-8 as
+  UTF-8 and anything else as what Mutagen would have chosen for the language, so a Windows-1252 name still reads
+  exactly as it did. A write goes the other way round — Windows-1252 first, UTF-8 only for a string 1252 cannot
+  spell — so a plugin that was already Windows-1252 comes back byte-identical from an in-place edit, and a Japanese
+  name is written as itself. The two cases this cannot tell apart, one per side: a Windows-1252 string whose bytes
+  also happen to be valid UTF-8 is read as UTF-8, and a Latin-accented string that came out of a UTF-8 file is
+  written back as Windows-1252. Nothing else moves: which language is selected, and which language's table is read,
+  are unchanged. In `format="json"` the characters ride as `\uXXXX` escapes, json's own spelling for non-ASCII, and
+  parse back to the same string.
 
 - **A `[*count]` column costs the number, not the list.** `project.fields=["Temporary[*count]"]` read the list the
   way naming it does: building every element to count them, and — on a field that holds CHILD RECORDS — assembling

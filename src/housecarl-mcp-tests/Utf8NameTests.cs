@@ -127,6 +127,7 @@ public sealed class Utf8NameTests : IDisposable
         var w = mod.Weapons.AddNew();
         w.EditorID = "HcUtf8LatinWeap";
         w.Name = LatinName;
+        w.BasicStats = new WeaponBasicStats { Damage = 8, Weight = 3 };
         mod.BeginWrite.ToPath(Path.Combine(dir, LatinPluginName)).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         return w.FormKey;
     }
@@ -143,10 +144,13 @@ public sealed class Utf8NameTests : IDisposable
     string ReadName(FormKey fk, string? format = null) =>
         RecordsTools.Records(_svc, formids: new[] { Fid(fk) }, project: NameField, format: format);
 
-    static bool FileHolds(string path, string text)
+    static readonly Encoding Cp1252 = System.Text.CodePagesEncodingProvider.Instance.GetEncoding(1252)!;
+
+    static bool FileHolds(string path, string text) => FileHoldsBytes(path, Encoding.UTF8.GetBytes(text));
+
+    static bool FileHoldsBytes(string path, byte[] needle)
     {
         var hay = File.ReadAllBytes(path);
-        var needle = Encoding.UTF8.GetBytes(text);
         for (int i = 0; i + needle.Length <= hay.Length; i++)
         {
             bool ok = true;
@@ -218,8 +222,28 @@ public sealed class Utf8NameTests : IDisposable
             in_place: InlineName, acknowledge: true);
         Assert.DoesNotContain("error:", r);
 
-        Assert.True(FileHolds(PluginPath("InlineMod", InlineName), JapaneseName), "the rewritten plugin lost the UTF-8 bytes");
+        var path = PluginPath("InlineMod", InlineName);
+        Assert.True(FileHolds(path, JapaneseName), "the rewritten plugin lost the UTF-8 bytes");
+        Assert.False(FileHoldsBytes(path, Encoding.UTF8.GetBytes("?????????(?)")), "the name was written as question marks");
         Assert.Contains(JapaneseName, ReadName(_inlineWeapon));
+    }
+
+    /// <summary>The mirror, and the arm the read-side one cannot cover: the reader accepts both encodings, so only
+    /// the BYTES say whether a Windows-1252 plugin was left alone. An in-place edit re-serializes the whole file, so
+    /// a UTF-8-first write would silently convert every Western name — and an accented asset path — to bytes the
+    /// game does not read at <c>sLanguage=ENGLISH</c>.</summary>
+    [Fact]
+    public void AnInPlaceEditLeavesAWindows1252NameAsWindows1252Bytes()
+    {
+        var r = ApplyTools.Apply(_svc,
+            ops: Je($@"[{{""formid"":""{Fid(_latinWeapon)}"",""field_path"":""BasicStats.Damage"",""op"":""Set"",""value"":""20""}}]"),
+            in_place: LatinPluginName, acknowledge: true);
+        Assert.DoesNotContain("error:", r);
+
+        var path = PluginPath("LatinMod", LatinPluginName);
+        Assert.True(FileHoldsBytes(path, Cp1252.GetBytes(LatinName)), "the accented name is no longer 1252 bytes");
+        Assert.False(FileHolds(path, LatinName), "the accented name was re-encoded to UTF-8");
+        Assert.Contains(LatinName, ReadName(_latinWeapon));
     }
 
     /// <summary>The patch lane copies the winning record into a NEW plugin, so the name makes a full read-then-write
