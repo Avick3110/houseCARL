@@ -101,9 +101,12 @@ Read what your task needs, not everything.
    carrying `WeapTypeDagger`.
    A `-exclusion` term grounds the same way, with the complement spelled on the operator: `not`
    leads a string operator, so `where=["Name not contains Dagger"]` is the census for `-*Dagger` on
-   the name channel. It is the complement over records the field READS A VALUE on — a record with
-   no `Name` is in neither count — so a line whose reach depends on the no-value records needs the
-   `missing` term beside it.
+   the name channel. On a **field** path it is the complement over records that field READS A VALUE
+   on — a record with no `Name` is in neither count — so a line whose reach depends on the no-value
+   records needs the `missing` term beside it, and `contains` + `not contains` + `missing`
+   partitions the scope. The identity term `editorid` is the exception: it always gives a verdict,
+   so a record with no EditorID lands on the `not contains` side (where `!=` and `not in` already
+   put it) and is counted twice if you add `editorid missing` to the arithmetic.
    When the line carries a **plugin-name** filter, count by the **defining** plugin, not the winner:
    KID tests `TESFile::IsFormInMod` on the item's own FormID (`references/filters.md` §2), so the
    filter catches only records that plugin defines, and a patch that overrides them changes nothing

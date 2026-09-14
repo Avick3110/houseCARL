@@ -237,16 +237,21 @@ saying it sets an expectation their install may contradict. Say what is known, a
   'in'" and the only way through was to spill every row and filter by hand. `not` now leads a string operator
   as well as the membership complement it already led (`not in`). The operators that already have a complement
   keep it, and a `not` in front of one is refused by name pointing at it (`!=` for `=`, `missing` for `exists`,
-  `has_none` for `has`). A negated term matches only records the path reads a value on, the same rule the
-  accounting note on the result states for every other value operator: on a field that is unset everywhere the
-  answer is zero matches with that note, not everything.
+  `has_none` for `has`). On a field path a negated term matches only records the path reads a value on, the same
+  rule the accounting note on the result states for every other value operator: on a field that is unset
+  everywhere the answer is zero matches with that note, not everything. The identity term `editorid` is the
+  exception the parameter description names — it always gives a verdict, so a record with no EditorID is on the
+  negated side, where `!=` and `not in` already put it.
 - **An exact `editorid =` that matches nothing now names the record the winner renamed.** A scan filters on the
   load-order winner's body, so `editorid = ArmorIronCuirass` reads as a clean zero when the winner renames that
   record — the name is real and only a losing copy carries it. The result now carries one sentence naming the
   plugin that defines the name asked for, the FormID, and the EditorID the winner gives it. It runs only on a
-  zero-row scan of the winner lane whose `where=` carries an exact `editorid =` term, it reads the EditorID
-  header and nothing else, and when no plugin in the order carries the name the plain zero-row result stands as
-  before. The bound it gives up at is `EditorIdNearMiss.Budget`.
+  zero-row winner-lane scan bounded by `types=` whose `where=` is nothing but that one term — any other selection
+  term (`formids=`, `references=`, `references_none=`, `editorid_contains=`, `conflicts_only=`, `plugins=`, or a
+  second `where=` predicate) gives the zero another possible cause, so the sentence is not offered. It reads the
+  EditorID header and nothing else, one plugin at a time so an unreadable file skips rather than ending the walk,
+  and when no plugin in the order carries the name the plain zero-row result stands as before. The bound it gives
+  up at is `EditorIdNearMiss.Budget`.
 
 - **`housecarl_skse` now says which source a plugin's version came from, and prints the DLL's file version and the
   mod's meta.ini version beside it wherever they disagree.** The version it reads is the SKSE manifest's own

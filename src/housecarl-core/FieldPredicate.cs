@@ -266,13 +266,15 @@ public sealed class FieldPredicateSet
     /// <summary>Candidate bodies tested so far — the denominator the accounting reports against.</summary>
     public long Scanned => _scanned;
 
-    /// <summary>The EditorID an exact, un-negated <c>editorid = &lt;name&gt;</c> term asks for, read on the
-    /// candidate itself (not behind a <c>-&gt;</c> or a <c>*parent</c> hop), or null when the set carries no such
-    /// term. The near-miss hint keys on it: that one spelling is the term a rename in the winner makes invisible
-    /// (<see cref="EditorIdNearMiss"/>).</summary>
+    /// <summary>The EditorID this set asks for when it is NOTHING BUT an exact, un-negated
+    /// <c>editorid = &lt;name&gt;</c> term read on the candidate itself (not behind a <c>-&gt;</c> or a
+    /// <c>*parent</c> hop) — null for any other set. The near-miss hint keys on it, and the sole-term rule is what
+    /// lets it assert a cause: with a second predicate ANDed in, a zero has another candidate explanation and a
+    /// record found by name may fail that other term anyway (<see cref="EditorIdNearMiss"/>).</summary>
     public string? ExactEditorId =>
-        _predicates.FirstOrDefault(p => p.Pseudo == PseudoPath.EditorId && p.Op == Op.Eq && !p.Negate
-                                        && p.LinkPath is null && p.ParentHops == 0)?.Operand;
+        _predicates.Count == 1
+        && _predicates[0] is { Pseudo: PseudoPath.EditorId, Op: Op.Eq, Negate: false, LinkPath: null, ParentHops: 0 } only
+            ? only.Operand : null;
 
     /// <summary>One quantified step of one predicate: the segments of the side it sits on, which one carries the
     /// fold, how it is spelled, and the predicate's own text for the message. A scan with a NAMED type scope walks

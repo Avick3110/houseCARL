@@ -850,6 +850,19 @@ public sealed class LoadOrderResolver : IDisposable
         internal IndexView(LoadOrderResolver r, IndexSnapshot s) { _r = r; _s = s; }   // only Capture() constructs
 
         public int PluginCount => _r._paths.Length;
+
+        /// <summary>Every plugin this build indexed, in load order, MINUS the ones it excluded — the scope a
+        /// whole-order walk can name plugin by plugin, so one unreadable file skips rather than ending the walk.</summary>
+        public IReadOnlyList<string> ScannablePluginNames
+        {
+            get
+            {
+                var names = new List<string>(_r._names.Length);
+                for (int i = 0; i < _r._names.Length; i++) if (!_s.Excluded.Contains(i)) names.Add(_r._names[i]);
+                return names;
+            }
+        }
+
         public int RecordCount => _s.Index.Count;               // distinct FormKeys across the order
         public int ConflictCount => _s.Overriders.Count;        // FormKeys overridden by >1 plugin
         public int MaxDepth => _s.MaxDepth;
