@@ -32,6 +32,20 @@ saying it sets an expectation their install may contradict. Say what is known, a
   a time, one walk each: the same apply takes 3.2 s, peaks at 0.9 GB and leaves the server back at its idle size.
   The written patch is unchanged — byte-identical on the same inputs.
 
+- **A write's per-edit line now reports what the written file holds, not what the call held in memory.**
+  `housecarl_apply` re-opened the patch it had just written only to read its master header, so each edit's
+  `-> value` came from the record in memory. A record can exist in memory and serialize to nothing, and when it
+  did the response reported the edit as applied — an Add on a leveled list answering `-> [list: 11 item(s)]`
+  over a file still holding 10 — while `full_readback: true`, which did read the file, contradicted it in the
+  same response. Every edit line is now re-read off the written file, for every verb, out of the re-open the
+  lane was already doing; the in-place lane, which already re-read, is unchanged. Where the file cannot answer
+  for one op the line says `not-checked` and prints no value instead of the in-memory one: the two cases are a
+  later op in the same call having written the same field (that op's own line carries the file's reading) and a
+  leaf the re-opened file did not yield. In `format: "json"` the file's reading is `after_on_disk` and
+  `landed_source` names where each clause came from; `after` stays the in-memory reading, so the two are never
+  confused for one another. A 500-op apply pays one more reflective read per op: measured 175 ms before against
+  226 ms after, best of five runs each, on a synthetic 500-record order.
+
 - **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
   byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the
   literal escape text and every tool refused with "the active profile's folder is missing". Both INI readers —
