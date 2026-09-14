@@ -93,8 +93,14 @@ REQUIREMENTS
     houseCARL-Setup.exe needs the base .NET Runtime itself, so if its
     window opens and closes at once with nothing in it, that runtime
     is what is missing -- install it from the page above and run setup
-    again. Once setup starts, it checks the ASP.NET Core one and tells
-    you if that is what you are missing. When in doubt just run it.
+    again. Run it from an open terminal instead and you get the
+    message the closing window takes with it. Once setup starts, it
+    checks the ASP.NET Core one and tells you if that is what you are
+    missing. When in doubt just run it.
+
+    If setup will not run at all, houseCARL can be installed by hand:
+    the "By hand" part of the Install section in
+    housecarl\README.md  has the steps.
   - A recent Claude Code  (v2.1.143 or newer) -- the terminal CLI, or
     the Claude desktop app (Claude Code is built in; houseCARL runs in
     Claude Code sessions, not the plain chat).
