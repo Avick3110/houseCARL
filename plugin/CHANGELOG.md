@@ -280,6 +280,21 @@ saying it sets an expectation their install may contradict. Say what is known, a
   named in the external-overrider warning, as any other dependent is. A donor reference into donor space that no donor holds
   is refused in one sentence naming the referencing record, before anything is written.
 
+- **A merge now says where the merged plugin has to load.** The report carries a placement paragraph: the load-order
+  positions the donors sat at, the last master the output must load after, the position it must sit at or after (the last
+  donor's — the merge resolved the donors' conflicts as they stood there), and the plugins between the first and last donor
+  that also touch those records, because where the merge sits relative to each of those decides which version wins. It is
+  derived from what the merge already computed, so it costs no extra scan and there is no new parameter.
+
+- **`housecarl_merge_plugins` now describes the normal job, and carries injected records.** The description said merging a
+  mod together with its own patches was the intended use; it now says what the tool is for — merge a family of patches into
+  one plugin and leave the mods they patch alone and active — and marks the mod-plus-its-patches shape as the narrow case it
+  is. A record whose FormID sits in one donor's space while another donor defines it (an injected record) is now renumbered
+  into the merged plugin like any other record; before, it was copied at its old identity and the write failed with a raw
+  Mutagen missing-mod fault after the whole merge had been built. A plugin outside the merge that carries that record too is
+  named in the external-overrider warning, as any other dependent is. A donor reference into donor space that no donor holds
+  is refused in one sentence naming the referencing record, before anything is written.
+
 ## 2.0.0 — 2026-09-11
 
 houseCARL 2.0.0 replaces the 1.x tool surface with 31 tools. The record plane is one grammar: a read is one call composed from four axes (SELECT × SOURCE × PROJECT × TRANSPORT); a write is one call composed from an op list, a lane and a transport; one record is a set of one. Record coverage is generated from Mutagen.Bethesda.Skyrim 0.54.4 at build time, 1,174 types, and the write pre-flight and the `mutagen-reference` skill are two renderings of that one artifact. The 1.x tool and parameter names are deleted, not deprecated: a retired tool name is refused with a refusal naming its successor, from `AliasTable.cs`; a retired parameter name is refused as an unknown parameter, with the parameters the tool does take. Seven skills ship. `housecarl_check` gains the facegen family. The installer shows what it will write before writing, and uninstalls. The entries below are in the order they landed.

@@ -2410,7 +2410,8 @@ public static class WritePatchBuilder
         IReadOnlyList<string>? MasterDonors = null, IReadOnlyList<RemapEngine.UnscannablePlugin>? UnscannablePlugins = null,
         IReadOnlyList<string>? LocalizedDonors = null,
         IReadOnlyList<RemapEngine.MasterDeclarer>? MasterDeclarers = null,
-        bool LightCarried = false, int OriginatingRecords = 0)
+        bool LightCarried = false, int OriginatingRecords = 0,
+        MergeSiting? Placement = null)
     {
         public static MergeOutcome Fail(string error) =>
             new(false, error, "", "", Array.Empty<string>(), Array.Empty<string>(), 0, 0,
