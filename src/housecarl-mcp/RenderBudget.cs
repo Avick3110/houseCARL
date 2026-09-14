@@ -42,6 +42,18 @@ internal static class RenderBudget
     /// gather per plugin. 15 ms carries the measurement plus a margin.</summary>
     internal const double MillisPerIdentityRow = 15.0;
 
+    /// <summary>The declared cost of one comparison row (<c>form='delta'</c> or <c>form='tree'</c>). A tree row
+    /// reads EVERY provider of its record, not one body, and each of those is a seek through its plugin rather than
+    /// a gathered read: measured at 0.28 s a row over placed references on a 3,571-line order, where the contested
+    /// ones have two providers. A record with more providers costs more again — a worldspace has hundreds — so this
+    /// is a floor, not an average.</summary>
+    internal const double MillisPerComparisonRow = 250.0;
+
+    /// <summary>THE BOUND for the comparison forms: about a minute at <see cref="MillisPerComparisonRow"/>. Far
+    /// lower than the other lanes' because the row is: a job past this announces itself instead of going quiet
+    /// (#716).</summary>
+    internal const int DefaultMaxComparisonRows = 250;
+
     /// <summary>THE BOUND for a named-fields render: ten minutes at <see cref="MillisPerRow"/>.</summary>
     internal const int DefaultMaxRenderRows = 300_000;
 
@@ -61,6 +73,9 @@ internal static class RenderBudget
 
     /// <inheritdoc cref="MaxRenderRows"/>
     internal static int MaxIdentityRows { get; set; } = DefaultMaxIdentityRows;
+
+    /// <inheritdoc cref="MaxRenderRows"/>
+    internal static int MaxComparisonRows { get; set; } = DefaultMaxComparisonRows;
 
     /// <summary>The chars a text render holds back from <c>max_chars</c> for the accounting line it appends after
     /// its rows. Held back for the same reason the owned-child clause is: a line the response is going to state is
@@ -202,6 +217,35 @@ internal static class RenderBudget
         var lever = remedy ?? ScanRemedy;
         return lead + (wholeRecord ? lever : char.ToUpperInvariant(lever[0]) + lever[1..]);
     }
+
+    /// <summary>The refusal for a comparison form (delta/tree) over its own bound, or null when it fits. One
+    /// sentence: what it would read, what that costs, and the three levers. <paramref name="form"/> is the form's
+    /// own name, so the sentence names what the caller passed; <paramref name="alreadyWindowed"/> says a limit= has
+    /// already bounded the read, which changes "window it" into "lower it further".</summary>
+    internal static string? RefuseComparison(int rows, string form, string lever) =>
+        rows <= MaxComparisonRows
+            ? null
+            : $"error: this {form} reads every override of each of {rows:N0} records — {ProjectedAt(rows, MillisPerComparisonRow)} at the " +
+              $"0.25 s a row a two-provider record costs, past the {MaxComparisonRows:N0}-row bound the comparison forms are given; " +
+              lever;
+
+    /// <summary>The comparison bound's levers, one per lane: an unwindowed scan can take a window, a windowed one
+    /// can only take a smaller one, a census or a to_file= artifact covers the whole selection whatever limit= says,
+    /// and the formids= lane reads the list it was handed.</summary>
+    internal const string ComparisonScanLever =
+        "window it with limit=, narrow the selection with where= or types=, or read the winning value alone with project.form='fields'.";
+
+    /// <inheritdoc cref="ComparisonScanLever"/>
+    internal const string ComparisonWindowedLever =
+        "lower limit= further, narrow the selection with where= or types=, or read the winning value alone with project.form='fields'.";
+
+    /// <inheritdoc cref="ComparisonScanLever"/>
+    internal const string ComparisonWholeSelectionLever =
+        "narrow the selection with where= or types= — a census and a to_file= artifact cover every selected record, so limit= does not lower what they read — or read the winning value alone with project.form='fields'.";
+
+    /// <inheritdoc cref="ComparisonScanLever"/>
+    internal const string ComparisonListLever =
+        "pass fewer formids= entries: this lane reads every provider of every id in the list before limit= windows the render.";
 
     /// <summary>The refusal for an <c>form='identity'</c> render over its own bound, or null when it fits. Its own
     /// tier and its own lead, because its row is neither a named-field read nor a whole record: it is one untyped
