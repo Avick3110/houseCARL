@@ -251,15 +251,16 @@ Copy-Item (Join-Path $PackagingSrc 'marketplace.json') (Join-Path $MpDir 'market
 # ~/.claude/skills/housecarl/ (desktop auto-loads the skills) and registers the MCP server in
 # ~/.claude.json (desktop spawns it per session). It ships in the PACKAGE ROOT (dist\), beside - not
 # inside - the housecarl/ plugin tree, so a Claude install (which copies that tree wholesale) never
-# picks it up. Single-file, SELF-CONTAINED (trimmed + compressed): setup must run on a
-# machine with no .NET installed at all, so it can preflight-check the two runtimes the
-# framework-dependent SERVER needs (.NET Runtime + ASP.NET Core Runtime - separate installers on
-# Windows) and say exactly which is missing. Trimming is safe HERE (setup uses only the
-# System.Text.Json DOM, no reflection serialization) - the server's trimming ban is untouched.
+# picks it up. Single-file and FRAMEWORK-DEPENDENT, matching the server: a self-contained apphost
+# aborts in CLR startup on some CET / hardware-shadow-stack machines (#734), and .NET 9 is already a
+# requirement for the server, so embedding a runtime bought nothing and cost those users the
+# installer. Setup still preflights the ASP.NET Core Runtime the server needs separately; a machine
+# missing the base .NET Runtime gets Windows' own "You must install .NET" message with the download
+# link, because the apphost never reaches app code. Trimming is self-contained only, so it is gone.
 Step '9/12' 'Publish the setup utility (houseCARL-Setup.exe) into dist/'
 # -p:Version stamps the plugin.json version into the exe, which the setup banner reads back off its own
 # assembly (one version home; an unstamped dev build says 0.0.0-dev), exactly as step 2 does for the server.
-dotnet publish $SetupProj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=true -p:EnableCompressionInSingleFile=true -p:Version=$Version -p:DebugType=None -p:DebugSymbols=false -o $PkgRoot
+dotnet publish $SetupProj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:Version=$Version -p:DebugType=None -p:DebugSymbols=false -o $PkgRoot
 if ($LASTEXITCODE -ne 0) { throw "setup-utility publish failed (exit $LASTEXITCODE)" }
 $SetupExe = Join-Path $PkgRoot 'houseCARL-Setup.exe'
 if (-not (Test-Path $SetupExe)) { throw "setup utility not produced at $SetupExe" }

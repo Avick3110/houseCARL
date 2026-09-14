@@ -115,9 +115,12 @@ public static class Program
             // base .NET Runtime (Microsoft.NETCore.App) and the ASP.NET Core Runtime
             // (Microsoft.AspNetCore.App). On Windows those are TWO separate installers, and the
             // ASP.NET Core one does NOT include the base runtime -- a real-world install trap.
-            // This exe ships self-contained precisely so it still runs on a machine with neither
-            // and can say exactly what's missing, instead of the install "succeeding" into a
-            // server that never starts.
+            // This exe is framework-dependent too (#734: a self-contained apphost aborts in CLR
+            // startup on some CET / shadow-stack machines), so it needs the base runtime just to
+            // start; a machine without it gets Windows' own "You must install .NET" message and its
+            // download link. The check below is what catches the trap that is actually silent: the
+            // base runtime present and ASP.NET Core missing, which would install a server that
+            // never starts.
             bool skipRuntimeCheck = args.Contains("--skip-runtime-check");
             List<string> missingRuntimes = skipRuntimeCheck ? new List<string>() : MissingServerRuntimes();
             Detect.HostState claude = Detect.Claude(home);
