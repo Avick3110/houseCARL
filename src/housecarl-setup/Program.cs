@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -117,8 +118,9 @@ public static class Program
             // ASP.NET Core one does NOT include the base runtime -- a real-world install trap.
             // This exe is framework-dependent too (#734: a self-contained apphost aborts in CLR
             // startup on some CET / shadow-stack machines), so it needs the base runtime just to
-            // start; a machine without it gets Windows' own "You must install .NET" message and its
-            // download link. The check below is what catches the trap that is actually silent: the
+            // start; on a machine without it hostfxr's message goes to stderr and a double-clicked
+            // window closes over it, so the docs name that flash-and-close as the diagnosis instead
+            // of promising a message. The check below catches the trap that stays silent even here: the
             // base runtime present and ASP.NET Core missing, which would install a server that
             // never starts.
             bool skipRuntimeCheck = args.Contains("--skip-runtime-check");
@@ -505,8 +507,10 @@ public static class Program
     /// <summary>
     /// Which of the server's required shared frameworks are missing at the required major version.
     /// Asks `dotnet --list-runtimes` first (covers custom install locations on PATH); falls back to
-    /// scanning the default machine-wide install dir, which also covers a console whose PATH predates
-    /// a just-finished runtime install.
+    /// scanning shared-framework roots, which also covers a console whose PATH predates a just-finished
+    /// runtime install. Two roots are scanned: the default machine-wide one, and the root this process
+    /// is itself running out of -- a DOTNET_ROOT or portable install with `dotnet` off PATH is invisible
+    /// to both of the others, and setup would otherwise report the base runtime missing while running on it.
     /// </summary>
     private static List<string> MissingServerRuntimes()
     {
@@ -549,8 +553,7 @@ public static class Program
         }
         catch { /* dotnet not on PATH -- the folder scan below still gets a say */ }
 
-        string sharedDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "shared");
+        foreach (string sharedDir in SharedFrameworkRoots())
         foreach (string fx in required)
         {
             if (found.Contains(fx)) continue;
@@ -564,6 +567,25 @@ public static class Program
         }
 
         return required.Where(fx => !found.Contains(fx)).ToList();
+    }
+
+    /// <summary>The shared-framework roots to scan: the default machine-wide install, and the one this
+    /// process is running out of. GetRuntimeDirectory() is ...\shared\Microsoft.NETCore.App\&lt;version&gt;\,
+    /// so its grandparent is that install's shared root.</summary>
+    private static IEnumerable<string> SharedFrameworkRoots()
+    {
+        yield return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "shared");
+
+        string? own = null;
+        try
+        {
+            own = Path.GetDirectoryName(
+                Path.GetDirectoryName(
+                    Path.TrimEndingDirectorySeparator(RuntimeEnvironment.GetRuntimeDirectory())));
+        }
+        catch { /* an unexpected layout just leaves the machine-wide scan to answer */ }
+        if (!string.IsNullOrEmpty(own)) yield return own;
     }
 
     // ---- target selection (flag or interactive prompt) --------------------
