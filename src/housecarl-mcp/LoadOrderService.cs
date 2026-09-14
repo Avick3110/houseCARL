@@ -3899,8 +3899,9 @@ public sealed partial class LoadOrderService : IDisposable
     public sealed record NpcTemplateCategory(string Category, bool InheritedAtSeed,
                                              string? ProviderKey, string? ProviderEditorId, string? Note);
 
-    /// <summary>One seed's walk: the reached nodes in BFS order with provenance; recorded cycles, which only a
-    /// named-follow chain produces since a closure walk dedupes on its visited set; the truncation note when a cap
+    /// <summary>One seed's walk: the reached nodes in BFS order with provenance; the genuine cycles found in the
+    /// graph it walked — a record that reaches itself, whether directly or around a loop of any length, told apart
+    /// from an ordinary re-convergence by a pass over the walked edges; the truncation note when a cap
     /// cut the walk, keeping what was proved and saying what was not; and, for an NPC_ seed under
     /// follow="Template", the per-category inheritance report.</summary>
     public sealed record WalkSeedResult(string Seed, string? Type, string? EditorId,
@@ -3921,10 +3922,41 @@ public sealed partial class LoadOrderService : IDisposable
         public string Type = "";
         public string Label = "";
         public List<WalkNodeRow> Nodes = new();
-        public List<string> Cycles = new();
+        /// <summary>The walked graph as edges, parent to target, per node this seed entered.</summary>
+        public Dictionary<FormKey, List<FormKey>> Edges = new();
         public string? Truncation;
         public HashSet<FormKey> Visited = new();
         public Queue<(FormKey Key, int Depth, string PulledBy)> Frontier = new();
+
+        /// <summary>Record one walked edge. Every link off an entered node is recorded, cycle or not.</summary>
+        public void Edge(FormKey from, FormKey to)
+        {
+            if (to.IsNull) return;
+            if (!Edges.TryGetValue(from, out var outgoing)) Edges[from] = outgoing = new List<FormKey>();
+            outgoing.Add(to);
+        }
+
+        /// <summary>This seed's genuine cycles, each stated as its loop of records — the last hop closes it, so the
+        /// first record is named again at the end. Asked of the recorded edges once the walk is done, because a
+        /// visited set cannot tell a loop from a diamond and the traversal tree cannot see a mutual reference
+        /// between siblings.</summary>
+        public IReadOnlyList<string> CyclesFound()
+        {
+            var found = GraphCycles.Find(Edges);
+            if (found.Count == 0) return Array.Empty<string>();
+            var editorIds = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+            {
+                [FormIdToken.Of(Key)] = EditorId,
+            };
+            foreach (var n in Nodes) editorIds[n.Key] = n.EditorId;
+            string Label(FormKey k)
+            {
+                var token = FormIdToken.Of(k);
+                var editorId = editorIds.TryGetValue(token, out var e) ? e : null;
+                return $"{token} ({editorId ?? "<no editorid>"})";
+            }
+            return found.Select(path => string.Join(" -> ", path.Select(Label)) + " -> " + Label(path[0])).ToList();
+        }
     }
 
     /// <summary>The forward walk over the winner link graph, per seed off ONE captured build. The edge unit is the
@@ -4147,12 +4179,12 @@ public sealed partial class LoadOrderService : IDisposable
                     var links = LinksOf(seedBody, segs, out var note);
                     if (links.Count == 0 && note is not null)
                         st.Nodes.Add(new WalkNodeRow($"(seed path '{p}')", null, null, 0, st.Label, "no links", note));   // a wrong path fails loudly in the rows
-                    foreach (var l in links) st.Frontier.Enqueue((l, 1, $"{st.Label}.{p}"));
+                    foreach (var l in links) { st.Edge(seedFk, l); st.Frontier.Enqueue((l, 1, $"{st.Label}.{p}")); }
                 }
             }
             else
             {
-                foreach (var l in LinksOf(seedBody, null, out _)) st.Frontier.Enqueue((l, 1, st.Label));
+                foreach (var l in LinksOf(seedBody, null, out _)) { st.Edge(seedFk, l); st.Frontier.Enqueue((l, 1, st.Label)); }
             }
             states[i] = st;
         }
@@ -4229,13 +4261,9 @@ public sealed partial class LoadOrderService : IDisposable
                 {
                     var (key, hop, pulledBy) = st.Frontier.Dequeue();
                     if (key.IsNull) continue;
-                    if (!st.Visited.Add(key))
-                    {
-                        // A named-follow walk is a linear chain per seed, so a revisit IS a cycle: recorded and named,
-                        // never looped and never silently stopped. Closure walks dedupe on the visited set instead.
-                        if (followSegs is not null) st.Cycles.Add($"{pulledBy} -> {FormIdToken.Of(key)} (already on this chain)");
-                        continue;
-                    }
+                    // A revisit is deduped and nothing more: whether it closed a loop or re-converged on a diamond
+                    // is the post-walk pass's question, and the edge that reached it is already recorded.
+                    if (!st.Visited.Add(key)) continue;
                     if (st.Nodes.Count >= maxNodes)
                     {
                         st.Truncation = $"walk truncated: the {maxNodes}-node cap was reached — what is listed IS reached and proved; raise walk.max_nodes to walk further.";
@@ -4280,7 +4308,7 @@ public sealed partial class LoadOrderService : IDisposable
                     }
                     var label = $"{type} {FormIdToken.Of(key)} ({fact.EditorId ?? "<no editorid>"})";
                     foreach (var l in fact.Links ?? EmptyKeys)
-                        if (!l.IsNull) st.Frontier.Enqueue((l, hop + 1, label));
+                        if (!l.IsNull) { st.Edge(key, l); st.Frontier.Enqueue((l, hop + 1, label)); }
                 }
                 // An empty frontier means this seed is finished — nothing but its own turn ever enqueues into it —
                 // and the results loop reads neither of these, so the bookkeeping goes back now rather than at return.
@@ -4299,7 +4327,7 @@ public sealed partial class LoadOrderService : IDisposable
             if (states[i] is not { } st) { results.Add(rows[i]!); continue; }
             IReadOnlyList<NpcTemplateCategory>? templateReport = null;
             if (st.SeedTemplateFact is { } seedFact) templateReport = NpcTemplateReport(TemplateFactOf, seedFact, st.Key);
-            results.Add(new WalkSeedResult(FormIdToken.Of(st.Key), st.Type, st.EditorId, st.Nodes, st.Cycles, st.Truncation, templateReport, null));
+            results.Add(new WalkSeedResult(FormIdToken.Of(st.Key), st.Type, st.EditorId, st.Nodes, st.CyclesFound(), st.Truncation, templateReport, null));
         }
         WalkBodiesHeldAtReturn = bodyCache.Count;
         return results;
