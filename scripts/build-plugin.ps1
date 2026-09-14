@@ -255,8 +255,9 @@ Copy-Item (Join-Path $PackagingSrc 'marketplace.json') (Join-Path $MpDir 'market
 # aborts in CLR startup on some CET / hardware-shadow-stack machines (#734), and .NET 9 is already a
 # requirement for the server, so embedding a runtime bought nothing and cost those users the
 # installer. Setup still preflights the ASP.NET Core Runtime the server needs separately; a machine
-# missing the base .NET Runtime gets Windows' own "You must install .NET" message with the download
-# link, because the apphost never reaches app code. Trimming is self-contained only, so it is gone.
+# missing the base .NET Runtime never reaches app code: hostfxr writes its missing-framework message to
+# stderr, which a double-clicked console window destroys on exit, so the docs name the flash-and-close
+# as the diagnosis rather than promising a message. Trimming is self-contained only, so it is gone.
 Step '9/12' 'Publish the setup utility (houseCARL-Setup.exe) into dist/'
 # -p:Version stamps the plugin.json version into the exe, which the setup banner reads back off its own
 # assembly (one version home; an unstamped dev build says 0.0.0-dev), exactly as step 2 does for the server.
