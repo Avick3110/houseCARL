@@ -868,6 +868,16 @@ static class NifSetWire
                 sb.Append("  TO MAKE IT WIN: nothing else provides this path — once '")
                   .Append(Path.GetFileName(d.OutputModFolder) is { Length: > 0 } f ? f : "the new folder")
                   .Append("' is enabled in MO2, the edited copy wins. 'Wrote it' is not 'it wins' until you do.\n");
+            else if (d.WinnerIsDestination)
+                // The folder the mesh just landed in is the winner: an into= re-edit, already enabled and already on top.
+                sb.Append("  ALREADY WINS: '")
+                  .Append(Path.GetFileName(d.OutputModFolder) is { Length: > 0 } own ? own : "the patch folder")
+                  .Append("' already provided this mesh and is enabled, so the edited copy replaces its own earlier copy and keeps winning — nothing to enable or sort.\n");
+            else if (d.WinnerLosesOnEnable)
+                // A BSA or the game's Data folder is the bottom of the root list: any enabled mod's loose copy beats it.
+                sb.Append("  TO MAKE IT WIN: enable this folder in MO2 — a loose file in an enabled mod beats ")
+                  .Append(d.CurrentWinner)
+                  .Append(" at any priority, so no sorting is needed. 'Wrote it' is not 'it wins' until you do.\n");
             else if (d.WinnerIsOverwrite)
                 // MO2's overwrite folder is the top loose root: no mod folder out-ranks it and no left-pane sort reaches it.
                 sb.Append("  TO MAKE IT WIN: enable this folder in MO2, then move or delete the copy in ")

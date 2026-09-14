@@ -1502,10 +1502,21 @@ public sealed partial class LoadOrderService : IDisposable
 
             string? winner = providers.Count > 0 ? providers[0].Text : null;
             // MO2's overwrite folder is the TOP loose root, so no mod folder out-ranks it and no left-pane sort reaches it.
-            bool winnerIsOverwrite = place.Sources.Count > 0 && place.Sources[0].Kind == AssetKind.Loose
-                && string.Equals(place.Sources[0].ProviderName, AssetResolver.OverwriteLayerName, StringComparison.OrdinalIgnoreCase);
+            var winSrc = place.Sources.Count > 0 ? place.Sources[0] : null;
+            bool winnerIsOverwrite = winSrc is { Kind: AssetKind.Loose }
+                && string.Equals(winSrc.ProviderName, AssetResolver.OverwriteLayerName, StringComparison.OrdinalIgnoreCase);
+            // The folder the mesh was just written into is already the winner — an into= re-edit of the same mesh,
+            // which is the normal iterate loop. Sorting that folder above itself is not an instruction.
+            bool winnerIsDestination = winSrc is not null
+                && string.Equals(winSrc.ProviderName, Path.GetFileName(rf.ModFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+                                 StringComparison.OrdinalIgnoreCase);
+            // A BSA or the game's Data folder loses to any enabled mod's loose copy, at any priority.
+            bool winnerLosesOnEnable = winSrc is not null && !winnerIsDestination
+                && (winSrc.Kind == AssetKind.Bsa
+                    || string.Equals(winSrc.ProviderName, AssetResolver.DataLayerName, StringComparison.OrdinalIgnoreCase));
             return NifSetResult.OkNewFolder(rel, chosenProv, providers, place.Ambiguous, report, rf.ModFolder, rf.CreatedFresh, winner, MergeWarnings(report.Warnings, warnings, null), profileName)
-                with { WinnerIsOverwrite = winnerIsOverwrite };
+                with { WinnerIsOverwrite = winnerIsOverwrite, WinnerIsDestination = winnerIsDestination,
+                       WinnerLosesOnEnable = winnerLosesOnEnable };
         }
     }
 
@@ -1609,6 +1620,11 @@ public sealed partial class LoadOrderService : IDisposable
         bool winnerIsDestination = winnerSrc is not null
             && string.Equals(winnerSrc.ProviderName, Path.GetFileName(outDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
                              StringComparison.OrdinalIgnoreCase);
+        // The other end of the root list: a BSA wins only when no loose copy exists, and the game's Data folder only
+        // when no mod provides the path — so a placed loose copy beats either one on enable, at any mod priority.
+        bool winnerLosesOnEnable = winnerSrc is not null && !winnerIsDestination
+            && (winnerSrc.Kind == AssetKind.Bsa
+                || string.Equals(winnerSrc.ProviderName, AssetResolver.DataLayerName, StringComparison.OrdinalIgnoreCase));
 
         // ---- source bytes: an ON-DISK source= is read as named; anything else resolves through the VFS ----
         // Three source shapes reach here: an on-disk file the caller named exactly (a FULLY-QUALIFIED path, which a
@@ -1733,7 +1749,8 @@ public sealed partial class LoadOrderService : IDisposable
                 $"wrote '{rel}' but its on-disk size ({size}) does not match the {bytes.Length} source byte(s) — verify before relying on it.", winner);
         return new PlaceResult(rel, true, bytes.Length, sourceDesc, winner, null)
             { SourceOffOrderProvider = offOrderProvider, SourceOffOrderOwnerEnabled = offOrderOwnerEnabled,
-              WinnerIsOverwrite = winnerIsOverwrite, WinnerIsDestination = winnerIsDestination };
+              WinnerIsOverwrite = winnerIsOverwrite, WinnerIsDestination = winnerIsDestination,
+              WinnerLosesOnEnable = winnerLosesOnEnable };
     }
 
     /// <summary>Read an ON-DISK source= the caller named exactly. Forms: "&lt;archive.bsa&gt;|&lt;entry&gt;" (a specific
@@ -10122,6 +10139,14 @@ public sealed record NifSetResult(
     /// folder, so neither enabling nor sorting takes the mesh off it and the only remedy is to move that copy.</summary>
     public bool WinnerIsOverwrite { get; init; }
 
+    /// <summary>Whether <see cref="CurrentWinner"/> IS the folder the edited mesh was written into — an into= re-edit
+    /// of the same mesh. The edit already wins; sorting that folder above itself is not an instruction.</summary>
+    public bool WinnerIsDestination { get; init; }
+
+    /// <summary>Whether <see cref="CurrentWinner"/> is a BSA or the game's Data folder. Either loses to an enabled
+    /// mod's loose copy at any priority, so the edit wins on enable with no sort — on both lanes.</summary>
+    public bool WinnerLosesOnEnable { get; init; }
+
     public static NifSetResult OkNewFolder(string rel, NifProvider edited, IReadOnlyList<NifProvider> providers, bool ambiguous,
         HousecarlCore.NifSetReport report, string modFolder, bool freshFolder, string? winner, IReadOnlyList<string> warnings, string profileName)
         => new(rel, edited, providers, ambiguous, report, null, false, null, false, true, modFolder, null, winner, warnings, profileName)
@@ -10168,6 +10193,11 @@ public sealed record PlaceResult(string AssetPath, bool Placed, long Bytes, stri
     /// enabled houseCARL patch. The placement already wins; telling the caller to sort the folder above itself is an
     /// instruction nobody can follow.</summary>
     public bool WinnerIsDestination { get; init; }
+
+    /// <summary>Whether <see cref="CurrentWinner"/> is a BSA or the game's Data folder — the bottom of the root list.
+    /// A BSA wins only when no loose copy exists and Data only when no mod provides the path, so the placed loose copy
+    /// beats either the moment the mod is enabled, at any priority. No sort is owed, on either lane.</summary>
+    public bool WinnerLosesOnEnable { get; init; }
 
     public static PlaceResult Fail(string assetPath, string error, string? currentWinner = null)
         => new(assetPath, false, 0, null, currentWinner, error);

@@ -3138,6 +3138,7 @@ static class JsonWire
             w.WriteString("winner_note", PlaceWire.WinnerLine(r, modFolder, freshFolder));
             w.WriteBoolean("winner_is_overwrite", r.WinnerIsOverwrite);
             w.WriteBoolean("winner_is_destination", r.WinnerIsDestination);
+            w.WriteBoolean("winner_loses_on_enable", r.WinnerLosesOnEnable);
             // Bytes served out of a mod MO2 does not load are a fact of the SOURCE, and look like any other
             // placement without it.
             if (r.SourceOffOrderProvider is { } offOrder)

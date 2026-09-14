@@ -32,7 +32,9 @@ public static class WriteTools
          "or a houseCARL folder of that name already exists, it REFUSES loud rather than rename or overwrite (Q3). Pass " +
          "esl=true for the lightest trigger (a header-only light plugin consumes no consequential load-order slot; with " +
          "zero records the ESL FormID-range rule is trivially satisfied). author/description are optional TES4 header " +
-         "text. Returns the plugin path + mod folder — enable it in MO2 to use it (it carries no records, so where it sits in the load order does not matter). To author actual records, use " +
+         "text. Returns the plugin path + mod folder — enable it in MO2 to make the basename exist; if it is there to load a " +
+         "<stem>.bsa or to reserve a FormID range, its POSITION in the load order still decides that archive's precedence and " +
+         "that range. To author actual records, use " +
          ToolNames.Create + " instead.")]
     public static string CreatePlugin(
         LoadOrderService svc,
@@ -232,12 +234,12 @@ public static class WriteTools
 
     /// <summary>The full_readback=true read-back section: each touched or created record IN FULL, re-read from the
     /// written file on disk. Labeled as exactly that — the written file's content, NOT load-order truth (the patch wins
-    /// nothing until enabled in MO2). Char-budget-bounded with an explicit notice, at the lower
+    /// nothing until enabled, and sorted where <paramref name="freshPatch"/> is false). Char-budget-bounded with an explicit notice, at the lower
     /// <see cref="Wire.ReadbackMaxChars"/> default so the cut-off output stays under the host token ceiling and the
     /// truncation note reaches the caller.</summary>
-    /// <summary><paramref name="freshPatch"/> is the LANE: a patch this call created is new to the load order, so
-    /// enabling it is the whole job; an extended or in-place patch already sits somewhere in it and may need a re-sort.
-    /// The caveat has to say the one that is true, or it contradicts the per-record lines above it.</summary>
+    /// <param name="freshPatch">The LANE: a patch this call created is new to the load order, so enabling it is the
+    /// whole job; an extended or in-place patch already sits somewhere in it and may need a re-sort. The caveat has to
+    /// say the one that is true, or it contradicts the per-record lines above it.</param>
     static void AppendFullReadback(StringBuilder sb, IReadOnlyList<WritePatchBuilder.FullReadback> rb, int maxChars,
         bool dryRun = false, bool freshPatch = false)
     {
