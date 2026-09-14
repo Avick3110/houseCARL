@@ -567,7 +567,7 @@ public static class NifService
 
         // ---- apply each op; record the exact block(s)/header each is allowed to touch ----
         var applied = new List<NifOpResult>(ops.Count);
-        var touched = new List<object>();
+        var touched = new List<NiflySharp.INiObject>();
         bool expectHeader = false;
         foreach (var op in ops)
         {
@@ -592,8 +592,14 @@ public static class NifService
         // into its own canonical tree order — so a mesh whose on-disk order was not already that order is renumbered.
         // Resolve each touched block's id only now, from the post-save list, or the gate compares the right block
         // against the wrong index and refuses a correct edit.
+        // An id that does not resolve means the save replaced or dropped the block, so nothing can vouch for the edit.
         var expectedBlocks = new HashSet<int>();
-        foreach (var b in touched) expectedBlocks.Add(BlockIndexOf(nif, b));
+        foreach (var b in touched)
+        {
+            int id = BlockIndexOf(nif, b);
+            if (id < 0) return NifSetOutcome.Fail("verification could not find an edited block in the saved mesh — refusing to write. Nothing was written.");
+            expectedBlocks.Add(id);
+        }
 
         // ---- GATE 1: block-content diff (offset-immune) ----
         var g1 = VerifyBlockContent(bytes, edited, expectedBlocks, expectHeader);
@@ -625,7 +631,7 @@ public static class NifService
     /// rules bind here: bitfield sub-values (alpha flags) are structs, so read-modify-write then re-assign; and a
     /// block must be resolved and mutated via its OWNING ref, never a freshly-built one, which does not persist on
     /// save.</summary>
-    static (string? Error, string? Target, string? Before, string? After, object? TouchedBlock, bool TouchedHeader) ApplyOp(NifFile nif, NifSetOp op)
+    static (string? Error, string? Target, string? Before, string? After, NiflySharp.INiObject? TouchedBlock, bool TouchedHeader) ApplyOp(NifFile nif, NifSetOp op)
     {
         switch (op.Kind)
         {
@@ -811,7 +817,7 @@ public static class NifService
     ///
     /// <para>Touches the header only. The string table is authored, exactly as a rename's is; a block carries the
     /// table INDEX, which a same-order content swap leaves alone.</para></summary>
-    static (string? Error, string? Target, string? Before, string? After, object? TouchedBlock, bool TouchedHeader)
+    static (string? Error, string? Target, string? Before, string? After, NiflySharp.INiObject? TouchedBlock, bool TouchedHeader)
         SetHeaderString(NifFile nif, NifSetOp op)
     {
         var target = op.Target;
@@ -889,7 +895,7 @@ public static class NifService
     /// <summary>The block id of a block within the file (parallel to Header.GetBlockSize/TypeName), by reference identity —
     /// the index the block-content diff will compare. Call it AFTER the save, which re-sorts the list into the order the
     /// saved file carries. -1 (never expected) if the block isn't in the list.</summary>
-    static int BlockIndexOf(NifFile nif, object block)
+    static int BlockIndexOf(NifFile nif, NiflySharp.INiObject block)
     {
         var blocks = nif.Blocks;
         for (int i = 0; i < blocks.Count; i++) if (ReferenceEquals(blocks[i], block)) return i;
