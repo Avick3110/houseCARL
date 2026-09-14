@@ -78,8 +78,11 @@ public static class ReverseWalkBatch
         var gatheredKeys = new HashSet<FormKey>();
         void Gather(IReadOnlyList<FormKey> block)
         {
-            gathered = WinnerBodies.For(view, session, block, null, out _);
-            gatheredKeys = new HashSet<FormKey>(block);
+            // A candidate judged at an earlier hop is remembered, so its body is not read again and not gathered.
+            var need = new List<FormKey>(block.Count);
+            foreach (var k in block) if (!linksOf.ContainsKey(k)) need.Add(k);
+            gathered = WinnerBodies.For(view, session, need, null, out _);
+            gatheredKeys = new HashSet<FormKey>(need);
         }
         // The index answers in candidates — it says SOME plugin's copy carries the link. references= then re-tests
         // each candidate against the body it judges, and so does this: a record whose winner dropped the link is
