@@ -867,12 +867,17 @@ static class JsonWire
     // ---- housecarl_records: the chain form (walk=) --------------------------------------------------
 
     /// <summary>One chain row — shared by the json render and the artifact writer. Node status is 'expanded'
-    /// (entered) or 'kept' (a boundary: exclusion stop, depth cap, unresolved link — the note names which).</summary>
-    internal static void WriteChainRow(Utf8JsonWriter w, LoadOrderService.WalkSeedResult row, MemoryStream ms, int cap)
+    /// (entered) or 'kept' (a boundary: exclusion stop, depth cap, unresolved link — the note names which).
+    /// <para>Returns whether anything in THIS row was held back at <paramref name="cap"/>. The row render owns both
+    /// unbounded lists — the nodes and the cycles — so the caller cannot see a cut from the outside, and a row that
+    /// elides without saying so leaves the response over max_chars with no artifact written. The artifact writer
+    /// passes int.MaxValue, where both guards are inert.</para></summary>
+    internal static bool WriteChainRow(Utf8JsonWriter w, LoadOrderService.WalkSeedResult row, MemoryStream ms, int cap)
     {
+        bool cut = false;
         w.WriteStartObject();
         w.WriteString("formid", row.Seed);
-        if (row.Error is not null) { w.WriteString("error", row.Error); w.WriteEndObject(); return; }
+        if (row.Error is not null) { w.WriteString("error", row.Error); w.WriteEndObject(); return false; }
         WriteNullable(w, "type", row.Type);
         WriteNullable(w, "editorid", row.EditorId);
         w.WriteStartArray("nodes");
@@ -884,6 +889,7 @@ static class JsonWire
                 w.WriteStartObject();
                 w.WriteString("note", "[nodes truncated at max_chars — raise max_chars, or to_file= for the complete walk]");
                 w.WriteEndObject();
+                cut = true;
                 break;
             }
             w.WriteStartObject();
@@ -897,7 +903,27 @@ static class JsonWire
             w.WriteEndObject();
         }
         w.WriteEndArray();
-        if (row.Cycles.Count > 0) WriteStringArray(w, "cycles", row.Cycles);
+        if (row.Cycles.Count > 0)
+        {
+            // Bounded the way the nodes are: one entry per closing link, each the whole loop, is not a list a row
+            // may write whole.
+            w.WriteStartArray("cycles");
+            int written = 0;
+            foreach (var c in row.Cycles)
+            {
+                w.Flush();
+                if (ms.Length >= cap)
+                {
+                    w.WriteStringValue($"[{row.Cycles.Count - written} more cycle(s) held back at max_chars — raise max_chars, or to_file= for the complete walk]");
+                    cut = true;
+                    break;
+                }
+                w.WriteStringValue(c);
+                written++;
+            }
+            w.WriteEndArray();
+        }
+        if (row.CyclesCapped) w.WriteBoolean("cycles_capped", true);
         WriteNullable(w, "truncation", row.TruncationNote);
         if (row.TemplateReport is { } tr)
         {
@@ -915,6 +941,7 @@ static class JsonWire
             w.WriteEndArray();
         }
         w.WriteEndObject();
+        return cut;
     }
 
     /// <summary>records form=chain: <c>{…envelope, seeds, errors, epoch, rows:[…]}</c>.</summary>
@@ -940,7 +967,7 @@ static class JsonWire
                 if (manifestOnly) break;
                 w.Flush();
                 if (ms.Length >= cap) { rowsTruncated = true; break; }
-                WriteChainRow(w, row, ms, cap);
+                if (WriteChainRow(w, row, ms, cap)) rowsTruncated = true;   // a row that elided inside itself counts
                 rendered++;
             }
             w.WriteEndArray();

@@ -388,7 +388,9 @@ public static class ClosureWalk
     /// the readback. The finding itself is <see cref="GraphCycles"/>, shared with the reading walk.</summary>
     static List<WalkCycle> FindCycles(
         Dictionary<FormKey, List<FormKey>> edges, Dictionary<FormKey, string> labels)
-        => GraphCycles.Find(edges)
+        // Uncapped here on purpose: the copy walk refuses at its own node cap rather than truncating, so a partial
+        // cycle list would be the one degraded answer on a path that has none.
+        => GraphCycles.Find(edges, int.MaxValue, out _)
                       .Select(path => new WalkCycle(
                           path, path[0],
                           labels.TryGetValue(path[^1], out var lb) ? lb : FormIdToken.Of(path[^1])))
