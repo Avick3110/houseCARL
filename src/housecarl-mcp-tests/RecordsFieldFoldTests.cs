@@ -41,6 +41,30 @@ public sealed class RecordsFieldFoldTests : RecordsTestBase
     }
 
     [Fact]
+    public void AnOrdinaryListsCountIsOneNumberUnderFieldsAndUnderWhere()
+    {
+        // #724's other half: a list that is NOT a containment collection — a form list's entries — counts the
+        // same on both surfaces, so the cheap count never became a containment-only answer.
+        Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) }, project: Fields("Items[*count]")),
+               "Items[*count] = " + (ReadEngine.MaxExpandNodes + 1));
+        Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) },
+                                    where: new[] { "Items[*count] = " + (ReadEngine.MaxExpandNodes + 1) }),
+               "HcRecBigList");
+        Assert.DoesNotContain("HcRecBigList",
+            RecordsTools.Records(Svc, formids: new[] { Fid(W.BigList) },
+                                 where: new[] { "Items[*count] = " + (ReadEngine.MaxExpandNodes + 2) }));
+    }
+
+    [Fact]
+    public void ACountColumnReadsTheSameNumberAtEveryDepth()
+    {
+        // The count needs no expansion, so a caller's depth must not change the number (nor pay to open the list).
+        Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.SpellA) },
+                                    project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects[*count]" }, depth = 4 }),
+               "Effects[*count] = 2");
+    }
+
+    [Fact]
     public void TheBareStarIsOneRowPerElement_TheRowsFormsOwnRowShape()
     {
         var r = Spell("Effects[*]");
