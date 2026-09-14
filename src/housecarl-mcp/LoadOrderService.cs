@@ -9518,21 +9518,7 @@ public sealed partial class LoadOrderService : IDisposable
     /// marker. The marker lives in meta.ini, the one mod-root file MO2 does not deploy into the game Data folder, so
     /// it never pollutes Data. Fail-safe: a missing or stripped marker reads as NOT owned, so houseCARL refuses to
     /// modify the folder rather than risk touching a user mod.</summary>
-    static bool IsHouseCarlOwned(string folder)
-    {
-        var meta = Path.Combine(folder, "meta.ini");
-        if (!File.Exists(meta)) return false;
-        bool inMarker = false;
-        foreach (var raw in File.ReadLines(meta))
-        {
-            var line = raw.Trim();
-            if (line.StartsWith('[') && line.EndsWith(']'))
-                inMarker = line.Equals(HousecarlOwnerMeta.Section, StringComparison.OrdinalIgnoreCase);
-            else if (inMarker && line.Replace(" ", "").Equals("generated=true", StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-        return false;
-    }
+    static bool IsHouseCarlOwned(string folder) => HousecarlOwnerMeta.MarksOwned(folder);
 
     /// <summary>Write the new mod folder's <c>meta.ini</c>: the <c>[houseCARL]</c> ownership marker, which MO2 does
     /// not deploy, plus a minimal <c>[General]</c> for MO2's display. A minimal meta.ini is valid and the custom

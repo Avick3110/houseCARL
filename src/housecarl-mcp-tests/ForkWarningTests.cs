@@ -23,11 +23,12 @@ public sealed class ForkWarningTests : IDisposable
 {
     const string MasterName = "HcForkMaster.esm";
     const string PatchAName = "HcForkA.esp";
+    const string ForeignName = "HcForkForeign.esp";
 
     readonly string _root;
     readonly string _priorCorpusPath;
     readonly LoadOrderService _svc;
-    readonly FormKey _list, _swordA, _swordB;
+    readonly FormKey _list, _foreignList, _swordA, _swordB;
 
     public ForkWarningTests()
     {
@@ -45,23 +46,41 @@ public sealed class ForkWarningTests : IDisposable
             new LeveledItemEntry { Data = new LeveledItemEntryData { Level = 1, Count = 1, Reference = new FormLink<IItemGetter>(_swordA) } },
         };
         _list = ll.FormKey;
+        // A second list, overridden only by the third-party plugin below — the control for the fresh-patch arm.
+        var fl = master.LeveledItems.AddNew();
+        fl.EditorID = "HcForkForeignList";
+        fl.Entries = new Noggog.ExtendedList<LeveledItemEntry>
+        {
+            new LeveledItemEntry { Data = new LeveledItemEntryData { Level = 1, Count = 1, Reference = new FormLink<IItemGetter>(_swordA) } },
+        };
+        _foreignList = fl.FormKey;
 
         // Patch A: a real override of that same list, the state the bug starts from.
         var patchA = new SkyrimMod(new ModKey("HcForkA", ModType.Plugin), SkyrimRelease.SkyrimSE);
         var ovr = patchA.LeveledItems.GetOrAddAsOverride(ll);
         ovr.Entries!.Add(new LeveledItemEntry { Data = new LeveledItemEntryData { Level = 1, Count = 1, Reference = new FormLink<IItemGetter>(_swordB) } });
 
+        // A plugin houseCARL did NOT make, overriding the other list — a third-party mod, not a sibling patch.
+        var foreign = new SkyrimMod(new ModKey("HcForkForeign", ModType.Plugin), SkyrimRelease.SkyrimSE);
+        var fovr = foreign.LeveledItems.GetOrAddAsOverride(fl);
+        fovr.Entries!.Add(new LeveledItemEntry { Data = new LeveledItemEntryData { Level = 1, Count = 1, Reference = new FormLink<IItemGetter>(_swordB) } });
+
         var instance = Path.Combine(_root, "inst");
         var mods = Path.Combine(instance, "mods");
         var masterFolder = Path.Combine(mods, "ForkMasterMod");
         var patchFolder = Path.Combine(mods, "houseCARL - HcForkA");
+        var foreignFolder = Path.Combine(mods, "ForkForeignMod");
         Directory.CreateDirectory(masterFolder);
         Directory.CreateDirectory(patchFolder);
+        Directory.CreateDirectory(foreignFolder);
         master.BeginWrite.ToPath(Path.Combine(masterFolder, MasterName))
             .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
         patchA.BeginWrite.ToPath(Path.Combine(patchFolder, PatchAName))
             .WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
+        foreign.BeginWrite.ToPath(Path.Combine(foreignFolder, ForeignName))
+            .WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
         // The ownership marker, so into="HcForkA.esp" reaches this folder the way it reaches a patch houseCARL wrote.
+        // The foreign folder gets none, which is what makes it foreign.
         File.WriteAllText(Path.Combine(patchFolder, "meta.ini"), HousecarlOwnerMeta.Section + "\r\ngenerated=true\r\n");
 
         var genDir = Path.Combine(_root, "corpus-gen");
@@ -73,9 +92,9 @@ public sealed class ForkWarningTests : IDisposable
             + Path.Combine(_root, "game").Replace(@"\", @"\\") + ")\r\n");
         var prof = Path.Combine(instance, "profiles", "Default");
         Directory.CreateDirectory(prof);
-        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n" + PatchAName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + MasterName + "\r\n*" + PatchAName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+houseCARL - HcForkA\r\n+ForkMasterMod\r\n");
+        File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + MasterName + "\r\n" + PatchAName + "\r\n" + ForeignName + "\r\n");
+        File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + MasterName + "\r\n*" + PatchAName + "\r\n*" + ForeignName + "\r\n");
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+ForkForeignMod\r\n+houseCARL - HcForkA\r\n+ForkMasterMod\r\n");
 
         _svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(_root, "user.json")));
     }
@@ -124,6 +143,30 @@ public sealed class ForkWarningTests : IDisposable
             patch: "HcForkLone");
         Assert.DoesNotContain("error:", r);
         Assert.DoesNotContain("warning:", r);
+    }
+
+    /// <summary>A fresh patch sorts to the top and has just copied the winner's body in, so a third-party mod
+    /// overriding the record is not a fork hazard — its content came along. Only a sibling houseCARL patch, which may
+    /// not be enabled yet and so may not be the winner, is.</summary>
+    [Fact]
+    public void AFreshPatchOverARecordOnlyAForeignPluginOverridesWarnsAboutNothing()
+    {
+        var r = AddEntry(_foreignList, _swordA, patch: "HcForkForeignFresh");
+        Assert.DoesNotContain("error:", r);
+        Assert.DoesNotContain("warning:", r);
+    }
+
+    /// <summary>The other arm: a patch that HAS a position is out-loaded by anything below it, whoever wrote it, so
+    /// the foreign plugin is named there — and the remedy names the lane that can edit a plugin houseCARL did not
+    /// make.</summary>
+    [Fact]
+    public void ExtendingAPatchNamesAnyPluginBelowItWhoeverWroteIt()
+    {
+        var r = AddEntry(_foreignList, _swordA, into: PatchAName);
+        Assert.DoesNotContain("error:", r);
+        Assert.Contains("warning:", r);
+        Assert.Contains(ForeignName, r);
+        Assert.Contains($"in_place=\"{ForeignName}\"", r);
     }
 
     /// <summary>A dry run predicts the same fork, or the check only fires once the caller is already committed.</summary>
