@@ -10,11 +10,26 @@ using ModelContextProtocol.Protocol;
 bool useHttp = args.Contains("--http");
 var hostArgs = args.Where(a => a != "--http").ToArray();   // strip our own flag so the config provider doesn't choke on it
 
+// The optional cut on the PUBLISHED schemas (HOUSECARL_MAX_SCHEMA_DEPTH), for a provider that refuses the whole
+// server over nesting depth. Read before either host is built, and a value that is not a depth stops the start
+// here in one sentence: ignoring it would publish the schemas that provider refuses, under an error naming
+// neither houseCARL nor this variable.
+int? maxSchemaDepth;
+try
+{
+    maxSchemaDepth = SchemaDepthCap.Configured();
+}
+catch (ArgumentException bad)
+{
+    Console.Error.WriteLine(bad.Message);
+    return 1;
+}
+
 if (useHttp)
 {
     var builder = WebApplication.CreateBuilder(hostArgs);
     var (svc, explicitMode, instanceDir, instanceSource, configNote) = SetupHouseCarl(builder.Configuration, builder.Services);
-    AddMcp(builder.Services, stdio: false);
+    AddMcp(builder.Services, stdio: false, maxSchemaDepth);
 
     var app = builder.Build();
     app.MapMcp();
@@ -38,7 +53,7 @@ else
     builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 
     var (svc, explicitMode, instanceDir, instanceSource, configNote) = SetupHouseCarl(builder.Configuration, builder.Services);
-    AddMcp(builder.Services, stdio: true);
+    AddMcp(builder.Services, stdio: true, maxSchemaDepth);
 
     var app = builder.Build();
 
@@ -54,6 +69,8 @@ else
             explicitMode ? "explicit configured paths" : $"MO2 instance '{instanceDir}' [{instanceSource}]");
     await app.RunAsync();
 }
+
+return 0;   // the refusal above returns 1, so the exit code is spelled on both paths
 
 // ── shared setup — MUST stay identical across transports, or stdio and http resolve the load order differently.
 //    Both branches call these; only the transport line itself differs. ────────────────────────────────────────
@@ -121,7 +138,7 @@ static (LoadOrderService svc, bool explicitMode, string? instanceDir, string ins
 
 // The MCP server registration — server identity, instructions, and the attribute-registered tools. Only the
 // transport line differs between modes; everything else is shared.
-static void AddMcp(IServiceCollection services, bool stdio)
+static void AddMcp(IServiceCollection services, bool stdio, int? maxSchemaDepth)
 {
     var mcp = services.AddMcpServer(options =>
     {
@@ -178,8 +195,9 @@ static void AddMcp(IServiceCollection services, bool stdio)
     mcp.WithToolsFromAssembly(ToolSurface.Assembly);
     // The published-schema layer: the @file union (an array OR "@<path>", which C# cannot express as one type),
     // then inlining every same-document $ref so no published schema is recursive. Published shape only; what the
-    // tool ACCEPTS is unchanged. See ToolSchemas.
-    ToolSchemas.PublishSchemas(services);
+    // tool ACCEPTS is unchanged. See ToolSchemas. The depth cut rides the same layer and does nothing unless
+    // HOUSECARL_MAX_SCHEMA_DEPTH is set.
+    ToolSchemas.PublishSchemas(services, maxSchemaDepth);
     // The argument-binding shim: schema-driven coercion of obvious-intent argument shapes (a bare string where an
     // array is declared, quoted bools/numbers), named refusal of missing required parameters, and a named rewrite
     // of the SDK's generic binding-failure text. See ToolCallShim.
