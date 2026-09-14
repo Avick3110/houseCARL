@@ -758,7 +758,7 @@ public static class RecordsTools
                 // The transitive reverse walk: every link, at every hop, off the reverse-reference index. The
                 // reached set is the selection the ordinary reading forms then consume, exactly as a forward walk's
                 // is — so the per-hop census is the only thing this lane renders of its own.
-                var rev = ReverseWalkBatch.Run(svc, ids, walkDepth, walkMaxNodes, demand);
+                var rev = ReverseWalkBatch.Run(svc, ids, walkDepth, walkMaxNodes, demand, ct);
                 if (rev.Refusal is not null)
                     return json ? JsonWire.RenderError(rev.Refusal, rev.Stamp) : "error: " + rev.Refusal + Wire.EpochLine(rev.Stamp);
                 if (SeamTear(rev.Stamp) is { } rTear)

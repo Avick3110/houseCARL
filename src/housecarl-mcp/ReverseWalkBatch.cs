@@ -33,9 +33,10 @@ public static class ReverseWalkBatch
     }
 
     /// <summary>Run the walk from these seeds. Every seed is parsed against the captured build, so a bad FormID is
-    /// a refusal naming it rather than a seed that silently reaches nothing.</summary>
+    /// a refusal naming it rather than a seed that silently reaches nothing. <paramref name="ct"/> stops the body
+    /// gather between plugin walks, so a client that aborted is not waited out to the end of a block.</summary>
     public static Result Run(LoadOrderService svc, IReadOnlyList<string> seeds, int depth, int maxNodes,
-                             ArtifactDemand? demand)
+                             ArtifactDemand? demand, CancellationToken ct = default)
     {
         var pin = svc.CapturePin();
         var view = pin.View;
@@ -81,7 +82,7 @@ public static class ReverseWalkBatch
             // A candidate judged at an earlier hop is remembered, so its body is not read again and not gathered.
             var need = new List<FormKey>(block.Count);
             foreach (var k in block) if (!linksOf.ContainsKey(k)) need.Add(k);
-            gathered = WinnerBodies.For(view, session, need, null, out _);
+            gathered = WinnerBodies.For(view, session, need, null, out _, ct);
             gatheredKeys = new HashSet<FormKey>(need);
         }
         // The index answers in candidates — it says SOME plugin's copy carries the link. references= then re-tests
