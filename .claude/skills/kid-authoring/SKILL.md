@@ -99,6 +99,11 @@ Read what your task needs, not everything.
    to a `to_file` artifact and merging the identity columns. A single `Name contains` count
    under-reports a wildcard line, usually by a lot: the keyword channel alone catches everything
    carrying `WeapTypeDagger`.
+   A `-exclusion` term grounds the same way, with the complement spelled on the operator: `not`
+   leads a string operator, so `where=["Name not contains Dagger"]` is the census for `-*Dagger` on
+   the name channel. It is the complement over records the field READS A VALUE on — a record with
+   no `Name` is in neither count — so a line whose reach depends on the no-value records needs the
+   `missing` term beside it.
    When the line carries a **plugin-name** filter, count by the **defining** plugin, not the winner:
    KID tests `TESFile::IsFormInMod` on the item's own FormID (`references/filters.md` §2), so the
    filter catches only records that plugin defines, and a patch that overrides them changes nothing
