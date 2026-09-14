@@ -166,7 +166,10 @@ static class RowProjection
         if (trimToType && !f.HasValue && val is { Length: > 0 } n && n[0] == '['
             && n.IndexOf(']') is var close && close > 0 && close < n.Length - 1)
             { val = n[..(close + 1)]; trimmed = true; }
-        if (f.Display is not null) val += $" ({f.Display})";
+        // A blob takes its SHORT annotation here: the sentence the read lane renders is ~90 characters, and a cell is
+        // joined positionally and bounded by width, so the prose would cut a scan far shorter than it used to.
+        if (f.Bytes is { } opaque) val += " " + ReadEngine.BytesShortDisplay(opaque, f.BytesFormVersion);
+        else if (f.Display is not null) val += $" ({f.Display})";
         // The trim took away the FormID the summary named, so its resolve_names identity goes with it: it would
         // name a reference this cell no longer shows, and the sub-field cell that still shows it carries the
         // same identity a cell along. json is untrimmed and keeps both.

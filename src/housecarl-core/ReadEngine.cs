@@ -49,9 +49,15 @@ namespace HousecarlCore;
 /// leaf. Carried structurally because a consumer deciding whether a value was actually JUDGED must not have to match
 /// a hex-looking token or parse the display annotation: a blob is layout-versioned by the record's FormVersion, so
 /// "it re-read fine" says nothing about whether the bytes suit the record they now sit on (#529).</param>
+/// <param name="BytesFormVersion">The FormVersion of the record this blob was actually read off — which a
+/// <c>*parent</c> hop makes different from the record the read named. Set only where <paramref name="Bytes"/> is,
+/// and null when that record carries no FormVersion. Carried structurally for the same reason
+/// <paramref name="Bytes"/> is, and because a render too narrow for the prose annotation (a dense positional cell)
+/// must be able to build its own short form rather than re-derive the version from the sentence.</param>
 public sealed record FieldValue(string Path, bool HasValue, string? Token, string? Note, string? Display = null, ResolvedRef? Link = null,
                                 bool Present = true, int? Count = null, bool Readable = true,
-                                IReadOnlyList<FieldValue>? Cells = null, string? NoteRef = null, int? Bytes = null);
+                                IReadOnlyList<FieldValue>? Cells = null, string? NoteRef = null, int? Bytes = null,
+                                ushort? BytesFormVersion = null);
 
 /// <summary>The resolved identity of a form reference — the shared contract behind housecarl_resolve (a full row)
 /// and the resolve_names field annotation. <see cref="Resolved"/> false ⇒ the FormKey is valid but not present in
@@ -291,8 +297,14 @@ public static class ReadEngine
     {
         for (int i = from; i < fields.Count; i++)
             if (fields[i] is { Bytes: int n, Display: null })
-                fields[i] = fields[i] with { Display = BytesDisplay(n, formVersion) };
+                fields[i] = fields[i] with { Display = BytesDisplay(n, formVersion), BytesFormVersion = formVersion };
     }
+
+    /// <summary>The blob annotation in its SHORT form — <c>[opaque 12B @FV40]</c> — for a render that has no room for
+    /// the sentence: a dense positional cell is joined with separators and bounded by width, where ~90 characters of
+    /// prose per cell truncates a scan far earlier than it used to. Same two facts, same display-only status.</summary>
+    public static string BytesShortDisplay(int length, ushort? formVersion) =>
+        "[opaque " + length + "B" + (formVersion is { } fv ? " @FV" + fv : "") + "]";
 
     /// <summary>The DISPLAY-ONLY annotation on an opaque blob leaf: how many bytes, and the FormVersion of the record
     /// they were read off. A blob like <c>Model.Data</c> (MODT) is laid out per the record's FormVersion, and Mutagen
