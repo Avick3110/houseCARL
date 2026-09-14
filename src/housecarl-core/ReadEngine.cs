@@ -245,7 +245,7 @@ public static class ReadEngine
             // (depth>=2) is a separate branch below, so the oracle-critical leaf path stays untouched.
             foreach (var p in targets)
             {
-                var seg = p.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var seg = Segments(p);
                 var (on, tail, hopNote) = HopToParent(record, seg, parentOf);
                 if (hopNote is not null) { fields.Add(new FieldValue(p, false, null, hopNote, null, Present: false, Count: null, Readable: false)); continue; }
                 var r = ReadLeaf(on, tail);
@@ -276,7 +276,7 @@ public static class ReadEngine
             {
                 int d = perPath is not null ? perPath[at] : depth;
                 at++;
-                var seg = p.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var seg = Segments(p);
                 var (on, tail, hopNote) = HopToParent(record, seg, parentOf);
                 if (hopNote is not null) { fields.Add(new FieldValue(p, false, null, hopNote, null, Present: false, Count: null, Readable: false)); continue; }
                 int from = fields.Count;
@@ -317,6 +317,20 @@ public static class ReadEngine
         "opaque bytes, " + length + " byte(s) — layout follows this record's "
         + (formVersion is { } fv ? "FormVersion " + fv : "FormVersion, which this record does not carry")
         + "; not parsed";
+
+    /// <summary>The steps a read path NAVIGATES. A trailing <c>[*count]</c> is the fold's own step rather than a
+    /// field — the list's own line already carries how many elements it holds — so it is stripped here and the line
+    /// is still emitted under the caller's whole spelling. Reading the count under its own path is also what keeps a
+    /// count off the annotations the LIST line earns: a child-union note the count never renders would open a body
+    /// per touching plugin for nothing.</summary>
+    static string[] Segments(string path)
+    {
+        var seg = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (seg.Length == 0) return seg;
+        var (bare, fold, key) = PathFoldGrammar.Read(seg[^1]);
+        if (key is not null && fold == PathFold.Count && bare.Length > 0) seg[^1] = bare;
+        return seg;
+    }
 
     /// <summary>The <c>*parent</c> containment step on a read path: strip the leading hops, climb to the record
     /// that CONTAINS this one, and hand back what the rest of the path should be read on. The parent set is

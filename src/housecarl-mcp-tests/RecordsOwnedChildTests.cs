@@ -416,6 +416,18 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.DoesNotContain("HcOcCellB", miss);
     }
 
+    /// <summary>A count is not the union: the annotation opens a body per touching plugin to state something a
+    /// number does not show, so a <c>[*count]</c> column must not earn it — while naming the list still does.</summary>
+    [Fact]
+    public void ACountColumnDoesNotPayForTheChildUnion()
+    {
+        var count = Read(_w.CellA, new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Temporary[*count]" } });
+        Assert.Contains("Temporary[*count] = 0", count);
+        Assert.DoesNotContain(ReadSentences.UnionLabel, count);
+        var list = Read(_w.CellA, new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Temporary" } });
+        Assert.Contains(ReadSentences.UnionLabel, list);
+    }
+
     /// <summary>The value beside the union is still the read body's OWN list, in its own order — those are the
     /// indices a Remove addresses, and a union spliced into them would move them.</summary>
     [Fact]

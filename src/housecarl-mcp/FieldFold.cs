@@ -10,6 +10,12 @@ sealed record FieldFold(string Requested, string Root, string[] Tail, PathFold F
     /// bracketed index inside a step is another, because <c>ReadEngine.Expand</c> spends one level on each — so
     /// 'Conditions[0].Data' is three, not two, and counting segments alone stops the read a level short.</summary>
     internal int TailLevels => Tail.Sum(s => 1 + s.Count(c => c == '['));
+
+    /// <summary>The path the READ runs. A <c>[*count]</c> column reads the list under its own whole spelling: the
+    /// line it gets back is the same list line, and reading it there keeps the count clear of the annotations the
+    /// bare list path earns — the child-union note above all, which opens a body per touching plugin to say
+    /// something a number does not show.</summary>
+    internal string ReadPath => Fold == PathFold.Count ? Requested : Root;
 }
 
 /// <summary>
@@ -74,13 +80,13 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
         for (int i = 0; i < Paths.Length; i++)
         {
             if (Folds[i] is not { } fold) { cols[i] = Lines(rec.Fields, Paths[i], CallerDepth); continue; }
-            var head = rec.Fields.FirstOrDefault(f => f.Path == fold.Root);
+            var head = rec.Fields.FirstOrDefault(f => f.Path == fold.ReadPath);
             // An absent or unreadable list is the READ's answer, not a misuse of the token: it carries out under
             // the caller's own spelling. Only a root that is not a list at all is a misuse, and that fails the
             // record by name.
             if (head is null || !head.Present || !head.Readable)
             {
-                cols[i] = new[] { (head ?? new FieldValue(fold.Root, false, null, ReadEngine.AbsentNote, Present: false)) with { Path = fold.Requested } };
+                cols[i] = new[] { (head ?? new FieldValue(fold.ReadPath, false, null, ReadEngine.AbsentNote, Present: false)) with { Path = fold.Requested } };
                 continue;
             }
             if (head.Count is null) return (null, Array.Empty<FieldValue>(), NotAList(rec, fold, head));
@@ -213,7 +219,7 @@ static class FieldFolds
                 if (fold == PathFold.Count && s != segs.Length - 1)
                     return (null, $"project.fields path '{path}': nothing can follow '[*count]' — it yields how MANY elements there are, not an element to step into.");
                 folds[i] = new FieldFold(path, string.Join(".", segs[..s].Append(bare)), segs[(s + 1)..], fold);
-                readPaths[i] = folds[i]!.Root;
+                readPaths[i] = folds[i]!.ReadPath;
                 any = true;
             }
         }
