@@ -102,6 +102,8 @@ public sealed class WalkUnscannableWorld : IDisposable
             Value = 1f,
             Modification = PerkEntryPointModifyActorValue.ModificationType.AddAVMult,
         });
+        // A link on a field that still READS, so a seed path over it proves a chain the unreadable Effects cannot.
+        badPerk.NextPerk.SetTo(goodPerk);
 
         var npc = master.Npcs.AddNew();
         npc.EditorID = "HcWalkUnscanSeed";
@@ -230,19 +232,60 @@ public sealed class RecordsWalkUnscannableTests : IClassFixture<WalkUnscannableF
         Assert.Contains("MalformedDataException", r);
     }
 
-    /// <summary>The same seed under seed_paths: each path answers for itself and the call completes — the record
-    /// is never named twice as a boundary however many paths ask for its links.</summary>
+    /// <summary>The same seed under seed_paths: each path answers for itself and the call completes.</summary>
     [Fact]
     public void AnUnscannableSeedUnderSeedPathsStillAnswers()
     {
         var r = RecordsTools.Records(
             _w.Svc, formids: new[] { _w.BadPerkFid },
-            walk: new RecordsTools.RecordsWalk { depth = 4, seed_paths = new[] { "Effects", "Effects" } },
+            walk: new RecordsTools.RecordsWalk { depth = 4, seed_paths = new[] { "Effects" } },
             project: new RecordsTools.RecordsProject { form = "chain" });
 
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
         Assert.Contains("PerkEntryPointModifyActorValue did not have expected parameter type flag", r);
-        Assert.True(r.Split("could not be scanned").Length - 1 <= 1, r);
+    }
+
+    /// <summary>A seed is not a node: a seed whose own content will not parse reaches nothing, and the count says
+    /// so rather than counting the seed's own fault as a record it reached.</summary>
+    [Fact]
+    public void AnUnscannableSeedIsNotCountedAsAReachedNode()
+    {
+        var r = RecordsTools.Records(
+            _w.Svc, formids: new[] { _w.BadPerkFid },
+            walk: new RecordsTools.RecordsWalk { depth = 4 },
+            project: new RecordsTools.RecordsProject { form = "chain" });
+
+        Assert.Contains("0 node(s) reached", r);
+        Assert.Contains("Nothing to walk from", r);
+    }
+
+    /// <summary>One path that will not parse does not throw away what another path already proved: the chain off
+    /// the readable path is walked, and the unreadable one says why it gave nothing.</summary>
+    [Fact]
+    public void AFaultOnOneSeedPathKeepsWhatAnotherPathProved()
+    {
+        var r = RecordsTools.Records(
+            _w.Svc, formids: new[] { _w.BadPerkFid },
+            walk: new RecordsTools.RecordsWalk { depth = 4, seed_paths = new[] { "NextPerk", "Effects" } },
+            project: new RecordsTools.RecordsProject { form = "chain" });
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.Contains(WalkUnscannableWorld.GoodPerkEditorId, r);
+        Assert.Contains("PerkEntryPointModifyActorValue did not have expected parameter type flag", r);
+    }
+
+    /// <summary>A path spelled wrong after one that will not parse still fails loudly on its own row — the record's
+    /// fault does not silence the paths behind it.</summary>
+    [Fact]
+    public void AMistypedPathAfterAFaultingOneStillFailsLoudly()
+    {
+        var r = RecordsTools.Records(
+            _w.Svc, formids: new[] { _w.BadPerkFid },
+            walk: new RecordsTools.RecordsWalk { depth = 4, seed_paths = new[] { "Effects", "Efects" } },
+            project: new RecordsTools.RecordsProject { form = "chain" });
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.Contains("Efects", r);
     }
 
     /// <summary>The template lane reads the template flags, not the links, so it has its own way into the same
