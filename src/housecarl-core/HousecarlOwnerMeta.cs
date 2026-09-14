@@ -20,7 +20,12 @@ public static class HousecarlOwnerMeta
     public const string Section = "[houseCARL]";
 
     /// <summary>Does this mod folder carry the marker — is it a folder houseCARL made, and therefore one
-    /// <c>into=</c> can extend? Fail-safe: a missing, unreadable or stripped marker reads as NOT owned.
+    /// <c>into=</c> can extend? Fail-safe on ABSENCE: a folder with no meta.ini, or one whose meta.ini does not carry
+    /// the marker, reads as NOT owned.
+    /// <para>A meta.ini that exists and cannot be READ THROWS rather than reading as not-owned: on the extend gate
+    /// that difference is the whole answer — an unreadable folder silently dropped mid-scan turns "several patches
+    /// carry this name" into a refusal that names one spelling as unambiguous. A caller for whom the answer is only
+    /// advisory (<c>ForkWarning</c>) catches it there, where the fault costs a sentence rather than a write.</para>
     /// <para>The one implementation, so the extend lane's ownership gate and any other reader of the same fact
     /// cannot drift.</para></summary>
     public static bool MarksOwned(string? folder)
