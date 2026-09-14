@@ -451,6 +451,22 @@ public static class WritePatchBuilder
         // load order like any other record, so a target whose defining plugin is disabled stays a loud refusal —
         // never a silent edit of the patch's possibly-stale override copy.
         Dictionary<FormKey, IMajorRecord>? patchDefined = null;
+        // Every body this call reads, gathered a PLUGIN at a time instead of a record at a time (#723): a per-edit
+        // fetch re-enumerates the whole winner plugin, so a bulk call's cost was (records in that plugin) per op.
+        // Declared from the index alone (winners) and from the same pole resolution the loop below runs, so the
+        // gather can never want a record the loop does not.
+        var gather = new BodyGather(view, session);
+        foreach (var e in edits)
+        {
+            if (view.ResolveWinner(e.Target) is { } gw) gather.Want(gw.WinnerPlugin, e.Target);
+            if (!string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal)) continue;
+            if (TryOffOrderCopyBody(copyFromSources, e, view, out _)) continue;       // pre-fetched by the service
+            var srcPole = ResolveCopyPole(e, view, out var poleErr);
+            if (poleErr is not null || string.IsNullOrWhiteSpace(srcPole)) continue;  // the loop below reports it
+            if (!string.Equals(srcPole, fileName, StringComparison.OrdinalIgnoreCase) && view.ContainsPlugin(srcPole))
+                gather.Want(srcPole, e.CopySource);
+        }
+        gather.Gather();
         int order = -1;
         void Problem(string message) => problems.Add((order, message));
         foreach (var e in edits)
@@ -460,7 +476,7 @@ public static class WritePatchBuilder
             var w = view.ResolveWinner(e.Target);
             if (w is not null)
             {
-                body = view.GetRecord(session, w.Value.WinnerPlugin, e.Target);
+                body = gather.Body(w.Value.WinnerPlugin, e.Target);
                 if (body is null) { Problem($"{FormIdToken.Of(e.Target)}: winner '{w.Value.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
                 winnerPlugin = w.Value.WinnerPlugin;
             }
@@ -517,7 +533,7 @@ public static class WritePatchBuilder
                 { Problem($"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
                 else
                 {
-                    srcBody = view.GetRecord(session, srcPlugin, e.CopySource);
+                    srcBody = gather.Body(srcPlugin, e.CopySource);
                     if (srcBody is null)
                     { Problem(CopySourceMissing(e, srcPlugin)); continue; }
                 }
@@ -935,13 +951,26 @@ public static class WritePatchBuilder
         var harvestRulebook = rulebook.WithLinkHarvest(linkTokens);
         var staged = new List<(int order, PatchEdit edit, IMajorRecordGetter body, WriteRequest req, string label, IMajorRecordGetter? srcBody, bool selfSource, string? harvestVerdict, bool carriesLinks)>(edits.Count);
         var problems = new List<(int Order, string Message)>();
+        // One walk of the target per CALL instead of one per edit (#723) — and the same for every in-order copy
+        // source, declared from the same pole resolution the loop below runs.
+        var gather = new BodyGather(view, session);
+        foreach (var e in edits)
+        {
+            gather.Want(targetName, e.Target);
+            if (!string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal)) continue;
+            if (TryOffOrderCopyBody(copyFromSources, e, view, out _)) continue;       // pre-fetched by the service
+            var srcPole = ResolveCopyPole(e, view, out var poleErr);
+            if (poleErr is not null || string.IsNullOrWhiteSpace(srcPole)) continue;  // the loop below reports it
+            if (view.ContainsPlugin(srcPole)) gather.Want(srcPole, e.CopySource);
+        }
+        gather.Gather();
         int order = -1;
         void Problem(string message) => problems.Add((order, message));
         foreach (var e in edits)
         {
             order++;
             bool selfSource = false;   // the copy source lives in the TARGET's own file — see the lifetime note below
-            var body = view.GetRecord(session, targetName, e.Target);
+            var body = gather.Body(targetName, e.Target);
             if (body is null)
             {
                 Problem($"{FormIdToken.Of(e.Target)}: '{targetName}' does not define or override this record — in-place edits only what the " +
@@ -979,7 +1008,7 @@ public static class WritePatchBuilder
                 { Problem($"{FormIdToken.Of(e.Target)}: CopyFrom source '{srcPlugin}' was excluded from this session ({cfWhy}) — its records aren't resolvable."); continue; }
                 else
                 {
-                    srcBody = view.GetRecord(session, srcPlugin, e.CopySource);
+                    srcBody = gather.Body(srcPlugin, e.CopySource);
                     if (srcBody is null) { Problem(CopySourceMissing(e, srcPlugin)); continue; }
                     // LIFETIME: a source resolved out of the TARGET's own file comes from a session
                     // overlay that Phase 4 disposes (ReleaseOverlay, before WriteInPlace) — while CopyField's
@@ -1754,6 +1783,13 @@ public static class WritePatchBuilder
         // answer. Memoized per CALL, not per resolver: the explainer reads the profile fresh by design, and a cache
         // living longer than one refusal batch would reintroduce the staleness it exists to avoid.
         var absenceMemo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // One walk per SOURCE plugin for the whole call, not one per record (#723): the per-record fetch enumerated
+        // from_plugin from the top each time, so 2,484 records out of one plugin cost 2,484 whole-plugin walks.
+        var gather = new BodyGather(view, session);
+        foreach (var s in specs)
+            if (!IsOffOrderSource(offOrder, s, view) && view.ContainsPlugin(s.FromPlugin))
+                gather.Want(s.FromPlugin, s.Target);
+        gather.Gather();
         string Absence(string plugin)
         {
             if (!absenceMemo.TryGetValue(plugin, out var clause)) absenceMemo[plugin] = clause = view.AbsenceClause(plugin);
@@ -1809,7 +1845,7 @@ public static class WritePatchBuilder
                 { problems.Add($"{FormIdToken.Of(s.Target)}: source plugin '{s.FromPlugin}' is not in the load order — name an active plugin that defines or overrides this record.{Absence(s.FromPlugin)}"); continue; }
                 if (view.ExcludedPlugins.TryGetValue(s.FromPlugin, out var why))
                 { problems.Add($"{FormIdToken.Of(s.Target)}: source plugin '{s.FromPlugin}' was excluded from this session ({why}) — its records aren't resolvable."); continue; }
-                body = view.GetRecord(session, s.FromPlugin, s.Target);
+                body = gather.Body(s.FromPlugin, s.Target);
                 if (body is null)
                 { problems.Add($"{FormIdToken.Of(s.Target)}: source plugin '{s.FromPlugin}' is in the load order but does NOT define or override this record (it doesn't touch it) — there is no version of it there to forward."); continue; }
             }
@@ -2395,11 +2431,9 @@ public static class WritePatchBuilder
         // --- Phase 1: resolve each source body from its NAMED plugin (NOT the load-order winner) + classify any miss:
         //     collect ALL problems, then refuse the whole call if any. ONE captured build answers every spec, so a
         //     freshness rebuild mid-loop can't mix two builds' resolutions.
-        //     PERF: each GetRecord re-enumerates from_plugin's overlay, so N targets from ONE source = N in-memory
-        //     walks of that overlay (the file is opened ONCE — the session caches it). Fine for realistic use; the
-        //     clean fix if a "forward 100 records out of a huge overhaul" case ever bites is a single-pass batch fetch
-        //     keyed by from_plugin (group specs by source, enumerate the overlay once collecting all wanted
-        //     FormKeys) — deferred until measured. ---
+        //     PERF: the bodies are gathered a PLUGIN at a time (BodyGather), not a record at a time — the per-record
+        //     fetch re-enumerated from_plugin's whole overlay per target, which measured ~2 MB of churn per record on
+        //     a real order (#723). ---
         var view = resolver.Capture();
         epoch = view.Stamp;                                               // stamped on every outcome from here down
         var resolved = ResolveForwardSources(session, view, specs, outPath, selfIsTarget: false, sourceParam, out var refusal, offOrder);
