@@ -3920,11 +3920,22 @@ public sealed partial class LoadOrderService : IDisposable
 
     static readonly List<FormKey> EmptyKeys = new();
 
-    /// <summary>Whether a fault reading one record is the RECORD's — a body Mutagen cannot parse, which a walk
-    /// records as a boundary and steps over. A cancellation and an out-of-memory failure belong to the call, not to
-    /// the record, so they go on up rather than being recorded as a parse fault and walked past.</summary>
+    /// <summary>Whether a fault reading one record is a PARSE of that record's content — the thing a walk records as
+    /// a boundary and steps over. Mutagen's own exceptions (a record fault wraps its cause, so the whole chain is
+    /// read) and the argument/format failures its lazy span reads raise are that; anything else — a file that moved,
+    /// a disposed session, a bug in this read path, a cancellation, an out-of-memory failure — is the CALL's, and it
+    /// goes on up rather than being reported as a record Mutagen could not parse.</summary>
     static bool IsWalkRecordFault(Exception ex)
-        => ex is not OperationCanceledException and not OutOfMemoryException;
+    {
+        for (var e = ex; e is not null; e = e.InnerException)
+            if (e is OperationCanceledException or OutOfMemoryException) return false;
+        for (var e = ex; e is not null; e = e.InnerException)
+        {
+            if (e.GetType().Namespace is { } ns && ns.StartsWith("Mutagen.Bethesda", StringComparison.Ordinal)) return true;
+            if (e is ArgumentException or FormatException or IndexOutOfRangeException or OverflowException or InvalidCastException) return true;
+        }
+        return false;
+    }
 
     /// <summary>How a walk reports a record whose content would not parse — the scan lanes' own account.</summary>
     static string WalkUnscannableNote(string fault)
@@ -3994,6 +4005,8 @@ public sealed partial class LoadOrderService : IDisposable
         /// renders it.</summary>
         public bool WantCycles;
         public string? Truncation;
+        /// <summary>Set when the seed itself gave the walk nothing to start from — its own content would not parse.</summary>
+        public string? Error;
         public HashSet<FormKey> Visited = new();
         public Queue<(FormKey Key, int Depth, string PulledBy)> Frontier = new();
 
@@ -4169,7 +4182,11 @@ public sealed partial class LoadOrderService : IDisposable
                     return new List<FormKey>();
                 }
                 if (i == hops - 1 && hops == segs.Length) return new List<FormKey> { pk.Value };
-                var up = Fetch(pk.Value);
+                IMajorRecordGetter? up;
+                // A fault reading the CONTAINING record is that record's, and the note names it — never this node's.
+                try { up = Fetch(pk.Value); }
+                catch (Exception ex) when (IsWalkRecordFault(ex))
+                { note = $"(the containing record {FormIdToken.Of(pk.Value)} {WalkUnscannableNote(WalkFaultOf(ex))})"; return new List<FormKey>(); }
                 if (up is null) { note = $"(the containing record {FormIdToken.Of(pk.Value)} would not fetch)"; return new List<FormKey>(); }
                 body = up;
             }
@@ -4276,15 +4293,20 @@ public sealed partial class LoadOrderService : IDisposable
             // The seed's facts go in the shared memo too, for the seed that sits on another seed's chain.
             if (st.SeedTemplateFact is { } sf) templateFacts.TryAdd(seedFk, sf);
 
-            // Reading the seed's own links parses its content, so a seed Mutagen cannot parse is recorded as a
-            // boundary rather than raised out of the call — ONCE for the record, however many seed paths ask for
-            // its links, the way the node side records a fault once per record.
+            // Reading the seed's own links parses its content, so a seed Mutagen cannot parse says so rather than
+            // raising out of the call. Every path still answers for ITSELF — the fault is that path's note — and the
+            // record's fault is remembered once, for the memo and for the seed's own line.
             List<FormKey> SeedLinks(string[]? segs, out string? note)
             {
                 note = null;
-                if (seedFault is not null) return new List<FormKey>();
                 try { return LinksOf(seedBody, segs, out note); }
-                catch (Exception ex) when (IsWalkRecordFault(ex)) { seedFault = WalkFaultOf(ex); return new List<FormKey>(); }
+                catch (Exception ex) when (IsWalkRecordFault(ex))
+                {
+                    var fault = WalkFaultOf(ex);
+                    seedFault ??= fault;
+                    note = WalkUnscannableNote(fault);
+                    return new List<FormKey>();
+                }
             }
 
             // First hop: seed_paths (each path's links) or every link on the seed.
@@ -4304,21 +4326,19 @@ public sealed partial class LoadOrderService : IDisposable
             {
                 foreach (var l in SeedLinks(null, out _)) { st.Edge(seedFk, l); st.Frontier.Enqueue((l, 1, st.Label)); }
             }
-            // The seed itself would not parse: one boundary row for the record, held to the same node budget every
-            // other row is, and the fault goes in the shared memo so another seed reaching it reads it no further.
+            // The seed itself would not parse. A seed is not a node, so this is the SEED's own line — an error when
+            // it produced no chains at all, the way an unreadable winner body is; under seed_paths each path has
+            // already said it for itself, and the chains other paths proved are kept and walked. The fault goes in
+            // the shared memo either way, so another seed reaching this record reads it no further.
             if (seedFault is { } fault)
             {
-                if (st.Nodes.Count < maxNodes)
-                    st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(seedFk), seedType, st.EditorId, 0, st.Label, "kept",
-                                                 WalkUnscannableNote(fault)));
-                else
-                    st.Truncation ??= $"walk truncated: the {maxNodes}-node cap was reached — what is listed IS reached and proved; raise walk.max_nodes to walk further.";
+                if (st.Frontier.Count == 0 && st.Nodes.Count == 0)
+                    st.Error = $"{FormIdToken.Of(seedFk)} {WalkUnscannableNote(fault)}. Nothing to walk from.";
                 if (nodeFacts is not null)
                     nodeFacts[seedFk] = new WalkNodeFact
                     {
                         Resolved = true, Type = seedType, EditorId = st.EditorId, Unscannable = fault,
                     };
-                st.Frontier.Clear();
             }
             states[i] = st;
         }
@@ -4475,7 +4495,7 @@ public sealed partial class LoadOrderService : IDisposable
             if (st.SeedTemplateFact is { } seedFact) templateReport = NpcTemplateReport(TemplateFactOf, seedFact, st.Key);
             // A seed that never ran a pass — no links off it at all — has not settled yet; one that did settled there.
             st.Settle();
-            results.Add(new WalkSeedResult(FormIdToken.Of(st.Key), st.Type, st.EditorId, st.Nodes, st.Cycles!, st.Truncation, templateReport, null, st.CyclesCapped));
+            results.Add(new WalkSeedResult(FormIdToken.Of(st.Key), st.Type, st.EditorId, st.Nodes, st.Cycles!, st.Truncation, templateReport, st.Error, st.CyclesCapped));
         }
         WalkBodiesHeldAtReturn = bodyCache.Count;
         return results;
