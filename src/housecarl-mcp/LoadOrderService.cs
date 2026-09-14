@@ -1311,8 +1311,8 @@ public sealed partial class LoadOrderService : IDisposable
             // form — ahead of the generic drive-rooted message, which says nothing about how to name the mod.
             if (ModsPathAddress.Split(rel, modsRoot) is { } hit)
             {
-                results.Add(NifInspectData.Fail(rel, ModsPathAddress.Refusal("", rel, hit.ModFolder, hit.RelPath,
-                                                                             "mesh_paths", "source_provider")));
+                results.Add(NifInspectData.Fail(rel, ModsPathAddress.Refusal("", rel,
+                    ModsPathAddress.Address(hit.ModFolder, hit.RelPath, "mesh_paths", "source_provider"))));
                 continue;
             }
             // Per-path isolation holds by construction rather than by trusting the callee: anything unexpected from
@@ -1635,6 +1635,21 @@ public sealed partial class LoadOrderService : IDisposable
         }
     }
 
+    /// <summary>The refusal for a <c>source=</c> that reaches into MO2's mods tree, or null when it does not. A
+    /// <c>'&lt;archive.bsa&gt;|&lt;entry&gt;'</c> pair is judged on the archive's path and keeps its entry in the
+    /// remedy; a both-slots member is sent to the provider pole, the only form that serves two files.</summary>
+    string? RawModsSourceRefusal(string source, bool bothSlots)
+    {
+        var v = source.Trim().Trim('"');
+        int pipe = v.IndexOf('|');
+        if (ModsPathAddress.Split(pipe >= 0 ? v.Substring(0, pipe) : v, ModsRootOrNull) is not { } hit) return null;
+        var remedy = bothSlots
+            ? $"Placing BOTH FaceGen slots reads two files, which no single source= names — pass source_provider='{hit.ModFolder}' with no source=, or set kind= mesh or tint and pass that slot's Data-relative source."
+            : ModsPathAddress.Address(hit.ModFolder, hit.RelPath is null || pipe < 0 ? hit.RelPath : hit.RelPath + v.Substring(pipe),
+                                      "source", "source_provider");
+        return ModsPathAddress.Refusal("", v, remedy);
+    }
+
     /// <summary>Place one asset: validate the destination rel-path (drive-rooted and '..' paths are rejected by the
     /// resolver's own check), get the source bytes (explicit source= or auto-resolve), and write them atomically under
     /// <paramref name="outDir"/>. Reports the CURRENT VFS winner, because the placed file does NOT win until the mod is
@@ -1684,6 +1699,12 @@ public sealed partial class LoadOrderService : IDisposable
         var providerSel = req.SourceProvider?.Trim();
         if (!string.IsNullOrEmpty(explicitSrc) && !IsVfsSource(explicitSrc!))
         {
+            // A raw path into the mods tree reads past the VFS. Judged on the ARCHIVE's own path for a
+            // '<archive.bsa>|<entry>' source, and the remedy keeps the entry — a bare archive would place the whole
+            // .bsa. On a both-slots member no Data-relative source is accepted at all, so that one is told to name
+            // the provider or pick a slot rather than handed a form its retry would refuse.
+            if (RawModsSourceRefusal(explicitSrc!, req.BothSlots) is { } rawErr)
+                return PlaceResult.Fail(rel, rawErr, winner);
             // An on-disk source already IS one exact copy, so a pole cannot apply to it — said, never dropped.
             if (!string.IsNullOrEmpty(providerSel))
                 return PlaceResult.Fail(rel, WriteSentences.PlaceSourceProviderNeedsRelPath, winner);
@@ -4771,22 +4792,13 @@ public sealed partial class LoadOrderService : IDisposable
         string? scopeMissingNote = null;
         if (plugins is { Count: > 0 })
         {
-            var present = new List<string>(plugins.Count);
-            var missing = new List<string>();
-            foreach (var p in plugins)
-                (view.ContainsPlugin(p.Trim()) ? present : missing).Add(p.Trim());
-            if (missing.Count > 0)
+            var split = ScopeSplit.Of(view, plugins);
+            if (split.BlankRefusal is not null) return CrossQueryOutcome.Fail(split.BlankRefusal);
+            if (split.Missing.Count > 0)
             {
-                if (present.Count == 0)
-                    return CrossQueryOutcome.Fail(
-                        $"plugins= names {(missing.Count == 1 ? "a plugin" : "plugins")} the load order does not carry and nothing else to scan: "
-                        + string.Join(", ", missing) + "."
-                        + (missing.Count == 1 ? view.AbsenceClause(missing[0]) : "")
-                        + " Drop the name(s), or scope to plugins that are loaded.");
-                scopeMissingNote =
-                    $"note: plugins= named {string.Join(", ", missing)}, which the load order does not carry — "
-                  + $"this answer covers the {present.Count} named plugin(s) that are loaded, and nothing from the missing one(s).";
-                plugins = present;
+                if (split.Present.Count == 0) return CrossQueryOutcome.Fail(split.NothingToScanRefusal(view));
+                scopeMissingNote = split.ServedNote(view);
+                plugins = split.Present;
             }
         }
         bool hasPlugins = plugins is { Count: > 0 };
@@ -5437,13 +5449,24 @@ public sealed partial class LoadOrderService : IDisposable
         if (predicate is not null && typeSet is { Count: > 0 } && QuantifierShapeRefusal(typeSet, predicate) is { } qerr)
             return CrossQueryOutcome.Fail(qerr) with { Stamp = view.Stamp };
 
-        var scopeSet = scopePlugins is { Count: > 0 }
-            ? new HashSet<string>(scopePlugins.Select(p => p.Trim()), StringComparer.OrdinalIgnoreCase)
-            : null;
-        if (scopeSet is not null)
-            foreach (var p in scopeSet)
-                if (!view.ContainsPlugin(p))
-                    return CrossQueryOutcome.Fail($"plugins= scope '{p}' is not in the active load order — over an out-of-load-order file the scope keeps the file's records that ACTIVE plugins also touch, so the scope names active plugins.") with { Stamp = view.Stamp };
+        // The same split the in-order scan makes: a name the active order does not carry costs that name's share of
+        // the scope, not the whole answer. The added clause says what the scope MEANS here, which is why an active
+        // plugin is what it takes.
+        string? scopeMissingNote = null;
+        HashSet<string>? scopeSet = null;
+        if (scopePlugins is { Count: > 0 })
+        {
+            var split = ScopeSplit.Of(view, scopePlugins);
+            if (split.BlankRefusal is not null) return CrossQueryOutcome.Fail(split.BlankRefusal) with { Stamp = view.Stamp };
+            if (split.Missing.Count > 0)
+            {
+                string meaning = " Over an out-of-load-order file the scope keeps the file's records that ACTIVE plugins also touch, so the scope names active plugins.";
+                if (split.Present.Count == 0)
+                    return CrossQueryOutcome.Fail(split.NothingToScanRefusal(view) + meaning) with { Stamp = view.Stamp };
+                scopeMissingNote = split.ServedNote(view) + meaning;
+            }
+            scopeSet = new HashSet<string>(split.Present, StringComparer.OrdinalIgnoreCase);
+        }
 
         ModKey fileKey;
         try { fileKey = ModKey.FromFileName(pole.Plugin); }
@@ -5564,6 +5587,9 @@ public sealed partial class LoadOrderService : IDisposable
             : $"note: {unscannable} record(s) in '{pole.Plugin}' could not be scanned and were skipped where the failure occurred: "
               + string.Join("; ", unscannableSamples)
               + (unscannable > unscannableSamples.Count ? $"; and {unscannable - unscannableSamples.Count} more" : "") + ".";
+        // The scope's own gap leads, exactly as it does on the in-order scan.
+        if (scopeMissingNote is not null)
+            scanNote = scanNote is null ? scopeMissingNote : scopeMissingNote + " " + scanNote;
         var groupRows = groups?.Select(kv => new GroupCount(kv.Key, kv.Value))
                               .OrderByDescending(g => g.Count).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
         return new CrossQueryOutcome(keys, prefilled, total, groups is null && total > offset + keys.Count, null,
@@ -10511,7 +10537,12 @@ public sealed record NifSetResult(
 /// provider of that name, so the two spaces cannot collide); null/blank ⇒ the sole provider, with contention refused
 /// per-asset. A Source naming a DIFFERENT path from AssetPath is a RENAME — the mechanism behind carrying one
 /// NPC's baked facegen onto another's FormID path; the same path is not, and renders without the rename prefix.</summary>
-public sealed record PlaceRequest(string AssetPath, string? Source, string? SourceProvider = null);
+public sealed record PlaceRequest(string AssetPath, string? Source, string? SourceProvider = null)
+{
+    /// <summary>This request is one half of a FaceGen pair expanded from a formid with no kind — two destinations
+    /// sharing one member's source. A refusal about that source must not recommend a form the pair cannot take.</summary>
+    public bool BothSlots { get; init; }
+}
 
 /// <summary>One placed asset's outcome. <see cref="Placed"/> false ⇒ <see cref="Error"/> names why (recoverable, per-asset
 /// per asset). <see cref="CurrentWinner"/> is the source that currently wins the VFS for this path (the placed copy does

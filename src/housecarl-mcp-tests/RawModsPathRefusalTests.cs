@@ -27,6 +27,37 @@ public sealed class RawModsPathRefusalTests : IClassFixture<AssetSelectWorld>
         Assert.Contains("source='" + _w.Rel("0001.nif") + "'", text);
     }
 
+    /// <summary>A bad source is a per-member failure, not a malformed member: the other destinations still place.
+    /// Escalating it would throw away a whole batch over one pasted path.</summary>
+    [Fact]
+    public void ARawModsPathSourceFailsOnlyItsOwnMemberAndTheRestStillPlace()
+    {
+        var text = PlaceTools.Place(_w.Svc,
+            new[]
+            {
+                new PlaceTarget { Path = @"meshes\hcraw\one.nif", Source = InFaceBase(_w.Rel("0001.nif")) },
+                new PlaceTarget { Path = _w.Rel("0001.nif"), SourceProvider = "FaceBase" },
+            },
+            patch: "RawModsPerMember");
+
+        Assert.Contains("raw path into MO2's mods folder", text);
+        Assert.Contains("placed 1 of 2 asset(s) (1 failed)", text);
+    }
+
+    /// <summary>The remedy for a '&lt;archive.bsa&gt;|&lt;entry&gt;' source keeps the entry — a bare archive path would
+    /// place the whole .bsa at the destination.</summary>
+    [Fact]
+    public void ABsaEntrySourceKeepsItsEntryInTheRemedy()
+    {
+        var raw = Path.Combine(_w.ModsDir, "ArchiveMod", "HcArch.bsa") + "|" + _w.Rel("0005.nif");
+
+        var text = PlaceTools.Place(_w.Svc,
+            new[] { new PlaceTarget { Path = @"meshes\hcraw\fromBsa.nif", Source = raw } });
+
+        Assert.Contains("source_provider='ArchiveMod'", text);
+        Assert.Contains("HcArch.bsa|" + _w.Rel("0005.nif"), text);
+    }
+
     [Fact]
     public void PlaceRefusesARawModsPathAsTheDestinationToo()
     {
