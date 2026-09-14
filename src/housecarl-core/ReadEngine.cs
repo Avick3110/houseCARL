@@ -253,6 +253,10 @@ public static class ReadEngine
                 fields.Add(new FieldValue(p, r.HasValue, r.HasValue ? r.Token : null, note, FlagDisplay(r),
                                           Present: r.Present, Count: r.ContainerCount, Readable: r.Readable,
                                           Bytes: r.ByteLength));
+                // Annotated off ON, the record the leaf was actually read on — a '*parent' hop rebinds it, and a blob
+                // stamped with the entry record's FormVersion would read as a match where the containing record and
+                // the entry record differ, which is the one wrong answer this annotation exists to prevent.
+                AnnotateOpaqueBytes(fields, fields.Count - 1, on.FormVersion);
             }
         }
         else
@@ -269,19 +273,23 @@ public static class ReadEngine
                 var seg = p.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 var (on, tail, hopNote) = HopToParent(record, seg, parentOf);
                 if (hopNote is not null) { fields.Add(new FieldValue(p, false, null, hopNote, null, Present: false, Count: null, Readable: false)); continue; }
+                int from = fields.Count;
                 EmitWithDepth(on, string.Join(".", tail), d, fields, ref budget, p);
+                // Same rule as the depth-1 branch, over the lines THIS path emitted: the FormVersion is the one of the
+                // record the walk ran on, which a '*parent' hop has already rebound.
+                AnnotateOpaqueBytes(fields, from, on.FormVersion);
             }
         }
-        AnnotateOpaqueBytes(fields, record.FormVersion);
         return new RecordFields(typeName, FormIdToken.Of(record.FormKey), record.EditorID, fields);
     }
 
-    /// <summary>Hang the opaque-blob annotation on every byte-slice leaf this read emitted — generic over every
-    /// <c>bytes</c> field, never a per-record-type note. Rides <see cref="FieldValue.Display"/>, so the round-trip
-    /// hex token is untouched and write / read-proof / diff never see it.</summary>
-    static void AnnotateOpaqueBytes(List<FieldValue> fields, ushort? formVersion)
+    /// <summary>Hang the opaque-blob annotation on every byte-slice leaf from <paramref name="from"/> onward — generic
+    /// over every <c>bytes</c> field, never a per-record-type note. Rides <see cref="FieldValue.Display"/>, so the
+    /// round-trip hex token is untouched and write / read-proof / diff never see it. Called per PATH, with that path's
+    /// own owning record, because '*parent' makes the record a leaf was read on differ from the record read.</summary>
+    static void AnnotateOpaqueBytes(List<FieldValue> fields, int from, ushort? formVersion)
     {
-        for (int i = 0; i < fields.Count; i++)
+        for (int i = from; i < fields.Count; i++)
             if (fields[i] is { Bytes: int n, Display: null })
                 fields[i] = fields[i] with { Display = BytesDisplay(n, formVersion) };
     }
