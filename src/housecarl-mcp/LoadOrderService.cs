@@ -3886,10 +3886,23 @@ public sealed partial class LoadOrderService : IDisposable
 
     static readonly List<FormKey> EmptyKeys = new();
 
+    /// <summary>Whether a fault reading one record is the RECORD's — a body Mutagen cannot parse, which a walk
+    /// records as a boundary and steps over. A cancellation and an out-of-memory failure belong to the call, not to
+    /// the record, so they go on up rather than being recorded as a parse fault and walked past.</summary>
+    static bool IsWalkRecordFault(Exception ex)
+        => ex is not OperationCanceledException and not OutOfMemoryException;
+
+    /// <summary>How a walk reports a record whose content would not parse — the scan lanes' own account.</summary>
+    static string WalkUnscannableNote(string fault)
+        => $"could not be scanned (Mutagen could not parse its content) and was not entered — {fault}";
+
+    static string WalkFaultOf(Exception ex) => $"{ex.GetType().Name}: {ex.Message}";
+
     /// <summary>What the NPC template report needs from one node — values, never a getter, so reading a chain pins
     /// no record group's bytes. Reused across seeds, which is what keeps a shared chain one read per call.</summary>
     readonly record struct WalkTemplateFact(string TypeName, string? EditorId, FormKey Template, bool HasTemplate,
-                                            NpcConfiguration.TemplateFlag Flags, bool IsNpc, bool IsLeveled);
+                                            NpcConfiguration.TemplateFlag Flags, bool IsNpc, bool IsLeveled,
+                                            string? Unscannable = null);
 
     /// <summary>One record the walk reached: its identity, its provenance (<see cref="PulledBy"/> — the parent
     /// node's label) and whether the walk entered it or recorded it as a boundary. A boundary's reason — an
@@ -4056,14 +4069,25 @@ public sealed partial class LoadOrderService : IDisposable
             templateFacts[k] = fact;
             return fact;
         }
+        // The template link and the template flags are lazily parsed subrecords too, so this read carries the same
+        // per-record guard the link read does: a body that will not parse comes back NAMED, never as a throw.
         static WalkTemplateFact FactOf(IMajorRecordGetter b)
         {
+            var typeName = RecordNaming.StripOverlay(b.GetType().Name);
             var npc = b as INpcGetter;
-            var t = npc?.Template;
-            return new WalkTemplateFact(RecordNaming.StripOverlay(b.GetType().Name), b.EditorID,
-                                        t is null || t.IsNull ? default : t.FormKey, t is not null && !t.IsNull,
-                                        npc?.Configuration.TemplateFlags ?? default, npc is not null,
-                                        b is ILeveledNpcGetter);
+            try
+            {
+                var t = npc?.Template;
+                return new WalkTemplateFact(typeName, b.EditorID,
+                                            t is null || t.IsNull ? default : t.FormKey, t is not null && !t.IsNull,
+                                            npc?.Configuration.TemplateFlags ?? default, npc is not null,
+                                            b is ILeveledNpcGetter);
+            }
+            catch (Exception ex) when (IsWalkRecordFault(ex))
+            {
+                return new WalkTemplateFact(typeName, null, default, false, default, npc is not null, false,
+                                            WalkFaultOf(ex));
+            }
         }
         // The hop's bodies, one enumeration per source plugin. A key the gather does not return stays UNCACHED, so
         // Fetch still raises whatever the per-record read raises: the gather is an optimisation, not an error path.
@@ -4140,12 +4164,18 @@ public sealed partial class LoadOrderService : IDisposable
             // On a template walk the reached nodes ARE the chain nodes, so the report takes its facts off the body
             // in hand here. Without this it re-read every chain node from disk — a whole-plugin seek each — after
             // the walk had already held that body and let it go.
-            if (templateFollow && body is not null) templateFacts.TryAdd(k, FactOf(body));
+            if (templateFollow && body is not null)
+            {
+                var tf = FactOf(body);
+                templateFacts.TryAdd(k, tf);
+                if (tf.Unscannable is { } tfault) fact.Unscannable = tfault;
+            }
             // PER-RECORD FAULT ISOLATION, the twin of the scan lanes': reading a node's links parses its content
-            // lazily, so one record Mutagen cannot parse is recorded as a boundary and the walk goes on.
-            if (body is not null && !atCap && !Excluded(fact.Type))
+            // lazily, so one record Mutagen cannot parse is recorded as a boundary and the walk goes on. A fault
+            // that is the CALL's — cancellation, out of memory — is not a record's and goes on up.
+            if (body is not null && !atCap && !Excluded(fact.Type) && fact.Unscannable is null)
                 try { fact.Links = LinksOf(body, followSegs, out _); }
-                catch (Exception ex) { fact.Unscannable = $"{ex.GetType().Name}: {ex.Message}"; }
+                catch (Exception ex) when (IsWalkRecordFault(ex)) { fact.Unscannable = WalkFaultOf(ex); }
             if (nodeFacts is not null) nodeFacts[k] = fact;
             return fact;
         }
@@ -4193,12 +4223,16 @@ public sealed partial class LoadOrderService : IDisposable
                 continue;
             }
             var seedType = TypeOf(seedBody);
+            // The seed's own facts parse its content too, so the same guard applies: a seed that will not parse
+            // carries its fault rather than raising it, and the row below names it.
+            var seedFact = templateFollow && seedBody is INpcGetter ? FactOf(seedBody) : (WalkTemplateFact?)null;
+            string? seedFault = seedFact?.Unscannable;
             var st = new WalkSeedState
             {
                 Key = seedFk,
                 // The template report takes the seed's facts, not its body: a getter kept per seed would pin one
                 // record group per seed, which is the retention this walk exists to remove.
-                SeedTemplateFact = templateFollow && seedBody is INpcGetter ? FactOf(seedBody) : null,
+                SeedTemplateFact = seedFault is null ? seedFact : null,
                 EditorId = seedBody.EditorID,
                 Type = seedType,
                 Label = $"{seedType} {FormIdToken.Of(seedFk)} ({seedBody.EditorID ?? "<no editorid>"})",
@@ -4208,18 +4242,15 @@ public sealed partial class LoadOrderService : IDisposable
             // The seed's facts go in the shared memo too, for the seed that sits on another seed's chain.
             if (st.SeedTemplateFact is { } sf) templateFacts.TryAdd(seedFk, sf);
 
-            // Reading the seed's own links parses its content, so a seed Mutagen cannot parse is named as a
-            // boundary row like any other unscannable node rather than raised out of the call.
+            // Reading the seed's own links parses its content, so a seed Mutagen cannot parse is recorded as a
+            // boundary rather than raised out of the call — ONCE for the record, however many seed paths ask for
+            // its links, the way the node side records a fault once per record.
             List<FormKey> SeedLinks(string[]? segs, out string? note)
             {
+                note = null;
+                if (seedFault is not null) return new List<FormKey>();
                 try { return LinksOf(seedBody, segs, out note); }
-                catch (Exception ex)
-                {
-                    note = null;
-                    st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(seedFk), seedType, seedBody.EditorID, 0, st.Label, "kept",
-                                                 $"could not be scanned (Mutagen could not parse its content) and was not entered — {ex.GetType().Name}: {ex.Message}"));
-                    return new List<FormKey>();
-                }
+                catch (Exception ex) when (IsWalkRecordFault(ex)) { seedFault = WalkFaultOf(ex); return new List<FormKey>(); }
             }
 
             // First hop: seed_paths (each path's links) or every link on the seed.
@@ -4238,6 +4269,22 @@ public sealed partial class LoadOrderService : IDisposable
             else
             {
                 foreach (var l in SeedLinks(null, out _)) { st.Edge(seedFk, l); st.Frontier.Enqueue((l, 1, st.Label)); }
+            }
+            // The seed itself would not parse: one boundary row for the record, held to the same node budget every
+            // other row is, and the fault goes in the shared memo so another seed reaching it reads it no further.
+            if (seedFault is { } fault)
+            {
+                if (st.Nodes.Count < maxNodes)
+                    st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(seedFk), seedType, st.EditorId, 0, st.Label, "kept",
+                                                 WalkUnscannableNote(fault)));
+                else
+                    st.Truncation ??= $"walk truncated: the {maxNodes}-node cap was reached — what is listed IS reached and proved; raise walk.max_nodes to walk further.";
+                if (nodeFacts is not null)
+                    nodeFacts[seedFk] = new WalkNodeFact
+                    {
+                        Resolved = true, Type = seedType, EditorId = st.EditorId, Unscannable = fault,
+                    };
+                st.Frontier.Clear();
             }
             states[i] = st;
         }
@@ -4356,7 +4403,11 @@ public sealed partial class LoadOrderService : IDisposable
                     if (fact.Unscannable is { } unscannable)
                     {
                         st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), type, fact.EditorId, hop, pulledBy, "kept",
-                                                     $"could not be scanned (Mutagen could not parse its content) and was not entered — {unscannable}"));
+                                                     WalkUnscannableNote(unscannable)));
+                        // A node at the depth cap is a cut chain whatever else is true of it: the memo can answer
+                        // this row without reading, and the cap notice must not go missing because it did.
+                        if (atCap)
+                            st.Truncation ??= $"walk reached its depth cap ({depth}) on at least one chain — nodes at the cap are recorded, not entered; raise walk.depth to walk deeper.";
                         continue;
                     }
                     st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), type, fact.EditorId, hop, pulledBy,
@@ -4424,6 +4475,9 @@ public sealed partial class LoadOrderService : IDisposable
                 var nextKey = cur.Template;
                 if (!hops.Add(nextKey)) { note = $"template chain CYCLES at {nextKey} — no provider is reachable"; break; }
                 if (factOf(nextKey) is not { } next) { note = $"template target {nextKey} is unresolved — the chain is broken here"; break; }
+                // A node that resolves but will not parse is a different answer from a broken chain: it is there,
+                // and what it provides could not be read.
+                if (next.Unscannable is { } bad) { note = $"template target {nextKey} {WalkUnscannableNote(bad)}"; break; }
                 if (next.IsLeveled)
                 { provKey = FormIdToken.Of(nextKey); provEid = next.EditorId; note = "a LEVELED actor — the concrete provider is rolled at runtime"; break; }
                 if (!next.IsNpc)
