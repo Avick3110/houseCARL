@@ -931,11 +931,15 @@ public sealed class FieldPredicateSet
         if (q < 0)
             return DecideLeaf(p, ReadEngine.ReadLeaf(obj, from == 0 ? segs : segs[from..]));   // internal, same assembly — the by-construction read walk
 
-        var (elems, parent, miss) = ElementsAt(obj, segs, p.PathFolds!, from, q);
+        var (coll, parent, miss) = CollectionAt(obj, segs, p.PathFolds!, from, q);
         if (miss is { } m) return (false, m);
         var fold = p.PathFolds![q];
-        if (fold == Fold.Count) return DecideLeaf(p, ReadEngine.LeafRead.Value(elems!.Count.ToString(CultureInfo.InvariantCulture)));
-        return FoldOver(p, elems!, fold,
+        // A count asks how MANY, so it never builds an element: same number as the project.fields column reads,
+        // for none of the elements.
+        if (fold == Fold.Count)
+            return DecideLeaf(p, ReadEngine.LeafRead.Value(Count(coll).ToString(CultureInfo.InvariantCulture)));
+        var elems = Materialise(coll);
+        return FoldOver(p, elems, fold,
                         e => q + 1 >= segs.Length ? DecideLeaf(p, ReadEngine.EmitToken(e, e.GetType(), parent!))
                                                   : EvalOwnPath(p, e, q + 1));
     }
@@ -956,12 +960,20 @@ public sealed class FieldPredicateSet
     /// type, so a null non-list field is refused exactly as a carried one is.</summary>
     (List<object>? Elements, object? Parent, EvalKind? Miss) ElementsAt(object obj, string[] segs, Fold[] folds, int from, int q)
     {
+        var (coll, parent, miss) = CollectionAt(obj, segs, folds, from, q);
+        return miss is null ? (Materialise(coll), parent, null) : (null, null, miss);
+    }
+
+    /// <summary>The same navigation and the same validation, stopping at the collection itself — so a fold that
+    /// only needs how MANY elements there are never builds one.</summary>
+    (object? Collection, object? Parent, EvalKind? Miss) CollectionAt(object obj, string[] segs, Fold[] folds, int from, int q)
+    {
         var (ok, val, declared, parent, note) = ReadEngine.NavigateTo(obj, segs[from..(q + 1)]);
         if (!ok)
         {
             // A mid-path substruct that is absent makes the collection absent, which reads as empty like any other
             // absent collection. Every other miss (no such field, a read fault) keeps its own no-verdict class.
-            if (note == ReadEngine.AbsentNote) return (new List<object>(), parent, null);
+            if (note == ReadEngine.AbsentNote) return (null, parent, null);
             return (null, null, ClassifyMiss(note ?? ""));
         }
         if (NotListShape(declared, val) is { } what)
@@ -969,11 +981,22 @@ public sealed class FieldPredicateSet
             _lastNotList = $"'{segs[q]}{FoldToken(folds[q])}' reads as {what}, not a list";
             return (null, null, EvalKind.NotAList);
         }
-        if (val is null) return (new List<object>(), parent, null);
-        var list = new List<object>();
-        foreach (var e in (System.Collections.IEnumerable)val) if (e is not null) list.Add(e);
-        return (list, parent, null);
+        return (val, parent, null);
     }
+
+    /// <summary>A navigated collection's elements — an absent one is empty.</summary>
+    static List<object> Materialise(object? coll)
+    {
+        var list = new List<object>();
+        if (coll is null) return list;
+        foreach (var e in (System.Collections.IEnumerable)coll) if (e is not null) list.Add(e);
+        return list;
+    }
+
+    /// <summary>How many elements a navigated collection holds — an absent one holds none. The same number the
+    /// project.fields column reads, from the same engine helper.</summary>
+    static int Count(object? coll)
+        => coll is null ? 0 : ReadEngine.CountOf((System.Collections.IEnumerable)coll);
 
     /// <summary>What a quantified step actually reads where it is not a list — null when it IS one. Keyed on the
     /// DECLARED type and on the same closed-interface test the read engine's emit side uses, so the two shapes that

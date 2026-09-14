@@ -727,7 +727,7 @@ public static class ReadEngine
         // presence, and left at their defaults a depth-2 read of an EMPTY list claims content.
         // NoteRef carries the FormID the summary spelled, so resolve_names annotates the reference this line SHOWS
         // by the one rule it applies to a token — no second, note-shaped special case.
-        int? deepCount = val is System.Collections.IEnumerable de and not string ? de.Cast<object?>().Count() : null;
+        int? deepCount = val is System.Collections.IEnumerable de and not string ? CountOf(de) : null;
         var summary = ElementSummary(val, isDict, out var summaryRef);
         if (!Emit(sink, ref budget, new FieldValue(path, false, null, summary, Present: true, Count: deepCount, NoteRef: summaryRef))) return;
 
@@ -1439,6 +1439,37 @@ public static class ReadEngine
         throw new InvalidOperationException($"Cannot extract bytes from MemorySlice {slice.GetType().Name}.");
     }
 
+    /// <summary>How many elements a collection holds, WITHOUT building any of them. A Mutagen overlay list knows
+    /// its length from the record locations it parsed and constructs an element only when one is indexed, so its
+    /// Count property answers what enumerating it would answer for none of the cost — a dense cell's Temporary
+    /// list is hundreds of placed references that a count never needs. A collection with no Count property falls
+    /// back to one enumeration, which is what every caller did before. The accessor is cached per runtime type.</summary>
+    internal static int CountOf(System.Collections.IEnumerable en)
+    {
+        if (_countAccessors.GetOrAdd(en.GetType(), CountAccessor) is { } count) return count(en);
+        int n = 0;
+        foreach (var _ in en) n++;
+        return n;
+    }
+
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, Func<object, int>?> _countAccessors = new();
+
+    /// <summary>The Count property of a collection type, or null when it carries none.</summary>
+    static Func<object, int>? CountAccessor(Type t)
+    {
+        if (typeof(System.Collections.ICollection).IsAssignableFrom(t))
+            return o => ((System.Collections.ICollection)o).Count;
+        foreach (var iface in t.GetInterfaces())
+        {
+            if (!iface.IsGenericType) continue;
+            var def = iface.GetGenericTypeDefinition();
+            if (def != typeof(IReadOnlyCollection<>) && def != typeof(ICollection<>)) continue;
+            if (iface.GetProperty("Count")?.GetGetMethod() is { } getter)
+                return o => (int)getter.Invoke(o, null)!;
+        }
+        return null;
+    }
+
     /// <summary>A short, non-round-trippable description of a container leaf (substruct / list / dict /
     /// arm) for the read display. Its sub-leaves are the round-trippable surface. A collection renders as a
     /// clean <c>[list: N item(s)]</c> / <c>[dict: N pair(s)]</c> — the Mutagen overlay class name
@@ -1458,8 +1489,7 @@ public static class ReadEngine
         count = null;
         if (val is System.Collections.IEnumerable en and not string)
         {
-            int n = 0;
-            foreach (var _ in en) n++;
+            int n = CountOf(en);
             count = n;
             return $"[{(isDict ? "dict" : "list")}: {n} {(isDict ? "pair(s)" : "item(s)")}]";
         }
