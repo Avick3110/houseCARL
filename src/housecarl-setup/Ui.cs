@@ -7,7 +7,7 @@ namespace HousecarlSetup;
 /// one prompt. It lives here so <see cref="Program"/> stays the install logic and presentation is one file to
 /// read and one file to change.
 ///
-/// Hand-rolled on purpose. The setup exe ships single-file, trimmed and self-contained, with zero package
+/// Hand-rolled on purpose. The setup exe ships single-file and framework-dependent, with zero package
 /// references, and the notices generator only walks the server publish - a console library here would ship
 /// unattributed. Colour is set through <see cref="Console.ForegroundColor"/> (no escape codes in the text), so
 /// a run whose output is captured gets the same characters a coloured run does.
