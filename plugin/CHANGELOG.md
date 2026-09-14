@@ -25,6 +25,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `walk.max_nodes` says so beside the count, including on `counts_only`, because zero is the answer that reads as
   proof. Both renders hold the cycle list to `max_chars` and say how many they held back.
 
+- **A bulk `housecarl_apply` or `housecarl_forward` no longer costs megabytes of memory per operation.** Each op
+  fetched its record by enumerating that record's plugin from the top, so a call paid (records in that plugin) per
+  op, and the memory it churned stayed in the process after the call returned: on a 3,254-plugin order a 2,484-op
+  apply peaked at 3.3 GB, took 73 s, and left the server sitting at 3.3 GB. The bodies are now gathered a plugin at
+  a time, one walk each: the same apply takes 3.2 s, peaks at 0.9 GB and leaves the server back at its idle size.
+  The written patch is unchanged — byte-identical on the same inputs.
+
 - **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
   byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the
   literal escape text and every tool refused with "the active profile's folder is missing". Both INI readers —
