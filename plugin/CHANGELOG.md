@@ -74,6 +74,16 @@ saying it sets an expectation their install may contradict. Say what is known, a
   change above the two lanes' lines look identical. The create response now says which it is, and points at
   `readback=true` to read every created record back off the file. Making that lane report from the file, as the
   edit lanes now do, is #763.
+- **Three published shapes now say what the server actually does.** `housecarl_copy`'s `seed_paths` told you to
+  reach for `op=Merge` / `op=ReplaceAll` on `housecarl_apply`'s `bundle=`/`assignments=` zip; that zip has no `op=`
+  at all — it transplants each named field whole onto the target, one `CopyFrom` per target, replacing what the
+  target had. Both the parameter text and the refusal that routes you there now say that. A compose's nested
+  `sets[].verb` named five verbs while the gate took all eight: it takes seven — every verb the write engine
+  applies at a path, since the nested writes replay through that engine — and not `CopyFrom`, which reads a source
+  record the nested shape has no slot to name. `CopyFrom` there is now refused before anything is written, saying
+  to make it its own op, and the seven are published as an `enum` a client can check against. A nested member the
+  server refuses the call without no longer publishes a type accepting `null`, so a schema-validating client can
+  no longer be told an explicit null satisfies it.
 
 - **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
   byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the
