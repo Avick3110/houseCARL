@@ -10,15 +10,25 @@ namespace HousecarlCore;
 // the walk records its edges and asks this afterwards, once, over the whole graph.
 //
 // Shared by every walk that keeps its edges, so one answer to "is this a cycle" serves all of them.
+//
+// What it answers is "are there loops here, and what does one look like", not "how many distinct loops are
+// there" — the latter is exponential to enumerate. Find's summary states the bound; every render of its
+// result has to carry that bound too rather than call the number a total.
 
 /// <summary>Cycle finding over a walked link graph.</summary>
 public static class GraphCycles
 {
-    /// <summary>Every cycle in the recorded edge set. Each result is the loop itself, keys in order: it starts at the
-    /// record pointed back at and ends at the record whose link closed the loop, so the closing hop is from the last
-    /// key to the first.
+    /// <summary>One loop per BACK EDGE in the recorded edge set. Each result is the loop itself, keys in order: it
+    /// starts at the record pointed back at and ends at the record whose link closed the loop, so the closing hop is
+    /// from the last key to the first.
     /// <para>A depth-first pass colouring nodes unvisited / on-stack / finished: an edge into an ON-STACK node is a
     /// back edge, which is exactly "this record reaches itself".</para>
+    /// <para>What the caller may claim from this: NONE means the graph is acyclic, because a graph with a loop always
+    /// has a back edge. A count is a LOWER BOUND on the number of distinct loops, and the loops returned are not a
+    /// complete list of the records lying on one — an edge into an already FINISHED node is skipped, so a second loop
+    /// running through a record this pass has explored is not enumerated separately. (A -> B, A -> C, B -> A, C -> B
+    /// carries two loops and reports the one back edge B -> A.) Enumerating every simple cycle is exponential in the
+    /// graph, which is not a cost a read may pay; the claim is worded to what this costs instead.</para>
     /// <para>Only a node with recorded edges can be ON a cycle — a boundary the walk kept was never expanded, has no
     /// outgoing edges, and so closes nothing. Edges into those are skipped rather than treated as dead ends.</para>
     /// <para>One cycle per (from, to) pair: a record linking the same target twice is one cycle stated twice, not

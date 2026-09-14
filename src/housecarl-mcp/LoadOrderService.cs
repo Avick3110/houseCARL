@@ -3899,9 +3899,10 @@ public sealed partial class LoadOrderService : IDisposable
     public sealed record NpcTemplateCategory(string Category, bool InheritedAtSeed,
                                              string? ProviderKey, string? ProviderEditorId, string? Note);
 
-    /// <summary>One seed's walk: the reached nodes in BFS order with provenance; the genuine cycles found in the
-    /// graph it walked — a record that reaches itself, whether directly or around a loop of any length, told apart
-    /// from an ordinary re-convergence by a pass over the walked edges; the truncation note when a cap
+    /// <summary>One seed's walk: the reached nodes in BFS order with provenance; the cycles found in the graph it
+    /// walked — a record that reaches itself, whether directly or around a loop of any length, told apart from an
+    /// ordinary re-convergence by a pass over the walked edges, ONE PER CLOSING LINK, so the count is a lower bound
+    /// on the distinct loops and none means none (<see cref="GraphCycles.Find"/>); the truncation note when a cap
     /// cut the walk, keeping what was proved and saying what was not; and, for an NPC_ seed under
     /// follow="Template", the per-category inheritance report.</summary>
     public sealed record WalkSeedResult(string Seed, string? Type, string? EditorId,
@@ -3922,8 +3923,12 @@ public sealed partial class LoadOrderService : IDisposable
         public string Type = "";
         public string Label = "";
         public List<WalkNodeRow> Nodes = new();
-        /// <summary>The walked graph as edges, parent to target, per node this seed entered.</summary>
+        /// <summary>The walked graph as edges, parent to target, per node this seed entered. One entry per link
+        /// CROSSED, so nothing bounds it but the fanout of what was walked — which is why it goes at
+        /// <see cref="Settle"/> rather than at return.</summary>
         public Dictionary<FormKey, List<FormKey>> Edges = new();
+        /// <summary>This seed's cycles, found once at <see cref="Settle"/>.</summary>
+        public IReadOnlyList<string>? Cycles;
         public string? Truncation;
         public HashSet<FormKey> Visited = new();
         public Queue<(FormKey Key, int Depth, string PulledBy)> Frontier = new();
@@ -3936,11 +3941,21 @@ public sealed partial class LoadOrderService : IDisposable
             outgoing.Add(to);
         }
 
-        /// <summary>This seed's genuine cycles, each stated as its loop of records — the last hop closes it, so the
-        /// first record is named again at the end. Asked of the recorded edges once the walk is done, because a
+        /// <summary>This seed is finished: find its cycles and let its edge set go. Called where the visited set
+        /// and the frontier are dropped, so the edges follow the same release discipline rather than every seed's
+        /// staying resident until the last one in the batch finishes (#719). Nodes is complete by then — nothing but
+        /// this seed's own turn enqueues into it — which is all the labels need.</summary>
+        public void Settle()
+        {
+            Cycles ??= CyclesFound();
+            Edges = new();
+        }
+
+        /// <summary>This seed's cycles, each stated as its loop of records — the last hop closes it, so the first
+        /// record is named again at the end. Asked of the recorded edges rather than of the traversal, because a
         /// visited set cannot tell a loop from a diamond and the traversal tree cannot see a mutual reference
-        /// between siblings.</summary>
-        public IReadOnlyList<string> CyclesFound()
+        /// between siblings. One per back edge: see <see cref="GraphCycles.Find"/> for what that count claims.</summary>
+        IReadOnlyList<string> CyclesFound()
         {
             var found = GraphCycles.Find(Edges);
             if (found.Count == 0) return Array.Empty<string>();
@@ -4312,7 +4327,7 @@ public sealed partial class LoadOrderService : IDisposable
                 }
                 // An empty frontier means this seed is finished — nothing but its own turn ever enqueues into it —
                 // and the results loop reads neither of these, so the bookkeeping goes back now rather than at return.
-                if (st.Frontier.Count == 0) { st.Visited = new(); st.Frontier = new(); }
+                if (st.Frontier.Count == 0) { st.Visited = new(); st.Frontier = new(); st.Settle(); }
             }
             // The pass is over: the bodies it gathered have given up their identity and their links, so they go
             // now rather than at the end of the call. This is the release the #719 retention was missing.
@@ -4327,7 +4342,9 @@ public sealed partial class LoadOrderService : IDisposable
             if (states[i] is not { } st) { results.Add(rows[i]!); continue; }
             IReadOnlyList<NpcTemplateCategory>? templateReport = null;
             if (st.SeedTemplateFact is { } seedFact) templateReport = NpcTemplateReport(TemplateFactOf, seedFact, st.Key);
-            results.Add(new WalkSeedResult(FormIdToken.Of(st.Key), st.Type, st.EditorId, st.Nodes, st.CyclesFound(), st.Truncation, templateReport, null));
+            // A seed that never ran a pass — no links off it at all — has not settled yet; one that did settled there.
+            st.Settle();
+            results.Add(new WalkSeedResult(FormIdToken.Of(st.Key), st.Type, st.EditorId, st.Nodes, st.Cycles!, st.Truncation, templateReport, null));
         }
         WalkBodiesHeldAtReturn = bodyCache.Count;
         return results;
