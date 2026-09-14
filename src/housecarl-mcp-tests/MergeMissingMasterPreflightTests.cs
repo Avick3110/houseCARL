@@ -122,6 +122,7 @@ public sealed class MergeMissingMasterWorld : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(Root, recursive: true); } catch { /* best-effort */ }
+        Svc.Dispose();
+        try { Directory.Delete(Root, recursive: true); } catch { /* temp cleanup best-effort */ }
     }
 }
