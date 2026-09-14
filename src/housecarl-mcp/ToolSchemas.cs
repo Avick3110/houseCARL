@@ -296,10 +296,21 @@ internal static class ToolSchemas
     /// <summary>Close a recursive chain at the bound: keep the node's own description and the target's <c>type</c>,
     /// and constrain nothing further. Says exactly what is true — nesting deeper is still accepted, and this
     /// document stops spelling it out. Internal because <see cref="SchemaDepthCap"/> closes its own cut with the
-    /// SAME node: a caller reading one of them learns what the other means too.</summary>
-    internal static JsonObject Terminator(JsonObject refNode, JsonObject target)
+    /// same NODE — same members, same claim — under a clause of its own, since the shape below a cut appears
+    /// nowhere in the document while the shape below a recursion bound appears above it.</summary>
+    internal static JsonObject Terminator(JsonObject refNode, JsonObject target) =>
+        Terminator(refNode, target, RecursionContinues);
+
+    /// <summary>The recursion bound's clause: the shape WAS spelled out earlier in this document, because a cycle
+    /// is the only thing that brings this node about. A cut has no such earlier copy and says so in its own
+    /// clause — see <see cref="SchemaDepthCap"/>.</summary>
+    internal const string RecursionContinues =
+        "Nesting continues below this level with the same shape shown above; it is accepted but not spelled out again here.";
+
+    /// <inheritdoc cref="Terminator(JsonObject, JsonObject)"/>
+    /// <param name="continues">What to say about the nesting below — one clause per reason a branch closes.</param>
+    internal static JsonObject Terminator(JsonObject refNode, JsonObject target, string continues)
     {
-        const string continues = "Nesting continues below this level with the same shape shown above; it is accepted but not spelled out again here.";
         var open = new JsonObject();
         if (target["type"] is { } type) open["type"] = type.DeepClone();
         // The clause goes on unconditionally. A parameter carrying no description of its own would otherwise
