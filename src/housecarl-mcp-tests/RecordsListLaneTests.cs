@@ -102,6 +102,24 @@ public sealed class RecordsListLaneTests : RecordsTestBase
     }
 
     [Fact]
+    public void ListLaneAggregateInJson_SaysHowManyGroupsItWasCutFrom()
+    {
+        var project = new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" };
+        var whole = RecordsTools.Records(Svc, formids: ManyTypedIds, project: project, format: "json");
+        using var wholeDoc = System.Text.Json.JsonDocument.Parse(whole);
+        int groups = wholeDoc.RootElement.GetProperty("groups_total").GetInt32();
+        Assert.Equal(groups, wholeDoc.RootElement.GetProperty("rendered").GetInt32());
+        Assert.False(wholeDoc.RootElement.GetProperty("truncated").GetBoolean());
+
+        using var cut = System.Text.Json.JsonDocument.Parse(
+            RecordsTools.Records(Svc, formids: ManyTypedIds, project: project, format: "json", max_chars: whole.Length / 2));
+        Assert.True(cut.RootElement.GetProperty("truncated").GetBoolean());
+        // The cut document sizes its own retry: how many groups there are, and how many of them it laid.
+        Assert.Equal(groups, cut.RootElement.GetProperty("groups_total").GetInt32());
+        Assert.True(cut.RootElement.GetProperty("rendered").GetInt32() < groups);
+    }
+
+    [Fact]
     public void ListLaneAggregate_ARequestedTypeWithNoCarriersIsA0Row()
     {
         // The one list-lane shape that takes types=: the typed MGEF carrier walk, where types= narrows the carrier

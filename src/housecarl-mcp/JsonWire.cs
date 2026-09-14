@@ -654,6 +654,10 @@ static class JsonWire
             w.WriteNumber("render_ms", bodyCost.Millis);
             if (errors > 0) w.WriteNumber("errors", errors);
             WriteEpoch(w, epoch);
+            // How many groups the table HAS, stated before the rows: a cut document otherwise says it was cut
+            // without saying what it was cut from, and a json caller has no way to size the retry the text twin's
+            // "rendered N of M groups" hands it.
+            w.WriteNumber("groups_total", rows.Count);
             w.WriteStartArray("groups");
             int rendered = 0; bool truncated = false;
             foreach (var (key, n) in rows.Select(r => (r.Key, r.Value)))
@@ -1187,6 +1191,9 @@ static class JsonWire
                 WriteEpoch(w, q.Stamp);
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
                 WriteNotes(w, q);
+                // total above is the MATCH count; this is how many groups they fell into, which is what a cut
+                // document's rendered count is short of.
+                w.WriteNumber("groups_total", q.Groups.Count);
                 w.WriteStartArray("groups");
                 int gRendered = 0; bool gTrunc = false;
                 foreach (var g in q.Groups)

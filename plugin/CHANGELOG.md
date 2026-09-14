@@ -166,7 +166,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
   rendered every group row whatever the ceiling said and stated nothing; it now stops at the cap and says how many
   of its groups it laid, the same notice the scan lane's count table carries. The counts themselves are unchanged —
   only the rendering is cut, so the table's totals stay exact. The json shape gains `rendered` and `truncated`
-  alongside `groups`, as the scan lane's already has. Raise `max_chars` to see the rest.
+  alongside `groups`, as the scan lane's already has, and both json count tables now carry `groups_total` — how
+  many groups the table has, so a cut document says what it was cut from. Raise `max_chars` to see the rest.
 
 - **A type named in `types=` with no records now gets a `0` row in a `group_by=type` count table.** The type was
   simply absent before, so reading "no PARW records" meant diffing the request against the response. Both lanes
