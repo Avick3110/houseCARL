@@ -47,6 +47,16 @@ saying it sets an expectation their install may contradict. Say what is known, a
   tab; the desktop app's plain chat is a separate surface reading
   `%APPDATA%\Claude\claude_desktop_config.json`. Neither reads `~/.claude/claude_mcp_config.json`, so a
   hand-migration that edits only that file leaves the host spawning the server it had before.
+- **`HOUSECARL_MAX_SCHEMA_DEPTH` publishes the tool schemas cut to a nesting depth.** Set it on the server entry
+  to the depth your provider accepts (JSON container nesting, the measure the refusing providers report), and
+  every published schema is cut there and closed with the same node the recursion bound already closes with: one
+  that says nesting continues below with the same shape and is accepted. `housecarl_create` and `housecarl_apply`
+  publish at 24 and 21 today, which a provider capped at 10 refuses — and it refuses the whole server at
+  `tools/list`, naming no tool. What a tool ACCEPTS does not move: a call nested deeper than the cut is bound and
+  answered exactly as before, so the schema is less descriptive below the cut, never wrong. It applies to the
+  server entry, not to one model, so models sharing that entry all get the cut schemas; use a second entry to
+  split them. Unset — the default — publishes the full schemas, byte for byte what they were. A value that is not
+  a whole number of 1 or more stops the server's start with one sentence naming the variable.
 - **A forward `walk=` no longer holds every record it reached.** A record body read from a plugin is a slice
   of that record group's whole byte array and keeps it alive, so caching one body per reached node until the
   call returned pinned one array per source group per plugin: 270 KB per reached node, and a raised
