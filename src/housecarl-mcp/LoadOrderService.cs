@@ -1501,7 +1501,11 @@ public sealed partial class LoadOrderService : IDisposable
             }
 
             string? winner = providers.Count > 0 ? providers[0].Text : null;
-            return NifSetResult.OkNewFolder(rel, chosenProv, providers, place.Ambiguous, report, rf.ModFolder, rf.CreatedFresh, winner, MergeWarnings(report.Warnings, warnings, null), profileName);
+            // MO2's overwrite folder is the TOP loose root, so no mod folder out-ranks it and no left-pane sort reaches it.
+            bool winnerIsOverwrite = place.Sources.Count > 0 && place.Sources[0].Kind == AssetKind.Loose
+                && string.Equals(place.Sources[0].ProviderName, AssetResolver.OverwriteLayerName, StringComparison.OrdinalIgnoreCase);
+            return NifSetResult.OkNewFolder(rel, chosenProv, providers, place.Ambiguous, report, rf.ModFolder, rf.CreatedFresh, winner, MergeWarnings(report.Warnings, warnings, null), profileName)
+                with { WinnerIsOverwrite = winnerIsOverwrite };
         }
     }
 
@@ -1594,7 +1598,17 @@ public sealed partial class LoadOrderService : IDisposable
         catch (ArgumentException ex) { return PlaceResult.Fail(req.AssetPath, ex.Message); }
 
         var res = view.ResolveForPlacement(rel);                         // rel already validated — won't throw
-        var winner = res.Sources.Count > 0 ? DescribeSource(res.Sources[0]) : null;
+        var winnerSrc = res.Sources.Count > 0 ? res.Sources[0] : null;
+        var winner = winnerSrc is null ? null : DescribeSource(winnerSrc);
+        // MO2's overwrite folder is the TOP loose root (AssetResolver.BuildLooseRoots: overwrite > mods > Data), so no
+        // mod folder out-ranks it and no left-pane sort reaches it — the render owes a different instruction there.
+        bool winnerIsOverwrite = winnerSrc is { Kind: AssetKind.Loose }
+            && string.Equals(winnerSrc.ProviderName, AssetResolver.OverwriteLayerName, StringComparison.OrdinalIgnoreCase);
+        // The destination folder is ALREADY the winner — a re-place into an enabled houseCARL patch. Sorting it above
+        // itself is not an instruction anyone can follow.
+        bool winnerIsDestination = winnerSrc is not null
+            && string.Equals(winnerSrc.ProviderName, Path.GetFileName(outDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+                             StringComparison.OrdinalIgnoreCase);
 
         // ---- source bytes: an ON-DISK source= is read as named; anything else resolves through the VFS ----
         // Three source shapes reach here: an on-disk file the caller named exactly (a FULLY-QUALIFIED path, which a
@@ -1718,7 +1732,8 @@ public sealed partial class LoadOrderService : IDisposable
             return PlaceResult.Fail(rel,
                 $"wrote '{rel}' but its on-disk size ({size}) does not match the {bytes.Length} source byte(s) — verify before relying on it.", winner);
         return new PlaceResult(rel, true, bytes.Length, sourceDesc, winner, null)
-            { SourceOffOrderProvider = offOrderProvider, SourceOffOrderOwnerEnabled = offOrderOwnerEnabled };
+            { SourceOffOrderProvider = offOrderProvider, SourceOffOrderOwnerEnabled = offOrderOwnerEnabled,
+              WinnerIsOverwrite = winnerIsOverwrite, WinnerIsDestination = winnerIsDestination };
     }
 
     /// <summary>Read an ON-DISK source= the caller named exactly. Forms: "&lt;archive.bsa&gt;|&lt;entry&gt;" (a specific
@@ -10103,6 +10118,10 @@ public sealed record NifSetResult(
     /// winner on enable while an into= folder has to be sorted above it.</summary>
     public bool FreshFolder { get; init; }
 
+    /// <summary>Whether <see cref="CurrentWinner"/> is MO2's overwrite folder — the TOP loose root, above every mod
+    /// folder, so neither enabling nor sorting takes the mesh off it and the only remedy is to move that copy.</summary>
+    public bool WinnerIsOverwrite { get; init; }
+
     public static NifSetResult OkNewFolder(string rel, NifProvider edited, IReadOnlyList<NifProvider> providers, bool ambiguous,
         HousecarlCore.NifSetReport report, string modFolder, bool freshFolder, string? winner, IReadOnlyList<string> warnings, string profileName)
         => new(rel, edited, providers, ambiguous, report, null, false, null, false, true, modFolder, null, winner, warnings, profileName)
@@ -10139,6 +10158,16 @@ public sealed record PlaceResult(string AssetPath, bool Placed, long Bytes, stri
     /// the bytes came out of a root archive no active plugin binds, not out of an unticked mod, and the response has
     /// to say the one that is true.</summary>
     public bool SourceOffOrderOwnerEnabled { get; init; }
+
+    /// <summary>Whether <see cref="CurrentWinner"/> is MO2's overwrite folder. It is the TOP loose root, above every
+    /// mod folder, so neither enabling a fresh folder nor any left-pane sort takes the path off it — the only remedy
+    /// is to move or delete the overwrite copy, and the render has to say that instead.</summary>
+    public bool WinnerIsOverwrite { get; init; }
+
+    /// <summary>Whether <see cref="CurrentWinner"/> IS the folder these bytes were placed into — a re-place into an
+    /// enabled houseCARL patch. The placement already wins; telling the caller to sort the folder above itself is an
+    /// instruction nobody can follow.</summary>
+    public bool WinnerIsDestination { get; init; }
 
     public static PlaceResult Fail(string assetPath, string error, string? currentWinner = null)
         => new(assetPath, false, 0, null, currentWinner, error);

@@ -125,12 +125,15 @@ internal static class WriteSentences
     };
 
     /// <summary>The header + mod-folder pair for a write to a NEW patch or an EXTENDED one — the default lane's
-    /// "here is the artifact and what to do with it", rendered identically by apply / create / forward.</summary>
+    /// "here is the artifact and what to do with it", rendered identically by apply / create / forward.
+    /// A record's precedence is the PLUGIN load order, not the mod folder's priority, and MO2 adds a newly activated
+    /// plugin at the end of that order — so a new patch needs enabling and nothing else, while an extended one already
+    /// has a place in it and is left to the caller.</summary>
     internal static string NewOrExtendedArtifact(bool extended, string file, long bytes, string modFolder) =>
         (extended ? $"extended {file} (existing patch grown; {bytes} bytes)\n"
                   : $"wrote {file} (new patch; {bytes} bytes)\n")
       + (extended ? $"mod folder: {modFolder}\n"
-                  : $"mod folder: {modFolder}  — enable it in MO2 to use the patch\n");
+                  : $"mod folder: {modFolder}  — enable it in MO2 to use the patch; MO2 adds a newly activated plugin at the END of the load order, so it overrides what is already there\n");
 
     /// <summary>The masters line. The empty-set spelling is the part that carries meaning: a patch with no masters is
     /// a standalone, not a broken header.</summary>

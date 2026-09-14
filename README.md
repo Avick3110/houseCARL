@@ -123,7 +123,7 @@ The in-place lane keeps no backup and has no undo. The first in-place write to a
 
 **Pre-flight.** Every op is checked before any file is opened for writing: record type, field path, enum value, verb against cardinality, value range, writability, record identity, the target type of every FormLink. Each failing op is named and counted. One failing op refuses the whole call.
 
-**Readback.** Each edited field is read back from the written file. `readback=true` deep-reads every touched record. The readback reports the file's content. The patch has no effect until it is enabled and sorted in MO2.
+**Readback.** Each edited field is read back from the written file. `readback=true` deep-reads every touched record. The readback reports the file's content. The patch has no effect until it is enabled in MO2; MO2 adds a newly activated plugin at the end of the load order.
 
 **Beyond field edits.** Create records with fresh FormIDs, including nested dialogue structures. Remove records and list entries. Forward a named plugin's version of a record as a winning override, or revert a record to vanilla. Copy an NPC's appearance closure into a standalone record with no dependency on the donor. Create an empty plugin. ESL-compact a plugin, carrying its FormID-keyed FaceGen and voice files. Merge plugins with collision-only renumbering. Unused masters are trimmed on every write.
 

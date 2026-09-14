@@ -3134,11 +3134,10 @@ static class JsonWire
             w.WriteNumber("bytes", r.Bytes);
             WriteNullable(w, "source", r.SourceDesc);
             WriteNullable(w, "current_winner", r.CurrentWinner);
-            w.WriteString("winner_note", r.CurrentWinner is not null
-                ? freshFolder
-                    ? $"{r.CurrentWinner} currently wins the VFS — a folder MO2 has not seen registers at the highest priority, so '{modFolder ?? "(the new folder)"}' out-ranks it once enabled"
-                    : $"{r.CurrentWinner} currently wins the VFS — sort '{modFolder ?? "(the patch folder)"}' ABOVE it"
-                : $"nothing else provides this path — once '{modFolder ?? "(the new folder)"}' is enabled, the placed copy wins");
+            // The text twin's own line, verbatim: a json caller acts on this string alone.
+            w.WriteString("winner_note", PlaceWire.WinnerLine(r, modFolder, freshFolder));
+            w.WriteBoolean("winner_is_overwrite", r.WinnerIsOverwrite);
+            w.WriteBoolean("winner_is_destination", r.WinnerIsDestination);
             // Bytes served out of a mod MO2 does not load are a fact of the SOURCE, and look like any other
             // placement without it.
             if (r.SourceOffOrderProvider is { } offOrder)

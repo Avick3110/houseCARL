@@ -858,7 +858,9 @@ static class NifSetWire
         }
         else
         {
-            sb.Append("\n  wrote the verified mesh into a new mod folder: ").Append(d.OutputModFolder).Append('\n');
+            // An into= call did not create this folder, so it must not be announced as a new one.
+            sb.Append(d.FreshFolder ? "\n  wrote the verified mesh into a new mod folder: " : "\n  wrote the verified mesh into the mod folder: ")
+              .Append(d.OutputModFolder).Append('\n');
             // source_provider= is answered ahead of the ABSENT return, so a successful write can land with NO current winner —
             // the donor was off-order and nothing active supplied the path. There is nothing to sort above then, and
             // saying so would name a winner that does not exist. Same branch place_asset's render already has.
@@ -866,6 +868,11 @@ static class NifSetWire
                 sb.Append("  TO MAKE IT WIN: nothing else provides this path — once '")
                   .Append(Path.GetFileName(d.OutputModFolder) is { Length: > 0 } f ? f : "the new folder")
                   .Append("' is enabled in MO2, the edited copy wins. 'Wrote it' is not 'it wins' until you do.\n");
+            else if (d.WinnerIsOverwrite)
+                // MO2's overwrite folder is the top loose root: no mod folder out-ranks it and no left-pane sort reaches it.
+                sb.Append("  TO MAKE IT WIN: enable this folder in MO2, then move or delete the copy in ")
+                  .Append(d.CurrentWinner)
+                  .Append(" — MO2's overwrite folder sits ABOVE every mod in the VFS, so neither enabling nor sorting takes this path off it. 'Wrote it' is not 'it wins' until you do.\n");
             else if (d.FreshFolder)
                 // A folder MO2 has not seen registers at the highest priority, so ticking it is the whole job.
                 sb.Append("  TO MAKE IT WIN: enable this folder in MO2 — MO2 registers a folder it has not seen at the highest priority, so it out-ranks ")

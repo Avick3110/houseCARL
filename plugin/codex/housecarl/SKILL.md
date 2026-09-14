@@ -64,8 +64,8 @@ housecarl_apply(ops=[{"formid": "012EB7:Skyrim.esm", "field_path": "BasicStats.D
 ```
 ```
 wrote SwordFix.esp (new patch; 1284 bytes)
-mod folder: SwordFix  — enable + sort it in MO2 to use the patch
-full read-back — … NOT load-order truth; the patch wins nothing until enabled + sorted in MO2:
+mod folder: SwordFix  — enable it in MO2 to use the patch; MO2 adds a newly activated plugin at the END of the load order, so it overrides what is already there
+full read-back — … NOT load-order truth; the patch wins nothing until it is enabled in MO2:
   Weapon 012EB7:Skyrim.esm  editorid=IronSword
     BasicStats.Damage = 12
     ...

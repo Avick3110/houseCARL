@@ -30,8 +30,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   registers a folder it has not seen at the highest priority, so the placed copy out-ranks the current winner
   the moment it is ticked. A placement into an existing folder (`into=`) still says to sort it above the current
   winner, because that folder's priority is already fixed. Both keep the note that a mod you add later can
-  out-rank this one. The same laning reaches the "enable + sort it in MO2" line the write tools print after
-  creating a patch, which now says "enable it in MO2".
+  out-rank this one. Two winners are answered apart, because neither instruction reaches them: a path won by
+  MO2's overwrite folder, which sits above every mod in the VFS (move or delete that copy), and a path the
+  destination folder itself already provides (the placement replaces its own earlier copy and keeps winning).
+  The same laning reaches the "enable + sort it in MO2" line the write tools print after creating a patch,
+  which now says "enable it in MO2" and names the reason: a record's precedence is the plugin load order, and
+  MO2 adds a newly activated plugin at the end of it. An `into=` or in-place patch already has a place in that
+  order, so its lines are unchanged.
 
 - **A bulk `housecarl_apply` or `housecarl_forward` no longer costs megabytes of memory per operation.** Each op
   fetched its record by enumerating that record's plugin from the top, so a call paid (records in that plugin) per
