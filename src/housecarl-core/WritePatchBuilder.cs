@@ -77,8 +77,24 @@ public static class WritePatchBuilder
         /// <summary>The same leaf reading as <see cref="After"/>, re-derived from the record as it was RE-READ off the
         /// written file — the one a response's per-edit line may print. Null on exactly the cases
         /// <see cref="LandedOnDisk"/> is null for, and a renderer must then say the value was not checked rather than
-        /// print the in-memory reading under a file's authority (#683).</summary>
+        /// print the in-memory reading under a file's authority (#683).
+        /// <para>A SUPERSEDED op carries one too, and it is the leaf's FINAL state rather than this op's own result —
+        /// the file answers for the leaf even where it cannot answer for the op. <see cref="LandedOnDisk"/> stays null
+        /// there, because that one is COMPARED and a mid-sequence reading is not comparable with a final one.</para></summary>
         public string? AfterOnDisk { get; init; }
+
+        /// <summary>The walk of the written file COMPLETED and did not contain this op's target record at all. Not an
+        /// ambiguity the render may report as unchecked: the call wrote the file and the record it edited is not in
+        /// it, which is the one reading that says the edit did not land (#683). False when the walk itself failed —
+        /// that yields no answer about any record, and claiming absence from it would invent a verdict.</summary>
+        public bool RecordAbsentFromFile { get; init; }
+
+        /// <summary>
+        /// <see cref="After"/> is a SENTENCE about what the write did, not a reading of a field — today only the
+        /// SNAM topic-marker sync's explanation, which is appended past the resolved edits and has no leaf of its
+        /// own. The per-edit line prints it as it stands; without this it falls through the file-reading arms and the
+        /// message is dropped.</summary>
+        public bool AfterIsNote { get; init; }
 
         /// <summary>A LATER op in the same call wrote into this op's leaf, so the written file cannot answer for this
         /// one: <see cref="After"/>/<see cref="Landed"/> were read the instant it applied, and the file holds the
@@ -897,7 +913,8 @@ public static class WritePatchBuilder
                 case MarkerFill.Filled:
                     ops.Add(new OpResult(fk, "DialogTopic",
                         $"SubtypeName (SNAM subtype marker) synced to {marker}", true, null,
-                        $"{marker} — you set Subtype={dt.Subtype}; the game buckets by the SNAM marker, so it was synced to match (#131 — otherwise the Subtype change is a silent no-op)"));
+                        $"{marker} — you set Subtype={dt.Subtype}; the game buckets by the SNAM marker, so it was synced to match (#131 — otherwise the Subtype change is a silent no-op)")
+                        { AfterIsNote = true });
                     break;
                 case MarkerFill.Unmodeled:
                     return $"cannot set Subtype on DialogTopic {FormIdToken.Of(fk)}: no SNAM marker is modeled for Subtype={dt.Subtype} " +
@@ -3852,6 +3869,8 @@ public static class WritePatchBuilder
         if (ops.Count == 0) return ops;
         var want = new HashSet<FormKey>(perOp.Select(p => p.Target));
         var found = new Dictionary<FormKey, IMajorRecordGetter>();
+        // A walk that FINISHED is the only one that can say a record is absent; one that threw answers about nothing.
+        bool walkFinished = false;
         try
         {
             foreach (var rec in back.EnumerateMajorRecords())
@@ -3859,6 +3878,7 @@ public static class WritePatchBuilder
                 if (want.Contains(rec.FormKey) && !found.ContainsKey(rec.FormKey)) found[rec.FormKey] = rec;
                 if (found.Count == want.Count) break;    // every target in hand — the rest of the file is not ours
             }
+            walkFinished = true;
         }
         catch { /* leave every op unverified — the render says so, and ReadBackInFull names the walk failure itself */ }
 
@@ -3867,13 +3887,29 @@ public static class WritePatchBuilder
         {
             var op = ops[i];
             if (i >= perOp.Count) { verified.Add(op); continue; }                       // appended past the edits — never asked
-            if (!found.TryGetValue(perOp[i].Target, out var rec)) { verified.Add(op with { VerifyAttempted = true }); continue; }
+            // The record is not in the file this call just wrote. A completed walk makes that a VERDICT — the edit did
+            // not land — and the render says so; a failed walk makes it no answer at all.
+            if (!found.TryGetValue(perOp[i].Target, out var rec))
+                { verified.Add(op with { VerifyAttempted = true, RecordAbsentFromFile = walkFinished }); continue; }
             // SUPERSEDED ops are not comparable: `After`/`Landed` are read the instant op i applies — mid-sequence —
             // while the file holds the state after ALL of them. Two ops on one leaf (two Adds to one list; a value set
             // then corrected) therefore always "disagree", and reporting that tells the caller to treat a landed op as
             // NOT landed — whose remedy, re-issuing the op, is the duplicate-Add trap. The file has ONE final state,
             // so only the LAST op touching a leaf is answerable by it.
-            if (LaterOpTouchesSameLeaf(perOp, i)) { verified.Add(op with { SupersededInCall = true, VerifyAttempted = true }); continue; }
+            // The file still answers for the LEAF, just not for this op, so the leaf's final reading rides along for
+            // the per-edit line — 50 Adds into one list then read as 49 lines with no value and one with a count.
+            // LandedOnDisk stays null: that one is COMPARED, and a mid-sequence reading is not comparable with a final
+            // one, which is the whole reason this arm exists.
+            if (LaterOpTouchesSameLeaf(perOp, i))
+            {
+                var (finalAfter, _, finalReadable) = DescribeApplied(rec, perOp[i].Req);
+                verified.Add(op with
+                {
+                    SupersededInCall = true, VerifyAttempted = true,
+                    AfterOnDisk = finalReadable ? finalAfter : null,
+                });
+                continue;
+            }
             var (afterDisk, landedDisk, diskReadable) = DescribeApplied(rec, perOp[i].Req);
             // ONE comparison, on the leaf. Deliberately NOT a second pass over `Landed` (the touched ELEMENT) to catch
             // a struct that lands but serializes with fewer fields than supplied: such a pass is inert, because

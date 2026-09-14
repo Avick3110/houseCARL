@@ -132,6 +132,12 @@ public static class WriteTools
         else
             sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, file, o.Bytes, modFolder));
         sb.Append(WriteSentences.Masters(o.Masters));
+        // Said ABOVE the ops and outside their budget: a record missing from the file the call just wrote is the one
+        // reading that contradicts the header, and an op-list cut must not be what removes it.
+        int absent = o.Ops.Count(op => op.RecordAbsentFromFile);
+        if (absent > 0)
+            sb.Append("! ").Append(absent).Append(absent == 1 ? " edit did NOT land: " : " edits did NOT land: ")
+              .Append(WriteSentences.RecordAbsentFromWrittenFile).Append(". Each is marked below.\n");
         sb.Append(o.Ops.Count).Append(o.Ops.Count == 1 ? " edit:\n" : " edits:\n");
         // Budgeted like every sibling render: applying edits is set-valued, so a few hundred ops is the expected case,
         // and the json render budgets the same array — unbounded here, the HOST cuts the response instead of max_chars.
@@ -309,10 +315,14 @@ public static class WriteTools
     /// re-read after the serialize. Never the in-memory reading — a record that exists in memory and serializes to
     /// nothing rendered as an applied value under a response that had not looked at the file (#683). Where the file
     /// cannot answer for this op the line says so and prints no value, because the only value available there is the
-    /// one the file does not vouch for.</summary>
+    /// one the file does not vouch for — but a record the file does not CONTAIN is an answer, and a bad one, so it is
+    /// said outright rather than as one more unchecked line.</summary>
     static string EditLineValue(WritePatchBuilder.OpResult op) =>
-        op.AfterOnDisk is { } disk ? "  -> " + disk
-        : op.SupersededInCall ? "  -> not-checked [a later op in this call wrote the same field; that op's line carries the file's reading]"
+        // A sentence about what the write did (the SNAM marker sync), not a field reading — nothing to re-read.
+        op.AfterIsNote && op.After is not null ? "  -> " + op.After
+        : op.RecordAbsentFromFile ? "  -> DID NOT LAND — " + WriteSentences.RecordAbsentFromWrittenFile
+        : op.AfterOnDisk is { } disk
+            ? "  -> " + disk + (op.SupersededInCall ? "  [the leaf as the file now holds it; a later op in this call wrote it too]" : "")
         : op.VerifyAttempted ? "  -> not-checked [the re-opened file did not answer for this op]"
         : "  -> not-checked [no file check ran for this op]";
 

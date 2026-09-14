@@ -24,7 +24,7 @@ public sealed class WriteReadbackFromFileTests : IDisposable
 
     readonly string _root, _priorCorpusPath, _patchPath;
     readonly LoadOrderService _svc;
-    readonly FormKey _weapon, _lvli;
+    readonly FormKey _weapon, _lvli, _topic;
 
     public WriteReadbackFromFileTests()
     {
@@ -42,6 +42,13 @@ public sealed class WriteReadbackFromFileTests : IDisposable
         ll.EditorID = "HcRbList";
         ll.Entries = Ten();
         _lvli = ll.FormKey;
+
+        // A topic whose Subtype an edit can move, so the SNAM marker sync appends its explanation op.
+        var topic = master.DialogTopics.AddNew();
+        topic.EditorID = "HcRbTopic";
+        topic.Subtype = DialogTopic.SubtypeEnum.Custom;
+        topic.SubtypeName = new RecordType("CUST");
+        _topic = topic.FormKey;
 
         // The patch from #683: an ACTIVE plugin already overriding the leveled list, so the write's winner IS the
         // file the write extends.
@@ -138,6 +145,43 @@ public sealed class WriteReadbackFromFileTests : IDisposable
         Assert.Equal($"[list: {EntriesOnDisk()} item(s)]", op.GetProperty("after_on_disk").GetString());
     }
 
+    /// <summary>Many Adds into one list is the documented bulk shape, and the file answers for the LEAF even where it
+    /// cannot answer for each op. Every line carries the file's reading, not a run of value-free ones.</summary>
+    [Fact]
+    public void EveryLineOfAManyOpRunIntoOneListCarriesTheFilesReading()
+    {
+        string Entry(int level) => $@"{{""formid"":""{Fid(_lvli)}"",""field_path"":""Entries"",""op"":""Add"",""compose"":{{""type"":""LeveledItemEntry"",""sets"":[{{""path"":""Data.Level"",""value"":""{level}""}},{{""path"":""Data.Count"",""value"":""1""}},{{""path"":""Data.Reference"",""value"":""{Fid(_weapon)}""}}]}}}}";
+        var r = ApplyTools.Apply(_svc,
+            ops: Je($"[{Entry(41)},{Entry(42)},{Entry(43)}]"), into: PatchName);
+        Assert.DoesNotContain("error:", r);
+        Assert.Equal(13, EntriesOnDisk());
+        Assert.DoesNotContain("not-checked", r);
+        // Three lines, each the file's own count for the leaf; the two the last op superseded say so beside it.
+        Assert.Equal(3, CountOf(r, "[list: 13 item(s)]"));
+        Assert.Equal(2, CountOf(r, "a later op in this call wrote it too"));
+    }
+
+    /// <summary>The marker sync's op carries a sentence about what the write did, not a field reading, and the per-edit
+    /// line is the only place it is ever printed.</summary>
+    [Fact]
+    public void TheTopicMarkerSyncStillExplainsItself()
+    {
+        var r = ApplyTools.Apply(_svc,
+            ops: Je($@"[{{""formid"":""{Fid(_topic)}"",""field_path"":""Subtype"",""op"":""Set"",""value"":""Hello""}}]"),
+            patch: "HcRbSnam");
+        Assert.DoesNotContain("error:", r);
+        Assert.Contains("the game buckets by the SNAM marker, so it was synced to match", r);
+        Assert.DoesNotContain("not-checked", r);
+    }
+
+    static int CountOf(string s, string needle)
+    {
+        int n = 0;
+        for (int i = s.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+             i = s.IndexOf(needle, i + needle.Length, StringComparison.Ordinal)) n++;
+        return n;
+    }
+
     public void Dispose()
     {
         CorpusRulebook.CorpusPath = _priorCorpusPath;
@@ -180,13 +224,37 @@ public sealed class WriteEditLineSourceTests
         Assert.DoesNotContain(Memory, r);
     }
 
-    /// <summary>A leaf a later op in the same call overwrote: the file's final state is that op's, so this op's line
-    /// carries no value either — the mid-sequence reading is not something the file vouches for.</summary>
+    /// <summary>A leaf a later op in the same call overwrote: the line still takes the file's reading of the leaf —
+    /// marked as the leaf's final state, since it is not this op's own result — and never the mid-sequence one.</summary>
     [Fact]
-    public void AnOpASiblingSupersededIsNotCheckedToo()
+    public void AnOpASiblingSupersededTakesTheLeafsFinalFileReading()
     {
-        var r = RenderOne(Op() with { SupersededInCall = true, VerifyAttempted = true });
-        Assert.Contains("not-checked", r);
+        var r = RenderOne(Op() with { SupersededInCall = true, VerifyAttempted = true, AfterOnDisk = Disk });
+        Assert.Contains(Disk, r);
+        Assert.Contains("a later op in this call wrote it too", r);
         Assert.DoesNotContain(Memory, r);
+    }
+
+    /// <summary>The record is not in the file the call just wrote. That is a verdict, not an ambiguity — #683's own
+    /// failure mode — so it is said outright and again above the ops, where an op-list cut cannot remove it.</summary>
+    [Fact]
+    public void ARecordMissingFromTheWrittenFileIsSaidOutright()
+    {
+        var r = RenderOne(Op() with { RecordAbsentFromFile = true, VerifyAttempted = true });
+        Assert.Contains("DID NOT LAND", r);
+        Assert.Contains("does not contain this record", r);
+        Assert.Contains("1 edit did NOT land", r);
+        Assert.DoesNotContain("not-checked", r);
+        Assert.DoesNotContain(Memory, r);
+    }
+
+    /// <summary>A walk that FAILED says nothing about whether the record is there, so it stays unchecked rather than
+    /// inventing the verdict above.</summary>
+    [Fact]
+    public void AFailedWalkIsNotCheckedRatherThanAVerdict()
+    {
+        var r = RenderOne(Op() with { VerifyAttempted = true });
+        Assert.Contains("not-checked", r);
+        Assert.DoesNotContain("DID NOT LAND", r);
     }
 }
