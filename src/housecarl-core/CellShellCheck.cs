@@ -49,7 +49,7 @@ public static class CellShellCheck
         ISkyrimModGetter? patch = null;
         try
         {
-            patch = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE);
+            patch = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
             var shells = new List<CellShell>();
             // EnumerateMajorRecords<ICellGetter> finds cells in BOTH the interior Cells group AND worldspace blocks.
             foreach (var cell in patch.EnumerateMajorRecords<ICellGetter>())

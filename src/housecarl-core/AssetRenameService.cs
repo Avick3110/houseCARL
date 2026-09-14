@@ -105,7 +105,7 @@ public static class AssetRenameService
         List<(FormKey Old, FormKey New)> npcs;
         try
         {
-            using var pp = SkyrimMod.CreateFromBinaryOverlay(pPrimePath, SkyrimRelease.SkyrimSE);
+            using var pp = SkyrimMod.CreateFromBinaryOverlay(pPrimePath, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
             var reverse = new Dictionary<FormKey, FormKey>(map.Count);
             foreach (var kv in map) reverse[kv.Value] = kv.Key;            // new → old
             npcs = pp.Npcs.Where(n => reverse.ContainsKey(n.FormKey))

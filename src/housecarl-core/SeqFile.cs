@@ -63,7 +63,7 @@ public static class SeqFile
     /// plugin — the caller surfaces it; never a silent empty .seq for a plugin that didn't open.</summary>
     public static SeqBuild Build(string pluginPath)
     {
-        using var mod = SkyrimMod.CreateFromBinaryOverlay(pluginPath, SkyrimRelease.SkyrimSE);
+        using var mod = SkyrimMod.CreateFromBinaryOverlay(pluginPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
         var masters = mod.ModHeader.MasterReferences.Select(m => m.Master).ToList();
         var quests = new List<SeqQuest>();
         foreach (var q in mod.Quests)
@@ -83,7 +83,7 @@ public static class SeqFile
     /// given quest, without re-deriving the master-index encoding.</summary>
     public static uint OnDiskFormIdFromPlugin(string pluginPath, FormKey fk)
     {
-        using var mod = SkyrimMod.CreateFromBinaryOverlay(pluginPath, SkyrimRelease.SkyrimSE);
+        using var mod = SkyrimMod.CreateFromBinaryOverlay(pluginPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
         var masters = mod.ModHeader.MasterReferences.Select(m => m.Master).ToList();
         return OnDiskFormId(fk, masters);
     }

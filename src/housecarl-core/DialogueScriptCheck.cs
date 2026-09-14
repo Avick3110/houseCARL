@@ -86,7 +86,7 @@ public static class DialogueScriptCheck
         ISkyrimModGetter? patch = null;
         try
         {
-            patch = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE);
+            patch = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
             return RunOver(patch, infoKeys, assets);
         }
         catch (Exception ex)

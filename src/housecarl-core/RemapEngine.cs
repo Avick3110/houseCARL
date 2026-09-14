@@ -1030,7 +1030,7 @@ public static class RemapEngine
             return RepointResult.Fail($"repoint target '{pluginName}' not found on disk at {path ?? "<unresolved>"} — the file is untouched.");
 
         SkyrimMod targetMod;
-        try { targetMod = SkyrimMod.CreateFromBinary(path, SkyrimRelease.SkyrimSE); }
+        try { targetMod = SkyrimMod.CreateFromBinary(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read); }
         catch (Exception ex)
         {
             return RepointResult.Fail(
@@ -1072,7 +1072,7 @@ public static class RemapEngine
                         "opened by houseCARL (see load_order_status for the reason), so a faithful re-serialize can't " +
                         "resolve the references into it. Repair or remove that plugin in MO2 and retry. The file is UNTOUCHED.");
                 ISkyrimModGetter ov;
-                try { ov = SkyrimMod.CreateFromBinaryOverlay(mpath, SkyrimRelease.SkyrimSE); }
+                try { ov = SkyrimMod.CreateFromBinaryOverlay(mpath, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read); }
                 catch (Exception ex)
                 {
                     return RepointResult.Fail(
