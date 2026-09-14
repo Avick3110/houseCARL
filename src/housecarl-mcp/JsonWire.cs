@@ -352,6 +352,9 @@ static class JsonWire
         // 'value' — and feeds it straight back through formids= — instead of regexing the note.
         if (f.NoteRef is { } noteRef && f.Cells is null) w.WriteString("note_ref", noteRef);
         if (f.Display is not null) w.WriteString("display", f.Display);
+        // The blob's byte length as a NUMBER beside its hex value: a consumer deciding whether a value was actually
+        // judged reads this, never the prose on display (a bytes field is the one leaf houseCARL renders unparsed).
+        if (f.Bytes is { } opaque) w.WriteNumber("opaque_bytes", opaque);
         if (f.Link is { } link)
         {
             w.WriteStartObject("link");
