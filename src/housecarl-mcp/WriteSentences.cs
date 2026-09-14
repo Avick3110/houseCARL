@@ -320,7 +320,7 @@ internal static class WriteSentences
     internal const string CopySeedShapeRoute =
         " — seed_paths takes a record link or a list of record links, and nothing else. Copying a field whose " +
         "entries carry links INSIDE them is a field-bundle copy: use " + ToolNames.Apply + "'s bundle=/assignments= zip, " +
-        "which transplants each named field WHOLE onto the target — one CopyFrom per target, replacing what the " +
+        "which transplants each named field WHOLE onto the target — one CopyFrom per named field per target, replacing what the " +
         "target had rather than merging into it. Nothing was written.";
 
     /// <summary>An off-order link on a record that was ALREADY in the patch. The serialization failure is real and

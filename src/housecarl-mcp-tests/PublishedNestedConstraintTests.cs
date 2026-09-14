@@ -133,8 +133,13 @@ public sealed class PublishedNestedConstraintTests
 
     /// <summary>Does a published member's <c>type</c> accept a JSON null? Written here off the served document, not
     /// read from the pass, so the two are still independent statements about the same member.</summary>
+    /// <para>Both spellings the generator uses: a <c>type</c> (string or array) and an <c>anyOf</c> union whose arms
+    /// carry their own. Reading only <c>type</c> would leave this blind exactly where the publication pass is, which
+    /// is what an independently written walk exists to avoid.</para>
     static bool AdmitsNull(JsonElement member)
     {
+        if (member.TryGetProperty("anyOf", out var arms) && arms.ValueKind == JsonValueKind.Array)
+            return arms.EnumerateArray().Any(a => a.ValueKind == JsonValueKind.Object && AdmitsNull(a));
         if (!member.TryGetProperty("type", out var type)) return false;
         if (type.ValueKind == JsonValueKind.String) return type.GetString() == "null";
         return type.ValueKind == JsonValueKind.Array
@@ -198,6 +203,28 @@ public sealed class PublishedNestedConstraintTests
         }
 
         _out.WriteLine($"{occurrences} published occurrence(s) of {MarkedShapes().Count} marked shape(s)");
+        Assert.Equal(Array.Empty<string>(), problems.ToArray());
+    }
+
+    /// <summary>The other direction of the same rule. Every member carrying a closed value set on this surface is a
+    /// VERB slot the server DEFAULTS rather than refuses — an absent or null verb is read as Set — so its published
+    /// type must admit null, or a validating client refuses a hop earlier than the server, on a call the server
+    /// answers. Nothing else asserted this: the enum check reads the published type to decide whether to expect a
+    /// null entry, so it agrees with a narrowing by construction.</summary>
+    [Fact]
+    public void EveryMemberWithAClosedValueSetPublishesATypeAdmittingNull()
+    {
+        var shapes = MarkedShapes().ToDictionary(s => Key(s.Members), s => s);
+        var problems = new List<string>();
+
+        foreach (var node in PublishedObjects())
+        {
+            if (!shapes.TryGetValue(Key(node.Members), out var shape)) continue;
+            foreach (var member in shape.Enums.Keys.Where(m => !node.NullableMembers.Contains(m, StringComparer.Ordinal)))
+                problems.Add($"{node.Tool} {node.Path}.{member}: {shape.Type.Name} names a closed set for it and the " +
+                             "server defaults a null one, but the published type does not admit null");
+        }
+
         Assert.Equal(Array.Empty<string>(), problems.ToArray());
     }
 

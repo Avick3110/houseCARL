@@ -37,4 +37,19 @@ public sealed class ComposeNestedVerbTests : RecordsTestBase
     public void ANestedSetWithAVerbTheLeafTakesStillComposes()
         => Served(ComposeWithNestedSet(@"{""path"":""ActorValue"",""value"":""Destruction""}"),
                   "Set Conditions[0].Data");
+
+    /// <summary>The CREATE lane shares this gate, and its remedy has to be one that lane can follow: there is no
+    /// CopyFrom op on the create surface, so pointing at from= / from_source= there would land the caller on a
+    /// second refusal saying the opposite.</summary>
+    [Fact]
+    public void TheCreateLaneGetsARemedyThatLaneCanFollow()
+    {
+        var r = CreateTools.Create(Svc, records: Je(
+            @"[{""record_type"":""LeveledItem"",""editorid"":""HcNestedVerbLvli"",""ops"":[{""field_path"":""Entries"",""op"":""Add"",""compose"":{""type"":""LeveledItemEntry"",""sets"":[{""path"":""Data.Reference"",""verb"":""CopyFrom""}]}}]}]"));
+
+        Assert.Contains("error:", r);
+        Assert.Contains("CopyFrom", r);
+        Assert.Contains(ToolNames.Apply, r);
+        Assert.DoesNotContain("from_source=", r);
+    }
 }
