@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Fold = HousecarlCore.PathFold;   // the fold vocabulary is shared with project.fields — one word list, one meaning
@@ -155,34 +155,33 @@ public sealed class FieldPredicateSet
     // right one, and the two ask different questions of the same containing record.
     readonly Dictionary<(int Index, bool LinkSide, FormKey Parent), (bool Satisfied, EvalKind Kind)> _parentVerdicts = new();
 
+    // The same read-once rule on the MISS path. A record the containment map gives no parent for is a fact about
+    // that record, and the only thing reading its body buys there is the TYPE NAME the rollup sentence wants — so
+    // a chain that dead-ends above its first hop ('*parent.*parent' over interior references, whose cells have no
+    // worldspace) pays one read per such record per call, not one per candidate.
+    readonly Dictionary<FormKey, string?> _noParentTypes = new();
+
     // Which predicate Matches is evaluating right now — the memo's key, stashed the way the rollup's own
     // _last* notes are rather than threaded through the link step's folds.
     int _evalIndex;
 
-    // Every containing record this set has fetched a body for, and the one the CURRENT candidate is being judged
-    // on. Together they are what ParentBodiesHeld counts: a parent body reachable from this set past the candidate
-    // that read it is the #720 retention, and it is invisible in the answer — only a counter can hold it.
-    readonly HashSet<FormKey> _parentsFetched = new();
-    IMajorRecordGetter? _parentInFlight;
+    // Parent bodies alive on the evaluation stack right now. A DEPTH, not a slot: the hop nests — a link
+    // predicate hops on its left path and then again on each target's own path, so on
+    // '*parent.Quest->*parent.EditorID' two containing records are genuinely live at once. Maintained
+    // incrementally because this runs in production, not only under test.
+    int _parentsInFlight;
 
-    /// <summary>Parent bodies this set holds a reference to RIGHT NOW: the one the current candidate is being
-    /// judged on, plus any that ended up in the target cache. Zero between candidates is the #720 invariant.</summary>
-    internal int ParentBodiesHeld
-    {
-        get
-        {
-            int held = _parentInFlight is null ? 0 : 1;
-            foreach (var k in _parentsFetched) if (_targetCache.ContainsKey(k)) held++;
-            return held;
-        }
-    }
+    /// <summary>Parent bodies this set holds a reference to RIGHT NOW — the chain of hops being evaluated. Zero
+    /// between candidates is the #720 invariant: no containing record outlives the candidate that read it.</summary>
+    internal int ParentBodiesHeld => _parentsInFlight;
 
-    /// <summary>The most parent bodies this set ever held at once — one, once the hop stopped caching them.</summary>
+    /// <summary>The most parent bodies this set ever held at once: one per hop in the deepest nested hop chain,
+    /// never one per candidate the scan streamed.</summary>
     internal int ParentBodyHighWater { get; private set; }
 
-    /// <summary>Distinct containing records this set fetched a body for: the hop's read count, which the memo holds
-    /// to one per parent per call however many children sit under it.</summary>
-    internal int ParentBodyFetches => _parentsFetched.Count;
+    /// <summary>Bodies the hop has READ — every fetch it paid, on the match path and the miss path alike, so a
+    /// read the memo should have saved shows here rather than hiding behind a distinct-parent count.</summary>
+    internal int ParentBodyFetches { get; private set; }
 
     /// <summary>Whether any predicate needs the scan's resolution context (<c>winner</c> term or a <c>-&gt;</c>
     /// link step) — the call site checks this to bind <see cref="BindResolution"/> (and open the body-fetch
@@ -1140,17 +1139,15 @@ public sealed class FieldPredicateSet
         if (miss is { } m) return (false, m);
         if (_parentVerdicts.TryGetValue((_evalIndex, linkSide, key!.Value), out var memo)) return memo;
 
-        var parent = _fetchWinnerBody!(key.Value);
-        _parentsFetched.Add(key.Value);
+        var parent = FetchParentBody(key.Value);
         (bool Satisfied, EvalKind Kind) verdict;
         if (parent is null)
             verdict = (false, EvalKind.Unreadable);              // the parent is indexed but its body would not fetch
         else
         {
-            _parentInFlight = parent;
-            if (ParentBodiesHeld > ParentBodyHighWater) ParentBodyHighWater = ParentBodiesHeld;
+            if (++_parentsInFlight > ParentBodyHighWater) ParentBodyHighWater = _parentsInFlight;
             try { verdict = below(parent); }
-            finally { _parentInFlight = null; }
+            finally { _parentsInFlight--; }
             if (_fatal is not null) return (false, EvalKind.Definite);   // a typed predicate error is the call's, not this parent's verdict
         }
         _parentVerdicts[(_evalIndex, linkSide, key.Value)] = verdict;
@@ -1176,13 +1173,30 @@ public sealed class FieldPredicateSet
             var pk = _parentOf(at);
             if (pk is null)
             {
-                var of = i == 0 ? body : _fetchWinnerBody(at);
-                _lastNoParent = of is null ? null : RecordNaming.StripOverlay(of.GetType().Name);
+                _lastNoParent = i == 0 ? RecordNaming.StripOverlay(body.GetType().Name) : NoParentTypeOf(at);
                 return (null, EvalKind.NoParent);
             }
             at = pk.Value;
         }
         return (at, null);
+    }
+
+    /// <summary>The type name the rollup's "no record CONTAINS a …" sentence wants for an INTERMEDIATE record a
+    /// chain dead-ends on. The map answers in keys, so that name is the one thing worth a body read here — read
+    /// once per such record per call and remembered, never once per candidate. Null where the body will not fetch,
+    /// which the sentence already renders as "these records".</summary>
+    string? NoParentTypeOf(FormKey at)
+    {
+        if (_noParentTypes.TryGetValue(at, out var name)) return name;
+        var body = FetchParentBody(at);
+        return _noParentTypes[at] = body is null ? null : RecordNaming.StripOverlay(body.GetType().Name);
+    }
+
+    /// <summary>The hop's one body read, counted where it happens so every path pays into the same counter.</summary>
+    IMajorRecordGetter? FetchParentBody(FormKey key)
+    {
+        ParentBodyFetches++;
+        return _fetchWinnerBody!(key);
     }
 
     /// <summary>The link step's left path from segment <paramref name="from"/> down. A quantified step there folds

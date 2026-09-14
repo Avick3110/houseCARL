@@ -124,7 +124,30 @@ public sealed class WhereContainmentCostTests
 
         var (set, matched) = Scan(new[] { "*parent.EditorID startswith Pc", "*parent.EditorID = PcSomewhereElse" }, placed);
         Assert.Equal(0, matched);
-        Assert.Equal(1, set.ParentBodyFetches);   // one parent, one read, two verdicts
+        Assert.Equal(2, set.ParentBodyFetches);   // 20 candidates, one parent, one read PER PREDICATE — not per candidate
+    }
+
+    /// <summary>The miss path obeys the same read-once rule as the match path: a chain that dead-ends ABOVE its
+    /// first hop — the shape every interior placed reference takes under '*parent.*parent', since an interior cell
+    /// has no containing worldspace — reads the record it dead-ended on once per call, not once per candidate.
+    /// Fails on a hop that fetches the type name for the rollup sentence afresh for every candidate.</summary>
+    [Fact]
+    public void AChainThatDeadEndsAboveItsFirstHopReadsEachDeadEndOnce()
+    {
+        var placed = new List<IMajorRecordGetter>();
+        for (int i = 0; i < 50; i++)
+        {
+            var cell = NewCell($"PcLoneCell{i}");          // in the map as a parent, with no parent of its own
+            for (int r = 0; r < 4; r++) placed.Add(NewPlaced($"PcLoneRef{i}_{r}", cell));
+        }
+
+        var (set, matched) = Scan(new[] { "*parent.*parent.EditorID = PcTamriel" }, placed);
+
+        Assert.Equal(0, matched);                  // nothing contains the cells, so no candidate can match
+        Assert.Equal(50, set.ParentBodyFetches);   // one read per dead-end cell, not one per the 200 candidates
+        Assert.Equal(50, _fetches);
+        Assert.Equal(0, set.ParentBodiesHeld);
+        Assert.Contains("Cell", set.AccountingNote());   // and the sentence still names what nothing contains
     }
 
     /// <summary>Both SIDES of a link predicate can hop, and to the same containing record: the left path's links
@@ -150,7 +173,13 @@ public sealed class WhereContainmentCostTests
 
         // Left hop: the INFO's topic, whose Quest link resolves. Right hop: that quest's own containing record —
         // the same topic — read for the terms below. One record, two verdicts, and only the true one matches.
-        Assert.Equal(10, Scan(new[] { "*parent.Quest->*parent.EditorID = PcGreetings" }, infos).Matched);
+        var (set, matched) = Scan(new[] { "*parent.Quest->*parent.EditorID = PcGreetings" }, infos);
+        Assert.Equal(10, matched);
         Assert.Equal(0, Scan(new[] { "*parent.Quest->*parent.EditorID = PcQuest" }, infos).Matched);
+
+        // The hops NEST — the right side's runs inside the left side's — so two containing records are live at
+        // once, and the counter must say two rather than losing the outer one when the inner returns.
+        Assert.Equal(2, set.ParentBodyHighWater);
+        Assert.Equal(0, set.ParentBodiesHeld);   // and both are released when the candidate is decided
     }
 }
