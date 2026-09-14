@@ -1099,6 +1099,10 @@ public static class WritePatchBuilder
                 + string.Join("\n  - ", problems.Select(p => p.Message)));
         }
 
+        // The same fork question the patch lane asks, on the POSITIONED arm: the target is an active plugin, so any
+        // plugin overriding these records at or below it out-loads the edit. Read off the captured view, no scan.
+        var forkWarning = ForkWarning.For(view, resolved.Select(r => r.edit.Target), fileName);
+
         // --- Phase 2: open the TARGET mutably. EAGER, the SINGLE plugin only — NEVER the load order (eager-loading the
         //     whole order costs 12–14 GB of RAM). CreateFromBinary is the same call Apply's extend path uses; an
         //     unparseable plugin throws here and is REFUSED, never silently re-emitted minus what Mutagen couldn't read. ---
@@ -1208,7 +1212,7 @@ public static class WritePatchBuilder
                 ? ReadBackInFull(targetMod, resolved.Select(r => r.edit.Target), inMemory: true) : null;
             return new PatchOutcome(true, null, targetPath, false, wouldMasters, ops, 0)
             {
-                DryRun = true, InPlace = true, ReadBack = dryBack,
+                DryRun = true, InPlace = true, ReadBack = dryBack, Warning = forkWarning,
                 Note = JoinNotes(linkNote, MasterGrowWouldNote(fileName, mastersBefore, wouldMasters)),
             };
         }
@@ -1278,7 +1282,8 @@ public static class WritePatchBuilder
         finally { (back as IDisposable)?.Dispose(); }
 
         return new PatchOutcome(true, null, targetPath, false, masters, reported, bytes)
-            { ReadBack = readBack, InPlace = true, Note = JoinNotes(linkNote, MasterGrowNote(fileName, mastersBefore, masters)) };
+            { ReadBack = readBack, InPlace = true, Warning = forkWarning,
+              Note = JoinNotes(linkNote, MasterGrowNote(fileName, mastersBefore, masters)) };
     }
 
     /// <summary>The explicit re-sort note when an in-place write GREW the target's master header: Skyrim loads a
@@ -2020,6 +2025,10 @@ public static class WritePatchBuilder
         if (refusal is not null) return ForwardOutcome.Fail(refusal);
         usedOffOrder = resolved.Any(r => r.offOrderBody);   // the arm ACTUALLY taken, not the one the caller planned
 
+        // The same fork question the patch lane asks, on the POSITIONED arm: the target is an active plugin, so
+        // any plugin overriding these records at or below it out-loads the forwarded body.
+        var forkWarning = ForkWarning.For(view, resolved.Select(r => r.spec.Target), fileName);
+
         // --- Phase 2: open the TARGET mutably (EAGER, the single plugin only — never the order). ---
         if (!File.Exists(targetPath))
             return ForwardOutcome.Fail($"in-place target '{fileName}' not found on disk at {targetPath} — the file is untouched.");
@@ -2088,7 +2097,7 @@ public static class WritePatchBuilder
                 ? ReadBackInFull(targetMod, resolved.Select(r => r.spec.Target), inMemory: true) : null;
             return new ForwardOutcome(true, null, targetPath, false, forwarded, wouldMasters, 0)
             {
-                DryRun = true, InPlace = true, ReadBack = dryBack,
+                DryRun = true, InPlace = true, ReadBack = dryBack, Warning = forkWarning,
                 Note = MasterGrowWouldNote(fileName, mastersBefore, wouldMasters),
             };
         }
@@ -2127,7 +2136,8 @@ public static class WritePatchBuilder
         finally { (back as IDisposable)?.Dispose(); }
 
         return new ForwardOutcome(true, null, targetPath, false, forwarded, masters, bytes)
-            { ReadBack = readBack, InPlace = true, Note = MasterGrowNote(fileName, mastersBefore, masters) };
+            { ReadBack = readBack, InPlace = true, Warning = forkWarning,
+              Note = MasterGrowNote(fileName, mastersBefore, masters) };
     }
 
 

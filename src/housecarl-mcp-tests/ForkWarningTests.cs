@@ -169,6 +169,37 @@ public sealed class ForkWarningTests : IDisposable
         Assert.Contains($"in_place=\"{ForeignName}\"", r);
     }
 
+    /// <summary>in_place= is the lane the positioned arm's remedy was written for, and the one the caller cannot
+    /// simply re-target, so it owes the warning too.</summary>
+    [Fact]
+    public void AnInPlaceEditIsWarnedAboutThePluginsBelowIt()
+    {
+        var r = ApplyTools.Apply(_svc,
+            ops: Je($@"[{{""formid"":""{Fid(_foreignList)}"",""field_path"":""ChanceNone"",""op"":""Set"",""value"":""0.05""}}]"),
+            in_place: MasterName, acknowledge: true);
+        Assert.DoesNotContain("error:", r);
+        Assert.Contains("warning:", r);
+        Assert.Contains(ForeignName, r);
+        Assert.Contains($"in_place=\"{ForeignName}\"", r);
+    }
+
+    /// <summary>Two records forked by two DIFFERENT plugins have no single into= that fixes both — following one
+    /// would move both edits into a patch that still forks the other — so the remedy says to route them per record
+    /// instead of naming the globally last-loaded forker.</summary>
+    [Fact]
+    public void RecordsForkedByDifferentPluginsGetNoSingleIntoRemedy()
+    {
+        var r = ApplyTools.Apply(_svc,
+            ops: Je($@"[{{""formid"":""{Fid(_list)}"",""field_path"":""ChanceNone"",""op"":""Set"",""value"":""0.05""}},{{""formid"":""{Fid(_foreignList)}"",""field_path"":""ChanceNone"",""op"":""Set"",""value"":""0.05""}}]"),
+            in_place: MasterName, acknowledge: true);
+        Assert.DoesNotContain("error:", r);
+        Assert.Contains("warning:", r);
+        Assert.Contains(PatchAName, r);
+        Assert.Contains(ForeignName, r);
+        Assert.Contains("not all forked by the same plugin", r);
+        Assert.DoesNotContain("pass into=", r);
+    }
+
     /// <summary>A dry run predicts the same fork, or the check only fires once the caller is already committed.</summary>
     [Fact]
     public void ADryRunSaysTheWriteWouldFork()
