@@ -465,7 +465,10 @@ public static class SksePluginReader
             if (dir.RelativeVirtualAddress == 0) return null;             // no resources at all — the common case for a lean DLL
             var block = pe.GetSectionData(dir.RelativeVirtualAddress);
             if (block.Length == 0) return null;
-            var res = block.GetContent();                                 // offsets inside the tree are relative to this base
+            // Only the three directory headers are read from here — the version data itself is fetched by its own RVA
+            // below — so copy a bounded head of the section rather than a .rsrc that may carry megabytes of icons. A
+            // hop landing past the bound fails the existing length checks and yields null, never a wrong number.
+            var res = block.GetContent(0, Math.Min(block.Length, 64 * 1024));   // offsets inside the tree are relative to this base
             // type → name → language: the first two hops pick RT_VERSION, the third takes whatever language is there.
             // An entry value's HIGH BIT marks a subdirectory, so every hop is unsigned; 0 is this walk's "no such child"
             // (offset 0 is the root directory itself, never a child).

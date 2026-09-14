@@ -52,8 +52,7 @@ public sealed class SkseVersionSourceTests
     {
         var text = SkseInventoryWire.Render(Layer(manifest: "7.0.0", fileVersion: "7.3.3.0", modVersion: "7.3.3.0"), null, 80_000);
 
-        Assert.Contains("7.0.0 (SKSE manifest)", text);
-        Assert.Contains("DLL file version 7.3.3.0", text);
+        Assert.Contains("7.0.0 (SKSE manifest; DLL file version 7.3.3.0)", text);
     }
 
     /// <summary>The meta.ini version is the third number, and it rides the same line when it agrees with neither — what
@@ -74,18 +73,67 @@ public sealed class SkseVersionSourceTests
         var text = SkseInventoryWire.Render(Layer(manifest: "7.3.3", fileVersion: "7.3.3.0", modVersion: "7.3.3.0"), null, 80_000);
 
         Assert.Contains("7.3.3 (SKSE manifest)", text);
+        Assert.DoesNotContain("SKSE manifest;", text);
         Assert.DoesNotContain("DLL file version", text);
         Assert.DoesNotContain("meta.ini", text);
     }
 
+    /// <summary>A meta.ini version carrying a tag the modder added — MO2 records "7.0.19.0-AIO" where the DLL stamps
+    /// "7.0.19.0" — is the SAME version, so it is not reported as a third number.</summary>
+    [Fact]
+    public void ATaggedVersionAgreeingOnTheNumbersIsNotADisagreement()
+    {
+        var text = SkseInventoryWire.Render(Layer(manifest: "7.0.19", fileVersion: "7.0.19.0", modVersion: "7.0.19.0-AIO"), null, 80_000);
+
+        Assert.DoesNotContain("meta.ini", text);
+    }
+
+    /// <summary>A DLL with no manifest at all and no version resource still has the version MO2 recorded for the mod
+    /// that ships it, and that is the only number in sight — so it is the one printed.</summary>
+    [Fact]
+    public void AManifestLessDllFallsBackToTheModVersion()
+    {
+        var text = SkseInventoryWire.Render(Layer(manifest: null, fileVersion: null, modVersion: "2.1"), "spid", 80_000);
+
+        Assert.Contains("2.1 (mod meta.ini)", text);
+    }
+
+    /// <summary>The same DLL with a file version the mod's meta.ini disagrees with: the disagreement the tool exists to
+    /// surface does not disappear because there is no manifest to anchor it.</summary>
+    [Fact]
+    public void AManifestLessDllStillShowsAModVersionThatDisagrees()
+    {
+        var text = SkseInventoryWire.Render(Layer(manifest: null, fileVersion: "1.0.0.0", modVersion: "3.4"), "spid", 80_000);
+
+        Assert.Contains("1.0.0.0 (DLL file version; meta.ini 3.4)", text);
+    }
+
+    /// <summary>The version text never contains " — ": the pairing audit's fate line joins its own fields with that,
+    /// and a version carrying one would make the load verdict read as part of the version.</summary>
+    [Fact]
+    public void TheVersionTextDoesNotUseTheRowSeparator()
+    {
+        var text = SkseInventoryWire.VersionText(
+            new SksePluginReader.SksePluginInfo("p.dll", SksePluginReader.SksePluginKind.Modern, true,
+                new SksePluginReader.SkseVersionInfo("P", "a", "", "7.0.0", true, false, false, false, Array.Empty<string>(), null),
+                null, null, "7.3.3.0"),
+            "7.3.4");
+
+        Assert.DoesNotContain(" — ", text);
+    }
+
     // ── the synthetic layer ──────────────────────────────────────────────────────────────────────────────────────
 
-    static SkseInventoryData Layer(string manifest, string? fileVersion, string? modVersion)
+    static SkseInventoryData Layer(string? manifest, string? fileVersion, string? modVersion)
     {
-        var version = new SksePluginReader.SkseVersionInfo("Spell Perk Item Distributor", "powerofthree", "", manifest,
+        // manifest null = a DLL with no SKSE manifest to declare a version (a bundled dependency), which is the case
+        // the mod's own meta.ini version has to carry.
+        var version = manifest is null ? null : new SksePluginReader.SkseVersionInfo("Spell Perk Item Distributor", "powerofthree", "", manifest,
             UsesAddressLibrary: true, UsesSignatureScanning: false, UsesUpdatedStructs: false, DeclaresNoStructs: false,
             new[] { "1.6.1170.0" }, null);
-        var plugin = new SksePluginReader.SksePluginInfo("spid.dll", SksePluginReader.SksePluginKind.Modern, true, version, null,
+        var plugin = new SksePluginReader.SksePluginInfo("spid.dll",
+            manifest is null ? SksePluginReader.SksePluginKind.NotSkse : SksePluginReader.SksePluginKind.Modern, true, version,
+            manifest is null ? "no SKSE export — a bundled dependency DLL, not a plugin" : null,
             new[] { "kernel32.dll" }, fileVersion);
         var entry = new SkseFileEntry("SKSE/Plugins/spid.dll", "spid.dll", "", new[] { new SkseProvider("SPID", "loose") },
             plugin, null, ModVersion: modVersion);

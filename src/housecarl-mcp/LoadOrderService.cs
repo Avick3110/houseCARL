@@ -451,6 +451,7 @@ public sealed partial class LoadOrderService : IDisposable
         const string pre = "SKSE\\Plugins\\";
         var dlls = new List<SkseFileEntry>();
         var configs = new List<SkseFileEntry>();
+        var modVersions = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);   // mod root → its meta.ini version, read once per mod
         int otherFiles = 0;
         foreach (var rel in view.EnumerateUnder("SKSE\\Plugins").OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
         {
@@ -475,7 +476,13 @@ public sealed partial class LoadOrderService : IDisposable
                 if (winner is { Kind: AssetKind.Loose, LooseFilePath: { } path })
                 {
                     info = SksePluginReader.Read(path);           // the winning loose copy
-                    modVersion = Mo2ModMeta.VersionForLooseFile(path, rel);   // what MO2 recorded for the mod that ships it
+                    // What MO2 recorded for the mod that ships it, read once per mod: a mod shipping several DLLs
+                    // (an AIO) would otherwise re-read the same meta.ini for each of them.
+                    if (Mo2ModMeta.ModRootForLooseFile(path, rel) is { } modRoot)
+                    {
+                        if (!modVersions.TryGetValue(modRoot, out modVersion))
+                            modVersions[modRoot] = modVersion = Mo2ModMeta.Read(Path.Combine(modRoot, "meta.ini"))?.Version;
+                    }
                 }
                 else if (winner is null) note = "no active mod provides this DLL";
                 else note = "provided ONLY inside a BSA — the SKSE loader scans loose Data\\SKSE\\Plugins only, so this DLL will not load";
