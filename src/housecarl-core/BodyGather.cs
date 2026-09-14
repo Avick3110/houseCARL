@@ -15,8 +15,15 @@ namespace HousecarlCore;
 /// it — declare every (plugin, record) the call will need, gather once, then read them back.</para>
 ///
 /// <para>Answers cannot differ from the one-at-a-time path: <see cref="Body"/> falls back to the single fetch for a
-/// pair that was never declared, and for a plugin <see cref="Gather"/> could not open — so the exception a caller
+/// pair that was never declared, and for a plugin <see cref="Gather"/> could not walk — so the exception a caller
 /// used to see is the one it still sees.</para>
+///
+/// <para>The third gather in the tree, and the one the WRITE lanes need. <see cref="WinnerBodies"/> (#251) derives
+/// the winner itself and REPORTS an unreadable plugin to its caller, because a scan has to say which plugins it could
+/// not read; <c>BodyPrefetch.Chunk</c> (#582, in the server assembly) walks a plugin only when a rendered row asks
+/// for it and answers null for anything it did not gather, because a render stops mid-chunk and must not pay for
+/// rows nobody sees. A write reads every body it declared, all-or-nothing, and must raise each fault from the edit
+/// that owns it — hence eager gather plus per-record fallback. Folding the three into one primitive is #756.</para>
 /// </summary>
 public sealed class BodyGather
 {
@@ -43,10 +50,12 @@ public sealed class BodyGather
         {
             if (_walked.Contains(plugin)) continue;
             if (!_held.TryGetValue(plugin, out var sink)) _held[plugin] = sink = new Dictionary<FormKey, IMajorRecordGetter>();
-            // A plugin that opened at index time but cannot be opened now: leave it to Body's per-record fallback,
-            // which raises the same fault the caller saw before this existed.
+            // Any fault — a plugin that opened at index time but cannot be opened now, or a record the walk cannot
+            // parse — leaves this plugin unwalked, so Body falls back to the per-record fetch and the caller sees the
+            // same fault, from the same place in its own loop, that it saw before this existed. Swallowing it here
+            // would move a named per-record refusal to an up-front throw that names no record.
             try { _view.CollectRecords(_session, plugin, keys, null, sink); }
-            catch (PluginUnreadableException) { continue; }
+            catch (Exception) { continue; }
             _walked.Add(plugin);
         }
     }
