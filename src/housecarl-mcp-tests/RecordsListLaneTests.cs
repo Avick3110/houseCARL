@@ -100,4 +100,17 @@ public sealed class RecordsListLaneTests : RecordsTestBase
         if (cut.Length > cap)
             Assert.Contains($"over the max_chars={cap} it was given", cut);
     }
+
+    [Fact]
+    public void ListLaneAggregate_ARequestedTypeWithNoCarriersIsA0Row()
+    {
+        // The one list-lane shape that takes types=: the typed MGEF carrier walk, where types= narrows the carrier
+        // types. MgefA has spell carriers and no scroll ones, so SCRL is the requested type with nothing in it.
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
+                                     walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" },
+                                     types: new[] { "SPEL", "SCRL" },
+                                     project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" });
+        Served(r, "group_by=type", "Spell");
+        Assert.Contains("0  Scroll", r);
+    }
 }

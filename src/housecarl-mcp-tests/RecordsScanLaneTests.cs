@@ -89,6 +89,16 @@ public sealed class RecordsScanLaneTests : RecordsTestBase
                "HcRecA0", "match(es)");
 
     [Fact]
+    public void ScanAggregateByType_ARequestedTypeWithNoRecordsIsA0Row()
+    {
+        // AMMO is a known type this world has no record of: the census says zero rather than leaving the caller
+        // to diff the request against the response.
+        var r = RecordsTools.Records(Svc, types: new[] { "WEAP", "AMMO" },
+                                     project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" });
+        Served(r, "grouped by type", "Weapon = ", "Ammunition = 0");
+    }
+
+    [Fact]
     public void ScanAggregateInJson_CarriesTheRecordsEnvelopeFormInBand() =>
         Served(RecordsTools.Records(Svc, types: new[] { "WEAP" }, format: "json",
                                     project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "winner" }),

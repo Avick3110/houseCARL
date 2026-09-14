@@ -701,7 +701,7 @@ public static class RecordsTools
 
             if (form == "aggregate")
                 return RenderListAggregate(outcomes, project!.group_by!, json, dense, epoch2, headerLine, envelope, listCost,
-                                           max_chars);
+                                           max_chars, svc.TypeDisplayNames(types));
 
             if (counts_only)
             {
@@ -2589,15 +2589,23 @@ public static class RecordsTools
     /// max_chars is a CEILING here as it is on every sibling render on this lane: the cut notice and the
     /// accounting line are charged before the first group row, and a row that would cross what is left is taken
     /// back out whole and named in the notice.</summary>
+    /// <param name="requestedTypes">The display names of the types the call NAMED, or null when it named none.
+    /// Under group_by=type each one gets a row, so a requested type with no records reads as 0 rather than being
+    /// absent from the table and left to be inferred.</param>
     static string RenderListAggregate(IReadOnlyList<ReadOutcome> outcomes, string groupBy, bool json, bool dense, OrderStamp? epoch,
                                       string headerLine, List<KeyValuePair<string, string>> envelope,
-                                      (int RowsRead, long Millis) bodyCost, int maxChars)
+                                      (int RowsRead, long Millis) bodyCost, int maxChars,
+                                      IReadOnlyList<string>? requestedTypes = null)
     {
         var gb = groupBy.Trim().ToLowerInvariant();
         if (gb is not ("winner" or "type" or "defined_in"))
             return Wire.Refuse(json, $"error: project.group_by='{groupBy}' is not a count key — use 'winner', 'type', or 'defined_in'.");
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
         var groups = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        // A type the call asked for is in the census whether or not it has records: an absent row would leave the
+        // caller to diff the request against the response to learn that the answer is zero.
+        if (gb == "type" && requestedTypes is { Count: > 0 })
+            foreach (var t in requestedTypes) groups.TryAdd(t, 0);
         int errors = 0;
         foreach (var o in outcomes)
         {
