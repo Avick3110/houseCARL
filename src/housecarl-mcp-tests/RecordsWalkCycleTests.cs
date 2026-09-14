@@ -25,6 +25,12 @@ public sealed class WalkCycleWorld : IDisposable
     public string LoopPartner { get; }
     /// <summary>The acyclic seed: two branches that meet on one shared record and stop.</summary>
     public string DiamondSeed { get; }
+    /// <summary>A densely cyclic seed: <see cref="Hubs"/> form lists each pointing at every one of them, itself
+    /// included, so the walk finds cycles by the hundred off one seed.</summary>
+    public string DenseSeed { get; }
+
+    /// <summary>Hubs in the dense fan.</summary>
+    public const int Hubs = 12;
 
     readonly string _priorCorpusPath;
 
@@ -75,6 +81,21 @@ public sealed class WalkCycleWorld : IDisposable
             new LeveledItemEntry { Data = new LeveledItemEntryData { Level = 1, Count = 1, Reference = new FormLink<IItemGetter>(right.FormKey) } },
         };
         DiamondSeed = diamond.FormKey.ToString();
+
+        // The dense fan: every hub points at every hub, itself included. One seed, cycles by the hundred.
+        var hubs = new List<FormList>(Hubs);
+        for (int i = 0; i < Hubs; i++)
+        {
+            var hub = master.FormLists.AddNew();
+            hub.EditorID = "HcCycleHub" + i;
+            hubs.Add(hub);
+        }
+        foreach (var hub in hubs)
+            foreach (var other in hubs) hub.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(other.FormKey));
+        var fanSeed = master.FormLists.AddNew();
+        fanSeed.EditorID = "HcCycleFanSeed";
+        foreach (var hub in hubs) fanSeed.Items.Add(new FormLink<ISkyrimMajorRecordGetter>(hub.FormKey));
+        DenseSeed = fanSeed.FormKey.ToString();
 
         var instance = Path.Combine(Root, "inst");
         var mods = Path.Combine(instance, "mods");
@@ -159,6 +180,32 @@ public sealed class RecordsWalkCycleTests
                                             counts_only: true);
 
         Assert.Contains("cycles=2", response);
+    }
+
+    /// <summary>A densely cyclic seed must not price its own nodes out of the render. The cycle list is bounded by
+    /// nothing but the walked fanout, and reserving it whole beside every node line sent the seed back out with
+    /// nothing said — no nodes, no cycles, no cut notice naming the remedy.</summary>
+    [Fact]
+    public void ADenselyCyclicSeedStillRendersItsNodesAndSaysWhatItHeldBack()
+    {
+        var response = RecordsTools.Records(Svc, formids: new[] { _w.DenseSeed }, walk: Deep, project: Chain,
+                                            max_chars: 4000);
+
+        Assert.DoesNotContain("error:", response);
+        Assert.Contains("HcCycleHub", response);                      // its nodes are there
+        Assert.Contains("more cycle(s) held back", response);         // and it says what did not fit
+        Assert.DoesNotContain("rendered 0 of 1 seeds", response);
+    }
+
+    /// <summary>counts_only lists no seed, so it must not tell the reader to look under one.</summary>
+    [Fact]
+    public void ACountsOnlyChainDoesNotPointAtSeedsItDoesNotList()
+    {
+        var response = RecordsTools.Records(Svc, formids: new[] { _w.SelfAndLoopSeed }, walk: Deep, project: Chain,
+                                            counts_only: true);
+
+        Assert.Contains("cycles=2", response);
+        Assert.DoesNotContain("listed under its seed", response);
     }
 
     /// <summary>Two paths to one record is a re-convergence, not a loop: an acyclic walk still reports none.</summary>

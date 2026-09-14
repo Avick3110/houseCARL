@@ -31,7 +31,7 @@ public static class RecordsTools
     /// them, so there is no flat spelling for an illegal pairing.</summary>
     public sealed class RecordsProject
     {
-        [Description("The form: 'identity' (FormID -> type/editorid/name/winner — the labeling form; needs formids=) | 'summary' (identity plus winner/override-depth header facts — the default) | 'fields' (named field values; takes fields= and depth=) | 'rows' (a LIST field folded to ONE LINE PER ELEMENT — the compact per-row view: takes fields= naming the list (index one element, 'Conditions[0]', to fold just that one), and depth= (default 4). Each line is the element's own summary plus every sub-field the read FOUND; only ABSENT optionals are omitted, which is what turns a 40-row condition stack from ~1,000 lines into 40. Auditing that stack (project.fields=[\"Conditions\"]) is ONE call, not an index probe per row. A declared-but-null link is kept — an empty slot is a fact. A named field that is not a list is refused by name) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only — source= is the subject, versus= the reference; takes fields= to narrow. Each delta line shows the SUBJECT's value with the reference's beside it, labeled by its plugin; versus=\"previous_provider\" answers 'what did this plugin change relative to what sat beneath it') | 'tree' (the conflict-resolution view: every provider of each record in priority order, winner last, each showing only the fields that DIFFER from the reference pole — default the winner; takes fields=. On a record type that OWNS child records — a cell's placed references, a topic's INFO lines, a worldspace's cells — it also states, per such field, which providers DECLARE children there (a COLLECTION field) or how many do (a SINGULAR one, e.g. Cell.Landscape), and says so when none do) | 'info_order' (DIAL topics only: the effective MERGED INFO sequence across every touching plugin, with MOVED annotations — the 'why does the wrong line play' diagnostic. The game walks the sequence top to bottom and plays the FIRST passing line; re-listing a line appends it to the BOTTOM unless the plugin also carries its PNAM, so a reorder changes which line answers while every field stays identical — invisible to a diff, which is what this form is for. A quest's topics select by composition: types=[\"DIAL\"] where=[\"Quest = <quest formid>\"]) | 'chain' (a walk's own paths, endpoints and cycles rather than the records it reached — a cycle being a record the walk reached again from itself, found over the nodes it actually ENTERED, so one closing past walk.depth or walk.max_nodes is not yet visible; needs walk=, and carries the NPC-template inheritance report and the reverse MGEF carrier rows). The comparison forms 'delta' and 'tree' both compare by the content-keyed, truncation-honest engine: a list reorder is flagged, and a truncated deep read is reported, never claimed 'identical'.")]
+        [Description("The form: 'identity' (FormID -> type/editorid/name/winner — the labeling form; needs formids=) | 'summary' (identity plus winner/override-depth header facts — the default) | 'fields' (named field values; takes fields= and depth=) | 'rows' (a LIST field folded to ONE LINE PER ELEMENT — the compact per-row view: takes fields= naming the list (index one element, 'Conditions[0]', to fold just that one), and depth= (default 4). Each line is the element's own summary plus every sub-field the read FOUND; only ABSENT optionals are omitted, which is what turns a 40-row condition stack from ~1,000 lines into 40. Auditing that stack (project.fields=[\"Conditions\"]) is ONE call, not an index probe per row. A declared-but-null link is kept — an empty slot is a fact. A named field that is not a list is refused by name) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only — source= is the subject, versus= the reference; takes fields= to narrow. Each delta line shows the SUBJECT's value with the reference's beside it, labeled by its plugin; versus=\"previous_provider\" answers 'what did this plugin change relative to what sat beneath it') | 'tree' (the conflict-resolution view: every provider of each record in priority order, winner last, each showing only the fields that DIFFER from the reference pole — default the winner; takes fields=. On a record type that OWNS child records — a cell's placed references, a topic's INFO lines, a worldspace's cells — it also states, per such field, which providers DECLARE children there (a COLLECTION field) or how many do (a SINGULAR one, e.g. Cell.Landscape), and says so when none do) | 'info_order' (DIAL topics only: the effective MERGED INFO sequence across every touching plugin, with MOVED annotations — the 'why does the wrong line play' diagnostic. The game walks the sequence top to bottom and plays the FIRST passing line; re-listing a line appends it to the BOTTOM unless the plugin also carries its PNAM, so a reorder changes which line answers while every field stays identical — invisible to a diff, which is what this form is for. A quest's topics select by composition: types=[\"DIAL\"] where=[\"Quest = <quest formid>\"]) | 'chain' (a walk's own paths, endpoints and cycles rather than the records it reached — a cycle being a record the walk reached again from itself, found over the nodes it actually ENTERED — so one closing past walk.depth or walk.max_nodes is not yet visible — and reported ONE PER CLOSING LINK, which makes the count a lower bound on how many distinct loops are there; no cycles reported means there are none; needs walk=, and carries the NPC-template inheritance report and the reverse MGEF carrier rows). The comparison forms 'delta' and 'tree' both compare by the content-keyed, truncation-honest engine: a list reorder is flagged, and a truncated deep read is reported, never claimed 'identical'.")]
         public string? form { get; set; }
 
         [Description("fields/rows forms: dotted field paths to read, e.g. [\"BasicStats.Damage\", \"Keywords\", \"Effects\"]. Index a list/dict element with BRACKETS ('Effects[0].Data.Magnitude'). A path may LEAD with the containment step '*parent' — the record that CONTAINS this one, which group nesting makes invisible to references= ('*parent.EditorID' is an INFO's owning DIAL; '*parent.*parent.EditorID' a placed reference's worldspace) — and it chains. On the rows form these name the LIST(S) to fold, one line per element. On the fields form a step may be QUANTIFIED: 'Effects[*count]' is one number per record (how many elements), 'Effects[*]' one row per element in the rows form's own row shape, and 'Effects[*].Data.Magnitude' that leaf per element — under format='dense' the extra rows repeat the record's identity columns. [*any]/[*all]/[*none] fold to a boolean, which is not a row: they belong in where= and are refused here by name.")]
@@ -947,12 +947,14 @@ public static class RecordsTools
                 // the seed that reached it. It is a fact about the walked graph, so counts_only states it too.
                 int cycles = rows.Sum(r => r.Cycles.Count);
                 envelope.Add(new("walk", $"forward{(walk.follow is { } f2 ? $" follow={f2}" : " (closure)")} depth={walkDepth}"));
-                if (cycles > 0)
-                    headerLine += $"\n{cycles} cycle(s) — a record the walk reached again from itself; each one is listed under its seed.";
                 if (counts_only)
                     return json
                         ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("seeds", rows.Count), KvI("reached", reached), KvI("errors", errs), KvI("cycles", cycles) }, wEpoch)
                         : Census($"{headerLine}\nseeds={rows.Count} reached={reached} errors={errs} cycles={cycles}" + Wire.EpochLine(wEpoch));
+                // Said only where the seeds ARE listed: a counts_only response has no seed to look under, and its
+                // own cycles= is the whole answer.
+                if (cycles > 0)
+                    headerLine += $"\n{cycles} cycle(s) — a record the walk reached again from itself, one per closing link, listed under its seed. A count is a lower bound on the number of distinct loops; none means none.";
                 var winRows = Windowed(rows);
                 SpillState? spill = null;
                 if (wantFile)
@@ -2318,7 +2320,10 @@ public static class RecordsTools
             // What the seed says about its WALK is a different loss from the nodes max_chars held back, and the
             // cut notice's remedy does not fix it — so the tail is reserved beside every node line and written
             // whether or not the list was cut.
-            string tail = SeedTail(row);
+            // The cycle list is bounded by nothing but the walked fanout — one line per closing link, each the whole
+            // loop — so it is held to its own half of the budget. Reserved whole beside every node line, a densely
+            // cyclic seed priced its own nodes out and went back out with nothing said at all.
+            string tail = SeedTail(row, budget >= Unbounded ? Unbounded : Math.Max(budget / 2, 0), cap);
             foreach (var n in row.Nodes)
             {
                 // Composed before it is priced, so the cut notice lands inside the budget rather than a character
@@ -2352,15 +2357,24 @@ public static class RecordsTools
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 
-    /// <summary>What a walked seed states after its nodes: the cycles it recorded, the walk.max_nodes cap it hit,
+    /// <summary>What a walked seed states after its nodes: the cycles it found, the walk.max_nodes cap it hit,
     /// and the NPC TemplateFlags inheritance report. Composed apart from the node loop because these are claims
     /// about the WALK, not about the nodes that fit — a max_chars cut may not swallow them, and the cut notice's
-    /// remedy (raise max_chars, or to_file=) does not answer a walk that stopped at its own cap.</summary>
-    static string SeedTail(LoadOrderService.WalkSeedResult row)
+    /// remedy (raise max_chars, or to_file=) does not answer a walk that stopped at its own cap.
+    /// <para>Only the cycle list is unbounded, so only it is held to <paramref name="cycleRoom"/>: what does not fit
+    /// is replaced by a line saying how many were held back and how to get them. The cap note and the template
+    /// report are each bounded by their own shape and are always written.</para></summary>
+    static string SeedTail(LoadOrderService.WalkSeedResult row, int cycleRoom, int cap)
     {
         var t = new StringBuilder();
-        foreach (var c in row.Cycles)
-            t.Append("  cycle: ").Append(c).Append('\n');
+        for (int i = 0; i < row.Cycles.Count; i++)
+        {
+            var line = "  cycle: " + row.Cycles[i] + "\n";
+            var held = "  ... [" + (row.Cycles.Count - i) + " more cycle(s) held back at max_chars=" + cap
+                       + " — raise max_chars, or to_file= for the complete walk]\n";
+            if (t.Length + line.Length + held.Length > cycleRoom) { t.Append(held); break; }
+            t.Append(line);
+        }
         if (row.TruncationNote is not null)
             t.Append("  [!] ").Append(row.TruncationNote).Append('\n');
         if (row.TemplateReport is { } tr)
