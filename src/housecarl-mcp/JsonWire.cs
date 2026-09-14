@@ -2598,6 +2598,7 @@ static class JsonWire
 
             if (o.ReadBack is { } rb) WriteReadbackBlock(w, ms, cap, rb, o.DryRun, readback, ref truncated);
 
+            WriteNullable(w, "warning", o.Warning);
             WriteNullable(w, "note", o.Note);
             w.WriteBoolean("truncated", truncated);
             // Lane-aware, shared with forward: this document budgets the `ops` array, and a re-issue to widen it is
@@ -2699,6 +2700,7 @@ static class JsonWire
 
             if (o.ReadBack is { } rb) WriteReadbackBlock(w, ms, cap, rb, false, readback, ref truncated);
 
+            WriteNullable(w, "warning", o.Warning);
             WriteNullable(w, "note", o.Note);
             w.WriteBoolean("truncated", truncated);
             // NOT the sibling renders' "raise max_chars to see the rest". That remedy is safe on remove/forward/
@@ -2933,6 +2935,7 @@ static class JsonWire
 
             if (o.ReadBack is { } rb) WriteReadbackBlock(w, ms, cap, rb, o.DryRun, readback, ref truncated);
 
+            WriteNullable(w, "warning", o.Warning);
             WriteNullable(w, "note", o.Note);
             w.WriteBoolean("truncated", truncated);
             // Lane-aware, same rule and same helper as the text twin: a re-issue is idempotent on in_place=/into=

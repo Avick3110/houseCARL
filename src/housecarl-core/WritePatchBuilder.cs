@@ -168,6 +168,10 @@ public static class WritePatchBuilder
         /// marker couldn't be written). Null when there's nothing to add.</summary>
         public string? Note { get; init; }
 
+        /// <summary>The fork warning: a record this write overrides is ALREADY overridden by another plugin that can
+        /// out-load the patch, so only one of the two copies will ever apply. See <see cref="ForkWarning"/>.</summary>
+        public string? Warning { get; init; }
+
         /// <summary>True ⇒ this Success came from a DRY RUN: the REAL pipeline ran — winner resolve, pre-flight,
         /// every verb applied to the in-memory mod, the reference-resolution check — and STOPPED at the point of no
         /// return (the Phase-4 serialize), so NOTHING was written (no file, no folder). <see cref="Ops"/> carries what
@@ -330,6 +334,10 @@ public static class WritePatchBuilder
         /// even though the write did (e.g. the in-place acknowledgement couldn't be persisted, or the editedInPlace audit
         /// marker couldn't be written). Null when there's nothing to add. Mirrors <see cref="PatchOutcome.Note"/>.</summary>
         public string? Note { get; init; }
+
+        /// <summary>The fork warning, on <see cref="PatchOutcome.Warning"/>'s contract — here about the PARENT a
+        /// nested create had to override into the patch, which is the only record this lane forks.</summary>
+        public string? Warning { get; init; }
 
         /// <summary>The voice-coverage report for the INFOs this call created — null unless the call created ≥1
         /// dialogue line. Filled by the SERVICE post-write (it owns the live AssetResolver), NOT by the core create
@@ -602,6 +610,10 @@ public static class WritePatchBuilder
                 + string.Join("\n  - ", problems.Select(p => p.Message)));
         }
 
+        // Is another patch already overriding one of these records? Read off the same captured view, so it costs the
+        // index lookup and no scan. A warning, never a block — a deliberate fork is legitimate.
+        var forkWarning = ForkWarning.For(view, resolved.Select(r => r.edit.Target), fileName);
+
         // --- Phase 3: override each winner into the ONE patch mod, then apply. A flat record needs no link cache; a
         //     NESTED record (Cell/Placed*/INFO/Navmesh/Landscape) gets the winner overlay's cache built on demand
         //     (costly → only here, never for the flat common case, never held). A throw here AFTER pre-flight passed is
@@ -672,7 +684,7 @@ public static class WritePatchBuilder
                 ? ReadBackInFull(patchMod, resolved.Select(r => r.edit.Target), inMemory: true) : null;
             return new PatchOutcome(true, null, outPath, extend, wouldMasters, ops, 0)
             {
-                DryRun = true, ReadBack = dryBack,
+                DryRun = true, ReadBack = dryBack, Warning = forkWarning,
                 Note = JoinNotes(linkNote, mastersBefore is null ? null : MasterGrowWouldNote(fileName, mastersBefore, wouldMasters)),
             };
         }
@@ -723,7 +735,8 @@ public static class WritePatchBuilder
         finally { (back as IDisposable)?.Dispose(); }
 
         return new PatchOutcome(true, null, outPath, extend, masters, reported, bytes)
-            { ReadBack = readBack, Note = JoinNotes(linkNote, mastersBefore is null ? null : MasterGrowNote(fileName, mastersBefore, masters)) };
+            { ReadBack = readBack, Warning = forkWarning,
+              Note = JoinNotes(linkNote, mastersBefore is null ? null : MasterGrowNote(fileName, mastersBefore, masters)) };
     }
 
     /// <summary>Two honesty notes on one outcome, in one string — either may be null, and two nulls stay null so an
@@ -2318,6 +2331,9 @@ public static class WritePatchBuilder
         /// even though the write did. Null when there's nothing to add. Mirrors <see cref="PatchOutcome.Note"/>.</summary>
         public string? Note { get; init; }
 
+        /// <summary>The fork warning, on <see cref="PatchOutcome.Warning"/>'s contract.</summary>
+        public string? Warning { get; init; }
+
         /// <summary>True ⇒ this Success came from a DRY RUN: the real forward pipeline ran (source resolve,
         /// replace-or-copy into the in-memory mod, the reference-resolution check) and STOPPED before the serialize —
         /// NOTHING was written. <see cref="Forwarded"/> is what WOULD be copied; <see cref="Masters"/> is the expected
@@ -2568,6 +2584,10 @@ public static class WritePatchBuilder
             }
         }
 
+        // Same fork question Apply asks, off the same captured view: a forwarded body lands as an override like any
+        // other, so a record another patch already overrides forks here too.
+        var forkWarning = ForkWarning.For(view, resolved.Select(r => r.spec.Target), fileName);
+
         // --- DRY RUN: stop AT the point of no return (see Apply's twin block) — the copies above landed in the
         //     in-memory mod only; report what WOULD be forwarded + the expected masters, write nothing. ---
         if (dryRun)
@@ -2578,7 +2598,7 @@ public static class WritePatchBuilder
                 ? ReadBackInFull(patchMod, resolved.Select(r => r.spec.Target), inMemory: true) : null;
             return new ForwardOutcome(true, null, outPath, extend, forwarded, wouldMasters, 0)
             {
-                DryRun = true, ReadBack = dryBack,
+                DryRun = true, ReadBack = dryBack, Warning = forkWarning,
                 Note = mastersBefore is null ? null : MasterGrowWouldNote(fileName, mastersBefore, wouldMasters),
             };
         }
@@ -2622,7 +2642,8 @@ public static class WritePatchBuilder
         finally { (back as IDisposable)?.Dispose(); }
 
         return new ForwardOutcome(true, null, outPath, extend, forwarded, masters, bytes)
-            { ReadBack = readBack, Note = mastersBefore is null ? null : MasterGrowNote(fileName, mastersBefore, masters) };
+            { ReadBack = readBack, Warning = forkWarning,
+              Note = mastersBefore is null ? null : MasterGrowNote(fileName, mastersBefore, masters) };
     }
 
     /// <summary>
@@ -3691,6 +3712,11 @@ public static class WritePatchBuilder
             { ParentHost = parentHosts[i], ParentContested = parentContested[i] });
         }
 
+        // A nested create overrides its PARENT into the artifact, which forks that parent like any other override —
+        // asked off the same captured view, so it costs the index lookup and no scan.
+        var forkWarning = ForkWarning.For(
+            view, parentPlans.Where(p => p?.body is not null).Select(p => p!.Value.body!.FormKey), fileName);
+
         // --- Phase 4: serialize ONCE with the full known-master set. A created record referencing existing content pulls
         //     its master into the (lean, derived) header; a self-contained one yields a masterless plugin. A referenced
         //     master genuinely absent still fails loud. ---
@@ -3733,7 +3759,7 @@ public static class WritePatchBuilder
 
         return new CreateOutcome(true, null, outPath, extend, created, masters, bytes)
         {
-            ReadBack = readBack, InPlace = inPlace,
+            ReadBack = readBack, InPlace = inPlace, Warning = forkWarning,
             Note = JoinNotes(linkNote, mastersBefore is null ? null : MasterGrowNote(fileName, mastersBefore, masters)),
         };
     }

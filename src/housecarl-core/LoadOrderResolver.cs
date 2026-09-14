@@ -904,6 +904,12 @@ public sealed class LoadOrderResolver : IDisposable
         /// for both.</summary>
         public bool ContainsPlugin(string pluginName) => _r._nameToIdx.ContainsKey(pluginName);
 
+        /// <summary>This plugin's position in the priority order — higher loads later and therefore WINS — or -1 when
+        /// it is not in the order at all (a patch just written and not yet enabled). The same index space
+        /// <see cref="TouchingPlugins"/>'s names come from, so two providers can be ranked against each other and
+        /// against a plugin that is not touching the record.</summary>
+        public int OrderIndexOf(string pluginName) => _r._nameToIdx.TryGetValue(pluginName, out int i) ? i : -1;
+
         /// <summary>The trailing clause for a refusal naming a plugin <see cref="ContainsPlugin"/> just returned false
         /// for: WHY it isn't in the order (injected — typically "installed, but UNTICKED in plugins.txt"), else a
         /// did-you-mean. Always safe to append; returns "" when there is nothing to add. Every ContainsPlugin-false
