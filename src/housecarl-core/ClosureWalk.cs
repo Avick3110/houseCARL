@@ -384,63 +384,13 @@ public static class ClosureWalk
         return new WalkResult(true, null, reached, kept, FindCycles(edges, labels));
     }
 
-    /// <summary>Every cycle in the walked graph, found from the recorded edges once the walk is done.
-    /// <para>A depth-first pass colouring nodes unvisited / on-stack / finished: an edge into an ON-STACK node is a
-    /// back edge, which is exactly "this record reaches itself", and the stack from that node down to the one
-    /// holding the edge IS the cycle. This asks the graph rather than the traversal tree, so a mutual reference
-    /// between siblings reports.</para>
-    /// <para>Only nodes with recorded edges can be ON the cycle — a boundary the walk kept was never expanded, has
-    /// no outgoing edges, and so cannot close one. Edges to those are skipped rather than treated as dead ends.</para></summary>
+    /// <summary>Every cycle in the walked graph, found from the recorded edges once the walk is done, labelled for
+    /// the readback. The finding itself is <see cref="GraphCycles"/>, shared with the reading walk.</summary>
     static List<WalkCycle> FindCycles(
         Dictionary<FormKey, List<FormKey>> edges, Dictionary<FormKey, string> labels)
-    {
-        const int Unvisited = 0, OnStack = 1, Finished = 2;
-        var cycles = new List<WalkCycle>();
-        var state = new Dictionary<FormKey, int>();
-        var path = new List<FormKey>();
-        var reported = new HashSet<(FormKey From, FormKey To)>();
-
-        foreach (var root in edges.Keys)
-        {
-            if (state.TryGetValue(root, out var rootState) && rootState != Unvisited) continue;
-
-            // Explicit stack rather than recursion: the node cap bounds the graph, but a 128-deep chain is still
-            // no reason to put the walk's shape on the CLR's stack.
-            var work = new Stack<(FormKey Key, int Index)>();
-            state[root] = OnStack; path.Add(root); work.Push((root, 0));
-
-            while (work.Count > 0)
-            {
-                var (key, index) = work.Pop();
-                var outgoing = edges.TryGetValue(key, out var o) ? o : null;
-                if (outgoing is null || index >= outgoing.Count)
-                {
-                    state[key] = Finished;
-                    path.RemoveAt(path.Count - 1);      // finished nodes are always the deepest still on the path
-                    continue;
-                }
-                work.Push((key, index + 1));
-
-                var next = outgoing[index];
-                if (!edges.ContainsKey(next)) continue;  // a kept boundary — expanded nothing, so it closes nothing
-                var nextState = state.TryGetValue(next, out var s) ? s : Unvisited;
-                if (nextState == OnStack)
-                {
-                    // A back edge. Reported once per (from, to) pair, because a record linking the same target
-                    // twice is one cycle stated twice, not two facts.
-                    if (reported.Add((key, next)))
-                    {
-                        var at = path.IndexOf(next);
-                        cycles.Add(new WalkCycle(
-                            path.Skip(at).ToList(), next,
-                            labels.TryGetValue(key, out var lb) ? lb : FormIdToken.Of(key)));
-                    }
-                    continue;
-                }
-                if (nextState == Finished) continue;     // an ordinary diamond: already explored, not on this path
-                state[next] = OnStack; path.Add(next); work.Push((next, 0));
-            }
-        }
-        return cycles;
-    }
+        => GraphCycles.Find(edges)
+                      .Select(path => new WalkCycle(
+                          path, path[0],
+                          labels.TryGetValue(path[^1], out var lb) ? lb : FormIdToken.Of(path[^1])))
+                      .ToList();
 }

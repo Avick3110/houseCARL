@@ -1,0 +1,73 @@
+using Mutagen.Bethesda.Plugins;
+
+namespace HousecarlCore;
+
+// GraphCycles — the cycle question, asked of a walked graph's EDGES rather than of its traversal.
+//
+// Every walk here dedupes on a visited set, and a visited set cannot tell a diamond (two paths to one
+// record) from a genuine cycle (a record that reaches itself). Neither can the traversal TREE: a mutual
+// reference between two SIBLINGS is a real cycle whose nodes are never each other's tree ancestors. So
+// the walk records its edges and asks this afterwards, once, over the whole graph.
+//
+// Shared by every walk that keeps its edges, so one answer to "is this a cycle" serves all of them.
+
+/// <summary>Cycle finding over a walked link graph.</summary>
+public static class GraphCycles
+{
+    /// <summary>Every cycle in the recorded edge set. Each result is the loop itself, keys in order: it starts at the
+    /// record pointed back at and ends at the record whose link closed the loop, so the closing hop is from the last
+    /// key to the first.
+    /// <para>A depth-first pass colouring nodes unvisited / on-stack / finished: an edge into an ON-STACK node is a
+    /// back edge, which is exactly "this record reaches itself".</para>
+    /// <para>Only a node with recorded edges can be ON a cycle — a boundary the walk kept was never expanded, has no
+    /// outgoing edges, and so closes nothing. Edges into those are skipped rather than treated as dead ends.</para>
+    /// <para>One cycle per (from, to) pair: a record linking the same target twice is one cycle stated twice, not
+    /// two facts.</para></summary>
+    public static List<IReadOnlyList<FormKey>> Find(IReadOnlyDictionary<FormKey, List<FormKey>> edges)
+    {
+        const int Unvisited = 0, OnStack = 1, Finished = 2;
+        var cycles = new List<IReadOnlyList<FormKey>>();
+        var state = new Dictionary<FormKey, int>();
+        var path = new List<FormKey>();
+        var reported = new HashSet<(FormKey From, FormKey To)>();
+
+        foreach (var root in edges.Keys)
+        {
+            if (state.TryGetValue(root, out var rootState) && rootState != Unvisited) continue;
+
+            // Explicit stack rather than recursion: the node cap bounds the graph, but a 128-deep chain is still
+            // no reason to put the walk's shape on the CLR's stack.
+            var work = new Stack<(FormKey Key, int Index)>();
+            state[root] = OnStack; path.Add(root); work.Push((root, 0));
+
+            while (work.Count > 0)
+            {
+                var (key, index) = work.Pop();
+                var outgoing = edges.TryGetValue(key, out var o) ? o : null;
+                if (outgoing is null || index >= outgoing.Count)
+                {
+                    state[key] = Finished;
+                    path.RemoveAt(path.Count - 1);      // finished nodes are always the deepest still on the path
+                    continue;
+                }
+                work.Push((key, index + 1));
+
+                var next = outgoing[index];
+                if (!edges.ContainsKey(next)) continue;  // a kept boundary — expanded nothing, so it closes nothing
+                var nextState = state.TryGetValue(next, out var s) ? s : Unvisited;
+                if (nextState == OnStack)
+                {
+                    if (reported.Add((key, next)))
+                    {
+                        var at = path.IndexOf(next);
+                        cycles.Add(path.Skip(at).ToList());
+                    }
+                    continue;
+                }
+                if (nextState == Finished) continue;     // an ordinary diamond: already explored, not on this path
+                state[next] = OnStack; path.Add(next); work.Push((next, 0));
+            }
+        }
+        return cycles;
+    }
+}
