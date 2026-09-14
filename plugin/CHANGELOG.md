@@ -13,6 +13,18 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **A translated name carrying UTF-8 now reads as itself, and a write no longer turns it into `?`.** Mutagen picks
+  a plugin's text encoding from the target language, and Skyrim SE + English is the one pairing whose answer is
+  Windows-1252 with no UTF-8 lane — which is the setup the Japanese community ships: `sLanguage=ENGLISH` with the
+  `*_English.STRINGS` tables replaced by UTF-8 translations, and UTF-8 in the inline `FULL` fields of non-localized
+  ESPs. Every such name came back as mojibake, and because the Windows-1252 encoder has no spelling for a character
+  outside 1252, an in-place edit or a copy of that record wrote `?` over the text. Every read and every write now
+  decodes and encodes as strict UTF-8, falling back to what Mutagen would have chosen for the language for any byte
+  sequence that is not valid UTF-8 — so a Windows-1252 name still reads exactly as it did. The one case this cannot
+  tell apart is a Windows-1252 string whose bytes also happen to be valid UTF-8; it is read as UTF-8. Nothing else
+  moves: which language is selected, and which language's table is read, are unchanged. In `format="json"` the
+  characters ride as `\uXXXX` escapes, json's own spelling for non-ASCII, and parse back to the same string.
+
 - **A `[*count]` column costs the number, not the list.** `project.fields=["Temporary[*count]"]` read the list the
   way naming it does: building every element to count them, and — on a field that holds CHILD RECORDS — assembling
   the additive union, which opens a body per plugin touching the record. The element count now comes off the
