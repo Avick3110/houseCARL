@@ -172,6 +172,7 @@ At the leaf, brackets are for `list` and `dict` elements only; mid-path, a gende
 - **A `target` is a getter interface name**, so strip `I…Getter` before grepping the index, and say the reference does not enumerate a marker interface's implementers rather than naming one (quoting `IOwnerGetter` at the index returns nothing and reads as an absent type).
 - **A `substruct` is descended by name, a standalone `polymorphic` field is set by `compose`** (a bracket at the leaf is refused on either; mid-path a gendered substruct takes `[0]`/`[1]`).
 - **A condition parameter's displayed `FormLink<T>` is a normalisation** of `FormLinkOrIndex<T>` (reading it as a plain link understates what the field accepts).
+- **A `bytes` field is an OPAQUE blob the library never parses** — `Model.Data` (MODT) is the case that bites. Its internal layout follows the record's **FormVersion**, and nothing in the schema, the write pre-flight or the post-write verify checks that: a blob lifted off a FormVersion-39 record and written onto a FormVersion-44 one round-trips, reads back byte-identical, and crashes the game on load. So a blob is only safe to copy between records at the SAME FormVersion. Reads annotate every bytes field with its length and the record's FormVersion, and a write's verify says it re-read those bytes without judging them — believe both literally. This is the library-vs-xEdit gap in its sharpest form: xEdit decodes MODT, the library does not, and houseCARL will not hand-write a decoder for it.
 
 ## Notes
 
