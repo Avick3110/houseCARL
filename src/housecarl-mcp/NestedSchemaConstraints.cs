@@ -36,9 +36,11 @@ internal sealed class SchemaValuesAttribute(SchemaVocabulary vocabulary) : Attri
 /// neither. It derives both from the C# shapes the server binds and validates against — the marked members and the
 /// verb tables — so a client can check a nested call before sending it, and nothing here is a second copy of a fact.
 ///
-/// <para>ADDITIVE: it unions with the <c>required</c> the generator already published rather than replacing it, and
-/// an <c>enum</c> on a member the generator typed as nullable carries null, so nothing it stamps publishes narrower
-/// than the gate accepts.</para>
+/// <para>ADDITIVE on <c>required</c>: it unions with what the generator already published rather than replacing it,
+/// and an <c>enum</c> on a member the generator typed as nullable carries null, so nothing it stamps publishes
+/// narrower than the gate accepts. The one NARROWING is a required member's type, which loses its null arm — the
+/// generator types every <c>string?</c> member as <c>["string","null"]</c>, and a member the server refuses the call
+/// without is not one an explicit null satisfies.</para>
 ///
 /// <para>Runs LAST, after the flatten, so every recursion-expanded copy of a shape is stamped as well as the first.
 /// The walk is TYPE-DIRECTED and the schema bounds it: it descends only where the published document still spells a
@@ -124,7 +126,13 @@ internal static class NestedSchemaConstraints
             var wire = property.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? property.Name;
             if (props[wire] is not JsonObject member) continue;
 
-            if (property.GetCustomAttribute<SchemaRequiredAttribute>() is not null) required.Add(wire);
+            if (property.GetCustomAttribute<SchemaRequiredAttribute>() is not null)
+            {
+                required.Add(wire);
+                // A member the server refuses the call without cannot be satisfied by an explicit null, so the type
+                // published for it does not offer one. Ordered BEFORE the enum stamp so both read the same type.
+                changed |= DropNull(member);
+            }
             if (property.GetCustomAttribute<SchemaValuesAttribute>() is { } values)
             {
                 var legal = new JsonArray();
@@ -158,6 +166,20 @@ internal static class NestedSchemaConstraints
             changed = true;
         }
         return changed;
+    }
+
+    /// <summary>Drop <c>"null"</c> from a member's published type. Generic: it reads the DOCUMENT, so every member
+    /// marked required loses the null arm without anything here naming one. A type that is null and nothing else is
+    /// left alone — narrowing that publishes a member no value can satisfy.</summary>
+    static bool DropNull(JsonObject member)
+    {
+        if (member["type"] is not JsonArray types) return false;
+        var kept = new List<JsonNode?>();
+        foreach (var t in types)
+            if (t is not JsonValue v || !v.TryGetValue<string>(out var s) || s != "null") kept.Add(t?.DeepClone());
+        if (kept.Count == 0 || kept.Count == types.Count) return false;
+        member["type"] = kept.Count == 1 ? kept[0] : new JsonArray(kept.ToArray());
+        return true;
     }
 
     /// <summary>Does the published type of this member accept a JSON null? Read off the DOCUMENT, so the answer is

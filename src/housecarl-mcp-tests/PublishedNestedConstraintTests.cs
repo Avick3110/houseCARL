@@ -80,7 +80,8 @@ public sealed class PublishedNestedConstraintTests
 
     /// <summary>One published object node: where it sits, the member names it declares, its <c>required</c> list, and
     /// the <c>enum</c> each member carries.</summary>
-    sealed record Node(string Tool, string Path, string[] Members, string[] Required, Dictionary<string, PublishedEnum> Enums);
+    sealed record Node(string Tool, string Path, string[] Members, string[] Required, Dictionary<string, PublishedEnum> Enums,
+                       string[] NullableMembers);
 
     List<Node> PublishedObjects()
     {
@@ -105,10 +106,12 @@ public sealed class PublishedNestedConstraintTests
         if (!node.TryGetProperty("properties", out var props) || props.ValueKind != JsonValueKind.Object) return;
 
         var members = new List<string>();
+        var nullable = new List<string>();
         var enums = new Dictionary<string, PublishedEnum>(StringComparer.Ordinal);
         foreach (var member in props.EnumerateObject())
         {
             members.Add(member.Name);
+            if (member.Value.ValueKind == JsonValueKind.Object && AdmitsNull(member.Value)) nullable.Add(member.Name);
             if (member.Value.ValueKind == JsonValueKind.Object
                 && member.Value.TryGetProperty("enum", out var values) && values.ValueKind == JsonValueKind.Array)
                 enums[member.Name] = new PublishedEnum(
@@ -124,7 +127,8 @@ public sealed class PublishedNestedConstraintTests
                  .OrderBy(n => n, StringComparer.Ordinal).ToArray()
             : Array.Empty<string>();
 
-        found.Add(new Node(tool, path, members.OrderBy(n => n, StringComparer.Ordinal).ToArray(), required, enums));
+        found.Add(new Node(tool, path, members.OrderBy(n => n, StringComparer.Ordinal).ToArray(), required, enums,
+                           nullable.OrderBy(n => n, StringComparer.Ordinal).ToArray()));
     }
 
     /// <summary>Does a published member's <c>type</c> accept a JSON null? Written here off the served document, not
@@ -194,6 +198,26 @@ public sealed class PublishedNestedConstraintTests
         }
 
         _out.WriteLine($"{occurrences} published occurrence(s) of {MarkedShapes().Count} marked shape(s)");
+        Assert.Equal(Array.Empty<string>(), problems.ToArray());
+    }
+
+    /// <summary>A required member must not also publish a type that accepts null: a validating client would then
+    /// satisfy the schema with an explicit null the server refuses. The generator types every <c>string?</c> member
+    /// as <c>["string","null"]</c>, so this is a claim about what the stamping pass took back off it.</summary>
+    [Fact]
+    public void NoRequiredMemberPublishesANullableType()
+    {
+        var shapes = MarkedShapes().ToDictionary(s => Key(s.Members), s => s);
+        var problems = new List<string>();
+
+        foreach (var node in PublishedObjects())
+        {
+            if (!shapes.TryGetValue(Key(node.Members), out var shape)) continue;
+            foreach (var member in shape.Required.Where(m => node.NullableMembers.Contains(m, StringComparer.Ordinal)))
+                problems.Add($"{node.Tool} {node.Path}.{member}: {shape.Type.Name} marks it required and its published " +
+                             "type still admits null");
+        }
+
         Assert.Equal(Array.Empty<string>(), problems.ToArray());
     }
 
