@@ -270,6 +270,21 @@ saying it sets an expectation their install may contradict. Say what is known, a
   takes rather than after the whole-order pass that lists external referencers. Nothing else about the merge changes,
   and the write still makes the same check before serializing.
 
+- **`housecarl_merge_plugins` now describes the normal job, and carries injected records.** The description said merging a
+  mod together with its own patches was the intended use; it now says what the tool is for — merge a family of patches into
+  one plugin and leave the mods they patch alone and active — and marks the mod-plus-its-patches shape as the narrow case it
+  is. A record whose FormID sits in one donor's space while another donor defines it (an injected record) is now renumbered
+  into the merged plugin like any other record; before, it was copied at its old identity and the write failed with a raw
+  Mutagen missing-mod fault after the whole merge had been built. An injected record whose definer is NOT in the merge, and
+  a donor reference no donor defines, are both refused in one sentence naming the record and the plugin involved, before any
+  work starts.
+
+- **`housecarl_merge_plugins` refuses a donor whose master is not active before it walks the load order.** The merge
+  reads each donor's declared masters from the plugin headers and checks them against the active order first, so the
+  refusal — the same sentence the write already gave, naming the master to enable — arrives in the time a header read
+  takes rather than after the whole-order pass that lists external referencers. Nothing else about the merge changes,
+  and the write still makes the same check before serializing.
+
 ## 2.0.0 — 2026-09-11
 
 houseCARL 2.0.0 replaces the 1.x tool surface with 31 tools. The record plane is one grammar: a read is one call composed from four axes (SELECT × SOURCE × PROJECT × TRANSPORT); a write is one call composed from an op list, a lane and a transport; one record is a set of one. Record coverage is generated from Mutagen.Bethesda.Skyrim 0.54.4 at build time, 1,174 types, and the write pre-flight and the `mutagen-reference` skill are two renderings of that one artifact. The 1.x tool and parameter names are deleted, not deprecated: a retired tool name is refused with a refusal naming its successor, from `AliasTable.cs`; a retired parameter name is refused as an unknown parameter, with the parameters the tool does take. Seven skills ship. `housecarl_check` gains the facegen family. The installer shows what it will write before writing, and uninstalls. The entries below are in the order they landed.

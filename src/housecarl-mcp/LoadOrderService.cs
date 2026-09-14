@@ -7699,14 +7699,23 @@ public sealed partial class LoadOrderService : IDisposable
                 if (LocalizedStrings.ConfirmedLocalized(shape.Shape)) localizedDonors.Add(dName);
             }
 
-            // ---- 3. originating keys per donor + the collision-only remap (first donor keeps its ids — zMerge default) ----
-            var donorKeys = new List<(string Donor, IReadOnlyList<FormKey> Keys)>();
+            // ---- 3. what each donor holds, one enumeration per donor: the records it defines, the donor-space records
+            //      it carries without defining (injected records), and its links into donor space. ----
+            var donorModKeys = donorInfos.Select(d => d.Key).ToHashSet();
+            var scans = new List<(string Donor, IReadOnlyList<FormKey> Originating, IReadOnlyList<FormKey> Carried)>();
+            var donorLinks = new List<(string Donor, IReadOnlyList<(FormKey Source, FormKey Target)> Links)>();
             foreach (var (dName, dPath, dKey, _) in donorInfos)
             {
-                if (!WritePatchBuilder.TryReadOriginatingKeys(dPath, dKey, out var keys, out var keyErr))
+                if (!WritePatchBuilder.TryScanMergeDonor(dPath, dKey, donorModKeys, out var scan, out var keyErr))
                     return WritePatchBuilder.MergeOutcome.Fail(keyErr!);
-                donorKeys.Add((dName, keys));                             // a pure-override donor (0 originating keys) is a legit patch donor
+                scans.Add((dName, scan.Originating, scan.Carried));       // a pure-override donor (0 originating keys) is a legit patch donor
+                donorLinks.Add((dName, scan.DonorLinks));
             }
+            // An injected record belongs to the donor that DEFINES it, which is the first plugin touching that FormID in
+            // the active order; one no donor defines is refused here rather than at the write (#715).
+            var injection = MergeInjection.Classify(scans, fk => view.TouchingPlugins(fk) is { Count: > 0 } t ? t[0] : null);
+            if (injection.Refusal is not null) return WritePatchBuilder.MergeOutcome.Fail(injection.Refusal);
+            var donorKeys = injection.DonorKeys;
             // ---- output folder and plugin: the same fresh-write resolver the record lanes use, so patch= names the
             //      mod folder "houseCARL - <stem>" and the merged plugin inside it is "<stem>.esp". Resolved HERE,
             //      before the remap, because the remap is keyed on the output ModKey and the stem can still be
@@ -7738,6 +7747,11 @@ public sealed partial class LoadOrderService : IDisposable
 
             var plan = RemapEngine.BuildMergeRemap(donorKeys, outKey, RemapEngine.EslFloor, FormIdRange.ObjectIdMax);
             if (!plan.Success) return FailAfterFolder(plan.Error!);
+
+            // A donor reference the remap cannot carry is named HERE, before the identify pass and the build, rather
+            // than surviving the renumber and failing the serialize.
+            if (MergeInjection.UnremappableLink(plan.Dict, donorLinks) is { } linkRefusal)
+                return FailAfterFolder(linkRefusal);
 
             // ---- 4. identify-pass — WARN-and-proceed (the A4 posture; unlike compact this NEVER refuses: the donors stay
             //      installed and ACTIVE until the user swaps in MO2, so nothing breaks at write time. The report names each
