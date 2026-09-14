@@ -79,6 +79,31 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
         Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, format: "json", project: Form("tree")),
                "\"nodes\"", "\"touchers\"", "\"is_winner\"");
 
+    /// <summary>The whole tree render over a record three plugins touch, pinned character for character. The fill
+    /// reads the providers winner first and holds one at a time (#722); that is a claim about memory the answer
+    /// cannot show, so only a golden catches the render drifting with it — the node order, the winner marker, the
+    /// reference label, the delta lines — while every reading test stays green.</summary>
+    [Fact]
+    public void TheTreeRenderOverThreeProvidersIsCharacterForCharacterWhatItWas()
+    {
+        const string golden = """
+            records  form=tree  versus=winner  source=every provider of each record (the touching stack, winner last)
+            1 record(s): 1 contested, 0 error(s)  epoch=<epoch>
+
+            000800:HcRecMaster.esm  Weapon  HcRecW0
+              3 plugin(s) touch this record (load order, winner last):
+                1. HcRecMaster.esm
+                2. HcRecMid.esp
+                3. HcRecOverride.esp  (winner)
+              diff (field deltas vs HcRecOverride.esp; identical fields omitted; list contents compared by content, element reorders flagged):
+                HcRecMaster.esm: BasicStats.Damage=10 (HcRecOverride.esp 99)
+                HcRecMid.esp: BasicStats.Damage=50 (HcRecOverride.esp 99)
+            """;
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, project: Form("tree"));
+        Assert.Equal(golden.Replace("\r\n", "\n"),
+                     System.Text.RegularExpressions.Regex.Replace(r, @"epoch=\S+", "epoch=<epoch>"));
+    }
+
     [Fact]
     public void TreePlusToFile_TreesSpill_TheRowFormExistsNow()
     {

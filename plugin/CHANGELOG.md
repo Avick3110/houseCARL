@@ -56,6 +56,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   apply peaked at 3.3 GB, took 73 s, and left the server sitting at 3.3 GB. The bodies are now gathered a plugin at
   a time, one walk each: the same apply takes 3.2 s, peaks at 0.9 GB and leaves the server back at its idle size.
   The written patch is unchanged — byte-identical on the same inputs.
+- **`project.form="tree"` no longer holds every provider of a record at once.** The fill read all of them and
+  kept each one's fields alive until the whole render was built, so a record hundreds of plugins touch — a
+  worldspace — cost gigabytes for a single row, and the process still held it after the call returned. It now
+  reads the providers winner first and keeps one at a time: a record getter pins its whole group's bytes, and the
+  diff needs only the reference pole plus the provider being compared. Same answer, character for character
+  (pinned by a golden over a three-provider record). Measured on a 3,571-line order, a tree over Tamriel and
+  WhiterunWorld: peak working set 2,971 MB → 1,878 MB, held after the call 2,600 MB → 1,818 MB, elapsed
+  unchanged. What remains is the answer itself — the deltas of every provider — so the lever is still the number
+  of records asked for.
 
 - **A write's per-edit line now reports what the written file holds, not what the call held in memory.**
   `housecarl_apply` re-opened the patch it had just written only to read its master header, so each edit's
