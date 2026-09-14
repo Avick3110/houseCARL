@@ -11,7 +11,14 @@ namespace HousecarlMcpTests;
 /// <summary>
 /// A bulk apply and a bulk forward must write the SAME BYTES they wrote before the per-plugin body gather
 /// (<see cref="BodyGather"/>, #723) replaced the per-record fetch. The hashes below were taken from the build
-/// before that change, so a difference here means the gather changed the product and not just its cost.
+/// before that change.
+///
+/// <para>WHAT A FAILURE MEANS. These digests are the whole serialized plugin, so they pin Mutagen's output format
+/// and every later decision about how a patch's header is stamped, not only the gather. Read a difference as "the
+/// bytes moved", then find out which: <see cref="BodyGatherEquivalenceTests"/> asserts the gather's own claim (a
+/// gathered body is the body the single fetch returns) without depending on the format, so if IT passes and this
+/// fails, the cause is downstream of the gather — a library bump, a header change — and the digest below is what
+/// needs re-recording. The failure message prints the digest this build produced, which is the new value.</para>
 /// </summary>
 [Trait("tier", "integration")]
 public sealed class BulkWriteBytesTests : IDisposable
@@ -71,7 +78,7 @@ public sealed class BulkWriteBytesTests : IDisposable
         var outcome = WritePatchBuilder.Apply(_resolver, _rulebook, edits, outPath, extend: false);
         Assert.True(outcome.Success, outcome.Error);
         var sha = Sha(outPath);
-        Assert.True(ApplySha == sha, $"bulk apply wrote different bytes than before the body gather: {sha}");
+        Assert.True(ApplySha == sha, $"a bulk apply's written bytes moved (see the class comment for how to tell the gather from the serializer); this build produced {sha}");
     }
 
     [Fact]
@@ -84,7 +91,7 @@ public sealed class BulkWriteBytesTests : IDisposable
         var outcome = WritePatchBuilder.ForwardRecords(_resolver, specs, outPath, extend: false, sourceParam: "source");
         Assert.True(outcome.Success, outcome.Error);
         var sha = Sha(outPath);
-        Assert.True(ForwardSha == sha, $"bulk forward wrote different bytes than before the body gather: {sha}");
+        Assert.True(ForwardSha == sha, $"a bulk forward's written bytes moved (see the class comment for how to tell the gather from the serializer); this build produced {sha}");
     }
 
     public void Dispose()
