@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to houseCARL are documented here. Versioning is [semantic](https://semver.org);
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
@@ -221,6 +221,21 @@ saying it sets an expectation their install may contradict. Say what is known, a
   says how many names it did not print. Both lanes state it: a scan, and the `formids=` list lane's carrier walk,
   where `types=` narrows the carrier types. A type name the tool does not know is still refused by name, which is a
   different answer from a known type with nothing in it.
+- **`where=` takes a negated string operator: `not contains` and `not startswith`.** A complement over a
+  substring had no spelling — `where=["Name not contains Dagger"]` refused with "'not' must be followed by
+  'in'" and the only way through was to spill every row and filter by hand. `not` now leads a string operator
+  as well as the membership complement it already led (`not in`). The operators that already have a complement
+  keep it, and a `not` in front of one is refused by name pointing at it (`!=` for `=`, `missing` for `exists`,
+  `has_none` for `has`). A negated term matches only records the path reads a value on, the same rule the
+  accounting note on the result states for every other value operator: on a field that is unset everywhere the
+  answer is zero matches with that note, not everything.
+- **An exact `editorid =` that matches nothing now names the record the winner renamed.** A scan filters on the
+  load-order winner's body, so `editorid = ArmorIronCuirass` reads as a clean zero when the winner renames that
+  record — the name is real and only a losing copy carries it. The result now carries one sentence naming the
+  plugin that defines the name asked for, the FormID, and the EditorID the winner gives it. It runs only on a
+  zero-row scan of the winner lane whose `where=` carries an exact `editorid =` term, it reads the EditorID
+  header and nothing else, and when no plugin in the order carries the name the plain zero-row result stands as
+  before. The bound it gives up at is `EditorIdNearMiss.Budget`.
 
 - **`housecarl_skse` now says which source a plugin's version came from, and prints the DLL's file version and the
   mod's meta.ini version beside it wherever they disagree.** The version it reads is the SKSE manifest's own
