@@ -139,6 +139,27 @@ public sealed class WhereGrammarTests
     [Fact]
     public void EditoridMembership_NotInKeepsTheRestIncludingTheNoEditoridRecord() =>
         Assert.Equal(WeaponsExcept(_w.Weapons[0]), Run("editorid not in [HcRecW0]", _w.WeaponBodies));
+
+    // ---- the 'not' prefix over a string operator --------------------------------------------------
+
+    [Fact]
+    public void NotContains_OnEditoridKeepsEveryRecordTheContainsMatchDropped() =>
+        Assert.Equal(WeaponsExcept(_w.Weapons[1]).Append(_w.NoEidWeapon).ToHashSet(),
+                     Run("editorid not contains recw1", _w.WeaponBodies));
+
+    [Fact]
+    public void NotStartswith_OnEditoridSelectsExactlyTheNoEditoridRecord() =>
+        Assert.Equal(new[] { _w.NoEidWeapon }.ToHashSet(),
+                     Run("editorid not startswith HcRecW", _w.WeaponBodies));
+
+    [Fact]
+    public void NotStartswith_OnARealLeafIsTheComplementOverTheValueBearingRecords() =>
+        Assert.Equal(new[] { _w.Weapons[1], _w.Weapons[2], _w.NoEidWeapon }.ToHashSet(),
+                     Run("BasicStats.Damage not startswith 1", _w.WeaponBodies));
+
+    [Fact]
+    public void NotContains_OnAValidButUnsetLeafMatchesNothing_ANegationIsNotAFreeEverything() =>
+        Assert.Empty(Run("Name not contains Dagger", _w.WeaponBodies));
 }
 
 /// <summary>The parse refusals, named before any scan. One row per refusal: the clause and the word the
@@ -157,6 +178,9 @@ public sealed class WhereParseRefusalTests
     [InlineData("editorid > 5", "text term")]                // a numeric op on a text term
     [InlineData("formid = 000801:X.esp", "membership")]      // a value op on identity points at the membership ops
     [InlineData("Effects->winner = X.esp", "link step")]     // winner behind an arrow names the CANDIDATE's resolution
+    [InlineData("Name not blorp x", "not contains")]         // a 'not' on no operator at all names the forms it leads
+    [InlineData("VirtualMachineAdapter not exists", "missing")]  // every other op keeps its own complement, named
+    [InlineData("Name not contains", "not contains")]        // a negated operator with no value spells itself back
     public void AParseRefusalNamesTheRuleItBroke(string clause, string teaching) =>
         Assert.Contains(teaching, FieldPredicateSet.Parse(new[] { clause }).Error ?? "");
 }
