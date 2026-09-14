@@ -149,8 +149,25 @@ object turns it into a property named `type` and a property named `description`,
 validating — which a strict provider reports as an `anyOf` failure rather than as a depth error.
 (`additionalProperties` *is* a schema, and is cut as one.)
 
-A value that is not a whole number of 1 or more refuses the server's start, in one sentence on stderr
+The terminator carries one sentence the recursion bound's does not: where it was cut, and at what depth.
+The bound's own wording — "the same shape shown above" — is true where a cycle repeated a shape and
+false at a cut, where the truncated shape is in no part of the document. What the node CLAIMS is
+identical either way: nesting continues below and is accepted.
+
+**The floor is 3, and a value below it is refused.** A schema's root is level 1, its `properties`
+dictionary level 2, each parameter level 3 — so a cap of 1 or 2 closes the ROOT, and a root without
+`properties` is not merely less descriptive: `ToolCallShim` reads that member, so argument coercion, the
+named missing-parameter refusal and the undeclared-key refusal would all quietly stop happening. A cut
+may say less about a nested shape; it may not change what a call gets back.
+
+A value that is not a whole number of 3 or more refuses the server's start, in one sentence on stderr
 naming the variable. Ignoring it would boot a server publishing the schemas the caller set the variable
-to get away from, under a provider error naming neither houseCARL nor the variable. The cap applies to
-the server entry, not to a model, so every model behind that entry gets the cut schemas; two entries
-split them.
+to get away from, under a provider error naming neither houseCARL nor the variable. Two more refusals
+have the same shape and the same reason: a member at a cut point that the pass has no rule for (these
+schemas are generated from a closed set of shapes, so one is drift to report, not a case to widen at a
+user's server start), and a finished document still measuring over the cap — `Cut` re-measures rather
+than trusting the induction over its own branches, because an over-depth schema is refused by the very
+provider the cap was set for.
+
+The cap applies to the server entry, not to a model, so every model behind that entry gets the cut
+schemas; two entries split them.

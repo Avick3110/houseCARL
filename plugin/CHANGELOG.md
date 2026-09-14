@@ -56,7 +56,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   answered exactly as before, so the schema is less descriptive below the cut, never wrong. It applies to the
   server entry, not to one model, so models sharing that entry all get the cut schemas; use a second entry to
   split them. Unset — the default — publishes the full schemas, byte for byte what they were. A value that is not
-  a whole number of 1 or more stops the server's start with one sentence naming the variable.
+  a whole number of 3 or more stops the server's start with one sentence naming the variable: a schema cut below 3
+  carries no parameters of its own, and every call is checked against those. A cut that cannot reach the depth it
+  was given stops the start the same way, naming the tool, rather than publishing a schema over the cap.
 - **A forward `walk=` no longer holds every record it reached.** A record body read from a plugin is a slice
   of that record group's whole byte array and keeps it alive, so caching one body per reached node until the
   call returned pinned one array per source group per plugin: 270 KB per reached node, and a raised

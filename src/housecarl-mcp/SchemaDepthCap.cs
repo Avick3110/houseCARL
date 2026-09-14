@@ -34,10 +34,19 @@ internal static class SchemaDepthCap
     /// HOUSECARL_SETUP_HOME).</summary>
     internal const string Variable = "HOUSECARL_MAX_SCHEMA_DEPTH";
 
+    /// <summary>The shallowest cap that still publishes a tool's own parameters. A schema's root is level 1, its
+    /// <c>properties</c> dictionary level 2 and each parameter level 3, so below 3 the root itself is the node
+    /// that gets closed — and <see cref="ToolCallShim"/> READS a schema's top-level <c>properties</c>, so a root
+    /// without one silently drops argument coercion, the named missing-parameter refusal and the undeclared-key
+    /// refusal. A cut is allowed to say less about a nested shape; it is not allowed to change what a call
+    /// gets back.</summary>
+    internal const int Minimum = 3;
+
     /// <summary>Members whose value is a NAME-TO-SCHEMA DICTIONARY. Each value is a schema to cut on its own; the
     /// container is never replaced.</summary>
     static readonly HashSet<string> Dictionaries =
-        new(StringComparer.Ordinal) { "properties", "patternProperties", "$defs", "definitions" };
+        new(StringComparer.Ordinal)
+            { "properties", "patternProperties", "$defs", "definitions", "dependentSchemas" };
 
     /// <summary>Members whose value IS a schema.</summary>
     static readonly HashSet<string> SubSchemas =
@@ -45,37 +54,47 @@ internal static class SchemaDepthCap
         {
             "items", "additionalProperties", "not", "contains", "propertyNames",
             "if", "then", "else", "unevaluatedItems", "unevaluatedProperties",
+            "additionalItems", "contentSchema",
         };
 
-    /// <summary>Members whose value is a LIST of schemas.</summary>
+    /// <summary>Members whose value is a LIST of schemas. <c>items</c> joins them when it carries the tuple
+    /// spelling (<c>"items": [ … ]</c>) rather than one schema.</summary>
     static readonly HashSet<string> SchemaLists =
         new(StringComparer.Ordinal) { "anyOf", "oneOf", "allOf", "prefixItems" };
 
+    /// <summary>What one cut is for: the configured cap, and the tool whose schema is being cut — both only so a
+    /// refusal can say which knob and which tool.</summary>
+    readonly record struct Cutting(int Cap, string Tool);
+
     /// <summary>The configured cap, or null when the variable is unset or blank.</summary>
-    /// <exception cref="ArgumentException">The variable is set to something that is not a whole number of 1 or
-    /// more. Refused rather than ignored: a caller who set it did so because a provider refuses the uncut schema,
-    /// and silently publishing uncut would fail that provider with an error naming neither houseCARL nor this
-    /// variable.</exception>
+    /// <exception cref="ArgumentException">The variable is set to something that is not a whole number of
+    /// <see cref="Minimum"/> or more. Refused rather than ignored: a caller who set it did so because a provider
+    /// refuses the uncut schema, and silently publishing uncut would fail that provider with an error naming
+    /// neither houseCARL nor this variable.</exception>
     internal static int? Configured() => Read(Environment.GetEnvironmentVariable(Variable));
 
     /// <summary>Parse one value of the variable. Separate from <see cref="Configured"/> so a test can drive it.</summary>
     internal static int? Read(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;
-        if (int.TryParse(raw.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var depth) && depth >= 1)
-            return depth;
+        if (int.TryParse(raw.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var depth)
+            && depth >= Minimum) return depth;
         throw new ArgumentException(
-            $"{Variable} is \"{raw}\" — set it to a whole number of 1 or more (the JSON nesting depth to publish " +
-            "the tool schemas at), or leave it unset to publish them in full.");
+            $"{Variable} is \"{raw}\" — set it to a whole number of {Minimum} or more (the JSON nesting depth to " +
+            $"publish the tool schemas at; below {Minimum} a schema cannot carry its own parameters, which every " +
+            "call is checked against), or leave it unset to publish them in full.");
     }
 
     /// <summary>Cut one tool schema to <paramref name="maxDepth"/>. Returns false — leaving the document
     /// untouched — when no cap is configured or the document already fits.</summary>
-    internal static bool Cut(JsonObject root, int? maxDepth)
+    /// <exception cref="InvalidOperationException">The cut could not produce a document at the cap. Thrown rather
+    /// than published: a schema still over the cap is refused by the provider the cap was set for, which takes the
+    /// whole server down at <c>tools/list</c> naming neither houseCARL nor a tool.</exception>
+    internal static bool Cut(JsonObject root, int? maxDepth, string tool)
     {
         if (maxDepth is not { } cap || Depth(root) <= cap) return false;
 
-        var shrunk = Shrink(root, cap);
+        var shrunk = Shrink(root, cap, new Cutting(cap, tool));
         if (!ReferenceEquals(shrunk, root))
         {
             // The root schema itself became the terminator. A document root cannot be replaced from inside, so its
@@ -83,51 +102,89 @@ internal static class SchemaDepthCap
             foreach (var key in root.Select(kv => kv.Key).ToList()) root.Remove(key);
             foreach (var member in shrunk) root[member.Key] = member.Value?.DeepClone();
         }
+
+        // MEASURED, not reasoned: every branch above is meant to leave the node inside its budget, and a document
+        // shaped in a way one of them stepped over would otherwise publish over the cap in silence.
+        if (Depth(root) is var reached && reached > cap)
+            throw new InvalidOperationException(
+                $"{Variable} is {cap}, but {tool}'s schema is still {reached} levels deep after the cut — houseCARL " +
+                "will not publish a schema deeper than the cap it was given, so unset the variable to publish in " +
+                "full and report this.");
         return true;
     }
 
     /// <summary>Cut one schema node to fit in <paramref name="budget"/> levels counted from the node itself, in
     /// place. Returns the node, or a terminator to put in its place when it cannot be spelled out that shallow.
     /// Every branch leaves the result at depth <paramref name="budget"/> or less.</summary>
-    static JsonObject Shrink(JsonObject node, int budget)
+    static JsonObject Shrink(JsonObject node, int budget, Cutting cut)
     {
         if (Depth(node) <= budget) return node;
-        if (budget <= 1) return Terminator(node, budget);
+        if (budget <= 1) return Terminator(node, budget, cut);
 
         foreach (var key in node.Select(kv => kv.Key).ToList())
         {
             var value = node[key];
+            // items carries EITHER one schema or the tuple spelling, so which member set it belongs to is read
+            // off the value, not off the name.
             if (Dictionaries.Contains(key) && value is JsonObject dictionary)
             {
                 // The node holds the dictionary, the dictionary holds each schema: two levels before a value.
-                if (budget < 3) return Terminator(node, budget);
+                if (budget < 3) return Terminator(node, budget, cut);
                 foreach (var name in dictionary.Select(kv => kv.Key).ToList())
-                    if (dictionary[name] is JsonObject member && Shrink(member, budget - 2) is var cut
-                        && !ReferenceEquals(cut, member)) dictionary[name] = cut;
+                    if (dictionary[name] is JsonObject member) Replace(dictionary, name, Shrink(member, budget - 2, cut));
+                    else if (Depth(dictionary[name]) > budget - 2) throw Unhandled(cut, $"{key}/{name}");
             }
             else if (SubSchemas.Contains(key) && value is JsonObject sub)
             {
-                if (Shrink(sub, budget - 1) is var cut && !ReferenceEquals(cut, sub)) node[key] = cut;
+                Replace(node, key, Shrink(sub, budget - 1, cut));
             }
-            else if (SchemaLists.Contains(key) && value is JsonArray arms)
+            else if ((SchemaLists.Contains(key) || key == "items") && value is JsonArray arms)
             {
-                if (budget < 3) return Terminator(node, budget);
+                if (budget < 3) return Terminator(node, budget, cut);
                 for (var i = 0; i < arms.Count; i++)
-                    if (arms[i] is JsonObject arm && Shrink(arm, budget - 2) is var cut
-                        && !ReferenceEquals(cut, arm)) arms[i] = cut;
+                    if (arms[i] is JsonObject arm) Replace(arms, i, Shrink(arm, budget - 2, cut));
+                    else if (Depth(arms[i]) > budget - 2) throw Unhandled(cut, $"{key}/{i}");
             }
-            // Anything else is an annotation or a scalar list (type, enum, required, default). It constrains
-            // nothing structurally, so one too deep to keep is dropped rather than cut into a shape of its own.
-            else if (Depth(value) > budget - 1) node.Remove(key);
+            // Everything else is a scalar or a scalar list (type, enum, required, a default), which fits whenever
+            // the node has a level to spend. One that does not is a member this pass has no rule for, and it is
+            // named rather than dropped: dropping it would take a constraint off the surface in silence.
+            else if (Depth(value) > budget - 1) throw Unhandled(cut, key);
         }
         return node;
     }
 
-    /// <summary>The node the cut closes a branch with — the SAME one the recursion bound emits, trimmed to fit:
-    /// a <c>type</c> spelled as a list needs a level of its own, which the shallowest budget does not have.</summary>
-    static JsonObject Terminator(JsonObject node, int budget)
+    /// <summary>Put a cut node back in its slot — only when it is a NEW node. Assigning a node into the parent it
+    /// already hangs off throws "the node already has a parent", and a node the cut left alone is exactly that.</summary>
+    static void Replace(JsonObject parent, string key, JsonObject cut)
+    {
+        if (!ReferenceEquals(parent[key], cut)) parent[key] = cut;
+    }
+
+    /// <inheritdoc cref="Replace(JsonObject, string, JsonObject)"/>
+    static void Replace(JsonArray parent, int index, JsonObject cut)
+    {
+        if (!ReferenceEquals(parent[index], cut)) parent[index] = cut;
+    }
+
+    /// <summary>The refusal for a member the cut has no rule for — a schema-bearing keyword outside the sets
+    /// above, or one spelled in a shape they do not cover. These schemas are generated from a closed set of
+    /// shapes, so a member reaching here is a drift to report, not a case to widen at a user's server start.</summary>
+    static InvalidOperationException Unhandled(Cutting cut, string member) =>
+        new($"{Variable} is {cut.Cap}, and cutting {cut.Tool}'s schema that shallow means shortening its " +
+            $"\"{member}\" member, which this pass has no rule for — unset the variable to publish the schemas in " +
+            "full and report the member.");
+
+    /// <summary>The node the cut closes a branch with — the SAME one the recursion bound emits, plus one sentence
+    /// and trimmed to fit. The sentence is needed because the bound's own reads "the same shape shown above",
+    /// which is true where a cycle repeated a shape and false at a cut, where the shape is in no part of this
+    /// document. What the node CLAIMS is unchanged: nesting continues below and is accepted. A <c>type</c> spelled
+    /// as a list needs a level of its own, which the shallowest budget does not have.</summary>
+    static JsonObject Terminator(JsonObject node, int budget, Cutting cut)
     {
         var open = ToolSchemas.Terminator(node, node);
+        open["description"] = open["description"]!.GetValue<string>() +
+            $" Nesting was cut here at depth {cut.Cap} by {Variable}: the tool accepts the full shape, and this " +
+            "parameter's description carries its members.";
         if (Depth(open) > budget) open.Remove("type");
         return open;
     }
