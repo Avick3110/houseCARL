@@ -296,31 +296,43 @@ static class PlaceWire
     /// told only that the write succeeded would enable nothing.
     /// <para>The LANE decides as much as contention does: MO2 registers a folder it has not seen at the highest
     /// priority, so a fresh folder out-ranks the current winner the moment it is ticked and asking for a sort would be
-    /// work the caller does not need to do.</para>
+    /// work the caller does not need to do. Two winners are outside both instructions and are answered apart: MO2's
+    /// overwrite folder, which sits above every mod so no enable and no sort reaches it, and the destination folder
+    /// itself, which already wins.</para>
     /// <para><paramref name="rendered"/> is how many rows the render actually got onto the page. Rows come out in
     /// order, so those are the first <paramref name="rendered"/> results — and a contended row max_chars cut cannot
     /// be pointed at with "listed above", so the sentence says the row was cut instead of naming a winner the
     /// document never shows.</para></summary>
     internal static string EnableAndSort(PlaceOutcome o, string? modFolder, int rendered)
     {
-        bool anyContended = false, shownContended = false;
+        bool anyContended = false, shownContended = false, anyOverwrite = false;
         for (int i = 0; i < o.Results.Count; i++)
         {
-            if (!(o.Results[i].Placed && o.Results[i].CurrentWinner is not null)) continue;
+            var r = o.Results[i];
+            if (!r.Placed || r.CurrentWinner is null) continue;
+            // A row the destination folder itself won owes no instruction: the placement replaces that folder's own
+            // earlier copy and keeps winning, so counting it as contention would ask for a sort above this folder.
+            if (r.WinnerIsDestination) continue;
+            // An overwrite winner is not reachable by enabling or sorting, so it is counted apart and answered apart.
+            if (r.WinnerIsOverwrite) { anyOverwrite = true; continue; }
             anyContended = true;
-            if (i < rendered) { shownContended = true; break; }
+            if (i < rendered) shownContended = true;
         }
-        var sort = o.FreshFolder
-            ? (anyContended
+        var sort = anyContended
+            ? (o.FreshFolder
                 ? ". MO2 registers a folder it has not seen at the highest priority, so once enabled the placed copy " +
                   "out-ranks the current winner(s) with no sorting (sort it above any mod you later add that also provides these path(s))."
-                : ". Nothing else provided these path(s), so once enabled the placed copy wins (sort it above any mod you later add that also provides them).")
-            : shownContended
-                ? " and SORT it (left pane) ABOVE the current winner(s) listed above. Only then does the placed copy win."
-                : anyContended
-                    ? " and SORT it (left pane) ABOVE the current winner(s) — max_chars cut the row(s) naming them from " +
-                      "this render, so raise max_chars and re-read to see which. Only then does the placed copy win."
-                    : ". Nothing else provided these path(s), so once enabled the placed copy wins (sort it above any mod you later add that also provides them).";
+                : shownContended
+                    ? " and SORT it (left pane) ABOVE the current winner(s) listed above. Only then does the placed copy win."
+                    : " and SORT it (left pane) ABOVE the current winner(s) — max_chars cut the row(s) naming them from " +
+                      "this render, so raise max_chars and re-read to see which. Only then does the placed copy win.")
+            : anyOverwrite
+                ? "."
+                : ". Nothing else provided these path(s), so once enabled the placed copy wins (sort it above any mod you later add that also provides them).";
+        if (anyOverwrite)
+            sort += " MO2's overwrite folder sits ABOVE every mod in the VFS, so for the path(s) it currently wins " +
+                    "neither enabling nor sorting is enough — move or delete the overwrite copy of each path whose " +
+                    "winner reads 'overwrite (loose)' above.";
         return "IMPORTANT — \"wrote it\" is not \"it wins\": the placed file(s) do NOT win the VFS yet. Enable the mod '"
              + (modFolder ?? "(the new folder)") + "' in MO2" + sort;
     }
@@ -345,11 +357,27 @@ static class PlaceWire
             sb.Append("        ").Append(WriteSentences.PlaceSourceOffOrder(offOrder, r.SourceOffOrderOwnerEnabled)).Append('\n');
         // Name the destination folder rather than saying "the mod": the off-order line above can put a SECOND mod in
         // scope, and it ends by saying enabling THAT one is not required.
-        sb.Append(r.CurrentWinner is not null
-            ? freshFolder
-                ? $"        currently wins the VFS: {r.CurrentWinner} — a folder MO2 has not seen registers at the highest priority, so '{modFolder ?? "(the new folder)"}' out-ranks it once enabled\n"
-                : $"        currently wins the VFS: {r.CurrentWinner} — sort '{modFolder ?? "(the patch folder)"}' ABOVE it\n"
-            : $"        nothing else provides this path — once '{modFolder ?? "(the new folder)"}' is enabled, the placed copy wins\n");
+        sb.Append("        ").Append(WinnerLine(r, modFolder, freshFolder)).Append('\n');
+    }
+
+    /// <summary>What this destination's current VFS winner means for the caller, in four arms: nothing else provides
+    /// the path; the destination folder itself already provides it (a re-place, which keeps winning); MO2's overwrite
+    /// folder provides it (above every mod, so only moving that copy helps); or another mod does, which a fresh folder
+    /// out-ranks on enable and an into= folder has to be sorted above. One home, because the json twin's
+    /// <c>winner_note</c> has to say exactly this.</summary>
+    internal static string WinnerLine(PlaceResult r, string? modFolder, bool freshFolder)
+    {
+        var folder = modFolder ?? (freshFolder ? "(the new folder)" : "(the patch folder)");
+        if (r.CurrentWinner is null)
+            return $"nothing else provides this path — once '{folder}' is enabled, the placed copy wins";
+        if (r.WinnerIsDestination)
+            return $"'{folder}' already provided this path — the placed copy replaces its own earlier copy and keeps winning";
+        if (r.WinnerIsOverwrite)
+            return $"currently wins the VFS: {r.CurrentWinner} — MO2's overwrite folder is ABOVE every mod, so no enable "
+                 + $"and no sort out-ranks it; move or delete the overwrite copy of this path, then '{folder}' wins";
+        return freshFolder
+            ? $"currently wins the VFS: {r.CurrentWinner} — a folder MO2 has not seen registers at the highest priority, so '{folder}' out-ranks it once enabled"
+            : $"currently wins the VFS: {r.CurrentWinner} — sort '{folder}' ABOVE it";
     }
 }
 

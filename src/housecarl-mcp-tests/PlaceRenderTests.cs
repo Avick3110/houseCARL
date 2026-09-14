@@ -11,10 +11,18 @@ namespace HousecarlMcpTests;
 [Trait("tier", "unit")]
 public class PlaceRenderTests
 {
-    static PlaceOutcome Outcome(int ok, int failed, bool fresh = false, bool contended = true) => new(
+    /// <summary>A place outcome on the DEFAULT lane unless <paramref name="fresh"/> says otherwise — the lane a caller
+    /// who names nothing gets, so the cap cases exercise it rather than into=.</summary>
+    static PlaceOutcome Outcome(int ok, int failed, bool fresh = true, bool contended = true,
+                                bool overwriteWinner = false, bool destinationWinner = false) => new(
         Enumerable.Range(0, ok)
             .Select(i => new PlaceResult($"meshes/hc/ok{i}.nif", true, 42, "SomeMod (loose)",
-                                         contended ? "OtherMod (loose)" : null, null))
+                                         !contended ? null
+                                         : overwriteWinner ? "overwrite (loose)"
+                                         : destinationWinner ? "houseCARL - MyFixes (loose)"
+                                         : "OtherMod (loose)", null)
+                       { WinnerIsOverwrite = contended && overwriteWinner,
+                         WinnerIsDestination = contended && destinationWinner })
             .Concat(Enumerable.Range(0, failed)
                 .Select(i => new PlaceResult($"meshes/hc/bad{i}.nif", false, 0, null, null, "nothing supplies this path")))
             .ToList(),
@@ -109,6 +117,40 @@ public class PlaceRenderTests
 
         Assert.Contains("SORT it (left pane) ABOVE", into.NextStep);
         Assert.Contains("sort 'houseCARL - MyFixes' ABOVE it", into.WinnerNote);
+    }
+
+    [Fact]
+    public void AnOverwriteWinnerIsNotOutRankedByEnablingAnything_TheRenderSaysToMoveThatCopy()
+    {
+        // MO2's overwrite folder is the TOP loose root, above every mod, so neither lane's instruction reaches it.
+        var text = PlaceWire.Render(Outcome(ok: 1, failed: 0, fresh: true, overwriteWinner: true), 80_000);
+
+        Assert.Contains("currently wins the VFS: overwrite (loose)", text);
+        Assert.Contains("move or delete the overwrite copy of this path", text);
+        Assert.Contains("MO2's overwrite folder sits ABOVE every mod in the VFS", text);
+        Assert.DoesNotContain("out-ranks it once enabled", text);
+        Assert.DoesNotContain("with no sorting", text);
+        // Nor may it fall through to the no-contention arm: something DOES provide the path.
+        Assert.DoesNotContain("Nothing else provided these path(s)", text);
+    }
+
+    [Fact]
+    public void AnOverwriteWinnerOnTheIntoLaneIsNotAnsweredWithASortEither()
+    {
+        var text = PlaceWire.Render(Outcome(ok: 1, failed: 0, fresh: false, overwriteWinner: true), 80_000);
+
+        Assert.Contains("move or delete the overwrite copy of this path", text);
+        Assert.DoesNotContain("SORT it (left pane)", text);
+    }
+
+    [Fact]
+    public void ARePlaceIntoAFolderThatAlreadyWinsIsNotToldToSortItAboveItself()
+    {
+        var text = PlaceWire.Render(Outcome(ok: 1, failed: 0, fresh: false, destinationWinner: true), 80_000);
+
+        Assert.Contains("'houseCARL - MyFixes' already provided this path", text);
+        Assert.DoesNotContain("sort 'houseCARL - MyFixes' ABOVE it", text);
+        Assert.DoesNotContain("SORT it (left pane)", text);
     }
 
     /// <summary>The two laned strings out of a json place document, read as data rather than matched against the
