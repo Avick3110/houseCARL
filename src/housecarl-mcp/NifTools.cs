@@ -185,7 +185,8 @@ public static class NifTools
          "re-reads the new value; census + SE-stream intact) — a failure writes NOTHING and says why. Every refusal is " +
          "loud and named (Q3), never a silent half-write.\n\n" +
          "By DEFAULT the verified mesh is written into a NEW houseCARL MO2 mod folder at the same path (originals " +
-         "untouched) — enable it and sort it ABOVE the current winner so the edit wins; a BSA-packed source becomes a " +
+         "untouched) — enable it in MO2 and the edit wins, because a NEW folder registers at MO2's highest priority; an " +
+         "into= folder's priority is already fixed, so sort it ABOVE the current winner. A BSA-packed source becomes a " +
          "loose winning override this way. in_place=true instead OVERWRITES the winning LOOSE file where it sits (opt-in; " +
          "rides the per-file consent handshake, needs acknowledge=true, NO backup). Only edits data VALUES — never " +
          "geometry / vertices / the .dds pixels.\n\n" +
@@ -806,7 +807,8 @@ static class NifWire
 /// exactly one of the in-place consent prompt (carried verbatim; a required confirmation, not an error), a named
 /// refusal with nothing written, or the verified-write success with the op's before and after, what verification
 /// confirmed changed, and where the file landed. A default-lane success says the file was written and must now be
-/// enabled and sorted; it never claims the edit is already winning on disk.</summary>
+/// enabled, and sorted too when it landed in an existing into= folder; it never claims the edit is already winning on
+/// disk.</summary>
 static class NifSetWire
 {
     public static string Render(NifSetResult d)
@@ -864,6 +866,11 @@ static class NifSetWire
                 sb.Append("  TO MAKE IT WIN: nothing else provides this path — once '")
                   .Append(Path.GetFileName(d.OutputModFolder) is { Length: > 0 } f ? f : "the new folder")
                   .Append("' is enabled in MO2, the edited copy wins. 'Wrote it' is not 'it wins' until you do.\n");
+            else if (d.FreshFolder)
+                // A folder MO2 has not seen registers at the highest priority, so ticking it is the whole job.
+                sb.Append("  TO MAKE IT WIN: enable this folder in MO2 — MO2 registers a folder it has not seen at the highest priority, so it out-ranks ")
+                  .Append(d.CurrentWinner)
+                  .Append(" with no sorting (loose beats BSA; among loose, the later mod wins). 'Wrote it' is not 'it wins' until you do.\n");
             else
                 sb.Append("  TO MAKE IT WIN: enable this folder in MO2 and sort it ABOVE ")
                   .Append(d.CurrentWinner)
