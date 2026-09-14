@@ -44,7 +44,13 @@ public sealed class ServerFixture : IDisposable
     /// <summary>The instructions string `initialize` published — the standing context a client is handed.</summary>
     public string PublishedInstructions { get; }
 
-    public ServerFixture()
+    /// <summary>The shared collection fixture's server: the plain environment every stdio test measures.</summary>
+    public ServerFixture() : this(null) { }
+
+    /// <summary>A server started with extra environment on top of the fixture's own. For a test whose SUBJECT is
+    /// what an environment variable changes about the published surface — it spins its own server rather than
+    /// touching the shared one, which every other stdio test reads.</summary>
+    internal ServerFixture(IReadOnlyDictionary<string, string>? environment)
     {
         var exe = Path.Combine(HarnessPaths.RepoRoot, "src", "housecarl-mcp", "bin",
                                HarnessPaths.Configuration, "net9.0", "housecarl-mcp.exe");
@@ -66,6 +72,8 @@ public sealed class ServerFixture : IDisposable
             StandardOutputEncoding = Encoding.UTF8,
         };
         psi.Environment["HOUSECARL_DATA_DIR"] = _dataDir;
+        if (environment is not null)
+            foreach (var (name, value) in environment) psi.Environment[name] = value;
 
         _proc = Process.Start(psi)!;
         _proc.ErrorDataReceived += (_, _) => { };     // server logs ride stderr — drain, ignore
