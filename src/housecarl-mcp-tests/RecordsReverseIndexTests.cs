@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using HousecarlCore;
 using HousecarlMcp;
 using Mutagen.Bethesda.Plugins;
@@ -390,6 +391,59 @@ public sealed class RecordsReverseIndexTests : RecordsTestBase
         RenderBudget.MaxRenderRows = rows;
         try { return call(); }
         finally { RenderBudget.MaxRenderRows = prior; }
+    }
+
+    // ---- what a match COSTS after the index ---------------------------------------------------------
+
+    /// <summary>Both reverse spellings gather the bodies they judge one enumeration per winner plugin, where each
+    /// match used to cost a whole-plugin seek of its own. The answers are the goldens captured from the build
+    /// before the gather, character for character apart from what Stable blanks — so a cheaper read that also
+    /// answered differently fails here.</summary>
+    [Fact]
+    public void TheReverseLaneAnswersTheSameWithoutAPluginWalkPerMatch()
+    {
+        var before = LoadOrderResolver.BodySeeks;
+        var refs = RecordsTools.Records(Svc, references: new[] { Fid(W.MgefA) });
+        var refSeeks = LoadOrderResolver.BodySeeks - before;
+
+        Assert.Equal(
+            "records  form=summary  source=winner\n"
+            + "scan: 2 matches  epoch=<E>\n"
+            + "reverse-reference index: <BUILD> (14 target→referencer pairs over 11 target slots, ~0 MB held), key=<K> (per plugin, path+mtime — beside the order-wide epoch, not riding it).\n"
+            + "  000807:HcRecMaster.esm  runtime=00000807  type=Spell  editorid=HcRecSpellA  winner=HcRecMaster.esm  override_depth=1\n"
+            + "  000808:HcRecMaster.esm  runtime=00000808  type=Spell  editorid=HcRecSpellC  winner=HcRecMaster.esm  override_depth=1",
+            Stable(refs));
+        Assert.True(refSeeks <= 1, $"a 2-match unbounded references= cost {refSeeks} per-record plugin walks.");
+
+        before = LoadOrderResolver.BodySeeks;
+        var walk = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefHop) },
+                                        walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 6 });
+        var walkSeeks = LoadOrderResolver.BodySeeks - before;
+
+        Assert.Equal(
+            "records  form=summary\n"
+            + "walk=reverse (every link) depth=6: hop 1: 1, hop 2: 1, hop 3: 0 (nothing left to expand, so hops 4–6 were not walked) — selection = 3 record(s) (2 referrer(s), seeds included)\n"
+            + "reverse-reference index: <BUILD> (14 target→referencer pairs over 11 target slots, ~0 MB held), key=<K> (per plugin, path+mtime — beside the order-wide epoch, not riding it).\n"
+            + "1 index candidate(s) were dropped — the index names a plugin copy that carries the link, and this walk judges the load-order winner (the same second step references= takes): 1 whose winner does not carry the link. None of them was reached or expanded.  source=winner\n"
+            + "3 record(s)  epoch=<E>\n"
+            + "00080A:HcRecMaster.esm  runtime=0000080A  MagicEffect  HcRecMgefHop  source=HcRecMaster.esm  winner=HcRecMaster.esm  override_depth=1\n"
+            + "00080B:HcRecMaster.esm  runtime=0000080B  Spell  HcRecSpellHop  source=HcRecMaster.esm  winner=HcRecMaster.esm  override_depth=1\n"
+            + "00080C:HcRecMaster.esm  runtime=0000080C  FormList  HcRecListHop  source=HcRecMaster.esm  winner=HcRecMaster.esm  override_depth=1\n"
+            + "read 3 record bodies in <T> ms",
+            Stable(walk));
+        Assert.True(walkSeeks <= 1, $"a 3-record reverse walk cost {walkSeeks} per-record plugin walks.");
+    }
+
+    /// <summary>The response with the parts that change run to run blanked — the build's epoch, the index's
+    /// freshness key, whether this call or an earlier one paid the build, and the clocks — so the golden is about
+    /// the answer and not about the machine.</summary>
+    static string Stable(string response)
+    {
+        var s = response.Replace("\r\n", "\n").TrimEnd();
+        s = Regex.Replace(s, @"reverse-reference index: [^\n]*?(?=\(\d+ target)", "reverse-reference index: <BUILD> ");
+        s = Regex.Replace(s, @"epoch=\S+", "epoch=<E>");
+        s = Regex.Replace(s, @"key=\w+", "key=<K>");
+        return Regex.Replace(s, @"in \d+ ms", "in <T> ms");
     }
 }
 
