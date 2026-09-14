@@ -125,6 +125,21 @@ saying it sets an expectation their install may contradict. Say what is known, a
   no longer be told an explicit null satisfies it — and, the other way, a verb slot the server DEFAULTS still
   publishes one, so such a client does not refuse a null verb the server reads as `Set`.
 
+- **`housecarl_apply` refuses `from_source=` on any verb but `op='CopyFrom'`.** Only `CopyFrom` reads it; on
+  another verb it was accepted, dropped, and the edit written off the load-order winner instead of the plugin
+  you named — with success reported. The refusal names the op index and the verb it got, the way `from=` on a
+  non-`CopyFrom` op is already refused, and nothing is written.
+
+- **`housecarl_place` and `housecarl_nif_inspect` refuse a raw path into MO2's mods folder.** Reading or writing
+  through a mod folder's own path goes around the virtual file system. A mods path passed as `place`'s `path=`
+  or `source=`, or as a `nif_inspect` `mesh_paths=` entry, is now refused in one sentence that hands back the
+  address form instead: the mod folder named in `source_provider=`, with the Data-relative path. A path
+  anywhere else on disk is unchanged — naming one exact copy outside the mods tree is still how you place it.
+
+- **`housecarl_records` with `plugins=` no longer fails the whole call when one named plugin is not loaded.** It
+  answers for the plugins that are in the order and names the missing one beside the result, so the other named
+  plugins' reads are not thrown away with it. A scope whose every name is missing is still refused — there is
+  nothing left to scan — naming them.
 
 
 
