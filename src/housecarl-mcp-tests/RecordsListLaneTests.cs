@@ -77,4 +77,27 @@ public sealed class RecordsListLaneTests : RecordsTestBase
     [Fact]
     public void CountsOnly_IsTheCheapCensusWithNoRows() =>
         Served(RecordsTools.Records(Svc, formids: AllWeaponIds, counts_only: true), "count=3", "ok=3");
+
+    /// <summary>One id per record type, so the count table has more group rows than a small max_chars can hold.</summary>
+    string[] ManyTypedIds => new[]
+    {
+        Fid(W.Weapons[0]), Fid(W.Armor), Fid(W.MgefA), Fid(W.SpellA),
+        Fid(W.BigList), Fid(W.Package), Fid(W.NpcParent),
+    };
+
+    [Fact]
+    public void ListLaneAggregate_HoldsMaxCharsAndSaysWhatItCutOff()
+    {
+        var project = new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" };
+        var whole = RecordsTools.Records(Svc, formids: ManyTypedIds, project: project);
+        Served(whole, "group_by=type");
+        int cap = whole.Length - 40;   // derived, not pinned to a number that would only hold on one machine
+
+        var cut = RecordsTools.Records(Svc, formids: ManyTypedIds, project: project, max_chars: cap);
+        Served(cut, "truncated: rendered", "groups before hitting max_chars=" + cap);
+        Assert.True(CountOf(cut, "\n  ") < CountOf(whole, "\n  "), "the capped render laid as many rows as the uncapped one");
+        // The ceiling holds, or the fixed part the response owes whatever the budget names its own overrun.
+        if (cut.Length > cap)
+            Assert.Contains($"over the max_chars={cap} it was given", cut);
+    }
 }

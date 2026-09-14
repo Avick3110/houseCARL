@@ -700,7 +700,8 @@ public static class RecordsTools
                 return json ? JsonWire.RenderError(seamTear, epoch2) : "error: " + seamTear;
 
             if (form == "aggregate")
-                return RenderListAggregate(outcomes, project!.group_by!, json, dense, epoch2, headerLine, envelope, listCost);
+                return RenderListAggregate(outcomes, project!.group_by!, json, dense, epoch2, headerLine, envelope, listCost,
+                                           max_chars);
 
             if (counts_only)
             {
@@ -2588,14 +2589,18 @@ public static class RecordsTools
     /// <summary>The list-lane aggregate render: count the resolved rows by winner, type or defined_in — the batch
     /// twin of the scan lane's count table. Per-item errors get their own named bucket rather than dropping out
     /// of the census, and it carries the same response envelope as every other form, including the resolved
-    /// source statement source= promises and the epoch-coverage qualifier format= promises unconditionally.</summary>
+    /// source statement source= promises and the epoch-coverage qualifier format= promises unconditionally.
+    /// max_chars is a CEILING here as it is on every sibling render on this lane: the cut notice and the
+    /// accounting line are charged before the first group row, and a row that would cross what is left is taken
+    /// back out whole and named in the notice.</summary>
     static string RenderListAggregate(IReadOnlyList<ReadOutcome> outcomes, string groupBy, bool json, bool dense, OrderStamp? epoch,
                                       string headerLine, List<KeyValuePair<string, string>> envelope,
-                                      (int RowsRead, long Millis) bodyCost)
+                                      (int RowsRead, long Millis) bodyCost, int maxChars)
     {
         var gb = groupBy.Trim().ToLowerInvariant();
         if (gb is not ("winner" or "type" or "defined_in"))
             return Wire.Refuse(json, $"error: project.group_by='{groupBy}' is not a count key — use 'winner', 'type', or 'defined_in'.");
+        int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
         var groups = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         int errors = 0;
         foreach (var o in outcomes)
@@ -2611,18 +2616,33 @@ public static class RecordsTools
         }
         var rows = groups.OrderByDescending(g => g.Value).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
         if (json || dense)
-            return JsonWire.RenderListAggregate(gb, rows, outcomes.Count, errors, epoch, bodyCost, envelope);
+            return JsonWire.RenderListAggregate(gb, rows, outcomes.Count, errors, epoch, bodyCost, envelope, cap);
         var sb = new StringBuilder();
         sb.Append(headerLine).Append("  group_by=").Append(gb).Append('\n');
         sb.Append(outcomes.Count).Append(" record(s)");
         if (errors > 0) sb.Append("  (").Append(errors).Append(" per-item error(s) — counted apart, listed via form='summary')");
         if (epoch is not null) sb.Append(Wire.EpochInline(epoch));
         sb.Append('\n');
+        // The notice and the accounting line close this response, so both are charged before the first group row —
+        // the same shape the scan lane's count table holds itself to.
+        string Notice(int r) => "... [truncated: rendered " + r + " of " + rows.Count +
+                                " groups before hitting max_chars=" + cap + "; the counts above are exact — raise max_chars]\n";
+        int budget = cap - Notice(rows.Count).Length - RenderBudget.AccountingReserve;
+        int renderedGroups = 0;
         foreach (var (key, count) in rows.Select(r => (r.Key, r.Value)))
-            sb.Append("  ").Append(count.ToString().PadLeft(6)).Append("  ").Append(key).Append('\n');
+        {
+            var row = "  " + count.ToString().PadLeft(6) + "  " + key + "\n";
+            if (sb.Length + row.Length > budget)
+            {
+                sb.Append(Notice(renderedGroups));
+                break;
+            }
+            sb.Append(row);
+            renderedGroups++;
+        }
         // What reading the bodies this table counted cost, stated on text as it is on json.
         sb.Append(RenderBudget.BodiesLine(bodyCost.RowsRead, bodyCost.Millis));
-        return sb.ToString();
+        return RenderCap.Settle(sb.ToString(), cap);
     }
 
     /// <summary>references= @file expansion with the negation sigil carried across it: '!@&lt;path&gt;' excludes every
