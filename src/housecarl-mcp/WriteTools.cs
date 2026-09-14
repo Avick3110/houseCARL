@@ -655,27 +655,40 @@ public static class WriteTools
     static void AppendPlacement(StringBuilder sb, WritePatchBuilder.MergeOutcome o)
     {
         if (o.Placement is not { } p) return;
+        bool isRename = p.FirstPosition == p.LastPosition;
         sb.Append("placement: ");
-        if (p.FirstPosition == p.LastPosition)
+        if (isRename)
             sb.Append("the donor sat at load-order position ").Append(p.LastPosition).Append(". ");
         else
             sb.Append("the donors sat at load-order positions ").Append(p.FirstPosition).Append('–').Append(p.LastPosition)
               .Append(" (").Append(p.FirstDonor).Append(" … ").Append(p.LastDonor).Append("). ");
         sb.Append("Load ").Append(o.OutputName);
         if (p.LastMaster is not null)
-            sb.Append(" after its last master ").Append(p.LastMaster).Append(" (position ").Append(p.LastMasterPosition).Append(')').Append(", and");
-        sb.Append(" at or after position ").Append(p.LastPosition)
-          .Append(" — the merge resolved the donors' conflicts as they stood there, so anything earlier lets content the ")
-          .Append("donors used to beat win over the merge instead.\n");
-        if (p.Intervening.Count == 0)
-            sb.Append("  no plugin between the first and last donor also touches these records.\n");
+            sb.Append(" after its last master ").Append(p.LastMaster).Append(" (position ").Append(p.LastMasterPosition).Append("), and");
+        // AT that position, not "at or after": the merge resolved the donors' conflicts as they stood there, and moving
+        // the output either way changes a winner — earlier over the donors' own losers, later over the plugins past the
+        // last donor that override the same records, which this paragraph does not name.
+        sb.Append(" at position ").Append(p.LastPosition).Append(", where the last donor sat")
+          .Append(" — the merge resolved the donors' conflicts as they stood there, so an earlier slot lets content the ")
+          .Append("donors used to beat win over the merge, and a later one puts the merge over plugins that used to beat ")
+          .Append("the donors (the external-overrider warning below names those).\n");
+        // The scope of this claim is the identify pass's: the records the donors ORIGINATE. A plugin that only contends
+        // over an override a donor carries at its master's FormID was never a target, so it is not claimed about.
+        if (isRename)
+            sb.Append("  a rename has no interval, so nothing is listed here — the referencer and overrider warnings ")
+              .Append("below name what contends over these records.\n");
+        else if (p.Intervening.Count == 0)
+            sb.Append("  no plugin between the first and last donor references or overrides a record the donors ORIGINATE")
+              .Append(p.UnreadBetween > 0 ? " — though " + p.UnreadBetween + " plugin(s) in that range could not be read, so they were not checked" : "")
+              .Append("; overrides the donors carry at their masters' FormIDs are outside what this pass looked for.\n");
         else
         {
             sb.Append("  ").Append(p.Intervening.Count)
-              .Append(p.Intervening.Count == 1 ? " plugin between the first and last donor also touches" : " plugins between the first and last donor also touch")
-              .Append(" these records, so where the merge sits relative to each one decides which version wins: ")
+              .Append(p.Intervening.Count == 1 ? " plugin between the first and last donor also references or overrides" : " plugins between the first and last donor also reference or override")
+              .Append(" a record the donors ORIGINATE, so where the merge sits relative to each one decides which version wins: ")
               .Append(string.Join(", ", p.Intervening.Take(25)));
             if (p.Intervening.Count > 25) sb.Append(" (+").Append(p.Intervening.Count - 25).Append(" more)");
+            if (p.UnreadBetween > 0) sb.Append(" (").Append(p.UnreadBetween).Append(" more plugin(s) in that range could not be read)");
             sb.Append('\n');
         }
     }

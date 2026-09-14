@@ -25,7 +25,7 @@ public sealed class MergePlacementTests : IClassFixture<MergePlacementWorld>
         Assert.True(o.Success, o.Error);
         var rendered = WriteTools.RenderMerge(o);
         Assert.Contains("placement: the donors sat at load-order positions 2–5", rendered);
-        Assert.Contains("at or after position 5", rendered);
+        Assert.Contains("at position 5, where the last donor sat", rendered);
         Assert.Contains(MergePlacementWorld.Middle, rendered[rendered.IndexOf("placement:", StringComparison.Ordinal)..]);
         Assert.DoesNotContain(MergePlacementWorld.Bystander, rendered);
     }
@@ -40,16 +40,56 @@ public sealed class MergePlacementTests : IClassFixture<MergePlacementWorld>
         Assert.Contains("after its last master " + MergePlacementWorld.Master + " (position 1)", WriteTools.RenderMerge(o));
     }
 
-    /// <summary>One donor with nothing between: the paragraph says so rather than leaving the reader to wonder.</summary>
+    /// <summary>A rename has no interval at all, so the paragraph gives the one position and claims nothing about what
+    /// sits around it — a "nothing touches these records" line would be vacuously true and read as a finding.</summary>
     [Fact]
-    public void ASingleDonorGetsItsOwnPositionAndNoInterveningList()
+    public void ASingleDonorGetsItsOwnPositionAndClaimsNothingAboutAnInterval()
     {
         var o = _w.Svc.MergePlugins(new[] { MergePlacementWorld.Late }, "HcPlaceRename");
 
         Assert.True(o.Success, o.Error);
         var rendered = WriteTools.RenderMerge(o);
         Assert.Contains("placement: the donor sat at load-order position 5", rendered);
-        Assert.Contains("no plugin between the first and last donor also touches these records", rendered);
+        Assert.Contains("a rename has no interval", rendered);
+        Assert.DoesNotContain("no plugin between the first and last donor", rendered);
+    }
+
+    /// <summary>The negative claims only what the pass looked for — the records the donors ORIGINATE — because an
+    /// override a donor carries at its master's FormID was never one of its targets.</summary>
+    [Fact]
+    public void TheNegativeSaysWhichRecordsItCovers()
+    {
+        var o = _w.Svc.MergePlugins(new[] { MergePlacementWorld.Middle, MergePlacementWorld.Late }, "HcPlaceScope");
+
+        Assert.True(o.Success, o.Error);
+        var rendered = WriteTools.RenderMerge(o);
+        Assert.Contains("no plugin between the first and last donor references or overrides a record the donors ORIGINATE", rendered);
+        Assert.Contains("overrides the donors carry at their masters' FormIDs are outside what this pass looked for", rendered);
+    }
+}
+
+/// <summary>The siting derivation itself: the position contract, and the plugins in the range the identify pass could
+/// not look into.</summary>
+[Trait("tier", "unit")]
+public sealed class MergeSitingTests
+{
+    /// <summary>Positions come in 0-based (what the resolver hands out) and come back 1-based (what a report prints),
+    /// and a plugin in the range the pass could not read is counted rather than silently read as absence.</summary>
+    [Fact]
+    public void AnUnreadablePluginBetweenTheDonorsIsCountedNotTakenForAbsence()
+    {
+        var positions = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            { ["A.esp"] = 9, ["X.esp"] = 19, ["B.esp"] = 29, ["Far.esp"] = 40 };
+
+        var s = MergeLoadPosition.Derive(
+            new[] { ("A.esp", 9), ("B.esp", 29) }, Array.Empty<string>(),
+            Array.Empty<string>(), new[] { "X.esp", "Far.esp" },
+            p => positions.TryGetValue(p, out var i) ? i : null);
+
+        Assert.Equal(10, s.FirstPosition);
+        Assert.Equal(30, s.LastPosition);
+        Assert.Empty(s.Intervening);
+        Assert.Equal(1, s.UnreadBetween);          // Far.esp is past the last donor, so it is not in the range
     }
 }
 
