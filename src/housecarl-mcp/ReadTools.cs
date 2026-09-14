@@ -152,6 +152,28 @@ static class Wire
         return sb.ToString();
     }
 
+    /// <summary>The requested-but-empty types as ONE line, so a count table states them in the room a single row
+    /// costs instead of one row each — and so the answer they exist to give survives a cut, since a zero sorts last
+    /// and is what a cap discards first. Empty when nothing was requested that has no records. Bounded by
+    /// <paramref name="room"/>: past it the names stop and the line says how many it did not print.</summary>
+    internal static string EmptyGroupsLine(IReadOnlyList<string> names, int room)
+    {
+        if (names.Count == 0) return "";
+        const string lead = "no records: ";
+        var sb = new StringBuilder(lead);
+        int printed = 0;
+        foreach (var n in names)
+        {
+            var piece = (printed == 0 ? "" : ", ") + n;
+            // The tail has to fit too, so the line can always say what it left out.
+            if (printed > 0 && sb.Length + piece.Length + (", and " + (names.Count - printed) + " more").Length > room) break;
+            sb.Append(piece);
+            printed++;
+        }
+        if (printed < names.Count) sb.Append(", and ").Append(names.Count - printed).Append(" more");
+        return sb.Append('\n').ToString();
+    }
+
     /// <summary>Whether this response has earned the owned-child clause, and over which fields. Registered at
     /// emission, as each annotated field line is written, never where the annotation was decided: a response can
     /// annotate a field and then not show it (the field loop hits max_chars, the json array truncates, a spill
@@ -444,7 +466,11 @@ static class Wire
     static string RenderCrossQueryGroups(CrossQueryOutcome q, int cap, SpillState? spill, out bool truncated, string head = "")
     {
         truncated = false;
-        var groups = q.Groups!;
+        var all = q.Groups!;
+        // A zero group is one the call ASKED for that matched nothing. It says what the counted rows cannot, so it
+        // is stated on its own line rather than as rows that sort last and are the first thing a cap discards.
+        var empties = all.Where(g => g.Count == 0).Select(g => g.Key).ToList();
+        var groups = empties.Count == 0 ? all : all.Where(g => g.Count > 0).ToList();
         var sb = new StringBuilder();
         sb.Append(head);
         sb.Append("scan: grouped by ").Append(q.GroupBy).Append(" — ")
@@ -460,7 +486,10 @@ static class Wire
         string Notice(int r) => "... [truncated: rendered " + r + " of " + groups.Count +
                                 " groups before hitting max_chars=" + cap + "; raise max_chars — the total above is exact]\n";
         var spillText = SpillText(spill);
-        int budget = cap - spillText.Length - Notice(groups.Count).Length;
+        // The empty-type line is charged with the notice and the spill block, ahead of the counted rows, so the one
+        // answer a caller cannot infer from the table is not what the cap takes first.
+        var emptyLine = Wire.EmptyGroupsLine(empties, Math.Max(cap / 2, 120));
+        int budget = cap - spillText.Length - emptyLine.Length - Notice(groups.Count).Length;
         for (int i = 0; i < groups.Count && !(spill?.ManifestOnly ?? false); i++)   // to_file: rows live in the file
         {
             var row = "  " + groups[i].Key + " = " + groups[i].Count + "\n";
@@ -472,6 +501,7 @@ static class Wire
             }
             sb.Append(row);
         }
+        sb.Append(emptyLine);
         sb.Append(spillText);
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }

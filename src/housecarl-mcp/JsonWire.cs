@@ -633,13 +633,23 @@ static class JsonWire
     /// counted apart so they are never silently dropped from a census.</summary>
     /// <param name="bodyCost">What reading this list's bodies cost — aggregate reads one leaf off a body per id
     /// before it counts anything, so it reports the same accounting the other body forms do (#607).</param>
+    /// <summary>The types the call asked for that matched nothing, written BEFORE the group array so the cut that
+    /// bounds that array cannot take the one answer the counted rows do not carry.</summary>
+    static void WriteEmptyGroups(Utf8JsonWriter w, IReadOnlyList<string>? empty)
+    {
+        if (empty is not { Count: > 0 }) return;
+        w.WriteStartArray("empty_groups");
+        foreach (var name in empty) w.WriteStringValue(name);
+        w.WriteEndArray();
+    }
+
     /// <param name="maxChars">The ceiling this table holds itself to, the same one the scan lane's count table
     /// holds: group rows stop at the cap and the document says how many of them it rendered.</param>
     public static string RenderListAggregate(string groupBy, IReadOnlyList<KeyValuePair<string, int>> rows,
                                              int count, int errors, OrderStamp? epoch,
                                              (int RowsRead, long Millis) bodyCost,
                                              IReadOnlyList<KeyValuePair<string, string>>? envelope = null,
-                                             int maxChars = 0)
+                                             int maxChars = 0, IReadOnlyList<string>? emptyGroups = null)
     {
         int cap = Cap(maxChars);
         using var ms = new MemoryStream();
@@ -658,6 +668,7 @@ static class JsonWire
             // without saying what it was cut from, and a json caller has no way to size the retry the text twin's
             // "rendered N of M groups" hands it.
             w.WriteNumber("groups_total", rows.Count);
+            WriteEmptyGroups(w, emptyGroups);
             w.WriteStartArray("groups");
             int rendered = 0; bool truncated = false;
             foreach (var (key, n) in rows.Select(r => (r.Key, r.Value)))
@@ -1191,12 +1202,17 @@ static class JsonWire
                 WriteEpoch(w, q.Stamp);
                 if (q.ScopeLabel is not null) w.WriteString("scope", q.ScopeLabel);
                 WriteNotes(w, q);
+                // A zero group is one the scan ASKED for that matched nothing; it sorts last and would be the first
+                // thing the cut below takes, so it is listed apart from the counted rows and ahead of them.
+                var gEmpty = q.Groups.Where(g => g.Count == 0).Select(g => g.Key).ToList();
+                var gCounted = gEmpty.Count == 0 ? q.Groups : q.Groups.Where(g => g.Count > 0).ToList();
                 // total above is the MATCH count; this is how many groups they fell into, which is what a cut
                 // document's rendered count is short of.
-                w.WriteNumber("groups_total", q.Groups.Count);
+                w.WriteNumber("groups_total", gCounted.Count);
+                WriteEmptyGroups(w, gEmpty);
                 w.WriteStartArray("groups");
                 int gRendered = 0; bool gTrunc = false;
-                foreach (var g in q.Groups)
+                foreach (var g in gCounted)
                 {
                     if (manifestOnly) break;   // to_file: the rows are the FILE
                     w.Flush();

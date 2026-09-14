@@ -95,7 +95,19 @@ public sealed class RecordsScanLaneTests : RecordsTestBase
         // to diff the request against the response.
         var r = RecordsTools.Records(Svc, types: new[] { "WEAP", "AMMO" },
                                      project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" });
-        Served(r, "grouped by type", "Weapon = ", "Ammunition = 0");
+        Served(r, "grouped by type", "Weapon = ", "no records: Ammunition");
+    }
+
+    [Fact]
+    public void ScanAggregateByType_TheEmptyTypeSurvivesACutTable()
+    {
+        // The empty answer is charged ahead of the counted rows, so the cap takes a counted row before it.
+        var project = new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" };
+        var whole = RecordsTools.Records(Svc, types: new[] { "WEAP", "ARMO", "SPEL", "AMMO" }, project: project);
+        Served(whole, "no records: Ammunition");
+        var cut = RecordsTools.Records(Svc, types: new[] { "WEAP", "ARMO", "SPEL", "AMMO" }, project: project,
+                                       max_chars: whole.Length / 2);
+        Served(cut, "no records: Ammunition");
     }
 
     [Fact]

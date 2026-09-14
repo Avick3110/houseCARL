@@ -120,6 +120,21 @@ public sealed class RecordsListLaneTests : RecordsTestBase
     }
 
     [Fact]
+    public void ListLaneAggregateInJson_NamesTheRequestedTypesWithNoRecordsApartFromTheCountedGroups()
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(
+            RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) },
+                                 walk: new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" },
+                                 types: new[] { "SPEL", "SCRL" }, format: "json",
+                                 project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" }));
+        var empty = doc.RootElement.GetProperty("empty_groups").EnumerateArray().Select(e => e.GetString()).ToList();
+        Assert.Equal(new[] { "Scroll" }, empty);
+        // The counted table carries only groups that counted something, so no zero row can be cut from it.
+        Assert.All(doc.RootElement.GetProperty("groups").EnumerateArray(),
+                   g => Assert.True(g.GetProperty("count").GetInt32() > 0));
+    }
+
+    [Fact]
     public void ListLaneAggregate_ARequestedTypeWithNoCarriersIsA0Row()
     {
         // The one list-lane shape that takes types=: the typed MGEF carrier walk, where types= narrows the carrier
@@ -129,6 +144,20 @@ public sealed class RecordsListLaneTests : RecordsTestBase
                                      types: new[] { "SPEL", "SCRL" },
                                      project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" });
         Served(r, "group_by=type", "Spell");
-        Assert.Contains("0  Scroll", r);
+        Assert.Contains("no records: Scroll", r);
+    }
+
+    [Fact]
+    public void ListLaneAggregate_TheEmptyTypeLineIsChargedAheadOfTheCountedRows()
+    {
+        // The zero answer sorts last among the counts, so it is what a cap would take first: it is stated on its
+        // own line and charged with the notice, and survives a table too small for all its rows.
+        var project = new RecordsTools.RecordsProject { form = "aggregate", group_by = "type" };
+        var types = new[] { "SPEL", "SCRL" };
+        var walk = new RecordsTools.RecordsWalk { direction = "reverse", follow = "Effects[].BaseEffect" };
+        var whole = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) }, walk: walk, types: types, project: project);
+        var cut = RecordsTools.Records(Svc, formids: new[] { Fid(W.MgefA) }, walk: walk, types: types, project: project,
+                                       max_chars: whole.Length / 2);
+        Served(cut, "no records: Scroll");
     }
 }
