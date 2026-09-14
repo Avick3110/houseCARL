@@ -34,7 +34,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   preflight still names a missing ASP.NET Core Runtime, the half the base runtime's installer does not
   carry, and it no longer calls the base runtime missing while running on it — a runtime reached through
   `DOTNET_ROOT` with `dotnet` off PATH is now found, because the shared-framework root the setup process
-  is itself running out of is scanned alongside the machine-wide one.
+  is itself running out of is scanned alongside the machine-wide one. That root is also the only one known
+  to be the server's architecture, so where the process and the OS disagree on architecture — an x64 setup
+  on Windows-on-ARM — it is the only one that counts, and an arm64 ASP.NET Core Runtime no longer passes
+  the check for an x64 server that cannot use it. When that root is what answered and it is not the
+  machine-wide install, the detection block says so: a framework only setup's own runtime can see is one
+  the host may not see, because a host launched from Explorer inherits no `DOTNET_ROOT` from setup's shell.
 - **The README says how to install by hand, and which file each Claude surface reads.** Move the whole
   `housecarl` folder to `~/.claude/skills/housecarl` and add an `mcpServers` entry in `~/.claude.json`
   pointing at `server/housecarl-mcp.exe` — the layout setup produces, and the way out if the exe will not
