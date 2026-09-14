@@ -399,6 +399,23 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.Contains($"{ReadSentences.UnionLabel}: 3 child record(s) across 1 plugin(s) — {_w.BaseName} 3; "
                         + "this body's own list carries 0", FieldLine(Read(_w.CellA), "Temporary"));
 
+    /// <summary>A cell's placed-child count is ONE number, whichever surface asks for it.</summary>
+    [Fact]
+    public void ACellsPlacedChildCountIsOneNumberUnderFieldsAndUnderWhere()
+    {
+        // #724: the project.fields column and the where= predicate count the same list the same way — on a
+        // containment collection, whose elements are placed children nothing should build to count them.
+        var fields = Read(_w.CellB, new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Temporary[*count]" } });
+        Assert.Contains("Temporary[*count] = 4", fields);
+        Assert.DoesNotContain("Temporary[0]", fields);
+        var hit = RecordsTools.Records(Svc, formids: new[] { OwnedChildWorld.Fid(_w.CellB) },
+                                       where: new[] { "Temporary[*count] = 4" });
+        Assert.Contains("HcOcCellB", hit);
+        var miss = RecordsTools.Records(Svc, formids: new[] { OwnedChildWorld.Fid(_w.CellB) },
+                                        where: new[] { "Temporary[*count] = 5" });
+        Assert.DoesNotContain("HcOcCellB", miss);
+    }
+
     /// <summary>The value beside the union is still the read body's OWN list, in its own order — those are the
     /// indices a Remove addresses, and a union spliced into them would move them.</summary>
     [Fact]
