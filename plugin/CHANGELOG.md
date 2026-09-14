@@ -133,12 +133,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `housecarl_forward` and a nested `housecarl_create` (which overrides its parent in) all land an override in a
   patch, and Skyrim applies only the last-loaded copy of a record — so a second patch overriding the same record
   splits it in two and one half never applies, which used to happen with every call reporting success. The
-  response now carries one `warning:` line naming the other plugin(s) and the lane that builds on that copy instead —
-  `into=` for a patch houseCARL wrote, `in_place=` for one it did not.
-  It is a warning, not a refusal: a deliberate fork still writes. Its bound is which plugins count — the write
-  path's own provider list for the record, minus the patch being written and the record's defining plugin, and
-  only those at or below the patch in the load order (a patch not yet enabled has no position, so every other
-  override counts).
+  response now carries one `warning:` line naming the other plugin(s) and the lane that builds on that copy instead.
+  It is a warning, not a refusal: a deliberate fork still writes. Which plugins count is the write path's own
+  provider list for the record, minus the patch being written and the record's defining plugin, and then narrowed
+  by where the patch sits: extending a patch (or writing in place) counts every plugin at or below it, whoever wrote
+  it, and the remedy names `into=` or `in_place=` accordingly; a NEW patch has no position yet but has copied the
+  winner's body in, so it counts only a sibling houseCARL patch — one that may not be enabled yet and whose content
+  therefore did not come along — judged by the same `meta.ini` ownership marker `into=` itself is gated on.
 
 - **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
   byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the

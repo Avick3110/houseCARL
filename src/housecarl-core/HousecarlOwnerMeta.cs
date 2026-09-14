@@ -18,4 +18,25 @@ public static class HousecarlOwnerMeta
     /// it doesn't know). Matched case-insensitively against a trimmed line; paired with <c>generated=true</c> under it,
     /// which is what owner-detection actually keys on.</summary>
     public const string Section = "[houseCARL]";
+
+    /// <summary>Does this mod folder carry the marker — is it a folder houseCARL made, and therefore one
+    /// <c>into=</c> can extend? Fail-safe: a missing, unreadable or stripped marker reads as NOT owned.
+    /// <para>The one implementation, so the extend lane's ownership gate and any other reader of the same fact
+    /// cannot drift.</para></summary>
+    public static bool MarksOwned(string? folder)
+    {
+        if (string.IsNullOrEmpty(folder)) return false;
+        var meta = Path.Combine(folder, "meta.ini");
+        if (!File.Exists(meta)) return false;
+        bool inMarker = false;
+        foreach (var raw in File.ReadLines(meta))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith('[') && line.EndsWith(']'))
+                inMarker = line.Equals(Section, StringComparison.OrdinalIgnoreCase);
+            else if (inMarker && line.Replace(" ", "").Equals("generated=true", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
 }
