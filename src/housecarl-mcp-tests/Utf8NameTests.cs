@@ -20,8 +20,8 @@ namespace HousecarlMcpTests;
 /// <c>*_English.STRINGS</c> tables replaced by UTF-8 translations, and UTF-8 in inline <c>FULL</c> fields too).
 ///
 /// <para>Three plugins, one per lane: a UTF-8 inline <c>FULL</c>, a UTF-8 <c>_English.STRINGS</c> table, and a real
-/// Windows-1252 name that must keep reading exactly as it did. The world is built per test because the write arms
-/// rewrite a plugin in it.</para>
+/// Windows-1252 name that must keep both reading exactly as it did and staying 1252 bytes through a write. The world
+/// is built per test because the write arms rewrite a plugin in it.</para>
 /// </summary>
 [Trait("tier", "integration")]
 public sealed class Utf8NameTests : IDisposable
@@ -180,8 +180,10 @@ public sealed class Utf8NameTests : IDisposable
         Assert.Contains(LocalizedName, r);
     }
 
-    /// <summary>The no-regression arm: a real Windows-1252 name still reads as itself, which is what the strict
-    /// UTF-8 half buys — a lenient UTF-8 decoder would hand back replacement characters instead of falling back.</summary>
+    /// <summary>The no-regression arm on the read side: a real Windows-1252 name still reads as itself. A lenient
+    /// UTF-8 decoder would hand back replacement characters rather than fall back, which is why the decision is a
+    /// validity check and not a swallowed exception. What it cannot say is whether a WRITE left those bytes alone —
+    /// that is <see cref="AnInPlaceEditLeavesAWindows1252NameAsWindows1252Bytes"/>.</summary>
     [Fact]
     public void AWindows1252NameStillReadsAsItself()
     {
