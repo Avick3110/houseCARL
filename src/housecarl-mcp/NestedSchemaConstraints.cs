@@ -13,6 +13,8 @@ internal enum SchemaVocabulary
     WriteVerbs,
     /// <summary>The create surface's verbs (<see cref="HousecarlCore.WriteVerbs.OnCreate"/>).</summary>
     CreateVerbs,
+    /// <summary>The verbs a compose's nested sets accept (<see cref="HousecarlCore.WriteVerbs.InCompose"/>).</summary>
+    ComposeVerbs,
 }
 
 /// <summary>The member is one the server REFUSES a call without — published as a JSON Schema <c>required</c> entry on
@@ -52,6 +54,7 @@ internal static class NestedSchemaConstraints
     {
         SchemaVocabulary.WriteVerbs => HousecarlCore.WriteVerbs.All,
         SchemaVocabulary.CreateVerbs => HousecarlCore.WriteVerbs.OnCreate,
+        SchemaVocabulary.ComposeVerbs => HousecarlCore.WriteVerbs.InCompose,
         _ => throw new ArgumentOutOfRangeException(nameof(vocabulary), vocabulary, "No table backs this vocabulary."),
     };
 
