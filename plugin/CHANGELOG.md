@@ -23,6 +23,19 @@ saying it sets an expectation their install may contradict. Say what is known, a
   was not written by Qt and is left exactly as it stands rather than half-decoded. If a tool still reports the
   folder missing, the name it prints is now the decoded one — compare it with the folder under `profiles\`.
 
+- **`houseCARL-Setup.exe` ships framework-dependent, like the server.** The self-contained apphost aborted
+  during CLR startup on some machines — a CET / hardware-shadow-stack interaction, asserting before any app
+  code ran, so the window opened and closed and nothing was written. The exe now uses the same installed
+  .NET 9 the server already requires: it is single-file still, 0.22 MB instead of 10.7 MB, and untrimmed
+  (trimming is a self-contained-only option). A machine with no .NET 9 at all now gets Windows' own "You
+  must install .NET to run this application" message and its download link rather than the setup banner;
+  setup's preflight still names a missing ASP.NET Core Runtime, the half that the base runtime's installer
+  does not carry.
+- **The README says how to install by hand, and which file the Claude desktop app actually reads.** Extract,
+  point the host's MCP entry at `server/housecarl-mcp.dll`, copy `skills/` into `~/.claude/skills/`, restart
+  — the way out if the exe will not run on a machine. The desktop app reads its MCP servers from
+  `%APPDATA%\Claude\claude_desktop_config.json`; editing `~/.claude/claude_mcp_config.json` leaves it
+  spawning whatever server it had before.
 - **A forward `walk=` no longer holds every record it reached.** A record body read from a plugin is a slice
   of that record group's whole byte array and keeps it alive, so caching one body per reached node until the
   call returned pinned one array per source group per plugin: 270 KB per reached node, and a raised
