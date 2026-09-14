@@ -1562,6 +1562,10 @@ public static class RecordsTools
                 var bodyEpoch = bodyEpochs.FirstOrDefault() ?? outcome.Stamp;
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
+                // What the SCAN owes about its own coverage — a plugins= name the order does not carry, records it
+                // could not parse, a plugin it could not open. The scan lane prints it; a body form reads the same
+                // scan, so withholding it here would answer the same question two ways.
+                if (outcome.ScanNote is not null) headerLine += "\n" + outcome.ScanNote;
                 // These bodies were selected by a scan, not a formids list, so the batch notice's selection
                 // clause must name limit= — the knob that actually windows this response.
                 var evLevers = formLevers.OnScanSelection();
@@ -1786,6 +1790,8 @@ public static class RecordsTools
                 }
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
+                // Same coverage note the in-order body lane carries, for the same reason.
+                if (outcome.ScanNote is not null) headerLine += "\n" + outcome.ScanNote;
                 // Selected by the off-order file scan, so the remedy vocabulary matches the body lane above.
                 var offLevers = formLevers.OnScanSelection();
                 // Same rule as the in-order body lane: the file scan's rows carry its references= un-merge too.
