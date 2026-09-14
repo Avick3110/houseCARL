@@ -201,12 +201,30 @@ public sealed class WriteEditLineSourceTests
     const string Memory = "[list: 999 item(s)]";
     const string Disk = "[list: 10 item(s)]";
 
-    static string RenderOne(WritePatchBuilder.OpResult op) => WriteTools.Render(
+    static string Render(IReadOnlyList<WritePatchBuilder.OpResult> ops, int maxChars = 0) => WriteTools.Render(
         new WritePatchBuilder.PatchOutcome(true, null, Path.Combine("mods", "houseCARL - X", "X.esp"), true,
-            new[] { "Skyrim.esm" }, new[] { op }, 1692));
+            new[] { "Skyrim.esm" }, ops, 1692), maxChars);
 
-    static WritePatchBuilder.OpResult Op() => new(
-        FormKey.Factory("09ABAB:Test.esm"), "LeveledItem", "Add Entries", true, null, Memory, Memory);
+    static string RenderOne(WritePatchBuilder.OpResult op) => Render(new[] { op });
+
+    static string RenderJson(IReadOnlyList<WritePatchBuilder.OpResult> ops, int maxChars = 0) => JsonWire.RenderPatchOutcome(
+        new WritePatchBuilder.PatchOutcome(true, null, Path.Combine("mods", "houseCARL - X", "X.esp"), true,
+            new[] { "Skyrim.esm" }, ops, 1692), maxChars, false, "patch");
+
+    static WritePatchBuilder.OpResult Op(string id = "09ABAB:Test.esm") => new(
+        FormKey.Factory(id), "LeveledItem", "Add Entries", true, null, Memory, Memory);
+
+    /// <summary>Many ops, one of them on a record the file does not hold, rendered under a budget small enough that
+    /// the op list is cut before reaching it. The hoisted line must still name it, and the cut must not claim every
+    /// edit applied.</summary>
+    static IReadOnlyList<WritePatchBuilder.OpResult> RunWithOneAbsentAtTheEnd()
+    {
+        var ops = new List<WritePatchBuilder.OpResult>();
+        for (int i = 0; i < 40; i++)
+            ops.Add(Op($"{i:X6}:Test.esm") with { AfterOnDisk = Disk, LandedOnDisk = Disk, VerifyAttempted = true });
+        ops.Add(Op("0FFFFF:Test.esm") with { RecordAbsentFromFile = true, VerifyAttempted = true });
+        return ops;
+    }
 
     [Fact]
     public void ThePerEditLinePrintsTheFileValueNotTheAppliedOne()
@@ -256,5 +274,52 @@ public sealed class WriteEditLineSourceTests
         var r = RenderOne(Op() with { VerifyAttempted = true });
         Assert.Contains("not-checked", r);
         Assert.DoesNotContain("DID NOT LAND", r);
+    }
+
+    /// <summary>The hoisted line names the records, so a cut that drops their rows cannot take the only statement of
+    /// WHICH edits did not land with it.</summary>
+    [Fact]
+    public void ACutOpListStillNamesTheRecordsThatDidNotLand()
+    {
+        var r = Render(RunWithOneAbsentAtTheEnd(), maxChars: 900);
+        Assert.Contains("truncated:", r);                    // the absent op's own row is past the cut
+        Assert.DoesNotContain("0FFFFF:Test.esm  Add Entries", r);
+        Assert.Contains("1 edit did NOT land", r);
+        Assert.Contains("0FFFFF:Test.esm", r);               // …named in the hoisted line regardless
+    }
+
+    /// <summary>And the cut may not assert the opposite of the line above it.</summary>
+    [Fact]
+    public void ACutOpListDoesNotClaimEveryEditAppliedWhenOneDidNot()
+    {
+        Assert.DoesNotContain("every one WAS applied", Render(RunWithOneAbsentAtTheEnd(), maxChars: 900));
+        // …and with nothing absent the ordinary wording is unchanged.
+        var clean = RunWithOneAbsentAtTheEnd().Where(op => !op.RecordAbsentFromFile).ToList();
+        Assert.Contains("every one WAS applied", Render(clean, maxChars: 900));
+    }
+
+    /// <summary>The json document carries the same verdict outside the array a cut truncates, or a consumer reads a
+    /// document saying the write succeeded with the contradicting evidence dropped.</summary>
+    [Fact]
+    public void TheJsonHoistsTheAbsentVerdictOutOfTheOpsArray()
+    {
+        var doc = JsonDocument.Parse(RenderJson(RunWithOneAbsentAtTheEnd(), maxChars: 900));
+        Assert.True(doc.RootElement.GetProperty("truncated").GetBoolean());
+        Assert.Equal(1, doc.RootElement.GetProperty("ops_record_absent").GetInt32());
+        Assert.Equal("0FFFFF:Test.esm", doc.RootElement.GetProperty("record_absent_formids")[0].GetString());
+        Assert.DoesNotContain("every one WAS applied", doc.RootElement.GetProperty("truncated_note").GetString());
+    }
+
+    /// <summary>A superseded op's `after_on_disk` is present and is NOT that op's own result, so json marks it the way
+    /// the text line does rather than leaving a consumer to infer it from `landed_source`.</summary>
+    [Fact]
+    public void TheJsonMarksASupersededOpsValueAsTheLeafsFinalState()
+    {
+        var doc = JsonDocument.Parse(RenderJson(new[]
+            { Op() with { SupersededInCall = true, VerifyAttempted = true, AfterOnDisk = Disk } }));
+        var op = doc.RootElement.GetProperty("ops")[0];
+        Assert.Equal(Disk, op.GetProperty("after_on_disk").GetString());
+        Assert.True(op.GetProperty("after_on_disk_is_final_leaf").GetBoolean());
+        Assert.Equal("superseded", op.GetProperty("landed_source").GetString());
     }
 }

@@ -2402,6 +2402,13 @@ public static class WriteSurfaceGuardProbe
         Observe(WriteTools.RenderCreate(createOutcome), JsonWire.RenderCreateOutcome(createOutcome, 0, false, "patch"));
         // …and the CUT render, whose remedy sentence only exists on a truncated one.
         Observe(WriteTools.RenderCreate(createOutcome, 60), JsonWire.RenderCreateOutcome(createOutcome, 60, false, "patch"));
+        // …and a create that SETS a field, the only shape carrying the provenance line: the values above it are the
+        // applied edits' own readings, which this lane does not re-read off the written file (#763).
+        var createWithOps = fx.Svc.CreateRecordsBatch(
+            new[] { new CreateOp { RecordType = "Keyword", Editorid = "W2TwinSet",
+                                   Operations = new[] { new BulkOp { FieldPath = "EditorID", Value = "W2TwinSet" } } } },
+            "W2TwinSetPatch", null);
+        Observe(WriteTools.RenderCreate(createWithOps), JsonWire.RenderCreateOutcome(createWithOps, 0, false, "patch"));
 
         var fwdOutcome = fx.Svc.ForwardRecords(new[] { fx.SubjectFid, fx.MasterOnlyFid }, fx.MasterName, "W2TwinFwd", null);
         BudgetParity("forward", fwdOutcome.Forwarded.Count,
