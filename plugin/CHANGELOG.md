@@ -41,6 +41,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
   is on the PER-SEED reading of the budget, which the parameter's own description separates: the forward walk and
   the reverse carrier walk. The transitive reverse walk, where one budget is shared across every seed and every
   hop, is unchanged, and so is `walk.depth`.
+- **`nif_set` no longer refuses a correct edit on a mesh whose stored block order is not NiflySharp's.** The write
+  is verified by diffing the saved mesh against a normalized copy block by block, and the save re-sorts the block
+  list into the library's own order — so on a mesh an exporter wrote in some other order, the block id the edit
+  declared (read off the list as loaded) named a different block than the one the diff saw change, and the edit
+  was refused as collateral damage. The id is now read after the save, from the same order the diff compares in.
+  You can tell the case apart by the refusal it gave: it named a block the edit did not address, with an
+  `expected only [...]` id that `nif_inspect`'s own census does not put that block type at. What the verification
+  catches is unchanged — an edit that really does change a block it should not is still refused.
 
 ## 2.0.0 — 2026-09-11
 
