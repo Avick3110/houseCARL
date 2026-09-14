@@ -197,6 +197,71 @@ public sealed class RecordsRenderCostTests
                                 .Keys.Select(k => k.ToString()).ToArray();
     static RecordsTools.RecordsProject Everything() => new() { form = "everything" };
 
+    static RecordsTools.RecordsProject Tree() => new() { form = "tree" };
+
+    // ---- the comparison forms: limit= bounds the READ, and a job past the bound announces itself ----
+
+    /// <summary>A tree row reads every provider of its record, so a window that only trimmed the render made the
+    /// first ten rows of a 17,727-row scan cost all 17,727 (#721). The window is applied to the keys now, and the
+    /// body seeks are what proves it: the claim is invisible in the answer, which renders the same ten rows either
+    /// way.</summary>
+    [Fact]
+    public void LimitBoundsWhatATreeOverAScanReads_NotOnlyWhatItRenders()
+    {
+        var before = LoadOrderResolver.BodySeeks;
+        var windowedResponse = RecordsTools.Records(Svc, types: Weap, project: Tree(), limit: 5);
+        var windowed = LoadOrderResolver.BodySeeks - before;
+
+        before = LoadOrderResolver.BodySeeks;
+        RecordsTools.Records(Svc, types: Weap, project: Tree(), limit: RenderCostWorld.Weapons);
+        var whole = LoadOrderResolver.BodySeeks - before;
+
+        Assert.False(windowedResponse.StartsWith("error:", StringComparison.Ordinal), windowedResponse);
+        Assert.True(windowed * 2 < whole,
+                    $"limit=5 read {windowed} bodies against {whole} for the whole {RenderCostWorld.Weapons}-row selection.");
+    }
+
+    /// <summary>And it says the rows outside the window were not read, so a windowed tree cannot be mistaken for
+    /// the whole selection.</summary>
+    [Fact]
+    public void AWindowedTreeSaysOnlyTheseRowsWereRead() =>
+        Assert.Contains("only these rows were read",
+                        RecordsTools.Records(Svc, types: Weap, project: Tree(), limit: 5));
+
+    /// <summary>The estimate up front (#716): before reading a body, the call knows the count and the form, and a
+    /// selection past the bound refuses naming the count, what a tree reads, and what to try — rather than going
+    /// quiet for twenty minutes.</summary>
+    [Fact]
+    public void ATreeOverTooManyRecordsRefusesWithTheCountAndWhatToTry()
+    {
+        var r = WithComparisonBound(2, () => RecordsTools.Records(Svc, types: Weap, project: Tree(), limit: 10));
+        Assert.StartsWith("error:", r);
+        Assert.Contains("reads every override", r);
+        Assert.Contains("10 records", r);
+        Assert.Contains("limit=", r);
+        Assert.Contains("where=", r);
+    }
+
+    /// <summary>The same bound on the formids= lane, where limit= is not a lever: this lane reads every id it was
+    /// handed before the render window applies, so the sentence names the list instead.</summary>
+    [Fact]
+    public void ATreeOverTooManyFormidsRefusesNamingTheListAsTheLever()
+    {
+        var r = WithComparisonBound(2, () => RecordsTools.Records(Svc, formids: AllWeaponIds, project: Tree()));
+        Assert.StartsWith("error:", r);
+        Assert.Contains("formids=", r);
+    }
+
+    /// <summary>A census and a to_file= artifact cover the whole selection whatever limit= says, so the sentence
+    /// they get names the scan terms and says limit= is not the lever.</summary>
+    [Fact]
+    public void ATreeCensusPastTheBoundSaysLimitIsNotItsLever()
+    {
+        var r = WithComparisonBound(2, () => RecordsTools.Records(Svc, types: Weap, project: Tree(), limit: 10, counts_only: true));
+        Assert.StartsWith("error:", r);
+        Assert.Contains("limit= does not lower what they read", r);
+    }
+
     /// <summary>The ammo the FIRST spread plugin defines — a pole that holds a handful of a much longer list.</summary>
     string[] SpreadZeroAmmoIds => Svc.CrossQuery(Ammo, null, null, false, new[] { _w.SpreadNames[0] }, null,
                                                  RenderCostWorld.AmmoPerPlugin)
@@ -849,6 +914,16 @@ public sealed class RecordsRenderCostTests
         RenderBudget.MaxRenderRows = rows;
         try { return call(); }
         finally { RenderBudget.MaxRenderRows = prior; }
+    }
+
+    /// <summary>The same for the comparison forms' own bound, which is small enough in production that a world of
+    /// 60 records could reach it — moved anyway, so the test says which number it is about.</summary>
+    static string WithComparisonBound(int rows, Func<string> call)
+    {
+        var prior = RenderBudget.MaxComparisonRows;
+        RenderBudget.MaxComparisonRows = rows;
+        try { return call(); }
+        finally { RenderBudget.MaxComparisonRows = prior; }
     }
 
     /// <summary>The same for the whole-record lane's own bound.</summary>

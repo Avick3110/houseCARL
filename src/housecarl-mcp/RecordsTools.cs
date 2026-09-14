@@ -143,7 +143,7 @@ public static class RecordsTools
             RecordsWalk? walk = null,
         [Description("TRANSPORT: 'text' (default) | 'json' (machine-readable document; same accounting in-band) | 'dense' (scan lane: positional columnar cells 1:1 with the requested fields — the compact bulk-enumeration form; by that definition depth expansion and the 'everything' form are inexpressible in it). On 'json' a record's fields are an ORDERED LIST of {path, value} — a field that read NO value carries {path, note} instead, saying why — and the emission order is the answer's own, and a path REPEATS under a quantified step ('Effects[*].Data.Magnitude'), which a map keyed by path could not hold; 'dense' is the column table to join on. Every response carries the epoch stamp — the identity of the index build it was answered from — spelled epoch=<hex> on 'text' and 'dense', and as an 'epoch' member on 'json'.")]
             string? format = null,
-        [Description("TRANSPORT: max rows to render (default 500). The TRUE total is always reported; page a scan in exact windows with offset=. DECLARED COST: the derived-selection forms (delta/tree/chain/info_order, and any walk) consume EVERY scan match — their censuses and artifacts cover the full selection, and limit= windows only the rendered rows — so on a big order the SCAN TERMS (types=/plugins=/where=) are the cost bound: narrow them. RENDER COST: a row that READS a record's body is what costs, and a scan's accounting reports what that cost as render_ms; a render too big to finish REFUSES up front rather than going silent, naming the shapes that fit. The bound holds on every lane that reads bodies — a scan, an off-order source=, a formids= list — and is per form, because the row costs differ by orders of magnitude: 300,000 rows for a named-fields row (fields/rows, and the one cheap leaf summary/aggregate take), 15,000 for form='everything', whose row materialises the WHOLE record — name the fields you need and the same selection fits — and 40,000 for form='identity', whose row is an UNTYPED whole-plugin seek for the winner's body and is the dearest row here rather than a free one: form='summary' answers the same identity question off a gathered read. On a formids= read every one of those six forms reads a body and is bounded on the LIST's length, not this window's: the ids are read before limit= and offset= apply, so pass fewer ids rather than paging. The accounting beside it counts the bodies READ, which a source= pole holding no version of an id, or a malformed id, leaves short of the list.")]
+        [Description("TRANSPORT: max rows to render (default 500). The TRUE total is always reported; page a scan in exact windows with offset=. DECLARED COST: a delta or tree row reads every PROVIDER of its record, so on a scan limit= and offset= bound the WORK there and not just the render — only the windowed rows are read — and past a 250-row bound (about a minute) the call refuses up front with the count and the estimate instead of going quiet. A census or a to_file= artifact on those forms still covers the WHOLE selection and is held to the same bound, so what narrows those is the scan terms. The other derived-selection forms (chain/info_order, and any walk) consume EVERY scan match — their censuses and artifacts cover the full selection, and limit= windows only the rendered rows — so on a big order the SCAN TERMS (types=/plugins=/where=) are the cost bound: narrow them. RENDER COST: a row that READS a record's body is what costs, and a scan's accounting reports what that cost as render_ms; a render too big to finish REFUSES up front rather than going silent, naming the shapes that fit. The bound holds on every lane that reads bodies — a scan, an off-order source=, a formids= list — and is per form, because the row costs differ by orders of magnitude: 300,000 rows for a named-fields row (fields/rows, and the one cheap leaf summary/aggregate take), 15,000 for form='everything', whose row materialises the WHOLE record — name the fields you need and the same selection fits — and 40,000 for form='identity', whose row is an UNTYPED whole-plugin seek for the winner's body and is the dearest row here rather than a free one: form='summary' answers the same identity question off a gathered read. On a formids= read every one of those six forms reads a body and is bounded on the LIST's length, not this window's: the ids are read before limit= and offset= apply, so pass fewer ids rather than paging. delta and tree are bounded on the list's length the same way, at their own 250-row bound. The accounting beside it counts the bodies READ, which a source= pole holding no version of an id, or a malformed id, leaves short of the list.")]
             int limit = 500,
         [Description("TRANSPORT: skip the first N matches (exact windows: offset=0/500/1000…). Windows tile only WITHIN one epoch — if two pages' epochs differ the load order changed mid-pagination; re-run from offset=0, do not stitch the pages. offset= RE-SCANS the selection from the start rather than seeking into it, so every window pays the whole scan again and a deep window costs more than a shallow one — narrowing the scan terms beats paging far into one.")]
             int offset = 0,
@@ -506,8 +506,12 @@ public static class RecordsTools
         // still cover the complete list, and the window note rides the header and envelope so a windowed render
         // can never read as the whole list.
         int lim = limit <= 0 ? 500 : limit;
+        // Set when a comparison form's KEYS were windowed before the rows were read (see ComparisonWindow): the
+        // rows that arrive are already the window and its note is already stated.
+        bool cmpPrewindowed = false;
         IReadOnlyList<T> Windowed<T>(IReadOnlyList<T> rows)
         {
+            if (cmpPrewindowed) return rows;
             // Under to_file= the rows are the file and the render is manifest-only, so no window applies — a
             // window note over a complete artifact would misdescribe both halves.
             if (wantFile) return rows;
@@ -520,6 +524,30 @@ public static class RecordsTools
             headerLine += "\n" + note;
             return w;
         }
+
+        // The comparison forms' window, applied to the KEYS before any body is read. A delta or tree row reads
+        // every provider of its record, so rows the window would throw away are the whole cost of the call: the
+        // first ten rows of a 17,727-row scan used to read all 17,727 (#721). A census and a to_file= artifact
+        // still cover the complete selection — both state the whole set by definition — so neither is windowed.
+        List<string> ComparisonWindow(IReadOnlyList<FormKey> keys)
+        {
+            if (wantFile || counts_only || (offset == 0 && keys.Count <= lim))
+                return keys.Select(k => k.ToString()).ToList();
+            var w = keys.Skip(offset).Take(lim).Select(k => k.ToString()).ToList();
+            cmpPrewindowed = true;
+            var note = w.Count == 0
+                ? $"window: no rows — offset={offset} is past the end of the {keys.Count} selected; nothing was read"
+                : $"window: rows {offset + 1}–{offset + w.Count} of {keys.Count} (limit={lim}, offset={offset}) — only these rows were read";
+            envelope.Add(new("window", note));
+            headerLine += "\n" + note;
+            return w;
+        }
+
+        /// <summary>Which lever the comparison bound's refusal names, for the lane the call is actually on.</summary>
+        string ComparisonLever() =>
+            wantFile || counts_only ? RenderBudget.ComparisonWholeSelectionLever
+            : cmpPrewindowed ? RenderBudget.ComparisonWindowedLever
+            : RenderBudget.ComparisonScanLever;
 
         // A walk hands its reached set to the list lane as formids=, and that set is bounded by walk.max_nodes
         // already — so the list lane's render bound is over a list the CALLER passed, never one a walk derived.
@@ -1053,6 +1081,11 @@ public static class RecordsTools
                 return e;
             }
 
+            // The same bound as the scan lane's, on the list's own length: this lane reads a body for every id it
+            // was handed, and limit= windows only the render here, so the list itself is what it costs (#716).
+            if (RenderBudget.RefuseComparison(ids.Length, form, RenderBudget.ComparisonListLever) is { } listTooBig)
+                return Wire.Refuse(json, listTooBig);
+
             if (form == "delta")
             {
                 var rows = svc.DeltaBatch(ids, srcSpec, versusSpec!, projFields, demand,
@@ -1427,9 +1460,11 @@ public static class RecordsTools
             //      Two captures meet here, so the seam is epoch-compared and the halves can never mix builds.
             if (comparisonForm && outcome.Error is null && outcome.Groups is null)
             {
-                var cmpKeys = outcome.Keys.Select(k => k.ToString()).ToList();
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es) selected by the scan";
+                var cmpKeys = ComparisonWindow(outcome.Keys);
+                if (RenderBudget.RefuseComparison(cmpKeys.Count, form, ComparisonLever()) is { } cmpTooBig)
+                    return Wire.Refuse(json, cmpTooBig, outcome.Stamp);
                 if (form == "delta")
                 {
                     var rows = svc.DeltaBatch(cmpKeys, srcSpec, versusSpec!, projFields, null,
@@ -1731,9 +1766,11 @@ public static class RecordsTools
             // Comparisons over the file's matches: the file IS the subject pole (its version of each match).
             if (comparisonForm && outcome.Error is null && outcome.Groups is null)
             {
-                var cmpKeys = outcome.Keys.Select(k => k.ToString()).ToList();
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es) selected from the file";
+                var cmpKeys = ComparisonWindow(outcome.Keys);
+                if (RenderBudget.RefuseComparison(cmpKeys.Count, form, ComparisonLever()) is { } offCmpTooBig)
+                    return Wire.Refuse(json, offCmpTooBig, outcome.Stamp);
                 if (form == "delta")
                 {
                     var rows = svc.DeltaBatch(cmpKeys, srcSpec, versusSpec!, projFields, null,

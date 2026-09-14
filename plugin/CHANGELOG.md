@@ -322,6 +322,19 @@ saying it sets an expectation their install may contradict. Say what is known, a
   existing warning names, rather than outranked by where the output sits. A master the order carries BELOW the last donor is
   said plainly, since the output cannot then sit where the donors did. Derived from what the merge already computed, so it
   costs no extra scan and there is no new parameter.
+- **`limit=` now bounds what a `delta` or `tree` over a scan READS, not only what it renders.** Those rows read
+  every provider of their record, so asking for the first ten rows of a 17,727-row scan used to read all 17,727 —
+  the window was applied after the work. It is applied to the selection now, and the response says the rows outside
+  it were not read. Measured on a 3,571-line order, a tree over one plugin's 17,727 placed references with
+  `limit=10`: still running when it was killed at 4 minutes, against 8.3 s. A census and a `to_file=` artifact are
+  unchanged: both state the whole selection by definition, so both still read all of it.
+
+- **A `delta` or `tree` past 250 records refuses up front instead of going quiet.** The call knows the count and
+  the form before it reads a body, so it now says so in one sentence — the count, that a tree reads every override
+  of each record, the estimate, and what to try (`limit=`, `where=`/`types=`, or `project.form='fields'` for the
+  winning value alone). The bound is about a minute at the 0.25 s a two-provider record costs on a large order; a
+  record with more providers costs more again, so treat it as a floor. The twenty-minute silent read that prompted
+  this — a tree over ten plugins' placed references — now answers in under a second.
 
 - **`housecarl_apply` refuses `from_source=` on any verb but `op='CopyFrom'`.** Only `CopyFrom` reads it; on
   another verb it was accepted, dropped, and the edit written off the load-order winner instead of the plugin
