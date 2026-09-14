@@ -248,9 +248,14 @@ static class JsonWire
                     w.WriteString("path", f.Path);
                     if (f.HasValue) w.WriteString("value", f.Token); else w.WriteString("note", f.Note);
                     // An opaque blob's annotation rides here too: a json consumer reading a hex value must be able to
-                    // see it was re-read as bytes only, under which FormVersion, without matching prose.
-                    if (f.Display is not null) w.WriteString("display", f.Display);
-                    if (f.Bytes is { } n) w.WriteNumber("opaque_bytes", n);
+                    // see it was re-read as bytes only, under which FormVersion, without matching prose. Gated on the
+                    // bytes marker, so the flags decode that shares Display does not widen this lane's other lines.
+                    if (f.Bytes is { } n)
+                    {
+                        if (f.Display is not null) w.WriteString("display", f.Display);
+                        w.WriteNumber("opaque_bytes", n);
+                        if (f.BytesFormVersion is { } bfv) w.WriteNumber("opaque_form_version", bfv);
+                    }
                     w.WriteEndObject();
                 }
                 w.WriteEndArray();
