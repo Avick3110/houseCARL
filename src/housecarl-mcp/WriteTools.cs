@@ -32,7 +32,7 @@ public static class WriteTools
          "or a houseCARL folder of that name already exists, it REFUSES loud rather than rename or overwrite (Q3). Pass " +
          "esl=true for the lightest trigger (a header-only light plugin consumes no consequential load-order slot; with " +
          "zero records the ESL FormID-range rule is trivially satisfied). author/description are optional TES4 header " +
-         "text. Returns the plugin path + mod folder — enable + sort it in MO2 to use it. To author actual records, use " +
+         "text. Returns the plugin path + mod folder — enable it in MO2 to use it (a NEW folder registers at MO2's highest priority). To author actual records, use " +
          ToolNames.Create + " instead.")]
     public static string CreatePlugin(
         LoadOrderService svc,
@@ -243,7 +243,7 @@ public static class WriteTools
         sb.Append(dryRun
             ? "full preview — the ENTIRE record(s) as they WOULD be written, read from the in-memory would-be content (nothing is on disk):\n"
             : "full read-back — the ENTIRE record(s) as written, re-read from the patch file on disk " +
-              "(the written file's content, NOT load-order truth; the patch wins nothing until enabled + sorted in MO2):\n");
+              "(the written file's content, NOT load-order truth; the patch wins nothing until it is enabled in MO2):\n");
         string hint = dryRun ? "; raise max_chars" : "; raise max_chars, or enable the patch in MO2 and use " + ToolNames.Records;
         for (int i = 0; i < rb.Count; i++)
         {
@@ -506,7 +506,11 @@ public static class WriteTools
                 // patch not enabled yet). Never render a ranking against a winner that does not exist.
                 sb.Append("  (no active plugin currently defines this record — nothing to out-rank; it takes effect once this patch is enabled)");
             else
-                sb.Append("  (out-ranks the current winner ").Append(f.PriorWinner).Append(" once this patch is enabled + sorted above it)");
+                // A patch this call created is new to MO2, which registers it at the highest priority, so enabling it is
+                // the whole job; an existing into= patch already sits somewhere in the order and may need a re-sort.
+                sb.Append(o.Extended || o.InPlace
+                    ? $"  (out-ranks the current winner {f.PriorWinner} once this patch is enabled and sorted above it)"
+                    : $"  (out-ranks the current winner {f.PriorWinner} once this patch is enabled)");
             sb.Append('\n');
         }
         if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars, dryRun: o.DryRun);
@@ -531,7 +535,7 @@ public static class WriteTools
         var sb = new StringBuilder();
         sb.Append("wrote ").Append(file).Append(o.Esl ? " (header-only, ESL-flagged; " : " (header-only; ")
           .Append(o.Bytes).Append(" bytes, ").Append(o.RecordCount).Append(o.RecordCount == 1 ? " record)\n" : " records)\n");
-        sb.Append("mod folder: ").Append(modFolder).Append("  — enable + sort it in MO2 to use it\n");
+        sb.Append("mod folder: ").Append(modFolder).Append("  — enable it in MO2 to use it\n");
         sb.Append(WriteSentences.Masters(o.Masters));
         sb.Append("this is a trigger/placeholder plugin: it carries no records, so it changes nothing in game by itself — ")
           .Append("its only job is to make the basename '").Append(Path.GetFileNameWithoutExtension(file))
@@ -715,7 +719,7 @@ public static class WriteTools
         else
             sb.Append("wrote merged ").Append(file).Append(" (new plugin; ").Append(o.Bytes).Append(" bytes) from ")
               .Append(o.Donors.Count).Append(" donors: ").Append(string.Join(", ", o.Donors)).Append('\n');
-        sb.Append("mod folder: ").Append(modFolder).Append("  — review in xEdit, then enable + sort it in MO2.\n");
+        sb.Append("mod folder: ").Append(modFolder).Append("  — review in xEdit, then enable it in MO2.\n");
         // The swap is PLUGIN-level, not mod-level (merge is a RECORDS op): the merged records still reference the donors'
         // meshes/textures/scripts/BSA contents BY PATH, and those files live in the donor mod folders — only the
         // FormID-keyed facegen/voice/seq were carried. "Disable the donor mods" (compact's instruction, where the output

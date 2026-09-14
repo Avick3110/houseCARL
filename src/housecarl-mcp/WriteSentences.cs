@@ -130,7 +130,7 @@ internal static class WriteSentences
         (extended ? $"extended {file} (existing patch grown; {bytes} bytes)\n"
                   : $"wrote {file} (new patch; {bytes} bytes)\n")
       + (extended ? $"mod folder: {modFolder}\n"
-                  : $"mod folder: {modFolder}  — enable + sort it in MO2 to use the patch\n");
+                  : $"mod folder: {modFolder}  — enable it in MO2 to use the patch\n");
 
     /// <summary>The masters line. The empty-set spelling is the part that carries meaning: a patch with no masters is
     /// a standalone, not a broken header.</summary>
@@ -657,7 +657,7 @@ internal static class WriteSentences
         + "named the folder, so houseCARL read it off disk";
 
     /// <summary>The provenance line for bytes read out of a mod the active profile does NOT include. About the SOURCE
-    /// and nothing else: the placed copy's own "does not win until you enable + sort" is the render's separate,
+    /// and nothing else: the placed copy's own "does not win until you enable it" is the render's separate,
     /// unconditional line, and neither fact may be stated twice.</summary>
     internal static string PlaceSourceOffOrder(string provider, bool ownerEnabled = false) => ownerEnabled
         // The folder is ticked, so the mod is not the reason: the built universe already answers for an enabled
