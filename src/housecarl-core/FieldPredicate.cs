@@ -984,7 +984,11 @@ public sealed class FieldPredicateSet
         return (val, parent, null);
     }
 
-    /// <summary>A navigated collection's elements — an absent one is empty.</summary>
+    /// <summary>A navigated collection's elements — an absent one is empty. A NULL element is dropped: the folds
+    /// below judge an element by reading it, and there is nothing to read. <see cref="Count"/> counts what the
+    /// collection HOLDS, nulls included, because that is the number the project.fields column has always rendered
+    /// and the two must not answer differently — so on a collection that yields nulls a count is the larger number,
+    /// and the boolean folds speak only for the elements they could read.</summary>
     static List<object> Materialise(object? coll)
     {
         var list = new List<object>();
@@ -994,7 +998,8 @@ public sealed class FieldPredicateSet
     }
 
     /// <summary>How many elements a navigated collection holds — an absent one holds none. The same number the
-    /// project.fields column reads, from the same engine helper.</summary>
+    /// project.fields column reads, from the same engine helper, which is why this counts every element the
+    /// collection holds and <see cref="Materialise"/> does not (see there).</summary>
     static int Count(object? coll)
         => coll is null ? 0 : ReadEngine.CountOf((System.Collections.IEnumerable)coll);
 

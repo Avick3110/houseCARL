@@ -10,12 +10,6 @@ sealed record FieldFold(string Requested, string Root, string[] Tail, PathFold F
     /// bracketed index inside a step is another, because <c>ReadEngine.Expand</c> spends one level on each — so
     /// 'Conditions[0].Data' is three, not two, and counting segments alone stops the read a level short.</summary>
     internal int TailLevels => Tail.Sum(s => 1 + s.Count(c => c == '['));
-
-    /// <summary>The path the READ runs. A <c>[*count]</c> column reads the list under its own whole spelling: the
-    /// line it gets back is the same list line, and reading it there keeps the count clear of the annotations the
-    /// bare list path earns — the child-union note above all, which opens a body per touching plugin to say
-    /// something a number does not show.</summary>
-    internal string ReadPath => Fold == PathFold.Count ? Requested : Root;
 }
 
 /// <summary>
@@ -55,6 +49,24 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
     /// <summary>Does any path render per-element rows — the reading that needs the list opened.</summary>
     internal bool RendersElements => Folds.Any(f => f is { Fold: PathFold.Set });
 
+    /// <summary>The read paths whose every column is a <c>[*count]</c>. A count renders one number and no line
+    /// under it, so a child-bearing field read only for a count takes the child union's INDEX-ONLY tier: the
+    /// sentence naming how many other plugins declare children here, which costs an index lookup, rather than the
+    /// assembled union, which opens a body per touching plugin. Both tiers say the value is this body's own list;
+    /// naming the list without the token is what asks for the assembled one.</summary>
+    internal IReadOnlyList<string> CountOnlyPaths
+    {
+        get
+        {
+            var all = new HashSet<string>(StringComparer.Ordinal);
+            var other = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < Paths.Length; i++)
+                (Folds[i] is { Fold: PathFold.Count } ? all : other).Add(Paths[i]);
+            all.ExceptWith(other);
+            return all.ToList();
+        }
+    }
+
     /// <summary>The first quantified path, for a refusal that has to name one.</summary>
     internal FieldFold First => Folds.First(f => f is not null)!;
 
@@ -80,19 +92,22 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
         for (int i = 0; i < Paths.Length; i++)
         {
             if (Folds[i] is not { } fold) { cols[i] = Lines(rec.Fields, Paths[i], CallerDepth); continue; }
-            var head = rec.Fields.FirstOrDefault(f => f.Path == fold.ReadPath);
+            var head = rec.Fields.FirstOrDefault(f => f.Path == fold.Root);
             // An absent or unreadable list is the READ's answer, not a misuse of the token: it carries out under
             // the caller's own spelling. Only a root that is not a list at all is a misuse, and that fails the
             // record by name.
             if (head is null || !head.Present || !head.Readable)
             {
-                cols[i] = new[] { (head ?? new FieldValue(fold.ReadPath, false, null, ReadEngine.AbsentNote, Present: false)) with { Path = fold.Requested } };
+                cols[i] = new[] { (head ?? new FieldValue(fold.Root, false, null, ReadEngine.AbsentNote, Present: false)) with { Path = fold.Requested } };
                 continue;
             }
             if (head.Count is null) return (null, Array.Empty<FieldValue>(), NotAList(rec, fold, head));
             if (fold.Fold == PathFold.Count)
             {
-                cols[i] = new[] { new FieldValue(fold.Requested, true, head.Count.Value.ToString(), null) };
+                // The head line's annotation travels with the number. On a child-bearing field it is what says the
+                // count is this body's own list and not the whole set the game assembles — a number without it
+                // would read as the content.
+                cols[i] = new[] { new FieldValue(fold.Requested, true, head.Count.Value.ToString(), null) with { Display = head.Display } };
                 continue;
             }
             var elems = Elements(rows, rec.Fields, fold).ToList();
@@ -119,8 +134,23 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
         var (cols, carried, error) = Columns(o.Record);
         // The carried note leads: it is what the read did to the columns below it, and a render that hits its own
         // ceiling part-way down the rows would drop a note written after them.
-        return error is null ? o with { Record = o.Record with { Fields = carried.Concat(cols!.SelectMany(c => c)).ToList() } }
+        return error is null ? o with { Record = o.Record with { Fields = carried.Concat(cols!.SelectMany(c => c)).ToList() },
+                                        OwnedChildFields = WithQuantifiedSpellings(o.OwnedChildFields) }
                              : o with { Record = null, Error = error };
+    }
+
+    /// <summary>The child-union annotation keyed by the spelling each quantified column RENDERS under, beside the
+    /// list path it was read at. The clause is earned by the line that reaches the caller, and a quantified line
+    /// carries the caller's own path — so without this a count column would show its note and the response would
+    /// state no clause for it. The list path stays in the map: the dense and manifest lanes look it up by root.</summary>
+    IReadOnlyDictionary<string, ChildUnion?>? WithQuantifiedSpellings(IReadOnlyDictionary<string, ChildUnion?>? annotated)
+    {
+        if (annotated is not { Count: > 0 }) return annotated;
+        Dictionary<string, ChildUnion?>? both = null;
+        foreach (var f in Folds)
+            if (f is not null && annotated.TryGetValue(f.Root, out var u) && !annotated.ContainsKey(f.Requested))
+                (both ??= new Dictionary<string, ChildUnion?>(annotated, StringComparer.Ordinal))[f.Requested] = u;
+        return both ?? annotated;
     }
 
     internal IReadOnlyList<ReadOutcome> Apply(IReadOnlyList<ReadOutcome> outcomes)
@@ -219,7 +249,7 @@ static class FieldFolds
                 if (fold == PathFold.Count && s != segs.Length - 1)
                     return (null, $"project.fields path '{path}': nothing can follow '[*count]' — it yields how MANY elements there are, not an element to step into.");
                 folds[i] = new FieldFold(path, string.Join(".", segs[..s].Append(bare)), segs[(s + 1)..], fold);
-                readPaths[i] = folds[i]!.ReadPath;
+                readPaths[i] = folds[i]!.Root;
                 any = true;
             }
         }

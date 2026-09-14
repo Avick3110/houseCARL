@@ -268,6 +268,9 @@ public static class RecordsTools
         // than the caller asked — both spend the same expansion budget.
         string[]? foldReadPaths = null; int[]? readDepths = null;
         if (foldPlan is not null) (foldReadPaths, readDepths) = foldPlan.Read();
+        // The read paths whose every column is a [*count]: a number carries no list line, so those fields take the
+        // child union's index-only tier rather than the assembled union (see FoldPlan.CountOnlyPaths).
+        var countFields = foldPlan?.CountOnlyPaths;
         var readPaths = foldPlan is null ? projFields : foldReadPaths;
         bool resolveNames = project?.resolve_names ?? false;
         // The lever vocabulary is a function of (tool, FORM), not of the tool alone: the 'everything' form refuses
@@ -641,6 +644,7 @@ public static class RecordsTools
             // The per-path depths belong to the paths they were computed for; a form that reads something else
             // (summary's one leaf, everything's full dump) reads at the one depth.
             var readFieldDepths = ReferenceEquals(readFields, readPaths) ? readDepths : null;
+            var readFieldCounts = ReferenceEquals(readFields, readPaths) ? countFields : null;
             IReadOnlyList<ReadOutcome> outcomes;
             LoadOrderService.PoleInfo? pole = null;
             // This lane reads a body per id exactly as the scan's body lane does, so it is clocked the same way and
@@ -667,7 +671,7 @@ public static class RecordsTools
             else if (srcName is null)
             {
                 if (srcOverlay) Arm("skypatcher overlay (pre) = winner — the body the INI layer starts from");
-                outcomes = svc.ResolveBatch(ids, readFields, false, depth, resolveNames, null, demand, out var refusal, out var refusalEpoch, LeverNames.Records.ContainerHint, readFieldDepths, ct);
+                outcomes = svc.ResolveBatch(ids, readFields, false, depth, resolveNames, null, demand, out var refusal, out var refusalEpoch, LeverNames.Records.ContainerHint, readFieldDepths, ct, countFields: readFieldCounts);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, refusalEpoch)
                                 : "error: " + refusal + Wire.EpochLine(refusalEpoch);
@@ -677,7 +681,7 @@ public static class RecordsTools
             {
                 outcomes = svc.ResolveBatchFromPole(ids, srcName, srcMod, readFields, depth, resolveNames, demand,
                                                     out pole, out var refusal, out var refusalEpoch,
-                                                    LeverNames.Records.ContainerHint, readFieldDepths, ct);
+                                                    LeverNames.Records.ContainerHint, readFieldDepths, ct, countFields: readFieldCounts);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, refusalEpoch)
                                 : "error: " + refusal + Wire.EpochLine(refusalEpoch);
@@ -1491,7 +1495,7 @@ public static class RecordsTools
                 {
                     bodies = svc.ResolveBatchFromPole(keys, srcName, srcMod, bodyFields ? readPaths : null, depth, resolveNames, null,
                                                       out _, out var bref, out var brefEpoch, LeverNames.Records.ContainerHint, readDepths,
-                                                      ct, outcome.GetterTypes);
+                                                      ct, outcome.GetterTypes, countFields);
                     // A refusal is judged on the named cause, never on row count: a zero-match scan is an honest
                     // empty result, not a failure.
                     if (bref is not null)
@@ -1506,7 +1510,7 @@ public static class RecordsTools
                     // fields_source="winner" retargets display to the winner as it does on the fields form.
                     var srcs = outcome.Sources;
                     if (winnerFields || srcs is null || srcs.Take(keys.Count).All(s => s is null))
-                        bodies = svc.ResolveBatch(keys, bodyFields ? readPaths : null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint, depths: readDepths, ct: ct, getterTypes: outcome.GetterTypes);
+                        bodies = svc.ResolveBatch(keys, bodyFields ? readPaths : null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint, depths: readDepths, ct: ct, getterTypes: outcome.GetterTypes, countFields: countFields);
                     else
                     {
                         var byIndex = new ReadOutcome[keys.Count];
@@ -1521,12 +1525,12 @@ public static class RecordsTools
                         }
                         if (winnerIdx.Count > 0)
                         {
-                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), bodyFields ? readPaths : null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint, depths: readDepths, ct: ct, getterTypes: outcome.GetterTypes);
+                            var res = svc.ResolveBatch(winnerIdx.Select(i => keys[i]).ToList(), bodyFields ? readPaths : null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint, depths: readDepths, ct: ct, getterTypes: outcome.GetterTypes, countFields: countFields);
                             for (int i = 0; i < winnerIdx.Count; i++) byIndex[winnerIdx[i]] = res[i];
                         }
                         foreach (var kv in bySource)
                         {
-                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), bodyFields ? readPaths : null, false, depth, resolveNames, kv.Key, LeverNames.Records.ContainerHint, readDepths, ct, outcome.GetterTypes);
+                            var res = svc.ResolveBatch(kv.Value.Select(i => keys[i]).ToList(), bodyFields ? readPaths : null, false, depth, resolveNames, kv.Key, LeverNames.Records.ContainerHint, readDepths, ct, outcome.GetterTypes, countFields);
                             for (int i = 0; i < kv.Value.Count; i++) byIndex[kv.Value[i]] = res[i];
                         }
                         bodies = byIndex;
@@ -1765,7 +1769,7 @@ public static class RecordsTools
                 var offClock = System.Diagnostics.Stopwatch.StartNew();
                 var bodies = svc.ResolveBatchFromPole(keys, pole.Plugin, srcMod, bodyFields ? readPaths : null,
                                                       depth, resolveNames, null, out _, out var bref, out var brefEpoch,
-                                                      LeverNames.Records.ContainerHint, readDepths, ct);
+                                                      LeverNames.Records.ContainerHint, readDepths, ct, countFields: countFields);
                 offClock.Stop();
                 bodies = FoldRows(bodies);
                 if (bref is not null)

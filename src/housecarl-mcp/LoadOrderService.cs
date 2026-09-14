@@ -2344,12 +2344,13 @@ public sealed partial class LoadOrderService : IDisposable
     public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
                                    bool resolveNames = false, LinkMemo? linkMemo = null,
                                    string? containerHint = ReadEngine.DepthExpandHint,
-                                   IReadOnlyList<int>? depths = null)
+                                   IReadOnlyList<int>? depths = null,
+                                   IReadOnlyCollection<string>? countFields = null)
     {
         var resolver = Resolver;
         var view = resolver.Capture();
         return ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint,
-                           new ChildUnionMemo(), depths: depths)   // one named record: the union lane
+                           new ChildUnionMemo(), depths: depths, countFields: countFields)   // one named record: the union lane
                with { Stamp = view.Stamp, Pin = new ViewPin(resolver, view) };   // stamped and pinned here, off the view actually read
     }
 
@@ -2414,7 +2415,8 @@ public sealed partial class LoadOrderService : IDisposable
                             ChildUnionMemo? unionMemo = null,
                             LoadOrderResolver.OverlaySession? batchSession = null,
                             IReadOnlyList<int>? depths = null,
-                            IMajorRecordGetter? prefetched = null)
+                            IMajorRecordGetter? prefetched = null,
+                            IReadOnlyCollection<string>? countFields = null)
     {
         // An explicitly-requested plugin excluded this session (unparseable or unopenable) is said so, rather than
         // falling through to a misleading "does not define this record".
@@ -2480,7 +2482,7 @@ public sealed partial class LoadOrderService : IDisposable
         // fetches the containing record's winner body through the same session
         var hop = ContainmentIndex.ReadHop(view, session);
         var record = ReadEngine.ReadFields(rec, fields, depth, containerHint, hop, depths);
-        record = AnnotateOwnedChildContent(record, rec, view, session, fk, source, unionMemo, out var childFields, hop);   // the additive union (or the index-only note), display-only
+        record = AnnotateOwnedChildContent(record, rec, view, session, fk, source, unionMemo, out var childFields, hop, countFields);   // the additive union (or the index-only note), display-only
         if (resolveNames) record = AnnotateLinks(record, view, session, linkMemo ?? new());   // identity of every FormLink token, display-only, on the same open session
         var touching = conflictTree ? view.TouchingPlugins(fk) : null;
         return new ReadOutcome(fk, record, source, winner.Value.WinnerPlugin, winner.Value.OverrideDepth, touching, null)
@@ -2544,7 +2546,8 @@ public sealed partial class LoadOrderService : IDisposable
                                                   LoadOrderResolver.OverlaySession session, FormKey fk, string source,
                                                   ChildUnionMemo? memo,
                                                   out IReadOnlyDictionary<string, ChildUnion?>? annotated,
-                                                  Func<IMajorRecordGetter, (IMajorRecordGetter? Parent, string? Why)>? parentOf = null)
+                                                  Func<IMajorRecordGetter, (IMajorRecordGetter? Parent, string? Why)>? parentOf = null,
+                                                  IReadOnlyCollection<string>? countFields = null)
     {
         annotated = null;
         // Group this read's rows by how many '*parent' hops their path opens with: each group is judged against the
@@ -2595,8 +2598,13 @@ public sealed partial class LoadOrderService : IDisposable
 
             // Narrowed to the fields this read emitted: the union opens a body per touching plugin, and assembling a
             // worldspace's cells for a read that asked for EditorID would be a cost nobody asked for.
+            // A field read only for a [*count] takes the INDEX-ONLY tier: the count renders one number and no line
+            // under it, so the assembled union — a body per touching plugin — would be paid for a sentence that
+            // number does not carry. Both tiers state that the value is this body's own list; naming the list
+            // without the token is what asks for the assembled one.
             var wanted = new Dictionary<string, OwnedChildShape>(hits.Count, StringComparer.Ordinal);
-            foreach (var (_, field) in hits) wanted[field] = owning[field];
+            foreach (var (_, field) in hits)
+                if (countFields?.Contains(field) != true) wanted[field] = owning[field];
 
             // A hopped group was read off the CONTAINING record's winner body, so that is the subject the union is
             // assembled against; a hopless group is the read's own source.
@@ -2604,10 +2612,13 @@ public sealed partial class LoadOrderService : IDisposable
             if (onSource is null) continue;
 
             IReadOnlyDictionary<string, ChildUnion>? unions = null;
-            if (memo is not null) unions = memo.Union(onKey, () => OwnedChildUnion.Compute(view, session, onKey, onSource, on, wanted));
-            else if (view.TouchingPlugins(onKey) is not { Count: > 1 }) continue;   // sole toucher: its own body IS the whole story
-            if (memo is not null && unions is null) continue;                       // same, on the union lane
-            var others = unions is null ? view.TouchingPlugins(onKey)!.Count - 1 : 0;
+            if (memo is not null && wanted.Count > 0)
+                unions = memo.Union(onKey, () => OwnedChildUnion.Compute(view, session, onKey, onSource, on, wanted));
+            var touchers = view.TouchingPlugins(onKey);
+            // Sole toucher: its own body IS the whole story, and the index-only tier has nothing to say about
+            // plugins that are not there. A union the lane did assemble still states its own negative.
+            if (unions is null && touchers is not { Count: > 1 }) continue;
+            var others = touchers is { Count: > 1 } ? touchers.Count - 1 : 0;
 
             rebuilt ??= new List<FieldValue>(rf.Fields);
             // The ANNOTATED paths and their unions travel with the outcome, because the render decides its
@@ -2618,7 +2629,8 @@ public sealed partial class LoadOrderService : IDisposable
             map ??= new Dictionary<string, ChildUnion?>(StringComparer.Ordinal);
             foreach (var (i, field) in hits)
             {
-                var u = unions?[field];
+                var u = unions is not null && unions.TryGetValue(field, out var found) ? found : null;
+                if (u is null && others == 0) continue;   // nothing the index tier can state about a sole toucher
                 // These fields are containers and owned records; the other producers of Display are the flags decode,
                 // which fires on [Flags] enum leaves alone, and the opaque-blob annotation, which fires on bytes
                 // leaves alone — so there is no annotation here to displace.
@@ -2747,12 +2759,13 @@ public sealed partial class LoadOrderService : IDisposable
                                        string? containerHint = ReadEngine.DepthExpandHint,
                                        IReadOnlyList<int>? depths = null,
                                        LoadOrderResolver.OverlaySession? session = null,
-                                       IMajorRecordGetter? prefetched = null)
+                                       IMajorRecordGetter? prefetched = null,
+                                       IReadOnlyCollection<string>? countFields = null)
         => q.Pin is { } p
             ? ResolveRead(p.Resolver, p.View, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint,
-                          batchSession: session, depths: depths, prefetched: prefetched)
+                          batchSession: session, depths: depths, prefetched: prefetched, countFields: countFields)
               with { Stamp = p.View.Stamp, Pin = p }
-            : ResolveRead(fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths);
+            : ResolveRead(fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths, countFields);
 
     /// <summary>The summary twin of <see cref="ResolveReadOn"/> — the conflicts-only lazy fill, pinned to the scan's
     /// build when the outcome carries one.</summary>
@@ -2954,8 +2967,9 @@ public sealed partial class LoadOrderService : IDisposable
                                                    string? containerHint = ReadEngine.DepthExpandHint,
                                                    IReadOnlyList<int>? depths = null,
                                                    CancellationToken ct = default,
-                                                   IReadOnlyList<Type>? getterTypes = null)
-        => ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, null, out _, out _, containerHint, depths, ct, getterTypes);
+                                                   IReadOnlyList<Type>? getterTypes = null,
+                                                   IReadOnlyCollection<string>? countFields = null)
+        => ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, null, out _, out _, containerHint, depths, ct, getterTypes, countFields);
 
     /// <summary>The artifact-aware overload: <paramref name="artifactDemand"/> (a formids=@artifact input) is checked
     /// against THIS capture's epoch — the same build that would answer — and a mismatch hands back
@@ -2967,7 +2981,8 @@ public sealed partial class LoadOrderService : IDisposable
                                                    string? containerHint = ReadEngine.DepthExpandHint,
                                                    IReadOnlyList<int>? depths = null,
                                                    CancellationToken ct = default,
-                                                   IReadOnlyList<Type>? getterTypes = null)
+                                                   IReadOnlyList<Type>? getterTypes = null,
+                                                   IReadOnlyCollection<string>? countFields = null)
     {
         artifactRefusal = null; refusalEpoch = null;
         var resolver = Resolver;                // build/refresh once for the batch
@@ -3011,7 +3026,7 @@ public sealed partial class LoadOrderService : IDisposable
             }
             var fk = keys[i];
             var body = chunk?.Body(fk);   // the plugin is walked here, on the first row of the chunk that wants it
-            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body)
+            outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body, countFields)
                          with { Stamp = view.Stamp, Pin = pin });   // the batch's one build, stamped and pinned per item
         }
         return outcomes;
@@ -3117,7 +3132,8 @@ public sealed partial class LoadOrderService : IDisposable
         string? containerHint = ReadEngine.DepthExpandHint,
         IReadOnlyList<int>? depths = null,
         CancellationToken ct = default,
-        IReadOnlyList<Type>? getterTypes = null)
+        IReadOnlyList<Type>? getterTypes = null,
+        IReadOnlyCollection<string>? countFields = null)
     {
         pole = null; refusal = null; refusalEpoch = null;
         var resolver = Resolver;
@@ -3172,7 +3188,7 @@ public sealed partial class LoadOrderService : IDisposable
                 }
                 var fk = keys[i];
                 var body = chunk?.Body(fk);   // the plugin is walked here, on the first row of the chunk that wants it
-                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body)
+                outcomes.Add(ResolveRead(resolver, view, fk, plugin, fields, false, depth, resolveNames, linkMemo, containerHint, unionMemo, batchSession, depths, body, countFields)
                              with { Stamp = view.Stamp, Pin = pin });
             }
             return outcomes;
