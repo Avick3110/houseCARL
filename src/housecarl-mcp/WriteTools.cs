@@ -256,7 +256,11 @@ public static class WriteTools
                       .Append(hint).Append("]\n");
                     return;
                 }
-                sb.Append("    ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note).Append('\n');
+                sb.Append("    ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note);
+                // The display-only annotation, exactly as the read lane renders it: an opaque blob must not appear as
+                // unannotated hex here either, since this dump IS the read of the record just written.
+                if (f.Display is not null) sb.Append("   (").Append(f.Display).Append(')');
+                sb.Append('\n');
             }
         }
     }
@@ -288,7 +292,8 @@ public static class WriteTools
             if (r.Error is not null) { sb.Append("  ✗ ").Append(FormIdToken.Of(r.Target)).Append(" — ").Append(r.Error).Append('\n'); continue; }
             var rec = r.Record!;
             sb.Append("  ✓ ").Append(rec.Type).Append(' ').Append(rec.FormKey)
-              .Append(" — re-read clean (").Append(rec.Fields.Count).Append(" field(s))");
+              .Append(" — re-read clean (").Append(rec.Fields.Count).Append(" field(s)")
+              .Append(OpaqueBytesCaveat(rec)).Append(')');
             // The per-op clause is the FILE's answer when the file gave one (LandedOnDisk), and is marked as the
             // applied edit's claim when it did not — the banner above says "re-read off the written file".
             var landed = ops.Where(op => op.Target == r.Target && (op.LandedOnDisk ?? op.Landed) is not null)
@@ -299,6 +304,21 @@ public static class WriteTools
             if (landed.Count > 0) sb.Append("; ").Append(string.Join("; ", landed));
             sb.Append('\n');
         }
+    }
+
+    /// <summary>The clause that keeps "re-read clean" honest when the written record carries an opaque blob: the
+    /// forced in-place verify is a Mutagen re-read, and Mutagen models a <c>bytes</c> field (<c>Model.Data</c>/MODT is
+    /// the known case) as raw bytes it never parses — so a blob whose layout does not suit the record's FormVersion
+    /// re-reads without complaint and the game crashes on it. The verify must not claim a structure it never looked
+    /// at, so it names those fields in the SAME sentence and says they were re-read as bytes only (#529). Empty when
+    /// the record carries no such field, which is the common case.</summary>
+    static string OpaqueBytesCaveat(RecordFields rec)
+    {
+        var opaque = rec.Fields.Where(f => f.Bytes is not null).Select(f => f.Path).ToList();
+        if (opaque.Count == 0) return "";
+        int bytes = rec.Fields.Where(f => f.Bytes is not null).Sum(f => f.Bytes!.Value);
+        return ", except " + string.Join(", ", opaque) + " — re-read as " + bytes
+             + " opaque byte(s) only, structure NOT checked";
     }
 
     /// <summary>The op's apply-time note, as a trailing clause on its line — what the write DID that the file cannot
