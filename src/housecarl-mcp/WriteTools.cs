@@ -178,6 +178,7 @@ public static class WriteTools
             if (fullDump) AppendFullReadback(sb, rb, maxChars, freshPatch: !o.Extended && !o.InPlace);
             else AppendCompactReadback(sb, o.Ops, rb, maxChars);
         }
+        if (o.Warning is { } warn) sb.Append("warning: ").Append(warn).Append('\n');
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         sb.Append(o.InPlace
             ? InPlaceAgainHint("to make more in-place edits to this plugin", file)
@@ -229,6 +230,7 @@ public static class WriteTools
               .Append(op.After is not null ? "  -> would become " + op.After : "  -> would apply").Append(ApplyNote(op)).Append('\n');
         }
         if (fullDump && o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars, dryRun: true);
+        if (o.Warning is { } warn) sb.Append("warning: ").Append(warn).Append('\n');
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         sb.Append(WriteSentences.DryRunClose("every op passed resolve + pre-flight", "apply"))
           .Append(Epoch(o));
@@ -523,6 +525,7 @@ public static class WriteTools
             sb.Append('\n');
         }
         if (o.ReadBack is { } rb) AppendFullReadback(sb, rb, maxChars, dryRun: o.DryRun, freshPatch: !o.Extended && !o.InPlace);
+        if (o.Warning is { } warn) sb.Append("warning: ").Append(warn).Append('\n');
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         sb.Append(o.DryRun
             ? WriteSentences.DryRunClose("every record resolved from its source", "forward")
@@ -1046,6 +1049,7 @@ public static class WriteTools
             if (fullDump) AppendFullReadback(sb, rb, maxChars, freshPatch: !o.Extended && !o.InPlace);
             else AppendCompactReadback(sb, Array.Empty<WritePatchBuilder.OpResult>(), rb, maxChars);
         }
+        if (o.Warning is { } warn) sb.Append("warning: ").Append(warn).Append('\n');
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         // Gated on rows having actually rendered: with a small max_chars the header alone can exceed the cap and drop
         // EVERY row, and "the new FormID above" would then assert a referent this render never printed.
