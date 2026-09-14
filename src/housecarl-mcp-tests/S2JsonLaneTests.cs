@@ -200,7 +200,10 @@ public sealed class PlaceJsonServedLaneTests : IClassFixture<AssetSelectWorld>
     [Fact]
     public void AServedPlaceAnswersAsADocumentAndSaysTheSetPoleWasWithheld()
     {
-        var onDisk = Path.Combine(_w.Root, "instance", "mods", "FaceBase", _w.Rel("0001.nif"));
+        // Outside the mods tree: a raw path INTO a mod folder is its own refusal (#617), and this arm is about the
+        // withheld pole, not about that.
+        var onDisk = Path.Combine(_w.Root, "hcjson-source.nif");
+        File.WriteAllText(onDisk, "x");
 
         var text = PlaceTools.Place(_w.Svc,
             new[] { new PlaceTarget { Path = @"meshes\hcjson\served.nif", Source = onDisk } },

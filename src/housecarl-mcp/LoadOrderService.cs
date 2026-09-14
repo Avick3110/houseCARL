@@ -208,6 +208,22 @@ public sealed partial class LoadOrderService : IDisposable
     /// right pane).</para></summary>
     internal int AbsenceExplanations;   // how many times the explainer has parsed the profile — a test seam for the memo
 
+    /// <summary>MO2's mods root as this service currently has it, or null when it has none yet. Read-only, taken
+    /// under the gate; a caller uses it to recognize a raw path into the mods tree, never to reach into it.</summary>
+    internal string? ModsRootOrNull
+    {
+        get
+        {
+            lock (_gate)
+            {
+                // Instance mode derives the roots lazily, so a cold call would otherwise see nothing. An instance that
+                // will not resolve is not this caller's problem — it says nothing rather than throwing on a refusal path.
+                try { EnsurePathsDerived(); } catch { }
+                return string.IsNullOrWhiteSpace(_modsDir) ? null : _modsDir;
+            }
+        }
+    }
+
     string? ExplainPluginAbsence(string name)
     {
         // Snapshot the roots together under the gate so the four cannot be read across a mid-switch reassignment.
@@ -1286,10 +1302,19 @@ public sealed partial class LoadOrderService : IDisposable
 
         // Outside the gate: the captured view is pinned and handle-free, so resolving, reading and parsing here cannot
         // race a concurrent refresh into wrongness and does not block other tools behind these file reads.
+        var modsRoot = ModsRootOrNull;
         var results = new List<NifInspectData>(relPaths.Count);
         foreach (var raw in relPaths)
         {
             var rel = (raw ?? "").Trim();
+            // A raw path into the mods tree reads past the VFS, so it is this path's own refusal with the address
+            // form — ahead of the generic drive-rooted message, which says nothing about how to name the mod.
+            if (ModsPathAddress.Split(rel, modsRoot) is { } hit)
+            {
+                results.Add(NifInspectData.Fail(rel, ModsPathAddress.Refusal("", rel, hit.ModFolder, hit.RelPath,
+                                                                             "mesh_paths", "source_provider")));
+                continue;
+            }
             // Per-path isolation holds by construction rather than by trusting the callee: anything unexpected from
             // one path's resolve, read or parse becomes that path's named error, never the whole batch's.
             try { results.Add(NifInspectOne(view, rel, sourceProvider)); }

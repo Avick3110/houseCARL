@@ -106,9 +106,14 @@ public static class PlaceTools
         // refusal sentence is that a pole which cannot apply is stated, never silently ignored.
         var poleWithheld = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var door = svc.OpenWriteFormIdDoor();
+        var modsRoot = svc.ModsRootOrNull;
         for (int i = 0; i < assets.Length; i++)
         {
             var a = assets[i];
+            // A raw path into the mods tree goes around the VFS on either axis — the destination it writes at, or the
+            // copy it reads. Refused with the address form rather than honoured, on the member that carries it.
+            if (RawModsPathProblem($"assets[{i}]: ", "path", a.Path, modsRoot) is { } destErr) { problems.Add(destErr); continue; }
+            if (RawModsPathProblem($"assets[{i}]: ", "source", a.Source, modsRoot) is { } srcErr) { problems.Add(srcErr); continue; }
             var reqs = MapTarget(door.Parse, a, source_provider, kind, $"assets[{i}]: ", out var err, out var withheld);
             if (err is not null) problems.Add(err);
             else
@@ -124,6 +129,19 @@ public static class PlaceTools
         int cap = max_chars > 0 ? max_chars : 80_000;
         return json ? JsonWire.RenderPlaceOutcome(outcome, cap, poleWithheld)
                     : PlaceWire.Render(outcome, cap, poleWithheld);
+    }
+
+    /// <summary>The refusal for one member's raw mods path, or null when the value is not one. A '&lt;archive.bsa&gt;|&lt;entry&gt;'
+    /// source is split at the pipe first, so an archive inside a mod folder is judged on the archive's own path.</summary>
+    static string? RawModsPathProblem(string where, string param, string? value, string? modsRoot)
+    {
+        var v = NullIfBlank(value)?.Trim('"');
+        if (v is null) return null;
+        int pipe = v.IndexOf('|');
+        var probe = pipe >= 0 ? v.Substring(0, pipe) : v;
+        return ModsPathAddress.Split(probe, modsRoot) is not { } hit
+            ? null
+            : ModsPathAddress.Refusal(where, v, hit.ModFolder, hit.RelPath, param, "source_provider");
     }
 
     /// <summary>Map one destination to its placement request(s): path → one request; formid+kind → one request (the
