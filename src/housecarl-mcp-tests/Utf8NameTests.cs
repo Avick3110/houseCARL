@@ -172,8 +172,9 @@ public sealed class Utf8NameTests : IDisposable
     static JsonElement Je(string json) => JsonDocument.Parse(json).RootElement.Clone();
     static RecordsTools.RecordsProject NameField => new() { form = "fields", fields = new[] { "Name" } };
 
-    string ReadName(FormKey fk, string? format = null) =>
-        RecordsTools.Records(_svc, formids: new[] { Fid(fk) }, project: NameField, format: format);
+    string ReadName(FormKey fk, string? format = null, int maxChars = 0) =>
+        RecordsTools.Records(_svc, formids: new[] { Fid(fk) }, project: NameField, format: format,
+                             max_chars: maxChars);
 
     static readonly Encoding Cp1252 = System.Text.CodePagesEncodingProvider.Instance.GetEncoding(1252)!;
 
@@ -230,9 +231,9 @@ public sealed class Utf8NameTests : IDisposable
         Assert.Contains(LatinName, r);
     }
 
-    /// <summary>The json projection carries the same characters the text one does. They ride as <c>\uXXXX</c>
-    /// escapes — json's own spelling for non-ASCII, which parses back to the identical string — so the assertion is
-    /// on the parsed value, not on the bytes.</summary>
+    /// <summary>The json projection carries the same characters the text one does. Since #754 they ride as the
+    /// characters themselves up to U+FFFF and as <c>\uXXXX</c> escapes above it; both parse back to the identical
+    /// string, so the assertion is on the parsed value and holds either way.</summary>
     [Fact]
     public void TheJsonProjectionCarriesTheSameCharacters()
     {
@@ -398,5 +399,68 @@ public sealed class Utf8NameTests : IDisposable
         var written = Directory.GetFiles(_instance, "HcUtf8Patch*.esp", SearchOption.AllDirectories);
         Assert.Single(written);
         Assert.True(FileHolds(written[0], JapaneseName), "the patch lost the UTF-8 bytes");
+    }
+
+    // ---- the cap the render is measured against (#754) ---------------------------------------------
+    //
+    // Both lanes below measure through the one count in JsonWire, and both fixtures put a Japanese name in front of
+    // a cap test. A byte read put back at either row loop fails them: records moves its boundary (measured: 859 in
+    // characters, 899 in bytes), and apply cuts a document at its own length because the bytes are 240 over it.
+
+    /// <summary>The smallest max_chars at which a render admits its whole body — found by bisection, which the
+    /// body's monotonicity in max_chars makes a search for a boundary rather than for a sample.</summary>
+    static int SmallestWholeCap(Func<int, string> render, int upper)
+    {
+        int lo = 1, hi = upper;
+        Assert.False(Truncated(render(hi)), $"the document was cut at max_chars={upper}, its own character length");
+        while (lo < hi)
+        {
+            int mid = lo + (hi - lo) / 2;
+            if (Truncated(render(mid))) lo = mid + 1; else hi = mid;
+        }
+        return lo;
+    }
+
+    static bool Truncated(string json) =>
+        JsonDocument.Parse(json).RootElement.TryGetProperty("truncated", out var t) && t.GetBoolean();
+
+    /// <summary>The records lane's json cap counts CHARACTERS, the unit max_chars is stated in — not the UTF-8 bytes
+    /// the document takes. Three rows of the Japanese-named weapon put the name in front of the cap test twice, so
+    /// the boundary is 859: at that cap all three rows fit, one character below it they do not. Counting the bytes
+    /// instead reads those two names as 40 characters more than they are and answers 899.</summary>
+    [Fact]
+    public void TheRecordsJsonCapCountsTheCharactersItStates()
+    {
+        string Render(int cap) => RecordsTools.Records(
+            _svc, formids: new[] { Fid(_inlineWeapon), Fid(_inlineWeapon), Fid(_inlineWeapon) },
+            project: NameField, format: "json", max_chars: cap);
+
+        var whole = Render(0);
+        Assert.True(Encoding.UTF8.GetByteCount(whole) > whole.Length,
+                    "the document is all ASCII — it cannot tell the units apart");
+
+        int boundary = SmallestWholeCap(Render, whole.Length);
+        Assert.Equal(859, boundary);
+        Assert.True(Truncated(Render(boundary - 1)), "one character below the boundary the rows still all fit");
+    }
+
+    /// <summary>The same fact on the apply lane, whose readback rows carry the value it wrote, and stated without a
+    /// pinned number: a document renders whole at a max_chars equal to its own character length. Its bytes are 240
+    /// over that, so a cap counting them cuts it there.</summary>
+    [Fact]
+    public void TheApplyJsonCapCountsTheCharactersItStates()
+    {
+        int n = 0;
+        string Render(int cap) => ApplyTools.Apply(_svc,
+            ops: Je($@"[{{""formid"":""{Fid(_inlineWeapon)}"",""field_path"":""Name"",""op"":""Set"",""value"":""{JapaneseName}""}},"
+                   + $@"{{""formid"":""{Fid(_inlineLatinWeapon)}"",""field_path"":""Name"",""op"":""Set"",""value"":""{JapaneseName}""}}]"),
+            patch: "HcUtf8Cap" + (++n), readback: true, format: "json", max_chars: cap);
+
+        var whole = Render(0);
+        Assert.True(Encoding.UTF8.GetByteCount(whole) > whole.Length,
+                    "the document is all ASCII — it cannot tell the units apart");
+
+        Assert.False(Truncated(Render(whole.Length)),
+                     $"a {whole.Length}-character document was cut at max_chars={whole.Length}");
     }
 }

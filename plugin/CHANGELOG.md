@@ -37,7 +37,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **`format="json"` carries non-ASCII text as itself, and `max_chars` counts characters on every json render.** A
   Japanese or accented name — the `FULL` of a translated record, a plugin whose filename has an accent — was written
   as a run of `\uXXXX` escapes; it now rides as the characters it is (`"` `'` `<` `>` `&` `+` are still escaped, as
-  json and HTML safety require). Those escapes were also what kept a json document's UTF-8 byte count equal to its
+  json and HTML safety require). This supersedes the `\uXXXX` clause that closes the 2.0.1 UTF-8 entry below, which
+  described what the tool did when that entry shipped. The bound is the Basic Multilingual Plane, U+0000 to U+FFFF:
+  a character above it — an emoji, a CJK Extension-B ideograph — is still written as its `\uXXXX\uXXXX` surrogate
+  pair, because no encoder widens past the plane without also unescaping the characters named above; check with a
+  `format="json"` read of the record and compare the value you get back, which parses to the same string either way.
+  Those escapes were also what kept a json document's UTF-8 byte count equal to its
   character count, and the caps were measured in bytes while `max_chars` and every notice that states a length are
   stated in characters. Every json cap test, reserve and stated length now counts characters, in one place
   (`JsonWire.Chars`), so a response with non-ASCII in it states its own length and is cut at the cap it was given

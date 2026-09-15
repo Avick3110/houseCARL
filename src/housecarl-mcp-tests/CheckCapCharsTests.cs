@@ -85,6 +85,31 @@ public class CheckCapCharsTests
         Assert.True(notices > 0 && inside > 0, $"the band did not straddle: notices={notices} inside={inside}");
     }
 
+    /// <summary>The bound, pinned: the encoder widens the Basic Multilingual Plane only, so a character above it
+    /// still rides as its <c>\uXXXX\uXXXX</c> surrogate pair — and the accounting is right on that side of the plane
+    /// too, because an escape is ASCII and is counted as the characters it is. Here so the bound is a fact the suite
+    /// states rather than a sentence in a comment.</summary>
+    [Fact]
+    public void AnAstralCharacterStillRidesAsEscapesAndIsCountedAsWritten()
+    {
+        var report = new PluginErrors("Épée 🗡.esp",
+            new[] { new DanglingRef(FormKey.Factory("000800:HcA.esp"), "Weapon", "🗡",
+                                    FormKey.Factory("0E0E0E:Skyrim.esm")) },
+            Array.Empty<string>(), 0, Array.Empty<string>(), null);
+        var r = Result(reports: new[] { report }, scanned: 1, totalDangling: 1);
+
+        var json = Json(r, 20_000);
+        Assert.DoesNotContain("🗡", json, StringComparison.Ordinal);
+        Assert.Contains("ud83d", json, StringComparison.OrdinalIgnoreCase);   // the high half of the pair
+        Assert.Equal("🗡", JsonDocument.Parse(json).RootElement
+                               .GetProperty("families").GetProperty("errors")
+                               .GetProperty("plugins")[0].GetProperty("dangling")[0]
+                               .GetProperty("source_editorid").GetString());
+
+        var notice = JsonDocument.Parse(Json(r, 200)).RootElement.GetProperty("max_chars_overrun").GetString()!;
+        Assert.Equal(Json(r, 200).Length, Stated(notice, "This response is "));
+    }
+
     /// <summary>The text lane says the same length about the same sweep — it counts its StringBuilder, which was
     /// always characters, so the two transports agreeing is what "one cap, one unit" means.</summary>
     [Fact]
