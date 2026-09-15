@@ -663,34 +663,34 @@ public static class WriteTools
             sb.Append("the donors sat at load-order positions ").Append(p.FirstPosition).Append('–').Append(p.LastPosition)
               .Append(" (").Append(p.FirstDonor).Append(" … ").Append(p.LastDonor).Append("). ");
         sb.Append("Load ").Append(o.OutputName);
+        // A master that is not flagged ESM can sit after the last donor, and then the two halves of the advice cannot
+        // both be met — said plainly rather than printing a slot the order forbids.
+        if (p.MasterAfterLastDonor)
+        {
+            sb.Append(" after its last master ").Append(p.LastMaster).Append(", which already sits at position ")
+              .Append(p.LastMasterPosition).Append(", AFTER the last donor — so it cannot also sit where the donors did, ")
+              .Append("and the donors' conflict outcomes will not all survive the move.\n");
+            return;
+        }
         if (p.LastMaster is not null)
             sb.Append(" after its last master ").Append(p.LastMaster).Append(" (position ").Append(p.LastMasterPosition).Append("), and");
         // AT that position, not "at or after": the merge resolved the donors' conflicts as they stood there, and moving
-        // the output either way changes a winner — earlier over the donors' own losers, later over the plugins past the
-        // last donor that override the same records, which this paragraph does not name.
+        // the output either way changes a winner.
         sb.Append(" at position ").Append(p.LastPosition).Append(", where the last donor sat")
           .Append(" — the merge resolved the donors' conflicts as they stood there, so an earlier slot lets content the ")
           .Append("donors used to beat win over the merge, and a later one puts the merge over plugins that used to beat ")
-          .Append("the donors (the external-overrider warning below names those).\n");
-        // The scope of this claim is the identify pass's: the records the donors ORIGINATE. A plugin that only contends
-        // over an override a donor carries at its master's FormID was never a target, so it is not claimed about.
-        if (isRename)
-            sb.Append("  a rename has no interval, so nothing is listed here — the referencer and overrider warnings ")
-              .Append("below name what contends over these records.\n");
-        else if (p.Intervening.Count == 0)
-            sb.Append("  no plugin between the first and last donor references or overrides a record the donors ORIGINATE")
-              .Append(p.UnreadBetween > 0 ? " — though " + p.UnreadBetween + " plugin(s) in that range could not be read, so they were not checked" : "")
-              .Append("; overrides the donors carry at their masters' FormIDs are outside what this pass looked for.\n");
-        else
-        {
-            sb.Append("  ").Append(p.Intervening.Count)
-              .Append(p.Intervening.Count == 1 ? " plugin between the first and last donor also references or overrides" : " plugins between the first and last donor also reference or override")
-              .Append(" a record the donors ORIGINATE, so where the merge sits relative to each one decides which version wins: ")
-              .Append(string.Join(", ", p.Intervening.Take(25)));
-            if (p.Intervening.Count > 25) sb.Append(" (+").Append(p.Intervening.Count - 25).Append(" more)");
-            if (p.UnreadBetween > 0) sb.Append(" (").Append(p.UnreadBetween).Append(" more plugin(s) in that range could not be read)");
-            sb.Append('\n');
-        }
+          .Append("the donors.\n");
+        // What the position governs, and what it does not. Every record the identify pass looked for is renumbered into
+        // the output's own FormID space, so the plugins it names are orphaned by the swap — the warnings below say so —
+        // rather than outranked by where the output sits. No roster is printed for the records that ARE position-
+        // sensitive, because a merge never enumerates them.
+        sb.Append("  what the position decides is the donors' OVERRIDES, kept at their masters' FormIDs: a plugin that ")
+          .Append("overrides the same master records wins over the merge below it and loses above it. The donors' OWN ")
+          .Append("records are renumbered into ").Append(o.OutputName).Append("'s FormID space, where nothing outside the ")
+          .Append("merge shares an id with them")
+          .Append(o.ExternalOverriders.Count > 0 || o.ExternalPlugins.Count > 0
+              ? " — the plugins warned about below are orphaned by the swap, not outranked by this position.\n"
+              : ".\n");
     }
 
     static void AppendFacegenCarry(StringBuilder sb, AssetRenameOutcome? outcome, bool inPlace)

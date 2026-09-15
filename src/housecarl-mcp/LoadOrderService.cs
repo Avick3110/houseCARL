@@ -7831,9 +7831,6 @@ public sealed partial class LoadOrderService : IDisposable
             // Where the output has to sit, off the positions, masters and dependents this call already computed.
             var placement = MergeLoadPosition.Derive(
                 donorInfos.Select(d => (d.Name, d.Order)).ToList(), build.Masters,
-                id.ExternalOverriders.Concat(id.ExternalPlugins),
-                // What the pass could not look into: a plugin excluded at index build, and one whose own scan faulted.
-                view.ExcludedPlugins.Keys.Concat(id.UnscannablePlugins.Select(u => u.Plugin)),
                 p => orderIndex.TryGetValue(p, out var i) ? i : null);
 
             return new WritePatchBuilder.MergeOutcome(
