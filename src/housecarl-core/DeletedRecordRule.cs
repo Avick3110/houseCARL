@@ -4,12 +4,13 @@ namespace HousecarlCore;
 
 /// <summary>
 /// The ONE place the "a DELETED record has no live body" rule lives, so the scans that read a record's content can't
-/// drift apart on it. Three walk Mutagen's <see cref="IFormLinkContainerGetter.EnumerateFormLinks"/> over every
-/// record in an order, and all three must treat a deleted record the same way:
+/// drift apart on it. Four walk Mutagen's <see cref="IFormLinkContainerGetter.EnumerateFormLinks"/> over records
+/// read from disk, and all four must treat a deleted record the same way:
 ///   • the scan's references= arm (<c>LoadOrderService.CrossQuery</c>), which rides housecarl_records.
 ///   • <see cref="ErrorCheck"/>'s dangling-ref sweep (housecarl_check findings=["errors"]), active AND
 ///     off-order passes.
 ///   • <see cref="RemapEngine.IdentifyExternalReferencers"/>'s compact/merge dependency scan.
+///   • <c>WritePatchBuilder.TryScanMergeDonor</c>'s merge pre-flight, over the donors rather than the whole order.
 /// The scan's where= arm follows this rule too, but it is NOT one of the link
 /// walks: it reads a field leaf (<c>FieldPredicateSet.Matches</c> → <c>ReadEngine.ReadLeaf</c>), which already
 /// catches its own read faults and answers "(unreadable: …)". It is here on the SEMANTIC ground below only — a
@@ -19,7 +20,7 @@ namespace HousecarlCore;
 /// flag, and never looks at a body. So its outgoing links are not live: it references nothing, and there is no field
 /// to test. Every walker excludes it BEFORE the link walk.
 ///
-/// WHY IT IS ALSO THE CRASH GUARD FOR THE THREE LINK WALKS: an ENGINE-authored deleted record can leave a
+/// WHY IT IS ALSO THE CRASH GUARD FOR THE LINK WALKS: an ENGINE-authored deleted record can leave a
 /// content-free-but-not-clean leftover body behind (seen with deleted PACKs in a follower mod). Mutagen's lazy parse
 /// then throws on it when the walk reaches for its links, and each walker's per-record fault isolation accounts that
 /// as an UNSCANNABLE skip with a raw exception cause — a deleted record reading as a parser hole, so a genuine
@@ -37,8 +38,8 @@ namespace HousecarlCore;
 ///     before the deep body parse that can throw).
 ///
 /// CONSEQUENCE: a deleted record whose body DOES parse and DOES link to a searched target is not returned by
-/// references=, not reported as dangling by check_errors, and not listed as an external referencer by the
-/// compact/merge scan. "A deleted record references nothing" holds everywhere, not only where a crash forces it.
+/// references=, not reported as dangling by check_errors, not listed as an external referencer by the
+/// compact/merge scan, and does not refuse a merge whose donor it sits in. "A deleted record references nothing" holds everywhere, not only where a crash forces it.
 /// </summary>
 public static class DeletedRecordRule
 {

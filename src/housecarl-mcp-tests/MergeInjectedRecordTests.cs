@@ -54,6 +54,17 @@ public sealed class MergeInjectedRecordTests : IClassFixture<MergeInjectedWorld>
         Assert.False(Directory.Exists(Path.Combine(_w.ModsDir, "houseCARL - HcInjDangling")));
     }
 
+    /// <summary>A stale reference that a later donor's copy of the same record already fixed is not in the merged
+    /// plugin, so it does not refuse the merge: the merge keeps the load-order winner's body, and the pre-flight asks
+    /// about the links that survive it.</summary>
+    [Fact]
+    public void AStaleReferenceALaterDonorAlreadyFixedDoesNotRefuseTheMerge()
+    {
+        var o = _w.Svc.MergePlugins(new[] { MergeInjectedWorld.Space, MergeInjectedWorld.Dangler, MergeInjectedWorld.Fixer }, "HcInjFixed");
+
+        Assert.True(o.Success, o.Error);
+    }
+
     /// <summary>A DELETED record's links are not live, so the donor scan does not read them: the same stale reference
     /// that refuses the merge above is ignored here, and the merge goes through.</summary>
     [Fact]
@@ -81,6 +92,7 @@ public sealed class MergeInjectedWorld : IDisposable
     public const string Overrider = "HcInjOverrider.esp";// overrides the outsider's 0x901
     public const string Dangler = "HcInjDangler.esp";    // references 0x9FF in Space, which nothing holds
     public const string Deleted = "HcInjDeleted.esp";    // same reference, on a DELETED record
+    public const string Fixer = "HcInjFixer.esp";        // overrides the dangler's record and clears that reference
 
     public MergeInjectedWorld()
     {
@@ -105,13 +117,14 @@ public sealed class MergeInjectedWorld : IDisposable
             WriteCarrier("OverriderMod", new ModKey("HcInjOverrider", ModType.Plugin), space, injected: 0x901, dangling: false);
             WriteCarrier("DanglerMod", new ModKey("HcInjDangler", ModType.Plugin), space, injected: null, dangling: true);
             WriteCarrier("DeletedMod", new ModKey("HcInjDeleted", ModType.Plugin), space, injected: null, dangling: true, deleted: true);
+            WriteFixer("FixerMod", new ModKey("HcInjFixer", ModType.Plugin), space, new ModKey("HcInjDangler", ModType.Plugin));
         }
 
-        var order = new[] { Space, Outsider, Injector, Overrider, Dangler, Deleted };
+        var order = new[] { Space, Outsider, Injector, Overrider, Dangler, Deleted, Fixer };
         File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", order) + "\r\n");
         File.WriteAllText(Path.Combine(profile, "plugins.txt"), string.Join("\r\n", order.Select(p => "*" + p)) + "\r\n");
         File.WriteAllText(Path.Combine(profile, "modlist.txt"),
-            "# header\r\n+DeletedMod\r\n+DanglerMod\r\n+OverriderMod\r\n+InjectorMod\r\n+OutsiderMod\r\n+SpaceMod\r\n");
+            "# header\r\n+FixerMod\r\n+DeletedMod\r\n+DanglerMod\r\n+OverriderMod\r\n+InjectorMod\r\n+OutsiderMod\r\n+SpaceMod\r\n");
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
     }
@@ -142,6 +155,20 @@ public sealed class MergeInjectedWorld : IDisposable
             m.Weapons.Add(new Weapon(new FormKey(space.ModKey, id), SkyrimRelease.SkyrimSE) { EditorID = key.Name + "Injected" });
         m.BeginWrite.ToPath(Path.Combine(dir, key.FileName.String))
             .WithLoadOrder(new[] { space }).Write();
+    }
+
+    /// <summary>A plugin overriding another donor's record with the stale reference cleared — the load-order winner of
+    /// that record, so its version is what the merge keeps.</summary>
+    void WriteFixer(string folder, ModKey key, ISkyrimModGetter space, ModKey ofKey)
+    {
+        var dir = Path.Combine(ModsDir, folder);
+        Directory.CreateDirectory(dir);
+        var of = Path.Combine(ModsDir, "DanglerMod", ofKey.FileName.String);
+        using var donor = SkyrimMod.CreateFromBinaryOverlay(of, SkyrimRelease.SkyrimSE);
+        var m = new SkyrimMod(key, SkyrimRelease.SkyrimSE);
+        m.Weapons.Add(new Weapon(new FormKey(ofKey, 0x800), SkyrimRelease.SkyrimSE) { EditorID = key.Name + "Fixed" });
+        m.BeginWrite.ToPath(Path.Combine(dir, key.FileName.String))
+            .WithLoadOrder(new[] { space, donor }).Write();
     }
 
     public void Dispose()

@@ -7703,13 +7703,13 @@ public sealed partial class LoadOrderService : IDisposable
             //      it carries without defining (injected records), and its links into donor space. ----
             var donorModKeys = donorInfos.Select(d => d.Key).ToHashSet();
             var scans = new List<(string Donor, IReadOnlyList<FormKey> Originating, IReadOnlyList<FormKey> Carried)>();
-            var donorLinks = new List<(string Donor, IReadOnlyList<(FormKey Source, FormKey Target)> Links)>();
+            var donorLinks = new List<(string Donor, IReadOnlyList<FormKey> Records, IReadOnlyList<(FormKey Source, FormKey Target)> Links)>();
             foreach (var (dName, dPath, dKey, _) in donorInfos)
             {
                 if (!WritePatchBuilder.TryScanMergeDonor(dPath, dKey, donorModKeys, out var scan, out var keyErr))
                     return WritePatchBuilder.MergeOutcome.Fail(keyErr!);
                 scans.Add((dName, scan.Originating, scan.Carried));       // a pure-override donor (0 originating keys) is a legit patch donor
-                donorLinks.Add((dName, scan.DonorLinks));
+                donorLinks.Add((dName, scan.Records, scan.DonorLinks));
             }
             // An injected record — one whose FormID names a donor while another plugin carries it — is renumbered with
             // the donor carrying it, instead of being copied at an identity the merge is about to remove (#715). A
