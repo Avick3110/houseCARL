@@ -49,6 +49,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   (`JsonWire.Chars`), so a response with non-ASCII in it states its own length and is cut at the cap it was given
   rather than sooner. A document that reported itself longer than it was is the case this closes; the overrun notice
   is the one place a response may still exceed `max_chars`, and it says so.
+- **An auto-spill no longer fails when something else is holding the file it is about to write.** A truncated
+  response spills its complete result to a file in the results directory, and the server reserved that file's name by
+  creating it empty and then writing the artifact over it with a replace-move. On Windows that move fails with
+  "Access to the path is denied" whenever anything holds a handle on the destination without share-delete — which is
+  exactly how a scanner or indexer opens a file it just saw appear — and the response then said the complete result
+  existed nowhere, discarding an artifact that was correct and whole. The reservation is now the file itself: the
+  handle that claims the name is the handle the artifact is written through, so nothing can take or hold it in
+  between. A scanner grabbing every file the results directory gains failed the spill 10 times out of 10 before and
+  0 times out of 10 after. Unchanged: the file's name, its contents, and every sentence the response says about it.
 
 ## 2.0.1 — 2026-09-15
 
