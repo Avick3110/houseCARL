@@ -125,31 +125,6 @@ saying it sets an expectation their install may contradict. Say what is known, a
   no longer be told an explicit null satisfies it — and, the other way, a verb slot the server DEFAULTS still
   publishes one, so such a client does not refuse a null verb the server reads as `Set`.
 
-- **`housecarl_apply` refuses `from_source=` on any verb but `op='CopyFrom'`.** Only `CopyFrom` reads it; on
-  another verb it was accepted, dropped, and the edit written off the load-order winner instead of the plugin
-  you named — with success reported. The refusal names the op index and the verb it got, the way `from=` on a
-  non-`CopyFrom` op is already refused, and nothing is written.
-
-- **`housecarl_place` and `housecarl_nif_inspect` refuse a raw path into MO2's mods folder.** Reading or writing
-  through a mod folder's own path goes around the virtual file system. A mods path passed as `place`'s `path=`
-  or `source=`, or as a `nif_inspect` `mesh_paths=` entry, is now refused in one sentence that hands back the
-  address form instead: the mod folder named in `source_provider=`, with the Data-relative path. A path
-  anywhere else on disk is unchanged — naming one exact copy outside the mods tree is still how you place it.
-  A `'<archive.bsa>|<entry>'` source keeps its entry in the sentence, and a FaceGen pair placed from one member
-  (a `formid=` with no `kind=`) is told to name the provider or pick a slot, since no single `source=` names two
-  files. The destination refuses the whole call with the other malformed members; the source is a per-member
-  failure, so the rest of the batch still places.
-
-- **`housecarl_records` with `plugins=` no longer fails the whole call when one named plugin is not loaded.** It
-  answers for the plugins that are in the order and names the missing one beside the result, so the other named
-  plugins' reads are not thrown away with it. Each missing name carries its own cause — the plugin is installed
-  but unticked, or the did-you-mean for a near-miss spelling — on both the served note and the refusal. A scope
-  whose every name is missing is still refused, naming them: there is nothing left to scan. The same shape holds
-  when `source=` names a plugin outside the load order, which reads on its own lane. An empty entry in
-  `plugins.names` is refused by its index instead of reaching the resolver as bad input.
-
-
-
 - **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
   byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the
   literal escape text and every tool refused with "the active profile's folder is missing". Both INI readers —
@@ -347,6 +322,33 @@ saying it sets an expectation their install may contradict. Say what is known, a
   existing warning names, rather than outranked by where the output sits. A master the order carries BELOW the last donor is
   said plainly, since the output cannot then sit where the donors did. Derived from what the merge already computed, so it
   costs no extra scan and there is no new parameter.
+
+- **`housecarl_apply` refuses `from_source=` on any verb but `op='CopyFrom'`.** Only `CopyFrom` reads it; on
+  another verb it was accepted, dropped, and the edit written off the load-order winner instead of the plugin
+  you named — with success reported. The refusal names the op index and the verb it got, the way `from=` on a
+  non-`CopyFrom` op is already refused, and nothing is written.
+
+- **`housecarl_place` and `housecarl_nif_inspect` refuse a raw path into MO2's mods folder.** Reading or writing
+  through a mod folder's own path goes around the virtual file system. A mods path passed as `place`'s `path=`
+  or `source=`, or as a `nif_inspect` `mesh_paths=` entry, is now refused in one sentence that hands back the
+  address form instead: the mod folder named in `source_provider=`, with the Data-relative path. A path
+  anywhere else on disk is unchanged — naming one exact copy outside the mods tree is still how you place it, and
+  so is the Data-relative form, which is judged on the path you wrote rather than on where the server happens to
+  be running. A `'<archive.bsa>|<entry>'` source keeps its entry in the sentence, and a FaceGen pair placed from
+  one member (a `formid=` with no `kind=`) is pointed at that same archive by its filename, which is a provider
+  name — each slot then derives its own entry from it. The destination refuses the whole call with the other
+  malformed members; the source is a per-member failure, so the rest of the batch still places.
+
+- **`housecarl_records` with `plugins=` no longer fails the whole call when one named plugin is not loaded.** It
+  answers for the plugins that are in the order and names the missing one beside the result, so the other named
+  plugins' reads are not thrown away with it. Each missing name carries its own cause — the plugin is installed
+  but unticked, or the did-you-mean for a near-miss spelling — on both the served note and the refusal. A scope
+  whose every name is missing is still refused, naming them: there is nothing left to scan. The same shape holds
+  when `source=` names a plugin outside the load order, which reads on its own lane, and on every form and both
+  transports: the forms whose rows come from a body read built their own header and carried none of the scan's
+  coverage notes, so this line — and the existing unscannable-record and unreadable-plugin notes — reached a
+  scan render and not a body one. An empty entry in `plugins.names` is refused by its index instead of reaching
+  the resolver as bad input.
 
 ## 2.0.0 — 2026-09-11
 

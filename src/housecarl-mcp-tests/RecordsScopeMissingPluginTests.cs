@@ -72,17 +72,30 @@ public sealed class RecordsScopeMissingPluginTests : RecordsTestBase
         Assert.DoesNotContain("internal houseCARL failure", text);
     }
 
-    /// <summary>A body form reads the same scan, so it carries the same coverage note — the scan lane printed it and
-    /// this one did not, which answered one question two ways.</summary>
+    /// <summary>The batch body lane — the forms whose rows come from a body read rather than the scan render —
+    /// built its own header and carried none of the scan's coverage notes, so the same scan answered one question
+    /// two ways depending on the form.</summary>
     [Fact]
-    public void ABodyFormCarriesTheScopeNoteToo()
+    public void TheBatchBodyLaneCarriesTheScopeNoteToo()
     {
         var text = RecordsTools.Records(Svc, plugins: Scope(W.MasterName, Missing), types: new[] { "WEAP" },
-                                        project: Fields("EditorID"), limit: 2);
+                                        project: Form("everything"), limit: 1);
 
         Served(text);
         Assert.Contains(Missing, text);
         Assert.Contains("nothing from the 1 it does not", text);
+    }
+
+    /// <summary>…and on json, whose header is the envelope. Text and json must not answer one question two ways any
+    /// more than two forms may.</summary>
+    [Fact]
+    public void TheJsonBatchBodyLaneCarriesTheScopeNoteToo()
+    {
+        var text = RecordsTools.Records(Svc, plugins: Scope(W.MasterName, Missing), types: new[] { "WEAP" },
+                                        project: Form("everything"), limit: 1, format: "json");
+
+        var root = System.Text.Json.JsonDocument.Parse(text).RootElement;   // parses, or the lane never rendered json
+        Assert.Contains(Missing, root.GetProperty("scan_note").GetString());
     }
 
     /// <summary>The off-order lane takes the same shape: a scope with one absent name used to fail the whole call

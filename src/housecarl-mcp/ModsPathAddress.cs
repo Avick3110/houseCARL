@@ -16,10 +16,15 @@ static class ModsPathAddress
     internal static (string ModFolder, string? RelPath)? Split(string? rawPath, string? modsRoot)
     {
         if (string.IsNullOrWhiteSpace(rawPath) || string.IsNullOrWhiteSpace(modsRoot)) return null;
+        var raw = rawPath.Trim().Trim('"');
+        // Only a path the caller actually ROOTED can be a raw mods path. Path.GetFullPath resolves a relative one
+        // against the server's own working directory, so without this a session started inside a mod folder would
+        // see every ordinary Data-relative address as a raw mods path and refuse the normal form.
+        if (!Path.IsPathFullyQualified(raw)) return null;
         string full, root;
         try
         {
-            full = Path.GetFullPath(rawPath.Trim().Trim('"'));
+            full = Path.GetFullPath(raw);
             root = Path.GetFullPath(modsRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         }
         catch { return null; }                                  // an unparseable path is somebody else's refusal

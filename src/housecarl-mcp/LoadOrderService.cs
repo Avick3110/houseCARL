@@ -1637,14 +1637,16 @@ public sealed partial class LoadOrderService : IDisposable
 
     /// <summary>The refusal for a <c>source=</c> that reaches into MO2's mods tree, or null when it does not. A
     /// <c>'&lt;archive.bsa&gt;|&lt;entry&gt;'</c> pair is judged on the archive's path and keeps its entry in the
-    /// remedy; a both-slots member is sent to the provider pole, the only form that serves two files.</summary>
+    /// remedy. A both-slots member reaches here only with a fully-qualified '.bsa', which IS the single source that
+    /// serves two slots — so the remedy keeps that archive, named as a provider, rather than telling the caller a
+    /// shape the tool documents is impossible.</summary>
     string? RawModsSourceRefusal(string source, bool bothSlots)
     {
         var v = source.Trim().Trim('"');
         int pipe = v.IndexOf('|');
         if (ModsPathAddress.Split(pipe >= 0 ? v.Substring(0, pipe) : v, ModsRootOrNull) is not { } hit) return null;
         var remedy = bothSlots
-            ? $"Placing BOTH FaceGen slots reads two files, which no single source= names — pass source_provider='{hit.ModFolder}' with no source=, or set kind= mesh or tint and pass that slot's Data-relative source."
+            ? $"Address that archive instead with source_provider='{Path.GetFileName(hit.RelPath ?? v)}' and no source= — a BSA filename is a provider name, and each FaceGen slot then derives its own entry from that archive."
             : ModsPathAddress.Address(hit.ModFolder, hit.RelPath is null || pipe < 0 ? hit.RelPath : hit.RelPath + v.Substring(pipe),
                                       "source", "source_provider");
         return ModsPathAddress.Refusal("", v, remedy);
