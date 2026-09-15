@@ -43,7 +43,7 @@ public static class ResultArtifact
         /// feeds the manifest's per-type counts. The row stream is handed in too so budget-aware row writers
         /// shared with the inline renders can take their (stream, cap) pair — the artifact passes an unreachable
         /// cap, because an artifact row is NEVER truncated: the file must be complete.</summary>
-        public void WriteRow(Action<Utf8JsonWriter, MemoryStream> write, string? type = null)
+        public void WriteRow(Action<Utf8JsonWriter, CharCountedStream> write, string? type = null)
         {
             using (var w = new Utf8JsonWriter(_rows))   // deliberately NOT indented — one row, one line
             {

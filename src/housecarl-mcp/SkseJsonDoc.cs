@@ -14,7 +14,7 @@ static class SkseJsonDoc
     /// <summary>Write one family document. <paramref name="body"/> gets the writer and the stream behind it, so a
     /// row loop can flush and measure against max_chars the way every other json render does.</summary>
     internal static string Write(SkseTools.SkseFamily family, string? filter, string profile,
-                                 Action<Utf8JsonWriter, MemoryStream> body)
+                                 Action<Utf8JsonWriter, CharCountedStream> body)
     {
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, JsonWire.WriterOptions))
@@ -72,7 +72,7 @@ static class SkseJsonDoc
     /// <summary>Is the document already at its char ceiling? Characters, not the bytes the stream holds — the same
     /// count <see cref="JsonWire.Chars"/> gives every other json render. The writer BUFFERS, so what it still holds
     /// is part of the document and a row loop that budgets by length must flush first, as this does.</summary>
-    internal static bool Over(Utf8JsonWriter w, MemoryStream ms, int cap)
+    internal static bool Over(Utf8JsonWriter w, CharCountedStream ms, int cap)
     {
         w.Flush();
         return JsonWire.Chars(ms) >= cap;

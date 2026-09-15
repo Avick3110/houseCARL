@@ -1474,7 +1474,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     public void Json_TheOverflowIsNeverCapped_AndCarriesNoRemedyText()
     {
         var row = FiveDeclarerRow();
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms))
             JsonWire.WriteTreeRow(w, row, ms, cap: 100_000);
         using var doc = JsonDocument.Parse(ms.ToArray());
@@ -1537,7 +1537,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     public void Json_TheUnreadableOverflowIsNeverCapped_AndCarriesNoRemedyText()
     {
         var row = UnreadableRow(OwnedChildShape.Collection, declaring: 5, unreadable: 5);
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms))
             JsonWire.WriteTreeRow(w, row, ms, cap: 100_000);
         using var doc = JsonDocument.Parse(ms.ToArray());
