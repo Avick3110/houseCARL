@@ -45,6 +45,10 @@ internal sealed class PoleGather
         _gather = g;
     }
 
+    /// <summary>Drop the chunk's gathered bodies. A caller that has finished READING through this gather while the
+    /// call goes on doing other reads calls it, so the chunk's share is not held alongside them.</summary>
+    internal void Release() => _gather = null;
+
     /// <summary>This row's body. Null means the plugin does not hold the record — the same answer
     /// <see cref="LoadOrderResolver.IndexView.GetRecord"/> gives, and the same one a plugin whose walk faulted
     /// gives, because <see cref="BodyGather"/> falls back to that seek for it.</summary>
