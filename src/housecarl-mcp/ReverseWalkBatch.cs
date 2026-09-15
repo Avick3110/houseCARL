@@ -22,11 +22,12 @@ public static class ReverseWalkBatch
     }
 
     /// <summary>What one reverse walk produced: the per-hop reached sets (an empty hop is kept and reported), the
-    /// selection the reading forms consume, the index candidates the body check dropped and why, the index's own
-    /// accounting line, and the build the whole answer was read from.</summary>
+    /// selection the reading forms consume, the index candidates the body check dropped and why, the winner plugins
+    /// the body check could not read at all, the index's own accounting line, and the build the whole answer was
+    /// read from.</summary>
     public sealed record Result(IReadOnlyList<ReverseSelection.Hop> Hops, IReadOnlyList<string> Selection,
                                 int Seeds, bool Capped, DropCensus Dropped, string? IndexNote, OrderStamp? Stamp,
-                                string? Refusal)
+                                string? Refusal, IReadOnlyList<string>? UnreadableWinners = null)
     {
         /// <summary>The build's fingerprint alone, for the places that compare epochs rather than render them.</summary>
         public string? Epoch => Stamp?.Epoch;
@@ -77,13 +78,19 @@ public static class ReverseWalkBatch
         // walk is about to judge is gathered, so a spent node budget stops the gather too.
         Dictionary<FormKey, IMajorRecordGetter> gathered = new();
         var gatheredKeys = new HashSet<FormKey>();
+        // The winner plugins the gather could not read, named once each: an unreadable winner is a coverage gap,
+        // and a caller can only act on it — close the file, check the plugin — if the drop count says which file.
+        var unreadableWinners = new List<string>();
+        var unreadableSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         void Gather(IReadOnlyList<FormKey> block)
         {
             // A candidate judged at an earlier hop is remembered, so its body is not read again and not gathered.
             var need = new List<FormKey>(block.Count);
             foreach (var k in block) if (!linksOf.ContainsKey(k)) need.Add(k);
-            gathered = WinnerBodies.For(view, session, need, null, out _, ct);
+            gathered = WinnerBodies.For(view, session, need, null, out var faults, ct);
             gatheredKeys = new HashSet<FormKey>(need);
+            foreach (var plugin in faults.Keys)
+                if (unreadableSeen.Add(plugin)) unreadableWinners.Add(plugin);
         }
         // The index answers in candidates — it says SOME plugin's copy carries the link. references= then re-tests
         // each candidate against the body it judges, and so does this: a record whose winner dropped the link is
@@ -136,6 +143,7 @@ public static class ReverseWalkBatch
             foreach (var k in hop.Reached) selection.Add(FormIdToken.Of(k));
 
         return new Result(hops, selection, seedKeys.Count, capped,
-                          new DropCensus(noLink.Count, unreadable, noLiveBody, noWinner), built.Note, stamp, null);
+                          new DropCensus(noLink.Count, unreadable, noLiveBody, noWinner), built.Note, stamp, null,
+                          unreadableWinners);
     }
 }

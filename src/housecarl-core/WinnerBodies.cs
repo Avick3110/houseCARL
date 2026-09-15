@@ -51,7 +51,11 @@ public static class WinnerBodies
             // is what the per-record fetch this replaces did — but the CAUSE travels with it, and the two causes are
             // told apart: CollectRecords names an OPEN failure itself, so a file another program is holding open
             // reads as that, and a fault from the walk after a good open reads as the plugin having changed instead.
+            // OutOfMemoryException is NOT a fault of this plugin and is rethrown, the same rule BodyGather keeps:
+            // calling a readable master a coverage gap because the machine ran out of memory misnames the failure,
+            // and carrying on to the next plugin keeps allocating into it.
             try { view.CollectRecords(session, plugin, wanted, getterTypes, bodies); }
+            catch (OutOfMemoryException) { throw; }
             catch (PluginUnreadableException ex) { unreadable[plugin] = ex; }
             catch (Exception ex) { unreadable[plugin] = new PluginUnscannableException(plugin, ex); }
         }

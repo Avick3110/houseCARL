@@ -786,7 +786,11 @@ public static class RecordsTools
                     // of them.
                     var causes = new List<string>(4);
                     if (rev.Dropped.NoLink > 0) causes.Add($"{rev.Dropped.NoLink} whose winner does not carry the link");
-                    if (rev.Dropped.Unreadable > 0) causes.Add($"{rev.Dropped.Unreadable} whose winning plugin could not be read — a coverage gap, not a verdict");
+                    // The plugin is named when the gather knows it: a coverage gap the caller can act on says which
+                    // file to close, and a bare count is the same number a genuine index inconsistency would give.
+                    if (rev.Dropped.Unreadable > 0)
+                        causes.Add($"{rev.Dropped.Unreadable} whose winning plugin could not be read — a coverage gap, not a verdict"
+                                   + (rev.UnreadableWinners is { Count: > 0 } up ? $" ({string.Join(", ", up)})" : ""));
                     if (rev.Dropped.NoLiveBody > 0) causes.Add($"{rev.Dropped.NoLiveBody} whose winner is deleted or carries no links");
                     if (rev.Dropped.NoWinner > 0) causes.Add($"{rev.Dropped.NoWinner} with no resolvable winner");
                     headerLine += $"\n{rev.Dropped.Total} index candidate(s) were dropped — the index names a plugin copy that carries the link, and this walk judges the load-order winner (the same second step references= takes): {string.Join("; ", causes)}. None of them was reached or expanded.";
