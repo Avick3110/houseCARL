@@ -20,7 +20,14 @@ static class JsonWire
     /// <summary>The options every json response is written under. The encoder is the ONE reason a non-ASCII name
     /// reads as itself: the default escapes every character above ASCII to <c>\uXXXX</c>, so a Japanese or accented
     /// name arrived as a run of escapes. <c>UnicodeRanges.All</c> widens only that — the HTML-sensitive characters
-    /// (<c>&lt;</c>, <c>&gt;</c>, <c>&amp;</c>, <c>'</c>, <c>+</c>) are escaped exactly as before.</summary>
+    /// (<c>&lt;</c>, <c>&gt;</c>, <c>&amp;</c>, <c>'</c>, <c>+</c>) are escaped exactly as before.
+    ///
+    /// <para>The bound is the plane: <c>UnicodeRanges.All</c> is the Basic Multilingual Plane, U+0000 to U+FFFF, so
+    /// a character ABOVE it — an emoji, a CJK Extension-B ideograph — still rides as its <c>\uXXXX\uXXXX</c>
+    /// surrogate pair. .NET offers no encoder that widens past the BMP without also unescaping the HTML-sensitive
+    /// set (<c>UnsafeRelaxedJsonEscaping</c> does both), and the escapes parse back to the identical string, so the
+    /// plane is where this stops. The cap accounting is right on both sides of it: an escape is ASCII and
+    /// <see cref="CharCountedStream"/> counts it as the characters it is.</para></summary>
     internal static readonly JsonWriterOptions Opts =
         new() { Indented = true, Encoder = JavaScriptEncoder.Create(UnicodeRanges.All) };
 
@@ -212,9 +219,10 @@ static class JsonWire
         return Finish(ms);
     }
 
-    /// <summary>Is the document already at its char ceiling? The writer BUFFERS, so <c>ms.Length</c> lags what has
-    /// been written — every row loop that budgets by stream length must flush first, as this does.</summary>
-    static bool Over(Utf8JsonWriter w, MemoryStream ms, int cap)
+    /// <summary>Is the document already at its char ceiling? The writer BUFFERS, so what it still holds is part of
+    /// the document and has not reached the stream's counter — every row loop that budgets by length must flush
+    /// first, as this does.</summary>
+    static bool Over(Utf8JsonWriter w, CharCountedStream ms, int cap)
     {
         w.Flush();
         return Chars(ms) >= cap;
@@ -228,7 +236,7 @@ static class JsonWire
     /// in-place lanes override). <c>readback_requested</c> is where the ask lives.</para>
     /// <para>Rows and their field lists both stop at the budget and set <paramref name="truncated"/> — the document
     /// stays valid JSON and says it was cut, never a string severed mid-token.</para></summary>
-    static void WriteReadbackBlock(Utf8JsonWriter w, MemoryStream ms, int cap,
+    static void WriteReadbackBlock(Utf8JsonWriter w, CharCountedStream ms, int cap,
         IReadOnlyList<WritePatchBuilder.FullReadback> rb, bool dryRun, bool requested, ref bool truncated)
     {
         w.WriteString("readback_source", dryRun ? "in_memory_would_be_content" : "written_file");
@@ -288,7 +296,7 @@ static class JsonWire
     /// handed to a consumer iterating the array as if it were one of the entries, and the array length would stop
     /// matching the count the accounting states.</para>
     /// <para>Returns how many entries were omitted, so the caller can say so at the document root.</para></summary>
-    static int WriteCappedStringArray(Utf8JsonWriter w, MemoryStream ms, string name, IReadOnlyList<string> items,
+    static int WriteCappedStringArray(Utf8JsonWriter w, CharCountedStream ms, string name, IReadOnlyList<string> items,
                                       int budget)
     {
         w.WriteStartArray(name);
@@ -315,7 +323,7 @@ static class JsonWire
     /// <param name="annotated">The owned-child fields this outcome annotated, if any.</param>
     /// <param name="emitted">Collects the annotated paths this array ACTUALLY carried — the response-level clause is
     /// stated over these, so a field the truncation above dropped states nothing.</param>
-    static void WriteFieldsArray(Utf8JsonWriter w, RecordFields r, MemoryStream ms, int cap,
+    static void WriteFieldsArray(Utf8JsonWriter w, RecordFields r, CharCountedStream ms, int cap,
                                  IReadOnlyDictionary<string, ChildUnion?>? annotated = null, IDictionary<string, bool>? emitted = null,
                                  LeverNames? levers = null)
     {
@@ -388,7 +396,7 @@ static class JsonWire
     /// the same <c>formids=</c> door it came in by. <c>members</c> is capped at
     /// <see cref="ChildUnionMemberCap"/> with <c>members_omitted</c> naming the rest, because a worldspace's union
     /// runs to tens of thousands and a field annotation is not a listing surface.</summary>
-    static void WriteChildUnion(Utf8JsonWriter w, ChildUnion u, MemoryStream ms, int cap)
+    static void WriteChildUnion(Utf8JsonWriter w, ChildUnion u, CharCountedStream ms, int cap)
     {
         w.WriteStartObject("owned_child_union");
         w.WriteString("shape", u.Shape.ToString());
@@ -421,7 +429,7 @@ static class JsonWire
         // the flat cap and what is left of max_chars: a field object that silently doubled the response would be
         // invisible to the `truncated` flag the auto-spill trigger reads. Whatever is not listed is counted.
         w.Flush();
-        int room = Math.Max(0, cap - Chars(ms)) / ChildUnionMemberBytes;
+        int room = Math.Max(0, cap - Chars(ms)) / ChildUnionMemberChars;
         int listed = Math.Min(u.Members.Count, Math.Min(ChildUnionMemberCap, room));
         w.WriteStartArray("members");
         for (int i = 0; i < listed; i++) w.WriteStringValue(FormIdToken.Of(u.Members[i]));
@@ -430,10 +438,10 @@ static class JsonWire
         w.WriteEndObject();
     }
 
-    /// <summary>The budget one listed member costs — a FormKey string, its quotes, its comma and the writer's
-    /// indentation. Deliberately generous: it decides how many members fit in what is LEFT of max_chars, and
+    /// <summary>The budget one listed member costs in CHARACTERS — a FormKey string, its quotes, its comma and the
+    /// writer's indentation, all of them ASCII. Deliberately generous: it decides how many members fit in what is LEFT of max_chars, and
     /// under-counting is what lets a field object overrun the cap.</summary>
-    const int ChildUnionMemberBytes = 40;
+    const int ChildUnionMemberChars = 40;
 
     /// <summary>How many union members one field object lists. A cell's union is hundreds and a worldspace's is
     /// tens of thousands, so the array is a sample with its remainder counted, never the whole set.</summary>
@@ -447,7 +455,7 @@ static class JsonWire
     /// records array; the single read passes its own and states it here.</param>
     /// <param name="stateChildNote">Single-read lane only: this record object IS the response, so the clause
     /// belongs on it — written AFTER <c>fields</c> and only over what <c>fields</c> carried.</param>
-    internal static void WriteReadRecord(Utf8JsonWriter w, ReadOutcome o, MemoryStream ms, int cap, string? matches = null,
+    internal static void WriteReadRecord(Utf8JsonWriter w, ReadOutcome o, CharCountedStream ms, int cap, string? matches = null,
                                          OrderStamp? epoch = null, IDictionary<string, bool>? childFields = null, bool stateChildNote = false,
                                          LeverNames? levers = null)
     {
@@ -706,7 +714,7 @@ static class JsonWire
     /// <summary>One delta row — shared verbatim by the json render and the artifact writer, so the two cannot
     /// drift. A per-item refusal is <c>{formid, error, stack_above?}</c>; a compared row carries both poles, the
     /// stack-above fact when the subject sits mid-stack, and the same delta strings the text render emits.</summary>
-    internal static void WriteDeltaRow(Utf8JsonWriter w, LoadOrderService.DeltaRow row, MemoryStream ms, int cap)
+    internal static void WriteDeltaRow(Utf8JsonWriter w, LoadOrderService.DeltaRow row, CharCountedStream ms, int cap)
     {
         w.WriteStartObject();
         w.WriteString("formid", row.Formid);
@@ -790,7 +798,7 @@ static class JsonWire
     /// <returns>true if any part of the row (child declarers or nodes) hit <paramref name="cap"/> and was cut short.
     /// The caller must merge this into the response's own <c>truncated</c> flag — a row-internal cut is otherwise
     /// invisible above this method.</returns>
-    internal static bool WriteTreeRow(Utf8JsonWriter w, LoadOrderService.TreeRow row, MemoryStream ms, int cap,
+    internal static bool WriteTreeRow(Utf8JsonWriter w, LoadOrderService.TreeRow row, CharCountedStream ms, int cap,
                                       LeverNames? levers = null)
     {
         // The notice vocabulary comes from the carrier like every other remedy here, not a literal. Both callers
@@ -921,7 +929,7 @@ static class JsonWire
     /// unbounded lists — the nodes and the cycles — so the caller cannot see a cut from the outside, and a row that
     /// elides without saying so leaves the response over max_chars with no artifact written. The artifact writer
     /// passes int.MaxValue, where both guards are inert.</para></summary>
-    internal static bool WriteChainRow(Utf8JsonWriter w, LoadOrderService.WalkSeedResult row, MemoryStream ms, int cap)
+    internal static bool WriteChainRow(Utf8JsonWriter w, LoadOrderService.WalkSeedResult row, CharCountedStream ms, int cap)
     {
         bool cut = false;
         w.WriteStartObject();
@@ -1095,7 +1103,7 @@ static class JsonWire
     /// (matching the text render's #N). The honesty gates ride as data: <c>complete</c> (every touching plugin's
     /// list read), <c>moves_computed</c> (the move analysis ran), <c>baseline_trusted</c> (origin positions
     /// anchored on the true definer) — negative claims about moves hold only when the first two are both true.</summary>
-    internal static void WriteInfoOrderRow(Utf8JsonWriter w, LoadOrderService.InfoOrderRow row, MemoryStream ms, int cap)
+    internal static void WriteInfoOrderRow(Utf8JsonWriter w, LoadOrderService.InfoOrderRow row, CharCountedStream ms, int cap)
     {
         w.WriteStartObject();
         w.WriteString("formid", row.Formid);
@@ -1780,10 +1788,14 @@ static class JsonWire
     }
 
     /// <summary>The document's size so far, in the unit <c>max_chars</c> names — CHARACTERS, counted once in
-    /// <see cref="CharCountedStream"/> so every site the check family budgets, reserves and reports through measures
-    /// the same quantity the caller capped. Flushes first, because the writer buffers and what it still holds is
-    /// part of the document; the stream's counter is incremental, so the flush is all the per-entry test pays.</summary>
-    static int Size(Utf8JsonWriter w, MemoryStream ms)
+    /// <see cref="CharCountedStream"/> so every site that budgets, reserves and reports a length measures the same
+    /// quantity the caller capped.
+    ///
+    /// <para>It FLUSHES, where the byte reading it replaced added <c>BytesPending</c> instead: a character count
+    /// cannot be taken of bytes the writer has not handed over. That is a real per-entry cost, and it is bounded —
+    /// a flush copies only what is pending into the stream, and the stream counts only those same bytes, so the
+    /// whole render pays one pass over its own output however many times this is asked.</para></summary>
+    static int Size(Utf8JsonWriter w, CharCountedStream ms)
     {
         w.Flush();
         return Chars(ms);
@@ -1792,11 +1804,10 @@ static class JsonWire
     /// <summary>What a json buffer holds, in CHARACTERS — the unit <c>max_chars</c> is stated in, and the one the
     /// text lane budgets its StringBuilder against. The stream's own <c>Length</c> is UTF-8 BYTES, which agreed with
     /// this only while the writer escaped every non-ASCII character to <c>\uXXXX</c> (#754). Every cap test, reserve
-    /// and length this renderer states comes through here, so no site can measure one unit and report the other. A
-    /// response buffer counts as it is written; anything else is counted on the spot, by the same conversion.</summary>
-    internal static int Chars(MemoryStream ms) =>
-        ms is CharCountedStream counted ? counted.Chars
-                                        : CharCountedStream.CountOf(ms.GetBuffer().AsSpan(0, (int)ms.Length));
+    /// and length this renderer states comes through here, so no site can measure one unit and report the other.
+    /// The parameter is the counting stream rather than any buffer: a cap-bearing document that did not count as it
+    /// was written would have to be rescanned per row, and the type is what makes that a compile error.</summary>
+    internal static int Chars(CharCountedStream ms) => ms.Chars;
 
     /// <summary>What <c>child_declarers_note</c> costs the document — <see cref="ReadSentences.DeclarersLead"/>'s
     /// own json-escaped bytes plus the property's separator, measured the same way <see cref="Framing"/> measures
@@ -3213,7 +3224,7 @@ static class JsonWire
 
     /// <summary>The voice-coverage report as data (a created dialogue line with no .fuz plays SILENT in game). The
     /// text render's "[!] WILL BE SILENT" becomes <c>fuz_present:false</c> + the path to put the audio at.</summary>
-    static void WriteVoiceReport(Utf8JsonWriter w, VoiceReport? report, MemoryStream ms, int cap, ref bool truncated)
+    static void WriteVoiceReport(Utf8JsonWriter w, VoiceReport? report, CharCountedStream ms, int cap, ref bool truncated)
     {
         if (report is null || report.IsEmpty) return;
         w.WriteStartObject("voice_coverage");
@@ -3292,7 +3303,7 @@ static class JsonWire
 
     /// <summary>The result-script binding report as data (a bound script that is unwired or uncompiled runs NOTHING
     /// in game). <c>status</c> is the enum name the text render turns into "WILL NOT FIRE".</summary>
-    static void WriteScriptBindingReport(Utf8JsonWriter w, ScriptBindingReport? report, MemoryStream ms, int cap, ref bool truncated)
+    static void WriteScriptBindingReport(Utf8JsonWriter w, ScriptBindingReport? report, CharCountedStream ms, int cap, ref bool truncated)
     {
         if (report is null || report.IsEmpty) return;
         w.WriteStartObject("result_script_coverage");
@@ -3321,7 +3332,7 @@ static class JsonWire
 
     /// <summary>The cell-shell report as data (a created cell is a valid, correctly-placed record but EMPTY —
     /// houseCARL does not author world content). <c>must_provide</c> is the Creation-Kit work list.</summary>
-    static void WriteCellShellReport(Utf8JsonWriter w, CellShellReport? report, MemoryStream ms, int cap, ref bool truncated)
+    static void WriteCellShellReport(Utf8JsonWriter w, CellShellReport? report, CharCountedStream ms, int cap, ref bool truncated)
     {
         if (report is null || report.IsEmpty) return;
         w.WriteStartObject("cell_shell");
