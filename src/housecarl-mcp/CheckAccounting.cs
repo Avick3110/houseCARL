@@ -247,7 +247,7 @@ internal sealed class CheckAccounting
                                || Has(SweepSubject.DialogueTopics) || Has(SweepSubject.FaceGenRows)
                                || Missing(Worst(escaped: false));
 
-    /// <summary>This lane's accounting + boundary, in json bytes, without the entry slack. Measured by serializing
+    /// <summary>This lane's accounting + boundary, in json characters, without the entry slack. Measured by serializing
     /// the worst case rather than estimating it off the text line — the two encodings differ in escaping and
     /// syntax. The slack is separate because a merged document holds one accounting per family but only ever lands
     /// one unit over its budget, so the slack belongs to the response, not to each family.</summary>
@@ -287,7 +287,7 @@ internal sealed class CheckAccounting
         // The roster is the dangling subject's, so a lane without that subject reserves nothing for it — the
         // by-source tally is collected on every sweep, including lanes that can never emit the roster.
         var longest = Has(SweepSubject.DanglingEntries)
-            ? _bySource.OrderByDescending(c => escaped ? JsonEncodedText.Encode(c.Key).Value.Length : c.Key.Length)
+            ? _bySource.OrderByDescending(c => escaped ? JsonEncodedText.Encode(c.Key, JsonWire.WriterOptions.Encoder).Value.Length : c.Key.Length)
                        .Take(ReadSentences.SweepRosterRows)
                        .Select(c => new SweepCount(c.Key, danglingFound))
                        .ToList()
@@ -650,7 +650,7 @@ internal sealed class CheckAccounting
         // At the depth it will be written at, and as a delta. A named property needs an enclosing object; in a
         // merged document that object is `families.<token>`, two levels further in, and the writer is indented — so
         // measuring at the wrong depth is short by two spaces per level on every line.
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         int before = 0;
         using (var w = new Utf8JsonWriter(ms, JsonWire.WriterOptions))
         {
@@ -659,13 +659,14 @@ internal sealed class CheckAccounting
             // The accounting is never the first member of a family object, so it pays the separator a later
             // property owes.
             w.WriteString("before", "");
-            before = (int)(ms.Length + w.BytesPending);
+            w.Flush();
+            before = ms.Chars;
             new CheckAccounting(v, this).WriteJson(w, v);
             // The boundary rides the measurement rather than being added as a raw char count: json escapes the
             // apostrophes in it, so its encoded length is not its string length.
             w.WriteString("boundary", _boundary);
             w.Flush();
-            return (int)ms.Length - before;
+            return ms.Chars - before;
         }
     }
 

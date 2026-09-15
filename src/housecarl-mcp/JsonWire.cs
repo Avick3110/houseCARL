@@ -1,5 +1,7 @@
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Unicode;
 using HousecarlCore;
 using Mutagen.Bethesda.Plugins;
 
@@ -15,7 +17,12 @@ namespace HousecarlMcp;
 /// malformed JSON. The accounting rides inside the document, so JSON is never a silently degraded mode.</para></summary>
 static class JsonWire
 {
-    internal static readonly JsonWriterOptions Opts = new() { Indented = true };
+    /// <summary>The options every json response is written under. The encoder is the ONE reason a non-ASCII name
+    /// reads as itself: the default escapes every character above ASCII to <c>\uXXXX</c>, so a Japanese or accented
+    /// name arrived as a run of escapes. <c>UnicodeRanges.All</c> widens only that — the HTML-sensitive characters
+    /// (<c>&lt;</c>, <c>&gt;</c>, <c>&amp;</c>, <c>'</c>, <c>+</c>) are escaped exactly as before.</summary>
+    internal static readonly JsonWriterOptions Opts =
+        new() { Indented = true };
 
     /// <summary>The options every json response is written under, exposed so <see cref="CheckAccounting"/> measures
     /// its reserve against the same encoding it will be written in — measuring unindented what is written indented
@@ -125,7 +132,7 @@ static class JsonWire
         truncated = false;
         int cap = Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -138,7 +145,7 @@ static class JsonWire
             {
                 if (manifestOnly) break;   // to_file: the rows are the FILE
                 w.Flush();
-                if (ms.Length >= cap) { rowsTruncated = true; break; }
+                if (Chars(ms) >= cap) { rowsTruncated = true; break; }
                 WriteResolvedRow(w, r);
                 rendered++;
             }
@@ -194,7 +201,7 @@ static class JsonWire
     /// on both outcomes.</para></summary>
     internal static string RenderError(string error, OrderStamp? epoch)
     {
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -210,7 +217,7 @@ static class JsonWire
     static bool Over(Utf8JsonWriter w, MemoryStream ms, int cap)
     {
         w.Flush();
-        return ms.Length >= cap;
+        return Chars(ms) >= cap;
     }
 
     /// <summary>The post-write read-back block, one construction for all three write documents (apply / create /
@@ -317,7 +324,7 @@ static class JsonWire
         for (int i = 0; i < r.Fields.Count; i++)
         {
             w.Flush();
-            if (ms.Length >= cap)
+            if (Chars(ms) >= cap)
             {
                 w.WriteStartObject();
                 w.WriteString("path", "…");   // …
@@ -414,7 +421,7 @@ static class JsonWire
         // the flat cap and what is left of max_chars: a field object that silently doubled the response would be
         // invisible to the `truncated` flag the auto-spill trigger reads. Whatever is not listed is counted.
         w.Flush();
-        int room = (int)Math.Max(0, cap - ms.Length) / ChildUnionMemberBytes;
+        int room = Math.Max(0, cap - Chars(ms)) / ChildUnionMemberBytes;
         int listed = Math.Min(u.Members.Count, Math.Min(ChildUnionMemberCap, room));
         w.WriteStartArray("members");
         for (int i = 0; i < listed; i++) w.WriteStringValue(FormIdToken.Of(u.Members[i]));
@@ -500,7 +507,7 @@ static class JsonWire
         truncated = false;
         int cap = Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -516,7 +523,7 @@ static class JsonWire
             {
                 if (manifestOnly) break;   // to_file: the rows are the FILE
                 w.Flush();
-                if (ms.Length >= cap) { rowsTruncated = true; break; }
+                if (Chars(ms) >= cap) { rowsTruncated = true; break; }
                 var o = outcomes[i];
                 string? hit = matches is { } mt && i < mt.Count ? mt[i] : null;   // multi-target references= un-merge
                 if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", FormIdToken.Of(o.FormKey)); w.WriteString("error", o.Error); if (hit is not null) w.WriteString("matches", hit); w.WriteEndObject(); }
@@ -550,7 +557,7 @@ static class JsonWire
     /// collide with.</para></summary>
     public static string RenderCounts(IReadOnlyList<KeyValuePair<string, string>> envelope, int count, int ok, int errors, OrderStamp? epoch)
     {
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -569,7 +576,7 @@ static class JsonWire
     public static string RenderNamedCounts(IReadOnlyList<KeyValuePair<string, string>> envelope,
                                            IReadOnlyList<KeyValuePair<string, int>> counts, OrderStamp? epoch)
     {
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -592,7 +599,7 @@ static class JsonWire
         truncated = false;
         int cap = Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -605,7 +612,7 @@ static class JsonWire
             {
                 if (manifestOnly) break;
                 w.Flush();
-                if (ms.Length >= cap) { rowsTruncated = true; break; }
+                if (Chars(ms) >= cap) { rowsTruncated = true; break; }
                 w.WriteStartObject();
                 w.WriteString("formid", FormIdToken.Of(o.FormKey));
                 WriteRuntime(w, o.RuntimeFormId, o.RuntimeFormIdNote);
@@ -657,7 +664,7 @@ static class JsonWire
                                              int maxChars = 0, IReadOnlyList<string>? emptyGroups = null)
     {
         int cap = Cap(maxChars);
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -679,7 +686,7 @@ static class JsonWire
             foreach (var (key, n) in rows.Select(r => (r.Key, r.Value)))
             {
                 w.Flush();
-                if (ms.Length >= cap) { truncated = true; break; }
+                if (Chars(ms) >= cap) { truncated = true; break; }
                 w.WriteStartObject();
                 w.WriteString("key", key);
                 w.WriteNumber("count", n);
@@ -724,7 +731,7 @@ static class JsonWire
         foreach (var delta in d.Deltas)
         {
             w.Flush();
-            if (ms.Length >= cap) { cut = true; break; }
+            if (Chars(ms) >= cap) { cut = true; break; }
             w.WriteStringValue(delta);
             rendered++;
         }
@@ -749,7 +756,7 @@ static class JsonWire
         truncated = false;
         int cap = Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -764,7 +771,7 @@ static class JsonWire
             {
                 if (manifestOnly) break;
                 w.Flush();
-                if (ms.Length >= cap) { rowsTruncated = true; break; }
+                if (Chars(ms) >= cap) { rowsTruncated = true; break; }
                 WriteDeltaRow(w, row, ms, cap);
                 rendered++;
             }
@@ -812,7 +819,7 @@ static class JsonWire
             foreach (var cd in row.ChildDeclarers)
             {
                 w.Flush();
-                if (ms.Length >= cap)
+                if (Chars(ms) >= cap)
                 {
                     w.WriteStartObject();
                     w.WriteString("note", $"[child declarers cut at max_chars — raise max_chars or narrow with {lv.Fields}]");
@@ -834,7 +841,7 @@ static class JsonWire
         foreach (var n in row.Nodes)
         {
             w.Flush();
-            if (ms.Length >= cap)
+            if (Chars(ms) >= cap)
             {
                 w.WriteStartObject();
                 w.WriteString("note", $"[nodes truncated at max_chars — raise max_chars or narrow with {lv.Fields}]");
@@ -869,7 +876,7 @@ static class JsonWire
         truncated = false;
         int cap = Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -882,7 +889,7 @@ static class JsonWire
             {
                 if (manifestOnly) break;
                 w.Flush();
-                if (ms.Length >= cap) { rowsTruncated = true; break; }
+                if (Chars(ms) >= cap) { rowsTruncated = true; break; }
                 if (WriteTreeRow(w, row, ms, cap, levers)) rowsTruncated = true;
                 if (row.ChildDeclarers.Count > 0) anyDeclarers = true;
                 rendered++;
@@ -895,7 +902,7 @@ static class JsonWire
             // and the root close.
             w.Flush();
             bool leadOverCap = anyDeclarers
-                && ms.Length + TruncatedPropertyReserve + DeclarersLeadReserve + Framing.RootClose >= cap;
+                && Chars(ms) + TruncatedPropertyReserve + DeclarersLeadReserve + Framing.RootClose >= cap;
             if (leadOverCap) rowsTruncated = true;
             w.WriteBoolean("truncated", rowsTruncated);
             truncated = rowsTruncated;
@@ -926,7 +933,7 @@ static class JsonWire
         foreach (var n in row.Nodes)
         {
             w.Flush();
-            if (ms.Length >= cap)
+            if (Chars(ms) >= cap)
             {
                 w.WriteStartObject();
                 w.WriteString("note", "[nodes truncated at max_chars — raise max_chars, or to_file= for the complete walk]");
@@ -954,7 +961,7 @@ static class JsonWire
             foreach (var c in row.Cycles)
             {
                 w.Flush();
-                if (ms.Length >= cap)
+                if (Chars(ms) >= cap)
                 {
                     w.WriteStringValue($"[{row.Cycles.Count - written} more cycle(s) held back at max_chars — raise max_chars, or to_file= for the complete walk]");
                     cut = true;
@@ -995,7 +1002,7 @@ static class JsonWire
         truncated = false;
         int cap = Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -1008,7 +1015,7 @@ static class JsonWire
             {
                 if (manifestOnly) break;
                 w.Flush();
-                if (ms.Length >= cap) { rowsTruncated = true; break; }
+                if (Chars(ms) >= cap) { rowsTruncated = true; break; }
                 if (WriteChainRow(w, row, ms, cap)) rowsTruncated = true;   // a row that elided inside itself counts
                 rendered++;
             }
@@ -1032,7 +1039,7 @@ static class JsonWire
         outTruncated = false;
         int cap = Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -1045,7 +1052,7 @@ static class JsonWire
             {
                 if (manifestOnly) break;
                 w.Flush();
-                if (ms.Length >= cap) { truncated = true; break; }
+                if (Chars(ms) >= cap) { truncated = true; break; }
                 w.WriteStartObject();
                 w.WriteString("seed", seed);
                 if (r.Error is not null) { w.WriteString("error", r.Error); w.WriteEndObject(); continue; }
@@ -1057,7 +1064,7 @@ static class JsonWire
                 foreach (var row in r.Rows)
                 {
                     w.Flush();
-                    if (ms.Length >= cap) { truncated = true; break; }
+                    if (Chars(ms) >= cap) { truncated = true; break; }
                     w.WriteStartObject();
                     w.WriteString("formid", FormIdToken.Of(row.Carrier));
                     w.WriteString("type", row.Type);
@@ -1114,7 +1121,7 @@ static class JsonWire
         foreach (var e in io.Order)
         {
             w.Flush();
-            if (ms.Length >= cap)
+            if (Chars(ms) >= cap)
             {
                 w.WriteStartObject();
                 w.WriteString("note", "[order truncated at max_chars — raise max_chars]");
@@ -1145,7 +1152,7 @@ static class JsonWire
         truncated = false;
         int cap = Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -1158,7 +1165,7 @@ static class JsonWire
             {
                 if (manifestOnly) break;
                 w.Flush();
-                if (ms.Length >= cap) { rowsTruncated = true; break; }
+                if (Chars(ms) >= cap) { rowsTruncated = true; break; }
                 WriteInfoOrderRow(w, row, ms, cap);
                 rendered++;
             }
@@ -1192,7 +1199,7 @@ static class JsonWire
         truncated = false;
         int cap = Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -1221,7 +1228,7 @@ static class JsonWire
                 {
                     if (manifestOnly) break;   // to_file: the rows are the FILE
                     w.Flush();
-                    if (ms.Length >= cap) { gTrunc = true; break; }
+                    if (Chars(ms) >= cap) { gTrunc = true; break; }
                     w.WriteStartObject(); w.WriteString("key", g.Key); w.WriteNumber("count", g.Count); w.WriteEndObject();
                     gRendered++;
                 }
@@ -1253,7 +1260,7 @@ static class JsonWire
                 for (int i = 0; i < q.Keys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
                 {
                     w.Flush();
-                    if (ms.Length >= cap) { rowsTruncated = true; break; }
+                    if (Chars(ms) >= cap) { rowsTruncated = true; break; }
                     var fk = q.Keys[i];
                     string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
                     if (detail)
@@ -1339,7 +1346,7 @@ static class JsonWire
         truncated = false;
         int cap = Cap(maxChars);
         bool manifestOnly = spill?.ManifestOnly ?? false;
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -1391,7 +1398,7 @@ static class JsonWire
                 for (int i = 0; i < q.Keys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
                 {
                     w.Flush();
-                    if (ms.Length >= cap) { rowsTruncated = true; break; }
+                    if (Chars(ms) >= cap) { rowsTruncated = true; break; }
                     var fk = q.Keys[i];
                     string? matches = q.MatchedTargets is { } mt && i < mt.Count ? mt[i] : null;
                     if (detail)
@@ -1443,7 +1450,7 @@ static class JsonWire
                                 // The cap is per ROW, not per record: one record's element rows are unbounded, so
                                 // a check that only runs between records lets one blow past the caller's ceiling.
                                 w.Flush();
-                                if (ms.Length >= cap) { rowsTruncated = true; cut = true; break; }
+                                if (Chars(ms) >= cap) { rowsTruncated = true; cut = true; break; }
                                 w.WriteStartArray();
                                 w.WriteStringValue(r.FormKey);
                                 WriteCell(w, RuntimeCell(o.RuntimeFormId, o.RuntimeFormIdNote));
@@ -1731,7 +1738,7 @@ static class JsonWire
     /// needs these numbers reads them from this one measurement, so they cannot drift apart.</para></summary>
     static readonly WriterFraming Framing = MeasureFraming();
 
-    /// <summary>The three costs <see cref="MeasureFraming"/> reads off the writer, in bytes of the encoded
+    /// <summary>The three costs <see cref="MeasureFraming"/> reads off the writer, in characters of the encoded
     /// document.</summary>
     readonly record struct WriterFraming(int Open, int RootClose, int Separator);
 
@@ -1740,7 +1747,7 @@ static class JsonWire
     /// separator, and what the finished document holds above the still-open one is the root close.</summary>
     static WriterFraming MeasureFraming()
     {
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         int opened, first, second;
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -1752,7 +1759,7 @@ static class JsonWire
             second = Size(w, ms);
             w.WriteEndObject();
         }
-        return new WriterFraming(Open: opened, RootClose: (int)ms.Length - second,
+        return new WriterFraming(Open: opened, RootClose: Chars(ms) - second,
                                  Separator: (second - first) - (first - opened));
     }
 
@@ -1762,19 +1769,34 @@ static class JsonWire
     /// already has, plus the separator the notice owes for following the properties written before it.</summary>
     static int OverrunNoticeCost(string notice)
     {
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
             w.WriteString("max_chars_overrun", notice);
             w.WriteEndObject();
         }
-        return (int)ms.Length - (Framing.Open + Framing.RootClose) + Framing.Separator;
+        return Chars(ms) - (Framing.Open + Framing.RootClose) + Framing.Separator;
     }
 
-    /// <summary>The document's size so far, without flushing: committed bytes plus what the writer still holds.
-    /// Same number a flush per entry would give, at a price a per-entry budget test can afford.</summary>
-    static int Size(Utf8JsonWriter w, MemoryStream ms) => (int)(ms.Length + w.BytesPending);
+    /// <summary>The document's size so far, in the unit <c>max_chars</c> names — CHARACTERS, counted once in
+    /// <see cref="CharCountedStream"/> so every site the check family budgets, reserves and reports through measures
+    /// the same quantity the caller capped. Flushes first, because the writer buffers and what it still holds is
+    /// part of the document; the stream's counter is incremental, so the flush is all the per-entry test pays.</summary>
+    static int Size(Utf8JsonWriter w, MemoryStream ms)
+    {
+        w.Flush();
+        return Chars(ms);
+    }
+
+    /// <summary>What a json buffer holds, in CHARACTERS — the unit <c>max_chars</c> is stated in, and the one the
+    /// text lane budgets its StringBuilder against. The stream's own <c>Length</c> is UTF-8 BYTES, which agreed with
+    /// this only while the writer escaped every non-ASCII character to <c>\uXXXX</c> (#754). Every cap test, reserve
+    /// and length this renderer states comes through here, so no site can measure one unit and report the other. A
+    /// response buffer counts as it is written; anything else is counted on the spot, by the same conversion.</summary>
+    internal static int Chars(MemoryStream ms) =>
+        ms is CharCountedStream counted ? counted.Chars
+                                        : CharCountedStream.CountOf(ms.GetBuffer().AsSpan(0, (int)ms.Length));
 
     /// <summary>What <c>child_declarers_note</c> costs the document — <see cref="ReadSentences.DeclarersLead"/>'s
     /// own json-escaped bytes plus the property's separator, measured the same way <see cref="Framing"/> measures
@@ -1795,7 +1817,7 @@ static class JsonWire
     /// separator.</summary>
     static int MeasureRootProperty(Action<Utf8JsonWriter> write)
     {
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         int before, after;
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -1865,7 +1887,7 @@ static class JsonWire
     /// can measure both and leave the children it wrote in between uncounted.</param>
     internal static int MeasureUnit(int depth, bool subsequent, Func<Utf8JsonWriter, Func<int>, int> measure)
     {
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using var w = new Utf8JsonWriter(ms, Opts);
         w.WriteStartObject();
         for (int i = 2; i < depth; i++) w.WriteStartObject("n");
@@ -1883,7 +1905,7 @@ static class JsonWire
     /// <param name="depth">the depth of the object the member is written into.</param>
     static int MeasureMember(int depth, Action<Utf8JsonWriter> write)
     {
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using var w = new Utf8JsonWriter(ms, Opts);
         w.WriteStartObject();
         for (int i = 1; i < depth; i++) w.WriteStartObject("n");
@@ -1961,7 +1983,7 @@ static class JsonWire
 
         if (o.Error is not null)
         {
-            using var ems = new MemoryStream();
+            using var ems = new CharCountedStream();
             using (var ew = new Utf8JsonWriter(ems, Opts))
             {
                 ew.WriteStartObject();
@@ -1985,7 +2007,7 @@ static class JsonWire
         // whole of it.
         int fixedPart;
         {
-            using var sms = new MemoryStream();
+            using var sms = new CharCountedStream();
             var skeletonAccts = o.Accountings(cap);
             BoundedBody skeletonBody;
             using (var sw = new Utf8JsonWriter(sms, Opts))
@@ -1995,10 +2017,10 @@ static class JsonWire
                 Compose(sw, o, sections, skeletonAccts, skeletonBody, histogramLimit);
                 sw.WriteEndObject();
             }
-            fixedPart = (int)sms.Length - skeletonBody.ReservedWritten - skeletonBody.BodyTotal;
+            fixedPart = Chars(sms) - skeletonBody.ReservedWritten - skeletonBody.BodyTotal;
         }
 
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -2490,7 +2512,7 @@ static class JsonWire
     public static string RenderPatchOutcome(WritePatchBuilder.PatchOutcome o, int maxChars, bool readback, string lane)
     {
         int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -2623,7 +2645,7 @@ static class JsonWire
     public static string RenderCreateOutcome(WritePatchBuilder.CreateOutcome o, int maxChars, bool readback, string lane)
     {
         int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -2725,7 +2747,7 @@ static class JsonWire
     public static string RenderSeqOutcome(SeqOutcome o, int maxChars, string? outputNote = null)
     {
         int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -2806,7 +2828,7 @@ static class JsonWire
     public static string RenderRemovalOutcome(WritePatchBuilder.RemovalOutcome o, int maxChars, string lane)
     {
         int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -2868,7 +2890,7 @@ static class JsonWire
     public static string RenderForwardOutcome(WritePatchBuilder.ForwardOutcome o, int maxChars, bool readback, string lane)
     {
         int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -2968,7 +2990,7 @@ static class JsonWire
         // accounting line: room for their widest spelling is held back BEFORE the caveats and the rows write, rather
         // than appended past the cap.
         int budget = Math.Max(cap - AssetTailReserve(d, cap), 1);
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -3036,7 +3058,7 @@ static class JsonWire
     static int AssetTailReserve(AssetStatusData d, int cap)
     {
         var widest = AssetWire.Widest(d);
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
@@ -3050,7 +3072,7 @@ static class JsonWire
             WriteAssetAdvice(w, widest, cap, caveatsCut: true, everySentence: true);
             w.WriteEndObject();
         }
-        return (int)ms.Length;
+        return Chars(ms);
     }
 
     static void WriteAssetRow(Utf8JsonWriter w, AssetPathResult r, bool readIncomplete, bool discoveryIncomplete)
@@ -3104,7 +3126,7 @@ static class JsonWire
     public static string RenderPlaceOutcome(PlaceOutcome o, int maxChars, IReadOnlySet<string>? poleWithheld = null)
     {
         int cap = WriteSentences.Cap(maxChars);   // the WRITE budget rule, shared with the text twin
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();

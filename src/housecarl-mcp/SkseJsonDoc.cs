@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using HousecarlCore;
 
 namespace HousecarlMcp;
 
@@ -15,7 +16,7 @@ static class SkseJsonDoc
     internal static string Write(SkseTools.SkseFamily family, string? filter, string profile,
                                  Action<Utf8JsonWriter, MemoryStream> body)
     {
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, JsonWire.WriterOptions))
         {
             w.WriteStartObject();
@@ -68,12 +69,13 @@ static class SkseJsonDoc
         w.WriteEndObject();
     }
 
-    /// <summary>Is the document already at its char ceiling? The writer BUFFERS, so the stream length lags what has
-    /// been written — a row loop that budgets by stream length must flush first, as this does.</summary>
+    /// <summary>Is the document already at its char ceiling? Characters, not the bytes the stream holds — the same
+    /// count <see cref="JsonWire.Chars"/> gives every other json render. The writer BUFFERS, so what it still holds
+    /// is part of the document and a row loop that budgets by length must flush first, as this does.</summary>
     internal static bool Over(Utf8JsonWriter w, MemoryStream ms, int cap)
     {
         w.Flush();
-        return ms.Length >= cap;
+        return JsonWire.Chars(ms) >= cap;
     }
 
     /// <summary>The chars held back from max_chars for the tail every family document closes on — the caveats object,
@@ -84,7 +86,7 @@ static class SkseJsonDoc
     internal static int TailReserve(bool readIncomplete, IReadOnlyList<string> warnings, IReadOnlyList<string> bsaFailures,
                                     TransportCounts widest, Action<Utf8JsonWriter>? conditional = null)
     {
-        using var ms = new MemoryStream();
+        using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, JsonWire.WriterOptions))
         {
             w.WriteStartObject();
@@ -93,6 +95,6 @@ static class SkseJsonDoc
             TransportAccounting.WriteJson(w, widest);
             w.WriteEndObject();
         }
-        return (int)ms.Length;
+        return JsonWire.Chars(ms);
     }
 }
