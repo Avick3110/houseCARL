@@ -92,8 +92,9 @@ public static class PluginTextEncoding
     /// write instead of landing as <c>?</c>.</summary>
     public static readonly EncodingBundle LegacyBundle = new(StrictLegacy, StrictLegacy);
 
-    /// <summary>What each plugin's own strings decoded as, by filename. Written by the read, read by the write.</summary>
-    static readonly ConcurrentDictionary<string, LaneSink> Lanes =
+    /// <summary>What each plugin's own strings decoded as, by filename, against the file version it was resolved
+    /// from. Written by the read, read by the write.</summary>
+    static readonly ConcurrentDictionary<string, (string Stamp, LaneSink Sink)> Lanes =
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The read parameters for opening one plugin — an overlay or a mutable import. Per plugin, because the
@@ -109,9 +110,7 @@ public static class PluginTextEncoding
     /// the provider rather than pinned by an override: that is what keeps language selection untouched.</para></summary>
     public static BinaryReadParameters ReadWith(string pluginPath, StringsReadParameters? baseline)
     {
-        // A fresh sink per open, so a file replaced on disk is re-resolved rather than keeping the old answer.
-        var sink = new LaneSink();
-        Lanes[Path.GetFileName(pluginPath)] = sink;
+        var sink = SinkFor(pluginPath);
         var reader = new Utf8First(LanguageDefault, sink);
         return BinaryReadParameters.Default with
         {
@@ -123,10 +122,38 @@ public static class PluginTextEncoding
         };
     }
 
+    /// <summary>The lane record for one open. It is shared by every open of the SAME file version and only replaced
+    /// when the file changes, because reads are lazy: a header-only overlay open — asking whether a plugin is
+    /// localized, say — decodes no strings at all, and a fresh sink per open would let it erase a lane an eager read
+    /// had already resolved. The in-place write has no second pass to recover from that, so it would rewrite a UTF-8
+    /// plugin in the language default without a word.
+    ///
+    /// <para>The version is the file's last-write time and length, the same cheap stamp the resolver's freshness
+    /// check uses — so a file edited on disk is re-resolved rather than keeping the old answer. A stat that fails
+    /// (the file locked mid-write, or gone) keeps whatever is recorded: losing a resolved lane is the one outcome
+    /// with teeth.</para></summary>
+    static LaneSink SinkFor(string pluginPath)
+    {
+        var name = Path.GetFileName(pluginPath);
+        string? stamp;
+        try
+        {
+            var fi = new FileInfo(pluginPath);
+            stamp = fi.LastWriteTimeUtc.Ticks + ":" + fi.Length;
+        }
+        catch { stamp = null; }
+
+        if (Lanes.TryGetValue(name, out var have) && (stamp is null || have.Stamp == stamp)) return have.Sink;
+        if (stamp is null) return new LaneSink();          // nothing recorded and no stamp: this open answers for itself
+        var fresh = new LaneSink();
+        Lanes[name] = (stamp, fresh);
+        return fresh;
+    }
+
     /// <summary>What the read resolved that plugin's own bytes to be, or <see cref="PluginTextLane.AsciiOnly"/> for a
     /// plugin nothing has read a non-ASCII string out of.</summary>
     public static PluginTextLane LaneOf(string pluginNameOrPath)
-        => Lanes.TryGetValue(Path.GetFileName(pluginNameOrPath), out var s) ? s.Lane : PluginTextLane.AsciiOnly;
+        => Lanes.TryGetValue(Path.GetFileName(pluginNameOrPath), out var s) ? s.Sink.Lane : PluginTextLane.AsciiOnly;
 
     /// <summary>The encodings an IN-PLACE write embeds: the lane the read of that same file resolved to, so a UTF-8
     /// plugin comes back UTF-8 and a Windows-1252 one comes back Windows-1252, both byte-identical where the write
@@ -182,7 +209,10 @@ public static class PluginTextEncoding
 
     /// <summary>Unwrap a serialize-boundary throw to the unspellable-value failure inside it, or null. Mutagen runs
     /// record writes through a PARALLEL path, so the same throw surfaces bare or wrapped in one or more
-    /// <see cref="AggregateException"/>s — the same shape <c>WriteEngine.RootNullArm</c> normalizes.</summary>
+    /// <see cref="AggregateException"/>s — the same shape <c>WriteEngine.RootNullArm</c> normalizes, and it takes the
+    /// same rule: re-stamp only when EVERY leaf is this failure. One unspellable value beside an unresolvable master
+    /// is not an encoding refusal, and answering as one would hand the caller a "write it into a new patch instead"
+    /// remedy that does not fix the other half.</summary>
     public static UnspellableTextException? RootUnspellable(Exception ex)
     {
         static UnspellableTextException? Root(Exception e)
@@ -196,9 +226,15 @@ public static class PluginTextEncoding
         }
         if (ex is AggregateException agg)
         {
-            foreach (var leaf in agg.Flatten().InnerExceptions)
-                if (Root(leaf) is { } u) return u;
-            return null;
+            var leaves = agg.Flatten().InnerExceptions;
+            if (leaves.Count == 0) return null;
+            UnspellableTextException? first = null;
+            foreach (var leaf in leaves)
+            {
+                if (Root(leaf) is not { } u) return null;   // a leaf that is something else → not purely this failure
+                first ??= u;
+            }
+            return first;
         }
         return Root(ex);
     }

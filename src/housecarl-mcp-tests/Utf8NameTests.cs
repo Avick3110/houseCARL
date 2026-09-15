@@ -54,7 +54,11 @@ public sealed class Utf8NameTests : IDisposable
         var mods = Path.Combine(_instance, "mods");
 
         (_inlineWeapon, _inlineLatinWeapon) = WriteInline(NewDir(mods, "InlineMod"));
-        _tableWeapon = WriteLocalized(NewDir(mods, "TableMod"));
+        var tableDir = NewDir(mods, "TableMod");
+        _tableWeapon = WriteLocalized(tableDir);
+        // Owned, so the extend lane will resolve into=<the localized plugin> and reach the write rather than stopping
+        // at the ownership gate — which is the only way to put a localized mod in front of the patch write.
+        File.WriteAllText(Path.Combine(tableDir, "meta.ini"), HousecarlOwnerMeta.Section + "\r\ngenerated=true\r\n");
         _latinWeapon = WriteLatin(NewDir(mods, "LatinMod"));
         _utf8LatinWeapon = WriteUtf8Latin(NewDir(mods, "AccentMod"));
 
@@ -311,6 +315,39 @@ public sealed class Utf8NameTests : IDisposable
         Assert.Contains(LatinName, ReadName(_latinWeapon));
     }
 
+    /// <summary>Reads are lazy, so an open that decodes NO strings — asking whether a plugin is localized reads the
+    /// header and stops — must not erase the lane an earlier full read resolved. The in-place write has no second
+    /// pass to recover with: it would take the file for the language default and flip every <c>é</c> in a UTF-8
+    /// translation ESP, silently.</summary>
+    [Fact]
+    public void AHeaderOnlyOpenDoesNotCostAFileTheLaneItsFullReadResolved()
+    {
+        var path = PluginPath("AccentMod", Utf8LatinName);
+        Assert.Contains(LatinName, ReadName(_utf8LatinWeapon));                     // the full read resolves the lane
+        Assert.Equal(LocalizedFlagRead.NotLocalized, WriteEngine.PluginIsLocalized(path));   // …a header-only open
+        Assert.Equal(PluginTextLane.Utf8, PluginTextEncoding.LaneOf(Utf8LatinName));
+
+        Assert.DoesNotContain("error:", Edit(_utf8LatinWeapon, in_place: Utf8LatinName));
+        Assert.True(FileHolds(path, LatinName), "the accented name is no longer UTF-8");
+        Assert.False(FileHoldsBytes(path, Cp1252.GetBytes(LatinName)), "the accented name was flipped to 1252");
+    }
+
+    /// <summary>A LOCALIZED output. Mutagen writes its text into .STRINGS tables through its own strings writer,
+    /// which the embedded encodings never reach — so the strict encoder cannot see the value and a Japanese name
+    /// would land in the table as <c>?</c>. The patch lane refuses such an output rather than writing it.</summary>
+    [Fact]
+    public void ALocalizedPatchOutputIsRefusedRatherThanWritingQuestionMarksToItsTables()
+    {
+        var r = ApplyTools.Apply(_svc,
+            ops: Je($@"[{{""formid"":""{Fid(_tableWeapon)}"",""field_path"":""Name"",""op"":""Set"",""value"":""{JapaneseName}""}}]"),
+            into: TableName);
+
+        Assert.StartsWith("error:", r);
+        Assert.Contains("LOCALIZED", r);
+        Assert.Contains(".STRINGS", r);
+        Assert.DoesNotContain("Exception", r);       // the exception's own sentence, not a type name behind a lead
+    }
+
     /// <summary>A value no contributing plugin's lane can spell, typed into a NEW file. A new file has no bytes to
     /// preserve, so the strict encoder's refusal is not the answer — the answer is to write the whole thing as UTF-8.
     /// Before this the name landed as <c>?</c> and nothing said so.</summary>
@@ -340,6 +377,8 @@ public sealed class Utf8NameTests : IDisposable
             in_place: LatinPluginName, acknowledge: true);
 
         Assert.StartsWith("error:", r);
+        Assert.DoesNotContain("Exception", r);                     // its own sentence, not a type name behind a lead
+        Assert.DoesNotContain("serialize or commit", r);           // …and not attributed to a phase that never ran
         Assert.Contains("エ", r);                                  // the character it cannot spell
         Assert.Contains("U+30A8", r);                              // …and its codepoint, so the sentence is actionable
         Assert.Contains("Windows-1252", r);

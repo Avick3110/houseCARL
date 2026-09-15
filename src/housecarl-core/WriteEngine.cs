@@ -1640,6 +1640,20 @@ public static class WriteEngine
         if (!string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException(
                 $"Output filename '{actual}' must match patch ModKey filename '{expected}'.");
+
+        // A LOCALIZED output, which the extend lane reaches by adding to an existing localized plugin. Mutagen writes
+        // a localized mod's text into .STRINGS tables beside the plugin, through its own strings writer — which the
+        // embedded encodings below do not reach, so the strict encoder never sees those values and a name it cannot
+        // spell lands as '?' with nothing to say so. The staged temp also holds the tables while the atomic swap moves
+        // only the plugin, so they would be left behind anyway. Refused here, before the staging directory exists, the
+        // same way the in-place lane refuses every localized target.
+        if (patchMod.UsingLocalization)
+            throw LocalizedTargetUnsupportedException.FromSentence(
+                $"houseCARL did not write '{expected}' — the file is unchanged and nothing was staged. It is flagged "
+                + "LOCALIZED, so its text lives in separate .STRINGS files that houseCARL cannot write as one set with "
+                + "the plugin. Write these edits into a fresh patch instead (drop into=), which carries its text inside "
+                + "the plugin.");
+
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         // Hand Mutagen the FULL load order (every overlay, priority order) so it can resolve + ORDER every referenced
         // master. WithLoadOrderFromHeaderMasters() can't serve a freshly-built cross-master patch: the header doesn't
