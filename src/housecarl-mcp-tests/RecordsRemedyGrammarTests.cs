@@ -95,7 +95,7 @@ public sealed class RecordsRemedyGrammarTests : RecordsTestBase
         var outcomes = Svc.ResolveBatch(new[] { Fid(W.SpellA) }, new[] { "Effects" }, false, 2,
                                         containerHint: LeverNames.Records.ContainerHint);
         var cap = W.Scratch("cap-batch.jsonl");
-        Artifacts.WriteBatch(outcomes, cap, "to_file", Array.Empty<KeyValuePair<string, string>>(),
+        Artifacts.WriteBatch(outcomes, ArtifactTarget.Named(cap), "to_file", Array.Empty<KeyValuePair<string, string>>(),
                              LeverNames.Records, rowCap: 40);
         RowNoteSpeaksTheCallersVocabulary(
             RemedyHarvest.HarvestArtifact(cap).FirstOrDefault(s => s.Contains("[truncated at max_chars:")));
@@ -106,7 +106,7 @@ public sealed class RecordsRemedyGrammarTests : RecordsTestBase
     {
         var q = Svc.CrossQuery(new[] { "SPEL" }, null, null, false, null, null, 500);
         var cap = W.Scratch("cap-cross.jsonl");
-        Artifacts.WriteCrossQuery(Svc, q, new[] { "Effects" }, false, false, 2, cap, "to_file",
+        Artifacts.WriteCrossQuery(Svc, q, new[] { "Effects" }, false, false, 2, ArtifactTarget.Named(cap), "to_file",
                                   Array.Empty<KeyValuePair<string, string>>(), LeverNames.Records, rowCap: 40);
         RowNoteSpeaksTheCallersVocabulary(
             RemedyHarvest.HarvestArtifact(cap).FirstOrDefault(s => s.Contains("[truncated at max_chars:")));

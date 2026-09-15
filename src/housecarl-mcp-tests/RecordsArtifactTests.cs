@@ -61,13 +61,13 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     }
 
     /// <summary>The stamp population read out of the writer's own source rather than listed here: every
-    /// <c>writer.Save(path, …)</c> call site in <c>Artifacts.cs</c> must pass the <c>ToolNames</c> constant, not
+    /// <c>writer.Save(target, …)</c> call site in <c>Artifacts.cs</c> must pass the <c>ToolNames</c> constant, not
     /// a literal, so a new writer is covered without an edit here.</summary>
     [Fact]
     public void EveryArtifactWritersProvenanceStampInterpolatesTheToolNameConstant()
     {
         var src = File.ReadAllText(Path.Combine(HarnessPaths.RepoRoot, "src", "housecarl-mcp", "Artifacts.cs"));
-        var sites = Regex.Matches(src, @"writer\.Save\(path,\s*([^,]+),");
+        var sites = Regex.Matches(src, @"writer\.Save\(target,\s*([^,]+),");
 
         Assert.True(sites.Count >= 8, $"only {sites.Count} writer.Save sites found — the scan went vacuous");
         foreach (Match m in sites)
@@ -474,6 +474,56 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         Assert.True(File.Exists(doc.GetProperty("spilled").GetProperty("path").GetString()!));
     }
 
+    /// <summary>A scanner that opens every file the results directory gains and holds it WITHOUT share-delete —
+    /// how an indexer opens a file it just saw appear — cannot stop a spill landing: the reservation holds its own
+    /// file open until the artifact is written, so there is no moment for a foreign handle to take (#766).</summary>
+    [Fact]
+    public void AnAutoSpillLandsWhileAScannerGrabsEveryFileTheResultsDirectoryGains()
+    {
+        using var d = OwnResults("scanner-holds");
+        using (var scanner = new GrabbingScanner(d.Dir))
+        {
+            var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, max_chars: TinyScan);
+            Assert.Contains("spilled:", r);
+            Assert.DoesNotContain("could NOT be written", r);
+        }
+        Assert.Equal(WeaponTotal, ManifestOf(TheSpill(d)).RowCount);
+    }
+
+    /// <summary>Holds a read handle on every file appearing in a directory, sharing everything BUT delete — the
+    /// handle a replace-move onto the file fails against.</summary>
+    sealed class GrabbingScanner : IDisposable
+    {
+        readonly FileSystemWatcher _watcher;
+        readonly List<FileStream> _held = new();
+
+        public GrabbingScanner(string dir)
+        {
+            _watcher = new FileSystemWatcher(dir) { EnableRaisingEvents = true };
+            _watcher.Created += (_, e) =>
+            {
+                var deadline = DateTime.UtcNow.AddSeconds(5);
+                while (DateTime.UtcNow < deadline)
+                {
+                    try
+                    {
+                        var fs = new FileStream(e.FullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        lock (_held) _held.Add(fs);
+                        return;
+                    }
+                    catch (IOException) { /* held exclusively — keep trying, which is the scanner's own behaviour */ }
+                    catch (UnauthorizedAccessException) { return; }
+                }
+            };
+        }
+
+        public void Dispose()
+        {
+            _watcher.Dispose();
+            lock (_held) foreach (var f in _held) f.Dispose();
+        }
+    }
+
     [Fact]
     public void TheBodyLaneAutoSpillsItsCompleteRowsWhenTheRenderIsTruncated()
     {
@@ -706,7 +756,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
             jw.WriteNumber("count", 1);
             jw.WriteEndObject();
         });
-        var (_, err) = w.Save(p, ToolNames.Records, Array.Empty<KeyValuePair<string, string>>(),
+        var (_, err) = w.Save(ArtifactTarget.Named(p), ToolNames.Records, Array.Empty<KeyValuePair<string, string>>(),
                               identity: null, new[] { "key", "count" }, "count desc, then key asc", 1, W.Epoch0!);
         Assert.Null(err);
         return p;
@@ -924,7 +974,7 @@ public sealed class RecordsArtifactRoundTripTests : IDisposable
         {
             jw.WriteStartObject(); jw.WriteString("formid", "000002:A.esp"); jw.WriteString("type", "Armor"); jw.WriteEndObject();
         }, "Armor");
-        var (m, err) = w.Save(p, ToolNames.Records, new List<KeyValuePair<string, string>> { new("type", "WEAP") },
+        var (m, err) = w.Save(ArtifactTarget.Named(p), ToolNames.Records, new List<KeyValuePair<string, string>> { new("type", "WEAP") },
                               "formid", new[] { "formid", "type" }, "input order", 2, Epoch);
         return (p, err, m);
     }
@@ -970,7 +1020,7 @@ public sealed class RecordsArtifactRoundTripTests : IDisposable
     }
 }
 
-/// <summary>The results store's own contracts: reservation, release, and the write-time age prune.</summary>
+/// <summary>The results store's own contracts: reservation, disposal, and the write-time age prune.</summary>
 [Trait("tier", "unit")]
 public sealed class RecordsArtifactResultsStoreTests : IDisposable
 {
@@ -997,7 +1047,7 @@ public sealed class RecordsArtifactResultsStoreTests : IDisposable
     public void ASpillOlderThanThePruneWindowIsDeletedAtTheNextWrite()
     {
         var old = Aged("stale-spill.jsonl", ResultsStore.PruneAfterDays + 1);
-        ResultsStore.NextPath(ToolNames.Records, "0123456789abcdef");
+        using var r = ResultsStore.Reserve(ToolNames.Records, "0123456789abcdef");
         Assert.False(File.Exists(old));
     }
 
@@ -1005,34 +1055,43 @@ public sealed class RecordsArtifactResultsStoreTests : IDisposable
     public void AFreshSpillSurvivesTheSameWriteTimePrune()
     {
         var fresh = Aged("fresh-spill.jsonl", 0);
-        ResultsStore.NextPath(ToolNames.Records, "0123456789abcdef");
+        using var r = ResultsStore.Reserve(ToolNames.Records, "0123456789abcdef");
         Assert.True(File.Exists(fresh));
     }
 
     [Fact]
     public void SameSecondReservationsGetDistinctNamesBecauseReservingCreatesTheFile()
     {
-        var p1 = ResultsStore.NextPath(ToolNames.Records, "0123456789abcdef");
-        var p2 = ResultsStore.NextPath(ToolNames.Records, "0123456789abcdef");
-        Assert.NotEqual(p1, p2);
-        Assert.True(File.Exists(p1));
-        Assert.True(File.Exists(p2));
+        using var r1 = ResultsStore.Reserve(ToolNames.Records, "0123456789abcdef");
+        using var r2 = ResultsStore.Reserve(ToolNames.Records, "0123456789abcdef");
+        Assert.NotEqual(r1.Path, r2.Path);
+        Assert.True(File.Exists(r1.Path));
+        Assert.True(File.Exists(r2.Path));
     }
 
     [Fact]
-    public void ReleaseCleansAFailedSpillsReservation()
+    public void AReservationNoSpillWroteIsDeletedWhenItIsDisposed()
     {
-        var p = ResultsStore.NextPath(ToolNames.Records, "0123456789abcdef");
-        ResultsStore.Release(p);
+        string p;
+        using (var r = ResultsStore.Reserve(ToolNames.Records, "0123456789abcdef")) p = r.Path;
         Assert.False(File.Exists(p));
     }
 
+    /// <summary>The reservation holds its file exclusively until the write lands, so no scanner or indexer can be
+    /// holding a handle on it when the artifact is written — the race #766 was.</summary>
     [Fact]
-    public void AnOldOrphanedWriterTempIsPrunedLikeAnyStaleSpill()
+    public void NothingElseCanOpenAReservedFileWhileTheSpillIsBeingWritten()
     {
-        var orphan = Aged("half-written.jsonl.tmp-deadbeef", ResultsStore.PruneAfterDays + 1);
-        ResultsStore.Release(ResultsStore.NextPath(ToolNames.Records, "0123456789abcdef"));
-        Assert.False(File.Exists(orphan));
+        using var r = ResultsStore.Reserve(ToolNames.Records, "0123456789abcdef");
+        Assert.Throws<IOException>(() => new FileStream(r.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
+
+        using var w = new ResultArtifact.Writer();
+        w.WriteRow((jw, _) => { jw.WriteStartObject(); jw.WriteString("formid", "000001:A.esp"); jw.WriteEndObject(); });
+        var (m, err) = w.Save(r, ToolNames.Records, Array.Empty<KeyValuePair<string, string>>(), "formid",
+                              new[] { "formid" }, "input order", 1, "0123456789abcdef");
+        Assert.Null(err);
+        Assert.Equal(1, m!.RowCount);
+        Assert.True(ResultArtifact.LooksLikeArtifact(File.ReadAllText(r.Path)));
     }
 }
 

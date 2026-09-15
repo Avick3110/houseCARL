@@ -1,3 +1,5 @@
+using HousecarlCore;
+
 namespace HousecarlMcp;
 
 /// <summary>The server-managed directory for auto-spilled result artifacts; a caller-named <c>to_file=</c>
@@ -23,12 +25,12 @@ static class ResultsStore
     /// <summary>Test seam: point the store at a temp directory. Never set in production code paths.</summary>
     public static string? OverrideDirForTests;
 
-    /// <summary>Reserve a fresh artifact path for an auto-spill from <paramref name="tool"/> at build
-    /// <paramref name="epoch"/>, pruning old spills on the way. The reservation must stay atomic — the file is
-    /// created empty with <c>FileMode.CreateNew</c> rather than probed with File.Exists, because parallel tool
-    /// calls would otherwise hand two same-second spills the same path. A failed spill releases its reservation
-    /// via <see cref="Release"/>.</summary>
-    public static string NextPath(string tool, string epoch)
+    /// <summary>Reserve a fresh artifact file for an auto-spill from <paramref name="tool"/> at build
+    /// <paramref name="epoch"/>, pruning old spills on the way. The reservation IS the file: it is created with
+    /// <c>FileMode.CreateNew</c> — rather than probed with File.Exists, because parallel tool calls would otherwise
+    /// hand two same-second spills the same path — and the exclusive handle stays OPEN, so nothing can come between
+    /// the name claim and the write the spill makes through it. The caller disposes the reservation.</summary>
+    public static ArtifactTarget Reserve(string tool, string epoch)
     {
         var dir = Dir;
         // Best-effort: a throw here would surface as a generic tool error and eat the valid truncated response.
@@ -42,30 +44,22 @@ static class ResultsStore
             var path = n == 1 ? basePath + ".jsonl" : $"{basePath}-{n}.jsonl";
             try
             {
-                using (new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
-                return path;   // reserved: this call owns the name
+                var held = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                return ArtifactTarget.Reserved(path, held);   // reserved: this call owns the name and the handle
             }
             catch (IOException) when (File.Exists(path)) { /* taken — try the next counter */ }
-            catch (Exception) { return path; }   // non-collision failure (bad dir, permissions) — Save names it loud
+            catch (Exception) { return ArtifactTarget.Named(path); }   // bad dir, permissions — Save names it loud
         }
     }
 
-    /// <summary>Delete a reservation whose spill failed, best-effort — the failure is already named in the
-    /// response, and the empty leftover would otherwise linger until the age prune.</summary>
-    public static void Release(string path)
-    {
-        try { File.Delete(path); } catch (Exception) { }
-    }
-
-    /// <summary>Delete spilled artifacts older than <see cref="PruneAfterDays"/> days, plus orphaned Writer temps
-    /// (<c>*.jsonl.tmp-*</c>) a crash mid-write can strand. Best-effort per file — pruning is hygiene, not
-    /// correctness; epoch-checked re-entry is what protects against stale artifacts.</summary>
+    /// <summary>Delete spilled artifacts older than <see cref="PruneAfterDays"/> days. Best-effort per file —
+    /// pruning is hygiene, not correctness; epoch-checked re-entry is what protects against stale artifacts.</summary>
     static void Prune(string dir)
     {
         var cutoff = DateTime.UtcNow.AddDays(-PruneAfterDays);
         try
         {
-            foreach (var f in Directory.EnumerateFiles(dir, "*.jsonl").Concat(Directory.EnumerateFiles(dir, "*.jsonl.tmp-*")))
+            foreach (var f in Directory.EnumerateFiles(dir, "*.jsonl"))
                 try { if (File.GetLastWriteTimeUtc(f) < cutoff) File.Delete(f); }
                 catch (IOException) { /* locked/raced — next write retries */ }
                 catch (UnauthorizedAccessException) { /* same */ }

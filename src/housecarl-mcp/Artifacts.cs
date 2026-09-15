@@ -123,7 +123,7 @@ internal static class Artifacts
     public static (SpillInfo? Spill, string? Error) WriteCrossQuery(
         LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields,
         bool resolveNames, bool winnerFields, int depth,
-        string path, string reason, IReadOnlyList<KeyValuePair<string, string>> query,
+        ArtifactTarget target, string reason, IReadOnlyList<KeyValuePair<string, string>> query,
         LeverNames? levers = null, int rowCap = int.MaxValue, FoldPlan? fold = null,
         CancellationToken ct = default)
     {
@@ -193,12 +193,12 @@ internal static class Artifacts
 
         renderClock?.Stop();
         // The manifest stamps which tool wrote the artifact; see WriteResolve for why it names records.
-        var (manifest, err) = writer.Save(path, ToolNames.Records, query, identity, schema, sort,
+        var (manifest, err) = writer.Save(target, ToolNames.Records, query, identity, schema, sort,
                                           q.Groups is not null ? q.Groups.Count : q.Total, q.Epoch ?? "",
                                           CrossQueryNotes(q, fields, winnerFields, annotated, levers));
         return err is not null
             ? (null, err)
-            : (new SpillInfo(path, manifest!, reason) { RenderMs = renderClock?.ElapsedMilliseconds }, null);
+            : (new SpillInfo(target.Path, manifest!, reason) { RenderMs = renderClock?.ElapsedMilliseconds }, null);
     }
 
     /// <summary>The response-level statement that an artifact's annotated rows depend on. An artifact is re-entered
@@ -250,7 +250,7 @@ internal static class Artifacts
     /// <paramref name="outcomes"/> and carries the multi-target references= un-merge, so a spilled body-lane row says
     /// which target it hit exactly as the inline render does (#576).</summary>
     public static (SpillInfo? Spill, string? Error) WriteBatch(
-        IReadOnlyList<ReadOutcome> outcomes, string path, string reason, IReadOnlyList<KeyValuePair<string, string>> query,
+        IReadOnlyList<ReadOutcome> outcomes, ArtifactTarget target, string reason, IReadOnlyList<KeyValuePair<string, string>> query,
         LeverNames? levers = null, int rowCap = int.MaxValue, IReadOnlyList<string?>? matches = null)
     {
         using var writer = new ResultArtifact.Writer();
@@ -272,81 +272,81 @@ internal static class Artifacts
         // and such an artifact refuses epoch-checked re-entry against any build.
         var epoch = outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? "";
         // The manifest's tool stamp; see WriteResolve.
-        var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
+        var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
                                           new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "matches?", "fields" },
                                           "input order", outcomes.Count, epoch, OwnedChildNotes(AnnotatedFields(outcomes)));
-        return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
+        return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
     /// <summary>Build and save the artifact for an identity result — one row per input, in input order, the json
     /// render's exact rows, per-item errors included.</summary>
     public static (SpillInfo? Spill, string? Error) WriteResolve(
-        IReadOnlyList<ResolvedRef> rows, string epoch, string path, string reason, IReadOnlyList<KeyValuePair<string, string>> query)
+        IReadOnlyList<ResolvedRef> rows, string epoch, ArtifactTarget target, string reason, IReadOnlyList<KeyValuePair<string, string>> query)
     {
         using var writer = new ResultArtifact.Writer();
         foreach (var r in rows)
             writer.WriteRow((w, _) => JsonWire.WriteResolvedRow(w, r), r.Resolved ? r.Type : null);
         // The manifest records which tool wrote the artifact, and a re-entry refusal reads it back and prints it.
         // It must name a tool the surface still has, or the refusal quotes a dead name.
-        var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
+        var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
                                           new[] { "formid", "type", "editorid", "name", "winner" },
                                           "input order", rows.Count, epoch);
-        return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
+        return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
     /// <summary>Build and save the artifact for a delta result — one row per input, in input order, exactly the
     /// rows the json render emits. Per-item refusals are included: dropping one would make the file claim a
     /// cleaner comparison than the call returned.</summary>
     public static (SpillInfo? Spill, string? Error) WriteDelta(
-        IReadOnlyList<LoadOrderService.DeltaRow> rows, string? epoch, string path, string reason,
+        IReadOnlyList<LoadOrderService.DeltaRow> rows, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
     {
         using var writer = new ResultArtifact.Writer();
         foreach (var row in rows)
             writer.WriteRow((w, ms) => JsonWire.WriteDeltaRow(w, row, ms, int.MaxValue),
                             row.Error is null ? row.Subject?.RecordType : null);
-        var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
+        var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
                                           new[] { "formid", "type", "editorid", "subject", "reference", "stack_above?", "note?", "complete", "deltas", "delta_count", "no_verdict_count", "agreed_count" },
                                           "input order", rows.Count, epoch ?? "");
-        return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
+        return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
     /// <summary>Build and save the artifact for a tree result — the row form that makes trees spillable: one row
     /// per record, the provider stack with per-node deltas, exactly the json render's rows.</summary>
     public static (SpillInfo? Spill, string? Error) WriteTree(
-        IReadOnlyList<LoadOrderService.TreeRow> rows, string? epoch, string path, string reason,
+        IReadOnlyList<LoadOrderService.TreeRow> rows, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
     {
         using var writer = new ResultArtifact.Writer();
         foreach (var row in rows)
             writer.WriteRow((w, ms) => JsonWire.WriteTreeRow(w, row, ms, int.MaxValue, LeverNames.Records),
                             row.Error is null ? row.Type : null);   // a records-only artifact: the rows speak the records vocabulary
-        var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
+        var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
                                           new[] { "formid", "type", "editorid", "reference", "touchers", "child_declarers?", "nodes" },
                                           "input order", rows.Count, epoch ?? "", PreciseChildNotes(rows));
-        return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
+        return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
     /// <summary>Build and save the artifact for a chain result — one row per seed, in input order, exactly the
     /// json render's rows: nodes with provenance, cycles, truncation notes, the template report.</summary>
     public static (SpillInfo? Spill, string? Error) WriteChain(
-        IReadOnlyList<LoadOrderService.WalkSeedResult> rows, string? epoch, string path, string reason,
+        IReadOnlyList<LoadOrderService.WalkSeedResult> rows, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
     {
         using var writer = new ResultArtifact.Writer();
         foreach (var row in rows)
             writer.WriteRow((w, ms) => { JsonWire.WriteChainRow(w, row, ms, int.MaxValue); },
                             row.Error is null ? row.Type : null);
-        var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
+        var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
                                           new[] { "formid", "type", "editorid", "nodes", "cycles?", "truncation?", "template_inheritance?" },
                                           "input order", rows.Count, epoch ?? "");
-        return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
+        return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
     /// <summary>Build and save the artifact for the reverse MGEF walk — one row per (seed, carrier) with the
     /// matching entry's payload. A failed seed is an identity-less error row.</summary>
     public static (SpillInfo? Spill, string? Error) WriteEffectChains(
-        IReadOnlyList<(string Seed, EffectChainResult Result)> results, string? epoch, string path, string reason,
+        IReadOnlyList<(string Seed, EffectChainResult Result)> results, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
     {
         using var writer = new ResultArtifact.Writer();
@@ -379,26 +379,26 @@ internal static class Artifacts
                 total++;
             }
         }
-        var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
+        var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
                                           new[] { "seed", "formid", "type", "editorid", "winner", "effect_index", "effect_count", "magnitude", "area", "duration" },
                                           "seed order, then carrier scan order", total, epoch ?? "");
-        return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
+        return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
     /// <summary>Build and save the artifact for an info_order result — one row per topic, in input order, exactly
     /// the json render's rows, with the confidence gates carried as data and per-item errors included.</summary>
     public static (SpillInfo? Spill, string? Error) WriteInfoOrder(
-        IReadOnlyList<LoadOrderService.InfoOrderRow> rows, string? epoch, string path, string reason,
+        IReadOnlyList<LoadOrderService.InfoOrderRow> rows, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
     {
         using var writer = new ResultArtifact.Writer();
         foreach (var row in rows)
             writer.WriteRow((w, ms) => JsonWire.WriteInfoOrderRow(w, row, ms, int.MaxValue),
                             row.Error is null ? row.Type : null);
-        var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
+        var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
                                           new[] { "formid", "type", "editorid", "winner", "contested", "complete", "moves_computed", "baseline_trusted", "contributing", "unread?", "note?", "moved_count", "order" },
                                           "input order", rows.Count, epoch ?? "");
-        return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
+        return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
     /// <summary>Append the whole SpillState to a text response: the spilled block, or the failed-spill warning. A
