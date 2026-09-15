@@ -736,22 +736,9 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
 [Trait("tier", "integration")]
 public sealed class RecordsArtifactEpochTests : IDisposable
 {
-    readonly RecordsWorld _w = new();
-    readonly string? _priorResultsDir;
+    readonly RecordsWorld _w = new();   // which already owns the auto-spill directory these tests write into
 
-    public RecordsArtifactEpochTests()
-    {
-        _priorResultsDir = ResultsStore.OverrideDirForTests;
-        var dir = Path.Combine(_w.Root, "server-results");
-        Directory.CreateDirectory(dir);
-        ResultsStore.OverrideDirForTests = dir;
-    }
-
-    public void Dispose()
-    {
-        ResultsStore.OverrideDirForTests = _priorResultsDir;
-        _w.Dispose();
-    }
+    public void Dispose() => _w.Dispose();
 
     string[] Ids => _w.Weapons.Select(RecordsWorld.Fid).ToArray();
     static RecordsTools.RecordsProject Identity => new() { form = "identity" };
@@ -988,18 +975,13 @@ public sealed class RecordsArtifactRoundTripTests : IDisposable
 public sealed class RecordsArtifactResultsStoreTests : IDisposable
 {
     readonly string _dir = Path.Combine(Path.GetTempPath(), "hc-artifact-store-" + Guid.NewGuid().ToString("N"));
-    readonly string? _prior;
+    readonly ResultsDirScope _results;
 
-    public RecordsArtifactResultsStoreTests()
-    {
-        Directory.CreateDirectory(_dir);
-        _prior = ResultsStore.OverrideDirForTests;
-        ResultsStore.OverrideDirForTests = _dir;
-    }
+    public RecordsArtifactResultsStoreTests() => _results = new ResultsDirScope(_dir);
 
     public void Dispose()
     {
-        ResultsStore.OverrideDirForTests = _prior;
+        _results.Dispose();
         try { Directory.Delete(_dir, true); } catch (Exception) { /* temp cleanup */ }
     }
 
