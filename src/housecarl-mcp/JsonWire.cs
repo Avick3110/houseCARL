@@ -2587,6 +2587,9 @@ static class JsonWire
                 WriteNullable(w, "after_on_disk", op.AfterOnDisk);
                 if (op.AfterOnDisk is not null && op.SupersededInCall)
                     w.WriteBoolean("after_on_disk_is_final_leaf", true);
+                // The value came off the file and NOTHING parsed it: an opaque blob (#529). The length is here so a
+                // consumer knows a value went unjudged without reading the text render's caveat.
+                if (op.AfterOnDiskBytes is { } ob) w.WriteNumber("after_on_disk_opaque_bytes", ob);
                 WriteNullable(w, "landed", op.Landed);
                 // What the write DID that the file cannot say afterwards — today only the duplicate Add (the list
                 // already carried this element). Its own key, not folded into `landed`, which is compared against
@@ -2688,18 +2691,30 @@ static class JsonWire
             // child whose PARENT is missing counts — it cannot be in a parent the file does not hold), and
             // which records those were. Inside the array a cut could drop every one and leave a document reading
             // ok + everything created.
+            // `records_absent` counts CREATED RECORDS that did not land — one per created record, so three children
+            // under one missing parent are three. The two `_total` numbers below count DISTINCT FormIDs instead, so
+            // those same three report record_absent_formids_total 0 and parent_absent_formids_total 1. Different
+            // things counted on purpose: one is how much of the call failed, the others are what to go and look at.
             var notLanded = o.Created.Where(c => c.AbsentFromFile || c.ParentAbsentFromFile).ToList();
             w.WriteNumber("records_absent", notLanded.Count);
             if (notLanded.Count > 0)
             {
-                var absentIds = notLanded
-                    .Select(c => FormIdToken.Of(c.AbsentFromFile ? c.FormKey : c.ParentKey!.Value))
-                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                // Created ids and PARENT ids are kept apart: a parent's FormID is not one this call created, and
+                // after a row cut this hoist is all a consumer has left — one mixed array would name a created
+                // record that never existed.
+                var absentIds = notLanded.Where(c => c.AbsentFromFile).Select(c => FormIdToken.Of(c.FormKey))
+                                  .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                var absentParents = notLanded.Where(c => !c.AbsentFromFile).Select(c => FormIdToken.Of(c.ParentKey!.Value))
+                                     .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 w.WriteStartArray("record_absent_formids");
                 foreach (var id in absentIds.Take(WriteSentences.AbsentRecordsShown)) w.WriteStringValue(id);
                 w.WriteEndArray();
-                // The array is bounded; the count above is not, so a consumer can always tell it was cut.
+                // Each array is bounded; its total is not, so a consumer can always tell it was cut.
                 w.WriteNumber("record_absent_formids_total", absentIds.Count);
+                w.WriteStartArray("parent_absent_formids");
+                foreach (var id in absentParents.Take(WriteSentences.AbsentRecordsShown)) w.WriteStringValue(id);
+                w.WriteEndArray();
+                w.WriteNumber("parent_absent_formids_total", absentParents.Count);
             }
 
             w.WriteNumber("total_created", o.Created.Count);
@@ -2720,8 +2735,12 @@ static class JsonWire
                 WriteNullable(w, "parent_host", c.ParentHost);
                 w.WriteBoolean("parent_contested", c.ParentContested);
                 // The written file's verdict on this record, as flags a consumer can branch on rather than prose.
-                // `absent_from_file` is the one reading that says the create is not in the file; `verified` false
-                // means the file could not be walked, so nothing here was checked.
+                // `absent_from_file` is the one reading that says the create is not in the file. `verified` says the
+                // walk REACHED this record (or completed, which reaches every record it did not find); false means
+                // the walk threw before getting here, so nothing below it was checked — and no op under a
+                // `verified: false` record carries `landed_source: "written_file"`. It is not a claim about the ops
+                // one by one: a CK-parity fill on a fully verified record still reads `not_checked`, because it has
+                // no leaf to re-read, not because a read failed.
                 w.WriteBoolean("verified", c.VerifyAttempted);
                 w.WriteBoolean("absent_from_file", c.AbsentFromFile);
                 if (c.ParentKey is { } pk) w.WriteString("parent_formid", FormIdToken.Of(pk));
@@ -2742,6 +2761,9 @@ static class JsonWire
                     WriteNullable(w, "after_on_disk", op.AfterOnDisk);
                     if (op.AfterOnDisk is not null && op.SupersededInCall)
                         w.WriteBoolean("after_on_disk_is_final_leaf", true);
+                    // The value came off the file and NOTHING parsed it: an opaque blob (#529). The length is here so
+                    // a consumer knows a value went unjudged without reading the text render's caveat.
+                    if (op.AfterOnDiskBytes is { } ob) w.WriteNumber("after_on_disk_opaque_bytes", ob);
                     WriteNullable(w, "landed_on_disk", op.LandedOnDisk);
                     w.WriteString("landed_source",
                         op.RecordAbsentFromFile ? "record_absent"

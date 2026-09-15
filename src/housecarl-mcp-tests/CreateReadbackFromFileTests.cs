@@ -73,9 +73,16 @@ public sealed class CreateReadbackFromFileTests : IDisposable
         return overlay;
     }
 
+    /// <summary>The request spells a precision a float32 leaf cannot hold, so what the file stores is NOT the
+    /// string that was asked for: 9.5000001 is written, and read back, as 9.5. A response echoing the request would
+    /// print the long one.</summary>
+    const string RequestedWeight = "9.5000001";
+    const string StoredWeight = "9.5";
+
     string CreateWeapon(string patch, string? format = null, bool readback = false) => CreateTools.Create(_svc,
         records: Je(@"[{""record_type"":""Weapon"",""editorid"":""HcCrSword"",""ops"":[" +
-                    @"{""field_path"":""BasicStats.Damage"",""value"":""42""}]}]"),
+                    @"{""field_path"":""BasicStats.Damage"",""value"":""42""}," +
+                    @"{""field_path"":""BasicStats.Weight"",""value"":""" + RequestedWeight + @"""}]}]"),
         patch: patch, format: format, readback: readback);
 
     /// <summary>The field line must say what the WRITTEN FILE says, and the response must no longer disclaim that its
@@ -90,11 +97,15 @@ public sealed class CreateReadbackFromFileTests : IDisposable
         {
             var w = mod.Weapons.Single();
             Assert.Equal(42, w.BasicStats!.Damage);
+            Assert.Equal(9.5f, w.BasicStats.Weight);
         }
         Assert.Contains("42", r);
         Assert.DoesNotContain("not-checked", r);
         Assert.DoesNotContain("DID NOT LAND", r);
         Assert.DoesNotContain("were not re-read", r);
+        // The value clause is a READING, not the request echoed back: the label carries what was asked for and the
+        // clause carries what the file stores, and for this leaf they are different strings.
+        Assert.Contains("= " + RequestedWeight + "  -> " + StoredWeight, r);
     }
 
     /// <summary>json names where each value came from, so a consumer never has to guess whether the file was read.</summary>
@@ -110,6 +121,10 @@ public sealed class CreateReadbackFromFileTests : IDisposable
         var op = rec.GetProperty("ops")[0];
         Assert.Equal("written_file", op.GetProperty("landed_source").GetString());
         Assert.Equal("42", op.GetProperty("after_on_disk").GetString());
+        // …and the leaf whose stored value differs from the request: `after_on_disk` is the file's spelling.
+        var weight = rec.GetProperty("ops")[1];
+        Assert.Equal(StoredWeight, weight.GetProperty("after_on_disk").GetString());
+        Assert.Equal("written_file", weight.GetProperty("landed_source").GetString());
     }
 
     /// <summary>A nested create drags its PARENT into the artifact to host the child. Both have to be in the written
@@ -294,6 +309,96 @@ public sealed class CreateFieldLineSourceTests
         // …and with nothing absent the ordinary wording is unchanged.
         var clean = RunWithOneAbsentAtTheEnd().Where(c => !c.AbsentFromFile).ToList();
         Assert.Contains("every one WAS created", Render(clean, maxChars: 900));
+    }
+
+    /// <summary>The DID NOT LAND remedy is the CREATE lane's, not the edit lane's: re-issuing an edit is safe and
+    /// re-issuing a create allocates the records a second time, which is the trap the truncation sentence a few lines
+    /// away forbids. The two must not say opposite things in one response.</summary>
+    [Fact]
+    public void TheCreateDidNotLandRemedyDoesNotTellTheCallerToReIssue()
+    {
+        var key = FormKey.Factory("000800:X.esp");
+        var r = Render(new[] { Rec("000800:X.esp", Op(key) with { RecordAbsentFromFile = true, VerifyAttempted = true })
+            with { VerifyAttempted = true, AbsentFromFile = true } });
+        Assert.DoesNotContain("re-issue the edit", r);
+        Assert.Contains("do NOT re-issue the create", r);
+        Assert.Contains("allocates the records AGAIN", r);
+        Assert.Contains(ToolNames.Records, r);          // the read it sends you to instead
+    }
+
+    /// <summary>The cap that drops EVERY row is where the hoist is load-bearing, and the sentence under it must not
+    /// then assert that all of them were created.</summary>
+    [Fact]
+    public void ACapThatCutsEveryRowDoesNotClaimEveryRecordWasCreated()
+    {
+        var r = Render(RunWithOneAbsentAtTheEnd(), maxChars: 400);
+        Assert.Contains("no records are listed above", r);
+        Assert.DoesNotContain("WERE created", r);
+        Assert.Contains("1 created record did NOT land", r);
+    }
+
+    /// <summary>A PARENT's FormID is not a FormID this call created. After a cut the hoist is all that survives, so
+    /// it may not offer the two under one heading.</summary>
+    [Fact]
+    public void TheHoistedListLabelsAParentAsAParent()
+    {
+        var key = FormKey.Factory("000800:X.esp");
+        var parent = FormKey.Factory("00ABCD:HcCrMaster.esm");
+        var r = Render(new[] { Rec("000800:X.esp", Op(key) with { AfterOnDisk = Disk, LandedOnDisk = Disk, VerifyAttempted = true })
+            with { VerifyAttempted = true, ParentKey = parent, ParentAbsentFromFile = true } }, maxChars: 400);
+        Assert.Contains("Their parent record(s)", r);
+        // The child's own id is NOT offered as a record the file does not hold — the file holds it; its parent is gone.
+        var hoist = r.Substring(0, r.IndexOf("created 1 record", StringComparison.Ordinal));
+        Assert.Contains("00ABCD:HcCrMaster.esm", hoist);
+        Assert.DoesNotContain("Record(s): 000800:X.esp", hoist);
+    }
+
+    /// <summary>json keeps them apart for the same reason, and counts each.</summary>
+    [Fact]
+    public void TheJsonKeepsParentAbsencesInTheirOwnArray()
+    {
+        var key = FormKey.Factory("000800:X.esp");
+        var parent = FormKey.Factory("00ABCD:HcCrMaster.esm");
+        var doc = JsonDocument.Parse(RenderJson(new[]
+        {
+            Rec("000800:X.esp", Op(key) with { AfterOnDisk = Disk, LandedOnDisk = Disk, VerifyAttempted = true })
+                with { VerifyAttempted = true, ParentKey = parent, ParentAbsentFromFile = true },
+        }));
+        Assert.Equal(1, doc.RootElement.GetProperty("records_absent").GetInt32());
+        Assert.Equal(0, doc.RootElement.GetProperty("record_absent_formids_total").GetInt32());
+        Assert.Equal(1, doc.RootElement.GetProperty("parent_absent_formids_total").GetInt32());
+        Assert.Equal("00ABCD:HcCrMaster.esm", doc.RootElement.GetProperty("parent_absent_formids")[0].GetString());
+    }
+
+    /// <summary>A walk that threw part way still reached some records, and their ops carry the file's readings. The
+    /// record row may not then say it was never checked over op lines that came off the file.</summary>
+    [Fact]
+    public void ARecordTheWalkReachedIsNotReportedUnchecked()
+    {
+        var key = FormKey.Factory("000800:X.esp");
+        var doc = JsonDocument.Parse(RenderJson(new[] { Verified("000800:X.esp") }));
+        var rec = doc.RootElement.GetProperty("created")[0];
+        Assert.True(rec.GetProperty("verified").GetBoolean());
+        Assert.Equal("written_file", rec.GetProperty("ops")[0].GetProperty("landed_source").GetString());
+        // …and the contradiction the flag exists to prevent: no op under an unverified record claims the file.
+        var un = JsonDocument.Parse(RenderJson(new[] { Rec("000800:X.esp", Op(key)) }));
+        var unrec = un.RootElement.GetProperty("created")[0];
+        Assert.False(unrec.GetProperty("verified").GetBoolean());
+        Assert.NotEqual("written_file", unrec.GetProperty("ops")[0].GetProperty("landed_source").GetString());
+    }
+
+    /// <summary>A blob the file answered with was never PARSED — an opaque field re-reads byte-identical whatever
+    /// FormVersion its layout suits (#529). Printing it off the file without that clause reads as a judged value.</summary>
+    [Fact]
+    public void AnOpaqueLeafPrintedFromTheFileKeepsItsStructureCaveat()
+    {
+        var key = FormKey.Factory("000800:X.esp");
+        var r = Render(new[] { Rec("000800:X.esp", Op(key) with
+            { AfterOnDisk = "020000000000000000000000", LandedOnDisk = "0200", VerifyAttempted = true, AfterOnDiskBytes = 12 })
+            with { VerifyAttempted = true } });
+        Assert.Contains("020000000000000000000000", r);
+        Assert.Contains("structure NOT checked", r);
+        Assert.Contains("12 opaque byte(s)", r);
     }
 
     /// <summary>The json document carries the same verdict outside the array a cut truncates.</summary>
