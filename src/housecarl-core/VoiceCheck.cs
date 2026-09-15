@@ -74,7 +74,7 @@ public static class VoiceCheck
         ISkyrimModGetter? patch = null;
         try
         {
-            patch = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
+            patch = SkyrimMod.CreateFromBinaryOverlay(patchPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(patchPath));
             return RunOver(patch, infoKeys, resolver, assets);
         }
         catch (Exception ex)

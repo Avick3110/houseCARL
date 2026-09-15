@@ -480,7 +480,7 @@ public static class ClosureCopy
         SkyrimMod patch;
         if (extend)
         {
-            try { patch = SkyrimMod.CreateFromBinary(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read); }
+            try { patch = SkyrimMod.CreateFromBinary(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(outPath)); }
             catch (Exception ex) { return ClosureCopyOutcome.Fail(engine: ex.Message, sources: consulted); }
         }
         else patch = new SkyrimMod(patchModKey, SkyrimRelease.SkyrimSE);
@@ -645,7 +645,7 @@ public static class ClosureCopy
         long bytes = 0; bool sourceAmong = false; string? warning = null;
         try
         {
-            var back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
+            var back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(outPath));
             try
             {
                 masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();

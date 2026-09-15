@@ -18,15 +18,19 @@ saying it sets an expectation their install may contradict. Say what is known, a
   Windows-1252 with no UTF-8 lane — which is the setup the Japanese community ships: `sLanguage=ENGLISH` with the
   `*_English.STRINGS` tables replaced by UTF-8 translations, and UTF-8 in the inline `FULL` fields of non-localized
   ESPs. Every such name came back as mojibake, and because the Windows-1252 encoder has no spelling for a character
-  outside 1252, an in-place edit or a copy of that record wrote `?` over the text. A read now decodes valid UTF-8 as
-  UTF-8 and anything else as what Mutagen would have chosen for the language, so a Windows-1252 name still reads
-  exactly as it did. A write goes the other way round — Windows-1252 first, UTF-8 only for a string 1252 cannot
-  spell — so a plugin that was already Windows-1252 comes back byte-identical from an in-place edit, and a Japanese
-  name is written as itself. The two cases this cannot tell apart, one per side: a Windows-1252 string whose bytes
-  also happen to be valid UTF-8 is read as UTF-8, and a Latin-accented string that came out of a UTF-8 file is
-  written back as Windows-1252. Nothing else moves: which language is selected, and which language's table is read,
-  are unchanged. In `format="json"` the characters ride as `\uXXXX` escapes, json's own spelling for non-ASCII, and
-  parse back to the same string.
+  outside 1252, an in-place edit or a copy of that record wrote `?` over the text. A read now decodes each string as
+  UTF-8 when it is valid UTF-8 and as what Mutagen would have chosen for the language otherwise, so a Windows-1252
+  name still reads exactly as it did — and it records, per plugin, which of the two its own bytes turned out to be.
+  A write then uses ONE encoding for the whole file: an in-place edit re-encodes in the lane that plugin's read
+  resolved to, and a new file (a patch, a merge, a compacted copy) uses UTF-8 if any plugin that contributed a record
+  to it resolved as UTF-8. So a Japanese plugin comes back UTF-8, a Windows-1252 one comes back Windows-1252, both
+  byte-identical wherever the write did not change the text, and a plugin carrying Japanese and accented Latin
+  together is never written half in one encoding and half in the other. Two cases this does not reach, neither
+  guarded: a Windows-1252 string whose bytes also happen to be valid UTF-8 is read as UTF-8, and a value typed by
+  hand into a patch whose contributing plugins were all ASCII-only is written in the language default, so a Japanese
+  name pasted into an ASCII-only patch still becomes `?`. Nothing else moves: which language is selected, and which
+  language's table is read, are unchanged. In `format="json"` the characters ride as `\uXXXX` escapes, json's own
+  spelling for non-ASCII, and parse back to the same string.
 
 - **A `[*count]` column costs the number, not the list.** `project.fields=["Temporary[*count]"]` read the list the
   way naming it does: building every element to count them, and — on a field that holds CHILD RECORDS — assembling
