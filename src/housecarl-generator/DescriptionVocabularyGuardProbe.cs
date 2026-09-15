@@ -212,6 +212,14 @@ public static class DescriptionVocabularyGuardProbe
     static readonly string[] PublishedCreateVocabulary =
         { "Set", "Add", "Remove", "SetAtIndex", "InsertAtIndex", "ReplaceAll", "Merge" };
 
+    /// <summary>The vocabulary a compose's nested sets publish, written out here independently of
+    /// <see cref="WriteVerbs.InCompose"/> and of <see cref="WriteVerbs.InComposeRecital"/> — the second statement
+    /// that lets INV4-COMPOSEHOMES fail, and the same job <see cref="PublishedCreateVocabulary"/> does for create.
+    /// That surface publishes an <c>enum</c> off <c>InCompose</c> and a recital off <c>InComposeRecital</c> on the
+    /// SAME member. In the published order.</summary>
+    static readonly string[] PublishedComposeVocabulary =
+        { "Set", "Add", "Remove", "SetAtIndex", "InsertAtIndex" };
+
     /// <summary>The verb a write slot uses when the caller names none — written independently for the same reason
     /// as the vocabulary above. <see cref="WriteVerbs.AllRecital"/> feeds one shipped description (and one
     /// vestigial <c>BulkOp.verb</c> attribute no caller reads since #468), so ONE edit to its <c>(default)</c>
@@ -1453,6 +1461,14 @@ public static class DescriptionVocabularyGuardProbe
             new() { $"OnCreate=[{string.Join(",", WriteVerbs.OnCreate)}] "
                   + $"OnCreateRecital=[{string.Join(",", RecitalNames(WriteVerbs.OnCreateRecital))}] "
                   + $"independent=[{string.Join(",", PublishedCreateVocabulary)}]" }, tier: Tier.Construction);
+
+        Check("INV4-COMPOSEHOMES WriteVerbs.InCompose and WriteVerbs.InComposeRecital agree with each other AND with the "
+            + "compose vocabulary written independently here — the published enum and the published description of "
+            + "a compose's sets[].verb come off these two",
+            HomesAgree(WriteVerbs.InCompose, WriteVerbs.InComposeRecital, PublishedComposeVocabulary),
+            new() { $"InCompose=[{string.Join(",", WriteVerbs.InCompose)}] "
+                  + $"InComposeRecital=[{string.Join(",", RecitalNames(WriteVerbs.InComposeRecital))}] "
+                  + $"independent=[{string.Join(",", PublishedComposeVocabulary)}]" }, tier: Tier.Construction);
 
         Check($"INV4-MARK     WriteVerbs.AllRecital marks exactly one verb (default), and it is '{PublishedDefault}'",
             MarkedDefaults(WriteVerbs.AllRecital) is [var only] && only == PublishedDefault,

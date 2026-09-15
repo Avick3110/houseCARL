@@ -1290,7 +1290,7 @@ public sealed record NestedSet
     [SchemaRequired, JsonPropertyName("path"), Description("Dotted path within the struct, e.g. 'Data.Level'.")]
     public string? Path { get; init; }
 
-    [SchemaValues(SchemaVocabulary.ComposeVerbs), JsonPropertyName("verb"), Description(WriteVerbs.InComposeRecital + ". The nested write runs through the same verb engine an op does, so the verb is chosen by the nested target's own cardinality. There is no CopyFrom here — it reads a SOURCE RECORD and a nested set has no slot to name one; make it its own op on the field itself.")]
+    [SchemaValues(SchemaVocabulary.ComposeVerbs), JsonPropertyName("verb"), Description(WriteVerbs.InComposeRecital + ". The nested write runs through the same verb engine an op does, so the verb is chosen by the nested target's own cardinality. The three verbs the op surface has and this one does not each read an input slot a nested set has no member for — ReplaceAll's values=, Merge's entries=, CopyFrom's source record — and each is refused here by name rather than consuming nothing: set a collection's elements or a dict's entries one at a time, and copy a field from another record with " + ToolNames.Apply + "'s CopyFrom op.")]
     // Nullable so the generator types it ["string","null"] and the enum stamp carries null — the gate reads an
     // absent or null verb as Set (LoadOrderService.MapStruct), as ApplyOp.op and CreateFieldOp.op already do.
     public string? Verb { get; init; } = "Set";

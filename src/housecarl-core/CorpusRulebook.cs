@@ -1137,16 +1137,10 @@ public sealed class CorpusRulebook
             // The one verb a nested set cannot take. The rest run through the verb engine itself (BuildStruct
             // replays them with ApplyVerb), but CopyFrom reads a SOURCE RECORD the nested shape has no slot to
             // name, so it would pass the leaf gate and then throw as an unknown verb at apply.
-            // The remedy splits by LANE on the same signal the @editorid gate below reads: the create surface has no
-            // CopyFrom op to send the caller to, so naming one there would route them into a second refusal.
-            if (string.Equals(s.Verb, WriteVerbs.Transplanting, StringComparison.Ordinal))
-                return $"'{WriteVerbs.Transplanting}' is not a verb a compose's nested sets take — it copies a field " +
-                       "from ANOTHER record, which only an op naming the source can do, so "
-                     + (siblingEditorIds is null
-                           ? "make it its own op on the field itself (from= / from_source=)."
-                           : $"create the record here and copy the field in with a second {ToolNames.Apply} call "
-                             + "(op='CopyFrom') into the same patch.")
-                     + $" Legal here: {string.Join(", ", WriteVerbs.InCompose)}.";
+            // A verb whose input a nested set has no member to carry. Unrefused, each consumes nothing and reports a
+            // write that did not happen: ReplaceAll replaces with an empty Values, Merge merges an empty Entries,
+            // and CopyFrom has no source to read, so it reaches apply as a verb the leaf does not take.
+            if (NestedSlotlessRefusal(s.Verb, siblingEditorIds) is { } slotless) return slotless;
             // siblingEditorIds threads through — a same-call @editorid ref inside a COMPOSED struct's nested Sets
             // (e.g. a VMAD quest-fragment's Property.Object=@<own quest>) validates by the SAME gates as a top-level
             // value (formlink-only + declared-earlier-or-self), recursively; on the edit path (null) it still rejects
@@ -1156,6 +1150,31 @@ public sealed class CorpusRulebook
             if (ValidateFromType(structSchema, s, siblingEditorIds, "path") is { } e) return e;
         }
         return null;
+    }
+
+    /// <summary>The refusal for a verb a compose's nested sets cannot feed, else null. Each names the slot the verb
+    /// reads and the fact a nested set has no member for it. The transplanting verb's remedy splits by LANE on the
+    /// same signal the <c>@editorid</c> gate reads — the create surface has no CopyFrom op to send the caller to, so
+    /// naming one there would route them into a second refusal.</summary>
+    static string? NestedSlotlessRefusal(string verb, IReadOnlyCollection<string>? siblingEditorIds)
+    {
+        var (reads, remedy) = verb switch
+        {
+            "ReplaceAll" => ("replaces a collection's whole contents from values=",
+                             "set the elements one at a time instead"),
+            "Merge" => ("merges the pairs given in entries=",
+                        "set the entries one at a time instead, each with its own key="),
+            WriteVerbs.Transplanting => ("copies a field from ANOTHER record, which only an op naming the source can do",
+                             siblingEditorIds is null
+                                 ? "make it its own op on the field itself (from= / from_source=)"
+                                 : $"create the record here and copy the field in with a second {ToolNames.Apply} "
+                                   + "call (op='CopyFrom') into the same patch"),
+            _ => (null, null),
+        };
+        return reads is null ? null
+            : $"'{verb}' is not a verb a compose's nested sets take — it {reads}, and a nested set is "
+              + $"path/verb/value/key/compose with no member to carry that, so {remedy}. "
+              + $"Legal here: {string.Join(", ", WriteVerbs.InCompose)}.";
     }
 
     /// <summary>Honest reject when the engine cannot coerce a formlink/substruct leaf's whole type — a deferred

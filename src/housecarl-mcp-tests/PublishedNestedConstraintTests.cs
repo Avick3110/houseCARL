@@ -132,10 +132,10 @@ public sealed class PublishedNestedConstraintTests
     }
 
     /// <summary>Does a published member's <c>type</c> accept a JSON null? Written here off the served document, not
-    /// read from the pass, so the two are still independent statements about the same member.</summary>
+    /// read from the pass, so the two are still independent statements about the same member.
     /// <para>Both spellings the generator uses: a <c>type</c> (string or array) and an <c>anyOf</c> union whose arms
     /// carry their own. Reading only <c>type</c> would leave this blind exactly where the publication pass is, which
-    /// is what an independently written walk exists to avoid.</para>
+    /// is what an independently written walk exists to avoid.</para></summary>
     static bool AdmitsNull(JsonElement member)
     {
         if (member.TryGetProperty("anyOf", out var arms) && arms.ValueKind == JsonValueKind.Array)
