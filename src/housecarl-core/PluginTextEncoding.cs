@@ -52,11 +52,14 @@ public enum PluginTextLane
 /// Windows-1252 name comes back as replacement characters. Nothing here throws to decide a lane, on either side:
 /// Mutagen's fallback wrapper is a try/catch, and a sweep of a translated order would pay one throw per string.</para>
 ///
-/// <para><b>The misses, and they are not guarded.</b> Reading, a Windows-1252 string whose bytes also happen to be
-/// valid UTF-8 is read as UTF-8 — the bytes are genuinely ambiguous and a guard would have to guess. Writing, a value
-/// typed by hand into a patch whose contributing plugins were all ASCII-only is written in the language default, so a
-/// Japanese name pasted into an ASCII-only patch still becomes <c>?</c>; that is the one shape this rule does not
-/// reach.</para>
+/// <para><b>A value the file's encoding cannot spell is never written as <c>?</c>.</b> The legacy lane writes through
+/// a STRICT encoder, so the question is the encoder's own answer as it writes rather than a table beside it. A NEW
+/// file has no existing bytes to preserve, so it simply gets written again, whole, as UTF-8. An IN-PLACE write has no
+/// such freedom — rewriting the file as UTF-8 would convert every other string in it — so it refuses in one sentence
+/// naming the value, the character and the remedy, and nothing is written.</para>
+///
+/// <para><b>The one miss, and it is not guarded.</b> Reading, a Windows-1252 string whose bytes also happen to be
+/// valid UTF-8 is read as UTF-8 — the bytes are genuinely ambiguous and a guard would have to guess.</para>
 ///
 /// <para>The lane record is keyed by plugin FILENAME, which is how houseCARL names a plugin everywhere. Two installed
 /// plugins sharing a filename share one lane record; a fresh open of a name replaces it, so a file edited on disk is
@@ -75,8 +78,19 @@ public static class PluginTextEncoding
     static readonly IMutagenEncoding LanguageDefault =
         MutagenEncoding.GetEncoding(GameRelease.SkyrimSE, Language.English);
 
-    static readonly EncodingBundle Utf8Bundle = new(StrictUtf8, StrictUtf8);
-    static readonly EncodingBundle LegacyBundle = new(LanguageDefault, LanguageDefault);
+    /// <summary>The language default that THROWS on a character it cannot spell instead of substituting <c>?</c>.
+    /// Every write in the legacy lane goes through this, so "can this file be written in its own encoding" is the
+    /// encoder's own answer at the moment it writes, not a second table that could disagree with it.</summary>
+    static readonly IMutagenEncoding StrictLegacy = new SpellCheck(
+        CodePagesEncodingProvider.Instance.GetEncoding(
+            1252, EncoderFallback.ExceptionFallback, DecoderFallback.ReplacementFallback)!);
+
+    /// <summary>The encodings for a file resolved as UTF-8 — it can spell anything, so nothing here can refuse.</summary>
+    public static readonly EncodingBundle Utf8Bundle = new(StrictUtf8, StrictUtf8);
+
+    /// <summary>The encodings for a file resolved to the language default, strict so an unspellable value stops the
+    /// write instead of landing as <c>?</c>.</summary>
+    public static readonly EncodingBundle LegacyBundle = new(StrictLegacy, StrictLegacy);
 
     /// <summary>What each plugin's own strings decoded as, by filename. Written by the read, read by the write.</summary>
     static readonly ConcurrentDictionary<string, LaneSink> Lanes =
@@ -118,7 +132,10 @@ public static class PluginTextEncoding
     /// plugin comes back UTF-8 and a Windows-1252 one comes back Windows-1252, both byte-identical where the write
     /// did not change the text.</summary>
     public static EncodingBundle WriteInPlace(string targetPath)
-        => LaneOf(targetPath) == PluginTextLane.Utf8 ? Utf8Bundle : LegacyBundle;
+        => InPlaceIsUtf8(targetPath) ? Utf8Bundle : LegacyBundle;
+
+    /// <summary>Whether an in-place rewrite of that file goes out as UTF-8 — the lane its own read resolved to.</summary>
+    public static bool InPlaceIsUtf8(string targetPath) => LaneOf(targetPath) == PluginTextLane.Utf8;
 
     /// <summary>The encodings a NEW file embeds — a patch, a merge, a compacted copy: UTF-8 if any plugin
     /// contributing to it resolved as UTF-8, the language default otherwise.
@@ -128,18 +145,88 @@ public static class PluginTextEncoding
     /// record it carries came FROM, which is its FormKey's ModKey. The master list is the obvious answer and not a
     /// sufficient one: Mutagen computes it during the write, so before the write it can still be empty.</para>
     ///
+    /// <para>Provenance is not the whole answer: a value typed by hand — a Japanese name pasted into a patch built
+    /// from ASCII-only plugins — has no contributing plugin to inherit a lane from. A new file has no existing bytes
+    /// to preserve, so it does not have to choose in advance: the write goes out in the resolved lane through a
+    /// STRICT encoder, and a value that lane cannot spell makes the encoder say so, at which point the whole file is
+    /// written again as UTF-8. The resolution is therefore "UTF-8 if any contributing plugin resolved as UTF-8, or if
+    /// any value needs it" — see <c>WriteEngine.WritePatchStaged</c>, which owns the second pass.</para>
+    ///
     /// <para>The bound: a lane that REMAPS its records into the output's own ModKey — a merge — has no provenance
-    /// left in the FormKeys, so it answers from the donors' master lists and the output name alone. And the miss, not
-    /// guarded: a value typed by hand into a patch whose contributing plugins were all ASCII-only is written in the
-    /// language default, so a Japanese name pasted into an ASCII-only patch still becomes <c>?</c>.</para></summary>
-    public static EncodingBundle WriteNew(IModGetter mod)
+    /// left in the FormKeys, so it answers from the donors' master lists and the output name alone. That only costs
+    /// it the first pass; the strict encoder still catches anything the language default cannot spell.</para></summary>
+    public static EncodingBundle WriteNew(IModGetter mod) => NewFileIsUtf8(mod) ? Utf8Bundle : LegacyBundle;
+
+    /// <summary>Whether a new file's contributing plugins put it in the UTF-8 lane before a single string is
+    /// written — the provenance half of <see cref="WriteNew"/>.</summary>
+    public static bool NewFileIsUtf8(IModGetter mod)
     {
-        if (LaneOf(mod.ModKey.FileName.String) == PluginTextLane.Utf8) return Utf8Bundle;
+        if (LaneOf(mod.ModKey.FileName.String) == PluginTextLane.Utf8) return true;
         foreach (var m in mod.MasterReferences)
-            if (LaneOf(m.Master.FileName.String) == PluginTextLane.Utf8) return Utf8Bundle;
+            if (LaneOf(m.Master.FileName.String) == PluginTextLane.Utf8) return true;
         foreach (var r in mod.EnumerateMajorRecords())
-            if (LaneOf(r.FormKey.ModKey.FileName.String) == PluginTextLane.Utf8) return Utf8Bundle;
-        return LegacyBundle;
+            if (LaneOf(r.FormKey.ModKey.FileName.String) == PluginTextLane.Utf8) return true;
+        return false;
+    }
+
+    /// <summary>The refusal for an IN-PLACE write whose file is in the language default and whose new value that
+    /// encoding cannot spell. In place there is no second pass to take: rewriting the file as UTF-8 would re-encode
+    /// every OTHER string in it, which is the mixed/converted-file failure this whole type exists to prevent. So the
+    /// write refuses and nothing is written — the staged temp is discarded and the original is byte-intact.</summary>
+    public static string UnspellableRefusal(UnspellableTextException ex, string pluginFileName)
+        => $"houseCARL did not write '{pluginFileName}' — the file is unchanged and nothing was staged. Its text is in "
+         + $"Windows-1252 (that is what reading it resolved to), and the value \"{ex.Text}\" contains "
+         + $"'{ex.Character}' (U+{(int)ex.Character:X4}), which Windows-1252 has no spelling for — writing it here "
+         + "would either store a '?' in place of the character or convert every other name in the file to UTF-8. "
+         + "Write this value into a new patch instead (drop in_place=), which is free to be a UTF-8 file.";
+
+    /// <summary>Unwrap a serialize-boundary throw to the unspellable-value failure inside it, or null. Mutagen runs
+    /// record writes through a PARALLEL path, so the same throw surfaces bare or wrapped in one or more
+    /// <see cref="AggregateException"/>s — the same shape <c>WriteEngine.RootNullArm</c> normalizes.</summary>
+    public static UnspellableTextException? RootUnspellable(Exception ex)
+    {
+        static UnspellableTextException? Root(Exception e)
+        {
+            while (true)
+            {
+                if (e is UnspellableTextException u) return u;
+                if (e.InnerException is not { } inner) return null;
+                e = inner;
+            }
+        }
+        if (ex is AggregateException agg)
+        {
+            foreach (var leaf in agg.Flatten().InnerExceptions)
+                if (Root(leaf) is { } u) return u;
+            return null;
+        }
+        return Root(ex);
+    }
+
+    /// <summary>The language default, made to answer rather than substitute: a character it cannot spell throws with
+    /// the WHOLE value in hand, which the encoder's own <c>EncoderFallbackException</c> does not carry — it names the
+    /// character and an index into a string the caller never sees.</summary>
+    sealed class SpellCheck : IMutagenEncoding
+    {
+        readonly Encoding _enc;
+        internal SpellCheck(Encoding enc) => _enc = enc;
+
+        public string GetString(ReadOnlySpan<byte> bytes) => _enc.GetString(bytes);
+
+        public int GetByteCount(ReadOnlySpan<char> str)
+        {
+            try { return _enc.GetByteCount(str); }
+            catch (EncoderFallbackException ex) { throw Unspellable(str, ex); }
+        }
+
+        public int GetBytes(ReadOnlySpan<char> chars, Span<byte> bytes)
+        {
+            try { return _enc.GetBytes(chars, bytes); }
+            catch (EncoderFallbackException ex) { throw Unspellable(chars, ex); }
+        }
+
+        static UnspellableTextException Unspellable(ReadOnlySpan<char> text, EncoderFallbackException ex)
+            => new(new string(text), ex.CharUnknown);
     }
 
     /// <summary>What each plugin's strings decoded as, accumulated across one open. UTF-8 wins over legacy: a plugin
@@ -202,4 +289,32 @@ public static class PluginTextEncoding
             return false;
         }
     }
+}
+
+/// <summary>A value the file's own encoding has no spelling for, raised by the strict encoder AS it writes — so the
+/// question "can this file hold this text" is answered by the thing that would have written it, never by a second
+/// table that could drift from it. Carries the whole value and the offending character, which
+/// <c>EncoderFallbackException</c> does not.</summary>
+public sealed class UnspellableTextException : InvalidOperationException
+{
+    public UnspellableTextException(string text, char character)
+        : base($"\"{text}\" contains '{character}' (U+{(int)character:X4}), which this plugin's encoding cannot spell")
+    {
+        Text = text;
+        Character = character;
+    }
+
+    /// <summary>The same failure re-stamped with the lane's own one-sentence refusal, keeping the value and the
+    /// character so the sentence and the facts behind it cannot drift.</summary>
+    public UnspellableTextException(string sentence, UnspellableTextException source) : base(sentence)
+    {
+        Text = source.Text;
+        Character = source.Character;
+    }
+
+    /// <summary>The whole string being written, as the caller would recognise it.</summary>
+    public string Text { get; }
+
+    /// <summary>The first character the encoding has no spelling for.</summary>
+    public char Character { get; }
 }

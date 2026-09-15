@@ -1749,15 +1749,30 @@ public static class WriteEngine
         var tmpDir = Path.Combine(Path.GetDirectoryName(outputPath)!, ".housecarl-tmp");
         var tmpPath = Path.Combine(tmpDir, Path.GetFileName(outputPath));
         Directory.CreateDirectory(tmpDir);
-        try
-        {
+
+        void Serialize(Mutagen.Bethesda.Plugins.Binary.Streams.EncodingBundle encodings) =>
             patchMod.BeginWrite
                 .ToPath(tmpPath)
                 .WithLoadOrder(ordered)
                 .WithExtraIncludedMasters(baseline)
                 .NoNextFormIDProcessing()
-                .WithEmbeddedEncodings(PluginTextEncoding.WriteNew(patchMod))
+                .WithEmbeddedEncodings(encodings)
                 .Write();
+
+        try
+        {
+            if (PluginTextEncoding.NewFileIsUtf8(patchMod)) Serialize(PluginTextEncoding.Utf8Bundle);
+            else
+                // The strict encoder is the CHECK: a value the language default cannot spell stops the write rather
+                // than landing as '?'. A new file has no bytes to preserve, so the answer is simply to write the whole
+                // thing again as UTF-8 — never half of it, and never a substituted character.
+                try { Serialize(PluginTextEncoding.LegacyBundle); }
+                catch (Exception ex) when (PluginTextEncoding.RootUnspellable(ex) is not null)
+                {
+                    CleanupStaged(tmpPath);
+                    Directory.CreateDirectory(tmpDir);
+                    Serialize(PluginTextEncoding.Utf8Bundle);
+                }
             return tmpPath;
         }
         catch
@@ -1834,6 +1849,13 @@ public static class WriteEngine
         // temp is already discarded on any throw (nothing on disk), original byte-intact.
         string staged;
         try { staged = WriteInPlaceStaged(targetMod, ordered, outputPath); }
+        // A value this file's own encoding has no spelling for. In place there is no second pass — rewriting the file
+        // as UTF-8 would convert every other string in it — so this is a refusal, with the original byte-intact.
+        catch (Exception ex) when (PluginTextEncoding.RootUnspellable(ex) is { } bad)
+        {
+            throw new UnspellableTextException(
+                PluginTextEncoding.UnspellableRefusal(bad, Path.GetFileName(outputPath)), bad);
+        }
         catch (Exception ex) when (RootNullArm(ex) is { } nre) { throw new NullArmSerializeException(nre); }
         // A localized target never reaches here (refused above), so the serialize emitted no tables and this is the
         // single-file atomic swap it has always been.

@@ -25,10 +25,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
   resolved to, and a new file (a patch, a merge, a compacted copy) uses UTF-8 if any plugin that contributed a record
   to it resolved as UTF-8. So a Japanese plugin comes back UTF-8, a Windows-1252 one comes back Windows-1252, both
   byte-identical wherever the write did not change the text, and a plugin carrying Japanese and accented Latin
-  together is never written half in one encoding and half in the other. Two cases this does not reach, neither
-  guarded: a Windows-1252 string whose bytes also happen to be valid UTF-8 is read as UTF-8, and a value typed by
-  hand into a patch whose contributing plugins were all ASCII-only is written in the language default, so a Japanese
-  name pasted into an ASCII-only patch still becomes `?`. Nothing else moves: which language is selected, and which
+  together is never written half in one encoding and half in the other. A value the chosen encoding has no spelling
+  for is never stored as `?`: the write goes through a strict encoder, so a new file that turns out to need UTF-8 —
+  a Japanese name typed into a patch built from plugins that were all ASCII — is simply written as UTF-8 instead,
+  and an in-place edit, which cannot change encoding without converting every other name in the file, refuses in one
+  sentence naming the value, the character it cannot spell and where to put it instead, leaving the file untouched.
+  One case this does not reach, and it is not guarded: a Windows-1252 string whose bytes also happen to be valid
+  UTF-8 is read as UTF-8. Nothing else moves: which language is selected, and which
   language's table is read, are unchanged. In `format="json"` the characters ride as `\uXXXX` escapes, json's own
   spelling for non-ASCII, and parse back to the same string.
 
