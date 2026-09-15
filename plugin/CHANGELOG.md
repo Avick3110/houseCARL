@@ -60,17 +60,6 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `readback=true` to read every created record back off the file. Making that lane report from the file, as the
   edit lanes now do, is #763.
 
-- **`housecarl_skse` now says which source a plugin's version came from, and prints the DLL's file version and the
-  mod's meta.ini version beside it wherever they disagree.** The version it reads is the SKSE manifest's own
-  declaration, which authors routinely leave stale: Spell Perk Item Distributor 7.3.3 declares 7.0.0, and 51 of the
-  313 DLLs on the order this was measured against declare something other than their file version. A row now reads
-  `v7.0.0 (SKSE manifest; DLL file version 7.3.3.0)`, so a version floor (SPID's 7.3-only INI tokens, say) is
-  decided against both numbers rather than against the declaration alone. A DLL with no manifest to declare anything
-  shows whichever version was read — the file version, or the mod's meta.ini when that is the only one. `format='json'`
-  carries them as `file_version` and `mod_version`, each null when the DLL carries no version resource / the provider
-  has no meta.ini. Versions that agree are not repeated, and versions are compared on their numbers, so a meta.ini
-  tag ("7.0.19.0-AIO", "5.2SE") is not reported as a disagreement.
-
 - **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
   byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the
   literal escape text and every tool refused with "the active profile's folder is missing". Both INI readers —
@@ -172,6 +161,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
   token still round-trips to a write, and no other line of any render changed. Nothing here decodes MODT — the layout
   is not modeled, and houseCARL does not hand-write per-record-type decoders — so a blob is only safe to copy between
   records at the same FormVersion, which these lines now let you check.
+
+- **`housecarl_skse` now says which source a plugin's version came from, and prints the DLL's file version and the
+  mod's meta.ini version beside it wherever they disagree.** The version it reads is the SKSE manifest's own
+  declaration, which authors routinely leave stale: Spell Perk Item Distributor 7.3.3 declares 7.0.0, and 51 of the
+  313 DLLs on the order this was measured against declare something other than their file version. A row now reads
+  `v7.0.0 (SKSE manifest; DLL file version 7.3.3.0)`, so a version floor (SPID's 7.3-only INI tokens, say) is
+  decided against both numbers rather than against the declaration alone. A DLL with no manifest to declare anything
+  shows whichever version was read — the file version, or the mod's meta.ini when that is the only one. `format='json'`
+  carries them as `file_version` and `mod_version`, each null when the DLL carries no version resource / the provider
+  has no meta.ini. Versions that agree are not repeated, and versions are compared on their numbers, so a meta.ini
+  tag ("7.0.19.0-AIO", "5.2SE") is not reported as a disagreement.
 
 ## 2.0.0 — 2026-09-11
 
