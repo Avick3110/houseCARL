@@ -79,6 +79,25 @@ public sealed class RecordsComparisonFormTests : RecordsTestBase
         Served(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[0]) }, format: "json", project: Form("tree")),
                "\"nodes\"", "\"touchers\"", "\"is_winner\"");
 
+    /// <summary>A versus= pole that holds no version of the record refuses on the TREE form too, naming the pole
+    /// and keeping the record's identity. The suite pinned this refusal only on delta; the tree fill stops its walk
+    /// at the winner when the pole refuses, so the row has no nodes and must not be reported as bodies it could not
+    /// read — they read fine.</summary>
+    [Fact]
+    public void ATreeVersusAPluginThatDoesNotTouchTheRecordRefusesNamingThePoleAndKeepsTheIdentity()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[1]) },
+                                     versus: Plugin(W.OverrideName), project: Form("tree"));
+        Served(r, "versus:", "does not define or override", "Touched by", W.MasterName);
+        Assert.DoesNotContain("could not be read", r);
+
+        // The json lane says the same thing: one error row naming the pole, not a read failure.
+        var row = Je(RecordsTools.Records(Svc, formids: new[] { Fid(W.Weapons[1]) }, format: "json",
+                                          versus: Plugin(W.OverrideName), project: Form("tree")))
+                  .GetProperty("rows")[0];
+        Assert.Contains("does not define or override", row.GetProperty("error").GetString());
+    }
+
     /// <summary>The whole tree render over a record three plugins touch, pinned character for character. The fill
     /// reads the providers winner first and holds one at a time (#722); that is a claim about memory the answer
     /// cannot show, so only a golden catches the render drifting with it — the node order, the winner marker, the
