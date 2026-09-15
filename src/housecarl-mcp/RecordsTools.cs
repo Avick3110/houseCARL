@@ -507,8 +507,11 @@ public static class RecordsTools
         // can never read as the whole list.
         int lim = limit <= 0 ? 500 : limit;
         // Set when a comparison form's KEYS were windowed before the rows were read (see ComparisonWindow): the
-        // rows that arrive are already the window and its note is already stated.
+        // rows that arrive are already the window and its note is already stated. The note itself rides along so
+        // the counts and any spilled artifact can say what they cover.
         bool cmpPrewindowed = false;
+        string? cmpWindowNote = null;
+        int cmpSelected = 0;
         IReadOnlyList<T> Windowed<T>(IReadOnlyList<T> rows)
         {
             if (cmpPrewindowed) return rows;
@@ -529,17 +532,20 @@ public static class RecordsTools
         // every provider of its record, so rows the window would throw away are the whole cost of the call: the
         // first ten rows of a 17,727-row scan used to read all 17,727 (#721). A census and a to_file= artifact
         // still cover the complete selection — both state the whole set by definition — so neither is windowed.
-        List<string> ComparisonWindow(IReadOnlyList<FormKey> keys)
+        List<string> ComparisonWindow(IReadOnlyList<FormKey> keys, int total)
         {
-            if (wantFile || counts_only || (offset == 0 && keys.Count <= lim))
-                return keys.Select(k => k.ToString()).ToList();
-            var w = keys.Skip(offset).Take(lim).Select(k => k.ToString()).ToList();
-            cmpPrewindowed = true;
-            var note = w.Count == 0
-                ? $"window: no rows — offset={offset} is past the end of the {keys.Count} selected; nothing was read"
-                : $"window: rows {offset + 1}–{offset + w.Count} of {keys.Count} (limit={lim}, offset={offset}) — only these rows were read";
-            envelope.Add(new("window", note));
-            headerLine += "\n" + note;
+            if (wantFile || counts_only) return keys.Select(k => k.ToString()).ToList();
+            // The query already skipped offset= — it adds a key only past it — so the keys ARRIVE at the window's
+            // start and taking the limit is the whole window. Skipping again here would read the wrong rows.
+            cmpPrewindowed = true;                                     // these keys ARE the rendered rows now
+            cmpSelected = total;
+            var w = keys.Take(lim).Select(k => k.ToString()).ToList();
+            if (offset == 0 && w.Count == total) return w;             // the window is the whole selection: no note
+            cmpWindowNote = w.Count == 0
+                ? $"window: no rows — offset={offset} is past the end of the {total} selected; nothing was read"
+                : $"window: rows {offset + 1}–{offset + w.Count} of {total} (limit={lim}, offset={offset}) — only these rows were read";
+            envelope.Add(new("window", cmpWindowNote));
+            headerLine += "\n" + cmpWindowNote;
             return w;
         }
 
@@ -1082,8 +1088,10 @@ public static class RecordsTools
             }
 
             // The same bound as the scan lane's, on the list's own length: this lane reads a body for every id it
-            // was handed, and limit= windows only the render here, so the list itself is what it costs (#716).
-            if (RenderBudget.RefuseComparison(ids.Length, form, RenderBudget.ComparisonListLever) is { } listTooBig)
+            // was handed, and limit= windows only the render here, so the list itself is what it costs (#716). A
+            // walk arrives here as a list it derived, so its lever is the walk's, never "pass fewer formids=".
+            if (RenderBudget.RefuseComparison(ids.Length, form,
+                    walkDerived ? RenderBudget.ComparisonWalkLever : RenderBudget.ComparisonListLever) is { } listTooBig)
                 return Wire.Refuse(json, listTooBig);
 
             if (form == "delta")
@@ -1110,6 +1118,11 @@ public static class RecordsTools
 
         // The shared delta response pipeline — envelope, counts_only, window, spill, both renders — used by the
         // list and scan lanes alike so their behavior cannot drift.
+        /// <summary>The counts a windowed comparison carries: `selected` beside them, so `count` is never read as
+        /// the whole selection by a client that cannot see the prose window note.</summary>
+        KeyValuePair<string, int>[] CmpCounts(params KeyValuePair<string, int>[] counts) =>
+            cmpWindowNote is null ? counts : counts.Concat(new[] { KvI("selected", cmpSelected) }).ToArray();
+
         string DeltaResponse(IReadOnlyList<LoadOrderService.DeltaRow> rows, string? sArm, string? rArm, bool covers,
                              OrderStamp? epoch, List<KeyValuePair<string, string>> echo)
         {
@@ -1127,7 +1140,7 @@ public static class RecordsTools
             int errs = rows.Count(x => x.Error is not null);
             if (counts_only)
                 return json
-                    ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs) }, epoch)
+                    ? JsonWire.RenderNamedCounts(envelope, CmpCounts(KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs)), epoch)
                     : Census($"{headerLine}\ncount={rows.Count} differing={differing} identical={identical} no_verdict={noVerdict} errors={errs}" + Wire.EpochLine(epoch));
             var winRows = Windowed(rows);
             SpillState? spill = null;
@@ -1137,7 +1150,7 @@ public static class RecordsTools
                 if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
-            var deltaCounts = new[] { KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs) };
+            var deltaCounts = CmpCounts(KvI("count", rows.Count), KvI("differing", differing), KvI("identical", identical), KvI("no_verdict", noVerdict), KvI("errors", errs));
             string Render(SpillState? sp, out bool trunc) => json
                 ? JsonWire.RenderDelta(winRows, max_chars, epoch, envelope, deltaCounts, sp, out trunc)
                 : RenderRecordsDelta(winRows, rows.Count, differing, identical, noVerdict, errs, headerLine, epoch, max_chars, sp, out trunc);
@@ -1179,7 +1192,7 @@ public static class RecordsTools
                 if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
-            var treeCounts = new[] { KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs) };
+            var treeCounts = CmpCounts(KvI("count", rows.Count), KvI("contested", contested), KvI("errors", errs));
             string Render(SpillState? sp, out bool trunc) => json
                 ? JsonWire.RenderTree(winRows, max_chars, epoch, envelope, treeCounts, sp, out trunc, LeverNames.Records)
                 : RenderRecordsTree(winRows, rows.Count, contested, errs, projFields is { Length: > 0 }, headerLine, epoch, max_chars, sp, out trunc);
@@ -1415,6 +1428,7 @@ public static class RecordsTools
                 if (winnerFields) Add("fields_source", "winner");
                 Add("source", srcName ?? (srcSpec.Kind != LoadOrderService.PoleKind.Winner ? srcSpec.Label : null));
                 if (versusSpec is not null) Add("versus", versusSpec.Label);
+                Add("window", cmpWindowNote);   // a ceiling spill of a windowed comparison holds the window, and says so
                 return e;
             }
 
@@ -1462,7 +1476,7 @@ public static class RecordsTools
             {
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es) selected by the scan";
-                var cmpKeys = ComparisonWindow(outcome.Keys);
+                var cmpKeys = ComparisonWindow(outcome.Keys, outcome.Total);
                 if (RenderBudget.RefuseComparison(cmpKeys.Count, form, ComparisonLever()) is { } cmpTooBig)
                     return Wire.Refuse(json, cmpTooBig, outcome.Stamp);
                 if (form == "delta")
@@ -1760,6 +1774,7 @@ public static class RecordsTools
                 Add("where_source", where_source);
                 Add("group_by", offGroupBy);
                 if (versusSpec is not null) Add("versus", versusSpec.Label);
+                Add("window", cmpWindowNote);   // a ceiling spill of a windowed comparison holds the window, and says so
                 return e;
             }
 
@@ -1768,7 +1783,7 @@ public static class RecordsTools
             {
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es) selected from the file";
-                var cmpKeys = ComparisonWindow(outcome.Keys);
+                var cmpKeys = ComparisonWindow(outcome.Keys, outcome.Total);
                 if (RenderBudget.RefuseComparison(cmpKeys.Count, form, ComparisonLever()) is { } offCmpTooBig)
                     return Wire.Refuse(json, offCmpTooBig, outcome.Stamp);
                 if (form == "delta")

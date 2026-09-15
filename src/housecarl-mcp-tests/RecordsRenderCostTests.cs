@@ -228,6 +228,41 @@ public sealed class RecordsRenderCostTests
         Assert.Contains("only these rows were read",
                         RecordsTools.Records(Svc, types: Weap, project: Tree(), limit: 5));
 
+    /// <summary>Paging a tree lands on the rows the note names. The scan already skips offset= before it hands the
+    /// keys over, so skipping again here would read a window further in than the one reported — and now that the
+    /// window decides which bodies are read, that is rows silently never looked at rather than a misnumbered
+    /// header.</summary>
+    [Fact]
+    public void PagingATreeReadsTheRowsTheWindowNoteNames()
+    {
+        var page1 = RecordsTools.Records(Svc, types: Weap, format: "json", project: Tree(), limit: 5);
+        var page2 = RecordsTools.Records(Svc, types: Weap, format: "json", project: Tree(), limit: 5, offset: 5);
+        var first = Doc(page1).GetProperty("rows").EnumerateArray().Select(r => r.GetProperty("formid").GetString()).ToList();
+        var second = Doc(page2).GetProperty("rows").EnumerateArray().Select(r => r.GetProperty("formid").GetString()).ToList();
+
+        Assert.Equal(5, first.Count);
+        Assert.Equal(5, second.Count);
+        Assert.Empty(first.Intersect(second));                       // consecutive windows, not overlapping or skipping
+        var whole = Doc(RecordsTools.Records(Svc, types: Weap, format: "json", project: Tree(),
+                                             limit: RenderCostWorld.Weapons, max_chars: 4_000_000))
+                    .GetProperty("rows").EnumerateArray().Select(r => r.GetProperty("formid").GetString()).ToList();
+        Assert.Equal(whole.Take(5), first);
+        Assert.Equal(whole.Skip(5).Take(5), second);                 // the second page IS rows 6–10 of the selection
+        Assert.Contains($"of {RenderCostWorld.Weapons}", page2);     // and the note's denominator is the selection
+    }
+
+    /// <summary>The refusal describes the form it is refusing: a delta reads two poles per record, not every
+    /// override, and saying otherwise would be false about the work and would inflate the estimate.</summary>
+    [Fact]
+    public void TheBoundDescribesADeltasOwnWorkNotATrees()
+    {
+        var r = WithComparisonBound(2, () => RecordsTools.Records(Svc, types: Weap, versus: System.Text.Json.JsonDocument.Parse("\"winner\"").RootElement.Clone(),
+                                                                  project: new RecordsTools.RecordsProject { form = "delta" }, limit: 10));
+        Assert.StartsWith("error:", r);
+        Assert.Contains("two versions", r);
+        Assert.DoesNotContain("every override", r);
+    }
+
     /// <summary>The estimate up front (#716): before reading a body, the call knows the count and the form, and a
     /// selection past the bound refuses naming the count, what a tree reads, and what to try — rather than going
     /// quiet for twenty minutes.</summary>

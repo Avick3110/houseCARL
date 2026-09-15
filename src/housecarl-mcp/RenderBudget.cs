@@ -42,11 +42,11 @@ internal static class RenderBudget
     /// gather per plugin. 15 ms carries the measurement plus a margin.</summary>
     internal const double MillisPerIdentityRow = 15.0;
 
-    /// <summary>The declared cost of one comparison row (<c>form='delta'</c> or <c>form='tree'</c>). A tree row
-    /// reads EVERY provider of its record, not one body, and each of those is a seek through its plugin rather than
-    /// a gathered read: measured at 0.28 s a row over placed references on a 3,571-line order, where the contested
-    /// ones have two providers. A record with more providers costs more again — a worldspace has hundreds — so this
-    /// is a floor, not an average.</summary>
+    /// <summary>The declared cost of one comparison row. Neither form reads ONE body: a tree row reads every
+    /// provider of its record, a delta row reads its two poles, and each of those is a seek through its plugin
+    /// rather than a gathered read. Measured over placed references on a 3,571-line order, where the contested ones
+    /// have two providers: 0.28 s a tree row, 0.19 s a delta row on the same records. A record with more providers
+    /// costs the tree more again — a worldspace has hundreds — so this is a floor, not an average.</summary>
     internal const double MillisPerComparisonRow = 250.0;
 
     /// <summary>THE BOUND for the comparison forms: about a minute at <see cref="MillisPerComparisonRow"/>. Far
@@ -219,14 +219,16 @@ internal static class RenderBudget
     }
 
     /// <summary>The refusal for a comparison form (delta/tree) over its own bound, or null when it fits. One
-    /// sentence: what it would read, what that costs, and the three levers. <paramref name="form"/> is the form's
-    /// own name, so the sentence names what the caller passed; <paramref name="alreadyWindowed"/> says a limit= has
-    /// already bounded the read, which changes "window it" into "lower it further".</summary>
+    /// sentence: what it would read, what that costs, and the lever. <paramref name="form"/> is the form's own name
+    /// and decides what the sentence says the row READS — a tree reads every provider, a delta reads two poles —
+    /// so neither form is described as the other. <paramref name="lever"/> is the one the caller's lane can actually
+    /// pull, picked by the caller from the four below.</summary>
     internal static string? RefuseComparison(int rows, string form, string lever) =>
         rows <= MaxComparisonRows
             ? null
-            : $"error: this {form} reads every override of each of {rows:N0} records — {ProjectedAt(rows, MillisPerComparisonRow)} at the " +
-              $"0.25 s a row a two-provider record costs, past the {MaxComparisonRows:N0}-row bound the comparison forms are given; " +
+            : $"error: this {form} reads {(form == "delta" ? "two versions" : "every override")} of each of {rows:N0} records — " +
+              $"{ProjectedAt(rows, MillisPerComparisonRow)} at the {MillisPerComparisonRow / 1000:0.##} s a row measured for these forms, " +
+              $"past the {MaxComparisonRows:N0}-row bound the comparison forms are given; " +
               lever;
 
     /// <summary>The comparison bound's levers, one per lane: an unwindowed scan can take a window, a windowed one
@@ -246,6 +248,10 @@ internal static class RenderBudget
     /// <inheritdoc cref="ComparisonScanLever"/>
     internal const string ComparisonListLever =
         "pass fewer formids= entries: this lane reads every provider of every id in the list before limit= windows the render.";
+
+    /// <inheritdoc cref="ComparisonScanLever"/>
+    internal const string ComparisonWalkLever =
+        "narrow the seeds you passed, or lower walk.depth or walk.max_nodes, until the set the walk reaches fits — the rows are what the walk reached, so limit= windows the render and not the walk.";
 
     /// <summary>The refusal for an <c>form='identity'</c> render over its own bound, or null when it fits. Its own
     /// tier and its own lead, because its row is neither a named-field read nor a whole record: it is one untyped
