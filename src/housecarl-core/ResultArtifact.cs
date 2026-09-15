@@ -79,23 +79,19 @@ public static class ResultArtifact
             target.EnsureUnwritten();   // a target is single-use; writing one twice is a bug, not an IO failure
             try
             {
-                // Written straight into the target's own handle. A crash mid-write cannot pass a half artifact for a
-                // whole one: the manifest is line 1 and carries row_count, so a short file fails its own manifest.
-                using (var fs = target.Open())
+                // The target decides where the bytes land — its own reserved handle, or a temp it then moves into
+                // place — and cleans up after itself if this throws.
+                target.Write(fs =>
                 {
                     using (var w = new Utf8JsonWriter(fs, JsonTextEncoder.OneLine)) { manifest.WriteTo(w); w.Flush(); }
                     fs.WriteByte((byte)'\n');
                     _rows.Position = 0;
                     _rows.CopyTo(fs);
-                }
-                target.Wrote();
+                });
                 return (manifest, null);
             }
             catch (Exception ex)
             {
-                // Never leave the rubble of a failed write where a whole artifact should be — but only where THIS
-                // call made the file; a caller-named target the write never opened keeps whatever it held.
-                target.DeleteIfThisCallMadeIt();
                 return (null, $"could not write the result artifact to '{target.Path}' — {ex.GetType().Name}: {ex.Message}");
             }
         }
@@ -296,61 +292,73 @@ public static class ResultArtifact
 /// exclusive handle this owns. The reservation IS the file — the handle that claimed the name is the handle
 /// <see cref="ResultArtifact.Writer.Save"/> writes through, so nothing can take or hold the file in between.
 /// Disposing a reservation that was never written closes the handle and deletes the file it owns, best-effort, so a
-/// cancelled call strands nothing; a named target owns no handle and needs no disposal.</summary>
+/// cancelled call strands nothing; a named target owns no handle and needs no disposal, and a failed write there
+/// leaves the caller's file exactly as it was. <see cref="Write"/> says why the two kinds land differently.</summary>
 public sealed class ArtifactTarget : IDisposable
 {
     readonly FileStream? _reserved;
-    bool _ours;    // this call made the file: a reservation, or a named target Open() has truncated
     bool _wrote;
 
-    ArtifactTarget(string path, FileStream? reserved)
-    {
-        Path = path;
-        _reserved = reserved;
-        _ours = reserved is not null;
-    }
+    ArtifactTarget(string path, FileStream? reserved) { Path = path; _reserved = reserved; }
 
     /// <summary>The file this artifact is written to — what the response names.</summary>
     public string Path { get; }
 
-    /// <summary>A caller-named target: no reservation, opened when the write happens.</summary>
+    /// <summary>A caller-named target: no reservation, written through a temp moved into place.</summary>
     public static ArtifactTarget Named(string path) => new(path, null);
 
     /// <summary>A reserved target: the open, exclusive handle that holds the name.</summary>
     public static ArtifactTarget Reserved(string path, FileStream held) => new(path, held);
 
-    /// <summary>The stream to write through: the reservation's own handle, or a fresh one for a named target.</summary>
-    internal FileStream Open()
+    /// <summary>Put the artifact on disk: <paramref name="writeInto"/> emits the whole file into the stream it is
+    /// given. One path per kind of target, because they have opposite hazards.
+    /// <para>A RESERVATION is written through the handle that claimed the name: the file is the server's own, it was
+    /// empty a moment ago, and a temp-then-move onto it is what #766 was — a replace-move fails while anything holds
+    /// the destination without share-delete. A crash mid-write cannot pass a half artifact for a whole one, because
+    /// the manifest is line 1 and carries row_count, so a short file fails its own manifest.</para>
+    /// <para>A NAMED target is the CALLER's file and may already hold an artifact they still want, so it is written
+    /// through a same-directory temp moved into place — atomic on NTFS — and a failure anywhere, or a process kill,
+    /// leaves the destination untouched. There is no empty placeholder at the destination for a scanner to hold, so
+    /// the move here is not the #766 hazard.</para></summary>
+    internal void Write(Action<Stream> writeInto)
     {
-        if (_reserved is not null) return _reserved;
+        if (_reserved is not null)
+        {
+            using (_reserved) writeInto(_reserved);
+            _wrote = true;
+            return;
+        }
+
         var dir = System.IO.Path.GetDirectoryName(Path);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        var fs = new FileStream(Path, FileMode.Create, FileAccess.Write, FileShare.None);
-        _ours = true;   // opened, so whatever the caller had at this path is already gone
-        return fs;
+        var tmp = Path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
+        try
+        {
+            using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None)) writeInto(fs);
+            File.Move(tmp, Path, overwrite: true);
+            _wrote = true;
+        }
+        catch (Exception)
+        {
+            // The temp is full artifact size and a failed write is likeliest exactly when the volume is tight, so
+            // never leave it behind. Best-effort: a second failure deleting it must not mask the first.
+            try { File.Delete(tmp); } catch (Exception) { }
+            throw;
+        }
     }
 
-    /// <summary>A target is written once: its handle is closed by the write, so a second one would fail against a
-    /// dead stream and take the landed artifact with it.</summary>
+    /// <summary>A target is written once: a reservation's handle is closed by the write, so a second one would fail
+    /// against a dead stream and take the landed artifact with it.</summary>
     internal void EnsureUnwritten()
     {
         if (_wrote) throw new InvalidOperationException($"the artifact target '{Path}' has already been written");
     }
 
-    /// <summary>The artifact landed — Dispose must leave the file alone.</summary>
-    internal void Wrote() => _wrote = true;
-
-    /// <summary>Remove a file this call created, best-effort — never one the write never opened.</summary>
-    internal void DeleteIfThisCallMadeIt()
-    {
-        if (_ours) try { File.Delete(Path); } catch (Exception) { }
-    }
-
     public void Dispose()
     {
-        if (_reserved is null) return;
+        if (_reserved is null) return;   // a named target owns no handle and no file of its own
         _reserved.Dispose();
-        if (!_wrote) DeleteIfThisCallMadeIt();
+        if (!_wrote) try { File.Delete(Path); } catch (Exception) { }
     }
 }
 

@@ -151,22 +151,25 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         Assert.Contains("NO identity column", err);
     }
 
-    /// <summary>A write that could not even open the caller's file must not take that file with it: the failure is
-    /// named, and what was already at the path is still there.</summary>
+    /// <summary>A failed <c>to_file=</c> write must not take the caller's existing file with it. The whole artifact
+    /// is written to a temp first, so the failure here lands on the move INTO the destination — after every byte was
+    /// written — and the file the caller already had is still exactly what it was, with the temp cleaned up.</summary>
     [Fact]
-    public void ToFile_AWriteThatCouldNotOpenTheFileLeavesWhatWasAlreadyThere()
+    public void ToFile_AWriteThatFailsAfterItStartedLeavesTheCallersFileAsItWas()
     {
         var art = Art("held-target.jsonl");
         const string mine = "the caller's own file\n";
         File.WriteAllText(art, mine);
 
-        using (new FileStream(art, FileMode.Open, FileAccess.Read, FileShare.Read))   // held: the write cannot open it
+        // Held without share-delete: the temp writes fine and the move onto this file is what fails.
+        using (new FileStream(art, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, to_file: art);
             Assert.Contains("could not write the result artifact", r);
         }
 
         Assert.Equal(mine, File.ReadAllText(art));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(art)!, "*.jsonl.tmp-*"));
     }
 
     [Fact]
@@ -1101,6 +1104,14 @@ public sealed class RecordsArtifactResultsStoreTests : IDisposable
         Assert.NotEqual(r1.Path, r2.Path);
         Assert.True(File.Exists(r1.Path));
         Assert.True(File.Exists(r2.Path));
+    }
+
+    [Fact]
+    public void AnOldOrphanedWriterTempIsPrunedLikeAnyStaleSpill()
+    {
+        var orphan = Aged("half-written.jsonl.tmp-deadbeef", ResultsStore.PruneAfterDays + 1);
+        using var r = ResultsStore.Reserve(ToolNames.Records, "0123456789abcdef");
+        Assert.False(File.Exists(orphan));
     }
 
     [Fact]
