@@ -243,6 +243,8 @@ public sealed class RecordsRenderCostTests
 
     static readonly string[] Armo = { "ARMO" };
 
+    static RecordsTools.RecordsProject DeltaForm() => new() { form = "delta" };
+
     /// <summary>Every contested armor as formids — rows whose provider stack is the same five plugins.</summary>
     string[] AllArmorIds => Svc.CrossQuery(Armo, null, null, false, null, null, RenderCostWorld.Contested)
                                .Keys.Select(k => k.ToString()).ToArray();
@@ -274,6 +276,28 @@ public sealed class RecordsRenderCostTests
         int chunks = (RenderCostWorld.Contested + LoadOrderService.TreeChunkRows - 1) / LoadOrderService.TreeChunkRows;
         Assert.True(passes <= stack * chunks,
                     $"{RenderCostWorld.Contested} rows over a {stack}-deep stack cost {passes} plugin walks.");
+    }
+
+    /// <summary>The delta lane pays the same per row, one body per pole: forty rows against the provider below
+    /// each subject were eighty whole-plugin walks of the two plugins that actually hold them. Which plugin a pole
+    /// reads a row from is an index fact, so the chunk is declared before a body is read and gathered per plugin
+    /// (#765).</summary>
+    [Fact]
+    public void ADeltaGathersEachPolesBodiesPerPluginNotPerRow()
+    {
+        var ids = AllArmorIds;
+        var beforePasses = LoadOrderResolver.CollectPasses;
+        var beforeSeeks = LoadOrderResolver.BodySeeks;
+        var response = RecordsTools.Records(Svc, formids: ids, project: DeltaForm(),
+                                            versus: Pole("previous_provider"), max_chars: 4_000_000);
+        var passes = LoadOrderResolver.CollectPasses - beforePasses;
+        var seeks = LoadOrderResolver.BodySeeks - beforeSeeks;
+
+        Assert.False(response.StartsWith("error:", StringComparison.Ordinal), response);
+        Assert.Equal(0, seeks);
+        int chunks = (RenderCostWorld.Contested + PoleGather.ChunkRows - 1) / PoleGather.ChunkRows;
+        Assert.True(passes <= 2 * chunks,
+                    $"{RenderCostWorld.Contested} delta rows over two poles cost {passes} plugin walks.");
     }
 
     // ---- the comparison forms: limit= bounds the READ, and a job past the bound announces itself ----

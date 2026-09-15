@@ -3411,9 +3411,11 @@ public sealed partial class LoadOrderService : IDisposable
         }
 
         // Resolve the uniform arms once (named poles; winner/overlay are per-record but uniform in statement).
-        var sReader = MakePoleReader(view, session, subject, fields, wanted, out subjectArm, out var sCovers, out var sErr, out var sOffOrder, overlayWarnings);
+        var sGather = new PoleGather();
+        var rGather = new PoleGather();
+        var sReader = MakePoleReader(view, session, subject, fields, wanted, out subjectArm, out var sCovers, out var sErr, out var sOffOrder, overlayWarnings, sGather);
         if (sErr is not null) { refusal = "source: " + sErr; return Array.Empty<DeltaRow>(); }
-        var rReader = MakePoleReader(view, session, reference, fields, wanted, out referenceArm, out var rCovers, out var rErr, out _, overlayWarnings);
+        var rReader = MakePoleReader(view, session, reference, fields, wanted, out referenceArm, out var rCovers, out var rErr, out _, overlayWarnings, rGather);
         if (rErr is not null) { refusal = "versus: " + rErr; return Array.Empty<DeltaRow>(); }
         epochCoversAll = sCovers && rCovers;
 
@@ -3428,26 +3430,41 @@ public sealed partial class LoadOrderService : IDisposable
         }
 
         var rows = new List<DeltaRow>(formids.Count);
-        foreach (var (raw, fkOpt, parseError) in parsed)
+        // A chunk of rows at a time, so each pole walks a plugin once for the whole chunk instead of once per row
+        // (#765). Which plugin a pole reads a row from is an index fact, so the whole chunk is declared before a
+        // body is read; the reference's declaration needs the subject's plugin, which is the same index fact.
+        for (int start = 0; start < parsed.Count; start += PoleGather.ChunkRows)
         {
-            if (parseError is not null) { rows.Add(new DeltaRow(raw?.Trim() ?? "", null, null, null, null, null, parseError)); continue; }
-            var fk = fkOpt!.Value;
+            int end = Math.Min(start + PoleGather.ChunkRows, parsed.Count);
+            var chunkKeys = new List<FormKey>(end - start);
+            for (int i = start; i < end; i++) if (parsed[i].Fk is { } k) chunkKeys.Add(k);
+            sGather.Open(view, session, chunkKeys, _ => null);
+            var subjects = new string?[chunkKeys.Count];
+            for (int j = 0; j < chunkKeys.Count; j++) subjects[j] = sGather.PluginOf?.Invoke(chunkKeys[j], null);
+            rGather.Open(view, session, chunkKeys, j => subjects[j]);
 
-            var s = sReader(fk, null);
-            if (s.Error is not null) { rows.Add(new DeltaRow(FormIdToken.Of(fk), s.Pole, null, null, null, null, "subject: " + s.Error)); continue; }
-            // previous_provider is measured from the SUBJECT, so hand the reference reader the subject's resolved
-            // plugin for this record and it anchors on the right stack position. The off-order subject is already
-            // refused for the whole call above.
-            var r = rReader(fk, s.Pole!.Plugin);
-            if (r.Error is not null) { rows.Add(new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, null, r.StackAbove, null, "versus: " + r.Error)); continue; }
+            for (int i = start; i < end; i++)
+            {
+                var (raw, fkOpt, parseError) = parsed[i];
+                if (parseError is not null) { rows.Add(new DeltaRow(raw?.Trim() ?? "", null, null, null, null, null, parseError)); continue; }
+                var fk = fkOpt!.Value;
 
-            string? note = string.Equals(s.Pole.Plugin, r.Pole!.Plugin, StringComparison.OrdinalIgnoreCase) && s.Pole.Where == r.Pole.Where
-                ? "the two poles resolved to the SAME provider — the diff is trivially empty by construction"
-                : null;
-            // Two copies of one filename on opposite arms: the delta line names the off-order side's mod folder, or
-            // the reader cannot tell which side a value came from without the pole lines above.
-            var diff = FieldsDiff.Compare(s.Fields!, r.Fields!, referenceLabel: r.Pole.LabelVersus(s.Pole.Plugin));
-            rows.Add(new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, diff, r.StackAbove, note, null));
+                var s = sReader(fk, null);
+                if (s.Error is not null) { rows.Add(new DeltaRow(FormIdToken.Of(fk), s.Pole, null, null, null, null, "subject: " + s.Error)); continue; }
+                // previous_provider is measured from the SUBJECT, so hand the reference reader the subject's resolved
+                // plugin for this record and it anchors on the right stack position. The off-order subject is already
+                // refused for the whole call above.
+                var r = rReader(fk, s.Pole!.Plugin);
+                if (r.Error is not null) { rows.Add(new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, null, r.StackAbove, null, "versus: " + r.Error)); continue; }
+
+                string? note = string.Equals(s.Pole.Plugin, r.Pole!.Plugin, StringComparison.OrdinalIgnoreCase) && s.Pole.Where == r.Pole.Where
+                    ? "the two poles resolved to the SAME provider — the diff is trivially empty by construction"
+                    : null;
+                // Two copies of one filename on opposite arms: the delta line names the off-order side's mod folder, or
+                // the reader cannot tell which side a value came from without the pole lines above.
+                var diff = FieldsDiff.Compare(s.Fields!, r.Fields!, referenceLabel: r.Pole.LabelVersus(s.Pole.Plugin));
+                rows.Add(new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, diff, r.StackAbove, note, null));
+            }
         }
         return rows;
     }
@@ -3464,11 +3481,13 @@ public sealed partial class LoadOrderService : IDisposable
     /// first use — happens here once; per-record work stays in the returned reader. <paramref name="covers"/> is
     /// false when the pole reads content outside the epoch fingerprint, such as an off-order file or the overlay's
     /// INIs. <paramref name="offOrderArm"/> is the resolved arm when it is an on-disk file outside the order, and
-    /// null otherwise — a uniform fact about the whole call, so a caller can judge it once instead of per record.</summary>
+    /// null otherwise — a uniform fact about the whole call, so a caller can judge it once instead of per record.
+    /// <paramref name="gather"/> is the chunk gather this pole's in-order bodies come from: the arm fills in which
+    /// plugin it reads each row from, which is an index fact, and the caller opens a chunk at a time (#765).</summary>
     PoleReader MakePoleReader(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                               PoleSpec spec, IReadOnlyList<string>? fields, IReadOnlyCollection<FormKey>? wanted,
                               out string? armStatement, out bool covers, out string? error, out PoleInfo? offOrderArm,
-                              SkyPatcherOverlay.WarningSink? overlayWarnings = null)
+                              SkyPatcherOverlay.WarningSink? overlayWarnings = null, PoleGather? gather = null)
     {
         error = null; covers = true; offOrderArm = null;
         // '*parent' on fields=: every in-order arm below reads through this captured view and open session, so the
@@ -3479,12 +3498,14 @@ public sealed partial class LoadOrderService : IDisposable
         {
             case PoleKind.Winner:
                 armStatement = "winner";
+                if (gather is not null) gather.PluginOf = (fk, _) => view.ResolveWinner(fk)?.WinnerPlugin;
                 return (fk, _) =>
                 {
                     var w = view.ResolveWinner(fk);
                     if (w is null)
                         return new PoleReading(null, null, null, UnresolvedFormId(view, fk));
-                    var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
+                    var body = gather is { Live: true } ? gather.Body(w.Value.WinnerPlugin, fk)
+                                                        : view.GetRecord(session, w.Value.WinnerPlugin, fk);
                     if (body is null)
                         return new PoleReading(null, null, null, $"the winner body of {FormIdToken.Of(fk)} could not be read from '{w.Value.WinnerPlugin}'.");
                     return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth, parentOf: hop),
@@ -3496,6 +3517,15 @@ public sealed partial class LoadOrderService : IDisposable
                 // Subject-relative: resolved per record against the touching list, anchored on the plugin the
                 // subject resolved to for that record. Always active-order, since the touching list is the order's.
                 armStatement = spec.Label;
+                if (gather is not null) gather.PluginOf = (fk, subjectPlugin) =>
+                {
+                    if (subjectPlugin is null) return null;
+                    var t = view.TouchingPlugins(fk);
+                    if (t is null) return null;
+                    for (int i = 1; i < t.Count; i++)                    // i starts at 1: the bottom provider has nothing beneath it
+                        if (string.Equals(t[i], subjectPlugin, StringComparison.OrdinalIgnoreCase)) return t[i - 1];
+                    return null;
+                };
                 return (fk, subjectPlugin) =>
                 {
                     var touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
@@ -3512,7 +3542,7 @@ public sealed partial class LoadOrderService : IDisposable
                         return new PoleReading(null, null, null,
                             $"no previous provider — '{subjectPlugin}' DEFINES {FormIdToken.Of(fk)} (bottom of the touching list); there is nothing beneath it to compare against.");
                     var refPlugin = touchers[idx - 1];
-                    var body = view.GetRecord(session, refPlugin, fk);
+                    var body = gather is { Live: true } ? gather.Body(refPlugin, fk) : view.GetRecord(session, refPlugin, fk);
                     if (body is null)
                         return new PoleReading(null, null, null, $"the previous provider '{refPlugin}' of {FormIdToken.Of(fk)} could not be read.");
                     // Mid-stack subject: what sits above is surfaced as neutral fact, never advice.
@@ -3523,7 +3553,7 @@ public sealed partial class LoadOrderService : IDisposable
                 };
 
             case PoleKind.Overlay:
-                return MakeOverlayPoleReader(view, session, spec, fields, out armStatement, out covers, out error, overlayWarnings);
+                return MakeOverlayPoleReader(view, session, spec, fields, out armStatement, out covers, out error, overlayWarnings, gather);
 
             default:   // Named — the one-pole rule: active in the order, else an on-disk file.
                 var (arm, armErr) = ResolvePoleArm(view, spec.Plugin!, spec.Mod);
@@ -3537,9 +3567,10 @@ public sealed partial class LoadOrderService : IDisposable
                         error = exclMsg;
                         return (_, _) => new PoleReading(null, null, null, exclMsg);
                     }
+                    if (gather is not null) gather.PluginOf = (_, _) => arm.Plugin;
                     return (fk, _) =>
                     {
-                        var body = view.GetRecord(session, arm.Plugin, fk);
+                        var body = gather is { Live: true } ? gather.Body(arm.Plugin, fk) : view.GetRecord(session, arm.Plugin, fk);
                         if (body is null)
                         {
                             // Name the actual touchers, never a silent absence.
@@ -3589,7 +3620,7 @@ public sealed partial class LoadOrderService : IDisposable
     PoleReader MakeOverlayPoleReader(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                      PoleSpec spec, IReadOnlyList<string>? fields,
                                      out string? armStatement, out bool covers, out string? error,
-                                     SkyPatcherOverlay.WarningSink? overlayWarnings = null)
+                                     SkyPatcherOverlay.WarningSink? overlayWarnings = null, PoleGather? gather = null)
     {
         error = null;
         var hop = ContainmentIndex.ReadHop(view, session);   // both overlay arms read through the order's own index
@@ -3606,11 +3637,13 @@ public sealed partial class LoadOrderService : IDisposable
         {
             covers = true;
             armStatement = "skypatcher overlay (pre) — the plain load-order winner, before the INI layer";
+            if (gather is not null) gather.PluginOf = (fk, _) => view.ResolveWinner(fk)?.WinnerPlugin;
             return (fk, _) =>
             {
                 var w = view.ResolveWinner(fk);
                 if (w is null) return new PoleReading(null, null, null, UnresolvedFormId(view, fk));
-                var body = view.GetRecord(session, w.Value.WinnerPlugin, fk);
+                var body = gather is { Live: true } ? gather.Body(w.Value.WinnerPlugin, fk)
+                                                     : view.GetRecord(session, w.Value.WinnerPlugin, fk);
                 if (body is null) return new PoleReading(null, null, null, $"the winner body of {FormIdToken.Of(fk)} could not be read from '{w.Value.WinnerPlugin}'.");
                 return new PoleReading(ReadEngine.ReadFields(body, fields, ConflictDiffDepth, parentOf: hop),
                                        new DiffPole(w.Value.WinnerPlugin, "skypatcher overlay (pre) = winner", true,
