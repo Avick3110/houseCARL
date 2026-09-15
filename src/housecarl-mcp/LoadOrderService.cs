@@ -3940,17 +3940,19 @@ public sealed partial class LoadOrderService : IDisposable
                 nodes.Add(new TreeNodeDelta(plugin, isWinner, false, d.Deltas, d.AgreedCount, d.Complete, null));
                 return true;
             });
+            // The versus refusal is checked FIRST: it stops the walk at the winner, so it leaves no nodes, and the
+            // empty-nodes row below would otherwise name the wrong cause — the bodies read fine.
+            if (versusError is not null)
+            {
+                rows.Add(new TreeRow(FormIdToken.Of(fk), fill?.Type, fill?.EditorId,
+                                     touchers, null, Array.Empty<TreeNodeDelta>(), versusError,
+                                     Array.Empty<ChildDeclarers>()));
+                continue;
+            }
             if (fill is null || nodes.Count == 0)
             {
                 rows.Add(new TreeRow(FormIdToken.Of(fk), null, null, touchers, null, Array.Empty<TreeNodeDelta>(),
                                      $"the provider bodies of {FormIdToken.Of(fk)} could not be read.", Array.Empty<ChildDeclarers>()));
-                continue;
-            }
-            if (versusError is not null)
-            {
-                rows.Add(new TreeRow(FormIdToken.Of(fk), fill.Type, fill.EditorId,
-                                     touchers, null, Array.Empty<TreeNodeDelta>(), versusError,
-                                     Array.Empty<ChildDeclarers>()));
                 continue;
             }
             nodes.Reverse();                                   // the fold read winner first; the row reads winner last
