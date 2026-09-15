@@ -24,8 +24,9 @@
   <PropertyGroup>
     <!-- Server GC, chosen rather than inherited from the Web SDK. Measured against workstation GC, gen0 budgets,
          heap-count caps and ConserveMemory (issue #717): elapsed was flat across all nine, and Server GC held the
-         least after a merge (559 MB; every alternative held 1 to 5 GB). Peak working set is live objects, bounded
-         by the read paths themselves, not by the collector. -->
+         least after a merge (559 MB against 1.1 to 5.3 GB for the six alternatives with an idle figure; the
+         gcServer=0 + ConserveMemory=5 row, best on the merge and tree peaks, has none). Peak working set is live
+         objects, bounded by the read paths themselves, not by the collector. -->
     <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
 
