@@ -78,7 +78,7 @@ housecarl_apply(
 
 `dry_run` runs the full pipeline (winner resolution, schema pre-flight, every op applied in memory, the reference check) and stops before disk. It returns what would change, or the refusal the real call would return.
 
-**Predicates.** `where=` accepts comparisons (`BasicStats.Damage >= 50`), EditorID tests (`editorid startswith REQ_`), flag tests over bit fields (`BodyTemplate.FirstPersonFlags has Body`, `has_any`, `has_none`), presence (`VirtualMachineAdapter exists`), membership from a file (`formid not in @<path>`), one link step (`Perks->editorid startswith REQ_NULL_`), a provenance term (`winner = X.esp`), a containment step (`*parent.EditorID`), and quantified steps over a list (`Effects[*none].BaseEffect->editorid startswith REQ_`, `Effects[*count] > 2`). Predicates are ANDed.
+**Predicates.** `where=` accepts comparisons (`BasicStats.Damage >= 50`), EditorID tests (`editorid startswith REQ_`), the negated string operators (`Name not contains Dagger`, `not startswith`), flag tests over bit fields (`BodyTemplate.FirstPersonFlags has Body`, `has_any`, `has_none`), presence (`VirtualMachineAdapter exists`), membership from a file (`formid not in @<path>`), one link step (`Perks->editorid startswith REQ_NULL_`), a provenance term (`winner = X.esp`), a containment step (`*parent.EditorID`), and quantified steps over a list (`Effects[*none].BaseEffect->editorid startswith REQ_`, `Effects[*count] > 2`). Predicates are ANDed.
 
 **FormIDs.** A record is addressed as `XXXXXX:Plugin.esp`, or in the runtime form the console, Papyrus log and crash log print (`FExxxYYY`, `XX######`), resolved against the current order. Reads accept both forms. Writes accept the plugin form only; a runtime form is refused with the plugin form to use.
 

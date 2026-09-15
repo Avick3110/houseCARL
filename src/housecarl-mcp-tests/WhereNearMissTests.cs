@@ -1,4 +1,4 @@
-using HousecarlMcp;
+﻿using HousecarlMcp;
 using Xunit;
 
 namespace HousecarlMcpTests;
@@ -48,6 +48,18 @@ public sealed class WhereNearMissTests : RecordsTestBase
         Assert.DoesNotContain("near miss", r);
     }
 
+    [Fact]
+    public void AWinnerThatDroppedTheEditorIdGetsTheFormIdRemedy_NotAskForThatName()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "ARMO" },
+                                     where: new[] { $"editorid = {RecordsWorld.DroppedEidArmorOldEid}" });
+        Assert.Contains("near miss", r);
+        Assert.Contains("NO EditorID", r);
+        Assert.Contains("ask by FormID", r);
+        Assert.Contains(Fid(W.DroppedEidArmor), r);
+        Assert.DoesNotContain("names it", r);          // there is no name to re-ask for
+    }
+
     // ---- the gate: only where the sentence's one cause is the only cause ---------------------------
 
     [Fact]
@@ -63,6 +75,39 @@ public sealed class WhereNearMissTests : RecordsTestBase
     {
         var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.Armor) },
                                      where: new[] { $"editorid = {RecordsWorld.RenamedArmorOldEid}" });
+        Assert.DoesNotContain("near miss", r);
+    }
+
+    [Fact]
+    public void ConflictsOnlyGetsNoSentence_TheZeroCouldBeTheDepthFilter()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "ARMO" }, conflicts_only: true,
+                                     where: new[] { $"editorid = {RecordsWorld.RenamedArmorOldEid}" });
+        Assert.DoesNotContain("near miss", r);
+    }
+
+    [Fact]
+    public void AReferencesFilterGetsNoSentence_TheZeroCouldBeTheLinkFilter()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "ARMO" }, references: new[] { Fid(W.MgefA) },
+                                     where: new[] { $"editorid = {RecordsWorld.RenamedArmorOldEid}" });
+        Assert.DoesNotContain("near miss", r);
+    }
+
+    [Fact]
+    public void AReferencesNoneFilterGetsNoSentence_TheZeroCouldBeTheExclusion()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "ARMO" }, references: new[] { "!" + Fid(W.MgefA) },
+                                     where: new[] { $"editorid = {RecordsWorld.RenamedArmorOldEid}" });
+        Assert.DoesNotContain("near miss", r);
+    }
+
+    [Fact]
+    public void AnAggregateGetsNoSentence_TheGroupedAnswerCarriesNoScanNoteRow()
+    {
+        var r = RecordsTools.Records(Svc, types: new[] { "ARMO" },
+                                     where: new[] { $"editorid = {RecordsWorld.RenamedArmorOldEid}" },
+                                     project: new RecordsTools.RecordsProject { form = "aggregate", group_by = "winner" });
         Assert.DoesNotContain("near miss", r);
     }
 

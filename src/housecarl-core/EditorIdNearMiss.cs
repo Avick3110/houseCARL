@@ -46,7 +46,7 @@ public static class EditorIdNearMiss
             {
                 foreach (var (fk, depth, body, source) in view.RecordsIn(one, getterTypes))
                 {
-                    if (ct.IsCancellationRequested) return null;
+                    ct.ThrowIfCancellationRequested();   // a client that aborted stops the walk, as it stops the scan
                     if (++seen > Budget) return null;
                     if (depth <= 1) continue;                      // only one plugin provides it, so its copy IS the winner the scan already read
                     if (!string.Equals(body.EditorID, wanted, StringComparison.OrdinalIgnoreCase)) continue;
@@ -54,7 +54,11 @@ public static class EditorIdNearMiss
                     if (string.Equals(w.WinnerPlugin, source, StringComparison.OrdinalIgnoreCase)) continue;   // this IS the winner — the scan saw this name and judged it
                     // A winner body that will not fetch makes THIS candidate unjudgeable, not the walk: the next
                     // copy carrying the name may be the rename the caller is asking about.
-                    var winnerBody = view.GetRecord(session, w.WinnerPlugin, fk);
+                    // The candidate's own getter type, off the scan's type scope, so the winner body is sought in
+                    // that record's GRUP instead of by a flat walk of the whole plugin (#354). SeekBody still falls
+                    // back to the flat pass on a miss.
+                    var winnerBody = view.GetRecord(session, w.WinnerPlugin, fk,
+                                                    getterTypes?.FirstOrDefault(t => t.IsInstanceOfType(body)));
                     if (winnerBody is null) continue;
                     var winnerEid = winnerBody.EditorID;
                     if (winnerEid is null)
@@ -65,6 +69,12 @@ public static class EditorIdNearMiss
                          + $"'{winnerEid}' — editorid= is matched against the winner, so ask for that name, or scope the scan with plugins=[\"{source}\"].";
                 }
             }
+            // Out of memory is the MACHINE's fault, not this plugin's, and carrying on would start another whole
+            // plugin walk under the same pressure — it leaves by the same door the body gather sends it out of.
+            catch (OutOfMemoryException) { throw; }
+            // A cancelled call is the caller's answer, not a fault to absorb: the scan lane rethrows it and so does
+            // this, so a client that aborted stops here rather than walking the rest of the order.
+            catch (OperationCanceledException) { throw; }
             // A plugin that indexed but will not open now is already named in the scan's own coverage gap; the rest
             // of the order still answers. Any other fault on one plugin is skipped on the same reasoning: a hint is
             // never worth failing the answer it rides on.
