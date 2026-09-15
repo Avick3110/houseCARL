@@ -120,16 +120,38 @@ public static class WriteVerbs
     /// <c>INV4-CREATEHOMES</c> holds it against <see cref="OnCreate"/> and an independently written list.</summary>
     public const string OnCreateRecital = "Set (default) | Add | Remove | SetAtIndex | InsertAtIndex | ReplaceAll | Merge";
 
-    /// <summary>The verbs a compose's nested <c>sets</c> accept. The nested writes are applied through the verb
-    /// engine itself, so every verb that acts on a path from a root works there — except the transplanting one,
-    /// which reads a SOURCE RECORD and the nested shape has no slot to name one. That is the same subtraction
-    /// <see cref="OnCreate"/> makes for a sibling reason, so this IS that list rather than a second identical
-    /// derivation; the two names exist because each surface refuses the verb for its own reason.</summary>
-    public static readonly IReadOnlyList<string> InCompose = OnCreate;
+    /// <summary>The verbs that read an INPUT SLOT OF THEIR OWN, beside the <c>value</c>/<c>key</c>/<c>compose</c>
+    /// every verb shares: <c>ReplaceAll</c> takes the whole new contents in <c>values</c>, <c>Merge</c> takes the
+    /// pairs in <c>entries</c>, and <see cref="Transplanting"/> takes a source record. A surface whose wire shape
+    /// carries none of those members cannot feed them, so it cannot offer the verbs.</summary>
+    public static readonly IReadOnlyList<string> SlotBearing = new[] { "ReplaceAll", "Merge", Transplanting };
 
-    /// <summary>The caller-facing recital for a compose's nested sets — <see cref="OnCreateRecital"/> under this
-    /// surface's name, for the reason above.</summary>
-    public const string InComposeRecital = OnCreateRecital;
+    /// <summary>The verbs a compose's nested <c>sets</c> accept — <see cref="All"/> minus the slot-bearing ones.
+    /// The nested writes replay through the verb engine itself, so a verb the nested shape can FEED works there;
+    /// a nested set is <c>{path, verb, value, key, compose}</c> and has no member carrying the other three's input,
+    /// so each of those would consume nothing and report a write that did not happen. DERIVED from the two lists,
+    /// never a third hand-typed one.
+    ///
+    /// <para><b>The subtraction is asserted, not assumed</b> — same discipline as <see cref="OnCreate"/>: a verb
+    /// spelled differently here and in <see cref="All"/> would subtract nothing and leave this silently equal to
+    /// the whole vocabulary, publishing an <c>enum</c> naming verbs the gate refuses.</para></summary>
+    public static readonly IReadOnlyList<string> InCompose = BuildInCompose();
+
+    /// <summary>The caller-facing recital for a compose's nested sets, a compile-time literal for the same reason
+    /// <see cref="AllRecital"/> is one. <c>INV4-COMPOSEHOMES</c> holds it against <see cref="InCompose"/> and an
+    /// independently written list.</summary>
+    public const string InComposeRecital = "Set (default) | Add | Remove | SetAtIndex | InsertAtIndex";
+
+    static IReadOnlyList<string> BuildInCompose()
+    {
+        var missing = SlotBearing.Where(v => !All.Contains(v, StringComparer.Ordinal)).ToArray();
+        if (missing.Length > 0)
+            throw new InvalidOperationException(
+                $"WriteVerbs.SlotBearing names [{string.Join(", ", missing)}], absent from WriteVerbs.All "
+                + $"([{string.Join(", ", All)}]) — InCompose would subtract nothing and publish verbs the nested "
+                + "gate refuses. Spell the verb the same way in both.");
+        return All.Where(v => !SlotBearing.Contains(v, StringComparer.Ordinal)).ToArray();
+    }
 
     static IReadOnlyList<string> BuildOnCreate()
     {

@@ -62,11 +62,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **Three published shapes now say what the server actually does.** `housecarl_copy`'s `seed_paths` told you to
   reach for `op=Merge` / `op=ReplaceAll` on `housecarl_apply`'s `bundle=`/`assignments=` zip; that zip has no `op=`
   at all — it transplants each named field whole onto the target, one `CopyFrom` per named field per target,
-  replacing what the target had. Both the parameter text and the refusal that routes you there now say that. A compose's nested
-  `sets[].verb` named five verbs while the gate took all eight: it takes seven — every verb the write engine
-  applies at a path, since the nested writes replay through that engine — and not `CopyFrom`, which reads a source
-  record the nested shape has no slot to name. `CopyFrom` there is now refused before anything is written, saying
-  to make it its own op, and the seven are published as an `enum` a client can check against. A nested member the
+  replacing what the target had. Both the parameter text and the refusal that routes you there now say that. A
+  compose's nested `sets[].verb` named five verbs while the gate took all eight; five is right, and the other three
+  are now refused there by name instead of consuming nothing. A nested set is `{path, verb, value, key, compose}`,
+  so it has no member to carry `ReplaceAll`'s `values=`, `Merge`'s `entries=`, or `CopyFrom`'s source record:
+  `ReplaceAll` replaced a collection with the empty list and `Merge` merged nothing, both reported as a write that
+  landed, and `CopyFrom` reached apply as a verb the leaf does not take. The five are published as an `enum` a
+  client can check against. Set a collection's elements or a dict's entries one at a time; copy a field from
+  another record with `housecarl_apply`'s `CopyFrom` op. A nested member the
   server refuses the call without no longer publishes a type accepting `null`, so a schema-validating client can
   no longer be told an explicit null satisfies it — and, the other way, a verb slot the server DEFAULTS still
   publishes one, so such a client does not refuse a null verb the server reads as `Set`.
