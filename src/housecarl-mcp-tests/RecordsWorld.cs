@@ -125,8 +125,6 @@ public sealed class RecordsWorld : IDisposable
         NoEidWeapon = noEid.FormKey;
 
         var armo = master.Armors.AddNew(); armo.EditorID = "HcRecA0"; Armor = armo.FormKey;
-        var renamed = master.Armors.AddNew(); renamed.EditorID = RenamedArmorOldEid; RenamedArmor = renamed.FormKey;
-        var dropped = master.Armors.AddNew(); dropped.EditorID = DroppedEidArmorOldEid; DroppedEidArmor = dropped.FormKey;
         var mgefA = master.MagicEffects.AddNew(); mgefA.EditorID = "HcRecMgefFire"; MgefA = mgefA.FormKey;
         var mgefB = master.MagicEffects.AddNew(); mgefB.EditorID = "OtherMgef"; MgefB = mgefB.FormKey;
         // A condition stack: a struct list whose polymorphic arm carries the value, one row Or-flagged and one
@@ -197,6 +195,11 @@ public sealed class RecordsWorld : IDisposable
         var npcChild = master.Npcs.AddNew(); npcChild.EditorID = "HcRecNpcChild"; NpcChild = npcChild.FormKey;
         npcChild.Template.SetTo(NpcParent);
         npcChild.Configuration.TemplateFlags |= NpcConfiguration.TemplateFlag.Traits;
+
+        // The near-miss pair, added LAST so their FormIDs sit above every other record here: a test elsewhere
+        // pins a literal FormID off this world, and a record inserted earlier would shift it.
+        var renamed = master.Armors.AddNew(); renamed.EditorID = RenamedArmorOldEid; RenamedArmor = renamed.FormKey;
+        var dropped = master.Armors.AddNew(); dropped.EditorID = DroppedEidArmorOldEid; DroppedEidArmor = dropped.FormKey;
 
         var ovMod = new SkyrimMod(ovKey, SkyrimRelease.SkyrimSE);
         WriteEngine.GenericGetOrAddAsOverride(ovMod, bigList);   // identical copy — no field changed
