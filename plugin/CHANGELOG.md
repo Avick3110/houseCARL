@@ -125,33 +125,6 @@ saying it sets an expectation their install may contradict. Say what is known, a
   no longer be told an explicit null satisfies it — and, the other way, a verb slot the server DEFAULTS still
   publishes one, so such a client does not refuse a null verb the server reads as `Set`.
 
-
-
-
-
-- **A write that forks a record another plugin already overrides now says so.** `housecarl_apply`,
-  `housecarl_forward` and a nested `housecarl_create` (which overrides its parent in) all land an override in a
-  patch, and Skyrim applies only the last-loaded copy of a record — so a second patch overriding the same record
-  splits it in two and one half never applies, which used to happen with every call reporting success. Every lane
-  that lands an override — a new patch, `into=` an existing one, and `in_place=` — now carries one `warning:` line
-  naming the other plugin(s) and the lane that builds on that copy instead. It is a warning, not a refusal: a
-  deliberate fork still writes. Which plugins count is the write path's own provider list for the record, minus the
-  patch being written and the record's defining plugin, and then narrowed by where the patch sits: a patch that has
-  a position (`into=`, `in_place=`) counts every plugin at or below it, whoever wrote it, and the remedy names
-  `into=` or `in_place=` accordingly; a NEW patch has no position yet but has copied the winner's body in, so it
-  counts only a sibling houseCARL patch, judged by the same `meta.ini` ownership marker `into=` itself is gated on.
-  Overriding a nested record drags its container in as an override too — a placed reference pulls its cell, an INFO
-  pulls its topic — so the question is asked about each record's containers as well, and a container another patch
-  already overrides is named even though nothing in your own call mentioned it. The wording follows the lane: a new
-  patch really does make a second copy, while an in-place edit of a record the plugin already carries makes none, so
-  there the line says the edit is out-loaded rather than calling it a fork.
-  Two bounds worth knowing. It reads the ACTIVE load order, so a sibling patch that is installed but unticked in
-  `plugins.txt` is not named — its records are not indexed, and finding them would mean opening every installed
-  plugin on every write — and the line says nothing about an unticked plugin either way. And a single `into=` is
-  offered only when every affected record answers to the same plugin; when they do not, the line says to route each
-  record into whichever of the named plugins loads last over it, naming the same `into=`/`in_place=` split. A long
-  list of plugin names keeps the LAST-loaded three — the copies that actually win — and counts the earlier ones.
-
 - **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
   byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the
   literal escape text and every tool refused with "the active profile's folder is missing". Both INI readers —
@@ -376,6 +349,29 @@ saying it sets an expectation their install may contradict. Say what is known, a
   coverage notes, so this line — and the existing unscannable-record and unreadable-plugin notes — reached a
   scan render and not a body one. An empty entry in `plugins.names` is refused by its index instead of reaching
   the resolver as bad input.
+
+- **A write that forks a record another plugin already overrides now says so.** `housecarl_apply`,
+  `housecarl_forward` and a nested `housecarl_create` (which overrides its parent in) all land an override in a
+  patch, and Skyrim applies only the last-loaded copy of a record — so a second patch overriding the same record
+  splits it in two and one half never applies, which used to happen with every call reporting success. Every lane
+  that lands an override — a new patch, `into=` an existing one, and `in_place=` — now carries one `warning:` line
+  naming the other plugin(s) and the lane that builds on that copy instead. It is a warning, not a refusal: a
+  deliberate fork still writes. Which plugins count is the write path's own provider list for the record, minus the
+  patch being written and the record's defining plugin, and then narrowed by where the patch sits: a patch that has
+  a position (`into=`, `in_place=`) counts every plugin at or below it, whoever wrote it, and the remedy names
+  `into=` or `in_place=` accordingly; a NEW patch has no position yet but has copied the winner's body in, so it
+  counts only a sibling houseCARL patch, judged by the same `meta.ini` ownership marker `into=` itself is gated on.
+  Overriding a nested record drags its container in as an override too — a placed reference pulls its cell, an INFO
+  pulls its topic — so the question is asked about each record's containers as well, and a container another patch
+  already overrides is named even though nothing in your own call mentioned it. The wording follows the lane: a new
+  patch really does make a second copy, while an in-place edit of a record the plugin already carries makes none, so
+  there the line says the edit is out-loaded rather than calling it a fork.
+  Two bounds worth knowing. It reads the ACTIVE load order, so a sibling patch that is installed but unticked in
+  `plugins.txt` is not named — its records are not indexed, and finding them would mean opening every installed
+  plugin on every write — and the line says nothing about an unticked plugin either way. And a single `into=` is
+  offered only when every affected record answers to the same plugin; when they do not, the line says to route each
+  record into whichever of the named plugins loads last over it, naming the same `into=`/`in_place=` split. A long
+  list of plugin names keeps the LAST-loaded three — the copies that actually win — and counts the earlier ones.
 
 ## 2.0.0 — 2026-09-11
 
