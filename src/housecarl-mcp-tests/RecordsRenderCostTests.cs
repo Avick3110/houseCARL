@@ -1,4 +1,4 @@
-﻿using Mutagen.Bethesda;
+using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
@@ -273,9 +273,24 @@ public sealed class RecordsRenderCostTests
         int stack = RenderCostWorld.Overriders + 1;
         Assert.Equal(RenderCostWorld.Contested * stack, bodies);
         Assert.Equal(0, seeks);
-        int chunks = (RenderCostWorld.Contested + LoadOrderService.TreeChunkRows - 1) / LoadOrderService.TreeChunkRows;
+        int chunks = (RenderCostWorld.Contested + LoadOrderService.ComparisonChunkRows - 1) / LoadOrderService.ComparisonChunkRows;
         Assert.True(passes <= stack * chunks,
                     $"{RenderCostWorld.Contested} rows over a {stack}-deep stack cost {passes} plugin walks.");
+    }
+
+    /// <summary>A tree's versus= pole is one body per row out of ONE plugin, and it was read with a whole-plugin
+    /// seek per row like the providers were. It is gathered on the fold's own chunk boundaries now.</summary>
+    [Fact]
+    public void ATreesNamedVersusPoleIsGatheredToo()
+    {
+        var ids = AllArmorIds;
+        var beforeSeeks = LoadOrderResolver.BodySeeks;
+        var response = RecordsTools.Records(Svc, formids: ids, project: Tree(), versus: Pole(_w.MasterName),
+                                            max_chars: 4_000_000);
+        var seeks = LoadOrderResolver.BodySeeks - beforeSeeks;
+
+        Assert.False(response.StartsWith("error:", StringComparison.Ordinal), response);
+        Assert.Equal(0, seeks);
     }
 
     /// <summary>The delta lane pays the same per row, one body per pole: forty rows against the provider below
@@ -295,7 +310,7 @@ public sealed class RecordsRenderCostTests
 
         Assert.False(response.StartsWith("error:", StringComparison.Ordinal), response);
         Assert.Equal(0, seeks);
-        int chunks = (RenderCostWorld.Contested + PoleGather.ChunkRows - 1) / PoleGather.ChunkRows;
+        int chunks = (RenderCostWorld.Contested + LoadOrderService.ComparisonChunkRows - 1) / LoadOrderService.ComparisonChunkRows;
         Assert.True(passes <= 2 * chunks,
                     $"{RenderCostWorld.Contested} delta rows over two poles cost {passes} plugin walks.");
     }

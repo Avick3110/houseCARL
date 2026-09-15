@@ -3433,12 +3433,17 @@ public sealed partial class LoadOrderService : IDisposable
         // A chunk of rows at a time, so each pole walks a plugin once for the whole chunk instead of once per row
         // (#765). Which plugin a pole reads a row from is an index fact, so the whole chunk is declared before a
         // body is read; the reference's declaration needs the subject's plugin, which is the same index fact.
-        for (int start = 0; start < parsed.Count; start += PoleGather.ChunkRows)
+        for (int start = 0; start < parsed.Count; start = ChunkEnd(start, parsed.Count))
         {
-            int end = Math.Min(start + PoleGather.ChunkRows, parsed.Count);
+            int end = ChunkEnd(start, parsed.Count);
             var chunkKeys = new List<FormKey>(end - start);
             for (int i = start; i < end; i++) if (parsed[i].Fk is { } k) chunkKeys.Add(k);
             sGather.Open(view, session, chunkKeys, _ => null);
+            // previous_provider is measured FROM the subject, so the reference's declaration needs the plugin the
+            // subject resolved to. A subject arm that declares none — an off-order file, the SkyPatcher post replay,
+            // whose base read is not a plain plugin read — leaves these null, and a previous_provider reference then
+            // declares nothing and every row of it reads the way it did. Same answer either way: an undeclared pair
+            // falls back to the per-record fetch. A winner or named reference does not ask, and gathers regardless.
             var subjects = new string?[chunkKeys.Count];
             for (int j = 0; j < chunkKeys.Count; j++) subjects[j] = sGather.PluginOf?.Invoke(chunkKeys[j], null);
             rGather.Open(view, session, chunkKeys, j => subjects[j]);
@@ -3923,10 +3928,13 @@ public sealed partial class LoadOrderService : IDisposable
             catch (Exception ex) { parsedT.Add((raw, null, $"bad FormID '{raw}': {ex.Message}")); }
         }
 
+        // A named or overlay-pre versus= pole reads one body per row out of ONE plugin, which is the cheapest gather
+        // target in the lane; it is opened on the same chunk boundaries the fold uses below.
+        var refGather = new PoleGather();
         PoleReader? refReader = null;
         if (reference.Kind is not PoleKind.Winner)
         {
-            refReader = MakePoleReader(view, session, reference, fields, wantedT, out referenceArm, out var rCovers, out var rErr, out _, overlayWarnings);
+            refReader = MakePoleReader(view, session, reference, fields, wantedT, out referenceArm, out var rCovers, out var rErr, out _, overlayWarnings, refGather);
             if (rErr is not null) { refusal = "versus: " + rErr; return Array.Empty<TreeRow>(); }
             epochCoversAll = rCovers;
         }
@@ -3979,6 +3987,7 @@ public sealed partial class LoadOrderService : IDisposable
                 refPlugin[j] = ""; refLabel[j] = "";
                 nodes[j] = new TreeNodeDelta?[liveTouchers[start + j].Count];
             }
+            refGather.Open(view, session, keys, _ => null);   // the versus= pole's own bodies, one walk per plugin
 
             var fills = FoldTreeChunkPinned(new ViewPin(resolver, view), session, keys, fields,
                 (j, node, plugin, read, isWinner) =>

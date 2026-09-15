@@ -18,10 +18,6 @@ namespace HousecarlMcp;
 /// </summary>
 internal sealed class PoleGather
 {
-    /// <summary>Rows whose pole bodies are gathered together. The win rises with the chunk and so does what it
-    /// holds — one body per row per pole — so this is the trade.</summary>
-    internal const int ChunkRows = 64;
-
     /// <summary>The plugin this pole reads a row's body from, from the index alone: the FormKey and, for a
     /// subject-relative pole, the plugin the subject resolved to for that row. Null when the arm reads no in-order
     /// body, which leaves every row of it on its own read.</summary>
@@ -33,7 +29,10 @@ internal sealed class PoleGather
     internal bool Live => _gather is not null;
 
     /// <summary>Declare and gather the chunk. Eager, not deferred: a delta reads every row of its batch, so nothing
-    /// here is speculative — unlike a scan render, which stops at max_chars mid-chunk.</summary>
+    /// here is speculative — unlike a scan render, which stops at max_chars mid-chunk.
+    /// <para>The gathered bodies are held until the NEXT chunk replaces this one, so what a pole holds is its own
+    /// chunk's rows — <see cref="LoadOrderService.ComparisonChunkRows"/> of them — rather than the one body the
+    /// per-record read held. That is the retention the chunk size is the bound on.</para></summary>
     internal void Open(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                        IReadOnlyList<FormKey> keys, Func<int, string?> subjectAt)
     {
