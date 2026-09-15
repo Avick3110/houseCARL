@@ -96,6 +96,8 @@ public sealed class OwnedChildWorld : IDisposable
     /// <summary>What <c>CorpusRulebook.CorpusPath</c> named before this world repointed it.</summary>
     readonly string _priorCorpusPath;
 
+    readonly ResultsDirScope _results;
+
     public OwnedChildWorld()
     {
         // CorpusRulebook.CorpusPath is a process-global this world repoints at its own generated corpus.
@@ -108,6 +110,7 @@ public sealed class OwnedChildWorld : IDisposable
         var profiles = Path.Combine(instance, "profiles", "Default");
         var mods = Path.Combine(instance, "mods");
         foreach (var d in new[] { profiles, mods, Path.Combine(Root, "game", "Data") }) Directory.CreateDirectory(d);
+        _results = new ResultsDirScope(Path.Combine(Root, "server-results"));
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
@@ -338,6 +341,7 @@ public sealed class OwnedChildWorld : IDisposable
     {
         Svc.Dispose();
         CorpusRulebook.CorpusPath = _priorCorpusPath;   // before the delete below takes the path it named
+        _results.Dispose();   // same: the static must not name a deleted path
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }

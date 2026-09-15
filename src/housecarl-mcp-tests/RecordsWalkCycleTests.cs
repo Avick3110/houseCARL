@@ -35,12 +35,14 @@ public sealed class WalkCycleWorld : IDisposable
     public const int Hubs = 22;
 
     readonly string _priorCorpusPath;
+    readonly ResultsDirScope _results;
 
     public WalkCycleWorld()
     {
         _priorCorpusPath = CorpusRulebook.CorpusPath;
         Root = Path.Combine(Path.GetTempPath(), "hc-walkcycle-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
+        _results = new ResultsDirScope(Path.Combine(Root, "server-results"));
 
         var masterKey = new ModKey("HcWalkCycleMaster", ModType.Master);
         MasterName = masterKey.FileName.String;
@@ -125,6 +127,7 @@ public sealed class WalkCycleWorld : IDisposable
     {
         CorpusRulebook.CorpusPath = _priorCorpusPath;
         Svc.Dispose();
+        _results.Dispose();   // before the delete below: the static must not name a removed directory
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }

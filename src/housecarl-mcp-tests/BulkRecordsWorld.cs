@@ -66,6 +66,7 @@ public sealed class BulkRecordsWorld : IDisposable
     public static string Fid(FormKey fk) => $"{fk.ID:X6}:{fk.ModKey.FileName}";
 
     readonly string _priorCorpusPath;
+    readonly ResultsDirScope _results;
 
     public BulkRecordsWorld()
     {
@@ -75,6 +76,7 @@ public sealed class BulkRecordsWorld : IDisposable
 
         Root = Path.Combine(Path.GetTempPath(), "hc-bulk-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
+        _results = new ResultsDirScope(Path.Combine(Root, "server-results"));
 
         var masterKey = new ModKey("HcBulkMaster", ModType.Master);
         var replKey = new ModKey("HcBulkRepl", ModType.Plugin);
@@ -174,6 +176,7 @@ public sealed class BulkRecordsWorld : IDisposable
     {
         CorpusRulebook.CorpusPath = _priorCorpusPath;
         Svc.Dispose();
+        _results.Dispose();   // before the delete below: the static must not name a removed directory
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }
@@ -198,12 +201,14 @@ public sealed class EngineImplicitLinkWorld : IDisposable
     public const string ControlToken = "000015:Skyrim.esm";
 
     readonly string _priorCorpusPath;
+    readonly ResultsDirScope _results;
 
     public EngineImplicitLinkWorld()
     {
         _priorCorpusPath = CorpusRulebook.CorpusPath;
         Root = Path.Combine(Path.GetTempPath(), "hc-engineimplicit-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
+        _results = new ResultsDirScope(Path.Combine(Root, "server-results"));
 
         var instance = Path.Combine(Root, "inst");
         var mods = Path.Combine(instance, "mods");
@@ -248,6 +253,7 @@ public sealed class EngineImplicitLinkWorld : IDisposable
     {
         CorpusRulebook.CorpusPath = _priorCorpusPath;
         Svc.Dispose();
+        _results.Dispose();   // before the delete below: the static must not name a removed directory
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }
