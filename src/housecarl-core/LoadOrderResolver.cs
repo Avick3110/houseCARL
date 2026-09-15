@@ -1011,6 +1011,13 @@ public sealed class LoadOrderResolver : IDisposable
         public IMajorRecordGetter? GetRecord(OverlaySession session, string pluginName, FormKey fk, Type? getterType = null)
             => _r.GetRecord(session, pluginName, fk, _s, getterType);
 
+        /// <summary>One record's body from a plugin the index says HOLDS it — the per-record fallback a chunked
+        /// gather needs (<see cref="LoadOrderResolver.FetchBody"/>). It THROWS the body-fetch inconsistency rather
+        /// than answering null, so a lane that gathers a chunk and the per-record walk it replaced fault in the same
+        /// words on the same plugin.</summary>
+        public IMajorRecordGetter FetchRecord(OverlaySession session, string pluginName, FormKey fk, Type? getterType = null)
+            => _r.FetchRecord(session, pluginName, fk, _s, getterType);
+
         /// <summary>Many records from ONE plugin in ONE enumeration (<see cref="LoadOrderResolver.CollectRecords"/>),
         /// judged against THIS view's build.</summary>
         public void CollectRecords(OverlaySession session, string pluginName, IReadOnlyCollection<FormKey> wanted,
@@ -1239,6 +1246,14 @@ public sealed class LoadOrderResolver : IDisposable
                 sink[rec.FormKey] = rec;
                 if (++got == want.Count) return;
             }
+    }
+
+    internal IMajorRecordGetter FetchRecord(OverlaySession session, string pluginName, FormKey fk, IndexSnapshot s, Type? getterType)
+    {
+        if (!_nameToIdx.TryGetValue(pluginName, out int idx) || s.Excluded.Contains(idx))
+            throw new InvalidOperationException(
+                $"body-fetch inconsistency: {pluginName} is indexed as containing {FormIdToken.Of(fk)} but is not readable on this build.");
+        return FetchBody(session, idx, fk, getterType);
     }
 
     /// <summary>Fetch one record body from one overlay by re-enumerating it into the session. Throws if the overlay
