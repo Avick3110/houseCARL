@@ -126,6 +126,7 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 
 
+
 - **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
   byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the
   literal escape text and every tool refused with "the active profile's folder is missing". Both INI readers —
@@ -306,19 +307,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
   is refused in one sentence naming the referencing record, before anything is written.
 
 - **A merge now says where the merged plugin has to load.** The report carries a placement paragraph: the load-order
-  positions the donors sat at, the last master the output must load after, the position it must sit at or after (the last
-  donor's — the merge resolved the donors' conflicts as they stood there), and the plugins between the first and last donor
-  that also touch those records, because where the merge sits relative to each of those decides which version wins. It is
-  derived from what the merge already computed, so it costs no extra scan and there is no new parameter.
-
-- **`housecarl_merge_plugins` now describes the normal job, and carries injected records.** The description said merging a
-  mod together with its own patches was the intended use; it now says what the tool is for — merge a family of patches into
-  one plugin and leave the mods they patch alone and active — and marks the mod-plus-its-patches shape as the narrow case it
-  is. A record whose FormID sits in one donor's space while another donor defines it (an injected record) is now renumbered
-  into the merged plugin like any other record; before, it was copied at its old identity and the write failed with a raw
-  Mutagen missing-mod fault after the whole merge had been built. A plugin outside the merge that carries that record too is
-  named in the external-overrider warning, as any other dependent is. A donor reference into donor space that no donor holds
-  is refused in one sentence naming the referencing record, before anything is written.
+  positions the donors sat at, the last master the output must load after, and the position it must sit at — the last
+  donor's, because the merge resolved the donors' conflicts as they stood there, so an earlier slot lets content the donors
+  used to beat win over the merge and a later one puts the merge over plugins that used to beat them. It says what that
+  position decides, the donors' overrides kept at their masters' FormIDs, and what it does not: the donors' own records are
+  renumbered into the output's FormID space, so a plugin that overrode one is orphaned by the swap, which the report's
+  existing warning names, rather than outranked by where the output sits. A master the order carries BELOW the last donor is
+  said plainly, since the output cannot then sit where the donors did. Derived from what the merge already computed, so it
+  costs no extra scan and there is no new parameter.
 
 ## 2.0.0 — 2026-09-11
 

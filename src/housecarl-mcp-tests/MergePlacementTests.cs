@@ -14,11 +14,10 @@ public sealed class MergePlacementTests : IClassFixture<MergePlacementWorld>
     readonly MergePlacementWorld _w;
     public MergePlacementTests(MergePlacementWorld w) => _w = w;
 
-    /// <summary>Donors at either end of the order: the paragraph gives both positions, sends the merge to the last
-    /// donor's position, and names the one plugin in between that overrides a donor record — not the one that does
-    /// not.</summary>
+    /// <summary>Donors at either end of the order: the paragraph gives both positions and sends the merge to the last
+    /// donor's position.</summary>
     [Fact]
-    public void ThePlacementParagraphNamesTheInterveningPluginThatTouchesADonorRecord()
+    public void ThePlacementParagraphGivesTheDonorRangeAndTheSlot()
     {
         var o = _w.Svc.MergePlugins(new[] { MergePlacementWorld.Early, MergePlacementWorld.Late }, "HcPlaceSpread");
 
@@ -26,8 +25,24 @@ public sealed class MergePlacementTests : IClassFixture<MergePlacementWorld>
         var rendered = WriteTools.RenderMerge(o);
         Assert.Contains("placement: the donors sat at load-order positions 2–5", rendered);
         Assert.Contains("at position 5, where the last donor sat", rendered);
-        Assert.Contains(MergePlacementWorld.Middle, rendered[rendered.IndexOf("placement:", StringComparison.Ordinal)..]);
         Assert.DoesNotContain(MergePlacementWorld.Bystander, rendered);
+    }
+
+    /// <summary>What the paragraph says the position decides: the donors' OVERRIDES at their masters' FormIDs. A plugin
+    /// overriding a donor's OWN record is orphaned by the swap — the warning below says so — and the paragraph must not
+    /// claim its position against the merge decides a winner, because that record is renumbered out of its reach.</summary>
+    [Fact]
+    public void ThePlacementParagraphClaimsNoWinnerOverARenumberedRecord()
+    {
+        var o = _w.Svc.MergePlugins(new[] { MergePlacementWorld.Early, MergePlacementWorld.Late }, "HcPlaceScope");
+
+        Assert.True(o.Success, o.Error);
+        var rendered = WriteTools.RenderMerge(o);
+        var paragraph = rendered[rendered.IndexOf("placement:", StringComparison.Ordinal)..];
+        paragraph = paragraph[..paragraph.IndexOf("the swap:", StringComparison.Ordinal)];
+        Assert.Contains("what the position decides is the donors' OVERRIDES, kept at their masters' FormIDs", paragraph);
+        Assert.DoesNotContain(MergePlacementWorld.Middle, paragraph);
+        Assert.Contains(MergePlacementWorld.Middle, rendered);       // still named, in the overrider warning
     }
 
     /// <summary>The master clause comes off the written header: the merged plugin must load after its last master.</summary>
@@ -50,46 +65,45 @@ public sealed class MergePlacementTests : IClassFixture<MergePlacementWorld>
         Assert.True(o.Success, o.Error);
         var rendered = WriteTools.RenderMerge(o);
         Assert.Contains("placement: the donor sat at load-order position 5", rendered);
-        Assert.Contains("a rename has no interval", rendered);
-        Assert.DoesNotContain("no plugin between the first and last donor", rendered);
-    }
-
-    /// <summary>The negative claims only what the pass looked for — the records the donors ORIGINATE — because an
-    /// override a donor carries at its master's FormID was never one of its targets.</summary>
-    [Fact]
-    public void TheNegativeSaysWhichRecordsItCovers()
-    {
-        var o = _w.Svc.MergePlugins(new[] { MergePlacementWorld.Middle, MergePlacementWorld.Late }, "HcPlaceScope");
-
-        Assert.True(o.Success, o.Error);
-        var rendered = WriteTools.RenderMerge(o);
-        Assert.Contains("no plugin between the first and last donor references or overrides a record the donors ORIGINATE", rendered);
-        Assert.Contains("overrides the donors carry at their masters' FormIDs are outside what this pass looked for", rendered);
+        Assert.DoesNotContain("between the first and last donor", rendered);
     }
 }
 
-/// <summary>The siting derivation itself: the position contract, and the plugins in the range the identify pass could
-/// not look into.</summary>
+/// <summary>The siting derivation itself: the position contract, and a master the order carries below the last
+/// donor.</summary>
 [Trait("tier", "unit")]
 public sealed class MergeSitingTests
 {
-    /// <summary>Positions come in 0-based (what the resolver hands out) and come back 1-based (what a report prints),
-    /// and a plugin in the range the pass could not read is counted rather than silently read as absence.</summary>
-    [Fact]
-    public void AnUnreadablePluginBetweenTheDonorsIsCountedNotTakenForAbsence()
-    {
-        var positions = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-            { ["A.esp"] = 9, ["X.esp"] = 19, ["B.esp"] = 29, ["Far.esp"] = 40 };
+    static readonly Dictionary<string, int> Positions = new(StringComparer.OrdinalIgnoreCase)
+        { ["A.esp"] = 9, ["M.esp"] = 4, ["Late.esp"] = 40, ["B.esp"] = 29 };
 
+    static int? At(string p) => Positions.TryGetValue(p, out var i) ? i : null;
+
+    /// <summary>Positions come in 0-based (what the resolver hands out) and come back 1-based (what a report prints),
+    /// and the last master is the one furthest down the order.</summary>
+    [Fact]
+    public void PositionsComeInZeroBasedAndComeBackOneBased()
+    {
         var s = MergeLoadPosition.Derive(
-            new[] { ("A.esp", 9), ("B.esp", 29) }, Array.Empty<string>(),
-            Array.Empty<string>(), new[] { "X.esp", "Far.esp" },
-            p => positions.TryGetValue(p, out var i) ? i : null);
+            new[] { ("A.esp", 9), ("B.esp", 29) }, new[] { "M.esp" }, At);
 
         Assert.Equal(10, s.FirstPosition);
         Assert.Equal(30, s.LastPosition);
-        Assert.Empty(s.Intervening);
-        Assert.Equal(1, s.UnreadBetween);          // Far.esp is past the last donor, so it is not in the range
+        Assert.Equal("M.esp", s.LastMaster);
+        Assert.Equal(5, s.LastMasterPosition);
+        Assert.False(s.MasterAfterLastDonor);
+    }
+
+    /// <summary>A master that is not flagged ESM can sit AFTER the last donor, and then the output cannot be both after
+    /// it and where the donors were — the order is flagged rather than an impossible slot printed.</summary>
+    [Fact]
+    public void AMasterBelowTheLastDonorIsFlagged()
+    {
+        var s = MergeLoadPosition.Derive(
+            new[] { ("A.esp", 9), ("B.esp", 29) }, new[] { "M.esp", "Late.esp" }, At);
+
+        Assert.Equal("Late.esp", s.LastMaster);
+        Assert.True(s.MasterAfterLastDonor);
     }
 }
 
