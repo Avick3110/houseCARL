@@ -311,6 +311,42 @@ public sealed class Utf8NameTests : IDisposable
         Assert.Contains(LatinName, ReadName(_latinWeapon));
     }
 
+    /// <summary>A value no contributing plugin's lane can spell, typed into a NEW file. A new file has no bytes to
+    /// preserve, so the strict encoder's refusal is not the answer — the answer is to write the whole thing as UTF-8.
+    /// Before this the name landed as <c>?</c> and nothing said so.</summary>
+    [Fact]
+    public void AJapaneseValueTypedIntoAPatchOffAnAsciiOnlyPluginMakesThePatchUtf8()
+    {
+        var r = ApplyTools.Apply(_svc,
+            ops: Je($@"[{{""formid"":""{Fid(_latinWeapon)}"",""field_path"":""Name"",""op"":""Set"",""value"":""{JapaneseName}""}}]"),
+            patch: "HcUtf8Typed");
+        Assert.DoesNotContain("error:", r);
+
+        var written = Directory.GetFiles(_instance, "HcUtf8Typed*.esp", SearchOption.AllDirectories);
+        Assert.Single(written);
+        Assert.True(FileHolds(written[0], JapaneseName), "the typed name did not land as UTF-8");
+        Assert.False(FileHoldsBytes(written[0], Encoding.UTF8.GetBytes("?????????(?)")), "the typed name landed as question marks");
+    }
+
+    /// <summary>The same value typed into an IN-PLACE edit of a Windows-1252 file. Here the file HAS bytes to
+    /// preserve — rewriting it as UTF-8 would convert every other name in it — so the write refuses, says which
+    /// character it cannot spell and where to put the value instead, and leaves the file alone.</summary>
+    [Fact]
+    public void AJapaneseValueIntoAWindows1252FileRefusesAndWritesNothing()
+    {
+        var before = File.ReadAllBytes(PluginPath("LatinMod", LatinPluginName));
+        var r = ApplyTools.Apply(_svc,
+            ops: Je($@"[{{""formid"":""{Fid(_latinWeapon)}"",""field_path"":""Name"",""op"":""Set"",""value"":""{JapaneseName}""}}]"),
+            in_place: LatinPluginName, acknowledge: true);
+
+        Assert.StartsWith("error:", r);
+        Assert.Contains("エ", r);                                  // the character it cannot spell
+        Assert.Contains("U+30A8", r);                              // …and its codepoint, so the sentence is actionable
+        Assert.Contains("Windows-1252", r);
+        Assert.Contains("in_place", r);                            // the remedy: write it into a new patch instead
+        Assert.Equal(before, File.ReadAllBytes(PluginPath("LatinMod", LatinPluginName)));
+    }
+
     /// <summary>The patch lane copies the winning record into a NEW plugin, so the name makes a full read-then-write
     /// trip through both encodings. This is the arm that catches a HALF fix: with the read corrected and the write
     /// left on Windows-1252, the real Japanese characters have no 1252 spelling and the encoder writes <c>?</c>.</summary>
