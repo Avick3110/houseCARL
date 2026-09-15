@@ -342,10 +342,16 @@ public static class ReverseSelection
     /// count is a prefix, not a finding.</summary>
     public sealed record Hop(int Depth, IReadOnlyList<FormKey> Reached, bool Cut);
 
-    /// <summary>The most candidates a <c>prepare</c> block covers, before the node budget clamps it: big enough
-    /// that a large master is walked a few times a hop rather than once a candidate, small enough that the bodies
-    /// it pins stay bounded.</summary>
+    /// <summary>The most candidates a <c>prepare</c> block covers, when the node budget leaves room for them: big
+    /// enough that a large master is walked a few times a hop rather than once a candidate, small enough that the
+    /// bodies it pins stay bounded.</summary>
     const int PrepareBlock = 2000;
+
+    /// <summary>The fewest a block covers however little budget is left. The budget shrinks the block so a small
+    /// <c>max_nodes</c> does not gather far past its own cut, but candidates the check DROPS never spend it — so
+    /// without a floor a drop-heavy tail under a nearly-spent budget would gather a handful of keys at a time and
+    /// fall back to the walk-per-candidate cost the gather exists to remove.</summary>
+    const int MinPrepareBlock = 256;
 
     /// <summary>The transitive reverse walk: who references the seeds, then who references those, hop after hop.
     /// The follow rule — every link — is the same at every hop, which is what <c>depth</c> means here and
@@ -354,14 +360,15 @@ public static class ReverseSelection
     /// the caller means to judge — the same second step <c>references=</c> takes — and a candidate that fails it is
     /// neither reported nor expanded, so a dropped link cannot seed a false subtree. <paramref name="maxNodes"/>
     /// bounds the TOTAL reached across all hops; the budget is tested BEFORE the candidate is verified or
-    /// consumed, so a spent budget bounds the body reads as well as the reach, a raised budget on a retry sees
+    /// consumed, so a spent budget stops the body reads as well as the reach (a gathering verifier reads up to one
+    /// block ahead of the cut — see <paramref name="prepare"/>), a raised budget on a retry sees
     /// the same graph, and the hop the cut landed on is marked
     /// <see cref="Hop.Cut"/> rather than reading as a hop that reached nothing.
     /// <para><paramref name="prepare"/> is handed each block of candidates just before they are verified, so a
     /// verifier that reads bodies can gather a block at a time instead of one at a time. It is called only for
-    /// candidates the walk is about to verify, and the block is never larger than the nodes the budget could still
-    /// record — so a spent budget stops the gather with the reads, and a small one keeps them near its own size
-    /// rather than a block ahead of it.</para></summary>
+    /// candidates the walk is about to verify, and the block follows the budget still left, between
+    /// <see cref="MinPrepareBlock"/> and <see cref="PrepareBlock"/> — so a spent budget stops the gather with the
+    /// reads, and a small one gathers at most that floor past its own cut rather than a whole block.</para></summary>
     public static IReadOnlyList<Hop> Transitive(ReverseReferenceIndex index, IReadOnlyList<FormKey> seeds,
                                                 int depth, int maxNodes,
                                                 Func<FormKey, IReadOnlySet<FormKey>, bool>? verify, out bool capped,
@@ -388,11 +395,9 @@ public static class ReverseSelection
                 if (reached >= maxNodes) { capped = true; cut = true; break; }
                 if (prepare is not null && i >= prepared)
                 {
-                    // The block never runs further ahead than the budget could still record, so a deliberately small
-                    // max_nodes reads few bodies: a spent budget breaks above before a block is ever asked for, and
-                    // a nearly-spent one asks for a block that size. Candidates the check drops do not spend the
-                    // budget, so a drop-heavy hop asks again rather than reading past it.
-                    int span = Math.Max(1, Math.Min(PrepareBlock, maxNodes - reached));
+                    // The block follows the budget still left, floored so a drop-heavy tail cannot shrink it to a
+                    // gather per handful of candidates and capped so a large budget does not gather the hop ahead.
+                    int span = Math.Clamp(maxNodes - reached, MinPrepareBlock, PrepareBlock);
                     int end = Math.Min(candidates.Count, i + span);
                     var block = new List<FormKey>(end - i);
                     for (int j = i; j < end; j++) if (!visited.Contains(candidates[j])) block.Add(candidates[j]);
