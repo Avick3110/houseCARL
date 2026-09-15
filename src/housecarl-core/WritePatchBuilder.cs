@@ -3246,10 +3246,15 @@ public static class WritePatchBuilder
         // into a large into= patch, and equally on the IN-PLACE lane, where the destination is the user's own plugin
         // and is the bigger of the two. Both branches read it. Lazy: a call with no parented spec builds nothing.
         var parentBodies = new Dictionary<(string Plugin, FormKey Key), IMajorRecordGetter?>();
+        // Every parent body this call reads out of the load order, gathered a PLUGIN at a time (#757). The memo below
+        // collapses a SHARED parent to one read; the gather is what makes N distinct parents cost one walk of each
+        // distinct DEFINER rather than one walk per parent. Declared just below, once the destination index the
+        // guards read exists.
+        var gather = new BodyGather(view, session);
         IMajorRecordGetter? ParentBodyFrom(string plugin, FormKey fk)
         {
             if (parentBodies.TryGetValue((plugin, fk), out var hit)) return hit;
-            return parentBodies[(plugin, fk)] = view.GetRecord(session, plugin, fk);
+            return parentBodies[(plugin, fk)] = gather.Body(plugin, fk);
         }
         // The parent's real body in the LOAD ORDER — its definer's copy, else its winner's. Asked when the
         // destination already carries the parent, because that copy is an override and carries none of the
@@ -3325,6 +3330,25 @@ public static class WritePatchBuilder
             return $"{fileName} already defines {itsType} {one.FormKey.ID:X6} with that editorid. "
                  + "Pass replace=true to overwrite it, or pick another editorid.";
         }
+        // Declare every parent body the loop below will read out of the load order, then gather them one walk per
+        // DEFINER plugin (#757). A fetch enumerates the parent's plugin from the top, and the definer is usually
+        // Skyrim.esm, so N specs naming N distinct vanilla parents paid N walks of a ~250k-record file. The guards
+        // here are the ones the loop runs BEFORE it fetches, in the same order — a spec with no editorid, a repeated
+        // editorid, no parent, a sibling parent, a parent the destination already carries, a parent not in the order
+        // — so a spec that costs nothing today still costs nothing. Only the DEFINER is declared: the winner is a
+        // fallback reached only when the definer does not carry the record (an injected or excluded parent), and
+        // declaring it too would walk the winner plugin for every parent whose definer answers.
+        var wantedEdids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in specs)
+        {
+            if (string.IsNullOrWhiteSpace(s.EditorId) || !wantedEdids.Add(s.EditorId)) continue;
+            if (s.ParentRef is null || !FormKey.TryFactory(s.ParentRef, out var wantFk)) continue;
+            if (AlreadyCarried(wantFk) is not null) continue;
+            if (view.ResolveWinner(wantFk) is null) continue;
+            var wantDefiner = wantFk.ModKey.FileName.String;
+            if (view.ContainsPlugin(wantDefiner)) gather.Want(wantDefiner, wantFk);
+        }
+        gather.Gather();
         var cellKinds = new CellCreate[specs.Count];   // cell-create routing per spec (None / Exterior / Interior)
         var singularClaims = new HashSet<(string Parent, string Slot)>();   // one create per singular slot per call
         for (int i = 0; i < specs.Count; i++)
@@ -3410,11 +3434,10 @@ public static class WritePatchBuilder
                         // GetRecord answers null for a plugin the order doesn't contain AND for one this session
                         // EXCLUDED, so the two cases need no separate test here — both fall to the winner below,
                         // which is the behaviour an injected or unparseable definer should get.
-                        // Memoised per (plugin, record): GetRecord is a full EnumerateMajorRecords scan, this sits in
-                        // the per-spec loop, and it reads the DEFINER — usually Skyrim.esm — so a bulk_create fanning
-                        // N refs into vanilla cells would otherwise pay N scans of a ~250k-record file. The memo
-                        // collapses the SHARED-parent fan-out to one scan; N specs naming N DISTINCT parents still pay
-                        // N, against the bigger file. The real fix for that would be an index, not a memo.
+                        // Read through the gather declared above, so every distinct parent defined by one plugin came
+                        // off ONE walk of it — a bulk_create fanning N refs into N vanilla cells used to pay N scans
+                        // of a ~250k-record file. The memo behind it still collapses a SHARED parent to one read, and
+                        // still answers the winner fallback, which stays a single fetch.
                         var fromDefiner = ParentBodyFrom(definer, parentFk);
                         var parentBody = fromDefiner ?? ParentBodyFrom(w.WinnerPlugin, parentFk);
                         if (parentBody is null) { problems.Add($"{s.RecordType} '{s.EditorId}': parent {FormIdToken.Of(parentFk)} winner '{w.WinnerPlugin}' did not yield it on fetch (a load-order inconsistency)."); continue; }
