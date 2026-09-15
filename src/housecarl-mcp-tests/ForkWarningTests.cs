@@ -28,7 +28,7 @@ public sealed class ForkWarningTests : IDisposable
     readonly string _root;
     readonly string _priorCorpusPath;
     readonly LoadOrderService _svc;
-    readonly FormKey _list, _foreignList, _swordA, _swordB;
+    readonly FormKey _list, _foreignList, _bothList, _topic, _info, _swordA, _swordB;
 
     public ForkWarningTests()
     {
@@ -54,16 +54,35 @@ public sealed class ForkWarningTests : IDisposable
             new LeveledItemEntry { Data = new LeveledItemEntryData { Level = 1, Count = 1, Reference = new FormLink<IItemGetter>(_swordA) } },
         };
         _foreignList = fl.FormKey;
+        // A third list both of them override — one record with two forkers.
+        var bl = master.LeveledItems.AddNew();
+        bl.EditorID = "HcForkBothList";
+        bl.Entries = new Noggog.ExtendedList<LeveledItemEntry>
+        {
+            new LeveledItemEntry { Data = new LeveledItemEntryData { Level = 1, Count = 1, Reference = new FormLink<IItemGetter>(_swordA) } },
+        };
+        _bothList = bl.FormKey;
+        // A topic with one line in it: the nested record whose CONTAINER is what a patch overrides.
+        var topic = master.DialogTopics.AddNew();
+        topic.EditorID = "HcForkTopic";
+        var info = new DialogResponses(master.GetNextFormKey(), SkyrimRelease.SkyrimSE);
+        topic.Responses.Add(info);
+        _topic = topic.FormKey;
+        _info = info.FormKey;
 
-        // Patch A: a real override of that same list, the state the bug starts from.
+        // Patch A: a real override of that same list, the state the bug starts from — and of the TOPIC, but not of
+        // the line inside it, which is what makes the container the only thing a nested write collides with.
         var patchA = new SkyrimMod(new ModKey("HcForkA", ModType.Plugin), SkyrimRelease.SkyrimSE);
         var ovr = patchA.LeveledItems.GetOrAddAsOverride(ll);
         ovr.Entries!.Add(new LeveledItemEntry { Data = new LeveledItemEntryData { Level = 1, Count = 1, Reference = new FormLink<IItemGetter>(_swordB) } });
+        patchA.LeveledItems.GetOrAddAsOverride(bl).ChanceNone = Noggog.Percent.FactoryPutInRange(0.10);
+        patchA.DialogTopics.GetOrAddAsOverride(topic);
 
         // A plugin houseCARL did NOT make, overriding the other list — a third-party mod, not a sibling patch.
         var foreign = new SkyrimMod(new ModKey("HcForkForeign", ModType.Plugin), SkyrimRelease.SkyrimSE);
         var fovr = foreign.LeveledItems.GetOrAddAsOverride(fl);
         fovr.Entries!.Add(new LeveledItemEntry { Data = new LeveledItemEntryData { Level = 1, Count = 1, Reference = new FormLink<IItemGetter>(_swordB) } });
+        foreign.LeveledItems.GetOrAddAsOverride(bl).ChanceNone = Noggog.Percent.FactoryPutInRange(0.20);
 
         var instance = Path.Combine(_root, "inst");
         var mods = Path.Combine(instance, "mods");
@@ -196,8 +215,51 @@ public sealed class ForkWarningTests : IDisposable
         Assert.Contains("warning:", r);
         Assert.Contains(PatchAName, r);
         Assert.Contains(ForeignName, r);
-        Assert.Contains("not all forked by the same plugin", r);
+        Assert.Contains("do not all answer to the same plugin", r);
         Assert.DoesNotContain("pass into=", r);
+        // The per-record branch must keep the lane split the single-plugin branch has, or it sends the caller to
+        // into= a plugin houseCARL did not write, which the extend gate refuses.
+        Assert.Contains("into= if it is a houseCARL patch, else in_place=", r);
+    }
+
+    /// <summary>ONE record forked by TWO plugins has a single answer — the last-loaded of them, whose copy applies —
+    /// so it keeps the singular subject and the single-plugin remedy rather than falling to the per-record wording,
+    /// which would be false on its face about one record.</summary>
+    [Fact]
+    public void OneRecordForkedByTwoPluginsIsPointedAtTheLastLoadedOne()
+    {
+        var r = ApplyTools.Apply(_svc,
+            ops: Je($@"[{{""formid"":""{Fid(_bothList)}"",""field_path"":""ChanceNone"",""op"":""Set"",""value"":""0.05""}}]"),
+            in_place: MasterName, acknowledge: true);
+        Assert.DoesNotContain("error:", r);
+        Assert.Contains("this record is", r);
+        Assert.DoesNotContain("do not all answer", r);
+        Assert.Contains($"in_place=\"{ForeignName}\"", r);      // the LAST-loaded of the two, not HcForkA
+    }
+
+    /// <summary>An in-place edit of a record the target already carries makes no second copy, so the sentence may not
+    /// call it a fork — the hazard there is that the copy is out-loaded.</summary>
+    [Fact]
+    public void AnInPlaceEditIsNotDescribedAsForkingTheRecord()
+    {
+        var r = ApplyTools.Apply(_svc,
+            ops: Je($@"[{{""formid"":""{Fid(_foreignList)}"",""field_path"":""ChanceNone"",""op"":""Set"",""value"":""0.05""}}]"),
+            in_place: MasterName, acknowledge: true);
+        Assert.Contains("warning:", r);
+        Assert.Contains("out-loaded", r);
+        Assert.DoesNotContain("this write forks", r);
+    }
+
+    /// <summary>Overriding a nested record drags its container in as an override too, so a container another patch
+    /// already overrides is forked by this write and must be named — the case that bites hardest, because nothing in
+    /// the caller's own op list mentions the container at all.</summary>
+    [Fact]
+    public void ForwardingANestedRecordWarnsAboutItsContainer()
+    {
+        var r = ForwardTools.Forward(_svc, formids: new[] { Fid(_info) }, source: MasterName, patch: "HcForkNested");
+        Assert.DoesNotContain("error:", r);
+        Assert.Contains("warning:", r);
+        Assert.Contains(PatchAName, r);      // A overrides the INFO's TOPIC, not the INFO
     }
 
     /// <summary>A dry run predicts the same fork, or the check only fires once the caller is already committed.</summary>
