@@ -324,6 +324,10 @@ public sealed class CreateFieldLineSourceTests
         Assert.Contains("do NOT re-issue the create", r);
         Assert.Contains("allocates the records AGAIN", r);
         Assert.Contains(ToolNames.Records, r);          // the read it sends you to instead
+        // One record, its row rendered, and it did not land: the response may not then close by telling the caller
+        // that the FormID on that row is how to reference the record.
+        Assert.DoesNotContain("the new FormID above is how you reference this record", r);
+        Assert.Contains("do not reference them", r);
     }
 
     /// <summary>The cap that drops EVERY row is where the hoist is load-bearing, and the sentence under it must not
@@ -351,6 +355,57 @@ public sealed class CreateFieldLineSourceTests
         var hoist = r.Substring(0, r.IndexOf("created 1 record", StringComparison.Ordinal));
         Assert.Contains("00ABCD:HcCrMaster.esm", hoist);
         Assert.DoesNotContain("Record(s): 000800:X.esp", hoist);
+    }
+
+    /// <summary>Three INFOs created under ONE Skyrim.esm DIAL whose dragged-in override did not serialize. A child
+    /// lives inside its parent's group, so the missing parent takes all three with it and every one of them carries
+    /// BOTH flags — which is every real missing-parent case. The row must name the PARENT (the child's own id
+    /// sends the reader to look for the wrong record), and the hoist must carry both the three children and the one
+    /// parent, since after a row cut the hoist is all that is left.</summary>
+    static IReadOnlyList<WritePatchBuilder.CreatedRecord> ThreeInfosUnderOneMissingTopic()
+    {
+        var parent = FormKey.Factory("0130A1:Skyrim.esm");
+        var made = new List<WritePatchBuilder.CreatedRecord>();
+        for (int i = 0; i < 3; i++)
+        {
+            var key = FormKey.Factory($"{0x800 + i:X6}:X.esp");
+            made.Add(new WritePatchBuilder.CreatedRecord(key, "DialogResponses", "HcCrLine" + i, new[]
+                { Op(key) with { RecordAbsentFromFile = true, VerifyAttempted = true } })
+                { VerifyAttempted = true, AbsentFromFile = true, ParentKey = parent, ParentAbsentFromFile = true });
+        }
+        return made;
+    }
+
+    [Fact]
+    public void ThreeChildrenUnderOneMissingParentNameThatParent()
+    {
+        var r = Render(ThreeInfosUnderOneMissingTopic());
+        Assert.Contains("3 created records did NOT land", r);
+        // Every row names the parent as the cause, not the generic clause under the child's own id.
+        Assert.Equal(3, CountOf(r, "its parent 0130A1:Skyrim.esm is not in the written file"));
+        // …and the hoist carries both lists: the three children, and the one record whose absence took them.
+        var hoist = r.Substring(0, r.IndexOf("created 3 records", StringComparison.Ordinal));
+        Assert.Contains("Their parent record(s)", hoist);
+        Assert.Contains("0130A1:Skyrim.esm", hoist);
+        Assert.Contains("000800:X.esp", hoist);
+    }
+
+    [Fact]
+    public void TheJsonCountsThreeChildrenAndOneMissingParent()
+    {
+        var doc = JsonDocument.Parse(RenderJson(ThreeInfosUnderOneMissingTopic()));
+        Assert.Equal(3, doc.RootElement.GetProperty("records_absent").GetInt32());
+        Assert.Equal(3, doc.RootElement.GetProperty("record_absent_formids_total").GetInt32());
+        Assert.Equal(1, doc.RootElement.GetProperty("parent_absent_formids_total").GetInt32());
+        Assert.Equal("0130A1:Skyrim.esm", doc.RootElement.GetProperty("parent_absent_formids")[0].GetString());
+    }
+
+    static int CountOf(string s, string needle)
+    {
+        int n = 0;
+        for (int i = s.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+             i = s.IndexOf(needle, i + needle.Length, StringComparison.Ordinal)) n++;
+        return n;
     }
 
     /// <summary>json keeps them apart for the same reason, and counts each.</summary>
