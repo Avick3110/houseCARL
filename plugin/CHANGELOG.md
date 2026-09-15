@@ -50,6 +50,23 @@ saying it sets an expectation their install may contradict. Say what is known, a
   rather than sooner. A document that reported itself longer than it was is the case this closes; the overrun notice
   is the one place a response may still exceed `max_chars`, and it says so.
 
+- **`housecarl_create` now reports every field from the file it wrote, not from memory.** This supersedes
+  the 2.0.1 entry saying a create's reported values were not re-read: they are now. The create lane runs the
+  same post-write file check `housecarl_apply` runs, on both lanes (a new patch, `into=`, and `in_place=`),
+  and each per-field line prints what the re-opened file holds at that leaf. A created record the written file
+  does not contain says `DID NOT LAND`, counted and named above the record rows and outside their budget so a
+  `max_chars` cut cannot leave a response claiming every record was created; a nested child whose dragged-in
+  PARENT is missing from the file says the same thing and names the parent, because a child cannot be in a
+  parent the file does not hold. A leaf the file could not read says `not-checked`, in the words the edit
+  lane uses. The Creation Kit parity fills (the SNAM marker, DIAL Priority, INFO/DLVW/DLBR/QUST defaults) are
+  explanations of what the write did rather than field readings, and still print as they did. In
+  `format: "json"` each op gains `after_on_disk`, `landed_on_disk` and `landed_source`, each created record
+  gains `verified`, `absent_from_file`, `parent_formid` and `parent_absent_from_file`, and `verify_ran`,
+  `records_absent` and `record_absent_formids` sit outside the `created` array. `readback=true` keeps its full
+  dump. The check is one walk of the written file for the whole call, not one per record: 200 nested creates
+  under 200 distinct `Skyrim.esm` topics on a 3,252-plugin order measured 3.52 s before and 3.56 s after (best
+  of three each), and the written patch is byte-identical on the same inputs.
+
 ## 2.0.1 — 2026-09-15
 
 houseCARL 2.0.1 carries what the first days of 2.0.0 on real load orders turned up. Among the wrong answers fixed: a UTF-8 name reads as itself and is never written as `?`, a chain walk reports the cycles it found, and a write's verify names the bytes it did not judge. Read and write paths that paid per record now pay per plugin — bulk `apply` and `forward`, the reverse lane, `tree` fill, `[*count]` — and a forward walk, a `*parent` predicate and a `tree` no longer hold what they reached. New refusals, each one sentence naming the fix: `from_source` outside `CopyFrom`, a raw path into the mods folder, `walk.max_nodes` above its bound, a `delta` or `tree` past its record cap, an in-place value the file's encoding cannot spell, and a merge donor whose master is not active. Every write says when it forks a record another plugin overrides, and a merge says where its output has to load. The entries below are in the order they landed.
