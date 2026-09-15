@@ -322,6 +322,7 @@ saying it sets an expectation their install may contradict. Say what is known, a
   existing warning names, rather than outranked by where the output sits. A master the order carries BELOW the last donor is
   said plainly, since the output cannot then sit where the donors did. Derived from what the merge already computed, so it
   costs no extra scan and there is no new parameter.
+
 - **`limit=` now bounds what a `delta` or `tree` over a scan READS, not only what it renders.** Those rows read
   every provider of their record, so asking for the first ten rows of a 17,727-row scan used to read all 17,727 —
   the window was applied after the work. It is applied to the selection now, and the response says the rows outside
