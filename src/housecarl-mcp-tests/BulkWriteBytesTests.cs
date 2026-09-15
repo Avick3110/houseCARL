@@ -25,6 +25,9 @@ public sealed class BulkWriteBytesTests : IDisposable
 {
     const string ApplySha = "BD730E59DEBF0009D30EE216D138283EC599B8ECA7CA2E2EBE487B72CD9B3A1A";
     const string ForwardSha = "0B4805A31399C3DFA2FC4DC328FD0398C7D850C5CBED6EA3BEFA072A7018AA57";
+    // The create arm (#757) was recorded from a build with the parent gather's Gather() call removed, which is the
+    // pre-change path exactly: Body falls back to the per-record fetch for everything it does not hold.
+    const string CreateSha = "4BDCC433E3F11B8683ACE73AA19BC24C34CB8AE529F65E7DCF2D2C66FE0B79EE";
 
     const int Records = 300;
     const int Ops = 200;
@@ -34,6 +37,7 @@ public sealed class BulkWriteBytesTests : IDisposable
     readonly LoadOrderResolver _resolver;
     readonly CorpusRulebook _rulebook;
     readonly List<FormKey> _keys = new();
+    readonly List<FormKey> _topicKeys = new();
 
     public BulkWriteBytesTests()
     {
@@ -49,6 +53,12 @@ public sealed class BulkWriteBytesTests : IDisposable
             w.EditorID = "HcBulkBytesW" + i;
             w.BasicStats = new WeaponBasicStats { Damage = (ushort)(10 + i), Weight = 1 };
             _keys.Add(w.FormKey);
+        }
+        for (int i = 0; i < Ops; i++)
+        {
+            var t = master.DialogTopics.AddNew();
+            t.EditorID = "HcBulkBytesT" + i;
+            _topicKeys.Add(t.FormKey);
         }
         var masterFile = Path.Combine(_root, masterKey.FileName.String);
         master.BeginWrite.ToPath(masterFile).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
@@ -92,6 +102,23 @@ public sealed class BulkWriteBytesTests : IDisposable
         Assert.True(outcome.Success, outcome.Error);
         var sha = Sha(outPath);
         Assert.True(ForwardSha == sha, $"a bulk forward's written bytes moved (see the class comment for how to tell the gather from the serializer); this build produced {sha}");
+    }
+
+    [Fact]
+    public void BulkCreateWritesTheSameBytesAsBefore()
+    {
+        var specs = Enumerable.Range(0, Ops).Select(i => new WritePatchBuilder.CreateSpec
+        {
+            RecordType = "DialogResponses",
+            EditorId = "HcBulkBytesInfo" + i,
+            ParentRef = _topicKeys[i].ToString(),
+            Edits = Array.Empty<WriteRequest>(),
+        }).ToList();
+        var outPath = Path.Combine(_root, "HcBulkBytesCreate.esp");
+        var outcome = WritePatchBuilder.CreateRecords(_resolver, _rulebook, specs, outPath, extend: false);
+        Assert.True(outcome.Success, outcome.Error);
+        var sha = Sha(outPath);
+        Assert.True(CreateSha == sha, $"a bulk create's written bytes moved (see the class comment for how to tell the gather from the serializer); this build produced {sha}");
     }
 
     public void Dispose()
