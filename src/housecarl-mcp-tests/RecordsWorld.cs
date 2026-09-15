@@ -88,6 +88,7 @@ public sealed class RecordsWorld : IDisposable
 
     /// <summary>What <c>CorpusRulebook.CorpusPath</c> named before this world repointed it.</summary>
     readonly string _priorCorpusPath;
+    readonly ResultsDirScope _results;
 
     public RecordsWorld()
     {
@@ -98,6 +99,7 @@ public sealed class RecordsWorld : IDisposable
 
         Root = Path.Combine(Path.GetTempPath(), "hc-records-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
+        _results = new ResultsDirScope(Path.Combine(Root, "server-results"));
 
         var masterKey = new ModKey("HcRecMaster", ModType.Master);
         var ovKey = new ModKey("HcRecOverride", ModType.Plugin);
@@ -286,6 +288,7 @@ public sealed class RecordsWorld : IDisposable
         // Before the delete, never after: the static must not be left naming a directory this line removes.
         CorpusRulebook.CorpusPath = _priorCorpusPath;
         Svc.Dispose();
+        _results.Dispose();   // before the delete below: the static must not name a removed directory
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }

@@ -15,21 +15,19 @@ public sealed class ArtifactFixture : IDisposable
     /// wrote takes a private one via <see cref="ArtifactTestBase.OwnResults"/> instead.</summary>
     public string ResultsDir { get; }
 
-    readonly string? _priorResultsDir;
+    readonly ResultsDirScope _results;
 
     public ArtifactFixture()
     {
         W = new RecordsWorld();
-        ResultsDir = Path.Combine(W.Root, "server-results");
-        Directory.CreateDirectory(ResultsDir);
-        _priorResultsDir = ResultsStore.OverrideDirForTests;
-        ResultsStore.OverrideDirForTests = ResultsDir;
+        _results = new ResultsDirScope(Path.Combine(W.Root, "artifact-results"));
+        ResultsDir = _results.Dir;
     }
 
     public void Dispose()
     {
         // Before the world's delete: the static must not be left naming a directory the next line removes.
-        ResultsStore.OverrideDirForTests = _priorResultsDir;
+        _results.Dispose();
         W.Dispose();
     }
 }
@@ -79,24 +77,6 @@ public abstract class ArtifactTestBase
         var (_, tokens, err) = ResultArtifact.ReadIdentity(path, File.ReadAllText(path));
         Assert.Null(err);
         return tokens!;
-    }
-
-    /// <summary>Point the auto-spill store at a directory of this test's own for the scope, then put the prior
-    /// value back. One test, one directory — so "the file this call spilled" is a Single(), not a guess.</summary>
-    protected sealed class ResultsDirScope : IDisposable
-    {
-        readonly string? _prior;
-        public string Dir { get; }
-
-        public ResultsDirScope(string dir, bool create = true)
-        {
-            Dir = dir;
-            if (create) Directory.CreateDirectory(dir);
-            _prior = ResultsStore.OverrideDirForTests;
-            ResultsStore.OverrideDirForTests = dir;
-        }
-
-        public void Dispose() => ResultsStore.OverrideDirForTests = _prior;
     }
 
     protected ResultsDirScope OwnResults(string name) => new(W.Scratch("spills", name, "dir"));

@@ -93,10 +93,13 @@ public sealed class DialogueWorld : IDisposable
     /// disagreement, and silently unbucketed in game if nothing says so.</summary>
     public FormKey UnmodeledMarkerTopic { get; }
 
+    readonly ResultsDirScope _results;
+
     public DialogueWorld()
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-dialogue-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
+        _results = new ResultsDirScope(Path.Combine(Root, "server-results"));
 
         var masterKey = ModKey.FromNameAndExtension(MasterName);
         var midKey = ModKey.FromNameAndExtension(MidName);
@@ -228,6 +231,7 @@ public sealed class DialogueWorld : IDisposable
     public void Dispose()
     {
         Svc.Dispose();
+        _results.Dispose();   // before the delete below: the static must not name a removed directory
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }
