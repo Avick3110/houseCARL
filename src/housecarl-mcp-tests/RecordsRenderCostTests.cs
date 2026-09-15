@@ -287,6 +287,38 @@ public sealed class RecordsRenderCostTests
         Assert.Contains("formids=", r);
     }
 
+    /// <summary>The scan lever names a limit= AT OR BELOW the bound rather than "lower limit= further": the
+    /// parameter defaults to 500, so a call that passed nothing is already windowed and cannot be told apart from
+    /// an explicit limit=500 — telling either to lower one names a parameter one of them never carried.</summary>
+    [Fact]
+    public void TheScanLeverNamesALimitAtOrBelowTheBound_NotOneToLower()
+    {
+        var r = WithComparisonBound(2, () => RecordsTools.Records(Svc, types: Weap, project: Tree()));
+        Assert.StartsWith("error:", r);
+        Assert.Contains("limit= at or below the bound", r);
+        Assert.DoesNotContain("lower limit=", r);
+    }
+
+    /// <summary>A malformed call keeps its own precise refusal. The cost bound is charged after each form's shape
+    /// checks, so a tree carrying source= is told to drop source= rather than to pass fewer ids — trimming the list
+    /// would only reach the real error on the next call.</summary>
+    [Fact]
+    public void AMalformedTreeIsRefusedForItsShapeBeforeItsCost()
+    {
+        var src = System.Text.Json.JsonDocument.Parse("\"" + _w.MasterName + "\"").RootElement.Clone();
+        var r = WithComparisonBound(2, () => RecordsTools.Records(Svc, formids: AllWeaponIds, project: Tree(), source: src));
+        Assert.StartsWith("error:", r);
+        Assert.Contains("no subject", r);
+        Assert.DoesNotContain("pass fewer formids=", r);
+    }
+
+    /// <summary>The smallest refusable job on this lane lands in the minute band, which every other bound starts
+    /// above: 251 rows must not read "about 1 minutes".</summary>
+    [Fact]
+    public void TheEstimateReadsProperlyJustOverTheComparisonBound() =>
+        Assert.DoesNotContain(" 1 minutes",
+                              RenderBudget.ProjectedAt(RenderBudget.DefaultMaxComparisonRows + 1, RenderBudget.MillisPerComparisonRow));
+
     /// <summary>A census and a to_file= artifact cover the whole selection whatever limit= says, so the sentence
     /// they get names the scan terms and says limit= is not the lever.</summary>
     [Fact]
