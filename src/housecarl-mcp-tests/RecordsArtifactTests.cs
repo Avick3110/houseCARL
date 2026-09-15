@@ -151,6 +151,24 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
         Assert.Contains("NO identity column", err);
     }
 
+    /// <summary>A write that could not even open the caller's file must not take that file with it: the failure is
+    /// named, and what was already at the path is still there.</summary>
+    [Fact]
+    public void ToFile_AWriteThatCouldNotOpenTheFileLeavesWhatWasAlreadyThere()
+    {
+        var art = Art("held-target.jsonl");
+        const string mine = "the caller's own file\n";
+        File.WriteAllText(art, mine);
+
+        using (new FileStream(art, FileMode.Open, FileAccess.Read, FileShare.Read))   // held: the write cannot open it
+        {
+            var r = RecordsTools.Records(Svc, types: new[] { "SPEL" }, to_file: art);
+            Assert.Contains("could not write the result artifact", r);
+        }
+
+        Assert.Equal(mine, File.ReadAllText(art));
+    }
+
     [Fact]
     public void ToFile_ARelativePathIsRefusedNamingTheAbsoluteRequirement() =>
         Refused(RecordsTools.Records(Svc, types: new[] { "SPEL" }, to_file: "relative.jsonl"), "ABSOLUTE");
@@ -486,6 +504,9 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
             var r = RecordsTools.Records(Svc, types: new[] { "WEAP" }, max_chars: TinyScan);
             Assert.Contains("spilled:", r);
             Assert.DoesNotContain("could NOT be written", r);
+            // Without this the test goes vacuous when the watcher is slow: nothing held the file, so nothing was
+            // proved. On the pre-fix code this same grab is what made the spill's replace-move fail.
+            Assert.True(scanner.WaitForGrab(TimeSpan.FromSeconds(10)), "the scanner never got a handle on the spill");
         }
         Assert.Equal(WeaponTotal, ManifestOf(TheSpill(d)).RowCount);
     }
@@ -496,6 +517,19 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     {
         readonly FileSystemWatcher _watcher;
         readonly List<FileStream> _held = new();
+
+        /// <summary>Wait until the scanner is holding at least one handle, so a slow watcher fails the test rather
+        /// than passing it for nothing.</summary>
+        public bool WaitForGrab(TimeSpan within)
+        {
+            var deadline = DateTime.UtcNow + within;
+            while (DateTime.UtcNow < deadline)
+            {
+                lock (_held) if (_held.Count > 0) return true;
+                Thread.Sleep(10);
+            }
+            return false;
+        }
 
         public GrabbingScanner(string dir)
         {
@@ -1091,6 +1125,24 @@ public sealed class RecordsArtifactResultsStoreTests : IDisposable
                               new[] { "formid" }, "input order", 1, "0123456789abcdef");
         Assert.Null(err);
         Assert.Equal(1, m!.RowCount);
+        Assert.True(ResultArtifact.LooksLikeArtifact(File.ReadAllText(r.Path)));
+    }
+
+    /// <summary>A target is written once — the write closes its handle, so a second one would fail against a dead
+    /// stream and clean up the artifact that already landed. It says so instead, and the artifact stands.</summary>
+    [Fact]
+    public void AnArtifactTargetRefusesASecondWriteRatherThanLosingTheFirst()
+    {
+        using var r = ResultsStore.Reserve(ToolNames.Records, "0123456789abcdef");
+        using var w = new ResultArtifact.Writer();
+        w.WriteRow((jw, _) => { jw.WriteStartObject(); jw.WriteString("formid", "000001:A.esp"); jw.WriteEndObject(); });
+        var (_, err) = w.Save(r, ToolNames.Records, Array.Empty<KeyValuePair<string, string>>(), "formid",
+                              new[] { "formid" }, "input order", 1, "0123456789abcdef");
+        Assert.Null(err);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            w.Save(r, ToolNames.Records, Array.Empty<KeyValuePair<string, string>>(), "formid",
+                   new[] { "formid" }, "input order", 1, "0123456789abcdef"));
         Assert.True(ResultArtifact.LooksLikeArtifact(File.ReadAllText(r.Path)));
     }
 }

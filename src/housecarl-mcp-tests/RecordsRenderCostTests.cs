@@ -1137,9 +1137,9 @@ public sealed class RecordsRenderCostTests
     }
 
     /// <summary>A cancelled call leaves nothing in the RESULTS directory either — the auto-spill path, whose name is
-    /// reserved on disk by <c>ResultsStore.NextPath</c> before the write. (The cancel this asserts lands in the
+    /// reserved on disk by <c>ResultsStore.Reserve</c> before the write. (The cancel this asserts lands in the
     /// render; a cancel landing inside the spill write itself is a window no test can time, and is covered by the
-    /// release the spill now makes on the way out.)</summary>
+    /// reservation deleting its own file when the spill's <c>using</c> disposes it unwritten.)</summary>
     [Fact]
     public void ACancelledCallLeavesNothingInTheResultsDirectory()
     {
