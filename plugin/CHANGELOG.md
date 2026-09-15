@@ -22,14 +22,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
   one remaining per-parent read — a child going into a parent's single-child slot, where the artifact already carries
   that parent — is named at the declaration in `WritePatchBuilder`.
 - **`project.form="tree"` and `project.form="delta"` read their bodies a plugin at a time.** Both lanes fetched each
-  provider — a tree's whole touching stack, a delta's two poles — with a walk of that plugin from the top for one
-  record, so rows whose providers are the same few large masters paid one whole-plugin walk each. The bodies of a
-  chunk of rows are now gathered per plugin, one walk answering that plugin's whole share of the chunk. The answer is
-  unchanged: the same rows, the same nodes in the same order, the same deltas. A tree still holds one reference plus
-  one provider's fields at a time, so the memory bound from 2.0.1 stands, and `limit=`'s bound on what a tree reads
-  is unchanged (see `limit=`). Measured over 100 contested records on a 3,254-plugin order, driven per arm as a
-  private server: tree 45.4 s to 11.5 s and delta 71.6 s to 12.8 s over placed references, tree 13.0 s to 8.2 s and
-  delta 15.0 s to 8.6 s over weapons; peak working set unchanged on all four.
+  provider — a tree's whole touching stack, a delta's two poles, and a tree's `versus=` pole — with a walk of that
+  plugin from the top for one record, so rows whose providers are the same few large masters paid one whole-plugin
+  walk each. The bodies of a chunk of rows are now gathered per plugin, one walk answering that plugin's whole share
+  of the chunk. The answer is unchanged: the same rows, the same nodes in the same order, the same deltas, and
+  `limit=`'s bound on what a tree reads is unchanged (see `limit=`). What a chunk holds is the new bound, and it is
+  what the chunk size is there to set: a tree holds one plugin's record bodies at a time — the 2.0.1 tree entry
+  below says what that was about and it is unmoved — plus one reference field set per row of the chunk, and a delta
+  holds its chunk's rows' subject and reference bodies rather than the one pair a row needed. Measured over 100
+  contested records on a 3,254-plugin order, driven per arm as a private server: tree 46.6 s to 11.9 s, delta 41.7 s
+  to 10.7 s and tree against a named `versus=` plugin 49.6 s to 17.5 s over placed references; tree 11.7 s to 8.1 s
+  and delta 13.6 s to 8.0 s over weapons. Peak working set is unchanged on every arm.
 
 ## 2.0.1 — 2026-09-15
 
