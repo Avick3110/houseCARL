@@ -1,4 +1,4 @@
-using Mutagen.Bethesda;
+﻿using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
@@ -57,6 +57,11 @@ public sealed class RecordsWorld : IDisposable
     public FormKey RenamedArmor { get; }
     public const string RenamedArmorOldEid = "HcRecArmoOldName";
     public const string RenamedArmorNewEid = "HcRecArmoWinnerName";
+
+    /// <summary>An armor the master names <see cref="DroppedEidArmorOldEid"/> whose winning override carries NO
+    /// EditorID at all — the near-miss case where there is no name to re-ask for.</summary>
+    public FormKey DroppedEidArmor { get; }
+    public const string DroppedEidArmorOldEid = "HcRecArmoDroppedName";
     public FormKey MgefA { get; }
     public FormKey MgefB { get; }
     public FormKey SpellA { get; }
@@ -121,6 +126,7 @@ public sealed class RecordsWorld : IDisposable
 
         var armo = master.Armors.AddNew(); armo.EditorID = "HcRecA0"; Armor = armo.FormKey;
         var renamed = master.Armors.AddNew(); renamed.EditorID = RenamedArmorOldEid; RenamedArmor = renamed.FormKey;
+        var dropped = master.Armors.AddNew(); dropped.EditorID = DroppedEidArmorOldEid; DroppedEidArmor = dropped.FormKey;
         var mgefA = master.MagicEffects.AddNew(); mgefA.EditorID = "HcRecMgefFire"; MgefA = mgefA.FormKey;
         var mgefB = master.MagicEffects.AddNew(); mgefB.EditorID = "OtherMgef"; MgefB = mgefB.FormKey;
         // A condition stack: a struct list whose polymorphic arm carries the value, one row Or-flagged and one
@@ -203,6 +209,8 @@ public sealed class RecordsWorld : IDisposable
             .IsDeleted = true;
         // The winner RENAMES the record: the master's EditorID is real and only a losing copy carries it.
         WriteEngine.GenericGetOrAddAsOverride(ovMod, renamed).EditorID = RenamedArmorNewEid;
+        // The winner DROPS the EditorID: there is no name to re-ask for, only the FormID.
+        WriteEngine.GenericGetOrAddAsOverride(ovMod, dropped).EditorID = null;
 
         var oldMod = new SkyrimMod(oldKey, SkyrimRelease.SkyrimSE);
         ((IWeapon)WriteEngine.GenericGetOrAddAsOverride(oldMod, master.Weapons.First(w => w.FormKey == weapons[1])))
