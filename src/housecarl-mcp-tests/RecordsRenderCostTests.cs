@@ -61,12 +61,14 @@ public sealed class RenderCostWorld : IDisposable
     public LoadOrderService Svc { get; }
 
     readonly string _priorCorpusPath;
+    readonly ResultsDirScope _results;
 
     public RenderCostWorld()
     {
         _priorCorpusPath = CorpusRulebook.CorpusPath;
         Root = Path.Combine(Path.GetTempPath(), "hc-rendercost-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
+        _results = new ResultsDirScope(Path.Combine(Root, "server-results"));
 
         var masterKey = new ModKey("HcCostMaster", ModType.Master);
         MasterName = masterKey.FileName.String;
@@ -210,6 +212,7 @@ public sealed class RenderCostWorld : IDisposable
     public void Dispose()
     {
         CorpusRulebook.CorpusPath = _priorCorpusPath;
+        _results.Dispose();   // both statics go back before the delete below takes the paths they name
         Svc.Dispose();
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
@@ -1140,8 +1143,8 @@ public sealed class RecordsRenderCostTests
     [Fact]
     public void ACancelledCallLeavesNothingInTheResultsDirectory()
     {
-        var dir = ResultsStore.Dir;
-        var before = Directory.Exists(dir) ? Directory.GetFiles(dir).Length : 0;
+        var dir = ResultsStore.Dir;   // the world's own, so the claim is "empty", not "no bigger than it was"
+        Assert.Empty(Directory.Exists(dir) ? Directory.GetFiles(dir) : Array.Empty<string>());
 
         using var cts = new CancellationTokenSource();
         cts.Cancel();
@@ -1149,8 +1152,7 @@ public sealed class RecordsRenderCostTests
             RecordsTools.Records(Svc, types: Weap, limit: RenderCostWorld.Weapons, project: Fields(),
                                  max_chars: 600, ct: cts.Token));
 
-        var after = Directory.Exists(dir) ? Directory.GetFiles(dir).Length : 0;
-        Assert.Equal(before, after);
+        Assert.Empty(Directory.Exists(dir) ? Directory.GetFiles(dir) : Array.Empty<string>());
     }
 
     /// <summary>The tool body's own guard hands a real cancellation on rather than naming it an internal failure —
