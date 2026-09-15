@@ -89,6 +89,10 @@ public sealed class BodyGather
     /// out of the source plugin, and those are two different bodies.</summary>
     public void Want(string pluginName, FormKey fk)
     {
+        // A plugin already attempted is never walked again, so a key declared this late would never be looked for —
+        // and recording it would make the walked-and-absent arm of Body answer null for a record the walk never
+        // asked about. It falls to Absent instead, which is what a pair this gather does not hold is for.
+        if (_attempted.Contains(pluginName)) return;
         if (!_declared.TryGetValue(pluginName, out var set)) _declared[pluginName] = set = new HashSet<FormKey>();
         set.Add(fk);
     }
