@@ -32,7 +32,9 @@ public static class ResultArtifact
     /// file.</summary>
     public sealed class Writer : IDisposable
     {
-        readonly MemoryStream _rows = new();
+        // Counts as it writes, so a row writer sharing the inline renders' (stream, cap) pair measures
+        // characters without rescanning a buffer that runs to megabytes.
+        readonly CharCountedStream _rows = new();
         readonly Dictionary<string, int> _typeCounts = new(StringComparer.Ordinal);
         int _rowCount;
 
