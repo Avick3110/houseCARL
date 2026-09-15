@@ -148,18 +148,18 @@ public sealed partial class LoadOrderService
                 }
                 if (seek is { Count: 0 }) seek = null;
                 var sink = new Dictionary<FormKey, IMajorRecordGetter>(want.Count);
+                // The one gather rule, shared with BodyGather (#756): the walk is guarded, and out-of-memory and
+                // cancellation are rethrown because neither is this plugin's fault. This lane keeps its own loop
+                // because its wanted set and type scope are settled AT walk time, from which rows are still live,
+                // so there is nothing for a declare-then-gather to declare.
                 // A fault reading the PLUGIN leaves the sink empty and every row of it falls back to the per-record
                 // fetch below, which raises the same fault, in the same words, the streamed walk raised. The gather
-                // is an optimisation and must never become a second error path — but an out-of-memory failure is
-                // not this plugin's fault and the fallback costs one whole-plugin walk per row, so paying it
-                // because memory already ran out makes the failure worse.
+                // is an optimisation and must never become a second error path — and the fallback costs one
+                // whole-plugin walk per row, so paying it because memory already ran out makes the failure worse.
                 // Which ROW the fault names can differ from the streamed walk's: the passes are plugin-major, so
                 // with two bad rows in one chunk the message names whichever plugin group reached one first rather
                 // than the first bad row in request order. The call throws either way, so no row answers wrong.
-                try { view.CollectRecords(session, plugin, want, seek, sink); }
-                catch (OutOfMemoryException) { throw; }
-                catch (OperationCanceledException) { throw; }
-                catch (Exception) { sink.Clear(); }
+                if (BodyGather.WalkOnce(view, session, plugin, want, seek, sink) is not null) sink.Clear();
 
                 foreach (var (r, node) in hits)
                 {
