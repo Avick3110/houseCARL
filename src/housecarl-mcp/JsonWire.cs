@@ -309,7 +309,7 @@ static class JsonWire
     /// <param name="emitted">Collects the annotated paths this array ACTUALLY carried — the response-level clause is
     /// stated over these, so a field the truncation above dropped states nothing.</param>
     static void WriteFieldsArray(Utf8JsonWriter w, RecordFields r, MemoryStream ms, int cap,
-                                 IReadOnlyDictionary<string, ChildUnion?>? annotated = null, ICollection<string>? emitted = null,
+                                 IReadOnlyDictionary<string, ChildUnion?>? annotated = null, IDictionary<string, bool>? emitted = null,
                                  LeverNames? levers = null)
     {
         var lv = levers ?? LeverNames.Legacy;
@@ -339,7 +339,9 @@ static class JsonWire
                 w.WriteEndArray();
             }
             w.WriteEndObject();
-            if (annotated is not null && emitted is not null && annotated.ContainsKey(f.Path)) emitted.Add(f.Path);
+            // The TIER travels with the field: a clause is stated per tier, and one over both would claim a union
+            // beside a line annotated from the index alone.
+            if (annotated is not null && emitted is not null && annotated.TryGetValue(f.Path, out var tier)) emitted[f.Path] = tier is not null;
         }
         w.WriteEndArray();
     }
@@ -439,7 +441,7 @@ static class JsonWire
     /// <param name="stateChildNote">Single-read lane only: this record object IS the response, so the clause
     /// belongs on it — written AFTER <c>fields</c> and only over what <c>fields</c> carried.</param>
     internal static void WriteReadRecord(Utf8JsonWriter w, ReadOutcome o, MemoryStream ms, int cap, string? matches = null,
-                                         OrderStamp? epoch = null, ICollection<string>? childFields = null, bool stateChildNote = false,
+                                         OrderStamp? epoch = null, IDictionary<string, bool>? childFields = null, bool stateChildNote = false,
                                          LeverNames? levers = null)
     {
         var r = o.Record!;
@@ -454,7 +456,7 @@ static class JsonWire
         WriteNullable(w, "source", o.SourcePlugin);   // the body these field VALUES came from (scoped plugin vs winner)
         if (matches is not null) w.WriteString("matches", matches);
         WriteFieldsArray(w, r, ms, cap, o.OwnedChildFields, childFields, levers);
-        if (stateChildNote && childFields is IReadOnlyCollection<string> { Count: > 0 } stated) WriteOwnedChildNote(w, stated, o.OwnedChildUnioned);
+        if (stateChildNote && childFields is { Count: > 0 }) WriteOwnedChildNote(w, childFields);
         w.WriteEndObject();
     }
 
@@ -465,9 +467,12 @@ static class JsonWire
     ///
     /// <para>json only ever states the cheap tier's clause: <c>conflict_tree=true</c> is refused in json mode, so
     /// the lane that has the bodies to name declarers does not exist here.</para></summary>
-    static void WriteOwnedChildNote(Utf8JsonWriter w, IReadOnlyCollection<string> fields, bool unioned)
+    static void WriteOwnedChildNote(Utf8JsonWriter w, IDictionary<string, bool> fields)
     {
-        if (fields.Count > 0) w.WriteString("owned_child_note", ReadSentences.OwnedChildClause(fields, unioned));
+        // One clause per tier the document actually stated, in one member: a response can carry both where a named
+        // list was unioned and a '[*count]' column took the index-only tier.
+        var said = ReadSentences.OwnedChildClauses(ReadSentences.Tier(fields, true), ReadSentences.Tier(fields, false));
+        if (said.Count > 0) w.WriteString("owned_child_note", string.Join(" ", said));
     }
 
     // ---- housecarl_records: the batch read ----------------------------------------------------------
@@ -506,7 +511,7 @@ static class JsonWire
             WriteEpoch(w, outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp);
             w.WriteStartArray("records");
             int rendered = 0; bool rowsTruncated = false;
-            var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the annotated fields the rows RENDERED carried
+            var childFields = new SortedDictionary<string, bool>(StringComparer.Ordinal);   // the annotated fields the rows RENDERED carried, per tier
             for (int i = 0; i < outcomes.Count; i++)
             {
                 if (manifestOnly) break;   // to_file: the rows are the FILE
@@ -527,7 +532,7 @@ static class JsonWire
             // Over the annotated fields this document actually carries — never the input list, and never a field
             // some row's own truncation dropped. A manifest-only (to_file) or truncated response carries none, and
             // states none.
-            WriteOwnedChildNote(w, childFields, outcomes.Any(o => o.OwnedChildUnioned));
+            WriteOwnedChildNote(w, childFields);
             truncated = rowsTruncated;
             if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
             w.WriteEndObject();
@@ -1244,8 +1249,7 @@ static class JsonWire
                 w.WriteStartArray("matches");
                 int rendered = 0; bool rowsTruncated = false;
                 var renderClock = System.Diagnostics.Stopwatch.StartNew();
-                var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the clause once, over the fields the rows carried
-                bool childUnioned = false;   // which TIER those rows stated — the scan lanes annotate index-only
+                var childFields = new SortedDictionary<string, bool>(StringComparer.Ordinal);   // the clause per tier, over the fields the rows carried
                 for (int i = 0; i < q.Keys.Count && !manifestOnly; i++)      // to_file: the rows are the FILE
                 {
                     w.Flush();
@@ -1259,7 +1263,7 @@ static class JsonWire
                         // Pinned to the scan's build — the document's epoch names ONE build.
                         var o = reader!.Row(i);   // a collapsed cell names the caller's own expansion knob
                         if (o.Error is not null) { w.WriteStartObject(); w.WriteString("formid", FormIdToken.Of(fk)); w.WriteString("error", o.Error); if (matches is not null) w.WriteString("matches", matches); w.WriteEndObject(); }
-                        else { WriteReadRecord(w, o, ms, cap, matches, childFields: childFields, levers: levers); childUnioned |= o.OwnedChildUnioned; }
+                        else WriteReadRecord(w, o, ms, cap, matches, childFields: childFields, levers: levers);
                     }
                     else
                     {
@@ -1277,7 +1281,7 @@ static class JsonWire
                 { w.WriteNumber("rendered_to_file", a.Manifest.RowCount); w.WriteNumber("render_ms", artifactMs); }
                 else if (detail && !manifestOnly) w.WriteNumber("render_ms", renderClock.ElapsedMilliseconds);
                 w.WriteBoolean("truncated", rowsTruncated);
-                WriteOwnedChildNote(w, childFields, childUnioned);
+                WriteOwnedChildNote(w, childFields);
                 truncated = rowsTruncated;
             }
             if (spill is not null && q.Error is null) Artifacts.WriteSpillStateJson(w, spill);
@@ -1380,8 +1384,7 @@ static class JsonWire
                 List<(string Formid, string Error)>? errors = null;
                 int rendered = 0; bool rowsTruncated = false;
                 var renderClock = System.Diagnostics.Stopwatch.StartNew();
-                var childFields = new SortedSet<string>(StringComparer.Ordinal);   // the clause once, over the cells the rows carried
-                bool childUnioned = false;   // which TIER those rows stated — the scan lanes annotate index-only
+                var childFields = new SortedDictionary<string, bool>(StringComparer.Ordinal);   // the clause per tier, over the cells the rows carried
                 var foldNotes = new SortedSet<string>(StringComparer.Ordinal);   // what the read said that no column carries — the truncation note above all
                 int foldRows = 0;            // rows, which a fold makes ELEMENTS; `rendered` stays records
                 w.WriteStartArray("rows");
@@ -1431,7 +1434,7 @@ static class JsonWire
                             for (int c = 0; c < cols.Length; c++)
                             {
                                 var owner = fold.Folds[c]?.Root ?? (cols[c].Count > 0 ? cols[c][0].Path : null);
-                                if (owner is not null && o.OwnedChildFields?.ContainsKey(owner) == true) { childFields.Add(owner); childUnioned |= o.OwnedChildUnioned; }
+                                if (owner is not null && o.OwnedChildFields?.TryGetValue(owner, out var tier) == true) childFields[owner] = tier is not null;
                             }
                             foreach (var note in carried) if (note.Note is { } n) foldNotes.Add(n);
                             bool cut = false;
@@ -1470,7 +1473,7 @@ static class JsonWire
                             WriteCell(w, DenseCell(f));
                             // Registered at EMISSION, like every other lane, so the clause is earned by what the
                             // document carries rather than by the outcome's intent.
-                            if (o.OwnedChildFields?.ContainsKey(f.Path) == true) { childFields.Add(f.Path); childUnioned |= o.OwnedChildUnioned; }
+                            if (o.OwnedChildFields?.TryGetValue(f.Path, out var cellTier) == true) childFields[f.Path] = cellTier is not null;
                         }
                         if (anyScoped) WriteCell(w, o.SourcePlugin);          // the body this row's values were read from (winner_fields=true → the winner)
                         if (hasMatches) WriteCell(w, matches);
@@ -1510,7 +1513,7 @@ static class JsonWire
                 { w.WriteNumber("rendered_to_file", a.Manifest.RowCount); w.WriteNumber("render_ms", artifactMs); }
                 else if (detail && !manifestOnly) w.WriteNumber("render_ms", renderClock.ElapsedMilliseconds);
                 w.WriteBoolean("truncated", rowsTruncated);
-                WriteOwnedChildNote(w, childFields, childUnioned);
+                WriteOwnedChildNote(w, childFields);
                 // The read's own note — a truncated expansion above all — belongs to the document whose rows the
                 // fold shortened, or the answer is short with nothing saying so.
                 if (foldNotes.Count > 0) w.WriteString("read_note", string.Join(" ", foldNotes));

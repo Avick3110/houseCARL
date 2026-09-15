@@ -132,8 +132,7 @@ internal static class Artifacts
         string? identity;
         string sort;
         System.Diagnostics.Stopwatch? renderClock = null;   // detail rows only: what reading their bodies cost
-        var annotated = new SortedSet<string>(StringComparer.Ordinal);   // which fields the rows carry annotated
-        bool annotatedUnioned = false;                                   // and which TIER they stated
+        var annotated = new SortedDictionary<string, bool>(StringComparer.Ordinal);   // which fields the rows carry annotated, and in which TIER
 
         if (q.Groups is not null)                                             // group_by= → count-table rows
         {
@@ -163,8 +162,7 @@ internal static class Artifacts
                 if (fold is not null) o = fold.Apply(o);   // an artifact row carries the same folded fields the render does
                 if (o.Error is null && o.OwnedChildFields is { } af)   // the rows' labels need their clause on line 1
                 {
-                    foreach (var annotatedPath in af.Keys) annotated.Add(annotatedPath);
-                    annotatedUnioned |= o.OwnedChildUnioned;
+                    foreach (var kv in af) annotated[kv.Key] = kv.Value is not null;
                 }
                 if (o.Error is not null)
                     writer.WriteRow((w, _) =>
@@ -197,7 +195,7 @@ internal static class Artifacts
         // The manifest stamps which tool wrote the artifact; see WriteResolve for why it names records.
         var (manifest, err) = writer.Save(path, ToolNames.Records, query, identity, schema, sort,
                                           q.Groups is not null ? q.Groups.Count : q.Total, q.Epoch ?? "",
-                                          CrossQueryNotes(q, fields, winnerFields, annotated, annotatedUnioned, levers));
+                                          CrossQueryNotes(q, fields, winnerFields, annotated, levers));
         return err is not null
             ? (null, err)
             : (new SpillInfo(path, manifest!, reason) { RenderMs = renderClock?.ElapsedMilliseconds }, null);
@@ -206,10 +204,12 @@ internal static class Artifacts
     /// <summary>The response-level statement that an artifact's annotated rows depend on. An artifact is re-entered
     /// with no conversation attached, so a row's union or "not read" label must travel with the sentence explaining
     /// it. The manifest is line 1 and the rows are lines 2..N, so this names the annotated fields rather than
-    /// pointing at a position. <paramref name="unioned"/> picks the tier the rows actually stated. The precise
-    /// tier's note is <see cref="PreciseChildNotes"/>.</summary>
-    static IReadOnlyList<string>? OwnedChildNotes(IReadOnlyCollection<string> annotatedFields, bool unioned) =>
-        annotatedFields.Count == 0 ? null : new[] { ReadSentences.OwnedChildClause(annotatedFields, unioned) };
+    /// pointing at a position. One clause per TIER the rows actually stated, since a union clause over a row
+    /// annotated from the index alone would claim a union the file does not carry. The precise tier's note is
+    /// <see cref="PreciseChildNotes"/>.</summary>
+    static IReadOnlyList<string>? OwnedChildNotes(IReadOnlyDictionary<string, bool> annotatedFields) =>
+        annotatedFields.Count == 0 ? null
+            : ReadSentences.OwnedChildClauses(ReadSentences.Tier(annotatedFields, true), ReadSentences.Tier(annotatedFields, false));
 
     /// <summary>The manifest notes a scan artifact carries: the scoped-vs-winner field-source note the three inline
     /// transports state, then the owned-child clause. The artifact holds the same values the inline render would have
@@ -217,13 +217,13 @@ internal static class Artifacts
     /// from has to travel with them. The scoped test is <see cref="JsonWire.AnyScopedFieldRow"/> — the very function
     /// the inline renders call, not a copy of it — so the two cannot disagree about when the note is owed.</summary>
     static IReadOnlyList<string>? CrossQueryNotes(CrossQueryOutcome q, IReadOnlyList<string>? fields, bool winnerFields,
-                                                  IReadOnlyCollection<string> annotatedFields, bool annotatedUnioned,
+                                                  IReadOnlyDictionary<string, bool> annotatedFields,
                                                   LeverNames? levers)
     {
         var notes = new List<string>();
         if (JsonWire.AnyScopedFieldRow(q, fields))
             notes.Add(JsonWire.ScopedFieldsNote(winnerFields, q.WhereWinner, levers));
-        if (OwnedChildNotes(annotatedFields, annotatedUnioned) is { } child) notes.AddRange(child);
+        if (OwnedChildNotes(annotatedFields) is { } child) notes.AddRange(child);
         return notes.Count > 0 ? notes : null;
     }
 
@@ -234,12 +234,12 @@ internal static class Artifacts
 
     /// <summary>The annotated field paths an artifact's rows actually carry. The set is collected from the rows
     /// themselves so the manifest can never state a clause over an annotation no row wrote.</summary>
-    static SortedSet<string> AnnotatedFields(IEnumerable<ReadOutcome> outcomes)
+    static SortedDictionary<string, bool> AnnotatedFields(IEnumerable<ReadOutcome> outcomes)
     {
-        var s = new SortedSet<string>(StringComparer.Ordinal);
+        var s = new SortedDictionary<string, bool>(StringComparer.Ordinal);
         foreach (var o in outcomes)
             if (o.Error is null && o.OwnedChildFields is { } f)
-                foreach (var path in f.Keys) s.Add(path);
+                foreach (var kv in f) s[kv.Key] = kv.Value is not null;
         return s;
     }
 
@@ -274,7 +274,7 @@ internal static class Artifacts
         // The manifest's tool stamp; see WriteResolve.
         var (manifest, err) = writer.Save(path, ToolNames.Records, query, "formid",
                                           new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "matches?", "fields" },
-                                          "input order", outcomes.Count, epoch, OwnedChildNotes(AnnotatedFields(outcomes), outcomes.Any(o => o.OwnedChildUnioned)));
+                                          "input order", outcomes.Count, epoch, OwnedChildNotes(AnnotatedFields(outcomes)));
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, reason), null);
     }
 

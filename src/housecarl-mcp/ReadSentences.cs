@@ -80,6 +80,23 @@ internal static class ReadSentences
     internal static string OwnedChildClause(IReadOnlyCollection<string> fields, bool unioned) =>
         string.Format(unioned ? UnionFraming : NotReadFraming, FieldList(fields));
 
+    /// <summary>One clause per tier the response actually stated, each over its OWN fields. A response can state
+    /// both — one field's union assembled, another's deliberately not — and one clause over the mixture would
+    /// assert a union beside a line that carries none, which is the thing <see cref="OwnedChildClause"/> exists to
+    /// prevent.</summary>
+    internal static IReadOnlyList<string> OwnedChildClauses(IReadOnlyCollection<string> unioned,
+                                                            IReadOnlyCollection<string> indexOnly)
+    {
+        var said = new List<string>(2);
+        if (unioned.Count > 0) said.Add(OwnedChildClause(unioned, true));
+        if (indexOnly.Count > 0) said.Add(OwnedChildClause(indexOnly, false));
+        return said;
+    }
+
+    /// <summary>The fields a map of field → tier holds on one side of it.</summary>
+    internal static IReadOnlyCollection<string> Tier(IEnumerable<KeyValuePair<string, bool>> fields, bool unioned) =>
+        fields.Where(kv => kv.Value == unioned).Select(kv => kv.Key).ToList();
+
     /// <summary>The clause framing a tier uses, for the reserve and for a test that has to find the clause line.</summary>
     internal static string ClauseFraming(bool unioned) => unioned ? UnionFraming : NotReadFraming;
 
@@ -211,10 +228,14 @@ internal static class ReadSentences
     /// <summary>The worst-case chars the response-level clause can cost, reserved out of <c>max_chars</c> before
     /// the body renders. The clause is load-bearing, so it cannot be dropped at the cap; appending it past the cap
     /// instead would overrun invisibly to the <c>truncated</c> flag the auto-spill trigger reads.</summary>
-    internal static int ClauseReserve(bool mayState) =>
-        // The longer of the two tiers: the reserve is taken before the fields render, and which tier the response
-        // will state is not settled until one of them is emitted.
-        mayState ? Math.Max(UnionFraming.Length, NotReadFraming.Length) + ClauseFieldsMaxChars + ClauseGlue : 0;
+    /// <param name="clauses">How many clauses the response may still state: one where only one tier is in play,
+    /// two where a record carries both (a named list unioned beside a '[*count]' column on the index-only tier).</param>
+    internal static int ClauseReserve(int clauses) =>
+        // The longer of the two tiers where only one will be said: the reserve is taken before the fields render,
+        // and which tier the response will state is not settled until one of them is emitted.
+        clauses <= 0 ? 0
+        : clauses == 1 ? Math.Max(UnionFraming.Length, NotReadFraming.Length) + ClauseFieldsMaxChars + ClauseGlue
+        : UnionFraming.Length + NotReadFraming.Length + 2 * (ClauseFieldsMaxChars + ClauseGlue);
 
     // ---- the sweep response's omission accounting ----
     //

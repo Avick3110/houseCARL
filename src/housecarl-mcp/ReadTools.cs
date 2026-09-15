@@ -182,42 +182,46 @@ static class Wire
     /// reserved out of the budget rather than appended past it.</summary>
     internal sealed class ChildNotes
     {
-        readonly SortedSet<string> _notRead = new(StringComparer.Ordinal);
-        bool _mayNotRead;
-        bool _unioned;
+        // One set per TIER: a field whose union was assembled and a field annotated from the index alone earn
+        // different clauses, and one clause over both would claim a union beside a line that carries none.
+        readonly SortedSet<string> _unioned = new(StringComparer.Ordinal);
+        readonly SortedSet<string> _indexOnly = new(StringComparer.Ordinal);
+        int _mayState;
 
-        /// <summary>The clause this response may still state — reserved from here on.</summary>
-        public void May() => _mayNotRead = true;
+        /// <summary>The clauses this response may still state — reserved from here on. <paramref name="tiers"/> is
+        /// how many tiers the record about to render can annotate in.</summary>
+        public void May(int tiers = 1) => _mayState = Math.Max(_mayState, tiers);
 
         /// <summary>An annotated field line just went into the medium: the clause is now stated, over this field,
         /// in the TIER that line was written in — a scan lane's index-only note must not earn a union clause.</summary>
         public void Emitted(string field, bool unioned)
         {
-            May();
-            _unioned |= unioned;
-            _notRead.Add(field);
+            (unioned ? _unioned : _indexOnly).Add(field);
+            May(Tiers);
         }
 
-        /// <summary>The chars to hold back from <c>max_chars</c> for the clause this response may still state.</summary>
-        public int Reserve => ReadSentences.ClauseReserve(_mayNotRead);
+        /// <summary>The chars to hold back from <c>max_chars</c> for the clauses this response may still state.</summary>
+        public int Reserve => ReadSentences.ClauseReserve(_mayState);
 
         /// <summary>What this response had earned before a row was written, so a row taken back out for crossing the
         /// budget takes its clause with it — a clause naming a field the caller cannot see is the same defect the
         /// class exists to prevent.</summary>
-        public (bool May, bool Unioned, string[] Fields) Mark() => (_mayNotRead, _unioned, _notRead.ToArray());
+        public (int May, string[] Unioned, string[] IndexOnly) Mark() => (_mayState, _unioned.ToArray(), _indexOnly.ToArray());
 
         /// <inheritdoc cref="Mark"/>
-        public void Restore((bool May, bool Unioned, string[] Fields) mark)
+        public void Restore((int May, string[] Unioned, string[] IndexOnly) mark)
         {
-            _mayNotRead = mark.May;
-            _unioned = mark.Unioned;
-            _notRead.Clear();
-            foreach (var f in mark.Fields) _notRead.Add(f);
+            _mayState = mark.May;
+            _unioned.Clear(); _indexOnly.Clear();
+            foreach (var f in mark.Unioned) _unioned.Add(f);
+            foreach (var f in mark.IndexOnly) _indexOnly.Add(f);
         }
 
-        internal IReadOnlyCollection<string> Fields() => _notRead;
+        internal IReadOnlyCollection<string> UnionedFields => _unioned;
 
-        internal bool Unioned => _unioned;
+        internal IReadOnlyCollection<string> IndexOnlyFields => _indexOnly;
+
+        int Tiers => (_unioned.Count > 0 ? 1 : 0) + (_indexOnly.Count > 0 ? 1 : 0);
     }
 
     /// <summary>The owned-child clause, stated once per response after the body — never per field, which costs
@@ -225,9 +229,8 @@ static class Wire
     /// about where in the response they are.</summary>
     internal static void AppendOwnedChildNotes(StringBuilder sb, ChildNotes n)
     {
-        var fields = n.Fields();
-        if (fields.Count == 0) return;
-        sb.Append('\n').Append(ReadSentences.OwnedChildClause(fields, n.Unioned)).Append('\n');
+        foreach (var clause in ReadSentences.OwnedChildClauses(n.UnionedFields, n.IndexOnlyFields))
+            sb.Append('\n').Append(clause).Append('\n');
     }
 
     /// <summary>Render one record, keeping the cheap index-only annotation the service already put on the outcome.
@@ -237,7 +240,10 @@ static class Wire
         var lv = levers ?? LeverNames.Legacy;
         // Hold back the clause this record could earn before its fields render, so an annotated response answers
         // inside max_chars instead of overrunning it. Only a record that can annotate pays.
-        if (o.OwnedChildFields is { Count: > 0 }) notes.May();
+        // Both tiers are reserved where this record can annotate in both — a named list unioned beside a
+        // '[*count]' column, which takes the index-only tier.
+        if (o.OwnedChildFields is { Count: > 0 } ann)
+            notes.May((ann.Values.Any(v => v is not null) ? 1 : 0) + (ann.Values.Any(v => v is null) ? 1 : 0));
         // The reserve comes off the budget, never off the number the render quotes: a cut must report the
         // max_chars the caller actually passed.
         AppendRecord(sb, o, cap, notes.Reserve, notes, lv);
