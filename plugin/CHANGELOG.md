@@ -25,14 +25,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   provider — a tree's whole touching stack, a delta's two poles, and a tree's `versus=` pole — with a walk of that
   plugin from the top for one record, so rows whose providers are the same few large masters paid one whole-plugin
   walk each. The bodies of a chunk of rows are now gathered per plugin, one walk answering that plugin's whole share
-  of the chunk. The answer is unchanged: the same rows, the same nodes in the same order, the same deltas, and
-  `limit=`'s bound on what a tree reads is unchanged (see `limit=`). What a chunk holds is the new bound, and it is
-  what the chunk size is there to set: a tree holds one plugin's record bodies at a time — the 2.0.1 tree entry
-  below says what that was about and it is unmoved — plus one reference field set per row of the chunk, and a delta
-  holds its chunk's rows' subject and reference bodies rather than the one pair a row needed. Measured over 100
-  contested records on a 3,254-plugin order, driven per arm as a private server: tree 46.6 s to 11.9 s, delta 41.7 s
-  to 10.7 s and tree against a named `versus=` plugin 49.6 s to 17.5 s over placed references; tree 11.7 s to 8.1 s
-  and delta 13.6 s to 8.0 s over weapons. Peak working set is unchanged on every arm.
+  of the chunk — the rows it wins and the rows it merely overrides together, which on a real order is usually the
+  same plugin in both roles. The answer is unchanged: the same rows, the same nodes in the same order, the same
+  deltas, and `limit=`'s bound on what a tree reads is unchanged (see `limit=`). What a chunk holds is the new bound,
+  and it is what the chunk size is there to set: a tree holds one plugin's record bodies at a time — the 2.0.1 tree
+  entry below says what that was about and it is unmoved — plus one reference field set per row of the chunk, and a
+  delta holds its chunk's rows' subject and reference bodies rather than the one pair a row needed. Measured over 100
+  contested records on a 3,254-plugin order, driven per arm as a private server: tree 33.4 s to 8.6 s, delta 31.4 s
+  to 8.1 s and tree against a named `versus=` plugin 36.4 s to 11.3 s over placed references; tree 8.9 s to 6.3 s
+  and delta 11.1 s to 6.3 s over weapons. Peak working set is unchanged on every arm.
 
 ## 2.0.1 — 2026-09-15
 
