@@ -387,6 +387,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
   record into whichever of the named plugins loads last over it, naming the same `into=`/`in_place=` split. A long
   list of plugin names keeps the LAST-loaded three — the copies that actually win — and counts the earlier ones.
 
+- **The server now tells the .NET garbage collector to conserve memory.** The build shipped the web host's default
+  GC settings, chosen by nobody, and the collector sized its budgets to the machine: the bigger the box, the more it
+  let a heavy call hold before collecting, and the more it kept after the call returned. The server now sets
+  `System.GC.ConserveMemory=5` in its runtime config, which makes the collector compact sooner. Measured on nine GC
+  configurations, this is the one that lowered the working set held after a walk, a tree and a merge without moving
+  elapsed. It does not change what a call holds while it runs: a walk or a tree that reaches a lot of records still
+  costs those records, and the bounds on those are their own entries above.
+
 ## 2.0.0 — 2026-09-11
 
 houseCARL 2.0.0 replaces the 1.x tool surface with 31 tools. The record plane is one grammar: a read is one call composed from four axes (SELECT × SOURCE × PROJECT × TRANSPORT); a write is one call composed from an op list, a lane and a transport; one record is a set of one. Record coverage is generated from Mutagen.Bethesda.Skyrim 0.54.4 at build time, 1,174 types, and the write pre-flight and the `mutagen-reference` skill are two renderings of that one artifact. The 1.x tool and parameter names are deleted, not deprecated: a retired tool name is refused with a refusal naming its successor, from `AliasTable.cs`; a retired parameter name is refused as an unknown parameter, with the parameters the tool does take. Seven skills ship. `housecarl_check` gains the facegen family. The installer shows what it will write before writing, and uninstalls. The entries below are in the order they landed.
