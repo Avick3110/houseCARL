@@ -13,6 +13,13 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **A bulk `housecarl_create` under many different parents no longer re-reads a whole plugin per parent.** Each
+  parented record read its parent's body by enumerating the parent's defining plugin from the top, so 200 records
+  under 200 distinct `Skyrim.esm` topics walked that file 200 times: on a 3,254-plugin order the call took 398 s and
+  peaked at 2.7 GB. The parent bodies are now read a plugin at a time, one walk each — the same call takes 6 s and
+  peaks at 0.9 GB — and the written patch is byte-identical on the same inputs. A parent the artifact already carries
+  and a parent the order does not hold are unchanged: both are settled without reading a body, as before.
+
 ## 2.0.1 — 2026-09-15
 
 houseCARL 2.0.1 carries what the first days of 2.0.0 on real load orders turned up. Among the wrong answers fixed: a UTF-8 name reads as itself and is never written as `?`, a chain walk reports the cycles it found, and a write's verify names the bytes it did not judge. Read and write paths that paid per record now pay per plugin — bulk `apply` and `forward`, the reverse lane, `tree` fill, `[*count]` — and a forward walk, a `*parent` predicate and a `tree` no longer hold what they reached. New refusals, each one sentence naming the fix: `from_source` outside `CopyFrom`, a raw path into the mods folder, `walk.max_nodes` above its bound, a `delta` or `tree` past its record cap, an in-place value the file's encoding cannot spell, and a merge donor whose master is not active. Every write says when it forks a record another plugin overrides, and a merge says where its output has to load. The entries below are in the order they landed.
