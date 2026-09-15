@@ -54,6 +54,9 @@ public sealed class BulkWriteBytesTests : IDisposable
             w.BasicStats = new WeaponBasicStats { Damage = (ushort)(10 + i), Weight = 1 };
             _keys.Add(w.FormKey);
         }
+        // MUST stay AFTER the weapon loop: FormKeys are handed out in creation order, so adding records before it
+        // shifts all 300 weapon keys and moves the apply and forward bytes — two unrelated pins failing with a
+        // message about the serializer.
         for (int i = 0; i < Ops; i++)
         {
             var t = master.DialogTopics.AddNew();

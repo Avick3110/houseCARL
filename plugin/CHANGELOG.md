@@ -17,8 +17,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
   parented record read its parent's body by enumerating the parent's defining plugin from the top, so 200 records
   under 200 distinct `Skyrim.esm` topics walked that file 200 times: on a 3,254-plugin order the call took 398 s and
   peaked at 2.7 GB. The parent bodies are now read a plugin at a time, one walk each — the same call takes 6 s and
-  peaks at 0.9 GB — and the written patch is byte-identical on the same inputs. A parent the artifact already carries
-  and a parent the order does not hold are unchanged: both are settled without reading a body, as before.
+  peaks at 0.9 GB — and the written patch is byte-identical on the same inputs. What the gather covers is the parent
+  read the refusal-free path makes: a parent the order does not hold is still refused without reading a body, and the
+  one remaining per-parent read — a child going into a parent's single-child slot, where the artifact already carries
+  that parent — is named at the declaration in `WritePatchBuilder`.
 
 ## 2.0.1 — 2026-09-15
 

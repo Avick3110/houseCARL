@@ -134,6 +134,56 @@ public sealed class BulkWriteCostTests : IDisposable
         Assert.True(seeks == 0, $"{Ops} distinct parents cost {seeks} per-record whole-plugin seeks; the gather answered none of them.");
     }
 
+    /// <summary>
+    /// The declare pass is a SECOND COPY of the guards the spec loop runs before it fetches, and nothing else pins
+    /// the two together: a guard added to the loop alone would start gathering bodies for specs the loop refuses,
+    /// and every other test here would stay green. So both refusal-free-path guards are asserted to cost nothing —
+    /// a parent the artifact already carries, and a parent the order does not hold.
+    /// </summary>
+    [Fact]
+    public void AParentTheDeclarePassSkipsCostsNoWalk()
+    {
+        // The carried parent is one the MASTER defines, so its definer is a plugin the order holds: were the
+        // AlreadyCarried guard dropped from the declare pass, the parent would be declared and the master walked.
+        // A patch-local parent would not discriminate — its own plugin is not in the order, so ContainsPlugin
+        // refuses the want whatever the guards do.
+        var patch = Path.Combine(_root, "HcBulkCostCarried.esp");
+        var carriedTopic = _topicKeys[0];
+        var seed = WritePatchBuilder.CreateRecords(_resolver, _rulebook, new[]
+        {
+            new WritePatchBuilder.CreateSpec
+            {
+                RecordType = "DialogResponses", EditorId = "HcBulkCostSeedInfo",
+                ParentRef = carriedTopic.ToString(), Edits = Array.Empty<WriteRequest>(),
+            },
+        }, patch, extend: false);
+        Assert.True(seed.Success, seed.Error);
+
+        // Now the artifact carries that topic as an override: the loop hosts the children in it and reads no body.
+        var passesBefore = LoadOrderResolver.CollectPasses;
+        var carried = WritePatchBuilder.CreateRecords(_resolver, _rulebook,
+            Enumerable.Range(0, Ops).Select(i => new WritePatchBuilder.CreateSpec
+            {
+                RecordType = "DialogResponses", EditorId = "HcBulkCostCarriedInfo" + i,
+                ParentRef = carriedTopic.ToString(), Edits = Array.Empty<WriteRequest>(),
+            }).ToList(), patch, extend: true);
+        var carriedPasses = LoadOrderResolver.CollectPasses - passesBefore;
+        Assert.True(carried.Success, carried.Error);
+        Assert.True(carriedPasses == 0, $"a parent the artifact already carries cost {carriedPasses} plugin walk(s); the declare pass should skip it.");
+
+        // Not in the load order at all: the loop refuses before any fetch, so the declare pass must too.
+        passesBefore = LoadOrderResolver.CollectPasses;
+        var absent = WritePatchBuilder.CreateRecords(_resolver, _rulebook,
+            Enumerable.Range(0, Ops).Select(i => new WritePatchBuilder.CreateSpec
+            {
+                RecordType = "DialogResponses", EditorId = "HcBulkCostAbsentInfo" + i,
+                ParentRef = $"{(0x800 + i):X6}:HcBulkCostNotInOrder.esm", Edits = Array.Empty<WriteRequest>(),
+            }).ToList(), Path.Combine(_root, "HcBulkCostAbsent.esp"), extend: false);
+        var absentPasses = LoadOrderResolver.CollectPasses - passesBefore;
+        Assert.False(absent.Success);
+        Assert.True(absentPasses == 0, $"a parent the order does not hold cost {absentPasses} plugin walk(s); a refusal must stay free.");
+    }
+
     /// <summary>The create lane's cost must not scale with the parent count either.</summary>
     [Fact]
     public void TheParentWalkCountDoesNotGrowWithTheParentCount()
