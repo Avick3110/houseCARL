@@ -444,6 +444,25 @@ public sealed class Utf8NameTests : IDisposable
         Assert.True(Truncated(Render(boundary - 1)), "one character below the boundary the rows still all fit");
     }
 
+    /// <summary>A spilled artifact spells the name the way the inline render does. The rows go through the same row
+    /// writers, and now through the same encoder, so the characters are in the FILE's bytes rather than escaped
+    /// there and unescaped inline — one name, one spelling, wherever it landed.</summary>
+    [Fact]
+    public void ASpilledArtifactCarriesTheNameTheWayTheInlineRenderDoes()
+    {
+        var art = Path.Combine(_root, "utf8-spill.jsonl");
+        var inline = ReadName(_inlineWeapon, format: "json");
+        var manifest = RecordsTools.Records(_svc, formids: new[] { Fid(_inlineWeapon) }, project: NameField,
+                                            format: "json", to_file: art);
+
+        Assert.DoesNotContain("error:", manifest);
+        Assert.True(FileHolds(art, JapaneseName), "the artifact escaped the name the inline render writes plainly");
+
+        var row = JsonDocument.Parse(File.ReadAllLines(art)[1]).RootElement;
+        Assert.True(HoldsString(row, JapaneseName), "no value in the artifact row is the name");
+        Assert.True(HoldsString(JsonDocument.Parse(inline).RootElement, JapaneseName));
+    }
+
     /// <summary>The same fact on the apply lane, whose readback rows carry the value it wrote, and stated without a
     /// pinned number: a document renders whole at a max_chars equal to its own character length. Its bytes are 240
     /// over that, so a cap counting them cuts it there.</summary>

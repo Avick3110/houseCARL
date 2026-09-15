@@ -45,7 +45,7 @@ public static class ResultArtifact
         /// cap, because an artifact row is NEVER truncated: the file must be complete.</summary>
         public void WriteRow(Action<Utf8JsonWriter, CharCountedStream> write, string? type = null)
         {
-            using (var w = new Utf8JsonWriter(_rows))   // deliberately NOT indented — one row, one line
+            using (var w = new Utf8JsonWriter(_rows, JsonTextEncoder.OneLine))   // deliberately NOT indented — one row, one line
             {
                 write(w, _rows);
                 w.Flush();
@@ -87,7 +87,7 @@ public static class ResultArtifact
                 tmp = path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
                 using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
-                    using (var w = new Utf8JsonWriter(fs)) { manifest.WriteTo(w); w.Flush(); }
+                    using (var w = new Utf8JsonWriter(fs, JsonTextEncoder.OneLine)) { manifest.WriteTo(w); w.Flush(); }
                     fs.WriteByte((byte)'\n');
                     _rows.Position = 0;
                     _rows.CopyTo(fs);
