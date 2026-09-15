@@ -10,9 +10,9 @@ namespace HousecarlMcp;
 /// <see cref="LoadOrderResolver.IndexView.GetRecord"/>, which finds one record by enumerating its plugin from the
 /// top. On a real order the providers are the same handful of large masters row after row, so a hundred rows paid
 /// hundreds of whole-plugin walks for bodies one walk each could have answered — measured at ~240 ms a provider
-/// against the 86 ms a gathered read costs (#721). The fold now runs in PLUGIN passes over a chunk of rows: the
-/// winners first, then every other provider plugin once, each walk answering that plugin's whole share of the
-/// chunk.</para>
+/// against the 86 ms a gathered read costs (#721). The fold now runs in ONE PLUGIN PASS over a chunk of rows,
+/// highest priority first: each provider plugin is walked exactly once and answers its whole share of the chunk,
+/// the rows it wins and the rows it merely overrides together.</para>
 ///
 /// <para>Plugin-major is what lets the gather keep the property #722 bought. Row-major with a chunk-wide gather
 /// would pin every provider of every row at once — the gigabytes over a worldspace that PR #745 removed. Here the
@@ -78,8 +78,7 @@ public sealed partial class LoadOrderService
         var seekTypes = new Type?[n];
         var stopped = new bool[n];
 
-        RunPass(Groups(0), winnerPass: true);
-        RunPass(Groups(1), winnerPass: false);
+        RunPass(Groups());
 
         for (int r = 0; r < n; r++)
         {
@@ -103,53 +102,51 @@ public sealed partial class LoadOrderService
         }
         return fills;
 
-        // The plugins to walk for node 0 (the winners) or for nodes 1.. (everything else), each with its share of
-        // the chunk, in the order a row-major reading first reaches them — so a one-row chunk walks its providers
-        // in exactly the order the streamed walk did.
-        List<(string Plugin, List<(int Row, int Node)> Hits)> Groups(int fromNode)
+        // Every provider plugin of the chunk ONCE, with its whole share of the chunk — whichever rows it wins and
+        // whichever rows it merely overrides — in DESCENDING load order. A plugin that wins some rows and sits
+        // mid-stack for others is the common case on a real order, and splitting the walk by role walked it twice.
+        //
+        // Descending load order is what lets one walk serve both roles. A row's providers are a subsequence of it,
+        // and the row's winner is the highest-priority of them, so every row's winner arrives before any other
+        // provider of that row and the rest arrive in node order: the same order the streamed walk yielded, which
+        // is what the reference pole being read first depends on.
+        List<(string Plugin, List<(int Row, int Node)> Hits)> Groups()
         {
-            var order = new List<(string, List<(int, int)>)>();
             var at = new Dictionary<string, List<(int, int)>>(StringComparer.OrdinalIgnoreCase);
             for (int r = 0; r < n; r++)
             {
                 if (providers[r] is not { } ps) continue;
-                int last = fromNode == 0 ? 0 : ps.Length - 1;      // the winner pass is node 0 alone
-                for (int node = fromNode; node <= last; node++)
+                for (int node = 0; node < ps.Length; node++)
                 {
-                    if (!at.TryGetValue(ps[node], out var hits))
-                    {
-                        at[ps[node]] = hits = new List<(int, int)>();
-                        order.Add((ps[node], hits));
-                    }
+                    if (!at.TryGetValue(ps[node], out var hits)) at[ps[node]] = hits = new List<(int, int)>();
                     hits.Add((r, node));
                 }
             }
-            return order;
+            return at.Select(kv => (kv.Key, kv.Value))
+                     .OrderByDescending(g => view.OrderIndexOf(g.Key))
+                     .ToList();
         }
 
-        void RunPass(List<(string Plugin, List<(int Row, int Node)> Hits)> groups, bool winnerPass)
+        void RunPass(List<(string Plugin, List<(int Row, int Node)> Hits)> groups)
         {
             foreach (var (plugin, hits) in groups)
             {
                 var want = new HashSet<FormKey>();
                 foreach (var (r, _) in hits) if (!stopped[r]) want.Add(keys[r]);
                 if (want.Count == 0) continue;
-                // The winner pass has no type yet, exactly as the streamed walk fetched its first body blind. After
-                // it, each row's type narrows its plugin's walk to the GRUPs that type lives in — the union over
-                // the rows this plugin serves, and only when EVERY one of them is known, since a type missing from
-                // the list would have its records declared absent by a typed walk that routed the others.
-                List<Type>? seek = null;
-                if (!winnerPass)
+                // A row's type narrows its plugin's walk to the GRUPs that type lives in — the union over the rows
+                // this plugin serves, and only when EVERY one of them is known, since a type missing from the list
+                // would have its records declared absent by a typed walk that routed the others. A group holding a
+                // row this plugin WINS has no type for that row yet and walks flat, exactly as the streamed walk
+                // fetched its first body blind.
+                List<Type>? seek = new List<Type>();
+                foreach (var (r, _) in hits)
                 {
-                    seek = new List<Type>();
-                    foreach (var (r, _) in hits)
-                    {
-                        if (stopped[r]) continue;
-                        if (seekTypes[r] is not { } t) { seek = null; break; }
-                        if (!seek.Contains(t)) seek.Add(t);
-                    }
-                    if (seek is { Count: 0 }) seek = null;
+                    if (stopped[r]) continue;
+                    if (seekTypes[r] is not { } t) { seek = null; break; }
+                    if (!seek.Contains(t)) seek.Add(t);
                 }
+                if (seek is { Count: 0 }) seek = null;
                 var sink = new Dictionary<FormKey, IMajorRecordGetter>(want.Count);
                 // A fault reading the PLUGIN leaves the sink empty and every row of it falls back to the per-record
                 // fetch below, which raises the same fault, in the same words, the streamed walk raised. The gather
@@ -167,12 +164,13 @@ public sealed partial class LoadOrderService
                 foreach (var (r, node) in hits)
                 {
                     if (stopped[r]) continue;
+                    bool isWinner = node == 0;
                     var fk = keys[r];
                     var body = sink.TryGetValue(fk, out var got)
                              ? got
-                             : view.FetchRecord(session, plugin, fk, winnerPass ? null : seekTypes[r]);
+                             : view.FetchRecord(session, plugin, fk, isWinner ? null : seekTypes[r]);
                     Interlocked.Increment(ref TreeBodiesRead);
-                    if (winnerPass)
+                    if (isWinner)
                     {
                         owning[r] = OwnedChildContent.Fields(body);
                         wanted[r] = owning[r]!.Count == 0
@@ -184,8 +182,8 @@ public sealed partial class LoadOrderService
                         seekTypes[r] = WriteEngine.SeekTypeFor(body);
                     }
                     var read = ReadEngine.ReadFields(body, fields, ConflictDiffDepth, parentOf: hop);   // materialise while open
-                    if (winnerPass) { types[r] = read.Type; editorIds[r] = read.EditorId; }
-                    bool go = onNode(r, node, plugin, read, winnerPass);
+                    if (isWinner) { types[r] = read.Type; editorIds[r] = read.EditorId; }
+                    bool go = onNode(r, node, plugin, read, isWinner);
                     for (int f = 0; f < wanted[r].Count; f++)
                     {
                         // Null means "could not look", never "declares nothing": a body dropped in silence would
