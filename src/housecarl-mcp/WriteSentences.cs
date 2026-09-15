@@ -50,14 +50,6 @@ internal static class WriteSentences
     /// <summary>The one reading that says an edit did not land: the file this call just wrote was re-opened and
     /// walked, and the record the edit targeted is not in it. Said once, on the op line and in the summary above the
     /// ops, so the two cannot drift.</summary>
-    /// <summary>The create lane's provenance line. Its per-field values are read off the in-memory record before the
-    /// serialize, while the edit lane's are re-read off the written file, and the two lines are identical in shape —
-    /// so the one that was not checked says so rather than passing for the one that was.</summary>
-    [MustState("were not re-read", "readback=true")]
-    internal const string CreateValuesNotReRead =
-        "note: the values above are the applied edits' own readings, taken before the file was written — they were not re-read "
-      + "from it. Pass readback=true to read every created record back off the written file.";
-
     [MustState("does not contain this record", "this edit is not in it")]
     internal const string RecordAbsentFromWrittenFile =
         "the written file was re-opened and does not contain this record, so this edit is not in it. "
@@ -499,8 +491,8 @@ internal static class WriteSentences
     /// <summary>What a truncated CREATE row list tells the caller, on both transports. The re-issue trap is the
     /// load-bearing half and is a <see cref="Twins"/> member; the read-back CALL is built per outcome by
     /// <see cref="WriteTools.ReadBackCall"/>.</summary>
-    internal static string CreateRowsCutRemedy(string readBackCall) =>
-        $"{RowsCutOperationIntact(false, "created")}. Read them back with {readBackCall} — {Twins.CreateReissueTrap}";
+    internal static string CreateRowsCutRemedy(string readBackCall, bool someDidNotLand = false) =>
+        $"{RowsCutOperationIntact(false, "created", someDidNotLand)}. Read them back with {readBackCall} — {Twins.CreateReissueTrap}";
 
     // ---- post-write report blocks (create) -----------------------------------------------------------
     /// <summary>The "check could not run" line the three post-write reports share: the check failed, the records were

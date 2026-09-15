@@ -985,6 +985,19 @@ public static class WriteTools
         else
             sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, file, o.Bytes, modFolder));
         sb.Append(WriteSentences.Masters(o.Masters));
+        // Said ABOVE the created rows and outside their budget, exactly as the edit lane says it: a record missing
+        // from the file the call just wrote is the one reading that contradicts the header, and a row cut must not be
+        // what removes it. A nested child whose PARENT is missing counts too — the child cannot be in a
+        // parent the file does not hold.
+        var notLanded = o.Created.Where(c => c.AbsentFromFile || c.ParentAbsentFromFile).ToList();
+        if (notLanded.Count > 0)
+            sb.Append("! ").Append(notLanded.Count)
+              .Append(notLanded.Count == 1 ? " created record did NOT land: " : " created records did NOT land: ")
+              .Append(WriteSentences.RecordAbsentFromWrittenFile).Append(". ")
+              .Append(WriteSentences.AbsentRecordList(
+                  notLanded.Select(c => FormIdToken.Of(c.AbsentFromFile ? c.FormKey : c.ParentKey!.Value))
+                           .Distinct(StringComparer.OrdinalIgnoreCase).ToList()))
+              .Append('\n');
         var replacedCount = o.Created.Count(c => c.ReplacedExisting);
         sb.Append("created ").Append(o.Created.Count).Append(o.Created.Count == 1 ? " record" : " records");
         if (replacedCount > 0)
@@ -1017,7 +1030,7 @@ public static class WriteTools
                 // record is re-created at its old FormID with its prior contents discarded.
                 sb.Append("  ... [truncated: ").Append(ci).Append(" of ").Append(o.Created.Count)
                   .Append(" created record(s) listed at max_chars=").Append(createCap).Append("; ")
-                  .Append(WriteSentences.CreateRowsCutRemedy(ReadBackCall(o, file))).Append("]\n");
+                  .Append(WriteSentences.CreateRowsCutRemedy(ReadBackCall(o, file), notLanded.Count > 0)).Append("]\n");
                 break;
             }
             var c = o.Created[ci];
@@ -1027,18 +1040,25 @@ public static class WriteTools
             // patch would misread as houseCARL's.
             if (c.ReplacedExisting) sb.Append("  [REPLACED: ").Append(o.InPlace ? file : "this patch")
                                       .Append(" already defined this editorid — re-created fresh at the same FormID; prior contents, including any " + ToolNames.Apply + " edits since, were discarded]");
+            // The record's own verdict from the written file, beside its row: absent is the one reading that says the
+            // create is not in the file, and a walk that never ran says so rather than passing for a clean one.
+            if (c.AbsentFromFile)
+                sb.Append("  -> DID NOT LAND — ").Append(WriteSentences.RecordAbsentFromWrittenFile);
+            else if (c.ParentAbsentFromFile)
+                sb.Append("  -> DID NOT LAND — its parent ").Append(FormIdToken.Of(c.ParentKey!.Value))
+                  .Append(" is not in the written file, so this child is not in it either. ")
+                  .Append(WriteSentences.RecordAbsentFromWrittenFile);
+            else if (!c.VerifyAttempted)
+                sb.Append("  -> not-checked [the re-opened file could not be walked]");
             sb.Append('\n');
             // A nested create had to override its parent in to host the child, and WHOSE version it copied is a choice
             // the caller never made and cannot see in the record afterwards. One line, only when there was one.
             if (c.ParentHost is { } host) sb.Append("      parent: ").Append(host).Append('\n');
+            // The SAME clause the edit lane's per-edit lines carry: what the WRITTEN FILE holds at that leaf,
+            // never the in-memory reading, and not-checked in the same words where the file cannot answer (#763).
             foreach (var op in c.Ops)
-                sb.Append("      ").Append(op.Label).Append(op.After is not null ? "  -> " + op.After : "  -> applied")
-                  .Append(ApplyNote(op)).Append('\n');
+                sb.Append("      ").Append(op.Label).Append(EditLineValue(op)).Append(ApplyNote(op)).Append('\n');
         }
-        // The provenance the edit lane's lines now carry, and this lane's do not: a create's field values are the
-        // applied edit's own reading, taken before the serialize. Said once rather than per line, because an edit
-        // line here reads exactly like a verified one on the apply lane (#763).
-        if (o.Created.Any(c => c.Ops.Count > 0)) sb.Append(WriteSentences.CreateValuesNotReRead).Append('\n');
         AppendVoiceReport(sb, o.Voice, maxChars);
         AppendScriptBindingReport(sb, o.ScriptBinding, maxChars);
         AppendCellShellReport(sb, o.CellShell, maxChars);
