@@ -52,14 +52,17 @@ static class ResultsStore
         }
     }
 
-    /// <summary>Delete spilled artifacts older than <see cref="PruneAfterDays"/> days. Best-effort per file —
-    /// pruning is hygiene, not correctness; epoch-checked re-entry is what protects against stale artifacts.</summary>
+    /// <summary>Delete spilled artifacts older than <see cref="PruneAfterDays"/> days, plus any
+    /// <c>*.jsonl.tmp-*</c> left in the directory by 2.0.1 and earlier, which wrote the artifact through a temp
+    /// beside its destination — nothing writes one now, and the sweep can go a release after 2.0.2. Best-effort per
+    /// file — pruning is hygiene, not correctness; epoch-checked re-entry is what protects against stale
+    /// artifacts.</summary>
     static void Prune(string dir)
     {
         var cutoff = DateTime.UtcNow.AddDays(-PruneAfterDays);
         try
         {
-            foreach (var f in Directory.EnumerateFiles(dir, "*.jsonl"))
+            foreach (var f in Directory.EnumerateFiles(dir, "*.jsonl").Concat(Directory.EnumerateFiles(dir, "*.jsonl.tmp-*")))
                 try { if (File.GetLastWriteTimeUtc(f) < cutoff) File.Delete(f); }
                 catch (IOException) { /* locked/raced — next write retries */ }
                 catch (UnauthorizedAccessException) { /* same */ }

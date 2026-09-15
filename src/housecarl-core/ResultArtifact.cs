@@ -76,6 +76,7 @@ public static class ResultArtifact
                                         _typeCounts.Count > 0 ? _typeCounts : null, epoch,
                                         DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
                                         notes is { Count: > 0 } ? notes : null);
+            target.EnsureUnwritten();   // a target is single-use; writing one twice is a bug, not an IO failure
             try
             {
                 // Written straight into the target's own handle. A crash mid-write cannot pass a half artifact for a
@@ -92,9 +93,9 @@ public static class ResultArtifact
             }
             catch (Exception ex)
             {
-                // Never leave the rubble of a failed write where a whole artifact should be. Best-effort: the named
-                // error below is the contract; a second failure deleting the file must not mask it.
-                try { File.Delete(target.Path); } catch (Exception) { }
+                // Never leave the rubble of a failed write where a whole artifact should be — but only where THIS
+                // call made the file; a caller-named target the write never opened keeps whatever it held.
+                target.DeleteIfThisCallMadeIt();
                 return (null, $"could not write the result artifact to '{target.Path}' — {ex.GetType().Name}: {ex.Message}");
             }
         }
@@ -299,9 +300,15 @@ public static class ResultArtifact
 public sealed class ArtifactTarget : IDisposable
 {
     readonly FileStream? _reserved;
+    bool _ours;    // this call made the file: a reservation, or a named target Open() has truncated
     bool _wrote;
 
-    ArtifactTarget(string path, FileStream? reserved) { Path = path; _reserved = reserved; }
+    ArtifactTarget(string path, FileStream? reserved)
+    {
+        Path = path;
+        _reserved = reserved;
+        _ours = reserved is not null;
+    }
 
     /// <summary>The file this artifact is written to — what the response names.</summary>
     public string Path { get; }
@@ -318,17 +325,32 @@ public sealed class ArtifactTarget : IDisposable
         if (_reserved is not null) return _reserved;
         var dir = System.IO.Path.GetDirectoryName(Path);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        return new FileStream(Path, FileMode.Create, FileAccess.Write, FileShare.None);
+        var fs = new FileStream(Path, FileMode.Create, FileAccess.Write, FileShare.None);
+        _ours = true;   // opened, so whatever the caller had at this path is already gone
+        return fs;
+    }
+
+    /// <summary>A target is written once: its handle is closed by the write, so a second one would fail against a
+    /// dead stream and take the landed artifact with it.</summary>
+    internal void EnsureUnwritten()
+    {
+        if (_wrote) throw new InvalidOperationException($"the artifact target '{Path}' has already been written");
     }
 
     /// <summary>The artifact landed — Dispose must leave the file alone.</summary>
     internal void Wrote() => _wrote = true;
 
+    /// <summary>Remove a file this call created, best-effort — never one the write never opened.</summary>
+    internal void DeleteIfThisCallMadeIt()
+    {
+        if (_ours) try { File.Delete(Path); } catch (Exception) { }
+    }
+
     public void Dispose()
     {
         if (_reserved is null) return;
         _reserved.Dispose();
-        if (!_wrote) try { File.Delete(Path); } catch (Exception) { }
+        if (!_wrote) DeleteIfThisCallMadeIt();
     }
 }
 
