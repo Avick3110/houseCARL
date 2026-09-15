@@ -1,7 +1,5 @@
 using System.Text;
-using System.Text.Encodings.Web;
 using System.Text.Json;
-using System.Text.Unicode;
 using HousecarlCore;
 using Mutagen.Bethesda.Plugins;
 
@@ -17,19 +15,11 @@ namespace HousecarlMcp;
 /// malformed JSON. The accounting rides inside the document, so JSON is never a silently degraded mode.</para></summary>
 static class JsonWire
 {
-    /// <summary>The options every json response is written under. The encoder is the ONE reason a non-ASCII name
-    /// reads as itself: the default escapes every character above ASCII to <c>\uXXXX</c>, so a Japanese or accented
-    /// name arrived as a run of escapes. <c>UnicodeRanges.All</c> widens only that — the HTML-sensitive characters
-    /// (<c>&lt;</c>, <c>&gt;</c>, <c>&amp;</c>, <c>'</c>, <c>+</c>) are escaped exactly as before.
-    ///
-    /// <para>The bound is the plane: <c>UnicodeRanges.All</c> is the Basic Multilingual Plane, U+0000 to U+FFFF, so
-    /// a character ABOVE it — an emoji, a CJK Extension-B ideograph — still rides as its <c>\uXXXX\uXXXX</c>
-    /// surrogate pair. .NET offers no encoder that widens past the BMP without also unescaping the HTML-sensitive
-    /// set (<c>UnsafeRelaxedJsonEscaping</c> does both), and the escapes parse back to the identical string, so the
-    /// plane is where this stops. The cap accounting is right on both sides of it: an escape is ASCII and
-    /// <see cref="CharCountedStream"/> counts it as the characters it is.</para></summary>
+    /// <summary>The options every json response is written under: indented, and the server's one text encoder —
+    /// <see cref="JsonTextEncoder"/>, which is where the escaping and its bound are stated, and which the spilled
+    /// artifact writes through too so inline and file spell a name the same way.</summary>
     internal static readonly JsonWriterOptions Opts =
-        new() { Indented = true, Encoder = JavaScriptEncoder.Create(UnicodeRanges.All) };
+        new() { Indented = true, Encoder = JsonTextEncoder.Encoder };
 
     /// <summary>The options every json response is written under, exposed so <see cref="CheckAccounting"/> measures
     /// its reserve against the same encoding it will be written in — measuring unindented what is written indented
