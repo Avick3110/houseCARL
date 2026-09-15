@@ -52,11 +52,11 @@ static class ResultsStore
         }
     }
 
-    /// <summary>Delete spilled artifacts older than <see cref="PruneAfterDays"/> days, plus any
-    /// <c>*.jsonl.tmp-*</c> left in the directory by 2.0.1 and earlier, which wrote the artifact through a temp
-    /// beside its destination — nothing writes one now, and the sweep can go a release after 2.0.2. Best-effort per
-    /// file — pruning is hygiene, not correctness; epoch-checked re-entry is what protects against stale
-    /// artifacts.</summary>
+    /// <summary>Delete spilled artifacts older than <see cref="PruneAfterDays"/> days, plus orphaned Writer temps
+    /// (<c>*.jsonl.tmp-*</c>) a crash mid-write can strand: a caller-named target writes through one, and 2.0.1 and
+    /// earlier wrote spills that way too, so this directory can still hold them from an older build. Best-effort per
+    /// file — pruning is hygiene, not correctness;
+    /// epoch-checked re-entry is what protects against stale artifacts.</summary>
     static void Prune(string dir)
     {
         var cutoff = DateTime.UtcNow.AddDays(-PruneAfterDays);
