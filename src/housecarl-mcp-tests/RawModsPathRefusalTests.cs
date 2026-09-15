@@ -69,6 +69,36 @@ public sealed class RawModsPathRefusalTests : IClassFixture<AssetSelectWorld>
         Assert.Contains("source_provider='FaceBase'", text);
     }
 
+    /// <summary>The check reads a ROOTED path only. A Data-relative path is the normal address form, and resolving
+    /// one against the server's working directory would refuse it outright in a session started inside a mod folder.
+    /// </summary>
+    [Fact]
+    public void ADataRelativePathIsNotAMistakenRawModsPath()
+    {
+        var prior = Directory.GetCurrentDirectory();
+        Directory.SetCurrentDirectory(Path.Combine(_w.ModsDir, "FaceBase"));
+        try
+        {
+            var text = NifTools.NifInspect(_w.Svc, mesh_paths: new[] { _w.Rel("0001.nif") });
+
+            Assert.DoesNotContain("raw path into MO2's mods folder", text);
+        }
+        finally { Directory.SetCurrentDirectory(prior); }
+    }
+
+    /// <summary>A fully-qualified '.bsa' IS the single source that serves both FaceGen slots, so the remedy keeps
+    /// that archive — named as a provider — instead of claiming the shape the tool documents cannot be had.</summary>
+    [Fact]
+    public void ABothSlotsArchiveSourceIsSentToTheArchiveNotAwayFromIt()
+    {
+        var raw = Path.Combine(_w.ModsDir, "ArchiveMod", "HcArch.bsa");
+
+        var text = PlaceTools.Place(_w.Svc, new[] { new PlaceTarget { Formid = "000ABC:" + AssetSelectWorld.Master, Source = raw } });
+
+        Assert.Contains("source_provider='HcArch.bsa'", text);
+        Assert.DoesNotContain("no single source= names", text);
+    }
+
     [Fact]
     public void NifInspectRefusesARawModsPathOnThatPathAndStillReadsTheRest()
     {
