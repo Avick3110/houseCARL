@@ -96,11 +96,13 @@ internal static class RenderBudget
     internal static string Projected(int rows, bool wholeRecord)
         => ProjectedAt(rows, wholeRecord ? MillisPerWholeRecordRow : MillisPerRow);
 
-    /// <summary>The projected render at a stated per-row cost.</summary>
+    /// <summary>The projected render at a stated per-row cost. Minutes only from 90 s up: rounding to whole minutes
+    /// below that says "about 1 minutes", and the 60–90 s band reads better in seconds anyway. The comparison bound
+    /// is the first that can land there — every other lane's starts at ten minutes.</summary>
     internal static string ProjectedAt(int rows, double millisPerRow)
     {
         var ms = rows * millisPerRow;
-        return ms >= 60_000 ? $"about {ms / 60_000:F0} minutes" : $"about {ms / 1000:F0} seconds";
+        return ms >= 90_000 ? $"about {ms / 60_000:F0} minutes" : $"about {ms / 1000:F0} seconds";
     }
 
     /// <summary>What moves a SCAN's row count: the scan terms, or a window over them. Each remedy opens with its own
@@ -231,15 +233,12 @@ internal static class RenderBudget
               $"past the {MaxComparisonRows:N0}-row bound the comparison forms are given; " +
               lever;
 
-    /// <summary>The comparison bound's levers, one per lane: an unwindowed scan can take a window, a windowed one
-    /// can only take a smaller one, a census or a to_file= artifact covers the whole selection whatever limit= says,
-    /// and the formids= lane reads the list it was handed.</summary>
+    /// <summary>The comparison bound's levers, one per lane: a scan can take a window (the default 500 is one, so
+    /// the lever is a limit= at or below the bound whether or not the caller already passed one), a census or a
+    /// to_file= artifact covers the whole selection whatever limit= says, the formids= lane reads the list it was
+    /// handed, and a walk's rows are what it reached.</summary>
     internal const string ComparisonScanLever =
-        "window it with limit=, narrow the selection with where= or types=, or read the winning value alone with project.form='fields'.";
-
-    /// <inheritdoc cref="ComparisonScanLever"/>
-    internal const string ComparisonWindowedLever =
-        "lower limit= further, narrow the selection with where= or types=, or read the winning value alone with project.form='fields'.";
+        "take it in a window with limit= at or below the bound, narrow the selection with where= or types=, or read the winning value alone with project.form='fields'.";
 
     /// <inheritdoc cref="ComparisonScanLever"/>
     internal const string ComparisonWholeSelectionLever =

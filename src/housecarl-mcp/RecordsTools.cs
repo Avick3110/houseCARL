@@ -549,10 +549,12 @@ public static class RecordsTools
             return w;
         }
 
-        /// <summary>Which lever the comparison bound's refusal names, for the lane the call is actually on.</summary>
+        /// <summary>Which lever the comparison bound's refusal names, for the lane the call is actually on. The
+        /// scan lever reads the same whether or not a limit= was passed: the parameter defaults to 500, so a call
+        /// that passed nothing is already windowed and there is no way here to tell it from an explicit limit=500 —
+        /// the move is a limit= at or below the bound either way.</summary>
         string ComparisonLever() =>
             wantFile || counts_only ? RenderBudget.ComparisonWholeSelectionLever
-            : cmpPrewindowed ? RenderBudget.ComparisonWindowedLever
             : RenderBudget.ComparisonScanLever;
 
         // A walk hands its reached set to the list lane as formids=, and that set is bounded by walk.max_nodes
@@ -1090,12 +1092,15 @@ public static class RecordsTools
             // The same bound as the scan lane's, on the list's own length: this lane reads a body for every id it
             // was handed, and limit= windows only the render here, so the list itself is what it costs (#716). A
             // walk arrives here as a list it derived, so its lever is the walk's, never "pass fewer formids=".
-            if (RenderBudget.RefuseComparison(ids.Length, form,
-                    walkDerived ? RenderBudget.ComparisonWalkLever : RenderBudget.ComparisonListLever) is { } listTooBig)
-                return Wire.Refuse(json, listTooBig);
+            // Charged AFTER each form's own shape checks: a malformed call has a precise refusal that costs
+            // nothing to find, and trimming the list would only reach it on the next call.
+            string? ListCost() =>
+                RenderBudget.RefuseComparison(ids.Length, form,
+                    walkDerived ? RenderBudget.ComparisonWalkLever : RenderBudget.ComparisonListLever);
 
             if (form == "delta")
             {
+                if (ListCost() is { } deltaTooBig) return Wire.Refuse(json, deltaTooBig);
                 var rows = svc.DeltaBatch(ids, srcSpec, versusSpec!, projFields, demand,
                                           out var sArm, out var rArm, out var covers, out var refusal, out var epoch,
                                           overlayWarnings);
@@ -1107,6 +1112,7 @@ public static class RecordsTools
             {
                 if (srcSpec.Kind != LoadOrderService.PoleKind.Winner)
                     return Wire.Refuse(json, "error: the tree form has no subject — every provider of each record is on the bench, and the pole each is diffed against is versus=. Drop source= (or use form='delta' for a subject-vs-reference comparison).");
+                if (ListCost() is { } treeTooBig) return Wire.Refuse(json, treeTooBig);
                 var rows = svc.TreeBatch(ids, versusSpec!, projFields, demand,
                                          out var rArm, out var covers, out var refusal, out var epoch,
                                          overlayWarnings);
