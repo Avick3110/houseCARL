@@ -21,12 +21,13 @@
     <Version>0.0.0-dev</Version>
   </PropertyGroup>
 
-  <ItemGroup>
-    <!-- Server GC is the Web SDK default and stays: measured, it costs no elapsed and holds the least at idle.
-         ConserveMemory=5 makes it compact more eagerly, which is the one setting that lowered the working set held
-         after a heavy call without touching elapsed (issue #717). -->
-    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="5" />
-  </ItemGroup>
+  <PropertyGroup>
+    <!-- Server GC, chosen rather than inherited from the Web SDK. Measured against workstation GC, gen0 budgets,
+         heap-count caps and ConserveMemory (issue #717): elapsed was flat across all nine, and Server GC held the
+         least after a merge (559 MB; every alternative held 1 to 5 GB). Peak working set is live objects, bounded
+         by the read paths themselves, not by the collector. -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+  </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Mutagen.Bethesda.Skyrim" Version="0.54.4" />
