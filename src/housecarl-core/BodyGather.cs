@@ -94,7 +94,10 @@ public sealed class BodyGather
     }
 
     /// <summary>Walk each declared plugin ONCE, collecting every body declared for it. A no-op when the gather is
-    /// deferred — each plugin is then walked by the first <see cref="Body"/> that wants it.</summary>
+    /// deferred — each plugin is then walked by the first <see cref="Body"/> that wants it.
+    /// <para>ONCE per gather, faults included: a plugin whose walk faulted is not walked again by a second
+    /// <see cref="Gather"/>, and keys declared for an already-attempted plugin are answered by <see cref="Absent"/>
+    /// rather than by a second walk. Declare everything, then gather — which is what every lane does.</para></summary>
     public void Gather()
     {
         if (_onDemand) return;

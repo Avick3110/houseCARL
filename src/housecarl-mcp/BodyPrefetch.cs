@@ -74,9 +74,14 @@ internal static class BodyPrefetch
 
         /// <summary>This row's body, walking its source plugin once for the whole chunk on the first row that wants
         /// it.
-        /// <para>A body that is not gathered — an unresolvable key, a plugin that cannot be read — comes back null
-        /// and the row's own read raises the fault it always did: the prefetch is an optimisation and must never
-        /// become a second error path.</para></summary>
+        /// <para>A body that is not gathered — an unresolvable key, a plugin that cannot be read, a walk that died
+        /// part-way — comes back null and the row's own read raises the fault it always did: the prefetch is an
+        /// optimisation, not a second error path.</para>
+        /// <para>ONE exception, and it is deliberate (#756): <see cref="OutOfMemoryException"/> from the walk
+        /// propagates out of here rather than being swallowed. This lane used to swallow it and let each row pay its
+        /// own per-record read instead, which is a silently degraded mode — the render goes on allocating into a
+        /// heap that has already run out, and answers rows from a path nobody asked for. Every other gather already
+        /// rethrew it; this one now does too.</para></summary>
         internal IMajorRecordGetter? Body(FormKey fk)
             => _plugins.TryGetValue(fk, out var plugin) ? _gather.Body(plugin, fk) : null;
     }
