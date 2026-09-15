@@ -199,6 +199,29 @@ public sealed class BodyGatherEquivalenceTests : IDisposable
         finally { if (File.Exists(away)) File.Move(away, repl); }
     }
 
+    [Fact]
+    public void AKeyDeclaredAfterItsPluginWasWalkedFallsToTheAbsentOption()
+    {
+        using var session = _resolver.OpenSession();
+        var view = _resolver.Capture();
+
+        // Declared LATE, on a plugin the gather has already walked: the walk never looked for this key, so the
+        // answer must be the Absent option's and never the walked-and-absent null, which would be a real record
+        // reported missing.
+        var seek = new BodyGather(view, session);
+        seek.Want(_masterName, _keys[0]);
+        seek.Gather();
+        seek.Want(_masterName, _keys[7]);
+        Assert.Equal(Describe(view.GetRecord(session, _masterName, _keys[7])), Describe(seek.Body(_masterName, _keys[7])));
+        Assert.NotEqual("(absent)", Describe(seek.Body(_masterName, _keys[7])));
+
+        var nul = new BodyGather(view, session, absent: BodyGather.Absent.Null);
+        nul.Want(_masterName, _keys[0]);
+        nul.Gather();
+        nul.Want(_masterName, _keys[7]);
+        Assert.Null(nul.Body(_masterName, _keys[7]));
+    }
+
     public void Dispose()
     {
         _resolver.Dispose();
