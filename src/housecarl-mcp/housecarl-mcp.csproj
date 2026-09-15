@@ -22,6 +22,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Server GC is the Web SDK default and stays: measured, it costs no elapsed and holds the least at idle.
+         ConserveMemory=5 makes it compact more eagerly, which is the one setting that lowered the working set held
+         after a heavy call without touching elapsed (issue #717). -->
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="5" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Mutagen.Bethesda.Skyrim" Version="0.54.4" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
   </ItemGroup>
