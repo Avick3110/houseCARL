@@ -22,7 +22,7 @@ static class JsonWire
     /// name arrived as a run of escapes. <c>UnicodeRanges.All</c> widens only that — the HTML-sensitive characters
     /// (<c>&lt;</c>, <c>&gt;</c>, <c>&amp;</c>, <c>'</c>, <c>+</c>) are escaped exactly as before.</summary>
     internal static readonly JsonWriterOptions Opts =
-        new() { Indented = true };
+        new() { Indented = true, Encoder = JavaScriptEncoder.Create(UnicodeRanges.All) };
 
     /// <summary>The options every json response is written under, exposed so <see cref="CheckAccounting"/> measures
     /// its reserve against the same encoding it will be written in — measuring unindented what is written indented
