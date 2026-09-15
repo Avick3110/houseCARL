@@ -33,14 +33,26 @@ public sealed class RenderCostWorld : IDisposable
     public const int Contested = 40;
     public const int Overriders = 4;
 
+    /// <summary>How many of the contested armors the TOP overrider re-states. The rest are won by the one below it,
+    /// so that plugin is the winner for some rows of a chunk and a lower provider for others — the shape a real
+    /// order is full of, and the one a per-role walk pays twice for.</summary>
+    public const int TopCovers = 20;
+
     public string Root { get; }
     public string MasterName { get; }
 
     /// <summary>The spread plugins' names, in load order.</summary>
     public IReadOnlyList<string> SpreadNames { get; }
 
-    /// <summary>The overriding plugins' names, in load order (the last one wins the contested armors).</summary>
+    /// <summary>The overriding plugins' names, in load order (the last one wins the armors it re-states).</summary>
     public IReadOnlyList<string> OverriderNames { get; }
+
+    /// <summary>The contested armors the TOP overrider re-states, in creation order, as FormID tokens — so armor
+    /// n of this list carries Value base 100+n.</summary>
+    public IReadOnlyList<string> TopCoveredIds { get; }
+
+    /// <summary>The contested armors it does NOT, in creation order; armor n here carries base 100+TopCovers+n.</summary>
+    public IReadOnlyList<string> PlainContestedIds { get; }
 
     /// <summary>A plugin in a switched-OFF mod folder: on disk, locatable, outside the load order. The off-order
     /// scan lane has its own cancellation path and its own catch-all, so it needs a world to run in.</summary>
@@ -138,7 +150,8 @@ public sealed class RenderCostWorld : IDisposable
         {
             var key = new ModKey("HcCostOver" + op, ModType.Plugin);
             var mod = new SkyrimMod(key, SkyrimRelease.SkyrimSE);
-            foreach (var a in contested)
+            // The top overrider states only the first TopCovers, so the one below it WINS the rest.
+            foreach (var a in (op == Overriders - 1 ? contested.Take(TopCovers) : contested))
             {
                 var ov = mod.Armors.GetOrAddAsOverride(a);
                 ov.Value = (uint)(1000 * (op + 1)) + a.Value;
@@ -150,6 +163,8 @@ public sealed class RenderCostWorld : IDisposable
             overriders.Add(key.FileName.String);
         }
         OverriderNames = overriders;
+        TopCoveredIds = contested.Take(TopCovers).Select(a => a.FormKey.ToString()).ToList();
+        PlainContestedIds = contested.Skip(TopCovers).Select(a => a.FormKey.ToString()).ToList();
 
         Directory.CreateDirectory(Path.Combine(mods, "CostOffMod"));
         off.BeginWrite.ToPath(Path.Combine(mods, "CostOffMod", OffOrderName))
@@ -271,11 +286,51 @@ public sealed class RecordsRenderCostTests
 
         Assert.False(response.StartsWith("error:", StringComparison.Ordinal), response);
         int stack = RenderCostWorld.Overriders + 1;
-        Assert.Equal(RenderCostWorld.Contested * stack, bodies);
+        // Every row carries the four always-present providers; the first TopCovers carry the top one as well.
+        Assert.Equal(RenderCostWorld.Contested * RenderCostWorld.Overriders + RenderCostWorld.TopCovers, bodies);
         Assert.Equal(0, seeks);
         int chunks = (RenderCostWorld.Contested + LoadOrderService.ComparisonChunkRows - 1) / LoadOrderService.ComparisonChunkRows;
         Assert.True(passes <= stack * chunks,
                     $"{RenderCostWorld.Contested} rows over a {stack}-deep stack cost {passes} plugin walks.");
+
+        // The ANSWER, not just its cost: each node diffed against its own row's winner, in priority order. A gather
+        // handing a row another row's body, or a provider's body to the wrong node, lands here.
+        Assert.Contains("HcCostArmor3\n", response);
+        Assert.Contains("HcCostArmor20\n", response);
+        InOrder(response,
+                "HcCostMaster.esm: Value=103 (HcCostOver3.esp 4103)",
+                "HcCostOver0.esp: Value=1103 (HcCostOver3.esp 4103)",
+                "HcCostOver1.esp: Value=2103 (HcCostOver3.esp 4103)",
+                "HcCostOver2.esp: Value=3103 (HcCostOver3.esp 4103)");
+        InOrder(response,
+                "HcCostMaster.esm: Value=120 (HcCostOver2.esp 3120)",
+                "HcCostOver0.esp: Value=1120 (HcCostOver2.esp 3120)",
+                "HcCostOver1.esp: Value=2120 (HcCostOver2.esp 3120)");
+    }
+
+    /// <summary>The same plugin wins some rows of a chunk and sits mid-stack for others — the common case on a real
+    /// order. Split by role, the walk paid for it twice; one pass in descending load order walks it once, because a
+    /// row's winner is the highest-priority of its providers and therefore arrives first either way.</summary>
+    [Fact]
+    public void ATreeWalksAPluginOnceWhenItWinsSomeRowsAndLosesOthers()
+    {
+        // One chunk, both kinds of row in it: HcCostOver2 wins the plain ones and is a lower provider on the rest.
+        var ids = _w.TopCoveredIds.Take(LoadOrderService.ComparisonChunkRows / 2)
+                    .Concat(_w.PlainContestedIds.Take(LoadOrderService.ComparisonChunkRows / 2)).ToArray();
+        Assert.Equal(LoadOrderService.ComparisonChunkRows, ids.Length);
+
+        var beforePasses = LoadOrderResolver.CollectPasses;
+        var beforeSeeks = LoadOrderResolver.BodySeeks;
+        var response = RecordsTools.Records(Svc, formids: ids, project: Tree(), max_chars: 4_000_000);
+        var passes = LoadOrderResolver.CollectPasses - beforePasses;
+        var seeks = LoadOrderResolver.BodySeeks - beforeSeeks;
+
+        Assert.False(response.StartsWith("error:", StringComparison.Ordinal), response);
+        Assert.Equal(0, seeks);
+        Assert.True(passes <= RenderCostWorld.Overriders + 1,
+                    $"one chunk over {RenderCostWorld.Overriders + 1} distinct provider plugins cost {passes} walks.");
+        Assert.Contains("HcCostOver2.esp: Value=3100 (HcCostOver3.esp 4100)", response);   // a row HcCostOver2 loses
+        Assert.Contains("HcCostOver1.esp: Value=2120 (HcCostOver2.esp 3120)", response);   // a row it wins
     }
 
     /// <summary>A tree's versus= pole is one body per row out of ONE plugin, and it was read with a whole-plugin
@@ -291,6 +346,13 @@ public sealed class RecordsRenderCostTests
 
         Assert.False(response.StartsWith("error:", StringComparison.Ordinal), response);
         Assert.Equal(0, seeks);
+        // The named pole IS the reference: it carries no delta line of its own, and every other node — the winner
+        // included — is diffed against it.
+        Assert.Contains($"versus={_w.MasterName}", response);
+        InOrder(response,
+                $"HcCostOver0.esp: Value=1103 ({_w.MasterName} 103)",
+                $"HcCostOver3.esp (winner): Value=4103 ({_w.MasterName} 103)");
+        Assert.DoesNotContain($"{_w.MasterName}: Value=", response);
     }
 
     /// <summary>The delta lane pays the same per row, one body per pole: forty rows against the provider below
@@ -311,8 +373,25 @@ public sealed class RecordsRenderCostTests
         Assert.False(response.StartsWith("error:", StringComparison.Ordinal), response);
         Assert.Equal(0, seeks);
         int chunks = (RenderCostWorld.Contested + LoadOrderService.ComparisonChunkRows - 1) / LoadOrderService.ComparisonChunkRows;
-        Assert.True(passes <= 2 * chunks,
+        // Two winner plugins and two previous-provider plugins across the chunk, one walk each.
+        Assert.True(passes <= 4 * chunks,
                     $"{RenderCostWorld.Contested} delta rows over two poles cost {passes} plugin walks.");
+
+        // Each row's own pair: a gather handing a row the other pole's plugin, or another row's body, lands here.
+        Assert.Contains("- Value=4103 (HcCostOver2.esp 3103)", response);
+        Assert.Contains("- Value=3120 (HcCostOver1.esp 2120)", response);
+    }
+
+    /// <summary>Assert each part appears, in this order.</summary>
+    static void InOrder(string text, params string[] parts)
+    {
+        int at = 0;
+        foreach (var part in parts)
+        {
+            int i = text.IndexOf(part, at, StringComparison.Ordinal);
+            Assert.True(i >= 0, $"missing '{part}' after index {at} in:{Environment.NewLine}{text}");
+            at = i + part.Length;
+        }
     }
 
     // ---- the comparison forms: limit= bounds the READ, and a job past the bound announces itself ----
