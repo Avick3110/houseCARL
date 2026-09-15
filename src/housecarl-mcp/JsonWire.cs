@@ -2691,10 +2691,12 @@ static class JsonWire
             // child whose PARENT is missing counts — it cannot be in a parent the file does not hold), and
             // which records those were. Inside the array a cut could drop every one and leave a document reading
             // ok + everything created.
-            // `records_absent` counts CREATED RECORDS that did not land — one per created record, so three children
-            // under one missing parent are three. The two `_total` numbers below count DISTINCT FormIDs instead, so
-            // those same three report record_absent_formids_total 0 and parent_absent_formids_total 1. Different
-            // things counted on purpose: one is how much of the call failed, the others are what to go and look at.
+            // `records_absent` counts CREATED RECORDS that did not land — one per created record, so three INFOs
+            // under one missing DIAL are three. The two `_total` numbers below count DISTINCT FormIDs in their own
+            // arrays, and the arrays are not alternatives: a child inside a missing parent is missing too, so those
+            // same three report records_absent 3, record_absent_formids_total 3 (the children, which are what the
+            // call created and what is not there) and parent_absent_formids_total 1 (the one record whose absence
+            // took them). One number is how much of the call failed; the other two are what to go and look at.
             var notLanded = o.Created.Where(c => c.AbsentFromFile || c.ParentAbsentFromFile).ToList();
             w.WriteNumber("records_absent", notLanded.Count);
             if (notLanded.Count > 0)
@@ -2704,7 +2706,7 @@ static class JsonWire
                 // record that never existed.
                 var absentIds = notLanded.Where(c => c.AbsentFromFile).Select(c => FormIdToken.Of(c.FormKey))
                                   .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                var absentParents = notLanded.Where(c => !c.AbsentFromFile).Select(c => FormIdToken.Of(c.ParentKey!.Value))
+                var absentParents = notLanded.Where(c => c.ParentAbsentFromFile).Select(c => FormIdToken.Of(c.ParentKey!.Value))
                                      .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 w.WriteStartArray("record_absent_formids");
                 foreach (var id in absentIds.Take(WriteSentences.AbsentRecordsShown)) w.WriteStringValue(id);

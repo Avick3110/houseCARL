@@ -1003,9 +1003,12 @@ public static class WriteTools
             // TWO lists, never one: a parent's FormID is not a FormID this call created, and after a row cut the
             // hoist is all that survives — so an unlabelled mix would tell the caller a record it never asked for
             // did not land. Each list is bounded and counted by the same shared sentence.
+            // Each list selects on its OWN flag. They are not alternatives: a nested child inside a parent the file
+            // does not hold is not in the file either, so BOTH are set on it and it belongs in both lists — the
+            // child as a created record that is missing, the parent as the reason it is.
             var absentCreated = notLanded.Where(c => c.AbsentFromFile).Select(c => FormIdToken.Of(c.FormKey))
                                          .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            var absentParents = notLanded.Where(c => !c.AbsentFromFile).Select(c => FormIdToken.Of(c.ParentKey!.Value))
+            var absentParents = notLanded.Where(c => c.ParentAbsentFromFile).Select(c => FormIdToken.Of(c.ParentKey!.Value))
                                          .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             if (absentCreated.Count > 0) sb.Append(WriteSentences.AbsentRecordList(absentCreated)).Append(' ');
             if (absentParents.Count > 0)
@@ -1057,12 +1060,16 @@ public static class WriteTools
                                       .Append(" already defined this editorid — re-created fresh at the same FormID; prior contents, including any " + ToolNames.Apply + " edits since, were discarded]");
             // The record's own verdict from the written file, beside its row: absent is the one reading that says the
             // create is not in the file, and a walk that never ran says so rather than passing for a clean one.
-            if (c.AbsentFromFile)
-                sb.Append("  -> DID NOT LAND — ").Append(WriteSentences.CreateRecordAbsentFromWrittenFile(ReadBackCall(o, file)));
-            else if (c.ParentAbsentFromFile)
+            // The PARENT arm is first, and is not an alternative to the child being absent: a child lives inside
+            // its parent's group, so a missing parent takes the child with it and both flags are set. Testing the
+            // child first would print the generic clause under the child's own FormID and never name the record
+            // that actually went missing.
+            if (c.ParentAbsentFromFile)
                 sb.Append("  -> DID NOT LAND — its parent ").Append(FormIdToken.Of(c.ParentKey!.Value))
                   .Append(" is not in the written file, so this child is not in it either. ")
                   .Append(WriteSentences.CreateRecordAbsentFromWrittenFile(ReadBackCall(o, file)));
+            else if (c.AbsentFromFile)
+                sb.Append("  -> DID NOT LAND — ").Append(WriteSentences.CreateRecordAbsentFromWrittenFile(ReadBackCall(o, file)));
             else if (!c.VerifyAttempted)
                 sb.Append("  -> not-checked [the re-opened file could not be walked]");
             sb.Append('\n');
@@ -1095,8 +1102,12 @@ public static class WriteTools
         // The all-rows-cut sentence is gated on the SAME count as the hoist above it, and for the same reason: this
         // is the branch where the hoist is load-bearing (a cap small enough to drop every row still prints it), so an
         // ungated "all N WERE created" here would contradict the line a few lines above it.
-        sb.Append(listed > 0
+        // …and the SAME gate on the arm that ran when rows DID render: a response whose row says DID NOT LAND
+        // cannot close by telling the caller to reference the FormID on it.
+        sb.Append(listed > 0 && notLanded.Count == 0
             ? "the new FormID above is how you reference this record (SkyPatcher/SPID, or a follow-up edit). "
+            : listed > 0
+            ? $"{notLanded.Count} of the record(s) above did NOT land, so their FormIDs are NOT in the written file — do not reference them. Read the artifact back with {ReadBackCall(o, file)} to see which FormIDs exist. "
             : notLanded.Count > 0
             ? $"no records are listed above — the char budget cut the whole list. All {o.Created.Count} were attempted, and the {notLanded.Count} named above did NOT land. Read them back with {ReadBackCall(o, file)} to see which FormIDs exist. "
             : $"no records are listed above — the char budget cut the whole list, though all {o.Created.Count} WERE created. Read them back with {ReadBackCall(o, file)} to get their FormIDs. ");
