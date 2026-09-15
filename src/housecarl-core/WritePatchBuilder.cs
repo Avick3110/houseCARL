@@ -83,6 +83,13 @@ public static class WritePatchBuilder
         /// there, because that one is COMPARED and a mid-sequence reading is not comparable with a final one.</para></summary>
         public string? AfterOnDisk { get; init; }
 
+        /// <summary>Byte LENGTH when <see cref="AfterOnDisk"/> is an opaque blob — a <c>bytes</c> field Mutagen models
+        /// as raw bytes it never decodes (<c>Model.Data</c>/MODT is the known case). The file answered, so the value
+        /// is printed, but its STRUCTURE was never looked at: a blob whose layout belongs to another FormVersion
+        /// re-reads byte-identical (#529/#744). A render that prints the value must carry that caveat with it.
+        /// Null for every leaf that is not one.</summary>
+        public int? AfterOnDiskBytes { get; init; }
+
         /// <summary>The walk of the written file COMPLETED and did not contain this op's target record at all. Not an
         /// ambiguity the render may report as unchecked: the call wrote the file and the record it edited is not in
         /// it, which is the one reading that says the edit did not land (#683). False when the walk itself failed —
@@ -90,10 +97,13 @@ public static class WritePatchBuilder
         public bool RecordAbsentFromFile { get; init; }
 
         /// <summary>
-        /// <see cref="After"/> is a SENTENCE about what the write did, not a reading of a field — today only the
-        /// SNAM topic-marker sync's explanation, which is appended past the resolved edits and has no leaf of its
-        /// own. The per-edit line prints it as it stands; without this it falls through the file-reading arms and the
-        /// message is dropped.</summary>
+        /// <see cref="After"/> is a SENTENCE about what the write did, not a reading of a field. Two shapes carry
+        /// it, and they reach the verify differently. The APPLY lane's SNAM topic-marker sync is APPENDED past the
+        /// resolved edits, so the verify's <c>i &gt;= perOp.Count</c> arm is what leaves it alone. The CREATE lane's
+        /// CK-parity fills (the SNAM marker, DIAL Priority, INFO/DLVW/DLBR/QUST defaults) are INTERLEAVED into each
+        /// record's op list instead, and are left alone by carrying a NULL request in the pair list — the position
+        /// arm cannot see them. Either way the per-edit line prints the sentence as it stands; without this it falls
+        /// through the file-reading arms and the message is dropped.</summary>
         public bool AfterIsNote { get; init; }
 
         /// <summary>A LATER op in the same call wrote into this op's leaf, so the written file cannot answer for this
@@ -658,7 +668,7 @@ public static class WritePatchBuilder
                     WriteEngine.CopyField(srcBody!, ov, req.Path);
                 else
                     applyNote = WriteEngine.ApplyVerb(ov, req);
-                var (after, landed, _) = DescribeApplied(ov, req);
+                var (after, landed, _, _) = DescribeApplied(ov, req);
                 ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed) { ApplyNote = applyNote });
             }
             catch (ExpectedApplyRejectionException ex)
@@ -1194,7 +1204,7 @@ public static class WritePatchBuilder
                         ov, req.Path);
                 else
                     applyNote = WriteEngine.ApplyVerb(ov, req);
-                var (after, landed, _) = DescribeApplied(ov, req);
+                var (after, landed, _, _) = DescribeApplied(ov, req);
                 ops.Add(new OpResult(e.Target, req.RecordType, label, true, null, after, landed) { ApplyNote = applyNote });
             }
             catch (ExpectedApplyRejectionException ex)
@@ -3154,11 +3164,6 @@ public static class WritePatchBuilder
     /// <see cref="ApplyCore"/>: the ONE captured build's fingerprint reaches every outcome (success, refusal, consent
     /// prompt) from one place instead of a `with` at each return site, and <paramref name="epoch"/> stays null for the
     /// refusals decided BEFORE the capture — they consulted no build, so they claim none.</summary>
-    /// <summary>A CK-parity fill as an op. Its reading is a SENTENCE about what the write did rather than a field
-    /// value, so it is marked as one: nothing re-reads it and the render prints it as it stands.</summary>
-    static OpResult Fill(FormKey key, string recordType, CkParityFill fill) =>
-        new(key, recordType, fill.Label, true, null, fill.Reason) { AfterIsNote = true };
-
     static CreateOutcome CreateRecordsCore(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
         IReadOnlyList<CreateSpec> specs, string outPath, bool extend, bool fullReadback, string? inPlaceTarget,
@@ -3868,7 +3873,10 @@ public static class WritePatchBuilder
     /// <summary>Report every CREATED record from the written file: each op's leaf re-read off it, and — per record,
     /// which no op can carry for a record created with no edits — whether the file contains the record at all, and
     /// whether it contains the PARENT a nested create dragged in to host the child.
-    /// <para>ONE walk for the whole call. The ops are nested per created record, so they are flattened into one
+    /// <para>ONE walk for the VERIFY, however many records and ops the call made. (Not one walk for the CALL on the
+    /// in-place lane: there <see cref="ReadBackInFull"/> is forced on and enumerates the same re-opened file first, so
+    /// the call walks it twice — the same cost <see cref="VerifyLandedAgainstFile"/> states for the in-place apply
+    /// lane, and mergeable on the same terms.) The ops are nested per created record, so they are flattened into one
     /// positionally-aligned pair list, judged in one pass, and re-split by the record they came from — never one
     /// walk per record, which would re-read the whole file N times.</para>
     /// <para>A pair's request is NULL for a CK-parity fill (the SNAM marker, DIAL Priority, INFO/View/Branch/Quest
@@ -3903,14 +3911,22 @@ public static class WritePatchBuilder
             reported.Add(c with
             {
                 Ops = slice,
-                // A walk that FAILED answers about nothing: the record is not checked, never absent.
-                VerifyAttempted = walk.Finished,
+                // REACHED, not merely "the walk finished": a walk that threw part way still yielded the records it
+                // got to, and their ops carry the file's readings. Deriving the record flag from the walk alone
+                // would print a row saying it was never checked above op lines that came off the file.
+                VerifyAttempted = walk.Found.ContainsKey(c.FormKey) || walk.Finished,
+                // A walk that FAILED answers about nothing: not reached is then not checked, never absent.
                 AbsentFromFile = walk.Finished && !walk.Found.ContainsKey(c.FormKey),
                 ParentAbsentFromFile = walk.Finished && c.ParentKey is { } pk && !walk.Found.ContainsKey(pk),
             });
         }
         return reported;
     }
+
+    /// <summary>A CK-parity fill as an op. Its reading is a SENTENCE about what the write did rather than a field
+    /// value, so it is marked as one: nothing re-reads it and the render prints it as it stands.</summary>
+    static OpResult Fill(FormKey key, string recordType, CkParityFill fill) =>
+        new(key, recordType, fill.Label, true, null, fill.Reason) { AfterIsNote = true };
 
     /// <summary>Read each just-written record IN FULL off the re-opened written file — the overlay Phase 5 already
     /// opens to confirm masters, so no new handle class (opened AFTER the serialize, disposed with Phase 5; the
@@ -4156,15 +4172,16 @@ public static class WritePatchBuilder
             // one, which is the whole reason this arm exists.
             if (LaterOpTouchesSameLeaf(perOp, i))
             {
-                var (finalAfter, _, finalReadable) = DescribeApplied(rec, askedReq);
+                var (finalAfter, _, finalReadable, finalBytes) = DescribeApplied(rec, askedReq);
                 verified.Add(op with
                 {
                     SupersededInCall = true, VerifyAttempted = true,
                     AfterOnDisk = finalReadable ? finalAfter : null,
+                    AfterOnDiskBytes = finalReadable ? finalBytes : null,
                 });
                 continue;
             }
-            var (afterDisk, landedDisk, diskReadable) = DescribeApplied(rec, askedReq);
+            var (afterDisk, landedDisk, diskReadable, diskBytes) = DescribeApplied(rec, askedReq);
             // ONE comparison, on the leaf. Deliberately NOT a second pass over `Landed` (the touched ELEMENT) to catch
             // a struct that lands but serializes with fewer fields than supplied: such a pass is inert, because
             // `Landed` differs from `After` only for a container leaf and for a container both presences carry counts,
@@ -4180,6 +4197,7 @@ public static class WritePatchBuilder
                 // The leaf reading travels with it, for the same reason and on the same condition: the per-edit line
                 // prints this one, and a null there is what makes it say not-checked instead of the memory value.
                 AfterOnDisk = diskReadable ? afterDisk : null,
+                AfterOnDiskBytes = diskReadable ? diskBytes : null,
                 VerifyAttempted = true,
             });
         }
@@ -4252,14 +4270,14 @@ public static class WritePatchBuilder
         }
     }
 
-    static (string? After, string? Landed, bool Readable) DescribeApplied(IMajorRecordGetter ov, WriteRequest req)
+    static (string? After, string? Landed, bool Readable, int? Bytes) DescribeApplied(IMajorRecordGetter ov, WriteRequest req)
     {
         try
         {
             var leaf = string.Join('.', req.Path);
             var read = ReadEngine.ReadFields(ov, new[] { leaf }, containerHint: null);   // same: no depth= on the write surface, don't hint it
             var f = read.Fields.FirstOrDefault(x => x.Path == leaf) ?? read.Fields.FirstOrDefault();
-            if (f is null) return (null, null, false);
+            if (f is null) return (null, null, false, null);
             var after = f.HasValue ? f.Token : f.Note;
             // Scalar: Landed reuses the token just read. List/dict: name the touched element (+ new count); else the
             // summary. An Add carries how many elements it appended (composes= → Structs.Count, else 1) so a batch
@@ -4269,8 +4287,10 @@ public static class WritePatchBuilder
             // The presence PAIR rides along because it is the structural fact the tokens hide: a container summary, a
             // substruct summary and an ABSENT leaf all render as notes, and the divergence detector must not read
             // prose to decide whether anything is there.
-            return (after, landed, f.Readable);
+            // The blob's byte length rides along where there is one: the value is printed, and #529's caveat has to
+            // be printed with it or the line reads as a judged structure.
+            return (after, landed, f.Readable, f.Bytes);
         }
-        catch { return (null, null, false); }
+        catch { return (null, null, false, null); }
     }
 }

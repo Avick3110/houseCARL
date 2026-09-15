@@ -50,10 +50,36 @@ internal static class WriteSentences
     /// <summary>The one reading that says an edit did not land: the file this call just wrote was re-opened and
     /// walked, and the record the edit targeted is not in it. Said once, on the op line and in the summary above the
     /// ops, so the two cannot drift.</summary>
+    /// <summary>The reading itself, with no remedy on it: the file this call just wrote was re-opened and walked,
+    /// and the record is not in it. Shared, because the two write lanes disagree only about what to DO about it —
+    /// an edit is safe to re-issue and a create is not.</summary>
+    [MustState("does not contain this record")]
+    internal const string RecordAbsentReading =
+        "the written file was re-opened and does not contain this record";
+
+    /// <summary>The one reading that says an EDIT did not land, with the apply lane's remedy. Re-issuing an edit is
+    /// safe: it lands on the same record at the same path.</summary>
     [MustState("does not contain this record", "this edit is not in it")]
     internal const string RecordAbsentFromWrittenFile =
-        "the written file was re-opened and does not contain this record, so this edit is not in it. "
+        RecordAbsentReading + ", so this edit is not in it. "
         + "Re-read the record and re-issue the edit; if it reports the same thing again, capture this response in a bug report";
+
+    /// <summary>The same reading for a CREATE, whose remedy is the opposite one. The apply lane's sentence says to
+    /// re-issue the edit; re-issuing a CREATE is the trap <see cref="Twins.CreateReissueTrap"/> exists to forbid —
+    /// it allocates the records a second time — so this one sends the caller to a READ first and names the check.
+    /// <paramref name="readBackCall"/> is built per outcome by <see cref="WriteTools.ReadBackCall"/>.</summary>
+    internal static string CreateRecordAbsentFromWrittenFile(string readBackCall) =>
+        RecordAbsentReading + ", so this record is not in it. "
+        + $"Confirm with {readBackCall}, which reads the artifact off disk; create it again ONLY if that agrees it is "
+        + "absent. On this evidence alone, do NOT re-issue the create: " + Twins.CreateReissueCost
+        + ". If the read disagrees with this response, capture both in a bug report";
+
+    /// <summary>What a per-field line has to carry when the value it prints off the file is an opaque blob: Mutagen
+    /// models a <c>bytes</c> field as raw bytes it never decodes, so the file answered with the value and NOTHING
+    /// looked at its structure (#529; the bound is #744's — no MODT decoder, the marker comes off the leaf's own
+    /// type). Without it a hex value on a verified line reads as a judged one.</summary>
+    internal static string OpaqueLeafCaveat(int bytes) =>
+        $"  [re-read as {bytes} opaque byte(s) only, structure NOT checked — a blob's layout follows its record's FormVersion]";
 
     // ---- artifact headers (text lane; json states these as typed fields) -----------------------------
     /// <summary>The IN-PLACE hazard clause — the one sentence telling a caller their own file was rewritten with
@@ -718,11 +744,17 @@ internal static class WriteSentences
         /// <summary>Why a truncated CREATE must not be re-issued to widen its own render. The sibling verbs' rows are
         /// safe to re-ask for — a repeated remove is refused, a repeated forward re-copies identical bodies — but a
         /// repeated create ALLOCATES AGAIN, on either transport.</summary>
+        /// <summary>WHAT re-issuing a create costs, with no instruction on it: the half two different sentences
+        /// need — the truncated-render trap below, and the did-not-land remedy, which forbids the re-issue for a
+        /// different reason and must not restate the cost in its own words.</summary>
+        [MustState("allocates the records AGAIN", "second full patch", "prior contents discarded")]
+        internal const string CreateReissueCost =
+            "a repeated create allocates the records AGAIN (on the default lane patch= auto-suffixes into a second "
+          + "full patch; under into= each record is re-created at its old FormID with its prior contents discarded)";
+
         [MustState("do NOT re-issue this call", "second full patch", "prior contents discarded")]
         internal const string CreateReissueTrap =
-            "do NOT re-issue this call to see the rest: a repeated create allocates the records AGAIN (on the "
-          + "default lane patch= auto-suffixes into a second full patch; under into= each record is re-created at "
-          + "its old FormID with its prior contents discarded)";
+            "do NOT re-issue this call to see the rest: " + CreateReissueCost;
 
         /// <summary>What a CUT post-write report block means, and the one action a caller must not take to widen it.
         /// These blocks ride the CREATE render only, so it names the specific consequence: re-issuing allocates the

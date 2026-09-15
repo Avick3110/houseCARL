@@ -360,12 +360,17 @@ public static class WriteTools
     /// cannot answer for this op the line says so and prints no value, because the only value available there is the
     /// one the file does not vouch for — but a record the file does not CONTAIN is an answer, and a bad one, so it is
     /// said outright rather than as one more unchecked line.</summary>
-    static string EditLineValue(WritePatchBuilder.OpResult op) =>
+    static string EditLineValue(WritePatchBuilder.OpResult op, string? absentClause = null) =>
         // A sentence about what the write did (the SNAM marker sync), not a field reading — nothing to re-read.
         op.AfterIsNote && op.After is not null ? "  -> " + op.After
-        : op.RecordAbsentFromFile ? "  -> DID NOT LAND — " + WriteSentences.RecordAbsentFromWrittenFile
+        // The REMEDY differs by lane and the reading does not: re-issuing an edit is safe, re-issuing a
+        // create allocates the records again. The create render passes its own clause; null takes this one.
+        : op.RecordAbsentFromFile ? "  -> DID NOT LAND — " + (absentClause ?? WriteSentences.RecordAbsentFromWrittenFile)
         : op.AfterOnDisk is { } disk
             ? "  -> " + disk + (op.SupersededInCall ? "  [the leaf as the file now holds it; a later op in this call wrote it too]" : "")
+              // The file ANSWERED and nothing parsed the answer: an opaque blob re-reads byte-identical whatever
+              // FormVersion its layout belongs to (#529), so the value may be printed only with that said.
+              + (op.AfterOnDiskBytes is { } n ? WriteSentences.OpaqueLeafCaveat(n) : "")
         : op.VerifyAttempted ? "  -> not-checked [the re-opened file did not answer for this op]"
         : "  -> not-checked [no file check ran for this op]";
 
@@ -991,13 +996,23 @@ public static class WriteTools
         // parent the file does not hold.
         var notLanded = o.Created.Where(c => c.AbsentFromFile || c.ParentAbsentFromFile).ToList();
         if (notLanded.Count > 0)
+        {
             sb.Append("! ").Append(notLanded.Count)
               .Append(notLanded.Count == 1 ? " created record did NOT land: " : " created records did NOT land: ")
-              .Append(WriteSentences.RecordAbsentFromWrittenFile).Append(". ")
-              .Append(WriteSentences.AbsentRecordList(
-                  notLanded.Select(c => FormIdToken.Of(c.AbsentFromFile ? c.FormKey : c.ParentKey!.Value))
-                           .Distinct(StringComparer.OrdinalIgnoreCase).ToList()))
-              .Append('\n');
+              .Append(WriteSentences.CreateRecordAbsentFromWrittenFile(ReadBackCall(o, file))).Append(". ");
+            // TWO lists, never one: a parent's FormID is not a FormID this call created, and after a row cut the
+            // hoist is all that survives — so an unlabelled mix would tell the caller a record it never asked for
+            // did not land. Each list is bounded and counted by the same shared sentence.
+            var absentCreated = notLanded.Where(c => c.AbsentFromFile).Select(c => FormIdToken.Of(c.FormKey))
+                                         .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var absentParents = notLanded.Where(c => !c.AbsentFromFile).Select(c => FormIdToken.Of(c.ParentKey!.Value))
+                                         .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (absentCreated.Count > 0) sb.Append(WriteSentences.AbsentRecordList(absentCreated)).Append(' ');
+            if (absentParents.Count > 0)
+                sb.Append("Their parent record(s), which the file does not hold either: ")
+                  .Append(WriteSentences.AbsentRecordList(absentParents));
+            sb.Append('\n');
+        }
         var replacedCount = o.Created.Count(c => c.ReplacedExisting);
         sb.Append("created ").Append(o.Created.Count).Append(o.Created.Count == 1 ? " record" : " records");
         if (replacedCount > 0)
@@ -1043,11 +1058,11 @@ public static class WriteTools
             // The record's own verdict from the written file, beside its row: absent is the one reading that says the
             // create is not in the file, and a walk that never ran says so rather than passing for a clean one.
             if (c.AbsentFromFile)
-                sb.Append("  -> DID NOT LAND — ").Append(WriteSentences.RecordAbsentFromWrittenFile);
+                sb.Append("  -> DID NOT LAND — ").Append(WriteSentences.CreateRecordAbsentFromWrittenFile(ReadBackCall(o, file)));
             else if (c.ParentAbsentFromFile)
                 sb.Append("  -> DID NOT LAND — its parent ").Append(FormIdToken.Of(c.ParentKey!.Value))
                   .Append(" is not in the written file, so this child is not in it either. ")
-                  .Append(WriteSentences.RecordAbsentFromWrittenFile);
+                  .Append(WriteSentences.CreateRecordAbsentFromWrittenFile(ReadBackCall(o, file)));
             else if (!c.VerifyAttempted)
                 sb.Append("  -> not-checked [the re-opened file could not be walked]");
             sb.Append('\n');
@@ -1056,8 +1071,12 @@ public static class WriteTools
             if (c.ParentHost is { } host) sb.Append("      parent: ").Append(host).Append('\n');
             // The SAME clause the edit lane's per-edit lines carry: what the WRITTEN FILE holds at that leaf,
             // never the in-memory reading, and not-checked in the same words where the file cannot answer (#763).
+            // The op line carries the READING only: the record row above already states the create lane's
+            // remedy in full, and repeating it under every field would print it once per field.
+            var opAbsent = WriteSentences.RecordAbsentReading
+                         + ", so this field is not in it — the record line above says what to do";
             foreach (var op in c.Ops)
-                sb.Append("      ").Append(op.Label).Append(EditLineValue(op)).Append(ApplyNote(op)).Append('\n');
+                sb.Append("      ").Append(op.Label).Append(EditLineValue(op, opAbsent)).Append(ApplyNote(op)).Append('\n');
         }
         AppendVoiceReport(sb, o.Voice, maxChars);
         AppendScriptBindingReport(sb, o.ScriptBinding, maxChars);
@@ -1073,8 +1092,13 @@ public static class WriteTools
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
         // Gated on rows having actually rendered: with a small max_chars the header alone can exceed the cap and drop
         // EVERY row, and "the new FormID above" would then assert a referent this render never printed.
+        // The all-rows-cut sentence is gated on the SAME count as the hoist above it, and for the same reason: this
+        // is the branch where the hoist is load-bearing (a cap small enough to drop every row still prints it), so an
+        // ungated "all N WERE created" here would contradict the line a few lines above it.
         sb.Append(listed > 0
             ? "the new FormID above is how you reference this record (SkyPatcher/SPID, or a follow-up edit). "
+            : notLanded.Count > 0
+            ? $"no records are listed above — the char budget cut the whole list. All {o.Created.Count} were attempted, and the {notLanded.Count} named above did NOT land. Read them back with {ReadBackCall(o, file)} to see which FormIDs exist. "
             : $"no records are listed above — the char budget cut the whole list, though all {o.Created.Count} WERE created. Read them back with {ReadBackCall(o, file)} to get their FormIDs. ");
         sb.Append(o.InPlace
             ? InPlaceAgainHint("To create more records in this plugin", file)

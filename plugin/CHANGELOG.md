@@ -57,13 +57,18 @@ saying it sets an expectation their install may contradict. Say what is known, a
   does not contain says `DID NOT LAND`, counted and named above the record rows and outside their budget so a
   `max_chars` cut cannot leave a response claiming every record was created; a nested child whose dragged-in
   PARENT is missing from the file says the same thing and names the parent, because a child cannot be in a
-  parent the file does not hold. A leaf the file could not read says `not-checked`, in the words the edit
-  lane uses. The Creation Kit parity fills (the SNAM marker, DIAL Priority, INFO/DLVW/DLBR/QUST defaults) are
-  explanations of what the write did rather than field readings, and still print as they did. In
+  parent the file does not hold. Both say what a create must do about it, which is the opposite of what an
+  edit does: read the artifact back, and re-create only if that agrees the record is absent. A leaf the file
+  answered with but did not PARSE keeps its caveat too: an opaque `bytes` field such as `Model.Data` prints
+  its value with `structure NOT checked` beside it. The Creation Kit parity fills (the SNAM marker, DIAL
+  Priority, INFO/DLVW/DLBR/QUST defaults) are explanations of what the write did rather than field readings,
+  and still print as they did. In
   `format: "json"` each op gains `after_on_disk`, `landed_on_disk` and `landed_source`, each created record
   gains `verified`, `absent_from_file`, `parent_formid` and `parent_absent_from_file`, and `verify_ran`,
-  `records_absent` and `record_absent_formids` sit outside the `created` array. `readback=true` keeps its full
-  dump. The check is one walk of the written file for the whole call, not one per record: 200 nested creates
+  `records_absent`, `record_absent_formids` and `parent_absent_formids` sit outside the `created` array.
+  `readback=true` keeps its full dump. The check is one walk of the written file however many records the
+  call made, not one per record (in place it is the second walk of the two the forced read-back already
+  made it): 200 nested creates
   under 200 distinct `Skyrim.esm` topics on a 3,252-plugin order measured 3.52 s before and 3.56 s after (best
   of three each), and the written patch is byte-identical on the same inputs.
 
