@@ -2847,63 +2847,19 @@ public sealed partial class LoadOrderService : IDisposable
 
     /// <summary>The conflict-tree fill off a pinned build — used by the render whenever the outcome it is decorating
     /// carries a <see cref="ViewPin"/>, so the tree's membership and the response's epoch stamp name the same build.
-    /// <para>Streamed, not gathered: one provider's body is read, its fields handed to <paramref name="onNode"/>, and
-    /// both released before the next body is fetched. A getter pins its whole GRUP's byte array and the fields read
-    /// off it are the bigger half again, so holding every provider of a record hundreds of plugins touch — a
-    /// worldspace — was gigabytes for two records (#722); the diff the render does needs one reference plus one
-    /// provider at a time. The walk runs WINNER FIRST for that reason: the reference pole is the winner unless the
-    /// call named another, so the first node read is the one the rest are compared against. <paramref name="onNode"/>
-    /// therefore sees the winner first and the lowest-priority provider last — the reverse of the render's own
-    /// order — and returns false to stop the walk.</para></summary>
+    /// <para>One row's <see cref="FoldTreeChunkPinned"/>, in its own session. One provider's fields are handed to
+    /// <paramref name="onNode"/> and released before the next body is read — the diff the render does needs one
+    /// reference plus one provider at a time, and holding every provider of a record hundreds of plugins touch was
+    /// gigabytes for two records (#722). The walk runs WINNER FIRST for that reason: the reference pole is the
+    /// winner unless the call named another, so the first node read is the one the rest are compared against.
+    /// <paramref name="onNode"/> therefore sees the winner first and the lowest-priority provider last — the reverse
+    /// of the render's own order — and returns false to stop the walk.</para></summary>
     internal TreeFill? FoldTreePinned(ViewPin p, FormKey fk, IReadOnlyList<string>? fields,
                                       Func<string, RecordFields, bool, bool> onNode)
     {
         using var session = p.Resolver.OpenSession();
-        var stream = p.View.StreamTree(session, fk, winnerFirst: true);
-        if (stream is null) return null;
-        var hop = ContainmentIndex.ReadHop(p.View, session);   // '*parent' on fields= — this lane holds the index, so it answers
-
-        // The precise owned-child tier: which providers declare children per child-bearing field, asked of the body
-        // already in hand for the diff, so it costs no extra fetch. Rationale and narrowing rules:
-        // `docs/architecture/records-owned-child-declarers.md`.
-        IReadOnlyDictionary<string, OwnedChildShape>? owning = null;
-        var wanted = new List<string>();
-        var declaring = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        var unreadable = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        string? type = null, editorId = null;
-        bool first = true, stopped = false;
-
-        foreach (var n in stream)
-        {
-            if (first)   // the child-bearing fields are the record TYPE's, so the first body settles them
-            {
-                owning = OwnedChildContent.Fields(n.Record);
-                wanted = owning.Count == 0
-                    ? new List<string>()
-                    : owning.Keys.Where(f => fields is null || fields.Contains(f, StringComparer.Ordinal))
-                            .OrderBy(f => f, StringComparer.Ordinal).ToList();
-                declaring = wanted.ToDictionary(f => f, _ => new List<string>(), StringComparer.Ordinal);
-                unreadable = wanted.ToDictionary(f => f, _ => new List<string>(), StringComparer.Ordinal);
-            }
-            var read = ReadEngine.ReadFields(n.Record, fields, ConflictDiffDepth, parentOf: hop);   // materialise while open
-            if (first) { type = read.Type; editorId = read.EditorId; }
-            bool go = onNode(n.Plugin, read, first);
-            foreach (var f in wanted)
-            {
-                // Null means "could not look", never "declares nothing": a body dropped in silence would render as
-                // "nobody declares content here".
-                var d = OwnedChildContent.DeclaresChild(n.Record, f);
-                if (d == true) declaring[f].Add(n.Plugin);
-                else if (d is null) unreadable[f].Add(n.Plugin);
-            }
-            first = false;
-            if (!go) { stopped = true; break; }
-        }
-        if (owning is null) return null;                       // the key is in the order but no provider yielded a body
-        foreach (var f in wanted) { declaring[f].Reverse(); unreadable[f].Reverse(); }   // back into priority order
-        return new TreeFill(type, editorId,
-            stopped ? Array.Empty<ChildDeclarers>()
-                    : wanted.Select(f => new ChildDeclarers(f, owning[f], declaring[f], unreadable[f])).ToList());
+        return FoldTreeChunkPinned(p, session, new[] { fk }, fields,
+                                   (_, _, plugin, read, isWinner) => onNode(plugin, read, isWinner))[0];
     }
 
     /// <summary>The whole tree materialised — every provider's fields at once, in priority order with the winner
@@ -3943,69 +3899,109 @@ public sealed partial class LoadOrderService : IDisposable
         }
         else referenceArm = "winner";
 
-        var rows = new List<TreeRow>(formids.Count);
-        foreach (var (raw, fkOpt, parseError) in parsedT)
+        // Every row that answers from the INDEX alone — a bad FormID, a key nothing touches — is settled here, so
+        // the fold's chunks hold only rows that will actually read bodies.
+        var rows = new TreeRow[parsedT.Count];
+        var liveRow = new List<int>();
+        var liveKey = new List<FormKey>();
+        var liveTouchers = new List<IReadOnlyList<string>>();
+        for (int i = 0; i < parsedT.Count; i++)
         {
-            if (parseError is not null) { rows.Add(new TreeRow(raw?.Trim() ?? "", null, null, Array.Empty<string>(), null, Array.Empty<TreeNodeDelta>(), parseError, Array.Empty<ChildDeclarers>())); continue; }
-            var fk = fkOpt!.Value;
+            var (raw, fkOpt, parseError) = parsedT[i];
+            if (parseError is not null)
+            {
+                rows[i] = new TreeRow(raw?.Trim() ?? "", null, null, Array.Empty<string>(), null, Array.Empty<TreeNodeDelta>(), parseError, Array.Empty<ChildDeclarers>());
+                continue;
+            }
+            var fk0 = fkOpt!.Value;
+            var t = view.TouchingPlugins(fk0) ?? Array.Empty<string>();
+            if (t.Count == 0)
+            {
+                rows[i] = new TreeRow(FormIdToken.Of(fk0), null, null, Array.Empty<string>(), null, Array.Empty<TreeNodeDelta>(),
+                                      UnresolvedFormId(view, fk0), Array.Empty<ChildDeclarers>());
+                continue;
+            }
+            liveRow.Add(i); liveKey.Add(fk0); liveTouchers.Add(t);
+        }
 
-            var touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
-            if (touchers.Count == 0)
+        // A chunk of rows at a time, so each provider plugin is walked once for the whole chunk instead of once per
+        // row (#765). The fold hands the winner of every row first and every other provider after that, so a row's
+        // reference is in hand before anything of it is diffed and only ONE provider's fields are alive at a time.
+        // The deltas arrive in that reading order — winner first — and are placed by node, then turned round below
+        // into the render's own (winner last).
+        for (int start = 0; start < liveRow.Count; start = ChunkEnd(start, liveRow.Count))
+        {
+            int end = ChunkEnd(start, liveRow.Count), c = end - start;
+            var keys = new FormKey[c];
+            var refFields = new RecordFields?[c];
+            var refPlugin = new string[c];
+            var refPole = new DiffPole?[c];
+            var refIsActiveProvider = new bool[c];
+            var refLabel = new string[c];
+            var versusError = new string?[c];
+            var nodes = new TreeNodeDelta?[c][];
+            for (int j = 0; j < c; j++)
             {
-                rows.Add(new TreeRow(FormIdToken.Of(fk), null, null, Array.Empty<string>(), null, Array.Empty<TreeNodeDelta>(),
-                                     UnresolvedFormId(view, fk), Array.Empty<ChildDeclarers>()));
-                continue;
+                keys[j] = liveKey[start + j];
+                refPlugin[j] = ""; refLabel[j] = "";
+                nodes[j] = new TreeNodeDelta?[liveTouchers[start + j].Count];
             }
-            // The fold hands the winner first and every other provider after it, so the reference is in hand before
-            // anything is diffed and only ONE provider's fields are alive at a time. The deltas come back in that
-            // reading order and are turned round below into the render's own (winner last).
-            RecordFields? refFields = null; string refPlugin = ""; DiffPole? refPole = null;
-            bool refIsActiveProvider = true; string refLabel = ""; string? versusError = null;
-            var nodes = new List<TreeNodeDelta>();
-            var fill = FoldTreePinned(new ViewPin(resolver, view), fk, fields, (plugin, read, isWinner) =>
-            {
-                if (isWinner)
+
+            var fills = FoldTreeChunkPinned(new ViewPin(resolver, view), session, keys, fields,
+                (j, node, plugin, read, isWinner) =>
                 {
-                    if (refReader is null) { refFields = read; refPlugin = plugin; }
-                    else
+                    var touchers = liveTouchers[start + j];
+                    if (isWinner)
                     {
-                        var r = refReader(fk, null);
-                        if (r.Error is not null) { versusError = "versus: " + r.Error; return false; }
-                        refFields = r.Fields; refPlugin = r.Pole!.Plugin; refPole = r.Pole;
+                        if (refReader is null) { refFields[j] = read; refPlugin[j] = plugin; }
+                        else
+                        {
+                            var rr = refReader(keys[j], null);
+                            if (rr.Error is not null) { versusError[j] = "versus: " + rr.Error; return false; }
+                            refFields[j] = rr.Fields; refPlugin[j] = rr.Pole!.Plugin; refPole[j] = rr.Pole;
+                        }
+                        // A node IS the reference only when the reference resolved IN the order: an off-order pole is
+                        // never one of the active providers, even when its filename is also active as a different file.
+                        // Where they share that filename, the reference's label names its mod folder so the two are told
+                        // apart.
+                        refIsActiveProvider[j] = refPole[j] is null || refPole[j]!.InOrder;
+                        refLabel[j] = refPole[j] is not null && touchers.Any(t => string.Equals(t, refPlugin[j], StringComparison.OrdinalIgnoreCase))
+                                    ? refPole[j]!.LabelVersus(refPlugin[j]) : refPlugin[j];
                     }
-                    // A node IS the reference only when the reference resolved IN the order: an off-order pole is
-                    // never one of the active providers, even when its filename is also active as a different file.
-                    // Where they share that filename, the reference's label names its mod folder so the two are told
-                    // apart.
-                    refIsActiveProvider = refPole is null || refPole.InOrder;
-                    refLabel = refPole is not null && touchers.Any(t => string.Equals(t, refPlugin, StringComparison.OrdinalIgnoreCase))
-                             ? refPole.LabelVersus(refPlugin) : refPlugin;
+                    bool isRef = refReader is null ? isWinner
+                               : refIsActiveProvider[j] && string.Equals(plugin, refPlugin[j], StringComparison.OrdinalIgnoreCase);
+                    if (isRef) { nodes[j][node] = new TreeNodeDelta(plugin, isWinner, true, Array.Empty<string>(), 0, true, null); return true; }
+                    var d = FieldsDiff.Compare(read, refFields[j]!, referenceLabel: refLabel[j]);
+                    nodes[j][node] = new TreeNodeDelta(plugin, isWinner, false, d.Deltas, d.AgreedCount, d.Complete, null);
+                    return true;
+                });
+
+            for (int j = 0; j < c; j++)
+            {
+                int i = liveRow[start + j];
+                var fk = keys[j];
+                var touchers = liveTouchers[start + j];
+                // The versus refusal is checked FIRST: it stops the row at the winner, so it leaves no nodes, and the
+                // empty-nodes row below would otherwise name the wrong cause — the bodies read fine.
+                if (versusError[j] is not null)
+                {
+                    rows[i] = new TreeRow(FormIdToken.Of(fk), fills[j]?.Type, fills[j]?.EditorId,
+                                          touchers, null, Array.Empty<TreeNodeDelta>(), versusError[j],
+                                          Array.Empty<ChildDeclarers>());
+                    continue;
                 }
-                bool isRef = refReader is null ? isWinner
-                           : refIsActiveProvider && string.Equals(plugin, refPlugin, StringComparison.OrdinalIgnoreCase);
-                if (isRef) { nodes.Add(new TreeNodeDelta(plugin, isWinner, true, Array.Empty<string>(), 0, true, null)); return true; }
-                var d = FieldsDiff.Compare(read, refFields!, referenceLabel: refLabel);
-                nodes.Add(new TreeNodeDelta(plugin, isWinner, false, d.Deltas, d.AgreedCount, d.Complete, null));
-                return true;
-            });
-            // The versus refusal is checked FIRST: it stops the walk at the winner, so it leaves no nodes, and the
-            // empty-nodes row below would otherwise name the wrong cause — the bodies read fine.
-            if (versusError is not null)
-            {
-                rows.Add(new TreeRow(FormIdToken.Of(fk), fill?.Type, fill?.EditorId,
-                                     touchers, null, Array.Empty<TreeNodeDelta>(), versusError,
-                                     Array.Empty<ChildDeclarers>()));
-                continue;
+                var ordered = new List<TreeNodeDelta>(nodes[j].Length);
+                for (int node = nodes[j].Length - 1; node >= 0; node--)   // the fold read winner first; the row reads winner last
+                    if (nodes[j][node] is { } nd) ordered.Add(nd);
+                if (fills[j] is null || ordered.Count == 0)
+                {
+                    rows[i] = new TreeRow(FormIdToken.Of(fk), null, null, touchers, null, Array.Empty<TreeNodeDelta>(),
+                                          $"the provider bodies of {FormIdToken.Of(fk)} could not be read.", Array.Empty<ChildDeclarers>());
+                    continue;
+                }
+                rows[i] = new TreeRow(FormIdToken.Of(fk), fills[j]!.Type, fills[j]!.EditorId,
+                                      touchers, refLabel[j], ordered, null, fills[j]!.ChildDeclarers);
             }
-            if (fill is null || nodes.Count == 0)
-            {
-                rows.Add(new TreeRow(FormIdToken.Of(fk), null, null, touchers, null, Array.Empty<TreeNodeDelta>(),
-                                     $"the provider bodies of {FormIdToken.Of(fk)} could not be read.", Array.Empty<ChildDeclarers>()));
-                continue;
-            }
-            nodes.Reverse();                                   // the fold read winner first; the row reads winner last
-            rows.Add(new TreeRow(FormIdToken.Of(fk), fill.Type, fill.EditorId,
-                                 touchers, refLabel, nodes, null, fill.ChildDeclarers));
         }
         return rows;
     }

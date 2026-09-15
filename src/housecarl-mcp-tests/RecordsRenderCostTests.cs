@@ -1,4 +1,4 @@
-using Mutagen.Bethesda;
+﻿using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
@@ -27,11 +27,20 @@ public sealed class RenderCostWorld : IDisposable
     public const int Spread = 12;
     public const int AmmoPerPlugin = 5;
 
+    /// <summary>A CONTESTED population: armors the master defines and every overrider below re-states, so a tree
+    /// row has a provider stack rather than one node, and the same stack row after row. A tree's cost is per
+    /// (row, provider), so that is what a gather claim needs to stand in.</summary>
+    public const int Contested = 40;
+    public const int Overriders = 4;
+
     public string Root { get; }
     public string MasterName { get; }
 
     /// <summary>The spread plugins' names, in load order.</summary>
     public IReadOnlyList<string> SpreadNames { get; }
+
+    /// <summary>The overriding plugins' names, in load order (the last one wins the contested armors).</summary>
+    public IReadOnlyList<string> OverriderNames { get; }
 
     /// <summary>A plugin in a switched-OFF mod folder: on disk, locatable, outside the load order. The off-order
     /// scan lane has its own cancellation path and its own catch-all, so it needs a world to run in.</summary>
@@ -66,6 +75,16 @@ public sealed class RenderCostWorld : IDisposable
             w.Name = "Cost Sword " + i;
             w.BasicStats = new WeaponBasicStats { Damage = (ushort)(10 + i), Weight = 1 };
             w.Keywords = Linked(kwds);
+        }
+
+        var contested = new List<IArmorGetter>();
+        for (int i = 0; i < Contested; i++)
+        {
+            var a = master.Armors.AddNew();
+            a.EditorID = "HcCostArmor" + i;
+            a.Name = "Cost Armor " + i;
+            a.Value = (uint)(100 + i);
+            contested.Add(a);
         }
 
         var offKey = new ModKey("HcCostOff", ModType.Plugin);
@@ -110,6 +129,28 @@ public sealed class RenderCostWorld : IDisposable
             spread.Add(key.FileName.String);
         }
         SpreadNames = spread;
+
+        // Each overrider re-states every contested armor, so all Contested rows share one provider stack of
+        // Overriders+1 plugins — one plugin walk each for a whole chunk of rows, or one walk per (row, provider)
+        // without the gather.
+        var overriders = new List<string>();
+        for (int op = 0; op < Overriders; op++)
+        {
+            var key = new ModKey("HcCostOver" + op, ModType.Plugin);
+            var mod = new SkyrimMod(key, SkyrimRelease.SkyrimSE);
+            foreach (var a in contested)
+            {
+                var ov = mod.Armors.GetOrAddAsOverride(a);
+                ov.Value = (uint)(1000 * (op + 1)) + a.Value;
+            }
+            var folder = "CostOverMod" + op;
+            Directory.CreateDirectory(Path.Combine(mods, folder));
+            mod.BeginWrite.ToPath(Path.Combine(mods, folder, key.FileName.String))
+               .WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
+            overriders.Add(key.FileName.String);
+        }
+        OverriderNames = overriders;
+
         Directory.CreateDirectory(Path.Combine(mods, "CostOffMod"));
         off.BeginWrite.ToPath(Path.Combine(mods, "CostOffMod", OffOrderName))
            .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
@@ -123,12 +164,13 @@ public sealed class RenderCostWorld : IDisposable
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
         var prof = Path.Combine(instance, "profiles", "Default");
         Directory.CreateDirectory(prof);
-        var active = new[] { MasterName }.Concat(SpreadNames).ToList();
+        var active = new[] { MasterName }.Concat(SpreadNames).Concat(OverriderNames).ToList();
         File.WriteAllText(Path.Combine(prof, "loadorder.txt"), "# header\r\n" + string.Join("\r\n", active) + "\r\n");
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), string.Join("\r\n", active.Select(n => "*" + n)) + "\r\n");
         // modlist.txt is read bottom-up: the master's mod last, so it stays lowest in the order.
         File.WriteAllText(Path.Combine(prof, "modlist.txt"),
             "# header\r\n-CostOffMod\r\n"
+            + string.Join("", Enumerable.Range(0, Overriders).Reverse().Select(p => $"+CostOverMod{p}\r\n"))
             + string.Join("", Enumerable.Range(0, Spread).Reverse().Select(p => $"+CostSpreadMod{p}\r\n"))
             + "+CostMasterMod\r\n");
 
@@ -199,22 +241,58 @@ public sealed class RecordsRenderCostTests
 
     static RecordsTools.RecordsProject Tree() => new() { form = "tree" };
 
+    static readonly string[] Armo = { "ARMO" };
+
+    /// <summary>Every contested armor as formids — rows whose provider stack is the same five plugins.</summary>
+    string[] AllArmorIds => Svc.CrossQuery(Armo, null, null, false, null, null, RenderCostWorld.Contested)
+                               .Keys.Select(k => k.ToString()).ToArray();
+
+    // ---- the tree lane gathers its provider bodies a plugin at a time ------------------------------
+
+    /// <summary>A tree row read each of its providers with a whole-plugin seek, so forty rows over a five-deep
+    /// stack cost two hundred walks of the same five plugins (#765). The providers are gathered a chunk of rows at
+    /// a time now: the same two hundred bodies, but one walk per provider plugin per chunk. Invisible in the
+    /// answer — which is asserted here to be the same shape either way — so the walks are the claim.</summary>
+    [Fact]
+    public void ATreeGathersItsProviderBodiesPerPluginNotPerRow()
+    {
+        var ids = AllArmorIds;
+        Assert.Equal(RenderCostWorld.Contested, ids.Length);
+
+        var beforeBodies = LoadOrderService.TreeBodiesRead;
+        var beforePasses = LoadOrderResolver.CollectPasses;
+        var beforeSeeks = LoadOrderResolver.BodySeeks;
+        var response = RecordsTools.Records(Svc, formids: ids, project: Tree(), max_chars: 4_000_000);
+        var bodies = LoadOrderService.TreeBodiesRead - beforeBodies;
+        var passes = LoadOrderResolver.CollectPasses - beforePasses;
+        var seeks = LoadOrderResolver.BodySeeks - beforeSeeks;
+
+        Assert.False(response.StartsWith("error:", StringComparison.Ordinal), response);
+        int stack = RenderCostWorld.Overriders + 1;
+        Assert.Equal(RenderCostWorld.Contested * stack, bodies);
+        Assert.Equal(0, seeks);
+        int chunks = (RenderCostWorld.Contested + LoadOrderService.TreeChunkRows - 1) / LoadOrderService.TreeChunkRows;
+        Assert.True(passes <= stack * chunks,
+                    $"{RenderCostWorld.Contested} rows over a {stack}-deep stack cost {passes} plugin walks.");
+    }
+
     // ---- the comparison forms: limit= bounds the READ, and a job past the bound announces itself ----
 
     /// <summary>A tree row reads every provider of its record, so a window that only trimmed the render made the
     /// first ten rows of a 17,727-row scan cost all 17,727 (#721). The window is applied to the keys now, and the
-    /// body seeks are what proves it: the claim is invisible in the answer, which renders the same ten rows either
-    /// way.</summary>
+    /// bodies the fold reads are what proves it: the claim is invisible in the answer, which renders the same ten
+    /// rows either way. Counted on the fold rather than on <c>BodySeeks</c>, because the providers are gathered a
+    /// plugin at a time now (#765) and a gathered body is not a seek.</summary>
     [Fact]
     public void LimitBoundsWhatATreeOverAScanReads_NotOnlyWhatItRenders()
     {
-        var before = LoadOrderResolver.BodySeeks;
+        var before = LoadOrderService.TreeBodiesRead;
         var windowedResponse = RecordsTools.Records(Svc, types: Weap, project: Tree(), limit: 5);
-        var windowed = LoadOrderResolver.BodySeeks - before;
+        var windowed = LoadOrderService.TreeBodiesRead - before;
 
-        before = LoadOrderResolver.BodySeeks;
+        before = LoadOrderService.TreeBodiesRead;
         RecordsTools.Records(Svc, types: Weap, project: Tree(), limit: RenderCostWorld.Weapons);
-        var whole = LoadOrderResolver.BodySeeks - before;
+        var whole = LoadOrderService.TreeBodiesRead - before;
 
         Assert.False(windowedResponse.StartsWith("error:", StringComparison.Ordinal), windowedResponse);
         Assert.True(windowed * 2 < whole,
