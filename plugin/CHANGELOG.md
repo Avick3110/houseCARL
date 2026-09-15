@@ -140,12 +140,17 @@ saying it sets an expectation their install may contradict. Say what is known, a
   a position (`into=`, `in_place=`) counts every plugin at or below it, whoever wrote it, and the remedy names
   `into=` or `in_place=` accordingly; a NEW patch has no position yet but has copied the winner's body in, so it
   counts only a sibling houseCARL patch, judged by the same `meta.ini` ownership marker `into=` itself is gated on.
+  Overriding a nested record drags its container in as an override too — a placed reference pulls its cell, an INFO
+  pulls its topic — so the question is asked about each record's containers as well, and a container another patch
+  already overrides is named even though nothing in your own call mentioned it. The wording follows the lane: a new
+  patch really does make a second copy, while an in-place edit of a record the plugin already carries makes none, so
+  there the line says the edit is out-loaded rather than calling it a fork.
   Two bounds worth knowing. It reads the ACTIVE load order, so a sibling patch that is installed but unticked in
   `plugins.txt` is not named — its records are not indexed, and finding them would mean opening every installed
-  plugin on every write — and the line says nothing about an unticked plugin either way. And when one call's records
-  are forked by different plugins there is no single `into=` that fixes them all, so the line says to route each
-  record into whichever of the named plugins already overrides it rather than naming one; a long list of plugin
-  names is cut after three with a count, like the other set-valued blocks in these responses.
+  plugin on every write — and the line says nothing about an unticked plugin either way. And a single `into=` is
+  offered only when every affected record answers to the same plugin; when they do not, the line says to route each
+  record into whichever of the named plugins loads last over it, naming the same `into=`/`in_place=` split. A long
+  list of plugin names keeps the LAST-loaded three — the copies that actually win — and counts the earlier ones.
 
 - **An MO2 instance whose profile name or game path is non-ASCII now resolves.** MO2 stores those values as Qt
   byte arrays, and Qt writes every non-ASCII byte as a `\xHH` escape, so a profile named 大肥鱼整合 was read as the
