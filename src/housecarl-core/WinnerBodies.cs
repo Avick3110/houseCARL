@@ -4,7 +4,8 @@ using Mutagen.Bethesda.Plugins.Records;
 namespace HousecarlCore;
 
 /// <summary>
-/// The live winner's BODY for each of a known set of records (#251).
+/// The live winner's BODY for each of a known set of records (#251) — <see cref="BodyGather"/> with the winner
+/// resolution a scan does in front of it.
 ///
 /// <para>A scan that decides its match on the winner has the candidate FormKeys in hand before it needs any winner
 /// body, and a plugin's winners are a contiguous fact about that plugin's overlay. So the bodies are gathered by
@@ -21,9 +22,10 @@ public static class WinnerBodies
     /// <summary>The winner body of each candidate, keyed by FormKey. A candidate whose winner cannot be resolved,
     /// or whose winner plugin does not yield it, is simply ABSENT — the caller decides what an unfetchable winner
     /// means, because "the index named a winner that did not re-resolve" is a fact it has to report, not one this
-    /// helper may swallow. A winner plugin the gather cannot READ is named in <paramref name="unreadable"/> with the
-    /// underlying cause, so the caller reports the held-open file — or the plugin that changed under the index —
-    /// rather than guessing at index staleness.
+    /// helper may swallow. Reading is by the returned map alone, never through the gather, so an unreadable winner
+    /// plugin is never re-fetched per record: it is named in <paramref name="unreadable"/> with the underlying
+    /// cause, so the caller reports the held-open file — or the plugin that changed under the index — rather than
+    /// guessing at index staleness.
     /// <paramref name="getterTypes"/> is the caller's own type scope when it has one, which narrows each plugin's
     /// walk to the GRUPs those types live in. <paramref name="ct"/> is checked between plugin walks, so a client
     /// that aborted stops the gather one walk later rather than at the end of the chunk.</summary>
@@ -37,28 +39,12 @@ public static class WinnerBodies
         var bodies = new Dictionary<FormKey, IMajorRecordGetter>(candidates.Count);
         if (candidates.Count == 0) return bodies;
 
-        var byPlugin = new Dictionary<string, HashSet<FormKey>>(StringComparer.OrdinalIgnoreCase);
+        var gather = new BodyGather(view, session, getterTypes, ct: ct);
         foreach (var fk in candidates)
-        {
-            if (view.ResolveWinner(fk) is not { } w) continue;
-            if (!byPlugin.TryGetValue(w.WinnerPlugin, out var set)) byPlugin[w.WinnerPlugin] = set = new HashSet<FormKey>();
-            set.Add(fk);
-        }
-        foreach (var (plugin, wanted) in byPlugin)
-        {
-            ct.ThrowIfCancellationRequested();   // a client that aborted stops the gather between plugin walks
-            // A winner plugin the gather cannot read leaves its candidates absent rather than ending the scan, which
-            // is what the per-record fetch this replaces did — but the CAUSE travels with it, and the two causes are
-            // told apart: CollectRecords names an OPEN failure itself, so a file another program is holding open
-            // reads as that, and a fault from the walk after a good open reads as the plugin having changed instead.
-            // OutOfMemoryException is NOT a fault of this plugin and is rethrown, the same rule BodyGather keeps:
-            // calling a readable master a coverage gap because the machine ran out of memory misnames the failure,
-            // and carrying on to the next plugin keeps allocating into it.
-            try { view.CollectRecords(session, plugin, wanted, getterTypes, bodies); }
-            catch (OutOfMemoryException) { throw; }
-            catch (PluginUnreadableException ex) { unreadable[plugin] = ex; }
-            catch (Exception ex) { unreadable[plugin] = new PluginUnscannableException(plugin, ex); }
-        }
+            if (view.ResolveWinner(fk) is { } w) gather.Want(w.WinnerPlugin, fk);
+        gather.Gather();
+        foreach (var (plugin, fault) in gather.Faults) unreadable[plugin] = fault;   // declaration order, which is the caller's own
+        gather.CopyInto(bodies);
         return bodies;
     }
 }
