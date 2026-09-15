@@ -2680,6 +2680,28 @@ static class JsonWire
             foreach (var host in contestedHosts.Take(Wire.ContestedHostsShown)) w.WriteStringValue(host);
             w.WriteEndArray();
 
+            // Did the per-record file check RUN at all? Outside the `created` budget, because that is the one
+            // fact a max_chars cut must not remove, and because "it ran and everything came off the file" and "no
+            // file was walked" are different claims.
+            w.WriteBoolean("verify_ran", o.Created.Any(c => c.VerifyAttempted));
+            // The stronger fact beside it: how many created records the written file does not contain (a nested
+            // child whose PARENT is missing counts — it cannot be in a parent the file does not hold), and
+            // which records those were. Inside the array a cut could drop every one and leave a document reading
+            // ok + everything created.
+            var notLanded = o.Created.Where(c => c.AbsentFromFile || c.ParentAbsentFromFile).ToList();
+            w.WriteNumber("records_absent", notLanded.Count);
+            if (notLanded.Count > 0)
+            {
+                var absentIds = notLanded
+                    .Select(c => FormIdToken.Of(c.AbsentFromFile ? c.FormKey : c.ParentKey!.Value))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                w.WriteStartArray("record_absent_formids");
+                foreach (var id in absentIds.Take(WriteSentences.AbsentRecordsShown)) w.WriteStringValue(id);
+                w.WriteEndArray();
+                // The array is bounded; the count above is not, so a consumer can always tell it was cut.
+                w.WriteNumber("record_absent_formids_total", absentIds.Count);
+            }
+
             w.WriteNumber("total_created", o.Created.Count);
             w.WriteStartArray("created");
             int rendered = 0;
@@ -2697,6 +2719,13 @@ static class JsonWire
                 // The parent override this nested create hosted the child in, and whose version was copied.
                 WriteNullable(w, "parent_host", c.ParentHost);
                 w.WriteBoolean("parent_contested", c.ParentContested);
+                // The written file's verdict on this record, as flags a consumer can branch on rather than prose.
+                // `absent_from_file` is the one reading that says the create is not in the file; `verified` false
+                // means the file could not be walked, so nothing here was checked.
+                w.WriteBoolean("verified", c.VerifyAttempted);
+                w.WriteBoolean("absent_from_file", c.AbsentFromFile);
+                if (c.ParentKey is { } pk) w.WriteString("parent_formid", FormIdToken.Of(pk));
+                w.WriteBoolean("parent_absent_from_file", c.ParentAbsentFromFile);
                 w.WriteStartArray("ops");
                 foreach (var op in c.Ops)
                 {
@@ -2705,6 +2734,23 @@ static class JsonWire
                     w.WriteBoolean("applied", op.Applied);
                     WriteNullable(w, "error", op.Error);
                     WriteNullable(w, "after", op.After);
+                    // The leaf as the WRITTEN FILE holds it — what the text render's per-field line prints.
+                    // Null when the file could not read that leaf, when it does not contain the record, or when
+                    // the op had no leaf to re-read (a CK-parity fill, whose `after` is a sentence).
+                    // `landed_source` names which; `after` stays the applied edit's own in-memory reading, so the
+                    // two are never confused for one another. Identical to the apply lane's keys (#683, #763).
+                    WriteNullable(w, "after_on_disk", op.AfterOnDisk);
+                    if (op.AfterOnDisk is not null && op.SupersededInCall)
+                        w.WriteBoolean("after_on_disk_is_final_leaf", true);
+                    WriteNullable(w, "landed_on_disk", op.LandedOnDisk);
+                    w.WriteString("landed_source",
+                        op.RecordAbsentFromFile ? "record_absent"
+                        : op.SupersededInCall ? "superseded"
+                        : op.LandedOnDisk is not null ? "written_file"
+                        : op.VerifyAttempted ? "no_answer" : "not_checked");
+                    // `after` is a SENTENCE about what the write did, not a field reading: a CK-parity fill, which
+                    // has no leaf and is never asked of the file.
+                    if (op.AfterIsNote) w.WriteBoolean("after_is_note", true);
                     WriteNullable(w, "apply_note", op.ApplyNote);
                     w.WriteEndObject();
                 }
@@ -2732,7 +2778,8 @@ static class JsonWire
             if (truncated)
                 w.WriteString("truncated_note",
                     $"{WriteSentences.JsonRowsCut(cap)}; "
-                    + WriteSentences.CreateRowsCutRemedy(WriteTools.ReadBackCall(o, Path.GetFileName(o.OutputPath))) + ".");
+                    + WriteSentences.CreateRowsCutRemedy(WriteTools.ReadBackCall(o, Path.GetFileName(o.OutputPath)),
+                                                        notLanded.Count > 0) + ".");
             w.WriteEndObject();
         }
         return Finish(ms);

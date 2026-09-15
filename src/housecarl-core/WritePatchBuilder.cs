@@ -295,6 +295,26 @@ public static class WritePatchBuilder
         /// not by substring-matching <see cref="ParentHost"/>'s prose — display text gets reworded, and a reword would
         /// silently switch the hoist off.</summary>
         public bool ParentContested { get; init; }
+
+        /// <summary>The parent record this nested create had to host the child in — the override dragged into the
+        /// artifact, or the parent it already carried. Null for a flat create and for a same-call sibling parent,
+        /// which is itself one of this call's created records and verified as one. Carried so the write's own file
+        /// check can answer for the parent as well as the child: a child that lands inside a parent the file does not
+        /// hold is not in the file either.</summary>
+        public FormKey? ParentKey { get; init; }
+
+        /// <summary>The walk of the written file COMPLETED and did not contain this record. The create lane's twin of
+        /// <see cref="OpResult.RecordAbsentFromFile"/>, per RECORD rather than per op, because a record created with
+        /// no edits has no op to carry the verdict. False when the walk failed — that answers about nothing.</summary>
+        public bool AbsentFromFile { get; init; }
+
+        /// <summary>The same verdict for <see cref="ParentKey"/>: the completed walk did not find the parent override
+        /// in the written file, so the child cannot be in it either.</summary>
+        public bool ParentAbsentFromFile { get; init; }
+
+        /// <summary>The file check examined this record. False means no verify ran for it — the file could not be
+        /// walked — and a render must then say the record was not checked rather than reporting it as landed.</summary>
+        public bool VerifyAttempted { get; init; }
     }
 
     /// <summary>The outcome of a <see cref="CreateRecords"/> call. <see cref="Error"/> non-null ⇒ the whole call was
@@ -723,7 +743,7 @@ public static class WritePatchBuilder
             // reading wearing a file's authority (#683). Its own try — the file is written and re-opened by here, so
             // a fault in the compare pass is not "could not be re-opened" and leaves the ops unverified, which the
             // render states per op instead of turning a completed write into a failure.
-            try { reported = VerifyLandedAgainstFile(back, resolved.Select(r => (r.edit.Target, r.req)).ToList(), ops); }
+            try { reported = VerifyLandedAgainstFile(back, resolved.Select(r => (r.edit.Target, (WriteRequest?)r.req)).ToList(), ops); }
             catch
             {
                 int asked = resolved.Count;
@@ -1266,7 +1286,7 @@ public static class WritePatchBuilder
             // so a fault in the COMPARE pass is not "could not be re-opened to verify" and must not be reported as
             // one. Ops then stay unverified, which the render states per op rather than turning a completed write
             // into a failure.
-            try { reported = VerifyLandedAgainstFile(back, resolved.Select(r => (r.edit.Target, r.req)).ToList(), ops); }
+            try { reported = VerifyLandedAgainstFile(back, resolved.Select(r => (r.edit.Target, (WriteRequest?)r.req)).ToList(), ops); }
             // A pass that THREW is not "this lane ran no file check" — the verify ran and produced no answer, which is
             // a distinct state. Only the ops the pass would have ASKED about: the SNAM-sync ops appended past the
             // resolved edits were never candidates, and marking them attempted makes them claim the file was re-opened
@@ -3134,6 +3154,11 @@ public static class WritePatchBuilder
     /// <see cref="ApplyCore"/>: the ONE captured build's fingerprint reaches every outcome (success, refusal, consent
     /// prompt) from one place instead of a `with` at each return site, and <paramref name="epoch"/> stays null for the
     /// refusals decided BEFORE the capture — they consulted no build, so they claim none.</summary>
+    /// <summary>A CK-parity fill as an op. Its reading is a SENTENCE about what the write did rather than a field
+    /// value, so it is marked as one: nothing re-reads it and the render prints it as it stands.</summary>
+    static OpResult Fill(FormKey key, string recordType, CkParityFill fill) =>
+        new(key, recordType, fill.Label, true, null, fill.Reason) { AfterIsNote = true };
+
     static CreateOutcome CreateRecordsCore(
         LoadOrderResolver resolver, CorpusRulebook rulebook,
         IReadOnlyList<CreateSpec> specs, string outPath, bool extend, bool fullReadback, string? inPlaceTarget,
@@ -3583,6 +3608,9 @@ public static class WritePatchBuilder
         //     nested children carry no stable EditorID handle to de-dup on, unlike flat GenericUpsertNew, so a re-run
         //     into= re-adds. Known and accepted. ---
         var created = new List<CreatedRecord>(specs.Count);
+        // Positional with each created record's Ops: the WriteRequest behind the op, or null for a CK-parity fill,
+        // which has no leaf to re-read. Phase 5 flattens these into one pair list so the written file is walked once.
+        var opRequests = new List<List<WriteRequest?>>(specs.Count);
         var createdByEditorId = new Dictionary<string, IMajorRecord>(StringComparer.OrdinalIgnoreCase);
         var linkCacheByPlugin = new Dictionary<string, Mutagen.Bethesda.Plugins.Cache.ILinkCache>(StringComparer.OrdinalIgnoreCase);
 
@@ -3644,6 +3672,7 @@ public static class WritePatchBuilder
 
             createdByEditorId[s.EditorId] = rec;
             var ops = new List<OpResult>(s.Edits.Count);
+            var reqs = new List<WriteRequest?>(s.Edits.Count);
             foreach (var rawReq in s.Edits)
             {
                 // Resolve every same-call reference (@editorid) to its now-allocated FormKey — the INFO PNAM chain +
@@ -3661,6 +3690,7 @@ public static class WritePatchBuilder
                 {
                     var applyNote = WriteEngine.ApplyVerb(rec, req);
                     ops.Add(new OpResult(rec.FormKey, s.RecordType, Label(req), true, null, TryReadAfter(rec, req)) { ApplyNote = applyNote });
+                    reqs.Add(req);
                 }
                 catch (ExpectedApplyRejectionException ex)
                 {
@@ -3693,9 +3723,13 @@ public static class WritePatchBuilder
                 switch (DialogueSubtype.NormalizeMarker(dtopic, out var marker))
                 {
                     case MarkerFill.Filled:
+                        // AfterIsNote: a sentence about what the write did, not a field reading — the file check
+                        // has no request to re-read it with, and the render must print it as it stands.
                         ops.Add(new OpResult(rec.FormKey, s.RecordType,
                             $"SubtypeName (SNAM subtype marker) auto-set to {marker}", true, null,
-                            $"{marker} — derived from Subtype={dtopic.Subtype}; a new topic with a blank marker is a load CTD (#131)"));
+                            $"{marker} — derived from Subtype={dtopic.Subtype}; a new topic with a blank marker is a load CTD (#131)")
+                            { AfterIsNote = true });
+                        reqs.Add(null);
                         break;
                     case MarkerFill.Unmodeled:
                         // Fail loud, never ship a silent blank — the cornerstone's "fail loud on a Mutagen/xEdit
@@ -3717,7 +3751,7 @@ public static class WritePatchBuilder
                 bool authorSetPriority = s.Edits.Any(e => e.Path.Length >= 1 &&
                     string.Equals(e.Path[0], "Priority", StringComparison.OrdinalIgnoreCase));
                 if (DialogueCkParity.ApplyTopicPriorityDefault(dtopic, authorSetPriority) is { } pfill)
-                    ops.Add(new OpResult(rec.FormKey, s.RecordType, pfill.Label, true, null, pfill.Reason));
+                    { ops.Add(Fill(rec.FormKey, s.RecordType, pfill)); reqs.Add(null); }
             }
             // CK-parity default-populate. The same asymmetry runs across the whole DIAL/INFO/DLVW/DLBR/QUST family:
             // Mutagen omits null optionals, the CK writes them unconditionally. An INFO created without CNAM
@@ -3729,25 +3763,30 @@ public static class WritePatchBuilder
             else if (rec is IDialogResponses infoRec)
             {
                 foreach (var fill in DialogueCkParity.ApplyInfoDefaults(infoRec))
-                    ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
+                    { ops.Add(Fill(rec.FormKey, s.RecordType, fill)); reqs.Add(null); }
             }
             else if (rec is IDialogView viewRec)
             {
                 foreach (var fill in DialogueCkParity.ApplyViewDefaults(viewRec))
-                    ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
+                    { ops.Add(Fill(rec.FormKey, s.RecordType, fill)); reqs.Add(null); }
             }
             else if (rec is IDialogBranch branchRec)   // DLBR Category (TNAM); Flags (DNAM) is required, refused in Phase 1 when unset
             {
                 foreach (var fill in DialogueCkParity.ApplyBranchDefaults(branchRec))
-                    ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
+                    { ops.Add(Fill(rec.FormKey, s.RecordType, fill)); reqs.Add(null); }
             }
             else if (rec is IQuest questRec)           // QUST NextAliasID (ANAM) + objective Flags (FNAM)
             {
                 foreach (var fill in DialogueCkParity.ApplyQuestDefaults(questRec))
-                    ops.Add(new OpResult(rec.FormKey, s.RecordType, fill.Label, true, null, fill.Reason));
+                    { ops.Add(Fill(rec.FormKey, s.RecordType, fill)); reqs.Add(null); }
             }
+            opRequests.Add(reqs);
+            // The parent override this create dragged in, when there was one. A same-call SIBLING parent is itself
+            // one of this call's created records and is verified as one, so it is not repeated here.
+            var parentKey = parentPlans[i] is { } plan2
+                ? plan2.body?.FormKey ?? plan2.patchParent?.FormKey : null;
             created.Add(new CreatedRecord(rec.FormKey, s.RecordType, s.EditorId, ops, replaced)
-            { ParentHost = parentHosts[i], ParentContested = parentContested[i] });
+            { ParentHost = parentHosts[i], ParentContested = parentContested[i], ParentKey = parentKey });
         }
 
         // A nested create overrides its PARENT into the artifact, which forks that parent like any other override —
@@ -3791,6 +3830,13 @@ public static class WritePatchBuilder
             masters = back.ModHeader.MasterReferences.Select(m => m.Master.FileName.ToString()).ToList();
             bytes = new FileInfo(outPath).Length;
             if (fullReadback) readBack = ReadBackInFull(back, created.Select(c => c.FormKey));
+            // The file reading every response's per-field line prints, on the same contract the two apply lanes run
+            // (#683, #763). Unconditional, because the line is rendered on every create response — it is exactly the
+            // half that must not be a memory reading wearing a file's authority. Its own try: the file is written and
+            // re-opened by here, so a fault in the compare pass is not "could not be re-opened", and it leaves the
+            // records unchecked, which the render states rather than turning a completed write into a failure.
+            try { created = VerifyCreatedAgainstFile(back, created, opRequests); }
+            catch { /* every record keeps VerifyAttempted=false — the render says not-checked */ }
         }
         catch (Exception ex) { return CreateOutcome.Fail($"records created + written but the patch could not be re-opened to confirm: {ex.Message}"); }
         finally { (back as IDisposable)?.Dispose(); }
@@ -3818,6 +3864,53 @@ public static class WritePatchBuilder
         bool replaceExisting = false)
         => CreateRecords(resolver, rulebook, specs, targetPath, extend: false, fullReadback, inPlaceTarget: targetName,
                          replaceExisting: replaceExisting);
+
+    /// <summary>Report every CREATED record from the written file: each op's leaf re-read off it, and — per record,
+    /// which no op can carry for a record created with no edits — whether the file contains the record at all, and
+    /// whether it contains the PARENT a nested create dragged in to host the child.
+    /// <para>ONE walk for the whole call. The ops are nested per created record, so they are flattened into one
+    /// positionally-aligned pair list, judged in one pass, and re-split by the record they came from — never one
+    /// walk per record, which would re-read the whole file N times.</para>
+    /// <para>A pair's request is NULL for a CK-parity fill (the SNAM marker, DIAL Priority, INFO/View/Branch/Quest
+    /// defaults): those ops have no leaf behind them, their reading is a sentence, and the verify leaves them
+    /// alone.</para></summary>
+    static List<CreatedRecord> VerifyCreatedAgainstFile(
+        ISkyrimModGetter back, IReadOnlyList<CreatedRecord> created, IReadOnlyList<List<WriteRequest?>> opRequests)
+    {
+        var walk = WalkWrittenFileFor(back, created.Select(c => c.FormKey)
+            .Concat(created.Where(c => c.ParentKey is not null).Select(c => c.ParentKey!.Value)));
+
+        var pairs = new List<(FormKey Target, WriteRequest? Req)>();
+        var flat = new List<OpResult>();
+        for (int i = 0; i < created.Count; i++)
+        {
+            var reqs = i < opRequests.Count ? opRequests[i] : null;
+            for (int k = 0; k < created[i].Ops.Count; k++)
+            {
+                flat.Add(created[i].Ops[k]);
+                pairs.Add((created[i].FormKey, reqs is not null && k < reqs.Count ? reqs[k] : null));
+            }
+        }
+        var verified = VerifyAgainstWalk(walk, pairs, flat);
+
+        var reported = new List<CreatedRecord>(created.Count);
+        int at = 0;
+        foreach (var c in created)
+        {
+            var slice = new List<OpResult>(c.Ops.Count);
+            for (int k = 0; k < c.Ops.Count; k++) slice.Add(verified[at + k]);
+            at += c.Ops.Count;
+            reported.Add(c with
+            {
+                Ops = slice,
+                // A walk that FAILED answers about nothing: the record is not checked, never absent.
+                VerifyAttempted = walk.Finished,
+                AbsentFromFile = walk.Finished && !walk.Found.ContainsKey(c.FormKey),
+                ParentAbsentFromFile = walk.Finished && c.ParentKey is { } pk && !walk.Found.ContainsKey(pk),
+            });
+        }
+        return reported;
+    }
 
     /// <summary>Read each just-written record IN FULL off the re-opened written file — the overlay Phase 5 already
     /// opens to confirm masters, so no new handle class (opened AFTER the serialize, disposed with Phase 5; the
@@ -3998,12 +4091,25 @@ public static class WritePatchBuilder
     /// per-record error accounting — and because the walk is lazy header parsing over a file the call has just fully
     /// re-serialized, which dominates it. Worth merging only if a large in-place target measures badly.</para></summary>
     internal static IReadOnlyList<OpResult> VerifyLandedAgainstFile(   // internal: pinned by a test
-        ISkyrimModGetter back, IReadOnlyList<(FormKey Target, WriteRequest Req)> perOp, IReadOnlyList<OpResult> ops)
+        ISkyrimModGetter back, IReadOnlyList<(FormKey Target, WriteRequest? Req)> perOp, IReadOnlyList<OpResult> ops)
     {
         if (ops.Count == 0) return ops;
-        var want = new HashSet<FormKey>(perOp.Select(p => p.Target));
+        var walk = WalkWrittenFileFor(back, perOp.Select(p => p.Target));
+        return VerifyAgainstWalk(walk, perOp, ops);
+    }
+
+    /// <summary>The written file walked ONCE for a set of records: what it yielded, and whether the walk finished.
+    /// Split out of <see cref="VerifyLandedAgainstFile"/> because the create lane needs both halves for two jobs off
+    /// one walk — the per-op leaf verify AND a per-RECORD "is the record in the file at all", which a record created
+    /// with no edits has no op to carry.</summary>
+    internal record struct WrittenFileWalk(Dictionary<FormKey, IMajorRecordGetter> Found, bool Finished);   // internal: the create lane reads both halves
+
+    /// <summary>Walk the re-opened file once and collect the wanted records. A walk that FINISHED is the only one
+    /// that can say a record is absent; one that threw answers about nothing.</summary>
+    internal static WrittenFileWalk WalkWrittenFileFor(ISkyrimModGetter back, IEnumerable<FormKey> targets)
+    {
+        var want = new HashSet<FormKey>(targets);
         var found = new Dictionary<FormKey, IMajorRecordGetter>();
-        // A walk that FINISHED is the only one that can say a record is absent; one that threw answers about nothing.
         bool walkFinished = false;
         try
         {
@@ -4015,12 +4121,26 @@ public static class WritePatchBuilder
             walkFinished = true;
         }
         catch { /* leave every op unverified — the render says so, and ReadBackInFull names the walk failure itself */ }
+        return new WrittenFileWalk(found, walkFinished);
+    }
 
+    /// <summary>Judge each op against a walk already done. <paramref name="perOp"/> is positional with
+    /// <paramref name="ops"/>; a NULL request is an op with no leaf behind it (the create lane's CK-parity fills,
+    /// whose reading is a sentence) and is left alone — never asked, so never answered.</summary>
+    internal static IReadOnlyList<OpResult> VerifyAgainstWalk(   // internal: the create lane calls it after one shared walk
+        WrittenFileWalk walk, IReadOnlyList<(FormKey Target, WriteRequest? Req)> perOp, IReadOnlyList<OpResult> ops)
+    {
+        if (ops.Count == 0) return ops;
+        var (found, walkFinished) = (walk.Found, walk.Finished);
         var verified = new List<OpResult>(ops.Count);
         for (int i = 0; i < ops.Count; i++)
         {
             var op = ops[i];
             if (i >= perOp.Count) { verified.Add(op); continue; }                       // appended past the edits — never asked
+            // No request behind this op: a CK-parity fill, whose reading is a sentence about what the write did and
+            // has no leaf to re-read. Never asked, so it keeps VerifyAttempted=false and the render says not-checked
+            // — or prints the sentence, which is what AfterIsNote is for.
+            if (perOp[i].Req is not { } askedReq) { verified.Add(op); continue; }
             // The record is not in the file this call just wrote. A completed walk makes that a VERDICT — the edit did
             // not land — and the render says so; a failed walk makes it no answer at all.
             if (!found.TryGetValue(perOp[i].Target, out var rec))
@@ -4036,7 +4156,7 @@ public static class WritePatchBuilder
             // one, which is the whole reason this arm exists.
             if (LaterOpTouchesSameLeaf(perOp, i))
             {
-                var (finalAfter, _, finalReadable) = DescribeApplied(rec, perOp[i].Req);
+                var (finalAfter, _, finalReadable) = DescribeApplied(rec, askedReq);
                 verified.Add(op with
                 {
                     SupersededInCall = true, VerifyAttempted = true,
@@ -4044,7 +4164,7 @@ public static class WritePatchBuilder
                 });
                 continue;
             }
-            var (afterDisk, landedDisk, diskReadable) = DescribeApplied(rec, perOp[i].Req);
+            var (afterDisk, landedDisk, diskReadable) = DescribeApplied(rec, askedReq);
             // ONE comparison, on the leaf. Deliberately NOT a second pass over `Landed` (the touched ELEMENT) to catch
             // a struct that lands but serializes with fewer fields than supplied: such a pass is inert, because
             // `Landed` differs from `After` only for a container leaf and for a container both presences carry counts,
@@ -4073,11 +4193,13 @@ public static class WritePatchBuilder
     /// first op's whole-struct reading stale too. Index/key suffixes are stripped before comparing, so
     /// <c>Ranks[0].Number</c> is recognised as writing inside <c>Ranks</c>; sibling paths under one parent
     /// (<c>BasicStats.Damage</c> vs <c>BasicStats.Reach</c>) stay independent and both remain checkable.</para></summary>
-    static bool LaterOpTouchesSameLeaf(IReadOnlyList<(FormKey Target, WriteRequest Req)> perOp, int i)
+    static bool LaterOpTouchesSameLeaf(IReadOnlyList<(FormKey Target, WriteRequest? Req)> perOp, int i)
     {
+        if (perOp[i].Req is not { } here) return false;   // no leaf of its own — nothing can supersede it
         for (int j = i + 1; j < perOp.Count; j++)
         {
-            if (perOp[j].Target != perOp[i].Target || !PathFamiliesOverlap(perOp[i].Req.Path, perOp[j].Req.Path)) continue;
+            if (perOp[j].Req is not { } later) continue;  // a fill writes no path a request named; it supersedes nothing
+            if (perOp[j].Target != perOp[i].Target || !PathFamiliesOverlap(here.Path, later.Path)) continue;
             // A key-addressed pair on ONE path can be two different ELEMENTS: SetAtIndex Ranks key=0 and key=1 carry
             // the container as Path and the element in Key, so the path rule above cannot tell them apart and would
             // mark the earlier op superseded by an op that never touched it, losing its verification.
@@ -4089,9 +4211,9 @@ public static class WritePatchBuilder
             // deletes a third element. SetAtIndex is the one keyed verb that replaces in place, so it is the whole
             // exemption — anything else, InsertAtIndex included, falls back to superseded, which is silent rather
             // than wrong.
-            if (perOp[i].Req.Key is { } a && perOp[j].Req.Key is { } b
+            if (here.Key is { } a && later.Key is { } b
                 && !string.Equals(a, b, StringComparison.OrdinalIgnoreCase)
-                && CountNeutralKeyedVerb(perOp[i].Req.Verb) && CountNeutralKeyedVerb(perOp[j].Req.Verb)) continue;
+                && CountNeutralKeyedVerb(here.Verb) && CountNeutralKeyedVerb(later.Verb)) continue;
             return true;
         }
         return false;
