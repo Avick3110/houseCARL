@@ -19,15 +19,16 @@ namespace HousecarlMcp;
 /// bodies alive at any moment are ONE plugin's share of the chunk, and the diff each row does is still one
 /// reference against one provider: the caller is handed each provider's fields as they arrive and releases them
 /// before the next plugin is walked. What the chunk holds beyond that is the reference fields of its own rows,
-/// which is what <see cref="TreeChunkRows"/> bounds.</para>
+/// which is what <see cref="ComparisonChunkRows"/> bounds.</para>
 /// </summary>
 public sealed partial class LoadOrderService
 {
-    /// <summary>Rows whose provider bodies one fold gathers together. The gather's win rises with the chunk (a
-    /// master shared by more rows is walked once for all of them) and so does what the chunk holds (one reference
-    /// fields per row, plus one plugin's share of the bodies), so this is the trade. A test lowers it to split a
-    /// selection the way a real order's does.</summary>
-    internal static int TreeChunkRows = 32;
+    /// <summary>Rows whose bodies one comparison-form chunk gathers together — ONE number over both lanes, because
+    /// both hold one materialised thing per row of the chunk: the tree's reference fields, the delta's two pole
+    /// bodies. The gather's win rises with the chunk (a master shared by more rows is walked once for all of them)
+    /// and so does that retention, so this is the trade, and there is no reason for the two lanes to strike it
+    /// differently.</summary>
+    internal const int ComparisonChunkRows = 32;
 
     /// <summary>How many provider bodies the tree fold has READ in this process, gathered or seeked alike. Counted
     /// for the reason <see cref="LoadOrderResolver.BodySeeks"/> is: what a windowed tree reads rather than renders
@@ -151,10 +152,13 @@ public sealed partial class LoadOrderService
                 }
                 var sink = new Dictionary<FormKey, IMajorRecordGetter>(want.Count);
                 // A fault reading the PLUGIN leaves the sink empty and every row of it falls back to the per-record
-                // fetch below, which raises the same fault from the same place the streamed walk raised it. The
-                // gather is an optimisation and must never become a second error path — but an out-of-memory
-                // failure is not this plugin's fault and the fallback costs one whole-plugin walk per row, so
-                // paying it because memory already ran out makes the failure worse.
+                // fetch below, which raises the same fault, in the same words, the streamed walk raised. The gather
+                // is an optimisation and must never become a second error path — but an out-of-memory failure is
+                // not this plugin's fault and the fallback costs one whole-plugin walk per row, so paying it
+                // because memory already ran out makes the failure worse.
+                // Which ROW the fault names can differ from the streamed walk's: the passes are plugin-major, so
+                // with two bad rows in one chunk the message names whichever plugin group reached one first rather
+                // than the first bad row in request order. The call throws either way, so no row answers wrong.
                 try { view.CollectRecords(session, plugin, want, seek, sink); }
                 catch (OutOfMemoryException) { throw; }
                 catch (OperationCanceledException) { throw; }
@@ -196,5 +200,5 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>Which rows of <paramref name="count"/> fall in the chunk starting at <paramref name="start"/>.</summary>
-    internal static int ChunkEnd(int start, int count) => Math.Min(start + TreeChunkRows, count);
+    internal static int ChunkEnd(int start, int count) => Math.Min(start + ComparisonChunkRows, count);
 }
