@@ -56,6 +56,7 @@ saying it sets an expectation their install may contradict. Say what is known, a
   apply peaked at 3.3 GB, took 73 s, and left the server sitting at 3.3 GB. The bodies are now gathered a plugin at
   a time, one walk each: the same apply takes 3.2 s, peaks at 0.9 GB and leaves the server back at its idle size.
   The written patch is unchanged — byte-identical on the same inputs.
+
 - **A write's per-edit line now reports what the written file holds, not what the call held in memory.**
   `housecarl_apply` re-opened the patch it had just written only to read its master header, so each edit's
   `-> value` came from the record in memory. A record can exist in memory and serialize to nothing, and when it
@@ -83,6 +84,7 @@ saying it sets an expectation their install may contradict. Say what is known, a
   change above the two lanes' lines look identical. The create response now says which it is, and points at
   `readback=true` to read every created record back off the file. Making that lane report from the file, as the
   edit lanes now do, is #763.
+
 - **Three published shapes now say what the server actually does.** `housecarl_copy`'s `seed_paths` told you to
   reach for `op=Merge` / `op=ReplaceAll` on `housecarl_apply`'s `bundle=`/`assignments=` zip; that zip has no `op=`
   at all — it transplants each named field whole onto the target, one `CopyFrom` per named field per target,
