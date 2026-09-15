@@ -3248,8 +3248,8 @@ public static class WritePatchBuilder
         var parentBodies = new Dictionary<(string Plugin, FormKey Key), IMajorRecordGetter?>();
         // Every parent body this call reads out of the load order, gathered a PLUGIN at a time (#757). The memo below
         // collapses a SHARED parent to one read; the gather is what makes N distinct parents cost one walk of each
-        // distinct DEFINER rather than one walk per parent. Declared just below, once the destination index the
-        // guards read exists.
+        // distinct DEFINER rather than one walk per parent. Wanted and gathered just below, once the destination index
+        // the guards read exists.
         var gather = new BodyGather(view, session);
         IMajorRecordGetter? ParentBodyFrom(string plugin, FormKey fk)
         {
@@ -3338,6 +3338,11 @@ public static class WritePatchBuilder
         // — so a spec that costs nothing today still costs nothing. Only the DEFINER is declared: the winner is a
         // fallback reached only when the definer does not carry the record (an injected or excluded parent), and
         // declaring it too would walk the winner plugin for every parent whose definer answers.
+        // ONE parent read is deliberately left ungathered, and it is the AlreadyCarried skip above: a child going
+        // into a SINGULAR owned-child slot asks OrderBodyOf for the parent's real body, because the carried copy is
+        // an override and holds no children (the occupancy check below). That spec is skipped here, so it still pays
+        // a fetch per parent. Declaring it up front would walk a definer for every carried parent, and only the
+        // slot-shape resolution deep in the loop knows which of them will ask.
         var wantedEdids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var s in specs)
         {
