@@ -21,6 +21,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   read the refusal-free path makes: a parent the order does not hold is still refused without reading a body, and the
   one remaining per-parent read — a child going into a parent's single-child slot, where the artifact already carries
   that parent — is named at the declaration in `WritePatchBuilder`.
+- **`project.form="tree"` and `project.form="delta"` read their bodies a plugin at a time.** Both lanes fetched each
+  provider — a tree's whole touching stack, a delta's two poles — with a walk of that plugin from the top for one
+  record, so rows whose providers are the same few large masters paid one whole-plugin walk each. The bodies of a
+  chunk of rows are now gathered per plugin, one walk answering that plugin's whole share of the chunk. The answer is
+  unchanged: the same rows, the same nodes in the same order, the same deltas. A tree still holds one reference plus
+  one provider's fields at a time, so the memory bound from 2.0.1 stands, and `limit=`'s bound on what a tree reads
+  is unchanged (see `limit=`). Measured over 100 contested records on a 3,254-plugin order, driven per arm as a
+  private server: tree 45.4 s to 11.5 s and delta 71.6 s to 12.8 s over placed references, tree 13.0 s to 8.2 s and
+  delta 15.0 s to 8.6 s over weapons; peak working set unchanged on all four.
 
 ## 2.0.1 — 2026-09-15
 
