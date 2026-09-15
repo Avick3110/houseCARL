@@ -638,7 +638,7 @@ public static class RecordsTools
                 SpillState? spill = null;
                 if (wantFile)
                 {
-                    var (s, aerr) = Artifacts.WriteResolve(rows, epoch.Epoch, toFile!, "to_file", Echo());
+                    var (s, aerr) = Artifacts.WriteResolve(rows, epoch.Epoch, ArtifactTarget.Named(toFile!), "to_file", Echo());
                     if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
                     spill = SpillState.Spilled(s!, manifestOnly: true);
                 }
@@ -648,9 +648,8 @@ public static class RecordsTools
                 var rendered = Render(spill, out var truncated);
                 if (spill is null && truncated)
                 {
-                    var path = ResultsStore.NextPath(ToolNames.Records, epoch.Epoch);
-                    var (s, aerr) = Artifacts.WriteResolve(rows, epoch.Epoch, path, "ceiling", Echo());
-                    if (aerr is not null) ResultsStore.Release(path);
+                    using var reservation = ResultsStore.Reserve(ToolNames.Records, epoch.Epoch);
+                    var (s, aerr) = Artifacts.WriteResolve(rows, epoch.Epoch, reservation, "ceiling", Echo());
                     rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
                 return rendered;
@@ -755,7 +754,7 @@ public static class RecordsTools
             SpillState? spill2 = null;
             if (wantFile)
             {
-                var (s, aerr) = Artifacts.WriteBatch(outcomes, toFile!, "to_file", Echo(), formLevers);
+                var (s, aerr) = Artifacts.WriteBatch(outcomes, ArtifactTarget.Named(toFile!), "to_file", Echo(), formLevers);
                 if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch2) : "error: " + aerr;
                 spill2 = SpillState.Spilled(s!, manifestOnly: true);
             }
@@ -766,9 +765,8 @@ public static class RecordsTools
             var rendered2 = Render2(spill2, out var truncated2);
             if (spill2 is null && truncated2)
             {
-                var path = ResultsStore.NextPath(ToolNames.Records, epoch2?.Epoch ?? "none");
-                var (s, aerr) = Artifacts.WriteBatch(outcomes, path, "ceiling", Echo(), formLevers);
-                if (aerr is not null) ResultsStore.Release(path);
+                using var reservation = ResultsStore.Reserve(ToolNames.Records, epoch2?.Epoch ?? "none");
+                var (s, aerr) = Artifacts.WriteBatch(outcomes, reservation, "ceiling", Echo(), formLevers);
                 rendered2 = Render2(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
             return rendered2;
@@ -956,7 +954,7 @@ public static class RecordsTools
                 SpillState? revSpill = null;
                 if (wantFile)
                 {
-                    var (sp, aerr) = Artifacts.WriteEffectChains(results, epochR?.Epoch, toFile!, "to_file", Echo());
+                    var (sp, aerr) = Artifacts.WriteEffectChains(results, epochR?.Epoch, ArtifactTarget.Named(toFile!), "to_file", Echo());
                     if (aerr is not null) return json ? JsonWire.RenderError(aerr, epochR) : "error: " + aerr;
                     revSpill = SpillState.Spilled(sp!, manifestOnly: true);
                 }
@@ -966,9 +964,8 @@ public static class RecordsTools
                 var revRendered = RenderRev(revSpill, out var revTrunc);
                 if (revSpill is null && revTrunc)
                 {
-                    var path = ResultsStore.NextPath(ToolNames.Records, epochR?.Epoch ?? "none");
-                    var (sp, aerr) = Artifacts.WriteEffectChains(results, epochR?.Epoch, path, "ceiling", Echo());
-                    if (aerr is not null) ResultsStore.Release(path);
+                    using var reservation = ResultsStore.Reserve(ToolNames.Records, epochR?.Epoch ?? "none");
+                    var (sp, aerr) = Artifacts.WriteEffectChains(results, epochR?.Epoch, reservation, "ceiling", Echo());
                     revRendered = RenderRev(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
                 return revRendered;
@@ -1014,7 +1011,7 @@ public static class RecordsTools
                 SpillState? spill = null;
                 if (wantFile)
                 {
-                    var (s, aerr) = Artifacts.WriteChain(rows, wEpoch?.Epoch, toFile!, "to_file", Echo());
+                    var (s, aerr) = Artifacts.WriteChain(rows, wEpoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", Echo());
                     if (aerr is not null) return json ? JsonWire.RenderError(aerr, wEpoch) : "error: " + aerr;
                     spill = SpillState.Spilled(s!, manifestOnly: true);
                 }
@@ -1025,9 +1022,8 @@ public static class RecordsTools
                 var rendered = Render(spill, out var truncated);
                 if (spill is null && truncated)
                 {
-                    var path = ResultsStore.NextPath(ToolNames.Records, wEpoch?.Epoch ?? "none");
-                    var (s, aerr) = Artifacts.WriteChain(rows, wEpoch?.Epoch, path, "ceiling", Echo());
-                    if (aerr is not null) ResultsStore.Release(path);
+                    using var reservation = ResultsStore.Reserve(ToolNames.Records, wEpoch?.Epoch ?? "none");
+                    var (s, aerr) = Artifacts.WriteChain(rows, wEpoch?.Epoch, reservation, "ceiling", Echo());
                     rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
                 return rendered;
@@ -1152,7 +1148,7 @@ public static class RecordsTools
             SpillState? spill = null;
             if (wantFile)
             {
-                var (s, aerr) = Artifacts.WriteDelta(rows, epoch?.Epoch, toFile!, "to_file", echo);
+                var (s, aerr) = Artifacts.WriteDelta(rows, epoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", echo);
                 if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
@@ -1163,9 +1159,8 @@ public static class RecordsTools
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
             {
-                var path = ResultsStore.NextPath(ToolNames.Records, epoch?.Epoch ?? "none");
-                var (s, aerr) = Artifacts.WriteDelta(rows, epoch?.Epoch, path, "ceiling", echo);
-                if (aerr is not null) ResultsStore.Release(path);
+                using var reservation = ResultsStore.Reserve(ToolNames.Records, epoch?.Epoch ?? "none");
+                var (s, aerr) = Artifacts.WriteDelta(rows, epoch?.Epoch, reservation, "ceiling", echo);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
             return rendered;
@@ -1194,7 +1189,7 @@ public static class RecordsTools
             SpillState? spill = null;
             if (wantFile)
             {
-                var (s, aerr) = Artifacts.WriteTree(rows, epoch?.Epoch, toFile!, "to_file", echo);
+                var (s, aerr) = Artifacts.WriteTree(rows, epoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", echo);
                 if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
@@ -1205,9 +1200,8 @@ public static class RecordsTools
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
             {
-                var path = ResultsStore.NextPath(ToolNames.Records, epoch?.Epoch ?? "none");
-                var (s, aerr) = Artifacts.WriteTree(rows, epoch?.Epoch, path, "ceiling", echo);
-                if (aerr is not null) ResultsStore.Release(path);
+                using var reservation = ResultsStore.Reserve(ToolNames.Records, epoch?.Epoch ?? "none");
+                var (s, aerr) = Artifacts.WriteTree(rows, epoch?.Epoch, reservation, "ceiling", echo);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
             return rendered;
@@ -1229,7 +1223,7 @@ public static class RecordsTools
             SpillState? spill = null;
             if (wantFile)
             {
-                var (s, aerr) = Artifacts.WriteInfoOrder(rows, epoch?.Epoch, toFile!, "to_file", echo);
+                var (s, aerr) = Artifacts.WriteInfoOrder(rows, epoch?.Epoch, ArtifactTarget.Named(toFile!), "to_file", echo);
                 if (aerr is not null) return json ? JsonWire.RenderError(aerr, epoch) : "error: " + aerr;
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
@@ -1240,9 +1234,8 @@ public static class RecordsTools
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated)
             {
-                var path = ResultsStore.NextPath(ToolNames.Records, epoch?.Epoch ?? "none");
-                var (s, aerr) = Artifacts.WriteInfoOrder(rows, epoch?.Epoch, path, "ceiling", echo);
-                if (aerr is not null) ResultsStore.Release(path);
+                using var reservation = ResultsStore.Reserve(ToolNames.Records, epoch?.Epoch ?? "none");
+                var (s, aerr) = Artifacts.WriteInfoOrder(rows, epoch?.Epoch, reservation, "ceiling", echo);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
             return rendered;
@@ -1638,16 +1631,15 @@ public static class RecordsTools
                 SpillState? evSpill = null;
                 if (wantFile)
                 {
-                    var (s, aerr) = Artifacts.WriteBatch(bodies, toFile!, "to_file", Echo(), evLevers, matches: evMatches);
+                    var (s, aerr) = Artifacts.WriteBatch(bodies, ArtifactTarget.Named(toFile!), "to_file", Echo(), evLevers, matches: evMatches);
                     if (aerr is not null) return json ? JsonWire.RenderError(aerr, bodyEpoch) : "error: " + aerr;
                     evSpill = SpillState.Spilled(s!, manifestOnly: true);
                 }
                 var evRendered = RenderEv(evSpill, out var evTrunc);
                 if (evSpill is null && evTrunc)
                 {
-                    var path = ResultsStore.NextPath(ToolNames.Records, bodyEpoch?.Epoch ?? "none");
-                    var (s, aerr) = Artifacts.WriteBatch(bodies, path, "ceiling", Echo(), evLevers, matches: evMatches);
-                    if (aerr is not null) ResultsStore.Release(path);
+                    using var reservation = ResultsStore.Reserve(ToolNames.Records, bodyEpoch?.Epoch ?? "none");
+                    var (s, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), evLevers, matches: evMatches);
                     evRendered = RenderEv(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
                 return evRendered;
@@ -1657,7 +1649,7 @@ public static class RecordsTools
             SpillState? spill = null;
             if (wantFile && outcome.Error is null)
             {
-                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, toFile!, "to_file", Echo(), LeverNames.Records, fold: foldPlan, ct: ct);
+                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, ArtifactTarget.Named(toFile!), "to_file", Echo(), LeverNames.Records, fold: foldPlan, ct: ct);
                 if (aerr is not null)
                     return fmt is Wire.QueryFormat.Text ? "error: " + aerr : JsonWire.RenderError(aerr, outcome.Stamp);
                 spill = SpillState.Spilled(s!, manifestOnly: true);
@@ -1674,13 +1666,10 @@ public static class RecordsTools
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated && outcome.Error is null)
             {
-                var path = ResultsStore.NextPath(ToolNames.Records, outcome.Epoch ?? "none");
-                SpillInfo? s; string? aerr;
-                // NextPath RESERVES the name by creating the file, so a cancel inside the write has to give it back
-                // — "a cancelled call writes nothing" holds on this path too, not only on the caller-named one.
-                try { (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, path, "ceiling", Echo(), LeverNames.Records, fold: foldPlan, ct: ct); }
-                catch (OperationCanceledException) { ResultsStore.Release(path); throw; }
-                if (aerr is not null) ResultsStore.Release(path);
+                // Disposing the reservation deletes the file it owns unless the write landed, so a cancel inside the
+                // write leaves nothing — "a cancelled call writes nothing" holds here, not only on the named path.
+                using var reservation = ResultsStore.Reserve(ToolNames.Records, outcome.Epoch ?? "none");
+                var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, reservation, "ceiling", Echo(), LeverNames.Records, fold: foldPlan, ct: ct);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
             return rendered;
@@ -1870,16 +1859,15 @@ public static class RecordsTools
                 var offEpoch = bodies.FirstOrDefault(o => o.Stamp is not null)?.Stamp ?? outcome.Stamp;
                 if (wantFile)
                 {
-                    var (sp, aerr) = Artifacts.WriteBatch(bodies, toFile!, "to_file", Echo(), offLevers, matches: offMatches);
+                    var (sp, aerr) = Artifacts.WriteBatch(bodies, ArtifactTarget.Named(toFile!), "to_file", Echo(), offLevers, matches: offMatches);
                     if (aerr is not null) return json ? JsonWire.RenderError(aerr, offEpoch) : "error: " + aerr;
                     offSpill = SpillState.Spilled(sp!, manifestOnly: true);
                 }
                 var offRendered = RenderOff(offSpill, out var offTrunc);
                 if (offSpill is null && offTrunc)
                 {
-                    var path = ResultsStore.NextPath(ToolNames.Records, offEpoch?.Epoch ?? "none");
-                    var (sp, aerr) = Artifacts.WriteBatch(bodies, path, "ceiling", Echo(), offLevers, matches: offMatches);
-                    if (aerr is not null) ResultsStore.Release(path);
+                    using var reservation = ResultsStore.Reserve(ToolNames.Records, offEpoch?.Epoch ?? "none");
+                    var (sp, aerr) = Artifacts.WriteBatch(bodies, reservation, "ceiling", Echo(), offLevers, matches: offMatches);
                     offRendered = RenderOff(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
                 }
                 return offRendered;
@@ -1890,7 +1878,7 @@ public static class RecordsTools
             SpillState? spill = null;
             if (wantFile && outcome.Error is null)
             {
-                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, toFile!, "to_file", Echo(), LeverNames.Records);
+                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, ArtifactTarget.Named(toFile!), "to_file", Echo(), LeverNames.Records);
                 if (aerr is not null)
                     return fmt is Wire.QueryFormat.Text ? "error: " + aerr : JsonWire.RenderError(aerr, outcome.Stamp);
                 spill = SpillState.Spilled(sp!, manifestOnly: true);
@@ -1906,9 +1894,8 @@ public static class RecordsTools
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated && outcome.Error is null)
             {
-                var path = ResultsStore.NextPath(ToolNames.Records, outcome.Epoch ?? "none");
-                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, path, "ceiling", Echo(), LeverNames.Records);
-                if (aerr is not null) ResultsStore.Release(path);
+                using var reservation = ResultsStore.Reserve(ToolNames.Records, outcome.Epoch ?? "none");
+                var (sp, aerr) = Artifacts.WriteCrossQuery(svc, outcome, null, false, false, 1, reservation, "ceiling", Echo(), LeverNames.Records);
                 rendered = Render(aerr is null ? SpillState.Spilled(sp!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
             }
             return rendered;

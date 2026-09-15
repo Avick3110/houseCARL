@@ -26,8 +26,8 @@ public static class ResultArtifact
 
     // ---- writing ------------------------------------------------------------------------------------
 
-    /// <summary>Accumulates JSONL rows for one artifact, then <see cref="Save"/> writes manifest + rows atomically
-    /// (temp file + move). Rows buffer in memory: an artifact is written in one call's scope and even a very large
+    /// <summary>Accumulates JSONL rows for one artifact, then <see cref="Save"/> writes manifest + rows into the
+    /// target's file. Rows buffer in memory: an artifact is written in one call's scope and even a very large
     /// result (100k+ rows) is tens of MB transiently — no server-side state survives the call; the STATE is the
     /// file.</summary>
     public sealed class Writer : IDisposable
@@ -68,7 +68,7 @@ public static class ResultArtifact
         /// need the sentence that says what a child record is. Stated once here rather than per row, which
         /// on a 100k-row artifact would be megabytes of one repeated sentence.</param>
         public (Manifest? Manifest, string? Error) Save(
-            string path, string tool, IReadOnlyList<KeyValuePair<string, string>> query, string? identity,
+            ArtifactTarget target, string tool, IReadOnlyList<KeyValuePair<string, string>> query, string? identity,
             IReadOnlyList<string> rowSchema, string sort, int total, string epoch,
             IReadOnlyList<string>? notes = null)
         {
@@ -76,32 +76,26 @@ public static class ResultArtifact
                                         _typeCounts.Count > 0 ? _typeCounts : null, epoch,
                                         DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
                                         notes is { Count: > 0 } ? notes : null);
-            string? tmp = null;
             try
             {
-                var dir = Path.GetDirectoryName(path);
-                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                // Temp-then-move so a crash mid-write never leaves a half artifact that could pass for a whole one
-                // (line 1's row_count would not match, but why leave the hazard). Same-directory temp keeps the
-                // move atomic on NTFS.
-                tmp = path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
-                using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+                // Written straight into the target's own handle. A crash mid-write cannot pass a half artifact for a
+                // whole one: the manifest is line 1 and carries row_count, so a short file fails its own manifest.
+                using (var fs = target.Open())
                 {
                     using (var w = new Utf8JsonWriter(fs, JsonTextEncoder.OneLine)) { manifest.WriteTo(w); w.Flush(); }
                     fs.WriteByte((byte)'\n');
                     _rows.Position = 0;
                     _rows.CopyTo(fs);
                 }
-                File.Move(tmp, path, overwrite: true);
+                target.Wrote();
                 return (manifest, null);
             }
             catch (Exception ex)
             {
-                // The temp is full artifact size and a failed write is likeliest exactly when the volume is tight,
-                // so never leave it behind. Best-effort: the named error below is the contract; a second failure
-                // deleting the temp must not mask it.
-                if (tmp is not null) try { File.Delete(tmp); } catch (Exception) { }
-                return (null, $"could not write the result artifact to '{path}' — {ex.GetType().Name}: {ex.Message}");
+                // Never leave the rubble of a failed write where a whole artifact should be. Best-effort: the named
+                // error below is the contract; a second failure deleting the file must not mask it.
+                try { File.Delete(target.Path); } catch (Exception) { }
+                return (null, $"could not write the result artifact to '{target.Path}' — {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -294,6 +288,47 @@ public static class ResultArtifact
             if (first) { first = false; continue; }   // line 1 = the manifest
             yield return line.Trim();
         }
+    }
+}
+
+/// <summary>Where one artifact is written: a caller-named <c>to_file=</c> path, or a RESERVED auto-spill path whose
+/// exclusive handle this owns. The reservation IS the file — the handle that claimed the name is the handle
+/// <see cref="ResultArtifact.Writer.Save"/> writes through, so nothing can take or hold the file in between.
+/// Disposing a reservation that was never written closes the handle and deletes the file it owns, best-effort, so a
+/// cancelled call strands nothing; a named target owns no handle and needs no disposal.</summary>
+public sealed class ArtifactTarget : IDisposable
+{
+    readonly FileStream? _reserved;
+    bool _wrote;
+
+    ArtifactTarget(string path, FileStream? reserved) { Path = path; _reserved = reserved; }
+
+    /// <summary>The file this artifact is written to — what the response names.</summary>
+    public string Path { get; }
+
+    /// <summary>A caller-named target: no reservation, opened when the write happens.</summary>
+    public static ArtifactTarget Named(string path) => new(path, null);
+
+    /// <summary>A reserved target: the open, exclusive handle that holds the name.</summary>
+    public static ArtifactTarget Reserved(string path, FileStream held) => new(path, held);
+
+    /// <summary>The stream to write through: the reservation's own handle, or a fresh one for a named target.</summary>
+    internal FileStream Open()
+    {
+        if (_reserved is not null) return _reserved;
+        var dir = System.IO.Path.GetDirectoryName(Path);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        return new FileStream(Path, FileMode.Create, FileAccess.Write, FileShare.None);
+    }
+
+    /// <summary>The artifact landed — Dispose must leave the file alone.</summary>
+    internal void Wrote() => _wrote = true;
+
+    public void Dispose()
+    {
+        if (_reserved is null) return;
+        _reserved.Dispose();
+        if (!_wrote) try { File.Delete(Path); } catch (Exception) { }
     }
 }
 

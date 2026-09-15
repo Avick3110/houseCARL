@@ -129,7 +129,7 @@ internal static class CheckArtifact
         if (s.FaceGen is { Error: null } fgt)
             total += Math.Max(0, fgt.TotalFound - fgt.Findings.Count - (fgt.WithheldBenign?.Count ?? 0));
 
-        var (manifest, err) = writer.Save(path, ToolNames.Check, query, identity: "formid", RowSchema,
+        var (manifest, err) = writer.Save(ArtifactTarget.Named(path), ToolNames.Check, query, identity: "formid", RowSchema,
                                           sort: "family, then the order each family reported",
                                           total: total, epoch: s.Epoch ?? "",
                                           notes: new[]
