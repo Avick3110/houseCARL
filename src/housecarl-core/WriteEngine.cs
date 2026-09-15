@@ -124,7 +124,7 @@ public static class WriteEngine
         Console.WriteLine();
 
         var shaBefore = Sha(source);
-        var sourceMod = SkyrimMod.CreateFromBinaryOverlay(source, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
+        var sourceMod = SkyrimMod.CreateFromBinaryOverlay(source, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(source));
 
         // Resolve the getter interface for the named type — absent => a real coverage gap, surfaced, never guessed.
         var iface = typeof(SkyrimMod).Assembly.GetType("Mutagen.Bethesda.Skyrim.I" + type + "Getter");
@@ -193,7 +193,7 @@ public static class WriteEngine
         Console.WriteLine($"Wrote patch ({new FileInfo(outPath).Length} bytes).");
 
         // Re-open the patch: surface its masters (cross-master cleanliness) + read every edited field back.
-        var patchBack = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
+        var patchBack = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(outPath));
         var masters = patchBack.ModHeader.MasterReferences.Select(m => m.Master.ToString()).ToList();
         Console.WriteLine($"  masters: {(masters.Count == 0 ? "(none)" : string.Join(", ", masters))}");
         var patched = patchBack.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == target.FormKey);
@@ -297,7 +297,7 @@ public static class WriteEngine
         for (int i = 0; i < args.Length - 1; i++)
             if (string.Equals(args[i], "--path", StringComparison.OrdinalIgnoreCase)) paths.Add(args[i + 1]);
 
-        var sourceMod = SkyrimMod.CreateFromBinaryOverlay(source, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
+        var sourceMod = SkyrimMod.CreateFromBinaryOverlay(source, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(source));
         Type? iface = type is null ? null : typeof(SkyrimMod).Assembly.GetType("Mutagen.Bethesda.Skyrim.I" + type + "Getter");
         if (type is not null && iface is null) { Console.Error.WriteLine($"error: unknown record type '{type}'"); return 1; }
         FormKey? wantFk = null;
@@ -344,7 +344,7 @@ public static class WriteEngine
         if (!File.Exists(source)) { Console.Error.WriteLine($"error: source plugin not found: {source}"); return 1; }
 
         var shaBefore = Sha(source);
-        var sourceMod = SkyrimMod.CreateFromBinaryOverlay(source, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
+        var sourceMod = SkyrimMod.CreateFromBinaryOverlay(source, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(source));
         var cache = sourceMod.ToImmutableLinkCache();
 
         // Scan for the first FORM-mode condition target (UseAliases=UsePackageData=false, a populated FormKey) —
@@ -424,7 +424,7 @@ public static class WriteEngine
         Console.WriteLine($"Wrote patch ({new FileInfo(outPath).Length} bytes).");
 
         // Reopen + read the new target back off the written patch; confirm masters + source untouched.
-        var back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
+        var back = SkyrimMod.CreateFromBinaryOverlay(outPath, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(outPath));
         var masters = back.ModHeader.MasterReferences.Select(m => m.Master.ToString()).ToList();
         var patched = back.EnumerateMajorRecords().FirstOrDefault(r => r.FormKey == owner.FormKey);
         FormKey? readBack = null;
@@ -1756,7 +1756,7 @@ public static class WriteEngine
                 .WithLoadOrder(ordered)
                 .WithExtraIncludedMasters(baseline)
                 .NoNextFormIDProcessing()
-                .WithEmbeddedEncodings(PluginTextEncoding.Write)
+                .WithEmbeddedEncodings(PluginTextEncoding.WriteNew(patchMod))
                 .Write();
             return tmpPath;
         }
@@ -1845,9 +1845,10 @@ public static class WriteEngine
     /// to answer BEFORE reaching the write: a dry run (whose job is to give the same answer the real call would), and
     /// any lane whose refusal carries a remedy clause of its own.
     ///
-    /// <para>Reads the header only, and deliberately with the BARE overlay: the localized FLAG is in the header, so
-    /// unlike reading the strings themselves this needs no game-Data fallback and cannot be wrong about the flag
-    /// because a strings source is missing.</para>
+    /// <para>Reads the header only, and deliberately WITHOUT the resolver's game-Data strings redirect: the localized
+    /// FLAG is in the header, so unlike reading the strings themselves this needs no fallback and cannot be wrong
+    /// about the flag because a strings source is missing. It still opens under the ordinary read parameters, so the
+    /// encoding is the one every other read uses.</para>
     ///
     /// <para><b>It returns three answers rather than a bool, and that is the point.</b> A bool would have to answer
     /// <c>false</c> on a read fault, which classifies a locked destination as not-localized and lets the write
@@ -1858,7 +1859,7 @@ public static class WriteEngine
         ISkyrimModGetter? ov = null;
         try
         {
-            ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
+            ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path));
             return ov.ModHeader.Flags.HasFlag(SkyrimModHeader.HeaderFlag.Localized)
                 ? LocalizedFlagRead.Localized
                 : LocalizedFlagRead.NotLocalized;
@@ -1882,7 +1883,7 @@ public static class WriteEngine
                 .ToPath(tmpPath)
                 .WithLoadOrder(ordered)            // the target's OWN masters — no whole-order, no baseline
                 .NoNextFormIDProcessing()          // persist the author's NextObjectID verbatim (no EnsureFormIdFloor)
-                .WithEmbeddedEncodings(PluginTextEncoding.Write)
+                .WithEmbeddedEncodings(PluginTextEncoding.WriteInPlace(outputPath))
                 .Write();
             return tmpPath;
         }

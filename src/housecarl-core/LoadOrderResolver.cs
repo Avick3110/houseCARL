@@ -529,17 +529,14 @@ public sealed class LoadOrderResolver : IDisposable
     {
         if (dataDir is not null && !FolderHasOwnStrings(path))
         {
-            var prm = BinaryReadParameters.Default with
+            var prm = PluginTextEncoding.ReadWith(path, new StringsReadParameters
             {
-                StringsParam = PluginTextEncoding.Strings(new StringsReadParameters
-                {
-                    BsaFolderOverride = dataDir,
-                    StringsFolderOverride = Path.Combine(dataDir, "Strings"),
-                }),
-            };
+                BsaFolderOverride = dataDir,
+                StringsFolderOverride = Path.Combine(dataDir, "Strings"),
+            });
             return SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, prm);
         }
-        return SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
+        return SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path));
     }
 
     /// <summary>True if the plugin's OWN folder carries a strings source FOR THIS PLUGIN — a loose table matching its

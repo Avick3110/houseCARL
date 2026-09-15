@@ -352,7 +352,7 @@ public static class ErrorCheck
                 ISkyrimModGetter? ov = null;
                 try
                 {
-                    ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.Read);
+                    ov = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE, PluginTextEncoding.ReadFor(path));
 
                     if (wantMasters)
                     {
