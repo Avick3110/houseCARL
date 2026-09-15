@@ -30,8 +30,11 @@ saying it sets an expectation their install may contradict. Say what is known, a
   a Japanese name typed into a patch built from plugins that were all ASCII — is simply written as UTF-8 instead,
   and an in-place edit, which cannot change encoding without converting every other name in the file, refuses in one
   sentence naming the value, the character it cannot spell and where to put it instead, leaving the file untouched.
-  One case this does not reach, and it is not guarded: a Windows-1252 string whose bytes also happen to be valid
-  UTF-8 is read as UTF-8. Nothing else moves: which language is selected, and which
+  Extending a plugin flagged LOCALIZED with `into=` is refused the same way an in-place edit of one already was: its
+  text lives in separate `.STRINGS` files that houseCARL cannot write as one set with the plugin, and the refusal
+  says to write the edits into a fresh patch instead. One case none of this reaches, and it is not guarded: a
+  Windows-1252 string whose bytes also happen to be valid UTF-8 is read as UTF-8. Nothing else moves: which language
+  is selected, and which
   language's table is read, are unchanged. In `format="json"` the characters ride as `\uXXXX` escapes, json's own
   spelling for non-ASCII, and parse back to the same string.
 

@@ -2167,6 +2167,10 @@ public static class WritePatchBuilder
             // serialized or committed anything, so every lead here ("failed (serialize or commit…)") would attribute the
             // refusal to a step that never ran. The exception's own message is the whole sentence.
             if (b is LocalizedTargetUnsupportedException lt) return lt.Message;
+            // And the same again for a value the target's own encoding cannot spell: the write refused before it
+            // staged anything, so a "serialize or commit" lead names a phase that never ran, and the exception's
+            // message already states the file is unchanged and says what to do instead.
+            if (b is UnspellableTextException ut) return ut.Message;
         }
         var body = lead + WriteEngine.Describe(ex) + UnopenableMasterClause(ex, session);
         if (trailer.Length == 0) return body;
