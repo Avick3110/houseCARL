@@ -2714,7 +2714,7 @@ public static class WritePatchBuilder
     public static bool TryScanMergeDonor(
         string srcPath, ModKey modKey, IReadOnlySet<ModKey> donorKeys, out MergeDonorScan scan, out string? error)
     {
-        scan = new MergeDonorScan(Array.Empty<FormKey>(), Array.Empty<FormKey>(), Array.Empty<(FormKey, FormKey)>());
+        scan = new MergeDonorScan(Array.Empty<FormKey>(), Array.Empty<FormKey>(), Array.Empty<FormKey>(), Array.Empty<(FormKey, FormKey)>());
         error = null;
         ISkyrimModGetter? ov = null;
         try
@@ -2722,12 +2722,16 @@ public static class WritePatchBuilder
             ov = SkyrimMod.CreateFromBinaryOverlay(srcPath, SkyrimRelease.SkyrimSE);
             var originating = new List<FormKey>();
             var carried = new List<FormKey>();
+            var records = new List<FormKey>();
             var links = new List<(FormKey, FormKey)>();
-            var seenLink = new HashSet<FormKey>();
+            // Keyed on the PAIR: the caller keeps only the winning record's links, so which record a link came from is
+            // part of the fact, and deduping on the target alone would drop the surviving copy of a shared target.
+            var seenLink = new HashSet<(FormKey, FormKey)>();
             foreach (var rec in ov.EnumerateMajorRecords())
             {
                 // Identity first: it is read from the record HEADER, so it is safe on the records the link walk below
                 // cannot touch, and every record the merge carries has to be classified.
+                records.Add(rec.FormKey);
                 if (rec.FormKey.ModKey == modKey) originating.Add(rec.FormKey);
                 else if (donorKeys.Contains(rec.FormKey.ModKey)) carried.Add(rec.FormKey);
                 // A deleted record's links are not live, and reaching for them throws on the engine-authored bodies
@@ -2736,7 +2740,7 @@ public static class WritePatchBuilder
                 try
                 {
                     foreach (var link in rec.EnumerateFormLinks())
-                        if (!link.FormKey.IsNull && donorKeys.Contains(link.FormKey.ModKey) && seenLink.Add(link.FormKey))
+                        if (!link.FormKey.IsNull && donorKeys.Contains(link.FormKey.ModKey) && seenLink.Add((rec.FormKey, link.FormKey)))
                             links.Add((rec.FormKey, link.FormKey));
                 }
                 // One record Mutagen cannot parse costs this pre-flight that record's links, never the whole merge:
@@ -2744,7 +2748,7 @@ public static class WritePatchBuilder
                 // in-memory copy still refuses a donor reference that survived the renumber.
                 catch { /* per-record isolation, as the sibling walkers do */ }
             }
-            scan = new MergeDonorScan(originating, carried, links);
+            scan = new MergeDonorScan(originating, carried, records, links);
             return true;
         }
         catch (Exception ex)
@@ -2757,9 +2761,11 @@ public static class WritePatchBuilder
     }
 
     /// <summary>One donor's merge-relevant contents: the records it defines, the donor-space records it carries but does
-    /// not define, and its outgoing links into donor space (one entry per distinct target, with a referencing record).</summary>
+    /// not define, EVERY record key it holds (what decides which donor's body a merge keeps), and its outgoing links into
+    /// donor space (one entry per distinct source-and-target pair).</summary>
     public sealed record MergeDonorScan(
-        IReadOnlyList<FormKey> Originating, IReadOnlyList<FormKey> Carried, IReadOnlyList<(FormKey Source, FormKey Target)> DonorLinks);
+        IReadOnlyList<FormKey> Originating, IReadOnlyList<FormKey> Carried, IReadOnlyList<FormKey> Records,
+        IReadOnlyList<(FormKey Source, FormKey Target)> DonorLinks);
 
     /// <summary>Read a plugin's ORIGINATING record FormKeys (<c>FormKey.ModKey == modKey</c>) in document order — the set
     /// a compaction renumbers (overrides, which reference a master's record, are NOT renumbered). Opens the plugin as a
