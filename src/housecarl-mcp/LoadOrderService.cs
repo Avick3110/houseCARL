@@ -3987,7 +3987,21 @@ public sealed partial class LoadOrderService : IDisposable
                 refPlugin[j] = ""; refLabel[j] = "";
                 nodes[j] = new TreeNodeDelta?[liveTouchers[start + j].Count];
             }
-            refGather.Open(view, session, keys, _ => null);   // the versus= pole's own bodies, one walk per plugin
+            // The versus= pole does not depend on the fold — it reads by FormKey alone — so the whole chunk's
+            // references are resolved here and the gather dropped before a single provider is walked. Read inside
+            // the fold instead, that plugin's chunk share would stay alive beside every other plugin's as the fold
+            // walked them.
+            if (refReader is not null)
+            {
+                refGather.Open(view, session, keys, _ => null);   // one walk of the versus plugin for the chunk
+                for (int j = 0; j < c; j++)
+                {
+                    var rr = refReader(keys[j], null);
+                    if (rr.Error is not null) { versusError[j] = "versus: " + rr.Error; continue; }
+                    refFields[j] = rr.Fields; refPlugin[j] = rr.Pole!.Plugin; refPole[j] = rr.Pole;
+                }
+                refGather.Release();
+            }
 
             var fills = FoldTreeChunkPinned(new ViewPin(resolver, view), session, keys, fields,
                 (j, node, plugin, read, isWinner) =>
@@ -3996,12 +4010,10 @@ public sealed partial class LoadOrderService : IDisposable
                     if (isWinner)
                     {
                         if (refReader is null) { refFields[j] = read; refPlugin[j] = plugin; }
-                        else
-                        {
-                            var rr = refReader(keys[j], null);
-                            if (rr.Error is not null) { versusError[j] = "versus: " + rr.Error; return false; }
-                            refFields[j] = rr.Fields; refPlugin[j] = rr.Pole!.Plugin; refPole[j] = rr.Pole;
-                        }
+                        // A refused versus= stops the row at the winner, so the row still carries the type and
+                        // editorid the winner body just gave it and no nodes — what it carried when the refusal
+                        // was raised here.
+                        else if (versusError[j] is not null) return false;
                         // A node IS the reference only when the reference resolved IN the order: an off-order pole is
                         // never one of the active providers, even when its filename is also active as a different file.
                         // Where they share that filename, the reference's label names its mod folder so the two are told
