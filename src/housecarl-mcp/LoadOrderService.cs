@@ -2603,8 +2603,12 @@ public sealed partial class LoadOrderService : IDisposable
             // number does not carry. Both tiers state that the value is this body's own list; naming the list
             // without the token is what asks for the assembled one.
             var wanted = new Dictionary<string, OwnedChildShape>(hits.Count, StringComparer.Ordinal);
-            foreach (var (_, field) in hits)
-                if (countFields?.Contains(field) != true) wanted[field] = owning[field];
+            foreach (var (row, field) in hits)
+                // Matched on the row's WHOLE read path, hops and all — the spelling countFields is keyed by. The
+                // field name below the hops is the wrong side of the comparison twice over: a hopped count column
+                // would never match it, and a field name that existed on both a record and its parent would match
+                // the wrong column.
+                if (countFields?.Contains(rf.Fields[row].Path) != true) wanted[field] = owning[field];
 
             // A hopped group was read off the CONTAINING record's winner body, so that is the subject the union is
             // assembled against; a hopless group is the read's own source.
@@ -2614,11 +2618,12 @@ public sealed partial class LoadOrderService : IDisposable
             IReadOnlyDictionary<string, ChildUnion>? unions = null;
             if (memo is not null && wanted.Count > 0)
                 unions = memo.Union(onKey, () => OwnedChildUnion.Compute(view, session, onKey, onSource, on, wanted));
-            var touchers = view.TouchingPlugins(onKey);
             // Sole toucher: its own body IS the whole story, and the index-only tier has nothing to say about
-            // plugins that are not there. A union the lane did assemble still states its own negative.
+            // plugins that are not there. A union the lane assembled proves there were others — Compute returns
+            // null below two touchers — so past this line every annotated field has at least one to name.
+            var touchers = view.TouchingPlugins(onKey);
             if (unions is null && touchers is not { Count: > 1 }) continue;
-            var others = touchers is { Count: > 1 } ? touchers.Count - 1 : 0;
+            var others = touchers!.Count - 1;
 
             rebuilt ??= new List<FieldValue>(rf.Fields);
             // The ANNOTATED paths and their unions travel with the outcome, because the render decides its
@@ -2629,8 +2634,9 @@ public sealed partial class LoadOrderService : IDisposable
             map ??= new Dictionary<string, ChildUnion?>(StringComparer.Ordinal);
             foreach (var (i, field) in hits)
             {
-                var u = unions is not null && unions.TryGetValue(field, out var found) ? found : null;
-                if (u is null && others == 0) continue;   // nothing the index tier can state about a sole toucher
+                // A field the union lane was ASKED for must be in the union it computed: a missing key would be a
+                // memo answering for a different field set, which is a fault to throw on, not an index-only note.
+                var u = unions is not null && wanted.ContainsKey(field) ? unions[field] : null;
                 // These fields are containers and owned records; the other producers of Display are the flags decode,
                 // which fires on [Flags] enum leaves alone, and the opaque-blob annotation, which fires on bytes
                 // leaves alone — so there is no annotation here to displace.

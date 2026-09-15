@@ -432,9 +432,34 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
         Assert.Contains("Temporary[*count]", ClauseLine(count, ReadSentences.ClauseFraming(false)));
         var list = Read(_w.CellA, new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Temporary" } });
         Assert.Contains(ReadSentences.UnionLabel, list);
-        // A count beside the list itself does not cost the list its union: the tier is per field, not per call.
+    }
+
+    /// <summary>A record can annotate in BOTH tiers at once — a named list unioned beside a count column that took
+    /// the index-only tier — and then each clause is stated over its own fields. One clause over the mixture would
+    /// assert a union beside a line that carries none.</summary>
+    [Fact]
+    public void EachTiersClauseNamesOnlyItsOwnFields()
+    {
         var both = Read(_w.CellA, new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Temporary", "Persistent[*count]" } });
-        Assert.Contains(ReadSentences.UnionLabel, both);
+        // The named list keeps its assembled union; the count column takes the index-only tier.
+        Assert.Contains(ReadSentences.UnionLabel, FieldLine(both, "Temporary"));
+        Assert.Contains(ReadSentences.NotRead, FieldLine(both, "Persistent[*count]"));
+        // Both framings open with the same sentence, so each clause is found by the half that is its own.
+        var union = LineWith(both, "the whole set the game");
+        var indexOnly = LineWith(both, "A scan answers many rows");
+        Assert.Contains("CHILD RECORDS (Temporary).", union);
+        Assert.Contains("CHILD RECORDS (Persistent[*count]).", indexOnly);
+    }
+
+    /// <summary>The count's tier follows the column's WHOLE path, hops and all: a '*parent' count column is the
+    /// densest case there is (a worldspace cell's placed references) and must not assemble the union either.</summary>
+    [Fact]
+    public void AHoppedCountColumnTakesTheIndexOnlyTierToo()
+    {
+        var r = Read(_w.PlacedNpc, new RecordsTools.RecordsProject { form = "fields", fields = new[] { "*parent.Temporary[*count]" } });
+        var line = FieldLine(r, "*parent.Temporary[*count]");
+        Assert.Contains(ReadSentences.NotRead, line);
+        Assert.DoesNotContain(ReadSentences.UnionLabel, line);
     }
 
     /// <summary>The value beside the union is still the read body's OWN list, in its own order — those are the
@@ -685,7 +710,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     {
         var r = Read(_w.CellA, new RecordsTools.RecordsProject { form = "fields", fields = PaddedCellFields }, maxChars: 1500);
         Assert.Contains("max_chars=1500", r);
-        Assert.DoesNotContain("max_chars=" + (1500 - ReadSentences.ClauseReserve(true)), r);
+        Assert.DoesNotContain("max_chars=" + (1500 - ReadSentences.ClauseReserve(1)), r);
     }
 
     // ---- json ------------------------------------------------------------------------------------
@@ -1668,6 +1693,15 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
             if (f.GetProperty("path").GetString() == path)
                 return f.GetProperty("owned_child_union").TryGetProperty(key, out var v) ? v.Clone() : null;
         throw new Xunit.Sdk.XunitException($"no json field '{path}'");
+    }
+
+    /// <summary>The one rendered line carrying <paramref name="marker"/> — how the two clause framings, which open
+    /// with the same sentence, are told apart.</summary>
+    static string LineWith(string render, string marker)
+    {
+        foreach (var line in render.Split('\n'))
+            if (line.Contains(marker, StringComparison.Ordinal)) return line;
+        throw new Xunit.Sdk.XunitException($"no line carries '{marker}'");
     }
 
     /// <summary>A clause's field-INDEPENDENT head, up to the "{0}" its derived field list fills — so "is it
