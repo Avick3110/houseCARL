@@ -34,6 +34,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
   contested records on a 3,254-plugin order, driven per arm as a private server: tree 33.4 s to 8.6 s, delta 31.4 s
   to 8.1 s and tree against a named `versus=` plugin 36.4 s to 11.3 s over placed references; tree 8.9 s to 6.3 s
   and delta 11.1 s to 6.3 s over weapons. Peak working set is unchanged on every arm.
+- **`format="json"` carries non-ASCII text as itself, and `max_chars` counts characters on every json render.** A
+  Japanese or accented name — the `FULL` of a translated record, a plugin whose filename has an accent — was written
+  as a run of `\uXXXX` escapes; it now rides as the characters it is (`"` `'` `<` `>` `&` `+` are still escaped, as
+  json and HTML safety require). Those escapes were also what kept a json document's UTF-8 byte count equal to its
+  character count, and the caps were measured in bytes while `max_chars` and every notice that states a length are
+  stated in characters. Every json cap test, reserve and stated length now counts characters, in one place
+  (`JsonWire.Chars`), so a response with non-ASCII in it states its own length and is cut at the cap it was given
+  rather than sooner. A document that reported itself longer than it was is the case this closes; the overrun notice
+  is the one place a response may still exceed `max_chars`, and it says so.
 
 ## 2.0.1 — 2026-09-15
 

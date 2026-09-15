@@ -1551,13 +1551,13 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     // A Utf8JsonWriter cannot un-write child_declarers_note once appended, so the cap is checked BEFORE deciding
     // to write it, and against every byte that still lands afterwards: the note's own cost
     // (DeclarersLeadReserve), the `truncated` boolean written between the check and the note
-    // (TruncatedPropertyReserve), and the root close (Framing.RootClose). On CellC's json tree (1914 chars full),
-    // 1914 is the last cap that drops the note and spills, 1915 the first that keeps it.
+    // (TruncatedPropertyReserve), and the root close (Framing.RootClose). On CellC's json tree (1904 chars full),
+    // 1904 is the last cap that drops the note and spills, 1905 the first that keeps it.
 
     [Fact]
     public void Json_TheResponseLevelLeadIsDroppedRatherThanOverrunningCap_AndTruncatedIsSet()
     {
-        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1914));
+        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1904));
         Assert.False(doc.RootElement.TryGetProperty("child_declarers_note", out _));
         Assert.True(doc.RootElement.GetProperty("truncated").GetBoolean());
         Assert.True(doc.RootElement.TryGetProperty("spilled", out _));
@@ -1566,7 +1566,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     [Fact]
     public void Json_TheResponseLevelLeadRidesWhenItFitsWithRoomToSpare()
     {
-        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1915));
+        using var doc = JsonDocument.Parse(Tree(_w.CellC, format: "json", maxChars: 1905));
         Assert.Equal(ReadSentences.DeclarersLead, doc.RootElement.GetProperty("child_declarers_note").GetString());
         Assert.False(doc.RootElement.GetProperty("truncated").GetBoolean());
     }
@@ -1581,7 +1581,7 @@ public sealed class RecordsOwnedChildTests : IClassFixture<OwnedChildFixture>
     public void Json_WhereverTheResponseLevelLeadIsPresent_TheDocumentIsWithinCap()
     {
         int seenWith = 0, seenWithout = 0;
-        for (int cap = 1871; cap <= 1952; cap++)      // the measured boundary (1911/1912) +/- 40
+        for (int cap = 1864; cap <= 1945; cap++)      // the measured boundary (1904/1905) +/- 40
         {
             var r = Tree(_w.CellC, format: "json", maxChars: cap);
             using var doc = JsonDocument.Parse(r);
