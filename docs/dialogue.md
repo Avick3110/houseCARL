@@ -81,12 +81,26 @@ On a line, the `Goodbye` flag, which ends the conversation on the line that carr
 INFO's own `Flags` struct. The create path materialises that struct to all-zero, and all-zero is not
 `Goodbye` — a line meant to close the conversation needs `Flags.Flags = Goodbye` set explicitly.
 
-Two things cannot be measured on a patch that is not yet enabled:
+## Reading the merged order before the patch is enabled
 
-- The dialogue findings family on `housecarl_check` resolves against the active load order, so a fresh,
-  unenabled plugin cannot be dialogue-checked at all (#615).
-- `info_order` has no off-order lane and refuses `source=` by design, because the merge across every plugin
-  touching the topic *is* the answer (#694).
+A patch that is written but not yet ticked in MO2 is not in the active order, so the merge cannot see it. Name it
+on `source=` and `info_order` folds it in at the **end** of the order — where MO2 puts a newly enabled plugin:
 
-So the merged order **after** your patch is only measurable once the patch is enabled. Predict it before, then
-enable and re-read `info_order` to confirm — do not report the prediction as the measurement.
+```
+housecarl_records(formids=["02707A:Skyrim.esm"], project={"form":"info_order"},
+                  source="MyPatch.esp")
+```
+
+The answer is the order as it **would** be with that file enabled: every line the file places is marked
+`[FOLDED]` and named with the file that placed it, and the response says the whole order is a projection. One
+file per call — two files have no order between them until MO2 sorts them — and a filename that is already
+active is refused, since its lines are in the merge already. A topic only the patch defines has no winner in
+the order, so name it in `formids=`; a scan (`types=["DIAL"]`) selects out of the active order and will not
+reach it.
+
+This is a projection, not a measurement. Report it as what the order would be, and re-read without `source=`
+once the patch is enabled if you need the live order.
+
+One thing still cannot be measured on a patch that is not yet enabled: the dialogue findings family on
+`housecarl_check` resolves against the active load order, so a fresh, unenabled plugin cannot be
+dialogue-checked at all (#615).
