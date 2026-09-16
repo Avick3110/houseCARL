@@ -23,12 +23,14 @@ public static class PapyrusClassParents
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>Load the committed baseline. Missing/corrupt file → empty map + a reason string the
-    /// caller surfaces in the tool result — the degraded mode is named, never silent.</summary>
+    /// caller surfaces in the tool result — the degraded mode is named, never silent. The reason says what
+    /// happened only; what it costs the output is the caller's sentence, said once however many sources are
+    /// missing.</summary>
     public static (Dictionary<string, string> Edges, string? Note) LoadBaseline(string jsonPath)
     {
         var edges = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (!File.Exists(jsonPath))
-            return (edges, $"baseline class hierarchy not found beside the server ({Path.GetFileName(jsonPath)}) — output keeps explicit casts");
+            return (edges, $"the baseline class hierarchy is not beside the server ({Path.GetFileName(jsonPath)})");
         try
         {
             using var doc = JsonDocument.Parse(File.ReadAllText(jsonPath));
@@ -39,42 +41,49 @@ public static class PapyrusClassParents
         catch (Exception ex)
         {
             return (new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
-                    $"baseline class hierarchy unreadable ({ex.GetType().Name}) — output keeps explicit casts");
+                    $"the baseline class hierarchy is unreadable ({ex.GetType().Name})");
         }
     }
 
+    /// <summary>What one mods-tree walk actually managed to read: edges added, .psc files seen, files that
+    /// could not be read, and roots whose listing failed. The caller's job is to say what did NOT happen, so
+    /// the walk reports its own holes instead of swallowing them — a tree the process cannot read otherwise
+    /// yields zero edges and no reason.</summary>
+    public readonly record struct PscHeaderScan(int Added, int FilesSeen, int FilesFailed, int RootsUnreadable);
+
     /// <summary>Top up from `ScriptName X extends Y` headers of loose .psc files under
-    /// <paramref name="roots"/> (cheap line reads). First edge per child wins. Returns the number of
-    /// edges added.</summary>
-    public static int AddFromPscHeaders(Dictionary<string, string> edges, IEnumerable<string> roots)
+    /// <paramref name="roots"/> (cheap line reads). First edge per child wins. Never throws: a root that
+    /// cannot be listed and a file that cannot be read are counted and reported.</summary>
+    public static PscHeaderScan AddFromPscHeaders(Dictionary<string, string> edges, IEnumerable<string> roots)
     {
-        int added = 0;
+        int added = 0, seen = 0, failed = 0, rootsUnreadable = 0;
         foreach (var root in roots)
         {
-            if (!Directory.Exists(root)) continue;
-            IEnumerable<string> files;
+            if (!Directory.Exists(root)) { rootsUnreadable++; continue; }
             try
             {
-                files = Directory.EnumerateFiles(root, "*.psc",
-                    new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true });
-            }
-            catch { continue; }
-            foreach (var f in files)
-            {
-                try
+                // The enumeration throws lazily, inside this loop rather than at the call, so the listing's own
+                // failure is caught here with the reads.
+                foreach (var f in Directory.EnumerateFiles(root, "*.psc",
+                             new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true }))
                 {
-                    foreach (var line in File.ReadLines(f).Take(20))
+                    seen++;
+                    try
                     {
-                        var m = ExtendsRx.Match(line);
-                        if (!m.Success) continue;
-                        if (edges.TryAdd(m.Groups[1].Value, m.Groups[2].Value)) added++;
-                        break;
+                        foreach (var line in File.ReadLines(f).Take(20))
+                        {
+                            var m = ExtendsRx.Match(line);
+                            if (!m.Success) continue;
+                            if (edges.TryAdd(m.Groups[1].Value, m.Groups[2].Value)) added++;
+                            break;
+                        }
                     }
+                    catch { failed++; }   // unreadable psc — fewer edges, never fatal, counted
                 }
-                catch { /* unreadable psc — fewer edges, never fatal */ }
             }
+            catch { rootsUnreadable++; }  // the tree could not be listed — nothing was read from it
         }
-        return added;
+        return new PscHeaderScan(added, seen, failed, rootsUnreadable);
     }
 
     /// <summary>Top up from a parsed pex's own object→parent declarations.</summary>

@@ -32,8 +32,8 @@ public static class DecompileTools
          "came from the CK compiler. Any " +
          "function the engine cannot prove is emitted as a LOUD failure comment with its raw bytecode (the .psc then " +
          "won't compile as-is) — never silently wrong source. Needs houseCARL pointed at your MO2 instance for the " +
-         "output folder, except with out_path=, which runs without one and says when the class hierarchy is the " +
-         "vanilla baseline only; no compiler or external tool required.")]
+         "output folder, except with out_path=, which runs without one; when a piece of the class hierarchy could not " +
+         "be read the result says what the hierarchy is instead; no compiler or external tool required.")]
     public static string DecompileScript(
         LoadOrderService svc,
         [Description("Full path to the .pex compiled script to decompile. For a script inside a BSA, run " + ToolNames.BsaExtract + " first and pass the extracted path.")]
@@ -169,14 +169,16 @@ public static class DecompileTools
     /// missing together, and two notes then contradict each other about what was read.</summary>
     internal static string HierarchySentence(ClassParents h)
     {
-        const string tail = " (cosmetic: some implicit casts may render explicitly; the source stays correct).";
         if (h.BaselineNote is null && h.TopUpMissing is null) return "";
+        // What a thinner hierarchy costs, said once however many sources are thin. The .pex's own declarations and
+        // its neighbours' are added on every call, so no case is "baseline only".
+        const string cost = ", so the source keeps an explicit cast wherever an edge is missing (cosmetic; the source stays correct).";
+        const string own = "what this .pex and the .pex files beside it declare";
         if (h.BaselineNote is not null && h.TopUpMissing is not null)
-            return $"\nnote: the class hierarchy is only what this .pex and the .pex files beside it declare — {h.BaselineNote}, " +
-                   $"and the mods-tree sources were not read ({h.TopUpMissing}){tail}";
+            return $"\nnote: {h.BaselineNote}, and the mods-tree sources were not read ({h.TopUpMissing}) — the class hierarchy is {own}{cost}";
         if (h.BaselineNote is not null)
-            return $"\nnote: the class hierarchy is the mods-tree sources only — {h.BaselineNote}{tail}";
-        return $"\nnote: the class hierarchy is the shipped vanilla baseline only — the mods-tree sources were not read ({h.TopUpMissing}){tail}";
+            return $"\nnote: {h.BaselineNote} — the class hierarchy is the MO2 mods-tree sources plus {own}{cost}";
+        return $"\nnote: the mods-tree sources were not read ({h.TopUpMissing}) — the class hierarchy is the shipped vanilla baseline plus {own}{cost}";
     }
 
     /// <summary>The decompile-and-write outcome.</summary>
