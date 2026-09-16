@@ -17,8 +17,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   mod folder.** Pass an absolute path and the `.psc` is written straight into it — nothing appended, the folder
   created when it is missing, and never deleted by houseCARL, since it is yours. The same parameter, with the same
   meaning, as `housecarl_bsa_extract`'s and `housecarl_compile_script`'s. A relative path is refused naming what to
-  pass instead, because the server would resolve it against its own working directory rather than yours; so is a
-  call that also carries `patch=` or `into=`, which name the other destination. Without `out_path=` nothing changes:
+  pass instead, because the server would resolve it against its own working directory rather than yours. A call that
+  also carries `patch=` or `into=` lands in `out_path=` and the result says those were ignored, the same way
+  `housecarl_compile_script` and `housecarl_write_seq` answer that call. Without `out_path=` nothing changes:
   the `.psc` lands in a houseCARL patch-mod folder under `Source\Scripts` as before. To check, decompile with
   `out_path=` a scratch folder and look there for the `.psc` the result names — your mods directory gains no folder.
 
