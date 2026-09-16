@@ -83,18 +83,21 @@ internal static class DialogueSweep
             readIncomplete |= report.ReadIncomplete;
         }
 
+        // The placement is the FOLD's own spelling, shared with the info_order form: one sentence for where a
+        // file lands, so the two surfaces cannot describe the same projection differently.
+        string? folded = fold is null ? null
+                       : string.Format(ReadSentences.DialogueFolded, fold.Plugin, fold.Where, fold.Placement);
+
         // Every seed named was malformed or unresolvable: there is nothing to render and nothing to claim, so the
-        // family answers with one refusal rather than a section of nothing.
+        // family answers with one refusal rather than a section of nothing. It still carries the frame — a seed
+        // that did not resolve was looked for in the projection, and the refusal is about that world.
         if (results.Count > 0 && results.All(r => r.Report is null))
             return DialogueCheckResult.Fail(string.Format(ReadSentences.DialogueNoSeedResolved, results.Count,
-                string.Join(" ", results.Select(r => $"{r.Seed}: {r.Refusal}."))), epoch);
+                string.Join(" ", results.Select(r => $"{r.Seed}: {r.Refusal}."))), epoch) with { Folded = folded };
 
         return new DialogueCheckResult(results, topics, problems, readIncomplete, Limit: limit,
                                        SeedsNamed: named.Length, CountsOnly: countsOnly, Epoch: epoch)
-            // The placement is the FOLD's own spelling, shared with the info_order form: one sentence for where a
-            // file lands, so the two surfaces cannot describe the same projection differently.
-            { Folded = fold is null ? null
-                       : string.Format(ReadSentences.DialogueFolded, fold.Plugin, fold.Where, fold.Placement) };
+            { Folded = folded };
     }
 
     /// <summary>Every finding one report carries, at both levels. Counted off the report rather than off what

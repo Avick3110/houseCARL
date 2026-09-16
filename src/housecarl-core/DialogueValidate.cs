@@ -320,6 +320,7 @@ public static class DialogueValidate
             var view = pinned ?? resolver.Capture();             // pin ONE index build for the whole validation
             using var session = resolver.OpenSession();          // one set of overlays, disposed at run end
             var av = assets.Capture();                           // …and ONE asset build, so presence + ReadIncomplete agree
+            fold?.PlaceIn(view);                                 // where this file would load, against THIS build
 
             // Load-order winner resolver for each INFO's Speaker → NPC → VoiceType and the topic's Quest. Cached for
             // the run so a topic full of lines sharing a speaker doesn't re-enumerate a master per line.
@@ -328,13 +329,11 @@ public static class DialogueValidate
             // everything it carries. One in the MASTER BLOCK is folded in ahead of every regular plugin, so an
             // active regular plugin that touches the same record loads after it and wins — reading the fold's copy
             // there would answer with a body the game would not use.
+            // The same question the merge asks, off the same placement: the fold wins what it carries only where
+            // nothing BELOW its slot touches the record. One rule for all three cases — end of order, end of the
+            // master block, or the active filename's own slot.
             bool FoldWins(FormKey k)
-            {
-                if (fold?.Holds(k) != true) return false;
-                if (!fold.InMasterBlock) return true;
-                var touching = view.TouchingPlugins(k);
-                return touching is null || !touching.Any(p => !view.IsMasterBlock(p));
-            }
+                => fold?.Holds(k) == true && fold.WinsAgainst(view, view.TouchingPlugins(k));
 
             IMajorRecordGetter? Resolve(FormKey k)
             {
@@ -373,10 +372,14 @@ public static class DialogueValidate
                 // with an ACTIVE plugin, so a record that file does not carry still has a real defining body in
                 // the order, and taking the fold's silence for it would leave the SNAM gate blaming an override
                 // for a pair it inherited. The resolver is asked only for a plugin the order actually holds.
-                var g = fold?.Record(k) as IDialogTopicGetter
-                     ?? (fold is not null
-                         && k.ModKey.FileName.String.Equals(fold.Plugin, StringComparison.OrdinalIgnoreCase)
-                         && !view.ContainsPlugin(fold.Plugin)
+                // Only where the fold DEFINES the record: this is "what the override inherited", and the fold's
+                // own copy of a record some master defines is an override itself, not the base one. Where the fold
+                // defines it there is no copy in the order to seek — unless the filename is also active, and then
+                // the order's copy of that name is the base one.
+                bool foldDefines = fold is not null
+                                && k.ModKey.FileName.String.Equals(fold.Plugin, StringComparison.OrdinalIgnoreCase);
+                var g = (foldDefines ? fold!.Record(k) as IDialogTopicGetter : null)
+                     ?? (foldDefines && !view.ContainsPlugin(fold!.Plugin)
                             ? null
                             : view.GetRecord(session, k.ModKey.FileName.String, k, typeof(IDialogTopicGetter)) as IDialogTopicGetter);
                 baseCache[k] = g;

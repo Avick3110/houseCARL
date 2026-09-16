@@ -42,8 +42,8 @@ public static class CheckTools
          "it runs the errors family alone. " +
          "SCOPE: the three SWEPT families share one — plugins= (off-order files included) / types= / formids= / " +
          "editorid_contains= / exclude=, plus property_contains= on the scripts family. The dialogue family is " +
-         "SEEDED instead: seeds= names what to validate, source= folds ONE off-order plugin in at the end of the " +
-         "order, and no plugin scope narrows it. Narrowing narrows the " +
+         "SEEDED instead: seeds= names what to validate, source= folds ONE off-order plugin into the " +
+         "order where MO2 would load it, and no plugin scope narrows it. Narrowing narrows the " +
          "COUNTS too: they are always the counts for the scope actually swept, and the response says so. " +
          "TRANSPORT: counts_only= / format= / limit= / max_chars= / to_file=. Results cap at limit= and max_chars, both " +
          "overruns explicit and per family: the response states how much of each family's listing it carries, why " +
@@ -205,7 +205,10 @@ public static class CheckTools
              "dialogue topics). limit= caps how many seeds one call expands.")]
             string[]? seeds = null,
         [Description("Optional. The DIALOGUE family only: ONE plugin that is NOT in the active load order, FOLDED " +
-             "in at the END of the order — where MO2 puts a newly enabled plugin — so a dialogue patch can be " +
+             "in where MO2 would load it — the END of the order for a regular plugin, after the LAST MASTER for a " +
+             ".esm/.esl or an ESM-flagged one, and that plugin's OWN SLOT when the order already carries the " +
+             "filename (a shadowed copy: enabling its mod folder swaps the bytes at a position the order has) — " +
+             "so a dialogue patch can be " +
              "checked BEFORE it is enabled. Spelled as every other off-order address on this surface: a filename " +
              "(\"MyPatch.esp\"), or {\"file\": \"MyPatch.esp\", \"mod\": \"<mod folder>\"} when two mod folders " +
              "ship the same name. Every seed is then validated against the active order's WINNERS PLUS that file, " +
@@ -378,7 +381,7 @@ public static class CheckTools
             return null;
         }
         return el.ValueKind == System.Text.Json.JsonValueKind.Array
-            ? $"error: source= folds ONE off-order plugin in at the end of the order, and this names {el.GetArrayLength()} — two files have no order between them until MO2 sorts them. Fold one file per call."
+            ? $"error: source= folds ONE off-order plugin into the order, and this names {el.GetArrayLength()} — two files have no order between them until MO2 sorts them. Fold one file per call."
             : "error: source= is the off-order plugin to fold in: a filename (\"MyPatch.esp\") or {\"file\": \"MyPatch.esp\", \"mod\": \"<mod folder>\"} when two mod folders ship that name.";
     }
 
