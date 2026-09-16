@@ -121,31 +121,53 @@ public sealed class RecordsInfoOrderFoldTests
         Assert.Contains("Drop source=", r);
     }
 
-    /// <summary>MO2 does not put a MASTER on the end of the order: an .esm lands in the master block, ahead of
-    /// every regular plugin. So the folded lines are evicted by the regular plugin that re-lists them, exactly as
-    /// they would be once the file is enabled — and the response says where it put the file and why.</summary>
+    /// <summary>MO2 does not put a MASTER on the end of the order: an .esm lands after the last master, ahead of
+    /// every regular plugin below it. This order lists its .esl AFTER three regular plugins, so the position has to
+    /// be read off the index — a rule that assumed the master block is a prefix would put the fold somewhere else
+    /// — and the response names the plugin it landed after.</summary>
     [Fact]
-    public void AMasterFoldLandsInTheMasterBlockNotAtTheEnd()
+    public void AMasterFoldLandsAfterTheLastMasterInTheOrder()
     {
         var r = Folded(W.MasterBlockTopic, $"\"{DialogueWorld.PatchEsmName}\"");
 
-        // Base master: [0,1,2]. The .esm re-lists 1 with no PNAM -> [0,2,1]. The regular winner then re-lists 0
-        // with no PNAM -> [2,1,0]. Placed at the END instead, the last re-list would be the .esm's and 1 would sit
-        // at the bottom.
+        // Base master [0,1,2]; HcDvLast re-lists 0 -> [1,2,0]; the fold, placed after the .esl and so above the
+        // tail plugin, re-lists 1 -> [2,0,1]; the tail plugin then re-lists 0 -> [2,1,0]. Folded at the END it
+        // would have been the last re-list and line 1 would sit at the bottom.
         Assert.Contains($"#1  {Fid(W.MasterBlockInfo[2])}", r);
         Assert.Contains($"#2  {Fid(W.MasterBlockInfo[1])}", r);
         Assert.Contains($"#3  {Fid(W.MasterBlockInfo[0])}", r);
         Assert.Contains("END OF THE MASTER BLOCK", r);
+        Assert.Contains($"immediately after '{DialogueWorld.CcName}'", r);
         Assert.Contains("it is a .esm", r);
     }
 
-    /// <summary>And a plain .esp says the other thing, because that is where MO2 puts it.</summary>
+    /// <summary>A master folded in AHEAD of the topic's defining plugin does not become the baseline the MOVED
+    /// annotations are measured against: that is the definer's own list, and taking the projection's would call
+    /// the definer's lines late additions and half the topic moved.</summary>
+    [Fact]
+    public void AMasterFoldDoesNotBecomeTheMoveBaseline()
+    {
+        // This topic's definer sits BELOW the last master, so the fold contributes before it does.
+        var r = Folded(W.TailTopic, $"\"{DialogueWorld.PatchEsmName}\"");
+
+        // The definer's list is [0,1,2] and it re-places every line after the fold, so nothing moved and nothing
+        // was added late. Measured against the FOLD's one-line list instead, two of the three lines have no
+        // origin at all and render as a later plugin's additions.
+        Assert.DoesNotContain("added by a later plugin", r);
+        Assert.DoesNotContain("MOVED from", r);
+        Assert.Contains($"#1  {Fid(W.TailInfo[0])}", r);
+        Assert.Contains($"#3  {Fid(W.TailInfo[2])}", r);
+    }
+
+    /// <summary>And a plain .esp says the other thing, because that is where MO2 puts it — naming the plugin it
+    /// landed after, so "last" is a position rather than a claim.</summary>
     [Fact]
     public void ARegularFoldSaysItWasPlacedLast()
     {
         var r = Folded(W.Topic, $"\"{DialogueWorld.PatchName}\"");
 
-        Assert.Contains("folded in LAST, where MO2 puts a newly enabled regular plugin", r);
+        Assert.Contains("folded in LAST, after", r);
+        Assert.Contains("where MO2 puts a newly enabled regular plugin", r);
         Assert.DoesNotContain("MASTER BLOCK", r);
     }
 
@@ -161,6 +183,11 @@ public sealed class RecordsInfoOrderFoldTests
         Assert.Contains($"placed by {DialogueWorld.MidName} [off-order copy]", row);
         Assert.Contains($"The FILENAME '{DialogueWorld.MidName}' IS in the order", r);
         Assert.DoesNotContain($"'{DialogueWorld.MidName}' is NOT in the load order", r);
+        // It takes that plugin's OWN slot — enabling the mod folder swaps the bytes at a position the order
+        // already has — so the winner below it still re-lists after it: the fold's line sits at #7, not the end.
+        Assert.Contains($"OWN slot in the load order", r);
+        Assert.Contains($"#7  {Fid(W.Info[2])}", r);
+        Assert.Contains($"#8  {Fid(W.MovedLine)}", r);
 
         var j = RecordsTools.Records(Svc, formids: new[] { Fid(W.Topic) },
                                      project: new RecordsTools.RecordsProject { form = "info_order" },

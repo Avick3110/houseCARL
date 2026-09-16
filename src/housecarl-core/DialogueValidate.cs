@@ -186,6 +186,9 @@ public static class DialogueValidate
                 : null;
         }
 
+        // Where this file would load, decided once against this build before anything is merged.
+        fold?.PlaceIn(view);
+
         var touchingOf = new Dictionary<FormKey, IReadOnlyList<string>>();
         var wantedIn = new Dictionary<string, HashSet<FormKey>>(StringComparer.OrdinalIgnoreCase);
         foreach (var tfk in topicFks)
@@ -253,28 +256,33 @@ public static class DialogueValidate
             // if no unread plugin sits BEFORE that plugin in load order. Testing `touching[0] is unread` is too
             // weak: a first plugin that read but carries an empty child list contributes no baseline, so an
             // unread SECOND plugin still shifts it.
-            // The fold goes where MO2 would put the file. A regular plugin lands at the END of the order, so it is
-            // appended and evicts whatever it re-lists. A file in the MASTER BLOCK — ESM-flagged, or a .esm/.esl —
-            // lands at the end of that block instead, ahead of every regular plugin, so it is inserted after the
-            // last master-block contributor and the regular plugins below it still evict what they re-list. It
-            // does not take the move baseline from the definer: a master can only touch a topic one of ITS masters
-            // defines, so the definer is already ahead of it, and where the fold IS the definer it is the baseline.
+            // The fold goes where MO2 would load the file — DialogueFold.PlaceIn decides which of the three cases
+            // that is, and SlotIndex is the answer both lanes read. The insert is by ORDER POSITION rather than by
+            // scanning backward for a master: the master block is not always a prefix of the order (this repo's
+            // own fixture lists a .esl after regular plugins), so the position comes off the index.
             if (fold?.Topic(tfk) is { } folded)
             {
-                int at = groups.Count;
-                if (fold.InMasterBlock)
-                    while (at > 0 && !view.IsMasterBlock(groups[at - 1].Item1)) at--;
-                groups.Insert(at, (fold.Label, folded.Lines));
+                // A shadowed copy REPLACES the active copy's contribution: enabling its mod folder swaps that
+                // plugin's bytes, so the order carries one list at that slot, not two.
+                if (fold.PlacementKind == DialogueFold.Where3.ActiveSlot)
+                    groups.RemoveAll(g => g.Item1.Equals(fold.Plugin, StringComparison.OrdinalIgnoreCase));
+                int at = groups.FindIndex(g => view.OrderIndexOf(g.Item1) > fold.SlotIndex);
+                groups.Insert(at < 0 ? groups.Count : at, (fold.Label, folded.Lines));
             }
 
-            int firstWithLines = groups.FindIndex(g => g.Item2.Count > 0);
+            // The baseline is the DEFINING plugin's own list, and the fold is not it: a master fold can land
+            // AHEAD of the definer, and taking its list as the baseline would render the definer's own lines as
+            // "added by a later plugin" and half the topic as MOVED against a projection. Compute is told which
+            // group is the projection so it skips it when it picks the baseline.
+            int firstWithLines = groups.FindIndex(g => g.Item2.Count > 0
+                                                    && !g.Item1.Equals(fold?.Label, StringComparison.OrdinalIgnoreCase));
             string? baselinePlugin = firstWithLines >= 0 ? groups[firstWithLines].Item1 : null;
             bool baselineTrusted = unread.Count == 0
                 || (baselinePlugin is not null
                     && !touching.TakeWhile(p => !p.Equals(baselinePlugin, StringComparison.OrdinalIgnoreCase))
                                 .Any(p => unread.Contains(p, StringComparer.OrdinalIgnoreCase)));
 
-            built[tfk] = DialogueInfoOrder.Compute(groups, ResolveInfo, unread, baselineTrusted)
+            built[tfk] = DialogueInfoOrder.Compute(groups, ResolveInfo, unread, baselineTrusted, fold?.Label)
                 with { FoldedPlugin = fold?.Label, FoldedPlacement = fold?.Placement };
         }
         return built;

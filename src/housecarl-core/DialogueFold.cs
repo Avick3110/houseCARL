@@ -52,11 +52,82 @@ public sealed class DialogueFold
     /// never guessed.</summary>
     public string Kind { get; private set; } = "it is a regular plugin";
 
-    /// <summary>Where the fold was placed, as every response states it. One spelling, so the banner, the per-topic
-    /// note and any other frame cannot describe the position differently.</summary>
-    public string Placement => InMasterBlock
-        ? $"folded in at the END OF THE MASTER BLOCK — ahead of every regular plugin, because {Kind}"
-        : "folded in LAST, where MO2 puts a newly enabled regular plugin";
+    /// <summary>Which of the three places MO2 would load this file in. Set by <see cref="PlaceIn"/>.</summary>
+    public enum Where3
+    {
+        /// <summary>A regular plugin: the END of the order, where a newly enabled plugin lands.</summary>
+        EndOfOrder,
+
+        /// <summary>A master: after the LAST master in the load order, ahead of every regular plugin.</summary>
+        EndOfMasterBlock,
+
+        /// <summary>A copy of a filename the order ALREADY carries: ticking its mod folder swaps the bytes at that
+        /// plugin's existing position, so it takes that slot and everything below it still wins what it
+        /// overrides.</summary>
+        ActiveSlot,
+    }
+
+    /// <summary>Which case this fold is. <see cref="PlaceIn"/> decides it; before that it reads as the common one,
+    /// which no lane uses — every lane places the fold before it merges or resolves.</summary>
+    public Where3 PlacementKind { get; private set; } = Where3.EndOfOrder;
+
+    /// <summary>The order index the fold sits AT (an active slot) or immediately AFTER (the other two). Every
+    /// question about what the fold wins is asked against this one number: a plugin below this index still wins
+    /// what it overrides. -1 until <see cref="PlaceIn"/> runs.</summary>
+    public int SlotIndex { get; private set; } = -1;
+
+    /// <summary>Where the fold was placed, as every response states it — the case, the neighbour it lands beside
+    /// and that plugin's position. One spelling, so the banner, the per-topic note and the check's own frame
+    /// cannot describe the position differently.</summary>
+    public string Placement { get; private set; } = "folded in LAST, where MO2 puts a newly enabled regular plugin";
+
+    /// <summary>Work out where this file would load, against one captured build, and say it. Three cases, decided
+    /// here so both lanes place a fold the same way:
+    /// <list type="bullet">
+    /// <item>the order already carries this FILENAME (a shadowed copy named by {file, mod}) — the file takes that
+    /// plugin's own slot, because enabling its mod folder swaps the bytes at a position the order already has;</item>
+    /// <item>a master — after the LAST master in load order, which is NOT the same as a prefix of the order: an
+    /// order can list a .esl after regular plugins, so the position is read off the index rather than assumed;</item>
+    /// <item>a regular plugin — the end.</item>
+    /// </list>
+    /// Idempotent: calling it again against the same build changes nothing.</summary>
+    public void PlaceIn(LoadOrderResolver.IndexView view)
+    {
+        var names = view.ScannablePluginNames;
+        string At(int i) => i >= 0 && i < names.Count ? names[i] : "<none>";
+        int Position(int i) => i + 1;
+
+        if (view.ContainsPlugin(Plugin))
+        {
+            PlacementKind = Where3.ActiveSlot;
+            SlotIndex = view.OrderIndexOf(Plugin);
+            Placement = $"folded into '{Plugin}'s OWN slot in the load order (position {Position(SlotIndex)} of {view.PluginCount}) — "
+                      + "enabling that mod folder swaps the bytes at a position the order already has, so every plugin below it still wins what it overrides";
+            return;
+        }
+        if (InMasterBlock)
+        {
+            // The last master IN LOAD ORDER, found by walking the order — the master block is not always a
+            // contiguous prefix (an order can list a .esl after regular plugins, and this fixture's own does).
+            int last = -1;
+            for (int i = 0; i < names.Count; i++) if (view.IsMasterBlock(names[i])) last = view.OrderIndexOf(names[i]);
+            PlacementKind = Where3.EndOfMasterBlock;
+            SlotIndex = last;
+            Placement = $"folded in at the END OF THE MASTER BLOCK — immediately after '{At(last)}' (position {Position(last)} of {view.PluginCount}), "
+                      + $"the last master in the load order, and ahead of every regular plugin below it, because {Kind}";
+            return;
+        }
+        PlacementKind = Where3.EndOfOrder;
+        SlotIndex = view.PluginCount - 1;
+        Placement = $"folded in LAST, after '{At(SlotIndex)}' (position {Position(SlotIndex)} of {view.PluginCount}), "
+                  + "where MO2 puts a newly enabled regular plugin";
+    }
+
+    /// <summary>Does this fold WIN a record, given the plugins that touch it in the active order? It wins what it
+    /// carries only where nothing below its slot touches the record — the one question all three placement cases
+    /// reduce to. The active copy of a shadowed fold sits AT the slot, so it never blocks its own replacement.</summary>
+    public bool WinsAgainst(LoadOrderResolver.IndexView view, IReadOnlyList<string>? touching)
+        => touching is null || !touching.Any(p => view.OrderIndexOf(p) > SlotIndex);
 
     readonly Dictionary<FormKey, FoldedTopic> _topics = new();
 
@@ -96,10 +167,6 @@ public sealed class DialogueFold
         finally { (ov as IDisposable)?.Dispose(); }
         return fold;
     }
-
-    /// <summary>How many DIAL topics this file carries — what a response states so a fold that touches none of
-    /// the read's topics reads as a fact rather than as silence.</summary>
-    public int TopicCount => _topics.Count;
 
     /// <summary>The folded copy of this topic, or null when the file does not touch it.</summary>
     public FoldedTopic? Topic(FormKey fk) => _topics.TryGetValue(fk, out var t) ? t : null;

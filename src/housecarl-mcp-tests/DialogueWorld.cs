@@ -124,6 +124,18 @@ public sealed class DialogueWorld : IDisposable
     /// the end of the order.</summary>
     public const string PatchEsmName = "HcDvPatch.esm";
 
+    /// <summary>A regular plugin listed AFTER <see cref="CcName"/>, so the master block is not a prefix of this
+    /// order and a folded master has to land between the two — the shape that tells a forward scan over order
+    /// positions apart from a backward scan over contributors.</summary>
+    public const string TailName = "HcDvTail.esp";
+
+    /// <summary>A topic <see cref="TailName"/> DEFINES, below the last master — so a folded master lands ahead of
+    /// its defining plugin, which is where a projection must not become the move baseline.</summary>
+    public FormKey TailTopic { get; private set; }
+
+    /// <summary>Its three INFOs, in the defining plugin's own list order.</summary>
+    public IReadOnlyList<FormKey> TailInfo { get; private set; } = Array.Empty<FormKey>();
+
     /// <summary>A second copy of <see cref="MidName"/>, in a DISABLED mod folder — the shadowed-copy fold, whose
     /// filename is active while this file is not the one the order loads.</summary>
     public const string ShadowModFolder = "MidShadowMod";
@@ -264,6 +276,28 @@ public sealed class DialogueWorld : IDisposable
         cc.BeginWrite.ToPath(Path.Combine(mods, "CcMod", CcName))
           .WithLoadOrder(new ISkyrimModGetter[] { sky, master, mid, last }).Write();
 
+        // A regular plugin BELOW the .esl, so this order's master block is not a prefix: it re-lists the base
+        // master's first line, which is what a folded master landing above it must not evict.
+        var tail = new SkyrimMod(ModKey.FromNameAndExtension(TailName), SkyrimRelease.SkyrimSE);
+        var tailTopic = (IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(tail, masterOrder);
+        tailTopic.Responses.Clear();
+        tailTopic.Responses.Add(new DialogResponses(masterInfo[0], SkyrimRelease.SkyrimSE) { EditorID = "HcDvMasterLine0" });
+        // …and a topic of its OWN, below the last master: a folded master lands AHEAD of this plugin, so this is
+        // the topic whose definer the projection can precede.
+        var tailOwn = tail.DialogTopics.AddNew(); tailOwn.EditorID = "HcDvTailOrder";
+        TailTopic = tailOwn.FormKey;
+        var tailInfo = new FormKey[3];
+        for (int i = 0; i < 3; i++)
+        {
+            var r = new DialogResponses(tail.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = $"HcDvTailLine{i}" };
+            tailInfo[i] = r.FormKey;
+            tailOwn.Responses.Add(r);
+        }
+        TailInfo = tailInfo;
+        Directory.CreateDirectory(Path.Combine(mods, "TailMod"));
+        tail.BeginWrite.ToPath(Path.Combine(mods, "TailMod", TailName))
+            .WithLoadOrder(new ISkyrimModGetter[] { sky }).Write();
+
         // The freshly authored patch: written into a DISABLED mod folder and listed in neither loadorder.txt nor
         // plugins.txt, so nothing in the active order sees it. It re-lists INFO 3 with NO PNAM (the tail arm) and
         // INFO 5 with a PNAM naming INFO 1 (the after-target arm), and defines a topic of its own.
@@ -297,9 +331,14 @@ public sealed class DialogueWorld : IDisposable
         var esmTopic = (IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(patchEsm, masterOrder);
         esmTopic.Responses.Clear();
         esmTopic.Responses.Add(new DialogResponses(masterInfo[1], SkyrimRelease.SkyrimSE) { EditorID = "HcDvMasterLine1" });
+        // …and it re-lists ONE line of a topic the TAIL plugin defines, which sits below it: the fold contributes
+        // before the definer does, which is where a projection could wrongly become the move baseline.
+        var esmTailTopic = (IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(patchEsm, tailOwn);
+        esmTailTopic.Responses.Clear();
+        esmTailTopic.Responses.Add(new DialogResponses(tailInfo[1], SkyrimRelease.SkyrimSE) { EditorID = "HcDvTailLine1" });
         Directory.CreateDirectory(Path.Combine(mods, "PatchEsmMod"));
         PatchEsmPath = Path.Combine(mods, "PatchEsmMod", PatchEsmName);
-        patchEsm.BeginWrite.ToPath(PatchEsmPath).WithLoadOrder(new ISkyrimModGetter[] { sky }).Write();
+        patchEsm.BeginWrite.ToPath(PatchEsmPath).WithLoadOrder(new ISkyrimModGetter[] { sky, tail }).Write();
 
         // The SHADOWED copy: the same filename as an ACTIVE plugin, in a disabled folder. It re-lists INFO 2 with
         // no PNAM, so folding it moves that line to the bottom — and its rows must not render under the active
@@ -317,16 +356,19 @@ public sealed class DialogueWorld : IDisposable
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
         var prof = Path.Combine(Instance, "profiles", "Default");
         Directory.CreateDirectory(prof);
+        // The .esl sits ABOVE a regular plugin here, which is legal and is the shape that catches a placement
+        // rule assuming the master block is a prefix of the order.
         File.WriteAllText(Path.Combine(prof, "loadorder.txt"),
             "# header\r\n" + VanillaName + "\r\n" + MasterName + "\r\n" + MidName + "\r\n" + LastName + "\r\n"
-            + CcName + "\r\n");
+            + CcName + "\r\n" + TailName + "\r\n");
         // Neither the base master nor the CC plugin is listed here — that absence is what makes them force-loaded.
-        File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + MasterName + "\r\n*" + MidName + "\r\n*" + LastName + "\r\n");
+        File.WriteAllText(Path.Combine(prof, "plugins.txt"),
+            "*" + MasterName + "\r\n*" + MidName + "\r\n*" + LastName + "\r\n*" + TailName + "\r\n");
         // PatchMod, PatchEsmMod and the shadow folder are switched OFF: their files are on disk and out of the
         // order, which is what a fold names. MidMod sits above the shadow folder, so the copy the order loads —
         // and the copy a {file, mod} fold of the shadow is measured against — is MidMod's.
         File.WriteAllText(Path.Combine(prof, "modlist.txt"),
-            "# header\r\n-PatchMod\r\n-PatchEsmMod\r\n+CcMod\r\n+LastMod\r\n+MidMod\r\n-" + ShadowModFolder
+            "# header\r\n-PatchMod\r\n-PatchEsmMod\r\n+TailMod\r\n+CcMod\r\n+LastMod\r\n+MidMod\r\n-" + ShadowModFolder
             + "\r\n+MasterMod\r\n+VanillaStub\r\n");
 
         var store = new UserConfigStore(Path.Combine(Root, "user.json"));
