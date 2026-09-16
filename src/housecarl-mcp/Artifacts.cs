@@ -467,17 +467,40 @@ internal static class Artifacts
 
     /// <summary>Split a plain list file's content into tokens, the same grammar the where-grammar's @file uses:
     /// commas and newlines separate — never bare spaces, since plugin filenames contain them — and brackets and
-    /// quotes are stripped per token so a pasted JSON array parses as-is.
+    /// quotes are stripped per token, so a pasted JSON array parses as-is ON THE FORMID LANE.
     /// <para><paramref name="commaSeparates"/> is false for a list of PATHS: a comma is legal in a Windows file name
     /// and mod authors use them, so splitting on it would turn one line into two tokens and answer ABSENT twice for
-    /// a file that exists. A FormID cannot contain a comma, so that lane keeps both separators.</para></summary>
+    /// a file that exists. A FormID cannot contain a comma, so that lane keeps both separators.</para>
+    /// <para>That leaves the path lane a pasted JSON array on ONE line, which line splitting would join into one
+    /// bogus token that is still a legal relative path — a wrong join in place of the wrong split. So content that
+    /// opens with '[' is PARSED as a JSON array first, and only content that is not one falls through to line
+    /// splitting.</para></summary>
     public static IEnumerable<string> SplitListTokens(string content, bool commaSeparates = true)
     {
+        if (!commaSeparates && JsonArrayOrNull(content) is { } parsed)
+        {
+            foreach (var t in parsed) if (t.Length > 0) yield return t;
+            yield break;
+        }
         foreach (var t in content.Split(commaSeparates ? ListSeparators : LineSeparators, StringSplitOptions.RemoveEmptyEntries))
         {
             var tok = t.Trim('[', ']', '"', '\'', ' ', '\t');
             if (tok.Length > 0) yield return tok;
         }
+    }
+
+    /// <summary>The file's content read as a JSON array of strings, or null when it does not open with '[' or does
+    /// not parse as one — in which case the caller splits it as lines, exactly as before.</summary>
+    static IReadOnlyList<string>? JsonArrayOrNull(string content)
+    {
+        var trimmed = content.TrimStart('﻿', ' ', '\t', '\r', '\n');
+        if (!trimmed.StartsWith("[", StringComparison.Ordinal)) return null;
+        try
+        {
+            var arr = JsonSerializer.Deserialize<string[]>(trimmed);
+            return arr?.Select(t => (t ?? "").Trim()).ToList();
+        }
+        catch (JsonException) { return null; }
     }
 
     static readonly char[] ListSeparators = { ',', '\r', '\n' };

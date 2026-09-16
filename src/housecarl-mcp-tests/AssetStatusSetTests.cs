@@ -1,6 +1,9 @@
 using System.Text.Json;
 using HousecarlCore;
 using HousecarlMcp;
+using Mutagen.Bethesda;
+using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Skyrim;
 using Xunit;
 
 namespace HousecarlMcpTests;
@@ -61,7 +64,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         var tint = AssetSelectWorld.Face(AssetSelectWorld.SplitFormId, FaceGenSlot.Tint);
 
         var d = _w.Svc.AssetStatus(Array.Empty<string>(), null, 0, 0,
-                                   new[] { new FaceGenSeed(AssetSelectWorld.SplitFormId, Mutagen.Bethesda.Plugins.FormKey.Factory(AssetSelectWorld.SplitFormId), null) });
+                                   new[] { new FaceGenSeed(AssetSelectWorld.SplitFormId, FormKey.Factory(AssetSelectWorld.SplitFormId), null) });
 
         Assert.Equal(2, d.Results.Count);
         var m = Row(d, mesh);
@@ -83,7 +86,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
 
         // A clean same-source pair is NOT flagged: the split is the finding, not the pairing.
         var clean = _w.Svc.AssetStatus(Array.Empty<string>(), null, 0, 0,
-                                       new[] { new FaceGenSeed(AssetSelectWorld.MatchedFormId, Mutagen.Bethesda.Plugins.FormKey.Factory(AssetSelectWorld.MatchedFormId), null) });
+                                       new[] { new FaceGenSeed(AssetSelectWorld.MatchedFormId, FormKey.Factory(AssetSelectWorld.MatchedFormId), null) });
         Assert.All(clean.Results, r => Assert.False(r.PairDiffers));
     }
 
@@ -94,7 +97,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
     public void TwoArchivesOfOneModAreNotASplit()
     {
         var d = _w.Svc.AssetStatus(Array.Empty<string>(), null, 0, 0,
-                                   new[] { new FaceGenSeed(AssetSelectWorld.ArchivePairFormId, Mutagen.Bethesda.Plugins.FormKey.Factory(AssetSelectWorld.ArchivePairFormId), null) });
+                                   new[] { new FaceGenSeed(AssetSelectWorld.ArchivePairFormId, FormKey.Factory(AssetSelectWorld.ArchivePairFormId), null) });
 
         var mesh = Row(d, AssetSelectWorld.Face(AssetSelectWorld.ArchivePairFormId, FaceGenSlot.Mesh));
         var tint = Row(d, AssetSelectWorld.Face(AssetSelectWorld.ArchivePairFormId, FaceGenSlot.Tint));
@@ -332,6 +335,28 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         finally { File.Delete(list); }
     }
 
+    /// <summary>A pasted JSON array on ONE line is parsed as one, not joined into a single bogus token. Line
+    /// splitting alone would hand back `meshes/a.nif", "meshes/b.nif` — still a legal relative path, so it passes
+    /// validation and comes back as one ABSENT row with no refusal and no note, which is the comma bug's mirror
+    /// image.</summary>
+    [Fact]
+    public void AOneLinePathArrayIsParsedAsJsonRatherThanJoinedIntoOneToken()
+    {
+        var list = Temp("array-paths.txt");
+        File.WriteAllText(list, "[\"" + _w.Rel("0001.nif").Replace("\\", "\\\\") + "\", \""
+                                      + _w.Rel("0002.nif").Replace("\\", "\\\\") + "\"]");
+        try
+        {
+            var text = AssetTools.AssetStatus(_w.Svc, new[] { "@" + list });
+
+            Assert.Contains("(2 paths selected)", text);
+            Assert.Contains("WINS: \"FaceBase\" (loose)", text);
+            Assert.Contains("WINS: \"FaceHigher\" (loose)", text);
+            Assert.DoesNotContain("ABSENT", text);
+        }
+        finally { File.Delete(list); }
+    }
+
     /// <summary>A glob's cap counts MATCHES, not candidates: the pattern filters inside the walk, so a narrow
     /// selector under a wide folder is never refused for the folder's size.</summary>
     [Fact]
@@ -423,15 +448,49 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         finally { File.Delete(file); }
     }
 
-    /// <summary>The no-epoch sentence is written from whatever the build threw, not from one exception type: an order
-    /// the profile files cannot be READ for right now — MO2 rewriting them on a re-sort while it holds the handle —
-    /// reports as the fingerprint being missing, with the reason, not as an internal failure.
-    /// <para>Driven at the seam rather than by locking a profile file, because locking one does not reach this code:
-    /// the asset capture re-reads the same files a frame earlier (<c>LoadOrderService.Assets</c> →
-    /// <c>RefreshOnProfileChange</c> → <c>ReResolve</c>) and throws before the epoch is ever asked for — #794. This
-    /// asserts what this PR owns.</para></summary>
+    /// <summary>A build that lost a plugin to a load failure says so in the artifact AND beside the spilled marker,
+    /// naming it. Driven end to end by holding a plugin file open — the index build excludes a plugin it cannot open
+    /// rather than failing — so what is asserted is the stamp the tool actually wrote, not a manifest built by
+    /// hand.</summary>
     [Fact]
-    public void TheNoEpochSentenceIsWrittenFromWhateverTheBuildThrew()
+    public void ADegradedOrderIsNamedInTheArtifactAndBesideTheSpillMarker()
+    {
+        using var w = new DegradedOrderWorld();
+        var file = Temp("degraded-live.jsonl");
+        try
+        {
+            using (new FileStream(w.PluginFile, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                w.ForceRebuild();
+
+                var text = AssetTools.AssetStatus(w.Svc, new[] { DegradedOrderWorld.AssetPath }, to_file: file);
+
+                Assert.DoesNotContain("failed unexpectedly", text);
+                Assert.Contains("order_degraded=true", text);
+                Assert.Contains(DegradedOrderWorld.LockedPlugin, text);
+                Assert.Contains("spilled: complete result (1 row)", text);
+
+                var manifest = JsonDocument.Parse(File.ReadAllLines(file)[0]).RootElement;
+                Assert.True(manifest.GetProperty("order_degraded").GetBoolean());
+                Assert.Contains(manifest.GetProperty("excluded_plugins").EnumerateArray(),
+                                p => p.GetString() == DegradedOrderWorld.LockedPlugin);
+                // The epoch is real here: the order built, it just built short of one plugin.
+                Assert.NotEqual("", manifest.GetProperty("epoch").GetString());
+            }
+        }
+        finally { File.Delete(file); }
+    }
+
+    /// <summary>The no-epoch sentence is written from whatever the order read threw, with its remedy, on BOTH
+    /// transports — the response, whose reader has the call in hand, and the file, whose reader months later has
+    /// nothing else to go on.
+    /// <para>Driven at the seam with an <see cref="IOException"/> message rather than end to end: the index build
+    /// opens no plugin eagerly (a plugin it cannot open is excluded, which the test above uses), so the only thing
+    /// that can throw one here is the profile read — and the asset capture reads the same files a frame earlier and
+    /// dies first, which is #794. The <see cref="InvalidOperationException"/> arm of the same catch IS driven end to
+    /// end, by <see cref="ToFileWritesTheArtifactAndTheManifestReadsBack"/>.</para></summary>
+    [Fact]
+    public void TheNoEpochSentenceCarriesTheReasonAndTheRemedyOnBothTransports()
     {
         var file = Temp("unreadable.jsonl");
         try
@@ -448,10 +507,12 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             Assert.Contains("epoch: NONE", text);
             Assert.Contains("could not be read for a fingerprint", text);
             Assert.Contains("being used by another process", text);
-            // And the file says it too: an artifact re-read later carries no conversation.
+            Assert.Contains("re-run once the order reads", text);
+
             var manifest = JsonDocument.Parse(File.ReadAllLines(file)[0]).RootElement;
             Assert.Contains(manifest.GetProperty("notes").EnumerateArray(),
-                            n => n.GetString()!.Contains("'epoch' is EMPTY", StringComparison.Ordinal));
+                            n => n.GetString()!.Contains("'epoch' is EMPTY", StringComparison.Ordinal)
+                              && n.GetString()!.Contains("re-run the call once the order reads", StringComparison.Ordinal));
         }
         finally { File.Delete(file); }
     }
@@ -494,5 +555,82 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             .GetProperty("results")[0];
         Assert.False(plain.TryGetProperty("formid", out _));
         Assert.False(plain.TryGetProperty("pair", out _));
+    }
+}
+
+/// <summary>A two-plugin MO2 instance whose SECOND plugin file can be HELD by something else. The index build opens
+/// each plugin, and one it cannot open is EXCLUDED from the build rather than failing it — so holding that file is
+/// how a degraded order is produced on demand, and the stamp the artifact carries can be driven end to end instead
+/// of asserted off a hand-built manifest.
+/// <para>Its own instance, not a shared fixture: a test that locks a file and forces a rebuild must not poison a
+/// world other tests read.</para></summary>
+sealed class DegradedOrderWorld : IDisposable
+{
+    /// <summary>The one loose asset the sweep answers for, provided by a mod folder the index never opens.</summary>
+    public const string AssetPath = @"meshes\hclocked\thing.nif";
+
+    /// <summary>The plugin this world's tests hold open, and the name the degraded stamp must carry.</summary>
+    public const string LockedPlugin = "HcLockedTwo.esm";
+
+    public string Root { get; }
+    public string PluginFile { get; }
+    public LoadOrderService Svc { get; }
+
+    public DegradedOrderWorld()
+    {
+        Root = Path.Combine(Path.GetTempPath(), "hc-degraded-" + Guid.NewGuid().ToString("N"));
+        var instance = Path.Combine(Root, "instance");
+        var profile = Path.Combine(instance, "profiles", "Default");
+        var mods = Path.Combine(instance, "mods");
+        var pluginMod = Path.Combine(mods, "PluginMod");
+        var assetMod = Path.Combine(mods, "AssetMod");
+        foreach (var d in new[] { profile, Path.Combine(Root, "game", "Data"), pluginMod, assetMod })
+            Directory.CreateDirectory(d);
+
+        // Two masters, so the order still resolves when the second is excluded — one alone would leave no active
+        // plugin and fail the build outright, which is a different answer.
+        var first = new ModKey("HcLockedOne", ModType.Master);
+        var second = new ModKey(Path.GetFileNameWithoutExtension(LockedPlugin), ModType.Master);
+        foreach (var key in new[] { first, second })
+        {
+            var mod = new SkyrimMod(key, SkyrimRelease.SkyrimSE);
+            mod.Weapons.AddNew().EditorID = key.Name + "Weapon";
+            mod.BeginWrite.ToPath(Path.Combine(pluginMod, key.FileName.String))
+               .WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
+        }
+        PluginFile = Path.Combine(pluginMod, LockedPlugin);
+
+        var asset = Path.Combine(assetMod, AssetPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(asset)!);
+        File.WriteAllText(asset, "x");
+
+        File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
+            "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
+            + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
+        File.WriteAllText(Path.Combine(profile, "loadorder.txt"),
+            "# header\r\n" + first.FileName.String + "\r\n" + LockedPlugin + "\r\n");
+        File.WriteAllText(Path.Combine(profile, "plugins.txt"),
+            "*" + first.FileName.String + "\r\n*" + LockedPlugin + "\r\n");
+        File.WriteAllText(Path.Combine(profile, "modlist.txt"), "# header\r\n+AssetMod\r\n+PluginMod\r\n");
+        File.WriteAllText(Path.Combine(profile, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
+
+        _profile = profile;
+        Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
+    }
+
+    readonly string _profile;
+
+    /// <summary>Bump the profile's own stamp so the next call re-resolves and re-opens the plugins, rather than
+    /// answering off the build the constructor already made before the file was locked.</summary>
+    public void ForceRebuild()
+    {
+        var loadOrder = Path.Combine(_profile, "loadorder.txt");
+        File.WriteAllText(loadOrder, File.ReadAllText(loadOrder) + "\r\n");
+    }
+
+    public void Dispose()
+    {
+        Svc.Dispose();
+        try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }

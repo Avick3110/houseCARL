@@ -21,21 +21,20 @@ public static class AssetTools
          "higher-priority mod (then overwrite) wins, among BSAs the later-loaded plugin's archive wins. This is the " +
          "file-layer counterpart to the load-order winner of a record: use it to answer 'which mod provides this file / " +
          "is this texture loose or in a BSA / is this asset even present / why isn't my " +
-         "override applying' for ANY mesh, texture, script, sound, interface, or other Data-relative path. Pass " +
+         "override applying' for ANY Data-relative path — mesh, texture, script, sound, interface. Pass " +
          "asset_paths = one or more paths RELATIVE to the Data folder, and/or under = a Data-relative DIRECTORY or " +
          "glob, which resolves every file the VFS provides beneath it — one call over " +
          "'meshes/actors/character/facegendata/facegeom/Skyrim.esm' answers for every facegen mesh a master defines. " +
          "Or formids = NPC FormIDs: BOTH halves of each one's FaceGen pair are derived and " +
          "resolved (head mesh + face tint), each row naming the OTHER half's winner beside its own — a whole-order " +
          "dark-face pairing sweep in ONE call. SELECT forms compose, and every " +
-         "list-valued one takes '@<absolute path>' in place of the inline list. An archive " +
-         "that cannot be read, or a " +
-         "Skyrim.ini base-archive list that cannot be found, is reported LOUD — so an 'absent' answer is never silently " +
-         "trusted when the scan was incomplete. format='json' returns the same data machine-readably, with the same " +
+         "list-valued one takes '@<absolute path>' in place of the inline list. An archive that cannot be read, or a " +
+         "missing Skyrim.ini base-archive list, is reported LOUD — so an 'absent' answer is never silently " +
+         "trusted. format='json' returns the same data machine-readably, with the same " +
          "accounting in-band. TRANSPORT — format= | limit= | offset= | max_chars= | to_file=. BOUND: 1,200,000 paths " +
-         "RESOLVED a call (the window where limit= takes one, else the whole selection); past it the call refuses up " +
-         "front with the count and the estimate. Read-only: resolves " +
-         "nothing to disk, writes nothing, changes no load order.")]
+         "RESOLVED a call — the window where limit= takes one, except under to_file=, which always resolves the " +
+         "whole selection — and past it the call refuses up front with the count and the estimate. Read-only: " +
+         "resolves nothing to disk, writes nothing, changes no load order.")]
     public static string AssetStatus(
         LoadOrderService svc,
         [Description("The Data-relative asset path(s) to resolve, e.g. " +
@@ -164,11 +163,14 @@ public static class AssetTools
         string? noEpochBecause = null;
         if (wantFile || idDemand is not null)
         {
-            // Everything the build can throw, not just the no-active-plugins case: the profile files are read
-            // unguarded, and MO2 rewriting plugins.txt on a re-sort hands this an IOException while it holds the
-            // handle. A sweep that never needed the record index must not die on that either.
+            // What READING the order can throw, and nothing else. The profile files are read unguarded, so MO2
+            // rewriting them on a re-sort hands this an IOException while it holds the handle, and an order with no
+            // active plugins is the InvalidOperationException — both are honest degrades for a sweep that never
+            // needed the record index. Anything else is a bug, and the sentence below names a cause ("the order
+            // could not be read … re-run once it reads") that would be false of one.
             try { order = svc.CaptureView().Stamp; }
-            catch (Exception ex) { noEpochBecause = Guard.Flatten(ex.Message); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            { noEpochBecause = Guard.Flatten(ex.Message); }
         }
         if (idDemand is { } demand)
         {
