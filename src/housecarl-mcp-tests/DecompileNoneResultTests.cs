@@ -189,11 +189,14 @@ public class DecompileNoneResultTests
     {
         // The call's value hops into ::temp0 at the next instruction, then an unrelated call lands
         // before the statement that carries it. `Poke` runs before `Bar`, and the statement that
-        // carries the older value must not be emitted after the newer one.
+        // carries the older value must not be emitted after the newer one. Both destinations are
+        // function locals, so the two stores are invisible to the call held back past them.
         var f = Fn(("HC_NoneTarget", "f"));
         Local(f, "HC_NoneTarget", "::temp0");
         Local(f, "Int", "::temp1");
         Local(f, "None", "::NoneVar");
+        Local(f, "HC_NoneTarget", "Kept");
+        Local(f, "Int", "Num");
         Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::NoneVar"), Int(0));
         Ins(f, InstructionOpcode.CAST, Id("::temp0"), Id("::NoneVar"));
         Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
@@ -211,10 +214,13 @@ public class DecompileNoneResultTests
     public void TwoInterleavedCallsOnOrdinaryTempsKeepTheirOrder()
     {
         // The same interleave with no discard slot in it at all. The rule is in the pending
-        // machinery, not in the ::NoneVar route, so it has to hold here too.
+        // machinery, not in the ::NoneVar route, so it has to hold here too. Locals again: the
+        // member-destination form of this stream is the refusal two tests below.
         var f = Fn(("HC_NoneTarget", "f"));
         Local(f, "HC_NoneTarget", "::temp0");
         Local(f, "Int", "::temp1");
+        Local(f, "HC_NoneTarget", "Kept");
+        Local(f, "Int", "Num");
         Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
         Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
         Ins(f, InstructionOpcode.ASSIGN, Id("Kept"), Id("::temp0"));
@@ -351,6 +357,142 @@ public class DecompileNoneResultTests
         Assert.Equal(1, res.FunctionsFailed);
         Assert.Contains("::temp1", Assert.Single(res.Failures));
         Assert.DoesNotContain("f.Prop = f.Poke()", res.Source);
+    }
+
+    [Fact]
+    public void AStoreToAScriptMemberNeverOvertakesACallProducedAfterIt()
+    {
+        // The same interleave, storing into a script member instead of a local. `ReadsCount` ran before
+        // the store in the stream, so emitting the store first shows it a value it never saw.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "HC_NoneTarget", "::temp0");
+        Local(f, "Int", "::temp1");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("ReadsCount"), Id("self"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.ASSIGN, Id("Count"), Id("::temp0"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("Num"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("MemberStore", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+        Assert.DoesNotContain("Count = f.Poke()", res.Source);
+    }
+
+    [Fact]
+    public void ACallWritingARealVariableNeverOvertakesACallProducedAfterIt()
+    {
+        // The call-argument shape with a real destination instead of the discard slot: `Eat` runs here,
+        // after `Bar` in the stream, and folding `Poke` into its argument list puts it before `Bar`.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "HC_NoneTarget", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "Int", "num");
+        Local(f, "Int", "eaten");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Eat"), Id("f"), Id("eaten"), Int(1), Id("::temp0"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("num"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("CallDest", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+        Assert.DoesNotContain("f.Eat(f.Poke())", res.Source);
+    }
+
+    [Fact]
+    public void AStatementThatOnlyReadsAndStoresToALocalIsNotRefused()
+    {
+        // The narrowing: this statement folds in `Poke`, which already ran at its own index, and stores
+        // into a local. `msg = f.Poke() + "x"` / `num = f.Bar()` runs Poke then Bar — the stream's order.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "String", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "String", "msg");
+        Local(f, "Int", "num");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.STRCAT, Id("msg"), Id("::temp0"), Str("x"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("num"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("ReadOnlyFold", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        AssertOrder(res.Source, "f.Poke()", "f.Bar()");
+    }
+
+    [Fact]
+    public void AStatementFoldingInACallThatRanLaterIsStillRefused()
+    {
+        // Same statement shape, but the value it folds in runs its own call at index 2 — after `Bar`.
+        // `kept = f.Inner(f.Poke())` / `num = f.Bar()` would run Inner before Bar, which the stream did not.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "HC_NoneTarget", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "HC_NoneTarget", "::temp2");
+        Local(f, "Int", "kept");
+        Local(f, "Int", "num");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Inner"), Id("f"), Id("::temp2"), Int(1), Id("::temp0"));
+        Ins(f, InstructionOpcode.CAST, Id("kept"), Id("::temp2"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("num"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("NestedFold", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+    }
+
+    [Fact]
+    public void AnIfConditionNeverOvertakesACallProducedAfterIt()
+    {
+        // A condition evaluates and branches. Draining `Bar` ahead of it puts the later call first, and
+        // leaving it pending across the branch would consume it inside an arm.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "HC_NoneTarget", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "Int", "num");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.JMPF, Id("::temp0"), Int(2));                   // 2 -> 4, past the block
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Side"), Id("f"), Id("::NoneVar"), Int(0));
+        Ins(f, InstructionOpcode.ASSIGN, Id("num"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("CondCarries", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+        Assert.DoesNotContain("if f.Poke()", res.Source);
+    }
+
+    [Fact]
+    public void AWhileConditionNeverOvertakesACallProducedAfterIt()
+    {
+        // The same shape with the condition driving a loop.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "HC_NoneTarget", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "Int", "num");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.JMPF, Id("::temp0"), Int(3));                   // 2 -> 5, past the loop
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Side"), Id("f"), Id("::NoneVar"), Int(0));
+        Ins(f, InstructionOpcode.JMP, Int(-4));                                  // 4 -> 0, the back-jump
+        Ins(f, InstructionOpcode.ASSIGN, Id("num"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("WhileCondCarries", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+        Assert.DoesNotContain("while f.Poke()", res.Source);
     }
 
     /// <summary>No emitted line carries <paramref name="stranded"/> after a `return` in the same block.</summary>

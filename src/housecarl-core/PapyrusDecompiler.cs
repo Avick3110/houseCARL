@@ -396,9 +396,14 @@ public sealed class PapyrusDecompiler
         readonly List<PexObjectFunctionInstruction> _ins;
         readonly Dictionary<string, Expr> _pending = new(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, int> _pendingStart = new(StringComparer.OrdinalIgnoreCase);
+        // Highest instruction index at which a pending value runs a call, int.MinValue when it runs none.
+        // A value's start index is not that index: `::temp2 = Inner(Poke())` starts where Poke does and
+        // calls Inner later, and it is the later one a statement folding it in has to be ordered against.
+        readonly Dictionary<string, int> _pendingLastCall = new(StringComparer.OrdinalIgnoreCase);
         readonly List<string> _pendingOrder = new();
-        int _consumedStart;   // min start-index of pending values consumed while decoding the current instruction
-        int _cur;             // index of the instruction currently being decoded (diagnostics)
+        int _consumedStart;      // min start-index of pending values consumed while decoding the current instruction
+        int _consumedLastCall;   // max last-call index of those same values
+        int _cur;                // index of the instruction currently being decoded (diagnostics)
 
         /// <summary>Temps promoted to named locals: an optimizing compiler can condition on a temp
         /// and then RE-READ its value inside the guarded block — PCompiler temps
@@ -406,7 +411,7 @@ public sealed class PapyrusDecompiler
         /// Declared at function top (function scope is always valid); reads/writes emit by name.</summary>
         public readonly HashSet<string> Materialized = new(StringComparer.OrdinalIgnoreCase);
 
-        void SetPending(string name, Expr e, List<string> stmts, int startIdx)
+        void SetPending(string name, Expr e, List<string> stmts, int startIdx, int lastCallIdx)
         {
             // Overwriting an unconsumed pending means the earlier value was discarded — a statement in
             // the original source. Calls are a bare-call statement; EBin is a bare expression statement
@@ -420,6 +425,7 @@ public sealed class PapyrusDecompiler
             }
             _pending[name] = e;
             _pendingStart[name] = startIdx;
+            _pendingLastCall[name] = lastCallIdx;
             _pendingOrder.Add(name);
         }
 
@@ -427,6 +433,7 @@ public sealed class PapyrusDecompiler
         {
             _pending.Remove(name);
             _pendingStart.Remove(name);
+            _pendingLastCall.Remove(name);
             _pendingOrder.Remove(name);
         }
 
@@ -443,8 +450,8 @@ public sealed class PapyrusDecompiler
         /// statement the older value belongs to, swapping two calls. Those stay pending for the next
         /// boundary, which is past this statement. `startBound` is that cut — int.MaxValue when the
         /// statement carries nothing, which drains everything, as at a region end. The cut only settles a
-        /// statement that has no effect of its own; one that calls or stores through an object refuses
-        /// first, in <see cref="RefuseCrossing"/>.</summary>
+        /// statement whose own effect ran before everything it holds back; anything else refuses first, in
+        /// <see cref="RefuseCrossing"/>.</summary>
         void FlushPending(List<string> stmts) => FlushPending(stmts, _cur + 1, _consumedStart);
 
         void FlushPending(List<string> stmts, int scanFrom) => FlushPending(stmts, scanFrom, int.MaxValue);
@@ -487,30 +494,38 @@ public sealed class PapyrusDecompiler
 
         static bool IsCallish(Expr e) => e is ECall or EStatic or EParent;
 
-        /// <summary>Does this expression run a call when it is emitted?</summary>
-        static bool RunsACall(Expr e) => e switch
-        {
-            ECall or EStatic or EParent => true,
-            EBin b => RunsACall(b.L) || RunsACall(b.R),
-            EUn u => RunsACall(u.E),
-            ECast c => RunsACall(c.E),
-            EProp p => p.Obj is not null && RunsACall(p.Obj),
-            EIndex x => RunsACall(x.Arr) || RunsACall(x.Idx),
-            ELen l => RunsACall(l.Arr),
-            ENew n => RunsACall(n.Size),
-            EFind f => RunsACall(f.Arr) || RunsACall(f.Val) || RunsACall(f.Start),
-            _ => false,
-        };
+        /// <summary>Is this instruction's own effect a call?</summary>
+        static bool IsCallOpcode(InstructionOpcode op) =>
+            op is InstructionOpcode.CALLMETHOD or InstructionOpcode.CALLSTATIC or InstructionOpcode.CALLPARENT;
 
-        /// <summary>A statement that CARRIES a pending value and has an effect of its own — it runs a call,
-        /// sets a property, sets an array element, or ends the region — cannot be ordered against a value
-        /// produced after the one it carries. Emitting that newer value first swaps two evaluations; holding
-        /// it back moves it past this statement's effect, which the newer value's own call can observe.
-        /// Neither is the source's order, so the function refuses rather than picking one.</summary>
-        void RefuseCrossing(string what)
+        /// <summary>Is this name a function local or parameter? A store to one is invisible to anything a
+        /// held-back call could do; a store to a script member — including an auto property's backing var,
+        /// which renders as the bare property name — is not.</summary>
+        bool IsFunctionScoped(string name)
+            => _f.Locals.Any(l => name.Equals(l.Name, StringComparison.OrdinalIgnoreCase))
+               || _f.Parameters.Any(p => name.Equals(p.Name, StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>A statement that carries a pending value holds back anything produced after it, which is
+        /// emitted past this statement. <paramref name="effectIndex"/> is where this statement's own effect
+        /// happens — the instruction's index when it calls or stores outside function scope, otherwise the
+        /// last index at which a call folded into it ran. A held-back value produced before that effect ran
+        /// after it in the stream and before it in the source, and no ordering of the two is what was
+        /// written, so the function refuses rather than picking one.</summary>
+        void RefuseCrossing(string what, int effectIndex)
         {
             foreach (var name in _pendingOrder)
-                if (_pendingStart[name] > _consumedStart)
+                if (_pendingStart[name] >= _consumedStart && _pendingStart[name] < effectIndex)
+                    throw new StructureException(
+                        $"{what} @{_cur} runs after pending {name} in the stream and would be emitted before it, which is an order the source cannot express");
+        }
+
+        /// <summary>A statement that drains everything pending before it — a return, a branch condition —
+        /// takes the same refusal from the other side: a value produced after the one this statement carries
+        /// would be drained ahead of it, putting a later call before an earlier one.</summary>
+        void RefuseDrainingPast(string what, int carriedStart)
+        {
+            foreach (var name in _pendingOrder)
+                if (_pendingStart[name] > carriedStart)
                     throw new StructureException(
                         $"{what} @{_cur} carries a value produced before pending {name}, which cannot be ordered either side of it");
         }
@@ -548,6 +563,7 @@ public sealed class PapyrusDecompiler
                 var op = ins.OpCode;
                 var a = ins.Arguments;
                 _consumedStart = int.MaxValue;
+                _consumedLastCall = int.MinValue;
                 _cur = i;
 
                 switch (op)
@@ -620,7 +636,7 @@ public sealed class PapyrusDecompiler
                                     && !ReadsBeforeWrite(i + 1, target, condName)
                                     && ReadsBeforeWrite(target, hi, condName))))
                         {
-                            var (left, leftStart) = Consume(condName, i);
+                            var (left, leftStart, leftLastCall) = Consume(condName, i);
                             // Pre-if discarded-result calls may still pend here (their temps can be
                             // reused INSIDE the arm — reuse would misemit them as arm statements).
                             // They are statements that precede the if: drain them now, in order.
@@ -633,15 +649,15 @@ public sealed class PapyrusDecompiler
                             if (sub.Count > 0)
                                 throw new StructureException(
                                     $"short-circuit arm @{i + 1}..{target} evaluates a statement, not just a value (first: {sub[0].Trim()})");
-                            var (right, _) = Consume(condName, target);
+                            var (right, _, rightLastCall) = Consume(condName, target);
                             var combined = new EBin(op == InstructionOpcode.JMPF ? "&&" : "||", left, right);
-                            SetPending(condName, combined, stmts, leftStart);
+                            SetPending(condName, combined, stmts, leftStart, Math.Max(leftLastCall, rightLastCall));
                             i = target;
                             continue;
                         }
 
                         Expr cond; int condStart;
-                        if (condName is not null) (cond, condStart) = Consume(condName, i);
+                        if (condName is not null) (cond, condStart, _) = Consume(condName, i);
                         else { cond = Resolve(a[0]); condStart = i; }
 
                         bool isWhile = target - 1 > i && target - 1 < hi
@@ -653,7 +669,9 @@ public sealed class PapyrusDecompiler
                         // itself materializes any whose value flows into the arms). Everything, not
                         // just what predates the condition's own value: a branch follows, and a value
                         // left pending across it would be consumed inside an arm — evaluated once in
-                        // the stream, conditionally in the source.
+                        // the stream, conditionally in the source. A condition evaluates and branches, so a
+                        // value produced after the one it carries cannot be drained ahead of it.
+                        RefuseDrainingPast("condition", condStart);
                         FlushPending(stmts, _cur + 1);
 
                         // Optimizer-reused condition temp: the temp's VALUE is read again inside the
@@ -763,7 +781,7 @@ public sealed class PapyrusDecompiler
                             && IdName(v).Equals("::NoneVar", StringComparison.OrdinalIgnoreCase)
                             && _pending.Count == 1 && _pending.ContainsKey("::NoneVar"))
                         {
-                            var (call, _) = Consume("::NoneVar", i);
+                            var (call, _, _) = Consume("::NoneVar", i);
                             FlushPending(stmts, _cur + 1);
                             stmts.Add("return " + Render(call));
                             i++; break;
@@ -779,7 +797,7 @@ public sealed class PapyrusDecompiler
                         // where it never runs. Draining wide puts it before the return instead — but
                         // when the returned value was produced FIRST, that drain emits a later call
                         // ahead of an earlier one, and no ordering of the two is the source's. Say so.
-                        RefuseCrossing("return");
+                        RefuseDrainingPast("return", _consumedStart);
                         FlushPending(stmts, _cur + 1);
                         stmts.Add(stmt);
                         i++; break;
@@ -790,7 +808,10 @@ public sealed class PapyrusDecompiler
                         var dest = IdName(a[0]);
                         var src = Resolve(a[1]);
                         // Materialized temps are real named locals now — writes are real assignments.
-                        if (IsTemp(dest) && !Materialized.Contains(dest)) { SetPending(dest, src, stmts, Math.Min(_consumedStart, i)); i++; break; }
+                        if (IsTemp(dest) && !Materialized.Contains(dest)) { SetPending(dest, src, stmts, Math.Min(_consumedStart, i), _consumedLastCall); i++; break; }
+                        // A store to a local or a parameter is invisible to a call held back past it; a store
+                        // to a script member, backing var included, is a store that call can read.
+                        RefuseCrossing("store", IsFunctionScoped(dest) ? _consumedLastCall : i);
                         FlushPending(stmts);
                         stmts.Add($"{LhsName(dest)} = {Render(src)}");
                         i++; break;
@@ -806,7 +827,7 @@ public sealed class PapyrusDecompiler
                         var lhs = IsSelf(obj) ? $"Self.{prop}" : $"{Postfix2(obj)}.{prop}";
                         // A property set can be a real setter function, and a pending call held back past
                         // it would read the property after the set instead of before it.
-                        RefuseCrossing("property set");
+                        RefuseCrossing("property set", i);
                         FlushPending(stmts);
                         stmts.Add($"{lhs} = {Render(val)}");
                         i++; break;
@@ -819,7 +840,7 @@ public sealed class PapyrusDecompiler
                         var val = Resolve(a[2]);
                         // An array is a reference, so a pending call held back past this store sees the
                         // element after it was written rather than before.
-                        RefuseCrossing("array element set");
+                        RefuseCrossing("array element set", i);
                         FlushPending(stmts);
                         stmts.Add($"{Postfix2(arr)}[{Render(idx)}] = {Render(val)}");
                         i++; break;
@@ -827,8 +848,11 @@ public sealed class PapyrusDecompiler
 
                     default:
                     {
-                        // Value-producing instruction.
+                        // Value-producing instruction. Its effect is the call it makes when the opcode is a
+                        // call, and otherwise the last call folded in from the values it consumed — the
+                        // instruction itself only reads and writes.
                         var (dest, expr) = Produce(ins);
+                        int effect = IsCallOpcode(op) ? i : _consumedLastCall;
                         if (dest == "")
                         {
                             // A call whose dest is the ::NoneVar discard slot. Usually a bare-call
@@ -840,19 +864,19 @@ public sealed class PapyrusDecompiler
                             // be emitted after it rather than at its own position in the stream.
                             // The call itself runs here, so a value produced after the one it carries as an
                             // argument cannot be ordered either side of it.
-                            RefuseCrossing("call");
+                            RefuseCrossing("call", effect);
                             FlushPending(stmts);
                             if (NextReadsNoneVar(i + 1, hi))
-                                SetPending("::NoneVar", expr, stmts, Math.Min(_consumedStart, i));
+                                SetPending("::NoneVar", expr, stmts, Math.Min(_consumedStart, i), effect);
                             else
                                 stmts.Add(Render(expr));
                             i++; break;
                         }
                         if (dest is null) throw new StructureException($"value op with no dest @{i}");
-                        if (IsTemp(dest) && !Materialized.Contains(dest)) { SetPending(dest, expr, stmts, Math.Min(_consumedStart, i)); i++; break; }
-                        // Same rule when the call writes a real variable instead of the discard slot. A
-                        // statement that only stores is left to the bounded drain, like a plain assignment.
-                        if (RunsACall(expr)) RefuseCrossing("call");
+                        if (IsTemp(dest) && !Materialized.Contains(dest)) { SetPending(dest, expr, stmts, Math.Min(_consumedStart, i), effect); i++; break; }
+                        // The write is the same store as a plain assignment: outside function scope it is
+                        // visible to a call held back past it, inside it is not.
+                        RefuseCrossing(IsCallOpcode(op) ? "call" : "store", IsFunctionScoped(dest) ? effect : i);
                         FlushPending(stmts);
                         stmts.Add($"{LhsName(dest)} = {Render(expr)}");
                         i++; break;
@@ -1086,6 +1110,7 @@ public sealed class PapyrusDecompiler
             if (_pending.TryGetValue(name, out var e))
             {
                 _consumedStart = Math.Min(_consumedStart, _pendingStart[name]);
+                _consumedLastCall = Math.Max(_consumedLastCall, _pendingLastCall[name]);
                 DropPending(name);
                 return e;
             }
@@ -1094,15 +1119,16 @@ public sealed class PapyrusDecompiler
             return new EIdent(LhsName(name));
         }
 
-        (Expr e, int start) Consume(string name, int at)
+        (Expr e, int start, int lastCall) Consume(string name, int at)
         {
             if (_pending.TryGetValue(name, out var e))
             {
                 var start = _pendingStart[name];
+                var lastCall = _pendingLastCall[name];
                 DropPending(name);
-                return (e, start);
+                return (e, start, lastCall);
             }
-            if (!IsTemp(name) || Materialized.Contains(name)) return (new EIdent(LhsName(name)), at);
+            if (!IsTemp(name) || Materialized.Contains(name)) return (new EIdent(LhsName(name)), at, int.MinValue);
             throw new StructureException($"condition temp {name} has no pending value @{at}");
         }
 
