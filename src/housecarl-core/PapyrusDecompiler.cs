@@ -510,12 +510,10 @@ public sealed class PapyrusDecompiler
         void SetPending(string name, Expr e, List<string> stmts, int startIdx, int lastCallIdx)
         {
             // Overwriting an unconsumed pending means the earlier value was discarded — a statement in
-            // the original source. Calls are a bare-call statement; EBin is a bare expression statement
-            // (the author wrote `x + y` with no assignment, which PCompiler compiles as eval-into-temp).
-            // Anything else stays a loud failure.
+            // the original source, which comes back as a bare expression statement.
             if (_pending.TryGetValue(name, out var old))
             {
-                if (IsCallish(old) || old is EBin) stmts.Add(Render(old));
+                if (EmitsAnInstruction(old)) stmts.Add(Render(old));
                 else throw new StructureException($"pending non-statement value on {name} overwritten ({old.GetType().Name})");
                 DropPending(name);
             }
@@ -537,10 +535,11 @@ public sealed class PapyrusDecompiler
         /// READ downstream (before being rewritten) is an optimizer-eliminated named local crossing a
         /// region boundary (value flows into an if arm, or out of an arm to the join — a phi):
         /// materialize it as a named-local assignment, never discard it. The rest are discarded
-        /// results from earlier statements — emit in evaluation order: calls are bare-call statements;
-        /// EBin is a bare expression statement (e.g. `prop + "…"` with no assignment, which PCompiler
-        /// accepts and compiles). Other expression kinds (EProp, EIndex, …) are NOT known to
-        /// round-trip — a bare variable read compiles to nothing — so they stay a loud failure.
+        /// results from earlier statements — emit in evaluation order as bare expression statements, which
+        /// PCompiler accepts and compiles back to the one instruction each came from — a bare call, a bare
+        /// `x + y`, a bare `x as int`, a bare property read, a bare `arr[0]`. A bare identifier or literal
+        /// is the exception: PCompiler emits nothing at all for it, so emitting one would drop the
+        /// instruction the value came from, and it stays a loud failure.
         /// A statement that CARRIES a pending value only drains what was produced before that value:
         /// anything newer was evaluated after it, and emitting it here would put it ahead of the
         /// statement the older value belongs to, swapping two calls. Those stay pending for the next
@@ -569,7 +568,7 @@ public sealed class PapyrusDecompiler
                     DropPending(name);
                     continue;
                 }
-                if (!IsCallish(e) && e is not EBin)
+                if (!EmitsAnInstruction(e))
                     throw new StructureException($"leftover non-statement pending temp {name} ({e.GetType().Name})");
                 stmts.Add(Render(e));
                 DropPending(name);
@@ -656,6 +655,10 @@ public sealed class PapyrusDecompiler
                     throw new StructureException(
                         $"{what} @{_cur} carries a value produced before pending {name}, which cannot be ordered either side of it");
         }
+        /// <summary>Does writing this expression as a bare statement compile back to the instruction it came
+        /// from? Every kind here does — checked by compiling one of each with PapyrusCompiler and reading the
+        /// instruction back — except a bare identifier or literal, for which the compiler emits nothing.</summary>
+        static bool EmitsAnInstruction(Expr e) => e is not (EIdent or EConst);
 
         public Body(PapyrusDecompiler d, PexObjectFunction f)
         {
