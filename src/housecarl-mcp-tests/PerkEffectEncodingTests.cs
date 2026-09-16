@@ -29,6 +29,14 @@ public sealed class PerkEncodingWorld : IDisposable
     public string AbilityFid { get; }
     /// <summary>A perk with nothing wrong with it, so a scan's answer is not one row wide.</summary>
     public string SoundPerkFid { get; }
+    /// <summary>A perk whose own RECORD-LEVEL condition Mutagen will not read, while its effect list is fine — the
+    /// row that must NOT be explained with an effect's bytes.</summary>
+    public string BadConditionPerkFid { get; }
+    /// <summary>A perk whose refused effect declares a FormID parameter of all zeroes — a declared-but-null link.</summary>
+    public string NullParamPerkFid { get; }
+    /// <summary>A perk whose refused effect declares a LOCALIZED string parameter, in a plugin flagged localized:
+    /// those four bytes are a strings-table key, not characters.</summary>
+    public string LocalizedParamPerkFid { get; }
 
     readonly string _priorCorpusPath;
 
@@ -60,15 +68,32 @@ public sealed class PerkEncodingWorld : IDisposable
         var inconsistent = master.Perks.AddNew();
         inconsistent.EditorID = "HcPerkEncodingInconsistent";
         inconsistent.Effects.Add(new PerkAbilityEffect { Ability = ability.ToNullableLink() });
-        inconsistent.Effects.Add(new PerkEntryPointModifyActorValue
+        inconsistent.Effects.Add(NewMultiplyAvMultEffect());
+
+        // Its own record-level condition is what breaks here; its effect list is perfectly decodable, which is the
+        // trap — a marker built from the effect list would be a confident answer about the wrong subrecord.
+        var badCondition = master.Perks.AddNew();
+        badCondition.EditorID = "HcPerkEncodingBadCondition";
+        badCondition.Conditions.Add(new ConditionFloat
         {
-            EntryPoint = APerkEntryPointEffect.EntryType.ModSpellMagnitude,
-            ActorValue = ActorValue.Alteration,
-            Value = 10f,
-            Modification = PerkEntryPointModifyActorValue.ModificationType.MultiplyAVMult,   // function byte 13
+            CompareOperator = CompareOperator.EqualTo,
+            ComparisonValue = 1f,
+            Data = new GetActorValueConditionData { ActorValue = ActorValue.Alteration },
         });
+        badCondition.Effects.Add(NewMultiplyAvMultEffect());
+
+        var nullParam = master.Perks.AddNew();
+        nullParam.EditorID = "HcPerkEncodingNullParam";
+        nullParam.Effects.Add(NewMultiplyAvMultEffect());
+
+        var localizedParam = master.Perks.AddNew();
+        localizedParam.EditorID = "HcPerkEncodingLocalizedParam";
+        localizedParam.Effects.Add(NewMultiplyAvMultEffect());
 
         InconsistentPerkFid = $"{inconsistent.FormKey.ID:X6}:{masterKey.FileName}";
+        BadConditionPerkFid = $"{badCondition.FormKey.ID:X6}:{masterKey.FileName}";
+        NullParamPerkFid = $"{nullParam.FormKey.ID:X6}:{masterKey.FileName}";
+        LocalizedParamPerkFid = $"{localizedParam.FormKey.ID:X6}:{masterKey.FileName}";
         AbilityFid = $"{ability.FormKey.ID:X6}:{masterKey.FileName}";
         SoundPerkFid = $"{sound.FormKey.ID:X6}:{masterKey.FileName}";
 
@@ -76,9 +101,14 @@ public sealed class PerkEncodingWorld : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         master.BeginWrite.ToPath(path).WithLoadOrder(Array.Empty<ISkyrimModGetter>()).Write();
 
-        Assert.Equal(1, ProbeBytes.MakeEpftFunctionMismatch(path));
+        Assert.Equal(1, ProbeBytes.MakeEpftFunctionMismatch(path, inconsistent.FormKey.ID));
+        Assert.Equal(1, ProbeBytes.MakeEpftFunctionMismatch(path, badCondition.FormKey.ID));
+        Assert.Equal(1, ProbeBytes.TruncateCondition(path, badCondition.FormKey.ID));
+        Assert.Equal(1, ProbeBytes.MakeEpftNullFormIdParameter(path, nullParam.FormKey.ID));
+        Assert.Equal(1, ProbeBytes.MakeEpftLocalizedTextParameter(path, localizedParam.FormKey.ID));
+        Assert.True(ProbeBytes.SetLocalizedFlag(path));
 
-        // The fixture must still exhibit the fault, and only on the one effect, or a green below proves nothing.
+        // The fixtures must still exhibit their faults, or a green below proves nothing.
         using (var overlay = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE))
         {
             var bad = overlay.Perks.First(p => p.FormKey == inconsistent.FormKey);
@@ -86,6 +116,9 @@ public sealed class PerkEncodingWorld : IDisposable
             Assert.Equal(2, bad.Effects.Count);
             Assert.IsAssignableFrom<IPerkAbilityEffectGetter>(bad.Effects[0]);
             Assert.ThrowsAny<Exception>(() => bad.Effects[1]);
+
+            var cond = overlay.Perks.First(p => p.FormKey == badCondition.FormKey);
+            Assert.ThrowsAny<Exception>(() => cond.Conditions[0]);
         }
 
         var genDir = Path.Combine(Root, "corpus-gen");
@@ -98,6 +131,16 @@ public sealed class PerkEncodingWorld : IDisposable
 
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
     }
+
+    /// <summary>The effect every fixture perk carries: function byte 13 (MultiplyAVMult), which Mutagen writes as
+    /// EPFT 2 over an 8-byte EPFD — the shape the byte surgery then rewrites.</summary>
+    static PerkEntryPointModifyActorValue NewMultiplyAvMultEffect() => new()
+    {
+        EntryPoint = APerkEntryPointEffect.EntryType.ModSpellMagnitude,
+        ActorValue = ActorValue.Alteration,
+        Value = 10f,
+        Modification = PerkEntryPointModifyActorValue.ModificationType.MultiplyAVMult,
+    };
 
     public void Dispose()
     {
@@ -125,9 +168,7 @@ public sealed class PerkEffectEncodingTests : IClassFixture<PerkEncodingFixture>
     [Fact]
     public void TheInconsistentEffectIsOneMarkedRowAndItsSiblingStillReads()
     {
-        var r = RecordsTools.Records(
-            _w.Svc, formids: new[] { _w.InconsistentPerkFid },
-            project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects" }, depth = 3 });
+        var r = Effects(_w.InconsistentPerkFid);
 
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
         // The readable sibling is still read — the field did not fail as a whole.
@@ -135,9 +176,69 @@ public sealed class PerkEffectEncodingTests : IClassFixture<PerkEncodingFixture>
         Assert.Contains(_w.AbilityFid, r);
         // …and the refused one says which bytes disagree and what the parameter was decoded off.
         Assert.Contains("Effects[1] = (unreadable:", r);
-        Assert.Contains("internally inconsistent", r);
+        Assert.Contains("read off its own bytes", r);
         Assert.Contains("function byte 13", r);
         Assert.Contains("decoded off EPFT alone, as xEdit does: 10", r);
+    }
+
+    string Effects(string fid) => RecordsTools.Records(
+        _w.Svc, formids: new[] { fid },
+        project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Effects" }, depth = 3 });
+
+    /// <summary>The marker belongs to the EFFECTS list. A PERK's own record-level Conditions are a different list,
+    /// and explaining one of its rows with an effect's entry point, function byte and parameter would be a confident
+    /// answer about the wrong subrecord.</summary>
+    [Fact]
+    public void AFaultOnTheRecordsOwnConditionsIsNotExplainedWithAnEffectsBytes()
+    {
+        var r = RecordsTools.Records(
+            _w.Svc, formids: new[] { _w.BadConditionPerkFid },
+            project: new RecordsTools.RecordsProject { form = "fields", fields = new[] { "Conditions" }, depth = 3 });
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.Contains("Conditions[0] = (unreadable:", r);
+        Assert.DoesNotContain("decoded off EPFT alone", r);
+        Assert.DoesNotContain("function byte", r);
+    }
+
+    /// <summary>A FormID parameter of all zeroes is a declared-but-null link, which is what Mutagen reads it as.
+    /// Read with the wrong flag it becomes record 000000 of the plugin's first master — a link the record does not
+    /// carry, which a references= scan could then match on.</summary>
+    [Fact]
+    public void AnAllZeroFormIdParameterReadsAsANullLink()
+    {
+        var r = Effects(_w.NullParamPerkFid);
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.Contains("Effects[0] = (unreadable:", r);
+        Assert.Contains("(null link)", r);
+        Assert.DoesNotContain("000000:", r);
+    }
+
+    /// <summary>In a plugin flagged localized, an EPFT 7 parameter is a strings-table key. Decoding those four bytes
+    /// as text hands back mojibake under a sentence claiming the value was read.</summary>
+    [Fact]
+    public void ALocalizedStringParameterIsReportedAsAKeyRatherThanDecodedAsText()
+    {
+        var r = Effects(_w.LocalizedParamPerkFid);
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.Contains("Effects[0] = (unreadable:", r);
+        Assert.Contains("lstring:0x", r);
+        Assert.Contains("not resolved", r);
+    }
+
+    /// <summary>references= and references_none= in one call are one question about one record: the record used to
+    /// be read twice, so it could be reported as read leniently by one arm and unscannable by the other.</summary>
+    [Fact]
+    public void ReferencesAndReferencesNoneAgreeOnOneRecord()
+    {
+        var r = RecordsTools.Records(_w.Svc, types: new[] { "PERK" },
+                                     references: new[] { _w.AbilityFid, "!" + _w.SoundPerkFid });
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.Contains(_w.InconsistentPerkFid, r);
+        Assert.DoesNotContain("could not be scanned", r);
     }
 
     [Fact]

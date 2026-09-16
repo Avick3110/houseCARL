@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Reflection;
 using Mutagen.Bethesda.Plugins;
@@ -12,22 +13,23 @@ using Noggog;
 namespace HousecarlCore;
 
 /// <summary>
-/// The ONE lenient read houseCARL makes of content Mutagen refused: a PERK entry-point effect whose DATA function
-/// byte and EPFT parameter-type flag disagree (#301). Mutagen picks the effect class from the function byte and
-/// then demands the EPFT that class writes, so <c>function 13 (an actor-value mult) + EPFT 1 (Float)</c> throws and
-/// takes the whole Effects field — and the whole record — out of every PERK read and scan. xEdit renders the same
-/// record because it resolves EPFD's layout from EPFT ALONE and never cross-checks the function byte.
+/// The ONE lenient read houseCARL makes of content Mutagen refused: a PERK entry-point effect Mutagen will not
+/// build. Mutagen picks the effect class from the DATA function byte and then demands the EPFT that class writes,
+/// so an actor-value function carrying EPFT 1 (Float) throws and takes the whole Effects field — and the whole
+/// record — out of every PERK read and scan. xEdit renders such a record because it resolves EPFD's layout from
+/// EPFT ALONE and never cross-checks the function byte.
 ///
-/// <para>This decodes the effect list off the record's own bytes the way xEdit does, and every caller must say so:
-/// the read marks the effect's row, the scan accounts the record. It is bounded three ways, deliberately — it runs
-/// ONLY on a PERK, ONLY on the Effects list, and ONLY after the typed getter has already thrown. It is NOT a
-/// hand-written PERK schema: it reads the subrecord frame Mutagen itself exposes, and it decodes only the EPFT
-/// layouts Mutagen's own writer emits (<see cref="ParameterLength"/>). An EPFT outside that set fails the WHOLE
-/// decode, so a record houseCARL cannot account for stays unscannable rather than reading as leniently handled.</para>
+/// <para>This decodes the effect list off the record's own bytes the same way, and every caller must say so: the
+/// read marks the effect's row, the scan accounts the record. It is bounded three ways, deliberately — it runs ONLY
+/// on a PERK, ONLY on the Effects list, and ONLY after the typed getter has already thrown. It is NOT a
+/// hand-written PERK schema: it reads the subrecord frame Mutagen itself exposes, it hands the effect's condition
+/// block to Mutagen's own <see cref="PerkCondition.CreateFromBinary"/>, and the one table it carries is the EPFD
+/// layout per EPFT (<see cref="ParameterShape"/>), which is the delta itself. An EPFT outside that table fails the
+/// WHOLE decode, so a record houseCARL cannot account for stays unscannable rather than reading as handled.</para>
 ///
-/// <para>The one thing it does not reach is the conditions INSIDE an inconsistent effect: deciding which CTDA
-/// parameter is a FormID needs the per-function condition schema, which is Mutagen's to model and not ours to
-/// hand-write. Every caller states that gap rather than letting a non-match read as proved.</para>
+/// <para>It states what the bytes say and never why they say it: Mutagen refuses such an effect for more than one
+/// reason, and naming the cause would be a diagnosis houseCARL has not established. Mutagen's own sentence leads
+/// every note this class writes.</para>
 /// </summary>
 public static class PerkEffectDecode
 {
@@ -38,29 +40,35 @@ public static class PerkEffectDecode
     static readonly RecordType EPFT = new("EPFT");
     static readonly RecordType EPFD = new("EPFD");
     static readonly RecordType PRKC = new("PRKC");
+    static readonly RecordType CTDA = new("CTDA");
 
-    /// <summary>One effect as the raw bytes describe it. <paramref name="Function"/> and <paramref name="EntryPoint"/>
-    /// come off the effect's own DATA and are the two facts the typed read never got to report.</summary>
+    /// <summary>One effect as the raw bytes describe it. <see cref="EntryPoint"/> and <see cref="Function"/> come
+    /// off the effect's own DATA and are the two facts the typed read never got to report; the conditions are
+    /// Mutagen's own parse of the effect's PRKC/CTDA block, so their links are the ones it would have yielded.</summary>
     public sealed record Effect(
         int Index, byte Type, byte Rank, byte Priority,
         byte? EntryPoint, byte? Function, byte? ConditionTabCount,
-        byte? ParameterType, string? Value, FormKey? ValueLink, int ConditionCount);
+        byte? ParameterType, string? Value, FormKey? ValueLink,
+        int ConditionCount, IReadOnlyList<FormKey> ConditionLinks, string? ConditionGap);
 
     /// <summary>What a lenient read of one PERK recovered: every FormKey the record links that houseCARL could
-    /// still reach, and the sentence naming what it could not — always both, so no caller can report the links
-    /// without the gap.</summary>
-    public sealed record LenientRead(IReadOnlyList<FormKey> Links, IReadOnlyList<int> InconsistentEffects, string Note);
+    /// still reach, which effects were refused, and the sentence naming what it could not reach — always together,
+    /// so no caller can report the links without the gap.</summary>
+    public sealed record LenientRead(IReadOnlyList<FormKey> Links, IReadOnlyList<int> RefusedEffects, string Note);
 
-    /// <summary>How many bytes EPFD holds for a parameter type, and whether those bytes are a FormID — the table
-    /// Mutagen's own writer emits (EPFT 0 no parameter, 1 float, 2 two dwords, 3/4/5 a FormID, 6/7 a string).
-    /// Null for any other value: an EPFT houseCARL has no layout for is not guessed at.</summary>
-    static (int Length, bool IsFormId, bool IsString)? ParameterLength(byte epft) => epft switch
+    /// <summary>How EPFD is laid out for a parameter type: how many bytes, and how to read them. The set is the one
+    /// Mutagen's own writer emits (0 no parameter, 1 float, 2 two dwords, 3/4/5 a FormID, 6 a string, 7 a localized
+    /// string). Null for any other value — an EPFT houseCARL has no layout for is not guessed at.</summary>
+    enum ParameterShape { None, Float, TwoDwords, FormId, Text, LocalizedText }
+
+    static ParameterShape? Shape(byte epft) => epft switch
     {
-        0 => (0, false, false),
-        1 => (4, false, false),
-        2 => (8, false, false),
-        3 or 4 or 5 => (4, true, false),
-        6 or 7 => (-1, false, true),   // -1: the string runs the whole subrecord
+        0 => ParameterShape.None,
+        1 => ParameterShape.Float,
+        2 => ParameterShape.TwoDwords,
+        3 or 4 or 5 => ParameterShape.FormId,
+        6 => ParameterShape.Text,
+        7 => ParameterShape.LocalizedText,
         _ => null,
     };
 
@@ -70,14 +78,14 @@ public static class PerkEffectDecode
     public static IReadOnlyList<Effect>? Decode(object? record)
     {
         if (record is not IPerkGetter) return null;
-        if (RawContent(record) is not { } content) return null;
-        var masters = Masters(record);
+        if (Overlay(record) is not { } ov) return null;
+        var content = ov.Content;
         var effects = new List<Effect>();
 
         byte? type = null, rank = null, priority = null, entryPoint = null, function = null, tabCount = null, paramType = null;
         string? value = null;
         FormKey? valueLink = null;
-        int conditions = 0;
+        int condStart = -1, condEnd = -1;
         bool open = false;
         try
         {
@@ -89,14 +97,21 @@ public static class PerkEffectDecode
                     open = true;
                     type = sub.Content.Span[0]; rank = sub.Content.Span[1]; priority = sub.Content.Span[2];
                     entryPoint = function = tabCount = paramType = null;
-                    value = null; valueLink = null; conditions = 0;
+                    value = null; valueLink = null; condStart = condEnd = -1;
                     continue;
                 }
-                if (!open) continue;                                     // record-level subrecords before the list
+                if (!open) continue;                                     // the record's own subrecords, ahead of the list
+                if (sub.RecordType == PRKC || sub.RecordType == CTDA)
+                {
+                    if (condStart < 0) condStart = sub.Location;
+                    condEnd = sub.Location + sub.TotalLength;
+                    continue;
+                }
                 if (sub.RecordType == PRKF)
                 {
+                    var (count, links, gap) = ParseConditions(ov, condStart, condEnd);
                     effects.Add(new Effect(effects.Count, type!.Value, rank!.Value, priority!.Value,
-                                           entryPoint, function, tabCount, paramType, value, valueLink, conditions));
+                                           entryPoint, function, tabCount, paramType, value, valueLink, count, links, gap));
                     open = false;
                     continue;
                 }
@@ -108,35 +123,18 @@ public static class PerkEffectDecode
                     { entryPoint = sub.Content.Span[0]; function = sub.Content.Span[1]; tabCount = sub.Content.Span[2]; }
                     continue;
                 }
-                if (sub.RecordType == PRKC) { conditions++; continue; }
                 if (sub.RecordType == EPFT)
                 {
                     if (sub.ContentLength != 1) return null;
                     paramType = sub.Content.Span[0];
-                    if (ParameterLength(paramType.Value) is null) return null;   // no layout for it — decode nothing
+                    if (Shape(paramType.Value) is null) return null;     // no layout for it — decode nothing
                     continue;
                 }
                 if (sub.RecordType == EPFD)
                 {
-                    if (paramType is not { } pt || ParameterLength(pt) is not { } shape) return null;   // EPFD with no EPFT ahead of it
-                    if (shape.IsString)
-                    { value = "\"" + System.Text.Encoding.UTF8.GetString(sub.Content.Span).TrimEnd('\0') + "\""; continue; }
-                    if (sub.ContentLength < shape.Length) return null;
-                    if (shape.Length == 0) { value = null; continue; }
-                    if (shape.IsFormId)
-                    {
-                        uint raw = BitConverter.ToUInt32(sub.Content.Span[..4]);
-                        valueLink = masters is null ? null : FormKeyBinaryTranslation.Instance.Parse(sub.Content.Span[..4], masters, false, false);
-                        value = valueLink is { } fk && !fk.IsNull ? FormIdToken.Of(fk)
-                              : masters is null ? $"0x{raw:X8} (raw FormID — this plugin's master list is out of reach)"
-                              : FormIdToken.Of(valueLink!.Value);
-                        continue;
-                    }
-                    value = shape.Length == 4
-                        ? BitConverter.ToSingle(sub.Content.Span[..4]).ToString("R", CultureInfo.InvariantCulture)
-                        : BitConverter.ToSingle(sub.Content.Span[..4]).ToString("R", CultureInfo.InvariantCulture)
-                          + ", " + BitConverter.ToSingle(sub.Content.Span[4..8]).ToString("R", CultureInfo.InvariantCulture)
-                          + " (first dword as an integer: " + BitConverter.ToInt32(sub.Content.Span[..4]).ToString(CultureInfo.InvariantCulture) + ")";
+                    if (paramType is not { } pt || Shape(pt) is not { } shape) return null;   // EPFD with no EPFT ahead of it
+                    (value, valueLink) = ReadParameter(ov, shape, sub.Content);
+                    if (value is null && valueLink is null && shape != ParameterShape.None) return null;
                     continue;
                 }
             }
@@ -145,28 +143,99 @@ public static class PerkEffectDecode
         return open ? null : effects;                                    // a PRKE never closed by a PRKF is not a shape we decode
     }
 
-    /// <summary>The note a read puts on the row of an effect the typed getter refused: Mutagen's own sentence, the
-    /// three bytes that disagree, and what the value was decoded off. Keeps the read walk's
-    /// <see cref="ReadEngine.UnreadablePrefix"/> opening so every consumer classifies the row exactly as before —
-    /// the row is still not the modeled value, it just now says what the bytes hold. Null when this record or
-    /// index is not one the lenient decode covers, so the caller falls back to the plain fault note.</summary>
+    /// <summary>Read EPFD per its declared shape. Returns (null, null) when the bytes are too short for the shape,
+    /// which fails the whole decode rather than reporting a value off bytes that are not there.</summary>
+    static (string? Value, FormKey? Link) ReadParameter(OverlayBytes ov, ParameterShape shape, ReadOnlyMemorySlice<byte> data)
+    {
+        switch (shape)
+        {
+            case ParameterShape.None:
+                return (null, null);
+            case ParameterShape.Float:
+                if (data.Length < 4) return (null, null);
+                return (BitConverter.ToSingle(data.Span[..4]).ToString("R", CultureInfo.InvariantCulture), null);
+            case ParameterShape.TwoDwords:
+                if (data.Length < 8) return (null, null);
+                return (BitConverter.ToSingle(data.Span[..4]).ToString("R", CultureInfo.InvariantCulture)
+                        + ", " + BitConverter.ToSingle(data.Span[4..8]).ToString("R", CultureInfo.InvariantCulture)
+                        + " (first dword as an integer: " + BitConverter.ToInt32(data.Span[..4]).ToString(CultureInfo.InvariantCulture) + ")", null);
+            case ParameterShape.FormId:
+                if (data.Length < 4) return (null, null);
+                if (ov.Masters is null)
+                    return ($"0x{BitConverter.ToUInt32(data.Span[..4]):X8} (raw FormID — this plugin's master list is out of reach, so it is not counted as a link)", null);
+                // Mutagen's own reading, defaults included: a reference FormID of all zeroes is FormKey.Null, which
+                // is a declared-but-null link and not a link to the first master's record 000000.
+                var fk = FormKeyBinaryTranslation.Instance.Parse(data.Span[..4], ov.Masters);
+                return (fk.IsNull ? "(null link)" : FormIdToken.Of(fk), fk);
+            case ParameterShape.Text:
+                return ("\"" + System.Text.Encoding.UTF8.GetString(data.Span).TrimEnd('\0') + "\"", null);
+            case ParameterShape.LocalizedText:
+                // In a plugin Mutagen opened WITH a strings lookup, these four bytes are a strings-table key, not
+                // characters — printing them as text is the silently wrong answer. houseCARL does not know which of
+                // the three tables a perk parameter is in, so it hands back the key and says it did not resolve it.
+                if (ov.Localized)
+                    return (data.Length < 4
+                            ? (null, null)
+                            : ($"lstring:0x{BitConverter.ToUInt32(data.Span[..4]):X8} (a strings-table key — not resolved here)", null));
+                return ("\"" + System.Text.Encoding.UTF8.GetString(data.Span).TrimEnd('\0') + "\"", null);
+            default:
+                return (null, null);
+        }
+    }
+
+    /// <summary>The effect's own condition block, parsed by MUTAGEN — <see cref="PerkCondition.CreateFromBinary"/>
+    /// over the same PRKC/CTDA bytes, with the parsing meta the record was read with — so which CTDA parameter is a
+    /// FormID stays Mutagen's answer and never a table of ours. Returns the condition count, their links, and a
+    /// sentence when the block did not parse (the links are then the gap the callers name).</summary>
+    static (int Count, IReadOnlyList<FormKey> Links, string? Gap) ParseConditions(OverlayBytes ov, int start, int end)
+    {
+        if (start < 0 || end <= start) return (0, Array.Empty<FormKey>(), null);
+        var links = new List<FormKey>();
+        int count = 0;
+        try
+        {
+            using var stream = new MutagenMemoryReadStream(ov.Content.Slice(start, end - start), ov.Meta);
+            var frame = new MutagenFrame(stream);
+            while (!frame.Complete)
+            {
+                var block = PerkCondition.CreateFromBinary(frame);
+                count += block.Conditions.Count;
+                foreach (var l in ((IFormLinkContainerGetter)block).EnumerateFormLinks())
+                    if (!l.FormKey.IsNull) links.Add(l.FormKey);
+            }
+        }
+        catch (Exception ex)
+        {
+            return (count, links, $"its condition block did not parse either ({ex.GetType().Name}: {ex.Message}), so links inside it are not counted");
+        }
+        return (count, links, null);
+    }
+
+    /// <summary>The note a read puts on the row of an effect the typed getter refused: Mutagen's own sentence, then
+    /// the bytes themselves. Keeps the read walk's <see cref="ReadEngine.UnreadablePrefix"/> opening so every
+    /// consumer classifies the row exactly as before — the row is still not the modeled value, it just now says what
+    /// the bytes hold. Null when this record or index is not one the lenient decode covers, so the caller falls back
+    /// to the plain fault note.</summary>
     public static string? EffectNote(object? record, int index, string mutagenReason)
     {
         if (Decode(record) is not { } effects || index < 0 || index >= effects.Count) return null;
         var e = effects[index];
         if (e.ParameterType is not { } epft) return null;
         return ReadEngine.UnreadablePrefix + mutagenReason
-             + $" — internally inconsistent: this effect's DATA names entry point {e.EntryPoint?.ToString(CultureInfo.InvariantCulture) ?? "?"}"
-             + $" and function byte {e.Function?.ToString(CultureInfo.InvariantCulture) ?? "?"}, while EPFT says {epft}"
-             + $"; the parameter was decoded off EPFT alone, as xEdit does: {e.Value ?? "(no parameter)"}"
-             + $"; {e.ConditionCount} condition(s) inside this effect are not walked, so their links do not reach references=)";
+             + " — Mutagen refused this effect, so it is read off its own bytes: DATA names entry point "
+             + (e.EntryPoint?.ToString(CultureInfo.InvariantCulture) ?? "?")
+             + " and function byte " + (e.Function?.ToString(CultureInfo.InvariantCulture) ?? "?")
+             + $", EPFT says {epft}, and the parameter was decoded off EPFT alone, as xEdit does: {e.Value ?? "(no parameter)"}"
+             + $"; its {e.ConditionCount} condition(s) "
+             + (e.ConditionGap is null ? "were read by Mutagen's own condition parser" : e.ConditionGap)
+             + ")";
     }
 
     /// <summary>The lenient link read a scan falls back to when Mutagen's whole-record link walk throws on a PERK.
-    /// Reads every modeled field on its own so the parts that DO parse still filter, steps the Effects list by
-    /// index so one refused effect does not take its siblings, and takes the refused effect's own parameter link
-    /// off the raw decode. Null when the record is not a PERK the decode covers — the caller then treats it exactly
-    /// as it did before, unscannable and accounted.</summary>
+    /// Reads every modeled field on its own so the parts that DO parse still filter, steps the Effects list by index
+    /// so one refused effect does not take its siblings, and takes a refused effect's parameter link and condition
+    /// links off the raw decode. Null when the record is not a PERK the decode covers, or when nothing was actually
+    /// refused — the caller then treats it exactly as it did before.</summary>
     public static LenientRead? ReadLinks(IMajorRecordGetter record)
     {
         if (Decode(record) is not { } decoded) return null;
@@ -174,18 +243,22 @@ public static class PerkEffectDecode
         var seen = new HashSet<FormKey>();
         void Add(FormKey fk) { if (!fk.IsNull && seen.Add(fk)) keys.Add(fk); }
 
-        var unread = new List<int>();
+        var unreadFields = new List<string>();
         foreach (var name in ReadEngine.ModeledFieldsOf(record))
         {
             if (string.Equals(name, "Effects", StringComparison.Ordinal)) continue;   // stepped by index below
-            var (links, _) = ReadEngine.CollectLinksAt(record, new[] { name });       // a non-link field just answers null
-            if (links is not null) foreach (var fk in links) Add(fk);
+            var (fieldLinks, miss) = ReadEngine.CollectLinksAt(record, new[] { name });
+            if (fieldLinks is not null) { foreach (var key in fieldLinks) Add(key); continue; }
+            // A field that is simply not link-bearing is not a gap; a field that FAULTED is one, and is named.
+            if (miss is not null && miss.StartsWith(ReadEngine.UnreadablePrefix, StringComparison.Ordinal)) unreadFields.Add(name);
         }
 
         IReadOnlyList<IAPerkEffectGetter> effects;
         int count;
         try { effects = ((IPerkGetter)record).Effects; count = effects.Count; }
         catch { return null; }                                           // even the list's length is out of reach
+        var refused = new List<int>();
+        var condGaps = new List<string>();
         for (int i = 0; i < count; i++)
         {
             try
@@ -195,62 +268,66 @@ public static class PerkEffectDecode
             }
             catch
             {
-                unread.Add(i);
-                if (i < decoded.Count && decoded[i].ValueLink is { } fk) Add(fk);
+                refused.Add(i);
+                if (i >= decoded.Count) continue;
+                if (decoded[i].ValueLink is { } paramLink) Add(paramLink);
+                foreach (var condLink in decoded[i].ConditionLinks) Add(condLink);
+                if (decoded[i].ConditionGap is { } gap) condGaps.Add($"effect {i}: {gap}");
             }
         }
-        if (unread.Count == 0) return null;                              // nothing was refused — the plain walk is the answer
+        if (refused.Count == 0) return null;                             // nothing was refused — the plain walk is the answer
 
-        var note = $"{FormIdToken.Of(record.FormKey)} — effect(s) {string.Join(", ", unread)} carry a function byte and an "
-                 + "EPFT that disagree; they were decoded off EPFT alone, as xEdit does, so the effect's own parameter link "
-                 + "counts here but the conditions inside it are not walked";
-        return new LenientRead(keys, unread, note);
+        var note = $"{FormIdToken.Of(record.FormKey)} — effect(s) {string.Join(", ", refused)} were refused by Mutagen and read "
+                 + "off their own bytes instead, with the parameter decoded off EPFT alone, as xEdit does, and the "
+                 + "conditions parsed by Mutagen's own condition parser"
+                 + (condGaps.Count > 0 ? "; except " + string.Join("; ", condGaps) : "")
+                 + (unreadFields.Count > 0 ? $"; these field(s) could not be read at all, so their links are missing: {string.Join(", ", unreadFields)}" : "");
+        return new LenientRead(keys, refused, note);
     }
 
     // ---- Reaching the bytes -------------------
     //  Mutagen keeps a binary overlay's own record bytes and its parsing package on internal fields of
     //  PluginBinaryOverlay. There is no public accessor in 0.54.4 and no lenient parse mode, so both are read by
-    //  reflection, once, and cached. A rename upstream makes these null, the decode returns null, and every caller
-    //  falls back to the behaviour it had before — never a wrong answer, only the old one.
+    //  reflection, per record type, and cached. A rename upstream makes the lookup miss, the decode returns null,
+    //  and every caller falls back to the behaviour it had before — never a wrong answer, only the old one.
 
-    static FieldInfo? _recordData, _package;
-    static bool _resolved;
-
-    static void Resolve(object record)
+    /// <summary>A record's own bytes and the parsing state it was read with.</summary>
+    readonly record struct OverlayBytes(ReadOnlyMemorySlice<byte> Content, ParsingMeta Meta)
     {
-        if (_resolved) return;
-        for (var t = record.GetType(); t is not null; t = t.BaseType)
+        public IReadOnlySeparatedMasterPackage? Masters => Meta.MasterReferences;
+        /// <summary>Was this plugin opened WITH a strings lookup? The same test Mutagen's own string reader makes.</summary>
+        public bool Localized => Meta.StringsLookup is not null;
+    }
+
+    static readonly ConcurrentDictionary<Type, (FieldInfo? Data, FieldInfo? Package)> _fields = new();
+
+    /// <summary>The internal fields for one overlay runtime type; both null when this type is not a binary overlay.
+    /// Cached per TYPE, so a record that is not an overlay — a Perk off an in-memory mod the write lanes read back —
+    /// cannot disable the decode for every other record in the process.</summary>
+    static (FieldInfo? Data, FieldInfo? Package) FieldsFor(Type t) => _fields.GetOrAdd(t, static rt =>
+    {
+        for (var b = rt; b is not null; b = b.BaseType)
         {
-            if (t.Name != "PluginBinaryOverlay") continue;
-            _recordData = t.GetField("_recordData", BindingFlags.Instance | BindingFlags.NonPublic);
-            _package = t.GetField("_package", BindingFlags.Instance | BindingFlags.NonPublic);
-            break;
+            if (b.Name != "PluginBinaryOverlay") continue;
+            return (b.GetField("_recordData", BindingFlags.Instance | BindingFlags.NonPublic),
+                    b.GetField("_package", BindingFlags.Instance | BindingFlags.NonPublic));
         }
-        _resolved = true;
-    }
+        return (null, null);
+    });
 
-    /// <summary>The record's own subrecord bytes (EDID onward — the major-record header is not part of it), or null
-    /// when this record is not a binary overlay or Mutagen no longer holds them where we look.</summary>
-    static ReadOnlyMemorySlice<byte>? RawContent(object record)
+    /// <summary>The record's own subrecord bytes (EDID onward — the major-record header is not part of them) and
+    /// the parsing meta they were read with. Null when this record is not a binary overlay, or when Mutagen no
+    /// longer holds either where we look.</summary>
+    static OverlayBytes? Overlay(object record)
     {
-        Resolve(record);
-        if (_recordData is null) return null;
-        try { return _recordData.GetValue(record) is ReadOnlyMemorySlice<byte> d ? d : null; }
-        catch { return null; }
-    }
-
-    /// <summary>The master package the containing plugin was parsed with, so a raw FormID in EPFD becomes the same
-    /// FormKey Mutagen would have produced (light and medium masters included). Null when it cannot be reached —
-    /// the decode then renders the raw FormID and contributes no link, saying so.</summary>
-    static IReadOnlySeparatedMasterPackage? Masters(object record)
-    {
-        Resolve(record);
-        if (_package is null) return null;
+        var (dataField, packageField) = FieldsFor(record.GetType());
+        if (dataField is null || packageField is null) return null;
         try
         {
-            var pkg = _package.GetValue(record);
+            if (dataField.GetValue(record) is not ReadOnlyMemorySlice<byte> content) return null;
+            var pkg = packageField.GetValue(record);
             var meta = pkg?.GetType().GetField("MetaData", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(pkg);
-            return (meta as ParsingMeta)?.MasterReferences;
+            return meta is ParsingMeta pm ? new OverlayBytes(content, pm) : null;
         }
         catch { return null; }
     }

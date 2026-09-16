@@ -2552,8 +2552,16 @@ public sealed partial class LoadOrderService
         int total = 0;
         int unscannable = 0;                                                // records whose body tests threw (Mutagen-unparseable content) — excluded and accounted, never silent
         var unscannableSamples = new List<string>();
-        int lenient = 0;                                                    // records whose links were read leniently (PerkEffectDecode) — scanned, but with a named gap
+        // Records whose links were read leniently (PerkEffectDecode) — scanned, but with a named gap. Keyed by
+        // FormKey: on the scoped lane a record is tested once per plugin that carries it, and "N record(s)" has to
+        // mean records, not copies.
+        var lenientKeys = new HashSet<FormKey>();
         var lenientSamples = new List<string>();
+        void NoteLenient(FormKey fk, string? note)
+        {
+            if (note is null || !lenientKeys.Add(fk)) return;
+            if (lenientSamples.Count < 3) lenientSamples.Add(note);
+        }
         // Plugins the winner scan could not open at all — a whole-plugin coverage gap, named in the response rather
         // than left to read as a clean whole-order scan.
         var unreadablePlugins = new List<PluginUnreadableException>();
@@ -2634,16 +2642,12 @@ public sealed partial class LoadOrderService
                             if (!string.IsNullOrEmpty(editoridContains)
                                 && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
                                 continue;
-                            List<FormKey>? hitTargets = null;
-                            if (refSet is not null)
-                            {
-                                if (body is not IFormLinkContainerGetter flc) continue;
-                                var hitSet = new HashSet<FormKey>();
-                                foreach (var l in flc.EnumerateFormLinks()) if (refSet.Contains(l.FormKey)) hitSet.Add(l.FormKey);
-                                if (hitSet.Count == 0) continue;
-                                if (multiTarget && groups is null) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();
-                            }
-                            if (refNone is not null && ExcludedByReference(body, refNone)) continue;
+                            // The same one-read verdict the scoped lane makes, so the formids-as-universe lane —
+                            // which is also where an unbounded references= lands — answers identically (#301).
+                            bool keep = ReferenceVerdict(body, refSet, refNone, references, multiTarget && groups is null,
+                                                         out var hitTargets, out var lenientNote);
+                            NoteLenient(fk, lenientNote);
+                            if (!keep) continue;
                             if (predicate is not null && !predicate.Matches(body))
                             {
                                 if (predicate.FatalError is not null) { go = false; break; }
@@ -2820,29 +2824,14 @@ public sealed partial class LoadOrderService
                         // references= is a list with OR semantics: a record matches if it links to ANY target. One
                         // EnumerateFormLinks pass collects the intersection, so a multi-target lookup can be
                         // un-merged into which targets each row hit.
-                        List<FormKey>? hitTargets = null;
-                        if (refSet is not null)
-                        {
-                            if (filterBody is not IFormLinkContainerGetter flc) return true;
-                            var hitSet = new HashSet<FormKey>();
-                            // Mutagen's whole-record link walk is one lazy parse: a single unparseable part throws
-                            // and the record is excluded. Where that part is a PERK effect whose function byte and
-                            // EPFT disagree, the rest of the record still reads, so the walk is retried field by
-                            // field and the gap is named in the scan note rather than the whole record vanishing
-                            // from a references= answer (#301).
-                            try { foreach (var l in flc.EnumerateFormLinks()) if (refSet.Contains(l.FormKey)) hitSet.Add(l.FormKey); }
-                            catch (Exception)
-                            {
-                                if (PerkEffectDecode.ReadLinks(filterBody) is not { } relaxed) throw;   // nothing recovered — unscannable, exactly as before
-                                hitSet.Clear();                                   // start from what the lenient walk proved, not a half-filled set
-                                foreach (var link in relaxed.Links) if (refSet.Contains(link)) hitSet.Add(link);
-                                lenient++;
-                                if (lenientSamples.Count < 3) lenientSamples.Add(relaxed.Note);
-                            }
-                            if (hitSet.Count == 0) return true;
-                            if (multiTarget && groups is null) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();   // in input order; only the match-line path consumes it
-                        }
-                        if (refNone is not null && ExcludedByReference(filterBody, refNone)) return true;
+                        // BOTH reference arms off one link read, so a record cannot be judged twice on two walks.
+                        // Mutagen's walk is one lazy parse: a single unparseable part throws and the record drops
+                        // out. Where that part is a PERK effect Mutagen refuses, the walk is retried field by field
+                        // and the record is accounted in the response rather than vanishing (#301).
+                        if (!ReferenceVerdict(filterBody, refSet, refNone, references, multiTarget && groups is null,
+                                              out var hitTargets, out var lenientNote))
+                        { NoteLenient(fk, lenientNote); return true; }
+                        NoteLenient(fk, lenientNote);
                         if (predicate is not null && !predicate.Matches(filterBody))    // value filter on the same in-hand body, no extra fetch
                         {
                             if (predicate.FatalError is not null) return false;   // e.g. a numeric op against a non-numeric field — abort and surface it
@@ -2929,15 +2918,9 @@ public sealed partial class LoadOrderService
         // Records the scan DID filter, but only after reading around content Mutagen refused. They are answers, not
         // skips — so they are said separately from the sentence above — and the gap is named, because what the
         // lenient read could not reach cannot prove a non-match.
-        if (lenient > 0)
-        {
-            string note = $"note: {lenient} record(s) were read leniently — part of their content is encoded in a way "
-                        + "Mutagen refuses, so the filters ran on what houseCARL could still decode: "
-                        + string.Join("; ", lenientSamples)
-                        + (lenient > lenientSamples.Count ? $"; and {lenient - lenientSamples.Count} more" : "")
-                        + $". Read one with {ToolNames.Records} formids=[the FormID] to see the marked row.";
-            scanNote = scanNote is null ? note : scanNote + " " + note;
-        }
+        if (lenientKeys.Count > 0)
+            scanNote = scanNote is null ? LenientNote(lenientKeys.Count, lenientSamples)
+                                        : scanNote + " " + LenientNote(lenientKeys.Count, lenientSamples);
         // Whole-plugin coverage gap: the scan carried on past a plugin it could not open, so the answer covers the
         // rest of the order but not that plugin's winners. Named here so the result never reads as a clean scan.
         if (unreadablePlugins.Count > 0)
@@ -3020,12 +3003,48 @@ public sealed partial class LoadOrderService
     /// it. A record that carries no links at all references nothing and is kept — that is the whole point of the
     /// term, and a DELETED record (no live body to read links from) is the strongest case of it, so it is kept
     /// rather than skipped the way the positive term skips it.</summary>
-    static bool ExcludedByReference(IMajorRecordGetter body, HashSet<FormKey> excluded)
+    /// <summary>The one sentence a scan owes for records it filtered only after reading around content Mutagen
+    /// refused. They are answers, not skips, so it is said apart from the unscannable sentence — and the gap is
+    /// named, because what the lenient read could not reach cannot prove a non-match.</summary>
+    static string LenientNote(int count, IReadOnlyList<string> samples) =>
+        $"note: {count} record(s) were read leniently — part of their content is encoded in a way Mutagen refuses, "
+        + "so the filters ran on what houseCARL could still decode: "
+        + string.Join("; ", samples)
+        + (count > samples.Count ? $"; and {count - samples.Count} more" : "")
+        + $". Read one with {ToolNames.Records} formids=[the FormID] to see the marked row.";
+
+    /// <summary>BOTH reference arms off ONE read of the record's links — the shared verdict every scan lane uses.
+    /// references= and references_none= walked the body separately, so a record whose links only read leniently
+    /// could be counted as read leniently by one arm and unscannable by the other, two contradictory statements
+    /// about one FormID. One read, one verdict.
+    ///
+    /// <para>Returns false when the record is filtered out. <paramref name="lenientNote"/> is the sentence a lenient
+    /// re-read owes (null when Mutagen's own walk finished); a body nothing can recover from still THROWS, so the
+    /// caller's unscannable accounting is unchanged. <paramref name="hitTargets"/> is filled only when the caller
+    /// wants the per-target un-merge.</para></summary>
+    static bool ReferenceVerdict(IMajorRecordGetter body, HashSet<FormKey>? refSet, HashSet<FormKey>? refNone,
+                                 IReadOnlyList<FormKey>? references, bool wantTargets,
+                                 out List<FormKey>? hitTargets, out string? lenientNote)
     {
-        if (DeletedRecordRule.HasNoLiveBody(body)) return false;
-        if (body is not IFormLinkContainerGetter flc) return false;
-        foreach (var l in flc.EnumerateFormLinks()) if (excluded.Contains(l.FormKey)) return true;
-        return false;
+        hitTargets = null;
+        lenientNote = null;
+        if (refSet is null && refNone is null) return true;
+        // A deleted record carries no live body: it can never match references=, and it is not EXCLUDED by
+        // references_none= either — the same rule both arms already applied separately.
+        if (DeletedRecordRule.HasNoLiveBody(body) || body is not IFormLinkContainerGetter) return refSet is null;
+
+        var hitSet = refSet is null ? null : new HashSet<FormKey>();
+        bool excluded = false;
+        lenientNote = RecordLinks.Walk(body, key =>
+        {
+            if (refSet is not null && refSet.Contains(key)) hitSet!.Add(key);
+            if (refNone is not null && refNone.Contains(key)) excluded = true;
+        });
+        if (excluded) return false;
+        if (hitSet is null) return true;
+        if (hitSet.Count == 0) return false;
+        if (wantTargets) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();
+        return true;
     }
 
     // ---- the off-order scan ----------------------------------------------------------------------------
@@ -3132,6 +3151,9 @@ public sealed partial class LoadOrderService
         SeedRequestedTypes(groups, groupBy, types);
         int total = 0, unscannable = 0;
         var unscannableSamples = new List<string>();
+        // Records read leniently here, keyed like the in-order lane so the count is records and not copies.
+        var lenientKeys = new HashSet<FormKey>();
+        var lenientSamples = new List<string>();
         LoadOrderResolver.OverlaySession? session = null;
         try
         {
@@ -3174,16 +3196,11 @@ public sealed partial class LoadOrderService
                     if (!string.IsNullOrEmpty(editoridContains)
                         && (rec.EditorID is null || rec.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
                         continue;
-                    List<FormKey>? hitTargets = null;
-                    if (refSet is not null)
-                    {
-                        if (rec is not IFormLinkContainerGetter flc) continue;
-                        var hitSet = new HashSet<FormKey>();
-                        foreach (var l in flc.EnumerateFormLinks()) if (refSet.Contains(l.FormKey)) hitSet.Add(l.FormKey);
-                        if (hitSet.Count == 0) continue;
-                        if (multiTarget && groups is null) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();
-                    }
-                    if (refNone is not null && ExcludedByReference(rec, refNone)) continue;
+                    // The same one-read verdict the in-order lanes make (#301).
+                    bool keep = ReferenceVerdict(rec, refSet, refNone, references, multiTarget && groups is null,
+                                                 out var hitTargets, out var lenientNote);
+                    if (lenientNote is not null && lenientKeys.Add(fk) && lenientSamples.Count < 3) lenientSamples.Add(lenientNote);
+                    if (!keep) continue;
                     if (predicate is not null && !predicate.Matches(rec))
                     {
                         if (predicate.FatalError is not null) break;
@@ -3227,6 +3244,10 @@ public sealed partial class LoadOrderService
             : $"note: {unscannable} record(s) in '{pole.Plugin}' could not be scanned and were skipped where the failure occurred: "
               + string.Join("; ", unscannableSamples)
               + (unscannable > unscannableSamples.Count ? $"; and {unscannable - unscannableSamples.Count} more" : "") + ".";
+        // Records the scan DID filter, but only after reading around content Mutagen refused — the same sentence
+        // the in-order lanes carry, so one record reads the same way whichever lane answered.
+        if (lenientKeys.Count > 0)
+            scanNote = (scanNote is null ? "" : scanNote + " ") + LenientNote(lenientKeys.Count, lenientSamples);
         // The scope's own gap leads, exactly as it does on the in-order scan.
         if (scopeMissingNote is not null)
             scanNote = scanNote is null ? scopeMissingNote : scopeMissingNote + " " + scanNote;

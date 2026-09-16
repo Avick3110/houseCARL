@@ -785,31 +785,35 @@ public static class ReadEngine
                 ExpandChild(arm, armProp.PropertyType, val, $"{path}[{g}]", childDepth, sink, ref budget);
             }
         }
-        else if (val is not string && IndexedElements(val) is { } indexed)
-        {
-            // A binary overlay builds a list element only when it is INDEXED, so an element Mutagen cannot parse
-            // throws out of the ENUMERATOR and takes every sibling with it — the whole field then reads as one
-            // unreadable line, which is indistinguishable from a record that has no such content. Stepping by
-            // index isolates the fault to the element that carries it (#301); a list with no indexer keeps the
-            // enumeration below.
-            for (int i = 0; i < indexed.Count; i++)
-            {
-                if (budget < 0) return;
-                object? item;
-                try { item = indexed.At(i); }
-                catch (Exception ex) { Emit(sink, ref budget, ElementFault(parent, $"{path}[{i}]", i, ex)); continue; }
-                ExpandChild(item, item?.GetType() ?? typeof(object), val, $"{path}[{i}]", childDepth, sink, ref budget);
-            }
-        }
         else if (val is System.Collections.IEnumerable seq and not string)
         {
-            int i = 0;
-            foreach (var item in seq)
+            // Plain enumeration, as before — no reflection and no per-element cost on a list that reads.
+            //
+            // A binary overlay builds a list element only when it is reached, so an element Mutagen cannot parse
+            // throws out of the ENUMERATOR and takes every sibling with it: the whole field then reads as one
+            // unreadable line, indistinguishable from a record that has no such content. On that throw — and only
+            // then — the element is named and the REST of the list is stepped by index, which builds one element at
+            // a time and isolates each fault to its own row (#301). A list with no indexer says where it stopped.
+            var en = seq.GetEnumerator();
+            try
             {
-                if (budget < 0) return;
-                ExpandChild(item, item?.GetType() ?? typeof(object), val, $"{path}[{i}]", childDepth, sink, ref budget);
-                i++;
+                int i = 0;
+                while (true)
+                {
+                    if (budget < 0) return;
+                    object? item;
+                    try { if (!en.MoveNext()) return; item = en.Current; }
+                    catch (Exception ex)
+                    {
+                        Emit(sink, ref budget, ElementFault(parent, path, i, ex));
+                        ExpandRestByIndex(val, parent, path, i + 1, childDepth, sink, ref budget);
+                        return;
+                    }
+                    ExpandChild(item, item?.GetType() ?? typeof(object), val, $"{path}[{i}]", childDepth, sink, ref budget);
+                    i++;
+                }
             }
+            finally { (en as IDisposable)?.Dispose(); }
         }
         else
         {
@@ -846,13 +850,52 @@ public static class ReadEngine
         }
     }
 
-    /// <summary>The line for a list element whose own getter threw. Ordinarily the read fault note; on a PERK's
-    /// effect list, the lenient decode's marker instead — the one place houseCARL reads content Mutagen refused,
-    /// and it says so in the same note (<see cref="PerkEffectDecode"/>).</summary>
-    static FieldValue ElementFault(object parent, string path, int index, Exception ex) =>
-        PerkEffectDecode.EffectNote(parent, index, Reason(ex)) is { } marker
-            ? new FieldValue(path, false, null, marker, Present: true, Readable: false)
-            : Fault(path, ex);
+    /// <summary>Emit the elements from <paramref name="from"/> onward one at a time, each isolated — the path taken
+    /// only after an enumeration already threw. A list with no indexer cannot be stepped, and says so rather than
+    /// letting the elements after the fault read as absent.</summary>
+    static void ExpandRestByIndex(object val, object parent, string listPath, int from, int childDepth,
+                                  List<FieldValue> sink, ref int budget)
+    {
+        if (IndexedElements(val) is not { } indexed)
+        {
+            Emit(sink, ref budget, new FieldValue($"{listPath}[{from}…]", false, null,
+                UnreadableNote($"the element(s) from {from} on were not read: {RecordNaming.StripOverlay(val.GetType().Name)} "
+                               + "can only be enumerated, and the enumeration stopped at the fault above"),
+                Present: true, Readable: false));
+            return;
+        }
+        for (int i = from; i < indexed.Count; i++)
+        {
+            if (budget < 0) return;
+            object? item;
+            try { item = indexed.At(i); }
+            catch (Exception ex) { Emit(sink, ref budget, ElementFault(parent, listPath, i, ex)); continue; }
+            ExpandChild(item, item?.GetType() ?? typeof(object), val, $"{listPath}[{i}]", childDepth, sink, ref budget);
+        }
+    }
+
+    /// <summary>The line for a list element whose own getter threw. Ordinarily the read fault note; for an element
+    /// of a PERK's EFFECTS list, the lenient decode's marker instead — the one place houseCARL reads content Mutagen
+    /// refused, and it says so in the same note (<see cref="PerkEffectDecode"/>). The list is named as well as the
+    /// record: a PERK's other lists (its own Conditions) are not effects, and a marker quoting an effect's bytes on
+    /// one of their rows would be a confident answer about the wrong subrecord.</summary>
+    static FieldValue ElementFault(object parent, string listPath, int index, Exception ex)
+    {
+        var elementPath = $"{listPath}[{index}]";
+        if (!IsEffectsList(listPath)) return Fault(elementPath, ex);
+        return PerkEffectDecode.EffectNote(parent, index, Reason(ex)) is { } marker
+            ? new FieldValue(elementPath, false, null, marker, Present: true, Readable: false)
+            : Fault(elementPath, ex);
+    }
+
+    /// <summary>Is this read path the record's own <c>Effects</c> list — the last dotted step, with no bracket on
+    /// it (a nested <c>Effects[0].Conditions</c> is a different list)?</summary>
+    static bool IsEffectsList(string listPath)
+    {
+        int dot = listPath.LastIndexOf('.');
+        var last = dot < 0 ? listPath : listPath[(dot + 1)..];
+        return string.Equals(last, "Effects", StringComparison.Ordinal);
+    }
 
     /// <summary>A collection's element count and its indexer, when it has one — the accessor an overlay list offers
     /// so a caller can build ONE element at a time instead of enumerating. Null for a collection with no indexer
