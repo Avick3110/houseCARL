@@ -1,6 +1,9 @@
 # Lists the public and internal members of LoadOrderService that nothing under
 # src/housecarl-mcp calls - the members the shipped process does not reach.
 #
+# The service is one `public sealed partial class` spread over several files, so the
+# script finds every file in scope that declares a piece of it and walks them all.
+#
 # It reads identifiers, not types. A call counts when the name is used bare (inside
 # the class) or through a receiver this script believes is the service; a use through
 # any other receiver, and a use in a comment, is counted apart and printed by -Sites,
@@ -19,86 +22,104 @@
 
 param(
     [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')),
-    [string]$Service = 'src/housecarl-mcp/LoadOrderService.cs',
+    [string[]]$Service = @(),
     [string]$Scope = 'src/housecarl-mcp',
     [switch]$Sites,
     [switch]$All
 )
 
-$servicePath = Join-Path $Root $Service
-if (-not (Test-Path -LiteralPath $servicePath)) { throw "not found: $servicePath" }
+$scopePath = Join-Path $Root $Scope
+if (-not (Test-Path -LiteralPath $scopePath)) { throw "not found: $scopePath" }
+$files = @(Get-ChildItem -LiteralPath $scopePath -Recurse -Filter *.cs)
 
-# --- the declarations: lines indented exactly one level inside the class ---
-$declLines = Get-Content -LiteralPath $servicePath
-$members = New-Object System.Collections.Generic.List[object]
+# The declaration carries `partial`, and every other modifier order the class has ever
+# had would be a different class, so match the line the source actually writes.
+$declPattern = '^public sealed partial class LoadOrderService\b'
 
-# The file carries the service's result types after the class, so bound the walk to the
-# class body: its opening line, to the first closing brace in column one after it.
-$start = ($declLines | Select-String -Pattern '^public sealed class LoadOrderService\b' | Select-Object -First 1).LineNumber
-if (-not $start) { throw "class LoadOrderService not found in $Service" }
-$end = $declLines.Count
-for ($i = $start; $i -lt $declLines.Count; $i++) {
-    if ($declLines[$i] -eq '}') { $end = $i; break }
+# Given no -Service, the set of files is whichever ones declare a piece of the class.
+if ($Service.Count -eq 0) {
+    $Service = @($files |
+        Where-Object { Select-String -LiteralPath $_.FullName -Pattern $declPattern -Quiet } |
+        ForEach-Object { $_.FullName.Substring($Root.Length).TrimStart('\', '/') } |
+        Sort-Object)
+    if ($Service.Count -eq 0) { throw "no file under $Scope declares partial class LoadOrderService" }
 }
 
-for ($i = $start; $i -lt $end; $i++) {
-    $line = $declLines[$i]
-    if ($line -notmatch '^    (public|internal)\s') { continue }
+# --- the declarations: lines indented exactly one level inside the class ---
+$members = New-Object System.Collections.Generic.List[object]
 
-    # Cut an accessor block or expression body off first, so a call inside one is not read as a parameter list.
-    $head = $line
-    $cut = ($head.IndexOf('{'), $head.IndexOf('=>') | Where-Object { $_ -ge 0 } | Measure-Object -Minimum).Minimum
-    if ($null -ne $cut) { $head = $head.Substring(0, $cut) }
+foreach ($part in $Service) {
+    $servicePath = Join-Path $Root $part
+    if (-not (Test-Path -LiteralPath $servicePath)) { throw "not found: $servicePath" }
+    $partRel = $part -replace '/', '\'
+    $declLines = @(Get-Content -LiteralPath $servicePath)
 
-    # The parameter list is the first "(" an identifier or a generic argument list touches. A "(" preceded by
-    # anything else opens a tuple RETURN type, so skip it and its contents.
-    $paramAt = -1
-    for ($c = 0; $c -lt $head.Length; $c++) {
-        if ($head[$c] -ne '(') { continue }
-        if ($head.Substring(0, $c) -match '[A-Za-z0-9_>]$') { $paramAt = $c; break }
-        $depth = 1
-        while (++$c -lt $head.Length -and $depth -gt 0) {
-            if ($head[$c] -eq '(') { $depth++ } elseif ($head[$c] -eq ')') { $depth-- }
+    # A file can carry other types beside its piece of the class, so bound the walk to the
+    # class body: its opening line, to the first closing brace in column one after it.
+    $start = ($declLines | Select-String -Pattern $declPattern | Select-Object -First 1).LineNumber
+    if (-not $start) { throw "partial class LoadOrderService not found in $part" }
+    $end = $declLines.Count
+    for ($i = $start; $i -lt $declLines.Count; $i++) {
+        if ($declLines[$i] -eq '}') { $end = $i; break }
+    }
+
+    for ($i = $start; $i -lt $end; $i++) {
+        $line = $declLines[$i]
+        if ($line -notmatch '^    (public|internal)\s') { continue }
+
+        # Cut an accessor block or expression body off first, so a call inside one is not read as a parameter list.
+        $head = $line
+        $cut = ($head.IndexOf('{'), $head.IndexOf('=>') | Where-Object { $_ -ge 0 } | Measure-Object -Minimum).Minimum
+        if ($null -ne $cut) { $head = $head.Substring(0, $cut) }
+
+        # The parameter list is the first "(" an identifier or a generic argument list touches. A "(" preceded by
+        # anything else opens a tuple RETURN type, so skip it and its contents.
+        $paramAt = -1
+        for ($c = 0; $c -lt $head.Length; $c++) {
+            if ($head[$c] -ne '(') { continue }
+            if ($head.Substring(0, $c) -match '[A-Za-z0-9_>]$') { $paramAt = $c; break }
+            $depth = 1
+            while (++$c -lt $head.Length -and $depth -gt 0) {
+                if ($head[$c] -eq '(') { $depth++ } elseif ($head[$c] -eq ')') { $depth-- }
+            }
+            $c--
         }
-        $c--
-    }
-    $decl = if ($paramAt -ge 0) { $head.Substring(0, $paramAt) } else { $head }
+        $decl = if ($paramAt -ge 0) { $head.Substring(0, $paramAt) } else { $head }
 
-    $name = $null
-    $kind = 'member'
-    if ($decl -match '\b(class|struct|enum|interface|record(?:\s+(?:struct|class))?)\s+([A-Za-z_][A-Za-z0-9_]*)') {
-        $name = $Matches[2]
-        $kind = ($Matches[1] -split '\s+')[0]
-    }
-    elseif ($paramAt -ge 0) {
-        # a method or delegate: the name is the identifier before the parameter list, past any generic arguments
-        $before = $decl -replace '<[^<>]*>\s*$', ''
-        if ($before -match '([A-Za-z_][A-Za-z0-9_]*)\s*$') {
-            $name = $Matches[1]
-            $kind = if ($line -match '\bdelegate\b') { 'delegate' } else { 'method' }
+        $name = $null
+        $kind = 'member'
+        if ($decl -match '\b(class|struct|enum|interface|record(?:\s+(?:struct|class))?)\s+([A-Za-z_][A-Za-z0-9_]*)') {
+            $name = $Matches[2]
+            $kind = ($Matches[1] -split '\s+')[0]
         }
-    }
-    else {
-        # a property or field: cut the initializer off too, then take the declared name
-        $idents = [regex]::Matches(($decl -split '=|;')[0], '[A-Za-z_][A-Za-z0-9_]*')
-        if ($idents.Count -gt 0) {
-            $name = $idents[$idents.Count - 1].Value
-            $kind = 'property/field'
+        elseif ($paramAt -ge 0) {
+            # a method or delegate: the name is the identifier before the parameter list, past any generic arguments
+            $before = $decl -replace '<[^<>]*>\s*$', ''
+            if ($before -match '([A-Za-z_][A-Za-z0-9_]*)\s*$') {
+                $name = $Matches[1]
+                $kind = if ($line -match '\bdelegate\b') { 'delegate' } else { 'method' }
+            }
         }
-    }
+        else {
+            # a property or field: cut the initializer off too, then take the declared name
+            $idents = [regex]::Matches(($decl -split '=|;')[0], '[A-Za-z_][A-Za-z0-9_]*')
+            if ($idents.Count -gt 0) {
+                $name = $idents[$idents.Count - 1].Value
+                $kind = 'property/field'
+            }
+        }
 
-    if (-not $name) {
-        Write-Warning "no name parsed at ${Service}:$($i + 1): $($line.Trim())"
-        continue
-    }
-    if ($name -eq 'LoadOrderService') { continue }   # the constructor
+        if (-not $name) {
+            Write-Warning "no name parsed at ${part}:$($i + 1): $($line.Trim())"
+            continue
+        }
+        if ($name -eq 'LoadOrderService') { continue }   # the constructor
 
-    $members.Add([pscustomobject]@{ Name = $name; Kind = $kind; Line = $i + 1 })
+        $members.Add([pscustomobject]@{ Name = $name; Kind = $kind; File = $partRel; Line = $i + 1 })
+    }
 }
 
 # --- the names that hold a service, so a qualified use can be told from a lookalike ---
-$scopePath = Join-Path $Root $Scope
-$files = @(Get-ChildItem -LiteralPath $scopePath -Recurse -Filter *.cs)
 $serviceNames = [System.Collections.Generic.HashSet[string]]::new()
 foreach ($n in 'this', 'LoadOrderService') { [void]$serviceNames.Add($n) }
 foreach ($file in $files) {
@@ -145,20 +166,19 @@ foreach ($file in $files) {
     }
 }
 
-$serviceRel = $Service -replace '/', '\'
 $rows = foreach ($group in $members | Group-Object Name) {
-    $own = @($group.Group.Line)
+    # The declaration sites are spread over the partial's files, so a site is the member's
+    # own only when the file matches too.
+    $own = @($group.Group | ForEach-Object { "$($_.File):$($_.Line)" })
     $hits = @()
     if ($mentions.ContainsKey($group.Name)) {
-        $hits = @($mentions[$group.Name] | Where-Object {
-            -not ($_.File -eq $serviceRel -and $own -contains $_.Line)
-        })
+        $hits = @($mentions[$group.Name] | Where-Object { $own -notcontains "$($_.File):$($_.Line)" })
     }
     $code = @($hits | Where-Object { -not $_.Comment })
     [pscustomobject]@{
         Name      = $group.Name
         Kind      = ($group.Group.Kind | Select-Object -Unique) -join '/'
-        Lines     = $own -join ','
+        Lines     = (@($group.Group | ForEach-Object { "$([System.IO.Path]::GetFileName($_.File)):$($_.Line)" }) -join ',')
         Calls     = @($code | Where-Object { $_.OnService }).Count
         Elsewhere = @($code | Where-Object { -not $_.OnService }).Count
         InProse   = @($hits | Where-Object { $_.Comment }).Count
@@ -172,6 +192,7 @@ if ($All) {
 else {
     $dead = @($rows | Where-Object { $_.Calls -eq 0 } | Sort-Object Name)
     Write-Output "$($members.Count) public/internal members, $($rows.Count) distinct names, $($dead.Count) uncalled in $Scope"
+    Write-Output "across $($Service.Count) file(s): $(@($Service | ForEach-Object { [System.IO.Path]::GetFileName($_) }) -join ', ')"
     $dead | Format-Table Name, Kind, Lines, Elsewhere, InProse -AutoSize
     if ($Sites) {
         foreach ($row in $dead | Where-Object { $_.Elsewhere -gt 0 }) {
