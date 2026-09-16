@@ -2292,9 +2292,13 @@ public sealed partial class LoadOrderService
     /// plugin — the game's own walk order — off ONE captured build. It is epoch-stamped, because this form reads
     /// plugin records through the index only, with no VFS or INI layer. A non-DIAL FormID is a per-item typed
     /// refusal: a quest's topics are selected by composition (types=["DIAL"] where=["Quest = &lt;quest formid&gt;"])
-    /// rather than by silently fanning out here.</summary>
+    /// rather than by silently fanning out here.
+    /// <para><paramref name="foldArm"/> is an OFF-ORDER source pole, already probed: its file is read once and
+    /// folded into every topic's merge as the last contributor, so the answer is the order as it WOULD be with
+    /// that file enabled. The file's content sits outside the epoch fingerprint, which the caller declares.</para></summary>
     public IReadOnlyList<InfoOrderRow> InfoOrderBatch(IReadOnlyList<string> formids, ArtifactDemand? demand,
-                                                      out string? refusal, out OrderStamp? epoch)
+                                                      out string? refusal, out OrderStamp? epoch,
+                                                      PoleInfo? foldArm = null)
     {
         refusal = null;
         var resolver = Resolver;
@@ -2304,6 +2308,12 @@ public sealed partial class LoadOrderService
         {
             refusal = ArtifactEpochMismatch(demand, view.Epoch);
             return Array.Empty<InfoOrderRow>();
+        }
+        DialogueFold? fold = null;
+        if (foldArm is not null)
+        {
+            fold = OpenDialogueFold(foldArm, out var foldErr);
+            if (foldErr is not null) { refusal = foldErr; return Array.Empty<InfoOrderRow>(); }
         }
         using var session = resolver.OpenSession();
 
@@ -2322,6 +2332,16 @@ public sealed partial class LoadOrderService
             var win = view.ResolveWinner(fk);
             if (win is null)
             {
+                // A topic only the folded file defines: it resolves nowhere in the active order, and the fold IS
+                // its whole merge. Served from the fold, with no winner — nothing wins a record the order has not
+                // got — rather than refused as absent.
+                if (fold?.Topic(fk) is { } foldedOnly)
+                {
+                    dialRows.Add((rows.Count, fk));
+                    rows.Add(new InfoOrderRow(FormIdToken.Of(fk), "DialogTopic", foldedOnly.EditorId, null, null, null));
+                    if (dialSeen.Add(fk)) dialFks.Add(fk);
+                    continue;
+                }
                 rows.Add(new InfoOrderRow(FormIdToken.Of(fk), null, null, null, null, UnresolvedFormId(view, fk)));
                 continue;
             }
@@ -2347,11 +2367,32 @@ public sealed partial class LoadOrderService
         }
         if (dialFks.Count > 0)
         {
-            var orders = DialogueValidate.InfoOrders(view, session, dialFks);
+            var orders = DialogueValidate.InfoOrders(view, session, dialFks, fold);
             foreach (var (idx, fk) in dialRows)
                 if (orders.TryGetValue(fk, out var io)) rows[idx] = rows[idx] with { Order = io };
         }
         return rows;
+    }
+
+    /// <summary>Read an already-probed OFF-ORDER pole's DIAL content once, for a dialogue lane to fold at the end
+    /// of the order. Every failure is a named refusal — the roots that could not be derived, the file that would
+    /// not parse — never a fold that silently contributes nothing.</summary>
+    internal DialogueFold? OpenDialogueFold(PoleInfo arm, out string? error)
+    {
+        error = null;
+        string dataDir;
+        try { lock (_gate) { EnsurePathsDerived(); dataDir = _dataDir; } }
+        catch (Exception ex)
+        {
+            error = $"the MO2 roots couldn't be derived to open '{arm.Plugin}': {ex.Message}";
+            return null;
+        }
+        try { return DialogueFold.Read(arm.Plugin, arm.Where, arm.Path!, dataDir); }
+        catch (Exception ex)
+        {
+            error = $"could not open '{arm.Path}' as a Skyrim plugin: {ex.Message}";
+            return null;
+        }
     }
 
     // ---- cross-plugin query ----------------------------------------------------------------------------
