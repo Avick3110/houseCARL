@@ -1,8 +1,8 @@
 # Lists the public and internal members of LoadOrderService that nothing under
 # src/housecarl-mcp calls - the members the shipped process does not reach.
 #
-# The service is one `public sealed partial class` spread over several files, so the
-# script finds every file in scope that declares a piece of it and walks them all.
+# The service is one partial class spread over several files, so the script finds every
+# file in scope that declares a piece of it and walks them all.
 #
 # It reads identifiers, not types. A call counts when the name is used bare (inside
 # the class) or through a receiver this script believes is the service; a use through
@@ -32,9 +32,9 @@ $scopePath = Join-Path $Root $Scope
 if (-not (Test-Path -LiteralPath $scopePath)) { throw "not found: $scopePath" }
 $files = @(Get-ChildItem -LiteralPath $scopePath -Recurse -Filter *.cs)
 
-# The declaration carries `partial`, and every other modifier order the class has ever
-# had would be a different class, so match the line the source actually writes.
-$declPattern = '^public sealed partial class LoadOrderService\b'
+# Match only the part that cannot drift. C# modifier order is free, so pinning the whole
+# string is how this script came to match nothing; the column-1 anchor is what the walk needs.
+$declPattern = '^\S.*\bpartial class LoadOrderService\b'
 
 # Given no -Service, the set of files is whichever ones declare a piece of the class.
 if ($Service.Count -eq 0) {
