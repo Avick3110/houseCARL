@@ -100,8 +100,8 @@ public sealed partial class LoadOrderService
     public RiderFolder ResolveExplicitSeqFolder(string outputDir, out string? deployWarning)
         => ResolveExplicitRiderFolder(outputDir, "SEQ", SeqOutputContract, out deployWarning);
 
-    /// <summary>The shared body of the out_path= lanes, one artifact per caller: normalize the root, refuse an
-    /// unusable one loudly, apply <paramref name="contract"/>, which appends <paramref name="sub"/> with the
+    /// <summary>The shared body of the out_path= lanes, one artifact per caller: refuse a path that is not absolute
+    /// or is otherwise unusable, normalize the root, apply <paramref name="contract"/>, which appends <paramref name="sub"/> with the
     /// double-segment guard and decides deployability, create the folder, and hand back a user-owned RiderFolder.
     /// One body rather than one per rider, so the rules cannot drift per artifact.</summary>
     RiderFolder ResolveExplicitRiderFolder(
@@ -113,8 +113,11 @@ public sealed partial class LoadOrderService
         {
             if (!_configured) throw NotConfigured();
             EnsurePathsDerived();                          // cheap: derive ModsDir/DataDir for the deployability check, NO resolver build
+            var given = (outputDir ?? "").Trim().Trim('"');
+            if (OutPathNotAbsolute(given, $"the mod-folder root to write into (houseCARL appends {sub}\\)") is { } notAbsolute)
+                throw new InvalidOperationException(notAbsolute);
             string root;
-            try { root = Path.GetFullPath((outputDir ?? "").Trim().Trim('"')); }
+            try { root = Path.GetFullPath(given); }
             catch (Exception ex) { throw new InvalidOperationException($"out_path '{outputDir}' is not a usable path ({ex.Message})."); }
             if (File.Exists(root))
                 throw new InvalidOperationException($"out_path '{root}' is a file, not a folder. Give a mod-folder root — houseCARL appends {sub}\\.");
@@ -239,6 +242,18 @@ public sealed partial class LoadOrderService
         return f with { OutputDir = src };
     }
 
+    /// <summary>The one refusal every <c>out_path=</c> lane gives a path that is not absolute — the server would
+    /// resolve it against its OWN working directory, which no caller can predict, and the response would then name a
+    /// folder the caller cannot find. Fully-qualified rather than merely rooted: 'C:work' and '\work' are rooted and
+    /// still resolve against the server's directory. <paramref name="what"/> names what the caller should pass.
+    /// Returns null when the path is fine, so a tool body that answers in strings can refuse with it directly.</summary>
+    internal static string? OutPathNotAbsolute(string given, string what)
+        => Path.IsPathFullyQualified(given)
+            ? null
+            : $"out_path '{given}' is not an absolute path — pass the full path to {what} (e.g. " +
+              "'C:\\work\\output'), because the server resolves anything else against its OWN working directory, " +
+              "not yours.";
+
     /// <summary>The <c>out_path=</c> lane for a decompiled .psc: the caller names a folder and the .psc lands
     /// straight in it. Nothing is appended — a .psc is source a compiler reads, never a file the game loads — so
     /// this is the <c>bsa_extract</c> shape rather than <see cref="ResolveExplicitScriptFolder"/>'s, and there is no
@@ -251,13 +266,8 @@ public sealed partial class LoadOrderService
     public static RiderFolder ResolveExplicitSourceFolder(string outPath)
     {
         var given = (outPath ?? "").Trim().Trim('"');
-        // Fully-qualified, not merely rooted: 'C:sources' and '\sources' are rooted yet resolve against the
-        // server's own current directory, which is the confusion this refusal exists to stop.
-        if (!Path.IsPathFullyQualified(given))
-            throw new InvalidOperationException(
-                $"out_path '{outPath}' is not an absolute path — pass the full path to the folder the .psc should " +
-                "land in (e.g. 'C:\\work\\sources'), because the server resolves anything else against its OWN " +
-                "working directory, not yours.");
+        if (OutPathNotAbsolute(given, "the folder the .psc should land in") is { } notAbsolute)
+            throw new InvalidOperationException(notAbsolute);
         string root;
         try { root = Path.GetFullPath(given); }
         catch (Exception ex) { throw new InvalidOperationException($"out_path '{outPath}' is not a usable path ({ex.Message})."); }
