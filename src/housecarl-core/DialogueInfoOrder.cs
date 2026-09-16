@@ -131,6 +131,17 @@ public sealed record InfoOrderView(
     /// lists than the load order has, so neither it nor a "nothing merges here" reading of it is authoritative —
     /// the render must not state either as fact.</summary>
     public bool Complete => UnreadContributors.Count == 0;
+
+    /// <summary>The OFF-ORDER plugin folded into this merge as the last contributor — the order as it WOULD be
+    /// with that file enabled, not the order the game is loading now. Null when nothing was folded. Every render
+    /// of a view carrying one must say so, and must mark the lines the folded file placed: a projected order read
+    /// as the live one is the silently wrong answer this whole form exists to prevent.</summary>
+    public string? FoldedPlugin { get; init; }
+
+    /// <summary>Did the folded file actually place a line in this topic? False when a fold was in effect and the
+    /// file lists nothing here — a fact worth stating, since it is the answer to "does my patch move this topic".</summary>
+    public bool FoldContributed => FoldedPlugin is { } p
+        && ContributingPlugins.Any(c => c.Equals(p, StringComparison.OrdinalIgnoreCase));
 }
 
 public static class DialogueInfoOrder
