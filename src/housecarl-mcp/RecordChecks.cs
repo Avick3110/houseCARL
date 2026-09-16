@@ -59,7 +59,12 @@ public sealed partial class LoadOrderService
             DialogueFold? fold = null;
             string? foldError = null;
             if (foldArm is not null)
+            {
                 fold = OpenDialogueFold(foldArm, out foldError, FoldLabel(foldArm), withRecords: true);
+                // Placed HERE, where the file is opened and the build is in hand: a fold that reaches a render
+                // without having been placed would print the field's default position, which is a guess.
+                fold?.PlaceIn(view);
+            }
             try
             {
                 return new DialogueSweep.Binding(fk => DialogueValidate.Run(resolver, assets, fk, view, forceLoaded, fold),
