@@ -41,27 +41,30 @@ public static class DecompileTools
             string? patch = null,
         [Description("Optional. Filename of an existing houseCARL patch mod to add the .psc into instead of creating a fresh folder (accumulate sources; pairs with " + ToolNames.CompileScript + "'s into=). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
             string? into = null,
-        [Description("Optional. Land the .psc in a folder of YOUR choosing instead of a houseCARL patch folder — an ABSOLUTE path, created if it doesn't exist. The .psc is written straight into it (nothing appended: a .psc is source a compiler reads, not a file the game loads), so the folder is yours and houseCARL never deletes it. Cannot be combined with patch= or into=.")]
+        [Description("Optional. Land the .psc in a folder of YOUR choosing instead of a houseCARL patch folder — an ABSOLUTE path, created if it doesn't exist. The .psc is written straight into it (nothing appended: a .psc is source a compiler reads, not a file the game loads), so the folder is yours and houseCARL never deletes it. When set, patch=/into= are ignored, and the result says so.")]
             string? out_path = null) => Guard.Tool(ToolNames.DecompileScript, () =>
     {
         // 1) MO2 must be configured — for the output folder, and for the class hierarchy the decompile reads.
         if (svc.ConfigPromptOrNull() is { } cfgPrompt) return cfgPrompt;
 
-        // out_path= and patch=/into= name different destinations, so a call carrying both is refused rather than
-        // resolved by precedence: which folder the .psc landed in is the one fact the caller needs next.
+        // out_path= supersedes patch=/into= and says so rather than ignoring them silently — the same rule the
+        // compile and .seq lanes carry, so one surface has one answer for a call naming two destinations.
         bool chosenOutput = !string.IsNullOrWhiteSpace(out_path);
-        if (chosenOutput && (!string.IsNullOrWhiteSpace(patch) || !string.IsNullOrWhiteSpace(into)))
-            return "error: out_path= writes the .psc straight into the folder you name and patch=/into= put it in a " +
-                   "houseCARL patch-mod folder, so pass one or the other, not both.";
+        string? outputNote = chosenOutput && (!string.IsNullOrWhiteSpace(patch) || !string.IsNullOrWhiteSpace(into))
+            ? "note: out_path= was given, so patch=/into= are ignored (the .psc lands in out_path, not a houseCARL patch folder)."
+            : null;
+        // The ignored-lane note rides a refusal too: a refusal is when a caller re-reads their parameters, and
+        // "patch= was ignored" is still true of the call they are about to retype.
+        string Note(string msg) => outputNote is null ? msg : outputNote + "\n" + msg;
 
         // 2) validate the pex path.
         if (string.IsNullOrWhiteSpace(pex))
-            return "error: no pex given. Pass pex= the full path to the .pex file to decompile.";
+            return Note("error: no pex given. Pass pex= the full path to the .pex file to decompile.");
         pex = pex.Trim().Trim('"');
         if (!File.Exists(pex))
-            return $"error: no such file: '{pex}'. Pass the full path to the .pex (for a BSA member, {ToolNames.BsaExtract} it first).";
+            return Note($"error: no such file: '{pex}'. Pass the full path to the .pex (for a BSA member, {ToolNames.BsaExtract} it first).");
         if (!pex.EndsWith(".pex", StringComparison.OrdinalIgnoreCase))
-            return $"error: '{Path.GetFileName(pex)}' is not a .pex compiled script.";
+            return Note($"error: '{Path.GetFileName(pex)}' is not a .pex compiled script.");
         pex = Path.GetFullPath(pex);
 
         // 3) read the pex via Mutagen. An unreadable one fails loud naming the file.
@@ -69,11 +72,11 @@ public static class DecompileTools
         try { pexFile = PexFile.CreateFromFile(pex, GameCategory.Skyrim); }
         catch (Exception ex)
         {
-            return $"error: Mutagen cannot read '{Path.GetFileName(pex)}' ({ex.GetType().Name}: {ex.Message}). " +
-                   "This is the known unreadable-pex class (corrupt, non-standard, or obfuscated) — no output was written.";
+            return Note($"error: Mutagen cannot read '{Path.GetFileName(pex)}' ({ex.GetType().Name}: {ex.Message}). " +
+                        "This is the known unreadable-pex class (corrupt, non-standard, or obfuscated) — no output was written.");
         }
         if (pexFile.Objects.Count == 0)
-            return $"error: '{Path.GetFileName(pex)}' contains no script objects — no output was written.";
+            return Note($"error: '{Path.GetFileName(pex)}' contains no script objects — no output was written.");
 
         // 4) output folder: out_path= a folder the caller owns, else folder-per-patch with the Source\Scripts subdir.
         //    Resolved before the hierarchy build so a folder-resolution error costs nothing and the instance paths
@@ -85,7 +88,7 @@ public static class DecompileTools
                 ? LoadOrderService.ResolveExplicitSourceFolder(out_path!)
                 : svc.ResolveDecompiledSourceFolder(patch, into);
         }
-        catch (InvalidOperationException ex) { return "error: " + ex.Message; }
+        catch (InvalidOperationException ex) { return Note("error: " + ex.Message); }
 
         // 5) class hierarchy: cached vanilla baseline + mods-tree sources, topped up with the input pex itself
         //    and its sibling .pex files (every pex declares its own parent). Soft input — missing pieces mean
@@ -102,8 +105,8 @@ public static class DecompileTools
         string Refuse(string msg)
         {
             var left = svc.RemoveOrNameRiderResidue(rf);
-            return left is null ? msg
-                : msg + $" The freshly created mod folder at '{left}' still holds partial output — delete it or retry with into=.";
+            return Note(left is null ? msg
+                : msg + $" The freshly created mod folder at '{left}' still holds partial output — delete it or retry with into=.");
         }
 
         // 6) decompile + write.
@@ -139,7 +142,7 @@ public static class DecompileTools
         outSb.Append(chosenOutput
             ? "\nthe .psc is in the folder you named with out_path= (path above) — review it, edit it, and recompile with " + ToolNames.CompileScript + "."
             : "\nthe .psc is in a houseCARL patch-mod folder — review it, edit it, and recompile with " + ToolNames.CompileScript + " (into= the same patch).");
-        return outSb.ToString();
+        return Note(outSb.ToString());
     });
 
     /// <summary>The decompile-and-write outcome.</summary>
