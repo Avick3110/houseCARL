@@ -885,7 +885,10 @@ static class Wire
         // included, so the fixed part is measured over the same claims the response writes.
         var o = CheckOutcome.For(s);
         if (o.Error is not null)
-            return "error: " + o.Error + (o.Epoch is not null ? $"\nepoch={o.Epoch}" : "")
+            // The fold frames a refusal as much as a finding: the seeds were looked for in the projection, and a
+            // refusal with no frame reads as one about the live order.
+            return (s.Dialogue?.Folded is { } errFrame ? errFrame : "")
+                   + "error: " + o.Error + (o.Epoch is not null ? $"\nepoch={o.Epoch}" : "")
                    + (o.OrderExcluded.Count > 0 ? "\n" + OrderDegraded.Sentence(o.OrderExcluded) : "");
         int cap = Cap(maxChars);
         var sections = o.Sections;
@@ -974,6 +977,9 @@ static class Wire
             // completed sweep beside it.
             if (o.Refusal(f) is { } refusal)
             {
+                // A refused dialogue family still says what world it refused in: the seeds were looked for in the
+                // projection, so the frame belongs above the refusal exactly as it belongs above findings.
+                if (f == SweepFamily.Dialogue && s.Dialogue?.Folded is { } foldedFrame) sb.Append(foldedFrame);
                 sb.Append(refusal).Append('\n');
             }
             else if (f == SweepFamily.Errors)

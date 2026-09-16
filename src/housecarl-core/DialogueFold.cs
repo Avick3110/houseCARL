@@ -82,8 +82,9 @@ public sealed class DialogueFold : IDisposable
 
     /// <summary>Where the fold was placed, as every response states it — the case, the neighbour it lands beside
     /// and that plugin's position. One spelling, so the banner, the per-topic note and the check's own frame
-    /// cannot describe the position differently.</summary>
-    public string Placement { get; private set; } = "folded in LAST, where MO2 puts a newly enabled regular plugin";
+    /// cannot describe the position differently. Says it has not been placed until <see cref="PlaceIn"/> runs,
+    /// which every lane does at open time: a default position rendered as fact would be a guess.</summary>
+    public string Placement { get; private set; } = "not yet placed in the order";
 
     /// <summary>Work out where this file would load, against one captured build, and say it. Three cases, decided
     /// here so both lanes place a fold the same way:

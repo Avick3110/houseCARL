@@ -242,6 +242,43 @@ public sealed class CheckDialogueFoldTests
                         JsonDocument.Parse(manifest).RootElement.GetProperty("folded").GetString()!);
     }
 
+    /// <summary>A call whose every seed failed to resolve still says which world it looked in: the seeds were
+    /// looked for in the projection, so the frame rides the refusal in both transports.</summary>
+    [Fact]
+    public void ARefusedFoldedCallStillCarriesTheFrame()
+    {
+        using var w = new DialogueWorld();
+        var seeds = new[] { "ABCDEF:NoSuchPlugin.esp" };
+        var src = Je($"\"{DialogueWorld.PatchName}\"");
+
+        var text = CheckTools.CheckTool(w.Svc, findings: new[] { "dialogue" }, seeds: seeds, source: src, max_chars: 40000);
+        Assert.Contains("validated NOTHING", text);
+        Assert.Contains($"folded: '{DialogueWorld.PatchName}' is NOT active", text);
+        // …and the refusal's own closing clause is about the world it searched, not the one without the fold.
+        Assert.Contains("PLUS the folded copy", text);
+
+        var json = CheckTools.CheckTool(w.Svc, findings: new[] { "dialogue" }, seeds: seeds, source: src,
+                                        format: "json", max_chars: 40000);
+        var root = JsonDocument.Parse(json).RootElement;
+        Assert.Contains(DialogueWorld.PatchName, root.GetProperty("folded").GetString()!);
+    }
+
+    /// <summary>A shadowed fold states the one thing it does NOT do: the folded copy is added at the slot, so a
+    /// record only the active copy holds still reads from it, where enabling the folder would drop it.</summary>
+    [Fact]
+    public void AShadowedFoldStatesWhatTheProjectionDoesNotSwap()
+    {
+        using var w = new DialogueWorld();
+
+        var r = CheckTools.CheckTool(w.Svc, findings: new[] { "dialogue" },
+                                     seeds: new[] { Fid(w.Topic) },
+                                     source: Je($"{{\"file\": \"{DialogueWorld.MidName}\", \"mod\": \"{DialogueWorld.ShadowModFolder}\"}}"),
+                                     max_chars: 40000);
+
+        Assert.Contains("does NOT drop", r);
+        Assert.Contains("only the active copy", r);
+    }
+
     /// <summary>The family's own scope sentence now names the lane, so a caller reading the section learns it
     /// exists rather than being told there is none.</summary>
     [Fact]

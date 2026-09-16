@@ -1997,6 +1997,9 @@ static class JsonWire
             {
                 ew.WriteStartObject();
                 WriteRefusal(ew, o.Error);
+                // The same frame the text lane leads with: a refusal read out of a folded call is about the
+                // projection, and a consumer must not take it for one about the live order.
+                if (s.Dialogue?.Folded is { } errFrame) ew.WriteString("folded", errFrame.Trim());
                 WriteEpoch(ew, o.Epoch, o.OrderExcluded);
                 ew.WriteEndObject();
                 ew.Flush();
@@ -2116,6 +2119,10 @@ static class JsonWire
             // A family that refused says so HERE, rather than the refusal becoming the whole call's error.
             if (o.Refusal(f) is { } refusal)
             {
+                // The frame rides a refused dialogue family too: the seeds were looked for in the projection, so a
+                // consumer reading the refusal must see which world it is about.
+                if (f == SweepFamily.Dialogue && s.Dialogue?.Folded is { } foldedFrame)
+                    w.WriteString("folded", foldedFrame.Trim());
                 w.WriteString("refused", refusal);
             }
             else if (f == SweepFamily.Errors)
