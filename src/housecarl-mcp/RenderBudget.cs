@@ -272,9 +272,11 @@ internal static class RenderBudget
     /// it costs is archive tables and loose directory warms rather than a record body.
     /// <paramref name="wholeSelection"/> is the <c>to_file=</c> disposition, whose artifact covers every selected
     /// path — so limit= is not its lever and the sentence does not offer it.
-    /// <para><paramref name="atLeast"/> is the <c>under=</c> lane, where the enumeration STOPPED at the bound rather
+    /// <para><paramref name="atLeast"/> is the <c>under=</c> lane where the enumeration STOPPED at the bound rather
     /// than running to the end: the count is a floor and the sentence says so, because naming it as the total would
-    /// be a number the call never finished measuring.</para></summary>
+    /// be a number the call never finished measuring. It is raised only where the whole selection is what gets
+    /// resolved, so the lever the sentence offers there is a narrower selector or a window — never a window on a
+    /// call that already had one.</para></summary>
     internal static string? RefuseAssetPaths(int paths, bool wholeSelection, bool atLeast = false)
     {
         if (paths <= MaxAssetPaths) return null;

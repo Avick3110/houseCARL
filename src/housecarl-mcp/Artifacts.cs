@@ -80,15 +80,18 @@ internal static class Artifacts
         // no sentence next to it is the unstamped state §2.1.1 exists to make impossible, and this block is the only
         // thing a to_file= caller sees.
         if (s.EpochUnavailable is { Length: > 0 } why)
-            sb.Append("  epoch: NONE — this call could not build a load order to fingerprint. ").Append(why)
+            sb.Append("  epoch: NONE — the load order could not be read for a fingerprint right now. ").Append(why)
               .Append(" The rows are unaffected — they are read off the VFS, not off the record index — but nothing ")
-              .Append("here says which build they sit beside.\n");
+              .Append("here says which build they sit beside; re-run once the order reads to stamp one.\n");
         if (m.EpochCoversAllInputs is false && m.EpochUncovered is { Count: > 0 } unc)
             sb.Append("  epoch_covers_all_inputs=false — the fingerprint does not describe: ")
               .Append(string.Join("; ", unc)).Append('\n');
+        // Through the shared sentence, which caps the roster: this is a manifest-only response with no rows to cut,
+        // and thirty names joined whole would push it over max_chars and answer with "raise max_chars" on a render
+        // that has nothing in it. The FILE keeps every name — a manifest a consumer greps wants the roster.
         if (m.OrderDegraded)
-            sb.Append("  order_degraded=true — that build lost ").Append(m.ExcludedPlugins!.Count)
-              .Append(" plugin(s) to a load failure: ").Append(string.Join(", ", m.ExcludedPlugins!)).Append('\n');
+            sb.Append("  order_degraded=true — ").Append(OrderDegraded.Sentence(m.ExcludedPlugins!))
+              .Append(" The file's manifest lists them all.\n");
         sb.Append("  row_schema: ").Append(string.Join(", ", m.RowSchema)).Append('\n')
           .Append("  sort: ").Append(m.Sort).Append('\n');
         if (m.TypeCounts is { Count: > 0 })
@@ -464,10 +467,13 @@ internal static class Artifacts
 
     /// <summary>Split a plain list file's content into tokens, the same grammar the where-grammar's @file uses:
     /// commas and newlines separate — never bare spaces, since plugin filenames contain them — and brackets and
-    /// quotes are stripped per token so a pasted JSON array parses as-is.</summary>
-    public static IEnumerable<string> SplitListTokens(string content)
+    /// quotes are stripped per token so a pasted JSON array parses as-is.
+    /// <para><paramref name="commaSeparates"/> is false for a list of PATHS: a comma is legal in a Windows file name
+    /// and mod authors use them, so splitting on it would turn one line into two tokens and answer ABSENT twice for
+    /// a file that exists. A FormID cannot contain a comma, so that lane keeps both separators.</para></summary>
+    public static IEnumerable<string> SplitListTokens(string content, bool commaSeparates = true)
     {
-        foreach (var t in content.Split(ListSeparators, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var t in content.Split(commaSeparates ? ListSeparators : LineSeparators, StringSplitOptions.RemoveEmptyEntries))
         {
             var tok = t.Trim('[', ']', '"', '\'', ' ', '\t');
             if (tok.Length > 0) yield return tok;
@@ -475,6 +481,7 @@ internal static class Artifacts
     }
 
     static readonly char[] ListSeparators = { ',', '\r', '\n' };
+    static readonly char[] LineSeparators = { '\r', '\n' };
 
     /// <summary>Expand a list-valued tool input under the <c>@file</c> convention: a single
     /// <c>"@&lt;absolute path&gt;"</c> element standing in place of the inline list reads the file. An artifact
@@ -514,9 +521,12 @@ internal static class Artifacts
             return (tokens!.ToArray(), new ArtifactDemand(path, manifest.Epoch), "@" + path, null);
         }
 
-        var plain = SplitListTokens(content).ToArray();
+        // A path list splits on line breaks ONLY — see SplitListTokens.
+        bool commaSeparates = identity.Equals("formid", StringComparison.OrdinalIgnoreCase);
+        var plain = SplitListTokens(content, commaSeparates).ToArray();
         if (plain.Length == 0)
-            return (null, null, null, $"error: {paramName}= list file '{path}' is empty — give one entry per line (or comma-separated).");
+            return (null, null, null, $"error: {paramName}= list file '{path}' is empty — give one entry per line"
+                                      + (commaSeparates ? " (or comma-separated)." : "."));
         return (plain, null, "@" + path, null);
     }
 

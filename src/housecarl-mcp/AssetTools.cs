@@ -20,20 +20,21 @@ public static class AssetTools
          "the asset is absent. Precedence is the real engine/MO2 rule — loose files beat BSA-packed, among loose the " +
          "higher-priority mod (then overwrite) wins, among BSAs the later-loaded plugin's archive wins. This is the " +
          "file-layer counterpart to the load-order winner of a record: use it to answer 'which mod provides this file / " +
-         "who is this asset coming from / is this texture loose or in a BSA / is this asset even present / why isn't my " +
+         "is this texture loose or in a BSA / is this asset even present / why isn't my " +
          "override applying' for ANY mesh, texture, script, sound, interface, or other Data-relative path. Pass " +
          "asset_paths = one or more paths RELATIVE to the Data folder, and/or under = a Data-relative DIRECTORY or " +
          "glob, which resolves every file the VFS provides beneath it — one call over " +
-         "'meshes/actors/character/facegendata/facegeom/Skyrim.esm' answers for every facegen mesh a master defines, " +
-         "with no path list at all. Or formids = NPC FormIDs: BOTH halves of each one's FaceGen pair are derived and " +
+         "'meshes/actors/character/facegendata/facegeom/Skyrim.esm' answers for every facegen mesh a master defines. " +
+         "Or formids = NPC FormIDs: BOTH halves of each one's FaceGen pair are derived and " +
          "resolved (head mesh + face tint), each row naming the OTHER half's winner beside its own — a whole-order " +
-         "dark-face pairing sweep in ONE call. The SELECT forms compose, and every " +
+         "dark-face pairing sweep in ONE call. SELECT forms compose, and every " +
          "list-valued one takes '@<absolute path>' in place of the inline list. An archive " +
          "that cannot be read, or a " +
          "Skyrim.ini base-archive list that cannot be found, is reported LOUD — so an 'absent' answer is never silently " +
          "trusted when the scan was incomplete. format='json' returns the same data machine-readably, with the same " +
-         "accounting in-band. TRANSPORT — format= | limit= | offset= | max_chars= | to_file=. BOUND: 1,200,000 " +
-         "resolved paths a call; past it the call refuses up front with the count and the estimate. Read-only: resolves " +
+         "accounting in-band. TRANSPORT — format= | limit= | offset= | max_chars= | to_file=. BOUND: 1,200,000 paths " +
+         "RESOLVED a call (the window where limit= takes one, else the whole selection); past it the call refuses up " +
+         "front with the count and the estimate. Read-only: resolves " +
          "nothing to disk, writes nothing, changes no load order.")]
     public static string AssetStatus(
         LoadOrderService svc,
@@ -61,7 +62,10 @@ public static class AssetTools
                      "'meshes\\actors\\character\\facegendata\\facegeom\\<master>\\00<6hex>.nif' and " +
                      "'textures\\...\\facetint\\<master>\\00<6hex>.dds' — as two rows, each carrying the OTHER half's " +
                      "winner beside its own, because a dark face is almost always the two halves winning from " +
-                     "different mods (or one of them winning nowhere). The path is a PURE transform of the FormID, so " +
+                     "different mods (or one of them winning nowhere). That verdict is taken on the winning copy's " +
+                     "MO2 LAYER, so two archives of one mod are not a split — and neither are two files both " +
+                     "installed into the game's own Data folder, or both in overwrite, which are layers rather than " +
+                     "mods. The path is a PURE transform of the FormID, so " +
                      "this lane reads no record and costs no per-id winner seek; the folder is the defining master in " +
                      "the FormID, never the conflict winner. A malformed FormID is ONE error row, not a failed call. " +
                      "Takes [\"@<absolute path>\"] in place of the inline list — a plain list file, or a " +
@@ -160,8 +164,11 @@ public static class AssetTools
         string? noEpochBecause = null;
         if (wantFile || idDemand is not null)
         {
+            // Everything the build can throw, not just the no-active-plugins case: the profile files are read
+            // unguarded, and MO2 rewriting plugins.txt on a re-sort hands this an IOException while it holds the
+            // handle. A sweep that never needed the record index must not die on that either.
             try { order = svc.CaptureView().Stamp; }
-            catch (InvalidOperationException ex) { noEpochBecause = Guard.Flatten(ex.Message); }
+            catch (Exception ex) { noEpochBecause = Guard.Flatten(ex.Message); }
         }
         if (idDemand is { } demand)
         {
