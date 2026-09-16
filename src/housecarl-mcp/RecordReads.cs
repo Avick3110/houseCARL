@@ -1,4 +1,4 @@
-using Mutagen.Bethesda.Plugins;
+﻿using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Aspects;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
@@ -2292,9 +2292,13 @@ public sealed partial class LoadOrderService
     /// plugin — the game's own walk order — off ONE captured build. It is epoch-stamped, because this form reads
     /// plugin records through the index only, with no VFS or INI layer. A non-DIAL FormID is a per-item typed
     /// refusal: a quest's topics are selected by composition (types=["DIAL"] where=["Quest = &lt;quest formid&gt;"])
-    /// rather than by silently fanning out here.</summary>
+    /// rather than by silently fanning out here.
+    /// <para><paramref name="foldArm"/> is an OFF-ORDER source pole, already probed: its file is read once and
+    /// folded into every topic's merge as the last contributor, so the answer is the order as it WOULD be with
+    /// that file enabled. The file's content sits outside the epoch fingerprint, which the caller declares.</para></summary>
     public IReadOnlyList<InfoOrderRow> InfoOrderBatch(IReadOnlyList<string> formids, ArtifactDemand? demand,
-                                                      out string? refusal, out OrderStamp? epoch)
+                                                      out string? refusal, out OrderStamp? epoch,
+                                                      PoleInfo? foldArm = null, FoldFacts? foldFacts = null)
     {
         refusal = null;
         var resolver = Resolver;
@@ -2304,6 +2308,15 @@ public sealed partial class LoadOrderService
         {
             refusal = ArtifactEpochMismatch(demand, view.Epoch);
             return Array.Empty<InfoOrderRow>();
+        }
+        DialogueFold? fold = null;
+        if (foldArm is not null)
+        {
+            fold = OpenDialogueFold(foldArm, out var foldErr, FoldLabel(view, foldArm));
+            if (foldErr is not null) { refusal = foldErr; return Array.Empty<InfoOrderRow>(); }
+            // The caller states the fold, and it must state the SAME label the rows carry and the SAME placement
+            // the merge used — two spellings of one fact is how an envelope stops matching its own rows.
+            foldFacts?.Fill(fold!, view.ContainsPlugin(foldArm.Plugin));
         }
         using var session = resolver.OpenSession();
 
@@ -2322,6 +2335,16 @@ public sealed partial class LoadOrderService
             var win = view.ResolveWinner(fk);
             if (win is null)
             {
+                // A topic only the folded file defines: it resolves nowhere in the active order, and the fold IS
+                // its whole merge. Served from the fold, with no winner — nothing wins a record the order has not
+                // got — rather than refused as absent.
+                if (fold?.Topic(fk) is { } foldedOnly)
+                {
+                    dialRows.Add((rows.Count, fk));
+                    rows.Add(new InfoOrderRow(FormIdToken.Of(fk), "DialogTopic", foldedOnly.EditorId, null, null, null));
+                    if (dialSeen.Add(fk)) dialFks.Add(fk);
+                    continue;
+                }
                 rows.Add(new InfoOrderRow(FormIdToken.Of(fk), null, null, null, null, UnresolvedFormId(view, fk)));
                 continue;
             }
@@ -2347,11 +2370,60 @@ public sealed partial class LoadOrderService
         }
         if (dialFks.Count > 0)
         {
-            var orders = DialogueValidate.InfoOrders(view, session, dialFks);
+            var orders = DialogueValidate.InfoOrders(view, session, dialFks, fold);
             foreach (var (idx, fk) in dialRows)
                 if (orders.TryGetValue(fk, out var io)) rows[idx] = rows[idx] with { Order = io };
         }
         return rows;
+    }
+
+    /// <summary>What the caller has to say about a fold it asked for: the label its rows carry, where the file was
+    /// found, where it was placed and why. Filled by the lane that opened the file, so a response's own statement
+    /// and the rows under it cannot describe two different files or two different positions.</summary>
+    public sealed class FoldFacts
+    {
+        public string Plugin { get; private set; } = "";
+        public string Label { get; private set; } = "";
+        public string Where { get; private set; } = "";
+        public string Placement { get; private set; } = "";
+
+        /// <summary>The folded file's FILENAME is also active, from another mod folder — so the response may not
+        /// say the filename is absent from the order, only that THIS COPY is not the one it loads.</summary>
+        public bool ShadowsActiveName { get; private set; }
+
+        internal void Fill(DialogueFold fold, bool shadowsActiveName)
+        {
+            Plugin = fold.Plugin; Label = fold.Label; Where = fold.Where;
+            Placement = fold.Placement; ShadowsActiveName = shadowsActiveName;
+        }
+    }
+
+    /// <summary>The name a fold's rows carry. The filename, unless an ACTIVE plugin already has that filename — a
+    /// shadowed on-disk copy addressed by {file, mod} — because two contributors under one name leave the reader
+    /// unable to tell the projected lines from the live ones. Short: it repeats on every row the fold places, and
+    /// the response's own statement names the mod folder the copy came from.</summary>
+    internal static string FoldLabel(LoadOrderResolver.IndexView view, PoleInfo arm)
+        => view.ContainsPlugin(arm.Plugin) ? $"{arm.Plugin} [off-order copy]" : arm.Plugin;
+
+    /// <summary>Read an already-probed OFF-ORDER pole's DIAL content once, for a dialogue lane to fold at the end
+    /// of the order. Every failure is a named refusal — the roots that could not be derived, the file that would
+    /// not parse — never a fold that silently contributes nothing.</summary>
+    internal DialogueFold? OpenDialogueFold(PoleInfo arm, out string? error, string? label = null)
+    {
+        error = null;
+        string dataDir;
+        try { lock (_gate) { EnsurePathsDerived(); dataDir = _dataDir; } }
+        catch (Exception ex)
+        {
+            error = $"the MO2 roots couldn't be derived to open '{arm.Plugin}': {ex.Message}";
+            return null;
+        }
+        try { return DialogueFold.Read(arm.Plugin, arm.Where, arm.Path!, dataDir, label); }
+        catch (Exception ex)
+        {
+            error = $"could not open '{arm.Path}' as a Skyrim plugin: {ex.Message}";
+            return null;
+        }
     }
 
     // ---- cross-plugin query ----------------------------------------------------------------------------

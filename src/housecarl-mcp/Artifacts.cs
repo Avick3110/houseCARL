@@ -396,7 +396,7 @@ internal static class Artifacts
             writer.WriteRow((w, ms) => JsonWire.WriteInfoOrderRow(w, row, ms, int.MaxValue),
                             row.Error is null ? row.Type : null);
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
-                                          new[] { "formid", "type", "editorid", "winner", "contested", "complete", "moves_computed", "baseline_trusted", "contributing", "unread?", "note?", "moved_count", "order" },
+                                          new[] { "formid", "type", "editorid", "winner", "contested", "complete", "folded_plugin?", "folded_contributed?", "moves_computed", "baseline_trusted", "contributing", "unread?", "note?", "moved_count", "order" },
                                           "input order", rows.Count, epoch ?? "");
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }

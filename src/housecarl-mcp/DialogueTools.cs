@@ -101,14 +101,18 @@ internal static class DialogueWire
               .Append(io.Order.Count == 1 ? " line, from a single plugin (" : " lines, from a single plugin (")
               .Append(io.ContributingPlugins[0])
               .Append(") — nothing merges here, so the effective order IS that plugin's own list.\n");
+            AppendFoldNote(sb, io, pad);
             AppendOrderNote(sb, io, pad);          // a degraded merge is degraded whether or not anything contests it
             return true;
         }
 
         if (!io.Complete)
         {
-            int total = io.ContributingPlugins.Count + io.UnreadContributors.Count;
-            sb.Append(pad).Append("  INFO order: INCOMPLETE — read from ").Append(io.ContributingPlugins.Count)
+            // Both halves count plugins that TOUCH the topic in the order, so the folded file — which touches
+            // nothing there — is out of both: counting it would claim one more contributor read than there was.
+            int foldRead = io.FoldContributed ? 1 : 0;
+            int total = io.ContributingPlugins.Count + io.UnreadContributors.Count - foldRead;
+            sb.Append(pad).Append("  INFO order: INCOMPLETE — read from ").Append(io.ContributingPlugins.Count - foldRead)
               .Append(" of ").Append(total).Append(" plugin(s) that touch this topic.");
             sb.Append(io.Order.Count == 0
                 ? " NOTHING could be read, so no order is shown at all — this is a read failure, NOT an empty topic.\n"
@@ -124,10 +128,15 @@ internal static class DialogueWire
 
         // Count the plugins that touch the topic, not the ones successfully read: on the incomplete path this line
         // sits directly beneath a banner giving the true total, and the two must not disagree.
-        int touching = io.ContributingPlugins.Count + io.UnreadContributors.Count;
+        // The folded file does not TOUCH this topic in the order — it is not in the order — so it is counted
+        // apart from the plugins that do, and named rather than folded into their number.
+        int touching = io.ContributingPlugins.Count + io.UnreadContributors.Count - (io.FoldContributed ? 1 : 0);
         sb.Append(pad).Append("  effective INFO order — merged across ").Append(touching)
           .Append(touching == 1 ? " plugin that touches" : " plugins that touch")
-          .Append(" this topic; the game walks it top to bottom and plays the FIRST line whose conditions pass:\n");
+          .Append(" this topic");
+        if (io.FoldContributed) sb.Append(", plus the folded file below");
+        sb.Append("; the game walks it top to bottom and plays the FIRST line whose conditions pass:\n");
+        AppendFoldNote(sb, io, pad);
 
         // Over the cap and nothing moved: say so, rather than falling through to "listing only the 0 that moved"
         // above an empty list. An empty moved set is evidence of nothing unless the analysis both ran
@@ -165,6 +174,9 @@ internal static class DialogueWire
             // this would call them late additions.
             else if (e.OriginIndex is null && io.BaselineTrusted) sb.Append("  (added by a later plugin)");
             sb.Append("  placed by ").Append(e.PlacedBy);
+            // Every row the folded file placed says so, so a projected position can never be read as a live one.
+            if (io.FoldedPlugin is { } fp && e.PlacedBy.Equals(fp, StringComparison.OrdinalIgnoreCase))
+                sb.Append("  [FOLDED — that file is NOT active; this position is a projection]");
             // The zero "I am first" PNAM marker and a broken link both land at the head, but only one is a fault,
             // and the marker is the common shape — so the two need different wording.
             if (e.Placement == InfoPlacement.HeadFirstMarker)
@@ -190,6 +202,21 @@ internal static class DialogueWire
 
         AppendOrderNote(sb, io, pad);
         return true;
+    }
+
+    /// <summary>The per-topic fold statement: which off-order file was folded into THIS topic's merge, and whether
+    /// it placed anything here. A fold that lists nothing in a topic is a fact the caller asked for — "my patch does
+    /// not touch this one" — so it is stated rather than left as silence.</summary>
+    static void AppendFoldNote(StringBuilder sb, InfoOrderView io, string pad)
+    {
+        if (io.FoldedPlugin is not { } fp) return;
+        sb.Append(pad).Append("  [folded] '").Append(fp).Append("' is NOT active and is ")
+          .Append(io.FoldedPlacement ?? "folded in LAST, where MO2 puts a newly enabled regular plugin");
+        sb.Append(!io.FoldContributed
+            ? " — but it lists no line in this topic, so the order here is the live one.\n"
+            : io.Contested
+                ? " — the lines it places are marked below.\n"
+                : " — and it is the only plugin listing lines here, so the whole order shown is its own list.\n");
     }
 
     /// <summary>The per-topic degradation note — a malformed PNAM, a cycle, a truncated chain, an unread contributor,

@@ -163,9 +163,14 @@ public static class DialogueValidate
     /// session — one build for the whole batch, shared with Run's own per-topic order. Per topic, every touching
     /// plugin's child list is loaded in ONE typed DIAL pass per plugin (never a per-(topic,plugin) whole-overlay
     /// scan), unreadable contributors are CARRIED as data rather than silently dropped (the Complete /
-    /// BaselineTrusted gates), and the merge runs on plain data after the overlays are gone.</summary>
+    /// BaselineTrusted gates), and the merge runs on plain data after the overlays are gone.
+    /// <para><paramref name="fold"/> is ONE off-order plugin projected in as the LAST contributor — the position
+    /// a freshly enabled plugin takes. Every view built under a fold carries the file's name
+    /// (<see cref="InfoOrderView.FoldedPlugin"/>) so no render can present the projection as the live order, and a
+    /// topic the fold alone defines is built from the fold's list by itself rather than skipped.</para></summary>
     public static Dictionary<FormKey, InfoOrderView> InfoOrders(
-        LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, IReadOnlyCollection<FormKey> topicFks)
+        LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, IReadOnlyCollection<FormKey> topicFks,
+        DialogueFold? fold = null)
     {
         // The fallback resolver serves a PNAM target that appears in none of the topic's own lists (rare);
         // targets within the topic are served from the loaded lines, so this per-record lookup is almost
@@ -185,7 +190,13 @@ public static class DialogueValidate
         var wantedIn = new Dictionary<string, HashSet<FormKey>>(StringComparer.OrdinalIgnoreCase);
         foreach (var tfk in topicFks)
         {
-            if (view.TouchingPlugins(tfk) is not { } touching) continue;
+            if (view.TouchingPlugins(tfk) is not { } touching)
+            {
+                // A topic no active plugin touches: normally there is nothing to merge, but a fold that defines
+                // it IS the whole merge, so the topic is built from that one list rather than skipped.
+                if (fold?.Topic(tfk) is not null) touchingOf[tfk] = Array.Empty<string>();
+                continue;
+            }
             touchingOf[tfk] = touching;
             foreach (var p in touching)
             {
@@ -242,6 +253,20 @@ public static class DialogueValidate
             // if no unread plugin sits BEFORE that plugin in load order. Testing `touching[0] is unread` is too
             // weak: a first plugin that read but carries an empty child list contributes no baseline, so an
             // unread SECOND plugin still shifts it.
+            // The fold goes where MO2 would put the file. A regular plugin lands at the END of the order, so it is
+            // appended and evicts whatever it re-lists. A file in the MASTER BLOCK — ESM-flagged, or a .esm/.esl —
+            // lands at the end of that block instead, ahead of every regular plugin, so it is inserted after the
+            // last master-block contributor and the regular plugins below it still evict what they re-list. It
+            // does not take the move baseline from the definer: a master can only touch a topic one of ITS masters
+            // defines, so the definer is already ahead of it, and where the fold IS the definer it is the baseline.
+            if (fold?.Topic(tfk) is { } folded)
+            {
+                int at = groups.Count;
+                if (fold.InMasterBlock)
+                    while (at > 0 && !view.IsMasterBlock(groups[at - 1].Item1)) at--;
+                groups.Insert(at, (fold.Label, folded.Lines));
+            }
+
             int firstWithLines = groups.FindIndex(g => g.Item2.Count > 0);
             string? baselinePlugin = firstWithLines >= 0 ? groups[firstWithLines].Item1 : null;
             bool baselineTrusted = unread.Count == 0
@@ -249,7 +274,8 @@ public static class DialogueValidate
                     && !touching.TakeWhile(p => !p.Equals(baselinePlugin, StringComparison.OrdinalIgnoreCase))
                                 .Any(p => unread.Contains(p, StringComparer.OrdinalIgnoreCase)));
 
-            built[tfk] = DialogueInfoOrder.Compute(groups, ResolveInfo, unread, baselineTrusted);
+            built[tfk] = DialogueInfoOrder.Compute(groups, ResolveInfo, unread, baselineTrusted)
+                with { FoldedPlugin = fold?.Label, FoldedPlacement = fold?.Placement };
         }
         return built;
     }

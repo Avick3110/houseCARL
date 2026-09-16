@@ -1109,6 +1109,12 @@ static class JsonWire
         }
         w.WriteBoolean("contested", io.Contested);
         w.WriteBoolean("complete", io.Complete);
+        // The projection, in band: a consumer reading rows must see that this order is not the live one.
+        if (io.FoldedPlugin is { } foldedBy)
+        {
+            w.WriteString("folded_plugin", foldedBy);
+            w.WriteBoolean("folded_contributed", io.FoldContributed);
+        }
         w.WriteBoolean("moves_computed", io.MovesComputed);
         w.WriteBoolean("baseline_trusted", io.BaselineTrusted);
         WriteStringArray(w, "contributing", io.ContributingPlugins);
@@ -1130,6 +1136,8 @@ static class JsonWire
             w.WriteNumber("position", e.Index + 1);
             w.WriteString("info", FormIdToken.Of(e.Info));
             w.WriteString("placed_by", e.PlacedBy);
+            if (io.FoldedPlugin is { } fp && e.PlacedBy.Equals(fp, StringComparison.OrdinalIgnoreCase))
+                w.WriteBoolean("folded", true);
             if (e.Deleted) w.WriteBoolean("deleted", true);
             if (e.Moved) { w.WriteBoolean("moved", true); w.WriteNumber("origin_position", e.OriginIndex!.Value + 1); }
             else if (e.OriginIndex is null && io.BaselineTrusted) w.WriteBoolean("added_by_later_plugin", true);

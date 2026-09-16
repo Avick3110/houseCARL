@@ -16,6 +16,9 @@ namespace HousecarlMcpTests;
 /// <see cref="LastName"/> — the WINNER — (re-lists ONLY INFO 0 with no PNAM, which evicts it to the
 /// tail).</para>
 ///
+/// <para>And one plugin OUTSIDE the order: <see cref="PatchName"/>, in a disabled mod folder and in neither
+/// loadorder.txt nor plugins.txt — the freshly authored patch an off-order fold names.</para>
+///
 /// <para><b>Never the shared instance for a test that locks a file.</b> Each of the three dialogue lock facts
 /// (<c>UNREAD-WIRED</c>, <c>DEFINER-LOCK-LOUD</c>, <c>WINNER-LOCK-LOUD</c>) constructs its OWN
 /// <see cref="DialogueWorld"/> via <c>new()</c> rather than the shared collection fixture — a held file is
@@ -41,11 +44,21 @@ public sealed class DialogueWorld : IDisposable
     /// implicit group the load-order status shows, and content the modder no more authored than a base master's.</summary>
     public const string CcName = "ccHcTest.esl";
 
+    /// <summary>The freshly authored patch: on disk in a DISABLED mod folder and in NEITHER loadorder.txt nor
+    /// plugins.txt, so the active order does not have it. What an off-order fold names.</summary>
+    public const string PatchName = "HcDvPatch.esp";
+
     public string Root { get; }
     public string Instance { get; }
     public string MasterPath { get; }
     public string MidPath { get; }
     public string LastPath { get; }
+
+    /// <summary>The off-order patch's path on disk — inside a mod folder MO2 has disabled.</summary>
+    public string PatchPath { get; private set; } = "";
+
+    /// <summary>The off-order MASTER patch's path on disk.</summary>
+    public string PatchEsmPath { get; private set; } = "";
 
     public LoadOrderService Svc { get; }
 
@@ -93,6 +106,28 @@ public sealed class DialogueWorld : IDisposable
     /// disagreement, and silently unbucketed in game if nothing says so.</summary>
     public FormKey UnmodeledMarkerTopic { get; }
 
+    /// <summary>The off-order patch's own new topic, defined in <see cref="PatchName"/> and therefore in no active
+    /// plugin at all — the topic a fold is the whole merge of.</summary>
+    public FormKey PatchOwnTopic { get; }
+
+    /// <summary>The two INFOs of <see cref="PatchOwnTopic"/>, in the patch's own list order.</summary>
+    public IReadOnlyList<FormKey> PatchOwnInfo { get; }
+
+    /// <summary>A topic the BASE MASTER defines and the regular winner overrides — where an off-order .esm has to
+    /// land between the two, not at the end.</summary>
+    public FormKey MasterBlockTopic { get; }
+
+    /// <summary>Its three INFOs, in the base master's own list order.</summary>
+    public IReadOnlyList<FormKey> MasterBlockInfo { get; }
+
+    /// <summary>The off-order patch that is a MASTER by extension: MO2 sorts it into the master block, not onto
+    /// the end of the order.</summary>
+    public const string PatchEsmName = "HcDvPatch.esm";
+
+    /// <summary>A second copy of <see cref="MidName"/>, in a DISABLED mod folder — the shadowed-copy fold, whose
+    /// filename is active while this file is not the one the order loads.</summary>
+    public const string ShadowModFolder = "MidShadowMod";
+
     readonly ResultsDirScope _results;
 
     public DialogueWorld()
@@ -116,6 +151,18 @@ public sealed class DialogueWorld : IDisposable
         vanillaOver.Subtype = DialogTopic.SubtypeEnum.RechargeExit;
         vanillaOver.SubtypeName = new RecordType("HELO");
         VanillaStaleOverriddenTopic = vanillaOver.FormKey;
+        // A topic the BASE MASTER defines with three lines, for the master-block placement: an off-order .esm
+        // folded into it lands after this plugin and BEFORE the regular plugin that also touches it.
+        var masterOrder = sky.DialogTopics.AddNew(); masterOrder.EditorID = "HcDvMasterOrder";
+        MasterBlockTopic = masterOrder.FormKey;
+        var masterInfo = new FormKey[3];
+        for (int i = 0; i < 3; i++)
+        {
+            var r = new DialogResponses(sky.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = $"HcDvMasterLine{i}" };
+            masterInfo[i] = r.FormKey;
+            masterOrder.Responses.Add(r);
+        }
+        MasterBlockInfo = masterInfo;
         // …and one whose pair AGREES, for the Creation Club override to contradict on its own account.
         var ccBase = sky.DialogTopics.AddNew(); ccBase.EditorID = "HcDvCcOverridden";
         ccBase.Subtype = DialogTopic.SubtypeEnum.Hello;
@@ -201,6 +248,11 @@ public sealed class DialogueWorld : IDisposable
         lastTopic.Responses.Add(new DialogResponses(info[0], SkyrimRelease.SkyrimSE) { EditorID = "HcDvLine0" });
         // …and overrides one stale base-master topic, carrying the stale number forward: now a mod's own record.
         WriteEngine.GenericGetOrAddAsOverride(last, vanillaOver);
+        // …and re-lists the base master's FIRST line with no PNAM, which sends it to the bottom: the regular
+        // plugin an off-order .esm has to be folded in AHEAD of.
+        var lastMasterOrder = (IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(last, masterOrder);
+        lastMasterOrder.Responses.Clear();
+        lastMasterOrder.Responses.Add(new DialogResponses(masterInfo[0], SkyrimRelease.SkyrimSE) { EditorID = "HcDvMasterLine0" });
         last.BeginWrite.ToPath(LastPath).WithLoadOrder(new ISkyrimModGetter[] { sky, master, mid }).Write();
 
         // CC (force-loaded, and the winner of its topic): overrides an AGREEING base topic with a contradicting
@@ -212,6 +264,54 @@ public sealed class DialogueWorld : IDisposable
         cc.BeginWrite.ToPath(Path.Combine(mods, "CcMod", CcName))
           .WithLoadOrder(new ISkyrimModGetter[] { sky, master, mid, last }).Write();
 
+        // The freshly authored patch: written into a DISABLED mod folder and listed in neither loadorder.txt nor
+        // plugins.txt, so nothing in the active order sees it. It re-lists INFO 3 with NO PNAM (the tail arm) and
+        // INFO 5 with a PNAM naming INFO 1 (the after-target arm), and defines a topic of its own.
+        var patchKey = ModKey.FromNameAndExtension(PatchName);
+        var patch = new SkyrimMod(patchKey, SkyrimRelease.SkyrimSE);
+        var patchTopic = (IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(patch, topic);
+        patchTopic.Responses.Clear();
+        patchTopic.Responses.Add(new DialogResponses(info[3], SkyrimRelease.SkyrimSE) { EditorID = "HcDvLine3" });
+        var reLinked = new DialogResponses(info[5], SkyrimRelease.SkyrimSE) { EditorID = "HcDvLine5" };
+        reLinked.PreviousDialog.SetTo(info[1]);
+        patchTopic.Responses.Add(reLinked);
+        var ownTopic = patch.DialogTopics.AddNew(); ownTopic.EditorID = "HcDvPatchOwn";
+        PatchOwnTopic = ownTopic.FormKey;
+        var ownInfo = new FormKey[2];
+        for (int i = 0; i < 2; i++)
+        {
+            var r = new DialogResponses(patch.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = $"HcDvPatchOwnLine{i}" };
+            ownInfo[i] = r.FormKey;
+            ownTopic.Responses.Add(r);
+        }
+        PatchOwnInfo = ownInfo;
+        Directory.CreateDirectory(Path.Combine(mods, "PatchMod"));
+        PatchPath = Path.Combine(mods, "PatchMod", PatchName);
+        patch.BeginWrite.ToPath(PatchPath)
+             .WithLoadOrder(new ISkyrimModGetter[] { sky, master, mid, last }).Write();
+
+        // The off-order MASTER: a .esm, so MO2 sorts it into the master block rather than onto the end. It
+        // re-lists the base master's MIDDLE line with no PNAM, which moves that line within the block — visible
+        // only if the fold really is placed ahead of the regular plugin that re-lists the first line.
+        var patchEsm = new SkyrimMod(ModKey.FromNameAndExtension(PatchEsmName), SkyrimRelease.SkyrimSE);
+        var esmTopic = (IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(patchEsm, masterOrder);
+        esmTopic.Responses.Clear();
+        esmTopic.Responses.Add(new DialogResponses(masterInfo[1], SkyrimRelease.SkyrimSE) { EditorID = "HcDvMasterLine1" });
+        Directory.CreateDirectory(Path.Combine(mods, "PatchEsmMod"));
+        PatchEsmPath = Path.Combine(mods, "PatchEsmMod", PatchEsmName);
+        patchEsm.BeginWrite.ToPath(PatchEsmPath).WithLoadOrder(new ISkyrimModGetter[] { sky }).Write();
+
+        // The SHADOWED copy: the same filename as an ACTIVE plugin, in a disabled folder. It re-lists INFO 2 with
+        // no PNAM, so folding it moves that line to the bottom — and its rows must not render under the active
+        // copy's name.
+        var midShadow = new SkyrimMod(midKey, SkyrimRelease.SkyrimSE);
+        var shadowTopic = (IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(midShadow, topic);
+        shadowTopic.Responses.Clear();
+        shadowTopic.Responses.Add(new DialogResponses(info[2], SkyrimRelease.SkyrimSE) { EditorID = "HcDvLine2" });
+        Directory.CreateDirectory(Path.Combine(mods, ShadowModFolder));
+        midShadow.BeginWrite.ToPath(Path.Combine(mods, ShadowModFolder, MidName))
+                 .WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
+
         File.WriteAllText(Path.Combine(Instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
@@ -222,7 +322,12 @@ public sealed class DialogueWorld : IDisposable
             + CcName + "\r\n");
         // Neither the base master nor the CC plugin is listed here — that absence is what makes them force-loaded.
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + MasterName + "\r\n*" + MidName + "\r\n*" + LastName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+CcMod\r\n+LastMod\r\n+MidMod\r\n+MasterMod\r\n+VanillaStub\r\n");
+        // PatchMod, PatchEsmMod and the shadow folder are switched OFF: their files are on disk and out of the
+        // order, which is what a fold names. MidMod sits above the shadow folder, so the copy the order loads —
+        // and the copy a {file, mod} fold of the shadow is measured against — is MidMod's.
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"),
+            "# header\r\n-PatchMod\r\n-PatchEsmMod\r\n+CcMod\r\n+LastMod\r\n+MidMod\r\n-" + ShadowModFolder
+            + "\r\n+MasterMod\r\n+VanillaStub\r\n");
 
         var store = new UserConfigStore(Path.Combine(Root, "user.json"));
         Svc = LoadOrderService.WithInstance(Instance, 0, store);

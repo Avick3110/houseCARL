@@ -29,6 +29,21 @@ saying it sets an expectation their install may contradict. Say what is known, a
   Without `out_path=` nothing changes: the `.psc` lands in a houseCARL patch-mod folder under
   `Source\Scripts`, and an unconfigured houseCARL still asks for your instance. To check, decompile with
   `out_path=` a scratch folder and look there for the `.psc` the result names — your mods directory gains no folder.
+- **`project.form="info_order"` folds one off-order plugin into the merge, so a dialogue patch's merged order can
+  be read before MO2 enables it.** `source=` on this form names a plugin that is NOT in the active order — the same
+  one-pole address form every other `records` read takes, a filename or `{"file", "mod"}` — and its child lists join
+  each topic's merge where MO2 would load that file: LAST for a regular plugin, at the end of the MASTER BLOCK for
+  one whose header is ESM-flagged or whose name is a `.esm`/`.esl`, so the regular plugins below it still evict what
+  they re-list. The answer is a projection and says so: the response names the folded copy, states where it was
+  placed and the flag that decided it, marks every line the file placed, and says the file's content sits outside
+  the epoch fingerprint (`source=` already says what that means). Where the folded copy's FILENAME is one the order
+  also carries — a shadowed copy named by `{"file", "mod"}` — its lines carry a label of their own and the response
+  says the filename is active while that copy is not. A topic only the folded file defines has no winner in the active order and is read by
+  naming it in `formids=`; a scan selects out of the active order and the response says so when a fold is in play.
+  One file per call, an active filename refused because its lines are in the merge already, and the runtime-overlay
+  and `previous_provider` poles still refused — each in a sentence naming the one pole this form takes. Check it by
+  reading a topic your patch re-lists with and without `source=`: the folded read shows where the patch's lines
+  land, the plain read shows the order the game is loading now.
 
 ## 2.0.2 — 2026-09-15
 
