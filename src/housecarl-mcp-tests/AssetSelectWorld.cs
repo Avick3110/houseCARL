@@ -35,6 +35,9 @@ public sealed class AssetSelectWorld : IDisposable
     /// <summary>MO2's mods root, so a test can build the raw on-disk path into a mod folder that the tools refuse.</summary>
     public string ModsDir { get; }
 
+    /// <summary>The active profile folder, so a test can reach the three profile text files themselves.</summary>
+    public string ProfileDir { get; }
+
     /// <summary>The defining master whose facegen folder the sweep is aimed at.</summary>
     public const string Master = "HcMaster.esm";
     /// <summary>The facegen mesh folder — the #246 sweep target, one call per defining master.</summary>
@@ -150,6 +153,7 @@ public sealed class AssetSelectWorld : IDisposable
         File.WriteAllText(Path.Combine(profile, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
 
         ModsDir = mods;
+        ProfileDir = profile;
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
         // Every over-ceiling call here auto-spills, so the store points inside the world's temp root rather than
         // piling artifacts into the test binary's folder.

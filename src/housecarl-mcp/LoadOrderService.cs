@@ -585,7 +585,13 @@ public sealed partial class LoadOrderService : IDisposable
     void ReResolve()
     {
         var profileStamps = StatProfileFiles();                  // stat BEFORE the read: a write during the re-read is caught next call, not missed
-        var order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir);
+        Mo2OrderResult order;
+        // MO2 holds the profile files while it rewrites them on a re-sort. A refresh that lands in that window keeps
+        // the snapshot already built — the same answer the last call gave — and does NOT advance the baseline, so the
+        // next call re-checks and follows the new profile. The cold builds have nothing to keep and report the
+        // transient instead.
+        try { order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir); }
+        catch (ProfileUnreadableException) { return; }
         var paths = order.OrderedPaths;
         if (_maxPlugins > 0 && paths.Count > _maxPlugins) paths = paths.Take(_maxPlugins).ToList();
 
