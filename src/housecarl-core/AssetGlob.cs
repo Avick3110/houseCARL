@@ -43,8 +43,18 @@ public static class AssetGlob
     /// name one FILE rather than a folder — the caller pasted a path, and the answer is that path. The caller renders
     /// that as a note, so the selection and the wording agree about what happened.</summary>
     public static IReadOnlyList<string> Select(AssetResolver.AssetView view, string selector, out bool namedOneFile)
+        => Select(view, selector, out namedOneFile, 0, out _);
+
+    /// <summary>As above, with the ENUMERATION bounded: the walk stops the moment <paramref name="max"/> matching
+    /// paths are in hand and says so through <paramref name="stopped"/>, so a caller with a per-call bound can refuse
+    /// an over-budget sweep without first paying the whole-order walk. The cap counts MATCHES — the pattern filters
+    /// inside the walk — so a narrow glob under a wide prefix is never refused for the prefix's size.
+    /// <paramref name="max"/> of 0 is no cap and behaves exactly as the unbounded overload.</summary>
+    public static IReadOnlyList<string> Select(AssetResolver.AssetView view, string selector, out bool namedOneFile,
+                                               int max, out bool stopped)
     {
         namedOneFile = false;
+        stopped = false;
         var norm = AssetResolver.ValidateRelPath(selector).TrimEnd('\\');
         var prefix = LiteralPrefix(norm);
         // A selector with no literal directory in front of it would enumerate the whole VFS — every loose file in every
@@ -58,7 +68,7 @@ public static class AssetGlob
 
         if (!HasWildcard(norm))
         {
-            var beneath = Sorted(view.EnumerateUnder(norm));
+            var beneath = Sorted(view.EnumerateUnder(norm, null, max, out stopped));
             if (beneath.Count > 0) return beneath;
             // Nothing beneath it, but the string may BE a file the load order provides — a path pasted into under=
             // instead of asset_paths=. Answer it as that one file rather than claiming no mod provides the folder,
@@ -69,7 +79,8 @@ public static class AssetGlob
         }
 
         var rx = ToRegex(norm);                                  // compiled ONCE, not per candidate path
-        return Sorted(view.EnumerateUnder(prefix).Where(p => rx.IsMatch(p)));
+        // The pattern filters INSIDE the walk, so the cap counts matches rather than candidates.
+        return Sorted(view.EnumerateUnder(prefix, p => rx.IsMatch(p), max, out stopped));
     }
 
     static IReadOnlyList<string> Sorted(IEnumerable<string> paths) =>

@@ -3192,9 +3192,11 @@ static class JsonWire
         foreach (var p in hit.Providers) WriteAssetProvider(w, null, p);
         w.WriteEndArray();
         w.WriteBoolean("ambiguous", hit.Ambiguous);
-        // On a formids= row only, so a plain path row is the document it always was: the mod behind a BSA winner is
-        // the side the pair's `differs` verdict is decided on, and a consumer needs both to check it.
-        if (r.FormId is not null) WriteNullable(w, "winner_mod", hit.Winner?.OwningMod);
+        // On a formids= row only, so a plain path row is the document it always was: this is the OWNER the pair's
+        // `differs` verdict is decided on (AssetPathResult.Owner), not the bare OwningMod, which is null for every
+        // loose provider and would make a loose-vs-loose split read as null == null.
+        if (r.FormId is not null)
+            WriteNullable(w, "winner_mod", hit.Winner is { } owner ? AssetPathResult.Owner(owner) : null);
         if (!hit.Exists)
         {
             WriteNullableStringArray(w, "prefix_suggestions", r.PrefixSuggestions);
@@ -3217,8 +3219,8 @@ static class JsonWire
             {
                 w.WriteBoolean("exists", pair.Exists);
                 if (pair.Winner is { } pw) WriteAssetProvider(w, "winner", pw); else w.WriteNull("winner");
-                // The mod behind a BSA winner, because `differs` below is decided on it and not on the archive name.
-                WriteNullable(w, "winner_mod", pair.Winner?.OwningMod);
+                // The OWNER `differs` below is decided on, not the archive name and not the bare OwningMod.
+                WriteNullable(w, "winner_mod", pair.Winner is { } pw2 ? AssetPathResult.Owner(pw2) : null);
             }
             else { w.WriteNull("exists"); w.WriteNull("winner"); w.WriteNull("winner_mod"); }
             w.WriteBoolean("differs", r.PairDiffers);

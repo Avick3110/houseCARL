@@ -271,13 +271,17 @@ internal static class RenderBudget
     /// null when it fits. Its own tier, because the row is not a record read at all: it is a VFS resolution, and what
     /// it costs is archive tables and loose directory warms rather than a record body.
     /// <paramref name="wholeSelection"/> is the <c>to_file=</c> disposition, whose artifact covers every selected
-    /// path — so limit= is not its lever and the sentence does not offer it.</summary>
-    internal static string? RefuseAssetPaths(int paths, bool wholeSelection)
+    /// path — so limit= is not its lever and the sentence does not offer it.
+    /// <para><paramref name="atLeast"/> is the <c>under=</c> lane, where the enumeration STOPPED at the bound rather
+    /// than running to the end: the count is a floor and the sentence says so, because naming it as the total would
+    /// be a number the call never finished measuring.</para></summary>
+    internal static string? RefuseAssetPaths(int paths, bool wholeSelection, bool atLeast = false)
     {
         if (paths <= MaxAssetPaths) return null;
-        return $"error: this call resolves {paths:N0} asset path(s) through the VFS, each one a lookup in every " +
-               $"active archive plus a loose-directory warm across every mod folder — {ProjectedAt(paths, MillisPerAssetPath)}, " +
+        return $"error: this call resolves {(atLeast ? "at least " : "")}{paths:N0} asset path(s) through the VFS, each one a lookup in every " +
+               $"active archive plus a loose-directory warm across every mod folder — {(atLeast ? "over " : "")}{ProjectedAt(paths, MillisPerAssetPath)}, " +
                $"past the {MaxAssetPaths:N0}-path bound one call is given (a client stops waiting at 30 minutes). " +
+               (atLeast ? "The sweep stopped counting there, so nothing was walked past the bound and nothing was resolved. " : "") +
                (wholeSelection
                    ? "to_file= writes the COMPLETE selection, so limit= does not lower what it resolves: narrow the " +
                      "selection itself — a tighter under= selector (anchor it at the folder you mean, not at " +

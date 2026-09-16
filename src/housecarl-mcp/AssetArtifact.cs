@@ -29,7 +29,10 @@ internal static class AssetArtifact
 
     /// <summary>Write the artifact for one resolution. Returns the spill to render, or a named error the caller
     /// renders verbatim — never throws for an IO failure.</summary>
-    internal static (SpillInfo? Spill, string? Error) Write(AssetStatusData d, string path, string epoch,
+    /// <summary><paramref name="order"/> is the build the call fingerprinted, or null where the order could not be
+    /// built at all and <paramref name="noEpochBecause"/> says why. The stamp is taken whole, not just its epoch
+    /// string: the plugins it lost to a load failure are what <c>order_degraded</c> names.</summary>
+    internal static (SpillInfo? Spill, string? Error) Write(AssetStatusData d, string path, OrderStamp? order,
                                                            IReadOnlyList<KeyValuePair<string, string>> query,
                                                            string? noEpochBecause = null)
     {
@@ -44,22 +47,27 @@ internal static class AssetArtifact
             + "beside it, and 'pair_differs' is true when both halves resolve and come from different MODS — compared "
             + "by 'winner_mod' / 'pair_winner_mod', because vanilla ships every head in Skyrim - Meshes0.bsa and "
             + "every tint in Skyrim - Textures0.bsa, which is two provider names for one product and not a split.",
-            // The §2.1 coverage statement, spelled rather than implied: the fingerprint describes a different
-            // substrate from the rows, and an artifact re-read months later carries no conversation to say so.
-            "'epoch' fingerprints the RECORD build this call answered from and nothing else — the VFS layer these "
-            + "rows describe is outside it, so a matching epoch does not promise the mod folders are unchanged.",
+            "'pair_differs' is PROVENANCE, not a class: it covers both a cross-product split and two mod folders of "
+            + "one product. housecarl_check findings=[\"facegen\"] is what separates them.",
             "An ABSENT row is authoritative only where the response's read-failure and discovery alarms were empty; "
             + "the manifest's query echo names whether they were.",
         };
-        if (noEpochBecause is not null)
-            notes.Add("'epoch' is EMPTY: this call could not build a load order to fingerprint — " + noEpochBecause
-                      + " The rows are unaffected (they are read off the VFS, not off the record index), but nothing "
-                      + "here says which build they sit beside.");
+
+        // The §2.1 coverage stamp, in the field rather than in prose: EVERY row here is read off the VFS while the
+        // fingerprint describes the record build, which is the strongest instance of the rule this server has.
+        var uncovered = new[]
+        {
+            "the MO2 VFS layer — every winner, provider chain and pair verdict in these rows is read off mod folders "
+            + "and archives, which the record-build fingerprint does not describe",
+        };
 
         var (manifest, err) = writer.Save(ArtifactTarget.Named(path), ToolNames.AssetStatus, query, identity: "path",
                                           RowSchema, sort: "asset_paths= in the order given, then formids= (mesh then tint per NPC), then under= matches sorted",
-                                          total: d.Results.Count, epoch: epoch, notes: notes);
-        return err is not null ? (null, err) : (new SpillInfo(path, manifest!, "to_file"), null);
+                                          total: d.Results.Count, epoch: order?.Epoch ?? "", notes: notes,
+                                          epochUncovered: uncovered, excludedPlugins: order?.ExcludedPlugins);
+        return err is not null
+            ? (null, err)
+            : (new SpillInfo(path, manifest!, "to_file") { EpochUnavailable = noEpochBecause }, null);
     }
 
     /// <summary>The response a <c>to_file=</c> call renders: the header, the build-level alarms and the selector
@@ -112,7 +120,10 @@ internal static class AssetArtifact
         w.WriteBoolean("exists", hit.Exists);
         Str(w, "winner", hit.Winner?.Source);
         Str(w, "winner_kind", Kind(hit.Winner));
-        Str(w, "winner_mod", hit.Winner?.OwningMod);
+        // The OWNER, not the bare OwningMod: pair_differs is decided on AssetPathResult.Owner, and a loose provider
+        // carries no OwningMod at all — writing the raw field would put null in both mod columns of every
+        // loose-vs-loose split and leave a consumer re-deriving the verdict with null == null.
+        Str(w, "winner_mod", hit.Winner is { } win ? AssetPathResult.Owner(win) : null);
         w.WriteNumber("provider_count", hit.Providers.Count);
         w.WriteStartArray("providers");
         foreach (var p in hit.Providers)
@@ -131,7 +142,7 @@ internal static class AssetArtifact
             w.WriteBoolean("pair_exists", pair.Exists);
             Str(w, "pair_winner", pair.Winner?.Source);
             Str(w, "pair_winner_kind", Kind(pair.Winner));
-            Str(w, "pair_winner_mod", pair.Winner?.OwningMod);
+            Str(w, "pair_winner_mod", pair.Winner is { } pw ? AssetPathResult.Owner(pw) : null);
             // Compared by OWNING MOD, which is why both mod columns are here: two archive names of one product are
             // not a split, and a consumer re-deriving this from the winner names alone would get the vanilla answer
             // wrong 2,344 times on the measured order.

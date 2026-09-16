@@ -26,13 +26,19 @@ Because the path is that transform, the file layer answers for a whole order in 
 `housecarl_asset_status` with `formids=` a list of NPCs derives both halves of each bake and resolves them
 together, one row per path, each naming the other half's winner beside its own. The whole-order sweep is two
 calls — `housecarl_records types=["NPC_"] to_file=<file>` for the identity set, then
-`housecarl_asset_status formids=["@<file>"] to_file=<file2>` — and the artifact's `winner`, `winner_kind`,
-`pair_winner` and `pair_differs` columns are the pairing map. Use it when you want the file-layer provenance
+`housecarl_asset_status formids=["@<file>"] to_file=<file2>` — and the artifact's `winner_mod`, `pair_winner_mod`,
+`winner_kind` and `pair_differs` columns are the pairing map. Use it when you want the file-layer provenance
 over the order; `housecarl_check findings=["facegen"]` is what adds the record winner and the classes below.
 
-A split is decided on the winners' owning **mods**, not their provider names. Vanilla ships every head in
-`Skyrim - Meshes0.bsa` and every tint in `Skyrim - Textures0.bsa` — two archives, one product — so comparing
-names calls most of the order split; on the measured order that is 2,719 NPCs against 375.
+`pair_differs` is decided on the winners' owning **mods** (`winner_mod` / `pair_winner_mod`), not on their
+provider names (`winner` / `pair_winner`, which for a BSA is the archive's own filename). Vanilla ships every
+head in `Skyrim - Meshes0.bsa` and every tint in `Skyrim - Textures0.bsa` — two archives, one product — so
+comparing names calls most of the order split; on the measured order that is 2,719 NPCs against 375.
+
+And `pair_differs` is provenance, not a class: it is true for a cross-product `split_bake` and for a
+`family_split` alike — on that same order the 375 include 220 NPCs whose head is Additional Dremora Faces and
+whose tint is its own texture pack, which is the benign one. Separating them is `housecarl_check
+findings=["facegen"]`'s job, using the table below.
 
 ## The check's classes, and the fix for each
 

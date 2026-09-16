@@ -44,7 +44,9 @@ public static class AssetTools
                      "per-path rather than failing the call. " +
                      "Optional when under= or formids= is given. Takes [\"@<absolute path>\"] in place of the inline " +
                      "list: a plain list file one path per line, or an artifact this tool wrote with to_file= (whose " +
-                     "identity column is 'path').")]
+                     "identity column is 'path'). A path list is NOT epoch-checked — a path is a string and every " +
+                     "answer about it is read live off the VFS — so yesterday's sweep re-enters here after you have " +
+                     "changed the order, which is the point.")]
             string[]? asset_paths = null,
         [Description("Optional. Data-relative DIRECTORY or glob selector(s): every file the load order provides beneath " +
                      "it (loose and BSA both) is resolved, e.g. " +
@@ -134,34 +136,43 @@ public static class AssetTools
         var seeds = new List<FaceGenSeed>(idTokens?.Length ?? 0);
         foreach (var raw in idTokens ?? Array.Empty<string>())
         {
+            // Every token that is not a FormID answers as ONE error row, whatever the door threw. Narrower than
+            // this, a RUNTIME FormID on an order that cannot build reaches CaptureView, whose InvalidOperationException
+            // would escape to Guard as "an internal houseCARL failure (the arguments bound fine)" — for input this
+            // tool can plainly name. The sibling lanes catch Exception here for the same reason.
             try { seeds.Add(new FaceGenSeed(raw, door.Parse(raw), null)); }
-            catch (Exception ex) when (ex is FormatException or ArgumentException)
+            catch (Exception ex)
             {
-                seeds.Add(new FaceGenSeed(raw, null, $"not a FormID: {ex.Message} Expected 'XXXXXX:Plugin.esp'."));
+                seeds.Add(new FaceGenSeed(raw, null, $"not a FormID: {Guard.Flatten(ex.Message)} Expected 'XXXXXX:Plugin.esp'."));
             }
         }
 
-        // An artifact's rows were captured at ONE record build, and consuming them server-side is epoch-checked
+        // An artifact of FORMIDS was captured at one record build, and consuming it server-side is epoch-checked
         // against the build answering now — a mismatch is a loud refusal naming both, with no stale-override switch.
+        // An artifact of PATHS is not checked and deliberately so: a path is a string, every answer about it is read
+        // live off the VFS, and nothing in it can go stale against a record build. Gating it would refuse the loop
+        // this feature exists for — sweep, fix a mod, re-ask the same path list — over a build the answer never used.
         // Captured only where something needs it, so a plain path sweep still builds no record index. And it is
         // allowed to FAIL: this tool answers "which mod wins this file" off the VFS alone, so an order whose plugins
         // do not resolve must not stop it — the artifact then carries no fingerprint and says why, rather than the
         // call dying on a build its answer never needed.
-        string? epoch = null, noEpochBecause = null;
-        if (wantFile || pathDemand is not null || idDemand is not null)
+        OrderStamp? order = null;
+        string? noEpochBecause = null;
+        if (wantFile || idDemand is not null)
         {
-            try { epoch = svc.CaptureView().Stamp.Epoch; }
+            try { order = svc.CaptureView().Stamp; }
             catch (InvalidOperationException ex) { noEpochBecause = Guard.Flatten(ex.Message); }
         }
-        foreach (var demand in new[] { pathDemand, idDemand })
+        if (idDemand is { } demand)
         {
-            if (demand is null) continue;
             if (noEpochBecause is not null)
-                return Wire.Refuse(json, $"error: artifact '{demand.Path}' was captured at epoch={demand.Epoch}, and " +
-                                         $"this call could not build a load order to check it against — {noEpochBecause} " +
-                                         "Fix the order and retry; there is deliberately no unchecked re-entry.");
-            if (demand.Epoch != epoch)
-                return Wire.Refuse(json, "error: " + LoadOrderService.ArtifactEpochMismatch(demand, epoch!));
+                return Wire.Refuse(json, $"error: formids= artifact '{demand.Path}' was captured at epoch={demand.Epoch}, " +
+                                         $"and this call could not build a load order to check it against — {noEpochBecause} " +
+                                         "Fix the order and retry; there is deliberately no unchecked re-entry. A list " +
+                                         "of PATHS re-enters through asset_paths= without a build, because a path " +
+                                         "answers off the VFS alone.");
+            if (demand.Epoch != order!.Epoch)
+                return Wire.Refuse(json, "error: " + LoadOrderService.ArtifactEpochMismatch(demand, order.Epoch));
         }
 
         var data = svc.AssetStatus(pathTokens ?? Array.Empty<string>(), under, limit, offset, seeds, wholeSelection: wantFile);
@@ -178,7 +189,7 @@ public static class AssetTools
             new KeyValuePair<string, string>("read_incomplete", data.ReadIncomplete ? "true" : "false"),
             new KeyValuePair<string, string>("discovery_warnings", data.Warnings.Count.ToString()),
         };
-        var (spill, artErr) = AssetArtifact.Write(data, toFile!, epoch ?? "", query, noEpochBecause);
+        var (spill, artErr) = AssetArtifact.Write(data, toFile!, order, query, noEpochBecause);
         if (artErr is not null) return Wire.Refuse(json, "error: " + artErr);
         var manifestOnly = AssetArtifact.RenderManifestOnly(data, spill!, json, cap);
         // The text lane's ceiling arm; the json document caps itself as it writes.
@@ -295,7 +306,11 @@ static class AssetWire
         // The provider token is spelled by the one formatter the asset surface uses, so the name printed here is the
         // name place_asset's source_provider= accepts — the third surface of #340. A mod folder can legitimately hold
         // a parenthetical ("SkyUI (SE)"), so the delimiter is what tells a caller where the name ends.
-        sb.Append("  WINS: ").Append(Provider(hit.Winner!)).Append('\n');
+        // The owning mod rides the WINS: line on a formids= row, so the text lane shows the same evidence the pair
+        // verdict is taken on — two archive names of one mod read as a split without it. Only there, so a plain path
+        // block is byte for byte the block it always was.
+        sb.Append("  WINS: ").Append(Provider(hit.Winner!))
+          .Append(r.FormId is not null ? Mod(hit.Winner!) : "").Append('\n');
         sb.Append("  providers (").Append(hit.Providers.Count).Append("): ");
         for (int i = 0; i < hit.Providers.Count; i++)
         {
