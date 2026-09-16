@@ -519,8 +519,10 @@ public sealed partial class LoadOrderService
     /// the mods-tree top-up is RETRIED on every call until it runs, so a baseline-only map is never cached as if it
     /// were complete and the caller can say so every time. It is a soft input by construction — missing pieces mean
     /// explicit casts in the output, never wrong code — and the result names both degraded modes: a missing or
-    /// unreadable baseline, and a top-up that did not happen, whatever the cause (no instance, an instance that does
-    /// not resolve, a mods folder that is gone or unreadable). The input pex's own folder is topped up per call by
+    /// unreadable baseline, and a top-up that did not happen or read only part of the tree, with the cause (no
+    /// instance, an instance that does not resolve, a mods folder that is gone, one that cannot be listed, files
+    /// under it that cannot be read). A published map is never mutated: the top-up fills a copy and replaces the
+    /// published one in a single assignment. The input pex's own folder is topped up per call by
     /// the caller, since it varies per input. Paths derive FIRST, under the gate, because in instance mode ModsDir is
     /// lazy. Lock order is _gate then _classParentsLock.</summary>
     public ClassParents ClassParentsForDecompile()
@@ -555,8 +557,20 @@ public sealed partial class LoadOrderService
                     : null;
                 if (missing is null)
                 {
-                    try { HousecarlCore.PapyrusClassParents.AddFromPscHeaders(_classParents, new[] { _modsDir }); _classParentsToppedUp = true; }
-                    catch (Exception ex) { missing = $"the mods folder '{_modsDir}' could not be read ({ex.Message})"; }
+                    // Publish-once: the walk fills a COPY and the finished map replaces the published one, so a
+                    // concurrent reader either sees the old map or the new one, never one being written.
+                    var topped = new Dictionary<string, string>(_classParents, StringComparer.OrdinalIgnoreCase);
+                    var scan = HousecarlCore.PapyrusClassParents.AddFromPscHeaders(topped, new[] { _modsDir });
+                    if (scan.RootsUnreadable > 0)
+                        // Nothing was read from the tree: the copy is dropped and the walk is retried next call.
+                        missing = $"the mods folder '{_modsDir}' could not be listed";
+                    else
+                    {
+                        _classParents = topped;
+                        _classParentsToppedUp = true;
+                        if (scan.FilesFailed > 0)
+                            missing = $"{scan.FilesFailed} of {scan.FilesSeen} .psc file(s) under '{_modsDir}' could not be read";
+                    }
                 }
                 _classParentsTopUpMissing = missing;
             }
