@@ -3071,12 +3071,18 @@ static class JsonWire
     /// twin reserves its accounting line — so max_chars means the same thing on both lanes. <c>truncated</c> at the
     /// document root is the boolean every json document carries; <c>accounting.truncated</c> is the count.</para></summary>
     public static string RenderAssetStatus(AssetStatusData d, int maxChars)
+        => RenderAssetStatus(d, maxChars, null, out _);
+
+    /// <param name="spill">this call's artifact disposition, written after the accounting and priced into the tail
+    /// reserve so it lands inside max_chars.</param>
+    /// <param name="truncated">whether max_chars cut paths out of the window — what the caller auto-spills on.</param>
+    public static string RenderAssetStatus(AssetStatusData d, int maxChars, SpillState? spill, out bool truncated)
     {
         int cap = Cap(maxChars);
         // The accounting object and the advice after it are priced INSIDE max_chars, as the text twin prices its
         // accounting line: room for their widest spelling is held back BEFORE the caveats and the rows write, rather
         // than appended past the cap.
-        int budget = Math.Max(cap - AssetTailReserve(d, cap), 1);
+        int budget = Math.Max(cap - AssetTailReserve(d, cap, spill), 1);
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -3109,7 +3115,11 @@ static class JsonWire
             // The document's own flag, so a consumer branching on it re-calls when ANYTHING was dropped: a caveat
             // block the budget cut is a loss the row counters cannot see.
             w.WriteBoolean("truncated", counts.Truncated > 0 || caveatsOmitted > 0);
+            // The out parameter is the ROWS' cut alone: an artifact holds rows, so a caveat block the budget
+            // trimmed is not something spilling one would recover.
+            truncated = counts.Truncated > 0;
             WriteAssetAdvice(w, counts, cap, caveatsOmitted > 0);
+            if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
             w.WriteEndObject();
         }
         return Finish(ms);
@@ -3165,7 +3175,7 @@ static class JsonWire
     /// which are written after their array has already spent the budget. Measured by serializing the WIDEST tail
     /// under the response's own writer options, so no rendering of it can outgrow its own room (measuring unindented
     /// what is written indented under-reserves by the whole indentation).</summary>
-    static int AssetTailReserve(AssetStatusData d, int cap)
+    static int AssetTailReserve(AssetStatusData d, int cap, SpillState? spill)
     {
         var widest = AssetWire.Widest(d);
         using var ms = new CharCountedStream();
@@ -3180,6 +3190,9 @@ static class JsonWire
             TransportAccounting.WriteJson(w, widest);
             w.WriteBoolean("truncated", true);
             WriteAssetAdvice(w, widest, cap, caveatsCut: true, everySentence: true);
+            // The spill block is measured, not estimated: the re-render that carries one already has the written
+            // artifact's manifest, so its exact width is known before the rows are laid.
+            if (spill is not null) Artifacts.WriteSpillStateJson(w, spill);
             w.WriteEndObject();
         }
         return Chars(ms);

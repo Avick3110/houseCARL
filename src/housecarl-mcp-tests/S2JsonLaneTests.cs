@@ -154,23 +154,25 @@ public sealed class AssetStatusJsonLaneTests : IClassFixture<AssetSelectWorld>
         Assert.Contains("format='jsonn' is not recognized", text);
     }
 
-    /// <summary>The accounting is paid for INSIDE max_chars, as the text twin pays for its accounting line: room for
-    /// the tail is held back before the rows write, so a document that rendered more than its first row fits the cap
-    /// the caller passed rather than overrunning it by the whole accounting block.</summary>
+    /// <summary>The tail is paid for INSIDE max_chars, as the text twin pays for its accounting line: room for the
+    /// accounting, the advice and the spilled marker is held back before the rows write, so a document that rendered
+    /// more than its first row fits the cap the caller passed rather than overrunning it by the whole tail.</summary>
     [Fact]
     public void TheDocumentFitsTheMaxCharsItWasGiven()
     {
-        var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
-                                          format: "json", max_chars: 2_000);
+        const int Cap = 4_000;
+        var text = AssetTools.AssetStatus(_w.Svc, under: new[] { @"meshes\actors\**\*.nif" },
+                                          format: "json", max_chars: Cap);
 
         var root = Parse(text);
+        Assert.True(root.GetProperty("accounting").GetProperty("truncated").GetInt32() > 0);
         Assert.True(root.GetProperty("accounting").GetProperty("rendered").GetInt32() > 1);
         // The tail BEGINS inside the cap — that is what the reserve buys. The document can still end a little past
         // the cap, on the row that was in flight when the budget ran out (the same one-item overshoot the text lane
-        // makes), but never past it by the whole accounting block, which is what an unreserved tail costs.
+        // makes), but never past it by the whole tail, which is what an unreserved one costs.
         int tailAt = text.IndexOf("\"accounting\"", StringComparison.Ordinal);
-        Assert.True(tailAt > 0 && tailAt <= 2_000, $"the accounting starts at {tailAt} on max_chars=2000");
-        Assert.True(text.Length - 2_000 < text.Length - tailAt,
+        Assert.True(tailAt > 0 && tailAt <= Cap, $"the accounting starts at {tailAt} on max_chars={Cap}");
+        Assert.True(text.Length - Cap < text.Length - tailAt,
                     $"the document is {text.Length} chars — over by more than its own tail");
     }
 

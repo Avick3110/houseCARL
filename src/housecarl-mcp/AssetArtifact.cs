@@ -14,7 +14,10 @@ namespace HousecarlMcp;
 ///
 /// <para><b>The rows are the RESULT's, not the render's.</b> A <c>to_file=</c> call resolves the whole selection —
 /// the artifact is never a window — so no row is missing because the inline body ran out of characters, and
-/// <c>row_count</c> equals <c>total</c>.</para>
+/// <c>row_count</c> equals <c>total</c>. An AUTO-SPILL writes what the call resolved, which under a limit= is that
+/// window: the manifest then carries <c>total</c> above <c>row_count</c> and the spilled marker says the matches
+/// beyond the window are in no file. Re-resolving the rest would pay the scan a second time, which is the cost
+/// auto-spill exists to avoid.</para>
 /// </summary>
 internal static class AssetArtifact
 {
@@ -31,8 +34,11 @@ internal static class AssetArtifact
     /// renders verbatim — never throws for an IO failure.</summary>
     /// <summary><paramref name="order"/> is the build the call fingerprinted, or null where the order could not be
     /// read at all and <paramref name="noEpochBecause"/> says why. The stamp is taken whole, not just its epoch
-    /// string: the plugins it lost to a load failure are what <c>order_degraded</c> names.</summary>
-    internal static (SpillInfo? Spill, string? Error) Write(AssetStatusData d, string path, OrderStamp? order,
+    /// string: the plugins it lost to a load failure are what <c>order_degraded</c> names.
+    /// <paramref name="target"/> is the caller's <c>to_file=</c> path or a reservation in the server-managed results
+    /// directory, and <paramref name="reason"/> says which — <c>to_file</c> or <c>ceiling</c>.</summary>
+    internal static (SpillInfo? Spill, string? Error) Write(AssetStatusData d, ArtifactTarget target, string reason,
+                                                           OrderStamp? order,
                                                            IReadOnlyList<KeyValuePair<string, string>> query,
                                                            string? noEpochBecause = null)
     {
@@ -72,13 +78,15 @@ internal static class AssetArtifact
             + "and archives, which the record-build fingerprint does not describe",
         };
 
-        var (manifest, err) = writer.Save(ArtifactTarget.Named(path), ToolNames.AssetStatus, query, identity: "path",
+        // The SELECTION's total, not the rows written: a to_file= call resolved everything so the two are equal,
+        // and an auto-spilled limit= window is the case where they must differ.
+        var (manifest, err) = writer.Save(target, ToolNames.AssetStatus, query, identity: "path",
                                           RowSchema, sort: "asset_paths= in the order given, then formids= (mesh then tint per NPC), then under= matches sorted",
-                                          total: d.Results.Count, epoch: order?.Epoch ?? "", notes: notes,
+                                          total: d.Selected, epoch: order?.Epoch ?? "", notes: notes,
                                           epochUncovered: uncovered, excludedPlugins: order?.ExcludedPlugins);
         return err is not null
             ? (null, err)
-            : (new SpillInfo(path, manifest!, "to_file") { EpochUnavailable = noEpochBecause }, null);
+            : (new SpillInfo(target.Path, manifest!, reason) { EpochUnavailable = noEpochBecause }, null);
     }
 
     /// <summary>The response a <c>to_file=</c> call renders: the header, the build-level alarms and the selector
