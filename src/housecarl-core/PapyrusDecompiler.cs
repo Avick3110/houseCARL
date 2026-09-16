@@ -620,8 +620,12 @@ public sealed class PapyrusDecompiler
                         // codegen). Promote the temp to a named local: assign it here, condition on
                         // the name, and let later reads/writes use the name. NEVER for a while — the
                         // loop re-evaluates its condition, hoisting the assignment would change
-                        // semantics (a re-read inside a while body stays a loud failure).
+                        // semantics (a re-read inside a while body stays a loud failure). Never for
+                        // the ::NoneVar discard slot either: it is not a value-carrying local, `None`
+                        // is not a declarable type, and the name is the compiler's — a promotion
+                        // there would emit a local no compiler accepts. A re-read of it stays loud.
                         if (!isWhile && condName is not null && IsTemp(condName)
+                            && !condName.Equals("::NoneVar", StringComparison.OrdinalIgnoreCase)
                             && ReadsBeforeWrite(i + 1, target, condName))
                         {
                             Materialized.Add(condName);
@@ -711,10 +715,12 @@ public sealed class PapyrusDecompiler
                         var v = a[0];
                         // `return <NoneCall>()` compiles to CALL(dest ::NoneVar) + RETURN ::NoneVar,
                         // while a bare `return` compiles to RETURN null. The call is pending on
-                        // ::NoneVar, so returning that pending value reproduces the form.
+                        // ::NoneVar, so returning that pending value reproduces the form — but only
+                        // when nothing else is pending, since anything else was produced AFTER the
+                        // call and the flush below would emit it ahead of the return that carries it.
                         if (v.VariableType == VariableType.Identifier
                             && IdName(v).Equals("::NoneVar", StringComparison.OrdinalIgnoreCase)
-                            && _pending.ContainsKey("::NoneVar"))
+                            && _pending.Count == 1 && _pending.ContainsKey("::NoneVar"))
                         {
                             var (call, _) = Consume("::NoneVar", i);
                             FlushPending(stmts);
@@ -775,11 +781,12 @@ public sealed class PapyrusDecompiler
                             // A call whose dest is the ::NoneVar discard slot. Usually a bare-call
                             // statement, but `x = obj.VoidCall()` compiles to this same call followed
                             // by a read of ::NoneVar — the compiler takes the call's (None) result
-                            // back out of the discard slot. Leave the call pending ONLY when the slot
-                            // is read before the next call overwrites it; a call left pending past
-                            // its own statement position would emit out of stream order.
+                            // back out of the discard slot, in the very next instruction. Leave the
+                            // call pending ONLY for that adjacent read: anything in between either
+                            // produces a value of its own or is a statement, and the call would then
+                            // be emitted after it rather than at its own position in the stream.
                             FlushPending(stmts);
-                            if (ReadsBeforeWrite(i + 1, hi, "::NoneVar"))
+                            if (NextReadsNoneVar(i + 1, hi))
                                 SetPending("::NoneVar", expr, stmts, Math.Min(_consumedStart, i));
                             else
                                 stmts.Add(Render(expr));
@@ -1061,6 +1068,19 @@ public sealed class PapyrusDecompiler
             {
                 if (ConsumesAsSource(_ins[k], name)) return true;
                 if (WritesDest(_ins[k], name)) return false;
+            }
+            return false;
+        }
+
+        /// <summary>Does the first real instruction at or after <paramref name="lo"/> (NOPs emit
+        /// nothing and produce nothing, so they are skipped) read ::NoneVar as a source? Only that
+        /// adjacent read can take a pending None call without moving it past another statement.</summary>
+        bool NextReadsNoneVar(int lo, int hi)
+        {
+            for (int k = lo; k < hi && k < _ins.Count; k++)
+            {
+                if (_ins[k].OpCode == InstructionOpcode.NOP) continue;
+                return ConsumesAsSource(_ins[k], "::NoneVar");
             }
             return false;
         }
