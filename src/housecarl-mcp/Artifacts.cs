@@ -59,8 +59,9 @@ internal static class Artifacts
     public static void AppendSpillText(StringBuilder sb, SpillInfo s)
     {
         var m = s.Manifest;
-        // "complete result" may be claimed only when the file holds every match: a spilled limit= window is
-        // complete as a window, and the matches beyond limit= are in no file at all.
+        // "complete result" may be claimed only when the file holds every match: a spilled window is complete as a
+        // window, and the matches outside it are in no file at all. The sentence names the WINDOW rather than
+        // limit=, because offset= alone makes one too and there the missing matches are the ones before it.
         bool whole = m.Total == m.RowCount;
         sb.Append('\n')
           .Append(whole ? "spilled: complete result (" : "spilled: the returned WINDOW (")
@@ -71,7 +72,7 @@ internal static class Artifacts
               ? "  written at your request (to_file=): only this manifest is rendered inline.\n"
               : whole
                   ? "  the inline render hit max_chars, so the COMPLETE result was auto-spilled (nothing is lost; the rows above are a prefix).\n"
-                  : $"  the inline render hit max_chars; the spilled WINDOW is complete in the file, but the {m.Total - m.RowCount} matches beyond limit= are in NO file — page with offset=, raise limit=, or use to_file= for the full result.\n")
+                  : $"  the inline render hit max_chars; the spilled WINDOW is complete in the file, but the {m.Total - m.RowCount} matches outside the returned window are in NO file — widen the window with limit= and offset=, or use to_file= for the full result.\n")
           .Append("  manifest: rows=").Append(m.RowCount)
           .Append(whole ? "" : $" of total={m.Total}")
           .Append("  identity=").Append(m.Identity ?? "<none>")

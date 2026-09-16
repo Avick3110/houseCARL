@@ -519,7 +519,11 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
 
     /// <summary>SPEC §2.1.1: a read result over the inline ceiling is written WHOLE to the server-managed results
     /// directory and the response names the file. What the ceiling held back is a prefix of a complete answer, not a
-    /// loss — the rows the render could not show are in the artifact, every one of them.</summary>
+    /// loss — the rows the render could not show are in the artifact, every one of them.
+    /// <para>This world's order does NOT build — it names a plugin that is on no disk — so every spill here is
+    /// UNSTAMPED: the file is named <c>_none</c> and its manifest carries an empty epoch. That is the honest
+    /// degrade this lane is allowed (every row is read off the VFS), not a §2.1.1-complete artifact. The stamped
+    /// arm is <see cref="AnAutoSpilledArtifactCarriesTheEpochOfTheBuildItSitsBeside"/>.</para></summary>
     [Fact]
     public void AnOverCeilingRenderIsSpilledWholeAndTheResponseNamesTheFile()
     {
@@ -564,24 +568,58 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         finally { try { Directory.Delete(results.Dir, true); } catch { } }
     }
 
-    /// <summary>A limit= window that then runs past the ceiling spills the window, and says so: the file is complete
-    /// as a window, and the matches beyond limit= are in NO file. Re-resolving the rest would pay the scan a second
-    /// time, which is the cost the auto-spill exists to avoid.</summary>
-    [Fact]
-    public void AnAutoSpilledWindowSaysTheMatchesBeyondLimitAreInNoFile()
+    /// <summary>A window that then runs past the ceiling spills the window, and says so: the file is complete as a
+    /// window, and the matches outside it are in NO file. Re-resolving the rest would pay the scan a second time,
+    /// which is the cost the auto-spill exists to avoid.
+    /// <para>Driven from BOTH knobs, because either makes a window: under offset= alone the missing matches are the
+    /// ones BEFORE the window, so a sentence naming limit= would send the caller at the wrong one.</para></summary>
+    [Theory]
+    [InlineData(2, 0)]
+    [InlineData(0, 2)]
+    public void AnAutoSpilledWindowSaysTheMatchesOutsideItAreInNoFile(int limit, int offset)
     {
-        using var results = new ResultsDirScope(Temp("spills-window"));
+        using var results = new ResultsDirScope(Temp($"spills-window-{limit}-{offset}"));
         try
         {
             var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
-                                              limit: 2, max_chars: 700);
+                                              limit: limit, offset: offset, max_chars: 700);
 
             Assert.Contains("spilled: the returned WINDOW", text);
-            Assert.Contains("are in NO file", text);
+            Assert.Contains("outside the returned window are in NO file", text);
             var manifest = JsonDocument.Parse(
                 File.ReadAllLines(Assert.Single(Directory.GetFiles(results.Dir, "*.jsonl")))[0]).RootElement;
-            Assert.Equal(2, manifest.GetProperty("row_count").GetInt32());
+            Assert.Equal(limit > 0 ? limit : AssetSelectWorld.FaceGeomFiles - offset,
+                         manifest.GetProperty("row_count").GetInt32());
             Assert.Equal(AssetSelectWorld.FaceGeomFiles, manifest.GetProperty("total").GetInt32());
+        }
+        finally { try { Directory.Delete(results.Dir, true); } catch { } }
+    }
+
+    /// <summary>The stamped arm of the auto-spill, which is what §2.1.1's manifest clause actually asks for: on a
+    /// world whose order BUILDS, the spill fingerprints that build — the epoch rides the manifest, the spilled
+    /// marker and the server-chosen filename. Delete the capture the spill path makes and this is the test that
+    /// fails; every other spill test here runs on an order that cannot build and would not notice.</summary>
+    [Fact]
+    public void AnAutoSpilledArtifactCarriesTheEpochOfTheBuildItSitsBeside()
+    {
+        using var w = new DegradedOrderWorld();
+        using var results = new ResultsDirScope(Temp("spills-stamped"));
+        try
+        {
+            var epoch = w.Svc.CaptureView().Stamp.Epoch;
+            Assert.NotEqual("", epoch);
+
+            var text = AssetTools.AssetStatus(w.Svc, under: new[] { DegradedOrderWorld.SweepDir }, max_chars: 700);
+
+            Assert.Contains("spilled: complete result", text);
+            Assert.Contains("epoch=" + epoch, text);
+            var file = Assert.Single(Directory.GetFiles(results.Dir, "*.jsonl"));
+            // The server names the file after the build it was read beside, so an unstamped spill is visible
+            // without opening one.
+            Assert.Contains(epoch, Path.GetFileName(file));
+            var manifest = JsonDocument.Parse(File.ReadAllLines(file)[0]).RootElement;
+            Assert.Equal(epoch, manifest.GetProperty("epoch").GetString());
+            Assert.Equal(DegradedOrderWorld.SweepFiles, manifest.GetProperty("row_count").GetInt32());
         }
         finally { try { Directory.Delete(results.Dir, true); } catch { } }
     }
@@ -631,12 +669,22 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
 /// each plugin, and one it cannot open is EXCLUDED from the build rather than failing it — so holding that file is
 /// how a degraded order is produced on demand, and the stamp the artifact carries can be driven end to end instead
 /// of asserted off a hand-built manifest.
+/// <para>Unheld, its order BUILDS and its stamp is a real epoch — which is what makes it the world for the stamped
+/// spill, since <see cref="AssetSelectWorld"/> names a plugin that is on no disk and so can only spill
+/// unstamped.</para>
 /// <para>Its own instance, not a shared fixture: a test that locks a file and forces a rebuild must not poison a
 /// world other tests read.</para></summary>
 sealed class DegradedOrderWorld : IDisposable
 {
     /// <summary>The one loose asset the sweep answers for, provided by a mod folder the index never opens.</summary>
     public const string AssetPath = @"meshes\hclocked\thing.nif";
+
+    /// <summary>A folder of loose assets, enough of them that a small max_chars cuts the render and the call
+    /// spills. One path cannot: the first block always renders, so a one-path call never truncates.</summary>
+    public const string SweepDir = @"meshes\hcsweep";
+
+    /// <summary>How many files <see cref="SweepDir"/> holds.</summary>
+    public const int SweepFiles = 6;
 
     /// <summary>The plugin this world's tests hold open, and the name the degraded stamp must carry.</summary>
     public const string LockedPlugin = "HcLockedTwo.esm";
@@ -672,6 +720,10 @@ sealed class DegradedOrderWorld : IDisposable
         var asset = Path.Combine(assetMod, AssetPath);
         Directory.CreateDirectory(Path.GetDirectoryName(asset)!);
         File.WriteAllText(asset, "x");
+
+        var sweep = Path.Combine(assetMod, SweepDir);
+        Directory.CreateDirectory(sweep);
+        for (int i = 0; i < SweepFiles; i++) File.WriteAllText(Path.Combine(sweep, $"{i:0000}.nif"), "x");
 
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
