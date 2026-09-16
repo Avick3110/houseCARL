@@ -147,6 +147,11 @@ public sealed class DialogueWorld : IDisposable
     /// <summary>Its three INFOs, in the defining plugin's own list order.</summary>
     public IReadOnlyList<FormKey> TailInfo { get; private set; } = Array.Empty<FormKey>();
 
+    /// <summary>A topic <see cref="MasterName"/> defines with an AGREEING Subtype/SNAM pair, which the off-order
+    /// patch overrides with a contradicting Subtype — the shape that tells "what the override inherited" apart
+    /// from the override itself.</summary>
+    public FormKey PatchSubtypeTopic { get; }
+
     /// <summary>A second copy of <see cref="MidName"/>, in a DISABLED mod folder — the shadowed-copy fold, whose
     /// filename is active while this file is not the one the order loads.</summary>
     public const string ShadowModFolder = "MidShadowMod";
@@ -241,6 +246,12 @@ public sealed class DialogueWorld : IDisposable
         unmodeled.Subtype = DialogTopic.SubtypeEnum.Hello;
         unmodeled.SubtypeName = new RecordType("ZZZZ");
         UnmodeledMarkerTopic = unmodeled.FormKey;
+        // A topic whose pair AGREES here, for the off-order patch to contradict in its own override: the SNAM gate
+        // has to judge that override against THIS copy — the defining one — and not against the patch's own.
+        var patchBase = master.DialogTopics.AddNew(); patchBase.EditorID = "HcDvPatchSubtype";
+        patchBase.Subtype = DialogTopic.SubtypeEnum.Hello;
+        patchBase.SubtypeName = new RecordType("HELO");
+        PatchSubtypeTopic = patchBase.FormKey;
 
         // CK-parity-complete seeds — the no-false-positive lock for V1 (a real authored view/branch/quest never
         // renders as a gap).
@@ -351,6 +362,10 @@ public sealed class DialogueWorld : IDisposable
         patchQuest.Flags = Quest.Flag.StartGameEnabled;
         DialogueCkParity.ApplyQuestDefaults(patchQuest);
         PatchSeqQuest = patchQuest.FormKey;
+        // …and an OVERRIDE whose Subtype contradicts the marker it inherited: the pair is the patch's own, so the
+        // gate must warn on it — which it only does if the defining copy, not the patch's, is what it compared.
+        var patchSubtype = (IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(patch, patchBase);
+        patchSubtype.Subtype = DialogTopic.SubtypeEnum.Custom;
         var ownTopic = patch.DialogTopics.AddNew(); ownTopic.EditorID = "HcDvPatchOwn";
         PatchOwnTopic = ownTopic.FormKey;
         var ownInfo = new FormKey[2];

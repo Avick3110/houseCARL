@@ -104,8 +104,10 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 - **`check(findings=["dialogue"])` takes an off-order plugin on `source=`, so a dialogue patch can be validated
   before MO2 enables it.** The address is the one the rest of the surface uses for a file outside the order — a
-  filename, or `{"file", "mod"}` — and the named plugin is folded in at the END of the order, where a newly enabled
-  plugin lands. Every seed is then validated against the active order's winners PLUS that file, what the file
+  filename, or `{"file", "mod"}` — and the named plugin is folded in where MO2 would load it: LAST for a regular
+  plugin, after the last master for a `.esm`/`.esl` or an ESM-flagged one, and in that plugin's own slot when the
+  order already carries the filename. What the file carries wins only where nothing below its slot touches the
+  record, which is what the game would do once it is enabled. Every seed is then validated against the active order's winners PLUS that file, what the file
   carries wins, and `seeds=` may name records the file itself defines (`000800:MyPatch.esp`), which resolve nowhere
   in the order without it. The section states the fold once at the top, including the part that does not move with
   the plugin: the file's own `.fuz`, `.pex` and `.seq` resolve through the VFS, which serves the mod folders MO2 has
