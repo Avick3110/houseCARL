@@ -12,6 +12,8 @@ namespace HousecarlCore;
 ///   - if     = cond; JMPF -> L; then; JMP -> M; L: else; M:   (JMP -> L means no else)
 ///   - and/or = short-circuit JMPF/JMPT whose arm rewrites the same temp, read again at the join —
 ///     usually landing ON the consumer, further on when later call arguments evaluate in between
+///   - a call returning None puts its result in the ::NoneVar discard slot, and a read of that slot
+///     is that call's value (`x = obj.VoidCall()`, `return obj.VoidCall()`)
 ///   - auto-prop backing var ::Name_var; AutoReadOnly = GET returning a literal
 ///   - compiler-generated GotoState/GetState in the '' state (skipped on emit)
 ///   - FunctionFlags raw bits: bit0 = Global, bit1 = Native (Mutagen's enum names sit one off)
@@ -708,15 +710,15 @@ public sealed class PapyrusDecompiler
                     {
                         var v = a[0];
                         // `return <NoneCall>()` compiles to CALL(dest ::NoneVar) + RETURN ::NoneVar,
-                        // while a bare `return` compiles to RETURN null. Merge the ::NoneVar return
-                        // into the immediately-preceding ::NoneVar-dest call statement to reproduce
-                        // the form.
+                        // while a bare `return` compiles to RETURN null. The call is pending on
+                        // ::NoneVar, so returning that pending value reproduces the form.
                         if (v.VariableType == VariableType.Identifier
                             && IdName(v).Equals("::NoneVar", StringComparison.OrdinalIgnoreCase)
-                            && i > lo && IsNoneDestCall(_ins[i - 1])
-                            && _pending.Count == 0 && stmts.Count > 0 && !stmts[^1].StartsWith("return"))
+                            && _pending.ContainsKey("::NoneVar"))
                         {
-                            stmts[^1] = "return " + stmts[^1];
+                            var (call, _) = Consume("::NoneVar", i);
+                            FlushPending(stmts);
+                            stmts.Add("return " + Render(call));
                             i++; break;
                         }
                         string stmt;
@@ -770,9 +772,17 @@ public sealed class PapyrusDecompiler
                         var (dest, expr) = Produce(ins);
                         if (dest == "")
                         {
-                            // call with ::NoneVar dest -> bare call statement
+                            // A call whose dest is the ::NoneVar discard slot. Usually a bare-call
+                            // statement, but `x = obj.VoidCall()` compiles to this same call followed
+                            // by a read of ::NoneVar — the compiler takes the call's (None) result
+                            // back out of the discard slot. Leave the call pending ONLY when the slot
+                            // is read before the next call overwrites it; a call left pending past
+                            // its own statement position would emit out of stream order.
                             FlushPending(stmts);
-                            stmts.Add(Render(expr));
+                            if (ReadsBeforeWrite(i + 1, hi, "::NoneVar"))
+                                SetPending("::NoneVar", expr, stmts, Math.Min(_consumedStart, i));
+                            else
+                                stmts.Add(Render(expr));
                             i++; break;
                         }
                         if (dest is null) throw new StructureException($"value op with no dest @{i}");
@@ -888,6 +898,11 @@ public sealed class PapyrusDecompiler
                     // would perturb STRCAT temp allocation.
                     // CAST of null = the compiler typing a None literal for a comparison — implicit too.
                     if (a[1].VariableType == VariableType.Null)
+                        return (dest, src);
+                    // A None-typed source is the ::NoneVar discard slot holding a None call's
+                    // result. `<none expression> as X` is not writable — the compiler rejects it —
+                    // so emit the bare operand, which is what produced this CAST.
+                    if (srcType is not null && srcType.Equals("None", StringComparison.OrdinalIgnoreCase))
                         return (dest, src);
                     if (destType is not null &&
                         (destType.Equals("Bool", StringComparison.OrdinalIgnoreCase)
@@ -1023,19 +1038,6 @@ public sealed class PapyrusDecompiler
             }
             if (!IsTemp(name) || Materialized.Contains(name)) return (new EIdent(LhsName(name)), at);
             throw new StructureException($"condition temp {name} has no pending value @{at}");
-        }
-
-        static bool IsNoneDestCall(PexObjectFunctionInstruction ins)
-        {
-            int destIdx = ins.OpCode switch
-            {
-                InstructionOpcode.CALLMETHOD or InstructionOpcode.CALLSTATIC => 2,
-                InstructionOpcode.CALLPARENT => 1,
-                _ => -1,
-            };
-            return destIdx >= 0 && destIdx < ins.Arguments.Count
-                && ins.Arguments[destIdx].VariableType == VariableType.Identifier
-                && string.Equals(ins.Arguments[destIdx].StringValue, "::NoneVar", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>Does any jump in [scanLo, scanHi) target an index in [rangeLo, rangeHi)?</summary>
