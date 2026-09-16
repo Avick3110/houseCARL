@@ -33,9 +33,9 @@ made the change.
 - **`housecarl_asset_status` no longer truncates over `max_chars`: the resolved result is written to an artifact
   and the response names the file.** Run a sweep at a small `max_chars` and open the file the `spilled` line
   names.
-- **`housecarl_asset_status` takes `counts_only=`, which answers a sweep as a census: which mods win how many
+- **`housecarl_asset_status` takes `counts_only=`, which answers a sweep as a census: which layers win how many
   paths, the loose-versus-BSA split, and how many are absent.** Run a FaceGen sweep with `counts_only=true` and
-  read the mod table.
+  read the layer table.
 
 ## 2.0.2 — 2026-09-15
 

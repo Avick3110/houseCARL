@@ -3126,12 +3126,16 @@ static class JsonWire
     }
 
     /// <summary>The <c>counts_only=</c> twin of <see cref="RenderAssetStatus"/>: the same census the text lane
-    /// states, as data. No path rows — the counters are the answer. The mod table is an ORDERED array rather than a
-    /// map keyed by mod, because the order (count descending) is part of what the census says.</summary>
-    public static string RenderAssetCensus(AssetStatusData d, int maxChars)
+    /// states, as data. No path rows — the counters are the answer, and the layer table is the shared histogram
+    /// axis (<c>{distinct, rows:[{key,count}], rendered, cut_by}</c>), so a consumer who learned the census on
+    /// <c>check</c> reads this one without learning it again.</summary>
+    public static string RenderAssetCensus(AssetStatusData d, int maxChars, int limit)
     {
         int cap = Cap(maxChars);
         var c = AssetCensus.Tally(d);
+        // The trailing members are a fixed shape, so their room comes out of max_chars before anything is written —
+        // the same reserve RenderAssetStatus takes for its tail, and the reason the cap means the whole document.
+        int budget = Math.Max(cap - AssetCensusTailReserve(), 1);
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -3139,38 +3143,41 @@ static class JsonWire
             w.WriteString("profile", d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)");
             // The caveats lead here too: an absent= count is authoritative only where both are empty.
             w.WriteBoolean("read_incomplete", d.ReadIncomplete);
-            int omitted = WriteCappedStringArray(w, ms, "bsa_failures", d.BsaFailures, cap)
-                        + WriteCappedStringArray(w, ms, "warnings", d.Warnings, cap);
+            int omitted = WriteCappedStringArray(w, ms, "bsa_failures", d.BsaFailures, budget)
+                        + WriteCappedStringArray(w, ms, "warnings", d.Warnings, budget);
             if (d.SelectorNotes is null) { w.WriteNull("selector_notes"); w.WriteNumber("selector_notes_omitted", 0); }
-            else omitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, cap);
+            else omitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, budget);
 
-            w.WriteNumber("selected", c.Selected);
-            w.WriteNumber("counted", c.Counted);
+            w.WriteNumber("counted", c.Selected);
             w.WriteNumber("present", c.Present);
             w.WriteNumber("absent", c.Absent);
             w.WriteNumber("errors", c.Errors);
             w.WriteNumber("loose", c.Loose);
             w.WriteNumber("bsa", c.Bsa);
-            // How many mods the table HAS, stated before the rows: a cut document otherwise says it was cut without
-            // saying what from.
-            w.WriteNumber("mods_total", c.ByMod.Count);
-            w.WriteStartArray("by_mod");
-            int shown = 0;
-            foreach (var (mod, count) in c.ByMod.Select(m => (m.Key, m.Value)))
-            {
-                if (shown > 0 && Over(w, ms, cap)) break;
-                w.WriteStartObject();
-                w.WriteString("mod", mod);
-                w.WriteNumber("count", count);
-                w.WriteEndObject();
-                shown++;
-            }
-            w.WriteEndArray();
-            w.WriteNumber("mods_rendered", shown);
-            w.WriteBoolean("truncated", shown < c.ByMod.Count || omitted > 0);
+            // The layer table through the shared axis: the frame is reserved out of the budget before its rows are
+            // offered to it, exactly as the text twin reserves its closing line.
+            var body = new BoundedBody(acct: null, budget: budget, () => Size(w, ms));
+            WriteHistogramAxes(w, body, AssetCensus.RowLimit(limit), AssetCensus.Axis(c));
+            w.WriteBoolean("truncated", omitted > 0 || body.Stopped(SweepSubject.AssetWinnerRows));
             w.WriteEndObject();
         }
         return Finish(ms);
+    }
+
+    /// <summary>What the census document writes after its axis — the <c>truncated</c> flag and the close. Measured
+    /// under the response's own writer options, since measuring unindented what is written indented under-reserves
+    /// by the whole indentation.</summary>
+    static int AssetCensusTailReserve()
+    {
+        using var ms = new CharCountedStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteString("before", "");   // the tail is never a document's first member, so it pays the separator it owes
+            w.WriteBoolean("truncated", true);
+            w.WriteEndObject();
+        }
+        return Chars(ms);
     }
 
     /// <summary>The <c>to_file=</c> twin of <see cref="RenderAssetStatus"/>: the build-level caveats an ABSENT row in
@@ -3576,6 +3583,7 @@ static class JsonWire
         SweepSubject.HistogramByProperty => "unbound_by_property",
         SweepSubject.FaceGenClassRows => "facegen_by_class",
         SweepSubject.FaceGenModRows => "facegen_by_owning_mod",
+        SweepSubject.AssetWinnerRows => "winners_by_layer",
         _ => s.ToString(),
     };
 }
