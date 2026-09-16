@@ -91,7 +91,10 @@ internal static class DialogueSweep
 
         return new DialogueCheckResult(results, topics, problems, readIncomplete, Limit: limit,
                                        SeedsNamed: named.Length, CountsOnly: countsOnly, Epoch: epoch)
-            { Folded = fold is null ? null : string.Format(ReadSentences.DialogueFolded, fold.Plugin, fold.Where) };
+            // The placement is the FOLD's own spelling, shared with the info_order form: one sentence for where a
+            // file lands, so the two surfaces cannot describe the same projection differently.
+            { Folded = fold is null ? null
+                       : string.Format(ReadSentences.DialogueFolded, fold.Plugin, fold.Where, fold.Placement) };
     }
 
     /// <summary>Every finding one report carries, at both levels. Counted off the report rather than off what

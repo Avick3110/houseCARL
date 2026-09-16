@@ -132,14 +132,24 @@ internal static class CheckArtifact
         var (manifest, err) = writer.Save(ArtifactTarget.Named(path), ToolNames.Check, query, identity: "formid", RowSchema,
                                           sort: "family, then the order each family reported",
                                           total: total, epoch: s.Epoch ?? "",
-                                          notes: new[]
-                                          {
-                                              "One row per finding. A column a family does not use is null; the "
-                                              + "'family' and 'class' columns say which taxonomy a row belongs to.",
-                                              "A row's 'formid' is the SOURCE record the finding is about, which is "
-                                              + "what makes it re-enterable as formids=[\"@<path>\"].",
-                                          });
+                                          notes: Notes(s));
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, "to_file"), null);
+    }
+
+    /// <summary>The manifest's own notes — what a reader opening the file months later needs in order to read a
+    /// row. A FOLDED dialogue call adds its frame here: those rows carry verdicts read against a plugin the order
+    /// does not load, and a file that does not say so reads as the live answer.</summary>
+    static IReadOnlyList<string> Notes(CheckSweep s)
+    {
+        var notes = new List<string>
+        {
+            "One row per finding. A column a family does not use is null; the 'family' and 'class' columns say "
+            + "which taxonomy a row belongs to.",
+            "A row's 'formid' is the SOURCE record the finding is about, which is what makes it re-enterable as "
+            + "formids=[\"@<path>\"].",
+        };
+        if (s.Dialogue?.Folded is { } folded) notes.Add("PROJECTION — " + folded.Trim());
+        return notes;
     }
 
     /// <summary>The response a <c>to_file=</c> call renders: the scope sentence, each family's refusal or boundary,
@@ -160,6 +170,10 @@ internal static class CheckArtifact
             {
                 w.WriteStartObject();
                 w.WriteString("findings_scope", o.ScopeSentence());
+                // The fold frames every dialogue row in the file, so it rides this response too: a manifest-only
+                // render is the ONLY render a folded to_file= call gets, and a projection without its frame reads
+                // as the live answer.
+                if (s.Dialogue?.Folded is { } foldedJson) w.WriteString("folded", foldedJson.Trim());
                 if (o.Epoch is not null) w.WriteString("epoch", o.Epoch);
                 w.WriteStartObject("boundaries");
                 foreach (var a in o.Sections.Zip(o.Accountings(0)))
@@ -179,6 +193,7 @@ internal static class CheckArtifact
         }
         var sb = new System.Text.StringBuilder();
         sb.Append(ReadSentences.SweepMergedTitle).Append('\n').Append(o.ScopeSentence()).Append('\n');
+        if (s.Dialogue?.Folded is { } foldedText) sb.Append(foldedText.Trim()).Append('\n');
         if (o.Epoch is not null) sb.Append("epoch=").Append(o.Epoch).Append('\n');
         var accts = o.Accountings(0);
         for (int i = 0; i < o.Sections.Count; i++)
