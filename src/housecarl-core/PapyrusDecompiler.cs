@@ -437,13 +437,21 @@ public sealed class PapyrusDecompiler
         /// results from earlier statements — emit in evaluation order: calls are bare-call statements;
         /// EBin is a bare expression statement (e.g. `prop + "…"` with no assignment, which PCompiler
         /// accepts and compiles). Other expression kinds (EProp, EIndex, …) are NOT known to
-        /// round-trip — a bare variable read compiles to nothing — so they stay a loud failure.</summary>
-        void FlushPending(List<string> stmts) => FlushPending(stmts, _cur + 1);
+        /// round-trip — a bare variable read compiles to nothing — so they stay a loud failure.
+        /// A statement that CARRIES a pending value only drains what was produced before that value:
+        /// anything newer was evaluated after it, and emitting it here would put it ahead of the
+        /// statement the older value belongs to, swapping two calls. Those stay pending for the next
+        /// boundary, which is past this statement. `startBound` is that cut — int.MaxValue when the
+        /// statement carries nothing, which drains everything, as at a region end.</summary>
+        void FlushPending(List<string> stmts) => FlushPending(stmts, _cur + 1, _consumedStart);
 
-        void FlushPending(List<string> stmts, int scanFrom)
+        void FlushPending(List<string> stmts, int scanFrom) => FlushPending(stmts, scanFrom, int.MaxValue);
+
+        void FlushPending(List<string> stmts, int scanFrom, int startBound)
         {
             foreach (var name in _pendingOrder.ToList())
             {
+                if (_pendingStart[name] >= startBound) continue;
                 var e = _pending[name];
                 if (IsTemp(name) && !name.Equals("::NoneVar", StringComparison.OrdinalIgnoreCase)
                     && ReadsBeforeWrite(scanFrom, _ins.Count, name))
@@ -612,8 +620,11 @@ public sealed class PapyrusDecompiler
 
                         // Drain other pendings BEFORE the condition temp materializes — they predate
                         // the condition in the stream (chronological statement order; FlushPending
-                        // itself materializes any whose value flows into the arms).
-                        FlushPending(stmts);
+                        // itself materializes any whose value flows into the arms). Everything, not
+                        // just what predates the condition's own value: a branch follows, and a value
+                        // left pending across it would be consumed inside an arm — evaluated once in
+                        // the stream, conditionally in the source.
+                        FlushPending(stmts, _cur + 1);
 
                         // Optimizer-reused condition temp: the temp's VALUE is read again inside the
                         // guarded block (PCompiler temps are single-use — this only fires on optimized

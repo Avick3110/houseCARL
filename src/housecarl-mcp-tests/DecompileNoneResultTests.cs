@@ -12,6 +12,10 @@ namespace HousecarlMcpTests;
 /// The streams below are what the CK's own PapyrusCompiler emits for the source above each one —
 /// checked by compiling that source, and by recompiling the decompiled output back to a .pex with
 /// an identical instruction stream. CI has no CK compiler, so the streams are pinned here by hand.
+///
+/// The last two are the ordering rule the slot's route through the pending machinery exposed, and
+/// they are here rather than in a file of their own because that route is what found them: a
+/// statement that carries a pending value drains only what was produced before that value.
 /// </summary>
 [Trait("tier", "unit")]
 public class DecompileNoneResultTests
@@ -176,6 +180,57 @@ public class DecompileNoneResultTests
         Assert.Contains("if IntroFX", res.Source);
         Assert.Contains("IntroFX.remove()", res.Source);
         Assert.DoesNotContain(" as ", res.Source);
+    }
+
+    [Fact]
+    public void ACallLandingBetweenTheHopAndItsStatementKeepsTheEarlierCallFirst()
+    {
+        // The call's value hops into ::temp0 at the next instruction, then an unrelated call lands
+        // before the statement that carries it. `Poke` runs before `Bar`, and the statement that
+        // carries the older value must not be emitted after the newer one.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "HC_NoneTarget", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "None", "::NoneVar");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::NoneVar"), Int(0));
+        Ins(f, InstructionOpcode.CAST, Id("::temp0"), Id("::NoneVar"));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.ASSIGN, Id("Kept"), Id("::temp0"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("Num"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("HopThenIntervening", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        AssertOrder(res.Source, "f.Poke()", "f.Bar()");
+    }
+
+    [Fact]
+    public void TwoInterleavedCallsOnOrdinaryTempsKeepTheirOrder()
+    {
+        // The same interleave with no discard slot in it at all. The rule is in the pending
+        // machinery, not in the ::NoneVar route, so it has to hold here too.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "HC_NoneTarget", "::temp0");
+        Local(f, "Int", "::temp1");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.ASSIGN, Id("Kept"), Id("::temp0"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("Num"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("Interleave", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        AssertOrder(res.Source, "f.Poke()", "f.Bar()");
+    }
+
+    static void AssertOrder(string source, string first, string second)
+    {
+        var lines = source.Split('\n').Select(l => l.Trim()).ToList();
+        int a = lines.FindIndex(l => l.Contains(first));
+        int b = lines.FindIndex(l => l.Contains(second));
+        Assert.True(a >= 0 && b >= 0 && a < b, $"expected '{first}' before '{second}' in:\n{source}");
     }
 
     // ---------------------------------------------------------------- in-memory pex builders
