@@ -4,121 +4,30 @@ All notable changes to houseCARL are documented here. Versioning is [semantic](h
 the `version` in `.claude-plugin/plugin.json` is bumped on each release, so installed users update only
 when it changes.
 
-**Writing an entry.** State what the tool now does or refuses. Where a change has a bound — a case it does
-not reach, a condition it depends on — **point at the bound rather than restating it**, so the two cannot
-drift apart. A scoped claim that names its bound is fine; an unpointed restatement is the defect, because it
-is a second copy of a fact that will be edited once. No frequency or coverage adjectives ("rare", "most",
-"only affects…"): how often something bites depends on the reader's install, which the entry cannot see, and
-saying it sets an expectation their install may contradict. Say what is known, and say how they can check.
+**Writing an entry.** One bold sentence saying what the tool now does or refuses, and at most one more
+sentence saying how the reader can check it. Keep the whole entry under about forty words. No bounds, no
+evidence, no measurements, no comparisons to other tools, no reasoning — all of that stays on the PR that
+made the change.
 
 ## Unreleased
 
-- **`housecarl_decompile_script` now takes `out_path=`, a folder of your own to land the `.psc` in instead of a new
-  mod folder.** Pass an absolute path and the `.psc` is written straight into it — nothing appended, the folder
-  created when it is missing, and never deleted by houseCARL, since it is yours. It follows
-  `housecarl_bsa_extract`'s `out_path=` — the files land in the folder you name, which is created if it is not there
-  — and shares the name with `housecarl_compile_script`'s, nothing more. A path that is not absolute is refused
-  naming what to pass instead, because the server would resolve it against its own working directory rather than
-  yours. A call that also carries `patch=` or `into=` lands in `out_path=` and the result says those were ignored,
-  the same way `housecarl_compile_script` and `housecarl_write_seq` answer that call. A `.psc` already at that path
-  is refused and never overwritten, as in a houseCARL folder, so give each decompile an empty folder. This lane needs
-  no MO2 instance, and every decompile now says what its class hierarchy actually is whenever a piece of it could not
-  be read — no instance, one that does not resolve, a mods folder that is gone or cannot be listed, source files
-  under it that cannot be read — instead of going quiet about a thinner hierarchy; the cost is an explicit cast
-  wherever an edge is missing, never wrong source.
-  Without `out_path=` nothing changes: the `.psc` lands in a houseCARL patch-mod folder under
-  `Source\Scripts`, and an unconfigured houseCARL still asks for your instance. To check, decompile with
-  `out_path=` a scratch folder and look there for the `.psc` the result names — your mods directory gains no folder.
-- **`housecarl_decompile_script` now reconstructs a function that uses the value of a call returning
-  `None`.** Such a call puts its result in the compiler's `::NoneVar` discard slot, and the compiler reads
-  the slot back wherever the call's value is used — `x = obj.VoidCall()`, `return obj.VoidCall()`,
-  `if obj.VoidCall()`. The reader emitted the call as a bare statement and left nothing in the slot, so the
-  read back failed the whole function to a raw-bytecode comment block. The call now comes back as the value
-  it was, and the `as` cast the compiler emits to move that value into the destination's type is dropped,
-  because `<a None expression> as X` is not something the compiler accepts. A call whose result nothing reads
-  is a bare-call statement exactly as before. Across 51,262 `.pex` files on a local Skyrim install this
-  turned 22 failing functions in 19 scripts into zero, and left every other script's decompiled source
-  byte-identical; the failures that remain are named in the PR.
-- **A PERK entry-point effect Mutagen refuses is read as one marked row instead of taking the whole record.** An
-  effect whose `DATA` names an actor-value function while its `EPFT` says `Float` is a combination Mutagen will not
-  build, and the refusal used to carry off the whole `Effects` field and the record with it: the field read
-  `(unreadable: …)`, and the record was skipped by every PERK `references=` scan, so a "which perks touch X" sweep
-  returned a negative it had not actually proved. The effect list is now decoded off the record's own bytes the way
-  xEdit does — `EPFD`'s layout from `EPFT` alone, never from the function byte — and the refused effect renders as
-  its own row carrying Mutagen's refusal, the entry point and function byte the `DATA` names, the `EPFT` value, and
-  the parameter decoded from it, while its readable siblings read normally. The row states what the bytes hold and
-  not why Mutagen refused them: more than one encoding lands here, and only Mutagen's own sentence says which. The
-  effect's own conditions are handed to Mutagen's condition parser, so their links are the ones it would have
-  yielded. Every lane that walks a record's links for a scan takes the same retry — `references=` bounded by
-  `types=`/`plugins=`, a `formids=` universe, an off-order `source=` file, the reverse-reference index behind an
-  unbounded `references=`, and the transitive reverse walk that re-tests that index's candidates — and each response
-  carries a "read leniently" note naming the record and the universe it counts. The decode runs only on a PERK, only
-  on `Effects`, and only after Mutagen's own read has already thrown; an `EPFT` outside Mutagen's own parameter-type
-  enum fails the whole decode, leaving that record unscannable and accounted as before. A localized `EPFT` 7
-  parameter is reported as the strings-table key it is rather than decoded as text. `where=` is unmoved: it never
-  skipped such a record — a field it cannot read has always been a non-match counted in its own rollup — and a
-  predicate over `Effects` still reads that way. Check the read with `project.form="fields"`, `fields=["Effects"]`,
+- **`housecarl_decompile_script` takes `out_path=`, an absolute folder it writes the `.psc` into, and needs no MO2
+  instance; an incomplete class hierarchy is now named.** Decompile into a scratch folder: the `.psc` lands there
+  and no mod folder is cut.
+- **`housecarl_decompile_script` reconstructs a function that uses the value of a call returning `None`.** Such a
+  function used to come back as a raw-bytecode comment block; decompile a script that assigns or returns a void
+  call and read the line.
+- **A PERK entry-point effect Mutagen refuses reads as one marked row instead of taking the whole record, so
+  `references=` scans no longer skip that perk.** Check with `project.form="fields"`, `fields=["Effects"]`,
   `depth=3` on the perk.
-- **`housecarl_asset_status` takes a set and writes it to a file.** It already took a list of paths and an
-  `under=` directory or glob; it now also takes `formids=` — NPC FormIDs, from each of which BOTH halves of that
-  NPC's FaceGen bake are derived (the head `.nif` and the face tint `.dds`, a pure transform of the FormID, so no
-  record is read) and resolved as two rows, each naming the OTHER half's winner beside its own. A pair is called
-  split on the winners' owning MODS, not on their provider names: the vanilla game ships every head in
-  `Skyrim - Meshes0.bsa` and every tint in `Skyrim - Textures0.bsa`, and on a 3,244-plugin order the name
-  comparison calls 2,719 NPCs split where the mod comparison calls 375. It is provenance and not a class: it is
-  true for a cross-product split and for two mod folders of one product alike, and
-  `housecarl_check findings=["facegen"]` is what separates them. The comparison is on the winning copy's MO2
-  layer, and two of those are not mods: two files both installed into the game's own Data folder, or both in
-  overwrite, compare as one owner. Both list inputs take
-  `["@<absolute path>"]` in place of the inline list, and `to_file=` writes the complete result as a JSONL
-  artifact (line 1 = manifest) and renders only the manifest inline, the same convention `housecarl_records` and
-  `housecarl_check` use — the artifact's identity column is `path`, so it re-enters through `asset_paths=`, which
-  is not epoch-checked because a path names no record, and `offset=` is refused beside it because the artifact is
-  never a window. The manifest carries the `epoch_covers_all_inputs` and `order_degraded` stamps the read surface
-  already uses, and the response states beside them when the order could not be read for one at all — this tool
-  answers off the VFS, so it still answers there. What a call RESOLVES is bounded — the window where `limit=`
-  takes one, else the whole selection (see `asset_status`'s own `BOUND:` clause); past it the call refuses up
-  front with the count and the time estimate, and where the whole selection is what gets resolved an `under=`
-  sweep stops walking at the bound rather than enumerating the whole order first.
-  Check it by running the whole-order pairing sweep — `housecarl_records types=["NPC_"] to_file=`, then
-  `housecarl_asset_status formids=["@<that file>"] to_file=` — and grepping the artifact's `pair_differs` and
-  `pair_exists` columns: on the order above that is 65,748 NPCs, 131,496 paths in 28 s, and 59 NPCs whose winning
-  head mesh names a tint no active mod or archive provides.
-- **`project.form="info_order"` folds one off-order plugin into the merge, so a dialogue patch's merged order can
-  be read before MO2 enables it.** `source=` on this form names a plugin that is NOT in the active order — the same
-  one-pole address form every other `records` read takes, a filename or `{"file", "mod"}` — and its child lists join
-  each topic's merge where MO2 would load that file: LAST for a regular plugin, after the LAST MASTER in the order
-  for one whose header is ESM-flagged or whose name is a `.esm`/`.esl`, and in the plugin's OWN SLOT when the order
-  already carries that filename — a shadowed copy named by `{"file", "mod"}`, where enabling the mod folder swaps
-  the bytes at a position the order already has. In every case the plugins below it still evict what they re-list.
-  The answer is a projection and says so: the response names the folded copy, states where it was placed and the
-  flag that decided it, marks every line the file placed, and says the file's content sits outside the epoch
-  fingerprint (`source=` already says what that means). Where the folded copy's FILENAME is one the order also
-  carries, its lines carry a label of their own and the response says the filename is active while that copy is
-  not. A topic only the folded file defines has no winner in the active order and is read by naming it in
-  `formids=`; a scan selects out of the active order and the response says so when a fold is in play.
-  One file per call, an active filename refused because its lines are in the merge already, and the runtime-overlay
-  and `previous_provider` poles still refused — each in a sentence naming the one pole this form takes. Check it by
-  reading a topic your patch re-lists with and without `source=`: the folded read shows where the patch's lines
-  land, the plain read shows the order the game is loading now.
-
-- **`check(findings=["dialogue"])` takes an off-order plugin on `source=`, so a dialogue patch can be validated
-  before MO2 enables it.** The address is the one the rest of the surface uses for a file outside the order — a
-  filename, or `{"file", "mod"}` — and the named plugin is folded in where MO2 would load it: LAST for a regular
-  plugin, after the last master for a `.esm`/`.esl` or an ESM-flagged one, and in that plugin's own slot when the
-  order already carries the filename. What the file carries wins only where nothing below its slot touches the
-  record, which is what the game would do once it is enabled. Every seed is then validated against the active
-  order's winners PLUS that file, and `seeds=` may name records the file itself defines (`000800:MyPatch.esp`),
-  which resolve nowhere in the order without it. The section states the fold once at the top — findings and
-  refusals alike — including the parts that do not move with the plugin: the file's own `.fuz`, `.pex` and `.seq`
-  resolve through the VFS, which serves the mod folders MO2 has enabled, so a file shipped beside a folded plugin
-  in a folder that is off reads as absent; and a copy folded into an active filename's slot is ADDED there, so a
-  record only the active copy holds still reads from it. That frame rides the `to_file=` manifest too, in the
-  response and in the artifact's own notes, since a spilled projection is read from the file long after the call.
-  The dialogue family is the only one with this arm — the swept families take an off-order plugin on `plugins=`
-  (see that parameter), and
-  `source=` beside them is refused naming both. An active filename is refused: it is already what the check reads.
-  Check it by running the family over a seed in your unenabled patch with and without `source=`.
+- **`housecarl_asset_status` takes `formids=`, `to_file=`, and `@file` lists.** Each NPC returns both FaceGen
+  files as rows; a pair is split when the winners sit in different mods.
+- **`project.form="info_order"` folds one off-order plugin named on `source=` into the merge, so a dialogue
+  patch's merged order reads before MO2 enables it.** Read a topic your patch re-lists with and without
+  `source=`.
+- **`check(findings=["dialogue"])` takes an off-order plugin on `source=`, folded in where MO2 would load it, so
+  a dialogue patch validates before it is enabled.** Run the family over a seed in your unenabled patch with and
+  without `source=`.
 
 ## 2.0.2 — 2026-09-15
 
