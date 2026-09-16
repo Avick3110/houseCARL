@@ -65,40 +65,4 @@ public static class FaceGenPath
     public static IReadOnlyList<(FaceGenSlot Slot, string RelPath)> Both(FormKey fk)
         => new[] { (FaceGenSlot.Mesh, For(fk, FaceGenSlot.Mesh)), (FaceGenSlot.Tint, For(fk, FaceGenSlot.Tint)) };
 
-    /// <summary>The transform read BACKWARDS: is <paramref name="relPath"/> one half of a FaceGen pair, and if so
-    /// which slot is it and what is the OTHER half's Data-relative path? The pair is the same NPC's other file —
-    /// same defining-master folder, same filename stem, the other root and the other extension — so a caller
-    /// holding one path can ask who wins the other without holding the FormID.
-    ///
-    /// <para>Shape-checked, never guessed: the path must sit exactly one folder deep under a slot root
-    /// (<c>&lt;root&gt;\&lt;Master&gt;\&lt;file&gt;</c>), because that is the only shape the engine keys a bake by;
-    /// anything deeper, anything shallower, and anything outside the two roots is not a FaceGen path and answers
-    /// false. The FILENAME is left alone — a non-canonical stem (a bake keyed to somebody else's load-order index)
-    /// still pairs with the file beside it, which is what makes the mismatch visible rather than silently
-    /// unpairable.</para></summary>
-    public static bool TryPair(string? relPath, out FaceGenSlot slot, out string pairPath)
-    {
-        slot = FaceGenSlot.Mesh;
-        pairPath = "";
-        var norm = (relPath ?? "").Trim().Replace('/', '\\').TrimStart('\\');
-        if (norm.Length == 0) return false;
-
-        if (norm.StartsWith(Root(FaceGenSlot.Mesh), StringComparison.OrdinalIgnoreCase)) slot = FaceGenSlot.Mesh;
-        else if (norm.StartsWith(Root(FaceGenSlot.Tint), StringComparison.OrdinalIgnoreCase)) slot = FaceGenSlot.Tint;
-        else return false;
-
-        var rest = norm.Substring(Root(slot).Length);        // <Master>\<file>
-        int sep = rest.IndexOf('\\');
-        if (sep <= 0 || sep == rest.Length - 1) return false;                 // no master folder, or no filename
-        if (rest.IndexOf('\\', sep + 1) >= 0) return false;                   // deeper than the keyed shape
-        var master = rest.Substring(0, sep);
-        var file = rest.Substring(sep + 1);
-        int dot = file.LastIndexOf('.');
-        var stem = dot > 0 ? file.Substring(0, dot) : file;
-        if (stem.Length == 0) return false;
-
-        var other = Other(slot);
-        pairPath = Root(other) + master + "\\" + stem + Extension(other);
-        return true;
-    }
 }

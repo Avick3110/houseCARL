@@ -253,8 +253,11 @@ public sealed record AssetPathResult(string RelPath, AssetHit? Hit, string? Erro
         Hit is { Exists: true, Winner: { } a } && PairHit is { Exists: true, Winner: { } b }
         && !string.Equals(Owner(a), Owner(b), StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Who ships this copy: the mod folder behind a BSA, or the loose provider's own name.</summary>
-    internal static string Owner(AssetProvider p) => p.OwningMod ?? p.Source;
+    /// <summary>Who ships this copy: the mod folder behind a BSA, or the provider's own name where there is none —
+    /// a loose provider IS its layer, and a BSA the resolver could not trace to a folder has only its filename. The
+    /// same fallback <see cref="FaceGenCheck"/>'s pair classifier uses, EMPTY STRING included: an owner spelled ""
+    /// would otherwise compare equal to every other empty owner and hide a split.</summary>
+    internal static string Owner(AssetProvider p) => p.OwningMod is { Length: > 0 } m ? m : p.Source;
 }
 
 /// <summary>One entry of <c>asset_status</c>'s <c>formids=</c> SELECT: the caller's raw token, the FormKey it parsed

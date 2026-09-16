@@ -67,15 +67,23 @@ public static class ResultArtifact
         /// attached, so a label that ships without its meaning ships as noise — rows carrying "also declared by X"
         /// need the sentence that says what a child record is. Stated once here rather than per row, which
         /// on a 100k-row artifact would be megabytes of one repeated sentence.</param>
+        /// <param name="epochUncovered">The verdict classes the <paramref name="epoch"/> fingerprint does NOT
+        /// describe (SPEC §2.1, amended 2026-09-05). Non-empty stamps <c>epoch_covers_all_inputs: false</c> and
+        /// names them, rather than leaving the caveat to prose a consumer cannot grep.</param>
+        /// <param name="excludedPlugins">Plugins the build lost to a load failure, from the same
+        /// <c>OrderStamp</c> the response carries: non-empty stamps <c>order_degraded: true</c> and names them.</param>
         public (Manifest? Manifest, string? Error) Save(
             ArtifactTarget target, string tool, IReadOnlyList<KeyValuePair<string, string>> query, string? identity,
             IReadOnlyList<string> rowSchema, string sort, int total, string epoch,
-            IReadOnlyList<string>? notes = null)
+            IReadOnlyList<string>? notes = null, IReadOnlyList<string>? epochUncovered = null,
+            IReadOnlyList<string>? excludedPlugins = null)
         {
             var manifest = new Manifest(tool, query, identity, rowSchema, sort, _rowCount, total,
                                         _typeCounts.Count > 0 ? _typeCounts : null, epoch,
                                         DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
-                                        notes is { Count: > 0 } ? notes : null);
+                                        notes is { Count: > 0 } ? notes : null,
+                                        epochUncovered is { Count: > 0 } ? epochUncovered : null,
+                                        excludedPlugins is { Count: > 0 } ? excludedPlugins : null);
             target.EnsureUnwritten();   // a target is single-use; writing one twice is a bug, not an IO failure
             try
             {
@@ -114,8 +122,18 @@ public static class ResultArtifact
         IReadOnlyDictionary<string, int>? TypeCounts,
         string Epoch,
         string Created,
-        IReadOnlyList<string>? Notes = null)
+        IReadOnlyList<string>? Notes = null,
+        IReadOnlyList<string>? EpochUncovered = null,
+        IReadOnlyList<string>? ExcludedPlugins = null)
     {
+        /// <summary>Does <see cref="Epoch"/> describe everything these rows were read off? False when
+        /// <see cref="EpochUncovered"/> names a substrate the record fingerprint says nothing about — the asset
+        /// lane's whole row shape, for one. Null when the producing lane made no coverage claim.</summary>
+        public bool? EpochCoversAllInputs => EpochUncovered is null ? null : EpochUncovered.Count == 0;
+
+        /// <summary>Did the build these rows came from lose plugins to a load failure (SPEC §2.1)?</summary>
+        public bool OrderDegraded => ExcludedPlugins is { Count: > 0 };
+
         internal void WriteTo(Utf8JsonWriter w)
         {
             w.WriteStartObject();
@@ -139,6 +157,25 @@ public static class ResultArtifact
                 w.WriteEndObject();
             }
             w.WriteString("epoch", Epoch);
+            // The §2.1 coverage stamp and the degraded-order roster, in the vocabulary the read surface already
+            // uses (JsonWire.WriteSweepEpoch), so a consumer greps one key across every artifact this server writes.
+            if (EpochCoversAllInputs is { } covers)
+            {
+                w.WriteBoolean("epoch_covers_all_inputs", covers);
+                if (EpochUncovered is { Count: > 0 })
+                {
+                    w.WriteStartArray("epoch_uncovered");
+                    foreach (var u in EpochUncovered) w.WriteStringValue(u);
+                    w.WriteEndArray();
+                }
+            }
+            if (ExcludedPlugins is { Count: > 0 })
+            {
+                w.WriteBoolean("order_degraded", true);
+                w.WriteStartArray("excluded_plugins");
+                foreach (var p in ExcludedPlugins) w.WriteStringValue(p);
+                w.WriteEndArray();
+            }
             w.WriteString("created", Created);
             if (Notes is { Count: > 0 })   // response-level statements the rows' own annotations rely on
             {
@@ -249,6 +286,21 @@ public static class ResultArtifact
                 notes = new List<string>();
                 foreach (var n in nt.EnumerateArray()) if (n.ValueKind == JsonValueKind.String) notes.Add(n.GetString()!);
             }
+            // Parsed back for the same reason the notes are: a coverage caveat and a degraded-order roster that a
+            // round-trip dropped would leave the re-read file claiming more than the write did.
+            List<string>? uncovered = null;
+            if (r.TryGetProperty("epoch_covers_all_inputs", out var cov) && cov.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            {
+                uncovered = new List<string>();
+                if (r.TryGetProperty("epoch_uncovered", out var un) && un.ValueKind == JsonValueKind.Array)
+                    foreach (var u in un.EnumerateArray()) if (u.ValueKind == JsonValueKind.String) uncovered.Add(u.GetString()!);
+            }
+            List<string>? excluded = null;
+            if (r.TryGetProperty("excluded_plugins", out var ex) && ex.ValueKind == JsonValueKind.Array)
+            {
+                excluded = new List<string>();
+                foreach (var p in ex.EnumerateArray()) if (p.ValueKind == JsonValueKind.String) excluded.Add(p.GetString()!);
+            }
             return (new Manifest(
                         r.TryGetProperty("tool", out var t) ? t.GetString() ?? "?" : "?",
                         query,
@@ -260,7 +312,7 @@ public static class ResultArtifact
                         typeCounts,
                         r.TryGetProperty("epoch", out var e) ? e.GetString() ?? "?" : "?",
                         r.TryGetProperty("created", out var cr) ? cr.GetString() ?? "?" : "?",
-                        notes),
+                        notes, uncovered, excluded),
                     null);
         }
         catch (Exception ex) when (ex is JsonException or FormatException or InvalidOperationException)

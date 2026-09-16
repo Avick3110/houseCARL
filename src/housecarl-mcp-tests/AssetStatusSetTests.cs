@@ -121,24 +121,25 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         Assert.Contains("pair (tint)", text);
         Assert.Contains("ABSENT — no active mod or BSA provides this path", text);
         // Absent is not "different": the split note is about two winners, and there is only one here.
-        Assert.DoesNotContain("win from DIFFERENT sources", text);
+        Assert.DoesNotContain("win from DIFFERENT", text);
     }
 
-    /// <summary>A malformed FormID is ONE error row, not a failed call — the same posture a malformed asset path
-    /// takes on this tool.</summary>
+    /// <summary>A token that is not a FormID is ONE error row, not a failed call — the same posture a malformed asset
+    /// path takes on this tool. Driven through the TOOL, so the parse and its catch are what answer: a RUNTIME FormID
+    /// reaches for a load-order build, and this world has none, so a narrower catch hands the caller "an internal
+    /// houseCARL failure (the arguments bound fine)" for input the tool can plainly name.</summary>
     [Fact]
-    public void AMalformedFormIdIsOneErrorRowAndNotAFailedCall()
+    public void ATokenThatIsNotAFormIdIsOneErrorRowAndNotAFailedCall()
     {
-        var d = _w.Svc.AssetStatus(Array.Empty<string>(), null, 0, 0,
-                                   new[]
-                                   {
-                                       new FaceGenSeed("not-a-formid", null, "not a FormID: bad token. Expected 'XXXXXX:Plugin.esp'."),
-                                       new FaceGenSeed(AssetSelectWorld.MatchedFormId, Mutagen.Bethesda.Plugins.FormKey.Factory(AssetSelectWorld.MatchedFormId), null),
-                                   });
+        foreach (var bad in new[] { "not-a-formid", "0300B0B0" })
+        {
+            var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { bad, AssetSelectWorld.MatchedFormId });
 
-        Assert.Equal(3, d.Results.Count);                       // one error row, then the good NPC's two halves
-        Assert.Single(d.Results.Where(r => r.Error is not null));
-        Assert.Equal(2, d.Results.Count(r => r.Error is null && r.Hit!.Exists));
+            Assert.DoesNotContain("failed unexpectedly", text);
+            Assert.Contains("not a FormID", text);
+            Assert.Contains("(3 paths selected)", text);        // the error row, then the good NPC's two halves
+            Assert.Contains("WINS: \"FaceBase\" (loose)", text);
+        }
     }
 
     /// <summary>to_file= writes the complete result as an artifact and renders only the manifest, and the file reads
@@ -168,10 +169,18 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             Assert.Equal(6, manifest.GetProperty("row_count").GetInt32());
             Assert.Equal(6, manifest.GetProperty("total").GetInt32());
             // This world resolves assets but no plugins, which is the tool's own decoupling: the rows still answer,
-            // and the manifest says out loud that it carries no record fingerprint instead of failing the call.
+            // and the RESPONSE — not only the file — says why there is no fingerprint. A caller of a to_file= call
+            // sees the manifest block and nothing else, so an empty epoch with the reason hidden in the file is the
+            // unstamped state the artifact convention exists to make impossible.
             Assert.Equal("", manifest.GetProperty("epoch").GetString());
-            Assert.Contains(manifest.GetProperty("notes").EnumerateArray(),
-                            n => n.GetString()!.Contains("'epoch' is EMPTY", StringComparison.Ordinal));
+            Assert.Contains("epoch: NONE", text);
+            Assert.Contains("could not build a load order to fingerprint", text);
+            // The §2.1 coverage stamp as a FIELD, not as prose: every row here is read off the VFS while the
+            // fingerprint would describe the record build.
+            Assert.False(manifest.GetProperty("epoch_covers_all_inputs").GetBoolean());
+            Assert.Contains(manifest.GetProperty("epoch_uncovered").EnumerateArray(),
+                            u => u.GetString()!.Contains("VFS", StringComparison.Ordinal));
+            Assert.Contains("epoch_covers_all_inputs=false", text);
 
             var rows = lines.Skip(1).Where(l => l.Length > 0).Select(l => JsonDocument.Parse(l).RootElement).ToList();
             Assert.Equal(6, rows.Count);
@@ -182,6 +191,12 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             Assert.Equal("mesh", split.GetProperty("slot").GetString());
             Assert.Equal("FaceBase", split.GetProperty("pair_winner").GetString());
             Assert.True(split.GetProperty("pair_differs").GetBoolean());
+            // The two mod columns carry the OWNER the verdict was taken on, so a consumer can re-derive it. A loose
+            // provider has no OwningMod at all, so writing the raw field would put null on both sides of the
+            // commonest split there is — two loose overhauls — and read as null == null.
+            Assert.Equal("FaceHigher", split.GetProperty("winner_mod").GetString());
+            Assert.Equal("FaceBase", split.GetProperty("pair_winner_mod").GetString());
+            Assert.NotEqual(split.GetProperty("winner_mod").GetString(), split.GetProperty("pair_winner_mod").GetString());
 
             // The file is re-enterable by construction: its identity column extracts to exactly the six paths.
             var (m2, tokens, rerr) = ResultArtifact.ReadIdentity(file, File.ReadAllText(file));
@@ -190,10 +205,13 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             Assert.Equal(6, tokens!.Count);
             Assert.Equal(rows.Select(r => r.GetProperty("path").GetString()), tokens);
 
-            // And consuming it SERVER-side is epoch-checked: this world builds no load order, so re-entry refuses by
-            // name rather than reading the snapshot as if it were current.
+            // And it re-enters as a PATH list without a build: a path is a string, every answer about it is read live
+            // off the VFS, and nothing in it can go stale against a record build. Gating it would refuse the loop the
+            // feature exists for — sweep, fix a mod, re-ask the same paths — over a build the answer never used, and
+            // an artifact written on an unbuildable order (this one) could never be re-entered at all.
             var again = AssetTools.AssetStatus(_w.Svc, new[] { "@" + file });
-            Assert.Contains("could not build a load order to check it against", again);
+            Assert.Contains("(6 paths selected)", again);
+            Assert.DoesNotContain("epoch", again, StringComparison.OrdinalIgnoreCase);
         }
         finally { File.Delete(file); }
     }
@@ -245,6 +263,60 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
                                                    formids: new[] { AssetSelectWorld.SplitFormId, AssetSelectWorld.MatchedFormId, AssetSelectWorld.TintAbsentFormId }));
         }
         finally { RenderBudget.MaxAssetPaths = prior; }
+    }
+
+    /// <summary>On an `under=` sweep the bound stops the WALK, not just the resolve. The enumeration is the expensive
+    /// half — it re-walks every loose root and re-scans every archive table under the prefix — so counting it in full
+    /// and then refusing would charge the caller for exactly the work the refusal says was too much.</summary>
+    [Fact]
+    public void AnUnderSweepStopsWalkingAtTheBoundRatherThanCountingItAllFirst()
+    {
+        var prior = RenderBudget.MaxAssetPaths;
+        RenderBudget.MaxAssetPaths = 2;
+        try
+        {
+            var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir });
+
+            Assert.Contains("at least 3 asset path(s)", text);        // a floor, not a total: it stopped counting
+            Assert.Contains("stopped counting there", text);
+            Assert.Contains("2-path bound", text);
+        }
+        finally { RenderBudget.MaxAssetPaths = prior; }
+    }
+
+    /// <summary>A glob's cap counts MATCHES, not candidates: the pattern filters inside the walk, so a narrow
+    /// selector under a wide folder is never refused for the folder's size.</summary>
+    [Fact]
+    public void ANarrowGlobUnderAWideFolderIsNotRefusedForTheFoldersSize()
+    {
+        var prior = RenderBudget.MaxAssetPaths;
+        RenderBudget.MaxAssetPaths = 2;
+        try
+        {
+            var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir + @"\0004.*" });
+
+            Assert.DoesNotContain("bound", text);
+            Assert.Contains("(1 path selected)", text);
+        }
+        finally { RenderBudget.MaxAssetPaths = prior; }
+    }
+
+    /// <summary>The text lane shows the owning mod on a formids= row's own winner as well as its pair's, or the
+    /// two-archives-of-one-mod verdict is unreadable there: two different BSA names, no split warning, and nothing on
+    /// the page saying the two archives are one mod.</summary>
+    [Fact]
+    public void TheTextLaneNamesTheOwningModOnBothHalvesOfAnArchivePair()
+    {
+        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { AssetSelectWorld.ArchivePairFormId });
+
+        Assert.Contains("WINS: \"HcArch.bsa\" (BSA)  [mod: " + AssetSelectWorld.ArchiveModName + "]", text);
+        Assert.Contains("WINS: \"HcArch - Textures.bsa\" (BSA)  [mod: " + AssetSelectWorld.ArchiveModName + "]", text);
+        Assert.DoesNotContain("win from DIFFERENT", text);
+
+        // A plain path block is byte for byte the block it always was — no mod tag, no pair.
+        var plain = AssetTools.AssetStatus(_w.Svc, new[] { _w.Rel("0005.nif") });
+        Assert.Contains("WINS: \"HcArch.bsa\" (BSA)\n", plain);
+        Assert.DoesNotContain("[mod:", plain);
     }
 
     /// <summary>The empty-selection refusal names every SELECT there is, formids= included — a caller who passed

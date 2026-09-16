@@ -17,6 +17,12 @@ internal sealed record SpillInfo(string Path, ResultArtifact.Manifest Manifest, 
     /// inline renders clock, measured where a to_file= call actually pays it. Null when the artifact's rows read no
     /// body (a summary or group_by artifact), so a render states a cost only where one was incurred (#582).</summary>
     public long? RenderMs { get; init; }
+
+    /// <summary>Why this artifact carries NO epoch fingerprint, when it carries none — the one sentence the spilled
+    /// marker states beside an empty <c>epoch=</c>. Null on every artifact written off a build that resolved, which
+    /// is every lane but the asset one: <c>asset_status</c> answers off the VFS and is allowed to answer where the
+    /// record index cannot be built at all.</summary>
+    public string? EpochUnavailable { get; init; }
 }
 
 /// <summary>How a render learns its call's artifact disposition as one value: a successful spill (with whether the
@@ -69,8 +75,21 @@ internal static class Artifacts
           .Append("  manifest: rows=").Append(m.RowCount)
           .Append(whole ? "" : $" of total={m.Total}")
           .Append("  identity=").Append(m.Identity ?? "<none>")
-          .Append("  epoch=").Append(m.Epoch).Append('\n')
-          .Append("  row_schema: ").Append(string.Join(", ", m.RowSchema)).Append('\n')
+          .Append("  epoch=").Append(m.Epoch.Length > 0 ? m.Epoch : "<none>").Append('\n');
+        // The stamp's own caveats, beside it rather than only inside the file: an empty or partial fingerprint with
+        // no sentence next to it is the unstamped state §2.1.1 exists to make impossible, and this block is the only
+        // thing a to_file= caller sees.
+        if (s.EpochUnavailable is { Length: > 0 } why)
+            sb.Append("  epoch: NONE — this call could not build a load order to fingerprint. ").Append(why)
+              .Append(" The rows are unaffected — they are read off the VFS, not off the record index — but nothing ")
+              .Append("here says which build they sit beside.\n");
+        if (m.EpochCoversAllInputs is false && m.EpochUncovered is { Count: > 0 } unc)
+            sb.Append("  epoch_covers_all_inputs=false — the fingerprint does not describe: ")
+              .Append(string.Join("; ", unc)).Append('\n');
+        if (m.OrderDegraded)
+            sb.Append("  order_degraded=true — that build lost ").Append(m.ExcludedPlugins!.Count)
+              .Append(" plugin(s) to a load failure: ").Append(string.Join(", ", m.ExcludedPlugins!)).Append('\n');
+        sb.Append("  row_schema: ").Append(string.Join(", ", m.RowSchema)).Append('\n')
           .Append("  sort: ").Append(m.Sort).Append('\n');
         if (m.TypeCounts is { Count: > 0 })
             sb.Append("  type_counts: ")
@@ -83,7 +102,9 @@ internal static class Artifacts
               // send the caller into the refusal that says the file carries no FormIDs.
               : m.Identity.Equals("formid", StringComparison.OrdinalIgnoreCase)
                   ? $"or re-enter it server-side via formids=@{s.Path} / where=[\"formid in @{s.Path}\"] (epoch-checked against the current build).\n"
-                  : $"or re-enter it server-side wherever a '{m.Identity}' list is taken, as @{s.Path} (epoch-checked against the current build).\n");
+                  // Not epoch-checked, and the sentence must not say it is: an identity that is not a FormID names no
+                  // record, so there is no record build for it to have gone stale against.
+                  : $"or re-enter it server-side wherever a '{m.Identity}' list is taken, as @{s.Path} (not epoch-checked — a '{m.Identity}' names no record, so every value is re-read live).\n");
     }
 
     // ---- the shared spilled-marker emitter (json) ---------------------------------------------------
@@ -114,6 +135,26 @@ internal static class Artifacts
             w.WriteEndObject();
         }
         w.WriteString("epoch", m.Epoch);
+        // Same caveats as the text twin, as data: the flag and the roster a consumer branches on, plus the sentence
+        // for the one case where there is no fingerprint at all.
+        if (s.EpochUnavailable is { Length: > 0 } why) w.WriteString("epoch_unavailable", why);
+        if (m.EpochCoversAllInputs is { } covers)
+        {
+            w.WriteBoolean("epoch_covers_all_inputs", covers);
+            if (m.EpochUncovered is { Count: > 0 })
+            {
+                w.WriteStartArray("epoch_uncovered");
+                foreach (var u in m.EpochUncovered) w.WriteStringValue(u);
+                w.WriteEndArray();
+            }
+        }
+        if (m.OrderDegraded)
+        {
+            w.WriteBoolean("order_degraded", true);
+            w.WriteStartArray("excluded_plugins");
+            foreach (var p in m.ExcludedPlugins!) w.WriteStringValue(p);
+            w.WriteEndArray();
+        }
         w.WriteEndObject();
     }
 

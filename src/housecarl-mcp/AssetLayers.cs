@@ -20,8 +20,9 @@ public sealed partial class LoadOrderService
     /// row carries the other half's winner beside its own so a whole-order pairing sweep is one call.
     /// <paramref name="wholeSelection"/> is the <c>to_file=</c> disposition: the artifact is never a window, so every
     /// selected path is resolved whatever <paramref name="limit"/> says. <paramref name="maxPaths"/> is the per-call
-    /// bound is <see cref="RenderBudget.MaxAssetPaths"/>, checked after the selection is counted and before anything
-    /// is resolved.</para>
+    /// bound is <see cref="RenderBudget.MaxAssetPaths"/>, and it governs the WALK as well as the resolve: an
+    /// <paramref name="under"/> enumeration stops the moment the selection would cross it, so the refusal costs the
+    /// bound's worth of walking rather than the whole order's.</para>
     /// <paramref name="limit"/> and <paramref name="offset"/> window the SELECTION, so only the window is RESOLVED —
     /// the per-path winner and provider chain, which is the expensive half. The selector ENUMERATION is not memoized:
     /// each page re-walks the loose roots and re-scans the archive tables under the prefix, so a paged sweep pays the
@@ -63,13 +64,21 @@ public sealed partial class LoadOrderService
                 seen.Add(tint);
             }
 
+            // The bound governs the WALK, not just what comes out of it: a selector's enumeration stops the moment the
+            // selection would cross MaxAssetPaths, so an unanchored sweep — the one shape the bound is declared
+            // against — is refused without first paying the whole-order walk the refusal is about.
+            bool overBound = false;
             foreach (var raw in under ?? Array.Empty<string>())
             {
+                if (overBound) break;
                 var sel = (raw ?? "").Trim();
                 if (sel.Length == 0) { notes.Add("under: an empty selector was skipped — pass a Data-relative directory or glob."); continue; }
                 try
                 {
-                    var matched = AssetGlob.Select(view, sel, out var namedOneFile);
+                    // One past what is left of the budget: a selector that fills it has proved the selection is over.
+                    int room = Math.Max(RenderBudget.MaxAssetPaths - selected.Count, 0) + 1;
+                    var matched = AssetGlob.Select(view, sel, out var namedOneFile, room, out var stopped);
+                    overBound |= stopped;
                     // A selector that named a FILE is said out loud too, so the sweep's own count is explained.
                     if (namedOneFile)
                         notes.Add($"under '{sel}' names a file, not a directory — it was resolved as that one path.");
@@ -81,6 +90,14 @@ public sealed partial class LoadOrderService
                 }
                 catch (ArgumentException ex) { notes.Add($"under '{sel}': {ex.Message}"); }
             }
+            if (overBound)
+                return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.ReadIncomplete,
+                                           _assetWarnings, _profileName, notes, selected.Count, Math.Max(offset, 0),
+                                           Math.Max(limit, 0),
+                                           // Dedup against paths already named can leave the running count at the
+                                           // bound rather than past it; the walk stopping is the proof it is over.
+                                           RenderBudget.RefuseAssetPaths(Math.Max(selected.Count, RenderBudget.MaxAssetPaths + 1),
+                                                                         wholeSelection, atLeast: true)!);
 
             // Page over the SELECTED set and resolve only the window, so a 15k-file sweep pays for what it renders.
             // wholeSelection is the to_file= disposition: the artifact is never a window, so it resolves everything.
@@ -91,24 +108,32 @@ public sealed partial class LoadOrderService
                 : selected.Skip(start).Take(limit > 0 ? limit : int.MaxValue).ToList();
 
             // The declared cost, stated before a single path is resolved: past the bound the call says what it would
-            // have spent instead of going quiet. Counted DISTINCT, the way the resolve below memoizes — a pair's two
-            // halves are two rows naming each other, not four resolutions.
-            var toResolve = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var s in window)
-            {
-                if (s.Error is not null) continue;               // a token that never became a path resolves nothing
-                toResolve.Add(s.Path);
-                if (s.PairPath is not null) toResolve.Add(s.PairPath);
-            }
-            if (RenderBudget.RefuseAssetPaths(toResolve.Count, wholeSelection) is { } tooBig)
+            // have spent instead of going quiet. One resolution a row, because the lookaside below reuses a pair's —
+            // plus one where the window's LAST row's partner fell outside it, whose pair is then resolved for a row
+            // nobody renders.
+            int toResolve = window.Count(s => s.Error is null)
+                          + (window.Count > 0 && window[^1].PairPath is { } lastPair
+                             && (window.Count < 2 || !string.Equals(lastPair, window[^2].Path, StringComparison.OrdinalIgnoreCase))
+                             ? 1 : 0);
+            if (RenderBudget.RefuseAssetPaths(toResolve, wholeSelection) is { } tooBig)
                 return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.ReadIncomplete,
                                            _assetWarnings, _profileName, notes, total, Math.Max(offset, 0),
                                            Math.Max(limit, 0), tooBig);
 
-            // One resolve per DISTINCT path for the whole call: a pair's two halves are two rows that name each
-            // other, so without this each NPC would resolve four paths for the two answers it has.
-            var resolved = new Dictionary<string, AssetHit>(StringComparer.OrdinalIgnoreCase);
-            AssetHit Resolve(string p) => resolved.TryGetValue(p, out var cached) ? cached : resolved[p] = view.Resolve(p);
+            // A TWO-ENTRY lookaside, not a call-scoped memo. A pair's halves are pushed adjacently above, so the tint
+            // row's own path is the mesh row's pair and vice versa — one row of history gives the identical dedup at
+            // O(1) retention, where a whole-call dictionary would hold a third reference to every AssetHit in the
+            // selection plus a fresh copy of every path string until the call returned (131,496 of each on the
+            // measured sweep). An explicit path repeated in the selection resolves twice, which is what
+            // "explicit paths are never deduped" already says.
+            string? seenA = null, seenB = null;
+            AssetHit? seenAHit = null, seenBHit = null;
+            AssetHit Resolve(string p)
+            {
+                if (seenA is not null && string.Equals(p, seenA, StringComparison.OrdinalIgnoreCase)) return seenAHit!;
+                if (seenB is not null && string.Equals(p, seenB, StringComparison.OrdinalIgnoreCase)) return seenBHit!;
+                return view.Resolve(p);
+            }
 
             var results = new List<AssetPathResult>(window.Count);
             foreach (var sel in window)
@@ -126,6 +151,9 @@ public sealed partial class LoadOrderService
                                              : AssetPathHint.VerifiedPrefixes(view, p, AssetPathHint.AssetRoots);
                     var pair = sel.PairPath is null ? null : Resolve(sel.PairPath);
                     results.Add(new AssetPathResult(p, hit, null, suggest, sel.FormId, sel.Slot, sel.PairPath, pair));
+                    // This row's two hits are the next row's, when the next row is this one's partner.
+                    seenA = p; seenAHit = hit;
+                    seenB = sel.PairPath; seenBHit = pair;
                 }
                 catch (ArgumentException ex) { results.Add(new AssetPathResult(p, null, ex.Message, null, sel.FormId)); }   // bad path → per-path note, never a batch failure
             }

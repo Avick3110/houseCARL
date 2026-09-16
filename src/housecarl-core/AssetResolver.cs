@@ -483,13 +483,27 @@ public sealed class AssetResolver : IDisposable
     /// author's, and a single answer would then carry two spellings of one folder.</para></summary>
     public IReadOnlyCollection<string> EnumerateUnder(string prefix) => EnumerateUnder(prefix, _snap);
 
+    /// <summary>As <see cref="EnumerateUnder(string)"/>, with the walk itself BOUNDED. <paramref name="keep"/> filters
+    /// each path as it is found (a glob's own pattern, so the cap counts real matches and not candidates), and the
+    /// walk stops the moment <paramref name="max"/> of them are in hand, setting <paramref name="stopped"/>. That is
+    /// what lets a caller refuse an over-budget sweep without first paying the whole-order walk the refusal is about.
+    /// <paramref name="max"/> of 0 is no cap, and <paramref name="keep"/> of null keeps everything.</summary>
+    public IReadOnlyCollection<string> EnumerateUnder(string prefix, Func<string, bool>? keep, int max, out bool stopped)
+        => EnumerateUnder(prefix, _snap, keep, max, out stopped);
+
     IReadOnlyCollection<string> EnumerateUnder(string prefix, Snapshot snap)
+        => EnumerateUnder(prefix, snap, null, 0, out _);
+
+    IReadOnlyCollection<string> EnumerateUnder(string prefix, Snapshot snap, Func<string, bool>? keep, int max, out bool stopped)
     {
+        stopped = false;
         var pre = NormalizeQueryPath(prefix).TrimEnd('\\');      // drive-root / '..' rejected loud, backslash-normalized
         // Match a SUBTREE, not a sibling whose name starts with 'pre'. An empty prefix is the Data root, where every
         // entry is under it and the separator test would exclude them all.
         var withSep = pre.Length == 0 ? "" : pre + "\\";
         var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool Full() => max > 0 && found.Count >= max;
+        void Take(string rel) { if (keep is null || keep(rel)) found.Add(rel); }
 
         // loose: recurse each root's copy of the prefix dir (set-UNION across roots — the per-path winner is decided later).
         foreach (var (_, rootDir) in _looseRoots)
@@ -499,20 +513,27 @@ public sealed class AssetResolver : IDisposable
             try
             {
                 foreach (var f in Directory.EnumerateFiles(baseDir, "*", SearchOption.AllDirectories))
+                {
                     // Re-rooted on the NORMALIZED prefix, not sliced off rootDir: the walk echoes back the directory
                     // string it was handed, so slicing carries whatever case the caller typed into every loose row.
-                    found.Add(withSep + Normalize(f.Substring(baseDir.Length)));
+                    Take(withSep + Normalize(f.Substring(baseDir.Length)));
+                    if (Full()) { stopped = true; return found; }
+                }
             }
             catch { /* a root that won't enumerate contributes nothing; not silently trusted (see the summary) */ }
+            if (Full()) { stopped = true; return found; }
         }
 
         // BSA: every table entry under the prefix (the cached tables ARE the authoritative archive listing, zero handle at rest).
         foreach (var t in snap.Tables.Values)
             foreach (var entry in t)
                 if (entry.StartsWith(withSep, StringComparison.OrdinalIgnoreCase))
+                {
                     // Re-rooted on the same prefix as the loose lane. Left as the ARCHIVE spelt it, one answer mixes
                     // two spellings of the same folder — loose rows one way, archive rows the other.
-                    found.Add(withSep + entry.Substring(withSep.Length));
+                    Take(withSep + entry.Substring(withSep.Length));
+                    if (Full()) { stopped = true; return found; }
+                }
 
         return found;
     }
@@ -561,6 +582,10 @@ public sealed class AssetResolver : IDisposable
         /// <see cref="AssetResolver.EnumerateUnder(string)"/>, so the scan and its <see cref="ReadIncomplete"/>
         /// caveat describe one build.</summary>
         public IReadOnlyCollection<string> EnumerateUnder(string prefix) => _r.EnumerateUnder(prefix, _s);
+
+        /// <inheritdoc cref="AssetResolver.EnumerateUnder(string, Func{string, bool}, int, out bool)"/>
+        public IReadOnlyCollection<string> EnumerateUnder(string prefix, Func<string, bool>? keep, int max, out bool stopped)
+            => _r.EnumerateUnder(prefix, _s, keep, max, out stopped);
     }
 
     /// <summary>Re-stat the inputs; if any changed, rebuild the snapshot and return true. Inputs = the active archives
