@@ -30,6 +30,9 @@ made the change.
   without `source=`.
 - **`housecarl_decompile_script` refuses a `.pex` whose script object is not named like a plain script, instead of
   writing the `.psc` outside the folder you asked for.** Decompile such a file and read the refusal.
+- **`housecarl_asset_status` no longer truncates over `max_chars`: the complete result is written to an artifact
+  and the response names the file.** Run a sweep at a small `max_chars` and open the file the `spilled` line
+  names.
 
 ## 2.0.2 — 2026-09-15
 
