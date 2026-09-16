@@ -136,8 +136,8 @@ public static class DecompileTools
                    (o.Written.Count > 0 ? $"Already written this call: {string.Join(", ", o.Written)}." : "Nothing was written."));
         if (o.EscapingObject is not null)
             return Refuse($"error: '{Path.GetFileName(pex)}' names a script object '{o.EscapingObject}', which is not a plain script name, " +
-                   $"so its .psc would land outside '{rf.OutputDir}' — rename the object in the .pex, or decompile a copy that carries a plain name. " +
-                   (o.Written.Count > 0 ? $"Already written this call: {string.Join(", ", o.Written)}." : "Nothing was written."));
+                   $"so its .psc would not land in '{rf.OutputDir}' — rename the object in the .pex, or decompile a copy that carries a plain name. " +
+                   "Nothing was written.");
         if (o.ExistingTarget is not null)
             return Refuse($"error: '{o.ExistingTarget}' already exists — houseCARL never overwrites a source file. " +
                    (chosenOutput
@@ -192,9 +192,10 @@ public static class DecompileTools
         string? EscapingObject = null);
 
     /// <summary>True when a .pex object name is a plain script name, so the .psc it is named for lands directly in the
-    /// output folder. A name that is rooted, carries a path part or a drive/stream colon, or is "." or ".." would make
-    /// <see cref="Path.Combine(string, string)"/> drop the output folder or walk out of it. Both separators are checked
-    /// on every platform, because a Windows name reaching a non-Windows run is still the same escape.</summary>
+    /// output folder. Anything else — a rooted name, a path part either way, a drive or stream colon, an invalid
+    /// filename character, "." or ".." — is a name <see cref="Path.Combine(string, string)"/> does not keep inside the
+    /// folder, and a rooted name or a ".." leaves it entirely. Both separators are checked on every platform, because a
+    /// Windows name reaching a non-Windows run is still the same escape.</summary>
     static bool IsPlainObjectName(string name) =>
         name.IndexOf('/') < 0 && name.IndexOf('\\') < 0 && name.IndexOf(':') < 0 &&
         name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 &&
@@ -209,14 +210,18 @@ public static class DecompileTools
         var written = new List<string>();
         int totalFns = 0, failedFns = 0, optimizerHints = 0;
         var failures = new List<string>();
+        // Every name is checked before the first write, not per object as the loop reaches it: a name only
+        // becomes safe by being a plain filename, and a bad one at the end of a multi-object .pex would
+        // otherwise be refused with the earlier objects' .psc already on disk. The check is a string scan,
+        // so running it over the whole file up front costs nothing.
+        foreach (var obj in pexFile.Objects)
+            if (!string.IsNullOrWhiteSpace(obj.Name) && !IsPlainObjectName(obj.Name))
+                return new(written, null, false, totalFns, failedFns, optimizerHints, failures, obj.Name);
+
         foreach (var obj in pexFile.Objects)
         {
             if (string.IsNullOrWhiteSpace(obj.Name))
                 return new(written, null, true, totalFns, failedFns, optimizerHints, failures);
-            // The object name becomes the .psc's filename, so it is checked before the combine: Path.Combine drops
-            // outDir for a rooted name and honours a "..", either of which writes outside the folder.
-            if (!IsPlainObjectName(obj.Name))
-                return new(written, null, false, totalFns, failedFns, optimizerHints, failures, obj.Name);
 
             var target = Path.Combine(outDir, obj.Name + ".psc");
             if (File.Exists(target))   // cheap refusal before any decompile work

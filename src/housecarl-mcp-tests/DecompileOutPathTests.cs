@@ -159,6 +159,28 @@ public sealed class DecompileOutPathTests
     }
 
     [Fact]
+    public void AnEscapingNameLaterInTheFileStopsTheCallBeforeTheFirstPscIsWritten()
+    {
+        // The names are all read before the first write, so a bad one at the end of a multi-object .pex
+        // refuses with nothing on disk rather than after its neighbours have been written.
+        var dir = FreshDir();
+        var src = Path.Combine(dir, "src");
+        var dest = Path.Combine(dir, "psc");
+        Directory.CreateDirectory(src);
+        var pex = Path.Combine(src, "HcTwoObjects.pex");
+        PexWriter.WriteMultiObjectPex(pex, "HcFirstObject", "..\\HcSecondEscapes");
+        try
+        {
+            var r = DecompileTools.DecompileScript(W.Svc, pex, out_path: dest);
+
+            Assert.StartsWith("error:", r);
+            Assert.Contains("Nothing was written", r);
+            Assert.Empty(Directory.GetFiles(dir, "*.psc", SearchOption.AllDirectories));
+        }
+        finally { try { Directory.Delete(dir, true); } catch { /* temp cleanup */ } }
+    }
+
+    [Fact]
     public void OutPathSupersedesIntoAndTheResponseSaysSo()
     {
         var dest = FreshDir();
