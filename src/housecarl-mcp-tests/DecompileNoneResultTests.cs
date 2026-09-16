@@ -225,6 +225,57 @@ public class DecompileNoneResultTests
         AssertOrder(res.Source, "f.Poke()", "f.Bar()");
     }
 
+    [Fact]
+    public void AReturnNeverLeavesACallStrandedBehindIt()
+    {
+        // `Bar` runs in the bytecode. A return ends the region, so a value still pending at it has no
+        // later boundary to reach — emitting it after the return would be a call that never runs, and
+        // emitting it before would put a later call ahead of the earlier one the return carries.
+        // Neither is the source, so the function refuses.
+        var f = Fn(("HC_NoneTarget", "f"));
+        f.ReturnTypeName = "HC_NoneTarget";
+        Local(f, "HC_NoneTarget", "::temp0");
+        Local(f, "Int", "::temp1");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.RETURN, Id("::temp0"));
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("RetCarries", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        AssertNoStatementAfterReturn(res.Source, "f.Bar()");
+    }
+
+    [Fact]
+    public void AReturnEndingAnIfArmNeverLeavesACallStrandedBehindIt()
+    {
+        // The same shape with the return as an if-arm's last instruction: there the stranded call
+        // lands past the return from the arm's own end-of-block flush.
+        var f = Fn(("bool", "flag"), ("HC_NoneTarget", "f"));
+        f.ReturnTypeName = "HC_NoneTarget";
+        Local(f, "HC_NoneTarget", "::temp0");
+        Local(f, "Int", "::temp1");
+        Ins(f, InstructionOpcode.JMPF, Id("flag"), Int(4));                     // -> 4, past the arm
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.RETURN, Id("::temp0"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("ArmRetCarries", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        AssertNoStatementAfterReturn(res.Source, "f.Bar()");
+    }
+
+    /// <summary>No emitted line carries <paramref name="stranded"/> after a `return` in the same block.</summary>
+    static void AssertNoStatementAfterReturn(string source, string stranded)
+    {
+        var lines = source.Split('\n').Select(l => l.Trim()).ToList();
+        for (int k = 0; k < lines.Count; k++)
+            if (lines[k].StartsWith("return") && lines.Skip(k + 1).TakeWhile(l => l != "endif" && l != "EndFunction").Any(l => l.Contains(stranded)))
+                Assert.Fail($"'{stranded}' is emitted after a return, where it never runs:\n{source}");
+    }
+
     static void AssertOrder(string source, string first, string second)
     {
         var lines = source.Split('\n').Select(l => l.Trim()).ToList();
