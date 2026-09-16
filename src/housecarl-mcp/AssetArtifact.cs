@@ -30,7 +30,7 @@ internal static class AssetArtifact
     /// <summary>Write the artifact for one resolution. Returns the spill to render, or a named error the caller
     /// renders verbatim — never throws for an IO failure.</summary>
     /// <summary><paramref name="order"/> is the build the call fingerprinted, or null where the order could not be
-    /// built at all and <paramref name="noEpochBecause"/> says why. The stamp is taken whole, not just its epoch
+    /// read at all and <paramref name="noEpochBecause"/> says why. The stamp is taken whole, not just its epoch
     /// string: the plugins it lost to a load failure are what <c>order_degraded</c> names.</summary>
     internal static (SpillInfo? Spill, string? Error) Write(AssetStatusData d, string path, OrderStamp? order,
                                                            IReadOnlyList<KeyValuePair<string, string>> query,
@@ -47,11 +47,21 @@ internal static class AssetArtifact
             + "beside it, and 'pair_differs' is true when both halves resolve and come from different MODS — compared "
             + "by 'winner_mod' / 'pair_winner_mod', because vanilla ships every head in Skyrim - Meshes0.bsa and "
             + "every tint in Skyrim - Textures0.bsa, which is two provider names for one product and not a split.",
+            "'winner_mod' is the MO2 LAYER the winning copy ships from, and two of its values are not mods: two "
+            + "files both installed into the game's own Data folder, or both landing in overwrite, compare as one "
+            + "owner and come back pair_differs=false.",
             "'pair_differs' is PROVENANCE, not a class: it covers both a cross-product split and two mod folders of "
             + "one product. housecarl_check findings=[\"facegen\"] is what separates them.",
             "An ABSENT row is authoritative only where the response's read-failure and discovery alarms were empty; "
             + "the manifest's query echo names whether they were.",
         };
+
+        // Said in the FILE as well as beside the spill marker: an artifact re-read months later carries no
+        // conversation, and an empty stamp with nothing explaining it is the unstamped state, not an honest one.
+        if (noEpochBecause is not null)
+            notes.Add("'epoch' is EMPTY: the load order could not be read for a fingerprint when this was written — "
+                      + noEpochBecause + " The rows are unaffected (they are read off the VFS, not off the record "
+                      + "index), but nothing here says which build they sit beside.");
 
         // The §2.1 coverage stamp, in the field rather than in prose: EVERY row here is read off the VFS while the
         // fingerprint describes the record build, which is the strongest instance of the rule this server has.

@@ -19,9 +19,11 @@ public sealed partial class LoadOrderService
     /// pair (<see cref="FaceGenPath"/>, a pure transform of the FormKey — no record is read), mesh then tint, and each
     /// row carries the other half's winner beside its own so a whole-order pairing sweep is one call.
     /// <paramref name="wholeSelection"/> is the <c>to_file=</c> disposition: the artifact is never a window, so every
-    /// selected path is resolved whatever <paramref name="limit"/> says. <paramref name="maxPaths"/> is the per-call
-    /// bound is <see cref="RenderBudget.MaxAssetPaths"/>, and it governs the WALK as well as the resolve: an
-    /// <paramref name="under"/> enumeration stops the moment the selection would cross it, so the refusal costs the
+    /// selected path is resolved whatever <paramref name="limit"/> says. The per-call bound is
+    /// <see cref="RenderBudget.MaxAssetPaths"/> and it is on the paths this call RESOLVES: where a window is taken
+    /// only the window is resolved and the walk runs to the end as it always has, and where the whole selection is
+    /// resolved — <paramref name="wholeSelection"/>, or no <paramref name="limit"/> at all — the
+    /// <paramref name="under"/> enumeration stops the moment it would cross the bound, so the refusal costs the
     /// bound's worth of walking rather than the whole order's.</para>
     /// <paramref name="limit"/> and <paramref name="offset"/> window the SELECTION, so only the window is RESOLVED —
     /// the per-path winner and provider chain, which is the expensive half. The selector ENUMERATION is not memoized:
@@ -64,9 +66,13 @@ public sealed partial class LoadOrderService
                 seen.Add(tint);
             }
 
-            // The bound governs the WALK, not just what comes out of it: a selector's enumeration stops the moment the
-            // selection would cross MaxAssetPaths, so an unanchored sweep — the one shape the bound is declared
-            // against — is refused without first paying the whole-order walk the refusal is about.
+            // The bound is on what this call RESOLVES. Where a window is taken, only the window is resolved — so the
+            // walk runs to the end exactly as it always has, and the bound applies to the window below; a paged sweep
+            // over a huge folder still answers, which is what the under= lane was built for. Where the whole
+            // selection is resolved instead — to_file=, or no limit= at all — the selection IS the resolve, so the
+            // enumeration stops the moment it would cross the bound and the refusal costs the bound's worth of
+            // walking rather than the whole order's.
+            bool wholeIsResolved = wholeSelection || limit <= 0;
             bool overBound = false;
             foreach (var raw in under ?? Array.Empty<string>())
             {
@@ -76,7 +82,8 @@ public sealed partial class LoadOrderService
                 try
                 {
                     // One past what is left of the budget: a selector that fills it has proved the selection is over.
-                    int room = Math.Max(RenderBudget.MaxAssetPaths - selected.Count, 0) + 1;
+                    // 0 = no cap, for the windowed lane, where the selection is not what gets resolved.
+                    int room = wholeIsResolved ? Math.Max(RenderBudget.MaxAssetPaths - selected.Count, 0) + 1 : 0;
                     var matched = AssetGlob.Select(view, sel, out var namedOneFile, room, out var stopped);
                     overBound |= stopped;
                     // A selector that named a FILE is said out loud too, so the sweep's own count is explained.

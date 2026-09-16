@@ -174,7 +174,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             // unstamped state the artifact convention exists to make impossible.
             Assert.Equal("", manifest.GetProperty("epoch").GetString());
             Assert.Contains("epoch: NONE", text);
-            Assert.Contains("could not build a load order to fingerprint", text);
+            Assert.Contains("could not be read for a fingerprint", text);
             // The §2.1 coverage stamp as a FIELD, not as prose: every row here is read off the VFS while the
             // fingerprint would describe the record build.
             Assert.False(manifest.GetProperty("epoch_covers_all_inputs").GetBoolean());
@@ -284,6 +284,54 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         finally { RenderBudget.MaxAssetPaths = prior; }
     }
 
+    /// <summary>The bound is on what the call RESOLVES, so a windowed sweep over a folder bigger than the bound
+    /// still answers — only the window is resolved. Bounding the SELECTION instead would refuse a paged `under=`
+    /// sweep that worked before, and send the caller back round with the one lever the refusal names.</summary>
+    [Fact]
+    public void APagedUnderSweepAnswersOverAFolderBiggerThanTheBound()
+    {
+        var prior = RenderBudget.MaxAssetPaths;
+        RenderBudget.MaxAssetPaths = 2;
+        try
+        {
+            var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir }, limit: 2);
+
+            Assert.DoesNotContain("bound", text);
+            Assert.Contains($"({AssetSelectWorld.FaceGeomFiles} paths selected)", text);
+            Assert.Contains("rendered=2", text);
+
+            // And the second page too, so following the accounting's own advice keeps working.
+            var page2 = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir }, limit: 2, offset: 2);
+            Assert.DoesNotContain("bound", page2);
+            Assert.Contains("rendered=2", page2);
+
+            // A window OVER the bound is still refused — the window is what gets resolved.
+            var wide = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir }, limit: 5);
+            Assert.Contains("2-path bound", wide);
+        }
+        finally { RenderBudget.MaxAssetPaths = prior; }
+    }
+
+    /// <summary>A plain path list splits on line breaks ONLY. A comma is legal in a Windows file name and mod authors
+    /// use them, so splitting on it turns one line into two tokens and answers ABSENT twice for a file that
+    /// exists — a hole in the sweep that is not there, with no refusal and no note.</summary>
+    [Fact]
+    public void APlainPathListIsSplitOnLineBreaksAndNotOnCommas()
+    {
+        var commaPath = @"meshes\hccomma\journal, vol2.nif";
+        var list = Temp("comma-paths.txt");
+        File.WriteAllLines(list, new[] { commaPath, _w.Rel("0001.nif") });
+        try
+        {
+            var d = _w.Svc.AssetStatus(
+                Artifacts.ExpandListInput(new[] { "@" + list }, "asset_paths", identity: "path").Tokens!);
+
+            Assert.Equal(2, d.Results.Count);
+            Assert.Equal(commaPath, d.Results[0].RelPath);
+        }
+        finally { File.Delete(list); }
+    }
+
     /// <summary>A glob's cap counts MATCHES, not candidates: the pattern filters inside the walk, so a narrow
     /// selector under a wide folder is never refused for the folder's size.</summary>
     [Fact]
@@ -319,6 +367,95 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         Assert.DoesNotContain("[mod:", plain);
     }
 
+    /// <summary>The degraded-order roster survives the artifact round trip. It is written by the manifest and parsed
+    /// back by it, and a build that lost plugins is what a re-read file has to be able to say about itself — which on
+    /// a synthetic world needs no degraded order, only the write and the read.</summary>
+    [Fact]
+    public void TheDegradedOrderRosterSurvivesTheArtifactRoundTrip()
+    {
+        var file = Temp("degraded.jsonl");
+        try
+        {
+            using (var writer = new ResultArtifact.Writer())
+            {
+                writer.WriteRow((w, _) => { w.WriteStartObject(); w.WriteString("path", @"meshes\a.nif"); w.WriteEndObject(); });
+                var (m, err) = writer.Save(ArtifactTarget.Named(file), ToolNames.AssetStatus,
+                                           Array.Empty<KeyValuePair<string, string>>(), "path", new[] { "path" },
+                                           "input order", total: 1, epoch: "e2-deadbeef",
+                                           excludedPlugins: new[] { "ksws03_quest.esp", "other.esp" });
+                Assert.Null(err);
+                Assert.True(m!.OrderDegraded);
+            }
+
+            var (read, tokens, rerr) = ResultArtifact.ReadIdentity(file, File.ReadAllText(file));
+            Assert.Null(rerr);
+            Assert.Single(tokens!);
+            Assert.True(read!.OrderDegraded);
+            Assert.Equal(new[] { "ksws03_quest.esp", "other.esp" }, read.ExcludedPlugins);
+            // No coverage claim was made, so none is stamped — null is "this lane says nothing", not "it covers
+            // everything".
+            Assert.Null(read.EpochCoversAllInputs);
+        }
+        finally { File.Delete(file); }
+    }
+
+    /// <summary>A lane that DOES claim coverage and covers everything can say so. Normalizing an empty uncovered list
+    /// to null would make the true stamp unwritable, so no artifact could ever state that its epoch describes its
+    /// rows — only that it does not.</summary>
+    [Fact]
+    public void AnArtifactCanStampThatItsEpochCoversEverything()
+    {
+        var file = Temp("covered.jsonl");
+        try
+        {
+            using (var writer = new ResultArtifact.Writer())
+            {
+                writer.WriteRow((w, _) => { w.WriteStartObject(); w.WriteString("path", @"meshes\a.nif"); w.WriteEndObject(); });
+                writer.Save(ArtifactTarget.Named(file), ToolNames.AssetStatus,
+                            Array.Empty<KeyValuePair<string, string>>(), "path", new[] { "path" }, "input order",
+                            total: 1, epoch: "e2-deadbeef", epochUncovered: Array.Empty<string>());
+            }
+
+            var (read, _, rerr) = ResultArtifact.ReadIdentity(file, File.ReadAllText(file));
+            Assert.Null(rerr);
+            Assert.True(read!.EpochCoversAllInputs);
+        }
+        finally { File.Delete(file); }
+    }
+
+    /// <summary>The no-epoch sentence is written from whatever the build threw, not from one exception type: an order
+    /// the profile files cannot be READ for right now — MO2 rewriting them on a re-sort while it holds the handle —
+    /// reports as the fingerprint being missing, with the reason, not as an internal failure.
+    /// <para>Driven at the seam rather than by locking a profile file, because locking one does not reach this code:
+    /// the asset capture re-reads the same files a frame earlier (<c>LoadOrderService.Assets</c> →
+    /// <c>RefreshOnProfileChange</c> → <c>ReResolve</c>) and throws before the epoch is ever asked for — #794. This
+    /// asserts what this PR owns.</para></summary>
+    [Fact]
+    public void TheNoEpochSentenceIsWrittenFromWhateverTheBuildThrew()
+    {
+        var file = Temp("unreadable.jsonl");
+        try
+        {
+            var why = Guard.Flatten(new IOException(
+                "The process cannot access the file 'plugins.txt' because it is being used by another process.").Message);
+            var data = _w.Svc.AssetStatus(new[] { _w.Rel("0001.nif") });
+
+            var (spill, err) = AssetArtifact.Write(data, file, order: null,
+                                                   Array.Empty<KeyValuePair<string, string>>(), why);
+            Assert.Null(err);
+            var text = AssetArtifact.RenderManifestOnly(data, spill!, json: false, cap: 80_000);
+
+            Assert.Contains("epoch: NONE", text);
+            Assert.Contains("could not be read for a fingerprint", text);
+            Assert.Contains("being used by another process", text);
+            // And the file says it too: an artifact re-read later carries no conversation.
+            var manifest = JsonDocument.Parse(File.ReadAllLines(file)[0]).RootElement;
+            Assert.Contains(manifest.GetProperty("notes").EnumerateArray(),
+                            n => n.GetString()!.Contains("'epoch' is EMPTY", StringComparison.Ordinal));
+        }
+        finally { File.Delete(file); }
+    }
+
     /// <summary>The empty-selection refusal names every SELECT there is, formids= included — a caller who passed
     /// none has to be told all three.</summary>
     [Fact]
@@ -345,6 +482,11 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         Assert.Equal("tint", pair.GetProperty("slot").GetString());
         Assert.Equal("FaceBase", pair.GetProperty("winner").GetProperty("name").GetString());
         Assert.True(pair.GetProperty("differs").GetBoolean());
+        // Both mod fields carry the OWNER the verdict is taken on. This fixture is loose-vs-loose, where a loose
+        // provider has no OwningMod at all, so writing the raw field would put null on both sides of a true
+        // `differs` and a consumer checking the verdict the way the document tells it to gets the opposite answer.
+        Assert.Equal("FaceHigher", row.GetProperty("winner_mod").GetString());
+        Assert.Equal("FaceBase", pair.GetProperty("winner_mod").GetString());
 
         // A plain path row is the document it always was: no formid, no slot, no pair.
         var plain = JsonDocument.Parse(

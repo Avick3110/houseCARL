@@ -82,7 +82,11 @@ public static class ResultArtifact
                                         _typeCounts.Count > 0 ? _typeCounts : null, epoch,
                                         DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
                                         notes is { Count: > 0 } ? notes : null,
-                                        epochUncovered is { Count: > 0 } ? epochUncovered : null,
+                                        // Passed through as given, empty included: null is "this lane makes no
+                                        // coverage claim", an EMPTY list is "it makes one and the stamp covers
+                                        // everything". Normalizing empty to null would make the true stamp
+                                        // unwritable, so no artifact could ever say its epoch covers its rows.
+                                        epochUncovered,
                                         excludedPlugins is { Count: > 0 } ? excludedPlugins : null);
             target.EnsureUnwritten();   // a target is single-use; writing one twice is a bug, not an IO failure
             try
@@ -157,8 +161,10 @@ public static class ResultArtifact
                 w.WriteEndObject();
             }
             w.WriteString("epoch", Epoch);
-            // The §2.1 coverage stamp and the degraded-order roster, in the vocabulary the read surface already
-            // uses (JsonWire.WriteSweepEpoch), so a consumer greps one key across every artifact this server writes.
+            // The §2.1 coverage stamp and the degraded-order roster, in the vocabulary the read surface already uses
+            // (JsonWire.WriteSweepEpoch). Written only by a lane that passes them: asset_status stamps both today,
+            // the record lanes stamp neither yet, so a consumer greps one key where it is written rather than
+            // everywhere.
             if (EpochCoversAllInputs is { } covers)
             {
                 w.WriteBoolean("epoch_covers_all_inputs", covers);

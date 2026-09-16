@@ -28,7 +28,11 @@ together, one row per path, each naming the other half's winner beside its own. 
 calls — `housecarl_records types=["NPC_"] to_file=<file>` for the identity set, then
 `housecarl_asset_status formids=["@<file>"] to_file=<file2>` — and the artifact's `winner_mod`, `pair_winner_mod`,
 `winner_kind` and `pair_differs` columns are the pairing map. Use it when you want the file-layer provenance
-over the order; `housecarl_check findings=["facegen"]` is what adds the record winner and the classes below.
+over the order; `housecarl_check findings=["facegen"]` is what adds the record winner and the classes below — and
+what drops the two populations named at the end of this page. `formids=` reads no record, so it applies neither
+exclusion: every templated follower and every horse, dragon and draugr shell in the list comes back as two rows
+with no provider. A row count off the artifact is therefore not a finding count, and the artifact's
+`pair_exists=false` total will not match `check`'s `bake_absent`.
 
 `pair_differs` is decided on the winners' owning **mods** (`winner_mod` / `pair_winner_mod`), not on their
 provider names (`winner` / `pair_winner`, which for a BSA is the archive's own filename). Vanilla ships every

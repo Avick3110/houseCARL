@@ -67,16 +67,19 @@ saying it sets an expectation their install may contradict. Say what is known, a
   `Skyrim - Meshes0.bsa` and every tint in `Skyrim - Textures0.bsa`, and on a 3,244-plugin order the name
   comparison calls 2,719 NPCs split where the mod comparison calls 375. It is provenance and not a class: it is
   true for a cross-product split and for two mod folders of one product alike, and
-  `housecarl_check findings=["facegen"]` is what separates them. Both list inputs take
+  `housecarl_check findings=["facegen"]` is what separates them. The comparison is on the winning copy's MO2
+  layer, and two of those are not mods: two files both installed into the game's own Data folder, or both in
+  overwrite, compare as one owner. Both list inputs take
   `["@<absolute path>"]` in place of the inline list, and `to_file=` writes the complete result as a JSONL
   artifact (line 1 = manifest) and renders only the manifest inline, the same convention `housecarl_records` and
   `housecarl_check` use — the artifact's identity column is `path`, so it re-enters through `asset_paths=`, which
   is not epoch-checked because a path names no record, and `offset=` is refused beside it because the artifact is
   never a window. The manifest carries the `epoch_covers_all_inputs` and `order_degraded` stamps the read surface
-  already uses, and the response states beside them when the order could not be built at all — this tool answers
-  off the VFS, so it still answers there. What a call may resolve is bounded
-  (see `asset_status`'s own `BOUND:` clause); past it the call refuses up front with the count and the time
-  estimate, and an `under=` sweep stops walking at the bound rather than enumerating the whole order first.
+  already uses, and the response states beside them when the order could not be read for one at all — this tool
+  answers off the VFS, so it still answers there. What a call RESOLVES is bounded — the window where `limit=`
+  takes one, else the whole selection (see `asset_status`'s own `BOUND:` clause); past it the call refuses up
+  front with the count and the time estimate, and where the whole selection is what gets resolved an `under=`
+  sweep stops walking at the bound rather than enumerating the whole order first.
   Check it by running the whole-order pairing sweep — `housecarl_records types=["NPC_"] to_file=`, then
   `housecarl_asset_status formids=["@<that file>"] to_file=` — and grepping the artifact's `pair_differs` and
   `pair_exists` columns: on the order above that is 65,748 NPCs, 131,496 paths in 28 s, and 59 NPCs whose winning
