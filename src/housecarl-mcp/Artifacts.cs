@@ -529,8 +529,8 @@ internal static class Artifacts
         var path = items[0].TrimStart().Substring(1).Trim().Trim('"', '\'');
         if (path.Length == 0)
             return (null, null, null, $"error: {paramName}= '@' names a list file but no path follows it.");
-        if (!Path.IsPathRooted(path))
-            return (null, null, null, $"error: {paramName}= list file '{path}' must be an ABSOLUTE path — the server resolves relative paths against its OWN working directory, not yours.");
+        if (PathArguments.NotAbsolute(path, $"{paramName}= list file", "the file the list is in", "C:\\work\\list.jsonl") is { } notAbsolute)
+            return (null, null, null, "error: " + notAbsolute);
         string content;
         try { content = File.ReadAllText(path); }
         catch (Exception ex) { return (null, null, null, $"error: could not read {paramName}= list file '{path}' — {ex.GetType().Name}: {ex.Message}"); }
@@ -568,7 +568,8 @@ internal static class Artifacts
     {
         var p = toFile.Trim();
         if (p.Length == 0) return "error: to_file= is empty — give the ABSOLUTE path the artifact should be written to (e.g. 'C:\\work\\weapons.jsonl').";
-        if (!Path.IsPathRooted(p)) return $"error: to_file='{toFile}' must be an ABSOLUTE path — the server resolves relative paths against its OWN working directory, not yours.";
+        if (PathArguments.NotAbsolute(p, "to_file", "the .jsonl the artifact should be written to", "C:\\work\\weapons.jsonl") is { } notAbsolute)
+            return "error: " + notAbsolute;
         if (!p.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase))
             return $"error: to_file='{toFile}' — the artifact is a JSONL file (line 1 = manifest, one JSON row per line); name it with a .jsonl extension so the file says what it is.";
         try

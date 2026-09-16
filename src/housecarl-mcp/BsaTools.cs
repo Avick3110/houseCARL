@@ -74,9 +74,12 @@ public static class BsaTools
         else
         {
             var given = out_path!.Trim().Trim('"');
-            if (LoadOrderService.OutPathNotAbsolute(given, "the folder to unpack into") is { } notAbsolute)
+            if (PathArguments.NotAbsolute(given, "out_path", "the folder to unpack into", "C:\\work\\extracted") is { } notAbsolute)
                 return "error: " + notAbsolute;
-            target = Path.GetFullPath(given);
+            // An absolute path can still be unusable (an embedded NUL, or one past the OS length limit); named here
+            // like the archive argument above, rather than thrown at the guard as an internal failure.
+            try { target = Path.GetFullPath(given); }
+            catch (Exception ex) { return $"error: out_path '{given}' is not a usable path ({ex.Message})."; }
         }
 
         string residue = managed ? $"\nThe freshly created mod folder was left at '{target}' — delete it or retry into it." : "";
