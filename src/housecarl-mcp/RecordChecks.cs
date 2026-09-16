@@ -59,12 +59,19 @@ public sealed partial class LoadOrderService
             DialogueFold? fold = null;
             string? foldError = null;
             if (foldArm is not null)
+                fold = OpenDialogueFold(foldArm, out foldError, FoldLabel(view, foldArm), withRecords: true);
+            try
             {
-                var label = view.ContainsPlugin(foldArm.Plugin) ? $"{foldArm.Plugin} [off-order copy]" : foldArm.Plugin;
-                fold = OpenDialogueFold(foldArm, out foldError, label, withRecords: true);
+                return new DialogueSweep.Binding(fk => DialogueValidate.Run(resolver, assets, fk, view, forceLoaded, fold),
+                                                 FormIdDoor.On(view).Parse, view.Epoch, fold, foldError);
             }
-            return new DialogueSweep.Binding(fk => DialogueValidate.Run(resolver, assets, fk, view, forceLoaded, fold),
-                                             FormIdDoor.On(view).Parse, view.Epoch, fold, foldError);
+            catch
+            {
+                // The sweep takes ownership of the fold only once this returns, so anything that throws while the
+                // binding is being built has to close the file here or it stays open for the process's life.
+                fold?.Dispose();
+                throw;
+            }
         }, seeds, limit, countsOnly);
 
     // ---- integrity sweep -------------------------------------------------------------------------------

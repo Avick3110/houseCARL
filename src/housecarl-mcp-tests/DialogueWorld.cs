@@ -1,4 +1,4 @@
-﻿using Mutagen.Bethesda;
+using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
@@ -127,6 +127,13 @@ public sealed class DialogueWorld : IDisposable
     /// <summary>A second copy of <see cref="MidName"/>, in a DISABLED mod folder — the shadowed-copy fold, whose
     /// filename is active while this file is not the one the order loads.</summary>
     public const string ShadowModFolder = "MidShadowMod";
+
+    /// <summary>A start-game-enabled quest with no <c>.seq</c>, in the SHADOWED copy: its dormant finding is the one
+    /// a fold must not soften by putting a display label where a plugin name is compared.</summary>
+    public FormKey ShadowSeqQuest { get; }
+
+    /// <summary>The same quest in the plain off-order patch — the control the shadowed arm is measured against.</summary>
+    public FormKey PatchSeqQuest { get; }
 
     readonly ResultsDirScope _results;
 
@@ -281,6 +288,12 @@ public sealed class DialogueWorld : IDisposable
         var reLinked = new DialogResponses(info[5], SkyrimRelease.SkyrimSE) { EditorID = "HcDvLine5" };
         reLinked.PreviousDialog.SetTo(info[1]);
         patchTopic.Responses.Add(reLinked);
+        // The same start-game-enabled, .seq-less quest in the plain off-order patch: the control the shadowed
+        // copy's verdict is compared against.
+        var patchQuest = patch.Quests.AddNew(); patchQuest.EditorID = "HcDvPatchSeqQuest";
+        patchQuest.Flags = Quest.Flag.StartGameEnabled;
+        DialogueCkParity.ApplyQuestDefaults(patchQuest);
+        PatchSeqQuest = patchQuest.FormKey;
         var ownTopic = patch.DialogTopics.AddNew(); ownTopic.EditorID = "HcDvPatchOwn";
         PatchOwnTopic = ownTopic.FormKey;
         var ownInfo = new FormKey[2];
@@ -314,6 +327,12 @@ public sealed class DialogueWorld : IDisposable
         var shadowTopic = (IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(midShadow, topic);
         shadowTopic.Responses.Clear();
         shadowTopic.Responses.Add(new DialogResponses(info[2], SkyrimRelease.SkyrimSE) { EditorID = "HcDvLine2" });
+        // …and a start-game-enabled quest with no .seq anywhere, so the SEQ lint has a real DORMANT finding to
+        // make — the finding a fold must not soften into an override ambiguity between a file and itself.
+        var shadowQuest = midShadow.Quests.AddNew(); shadowQuest.EditorID = "HcDvShadowSeqQuest";
+        shadowQuest.Flags = Quest.Flag.StartGameEnabled;
+        DialogueCkParity.ApplyQuestDefaults(shadowQuest);
+        ShadowSeqQuest = shadowQuest.FormKey;
         Directory.CreateDirectory(Path.Combine(mods, ShadowModFolder));
         midShadow.BeginWrite.ToPath(Path.Combine(mods, ShadowModFolder, MidName))
                  .WithLoadOrder(new ISkyrimModGetter[] { master }).Write();

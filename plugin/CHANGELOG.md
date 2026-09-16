@@ -52,7 +52,9 @@ saying it sets an expectation their install may contradict. Say what is known, a
   carries wins, and `seeds=` may name records the file itself defines (`000800:MyPatch.esp`), which resolve nowhere
   in the order without it. The section states the fold once at the top, including the part that does not move with
   the plugin: the file's own `.fuz`, `.pex` and `.seq` resolve through the VFS, which serves the mod folders MO2 has
-  enabled, so a file shipped beside a folded plugin in a folder that is off reads as absent. The dialogue family is
+  enabled, so a file shipped beside a folded plugin in a folder that is off reads as absent. That frame rides the
+  `to_file=` manifest too, in the response and in the artifact's own notes, since a spilled projection is read from
+  the file long after the call. The dialogue family is
   the only one with this arm — the swept families take an off-order plugin on `plugins=` (see that parameter), and
   `source=` beside them is refused naming both. An active filename is refused: it is already what the check reads.
   Check it by running the family over a seed in your unenabled patch with and without `source=`.

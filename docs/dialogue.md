@@ -105,8 +105,9 @@ once the patch is enabled if you need the live order.
 
 ## Checking a patch before the patch is enabled
 
-The dialogue findings family takes the same address on its own `source=`, and folds the file in at the end of the
-order the same way. Seeds may then name records the patch itself defines:
+The dialogue findings family takes the same address on its own `source=`, and folds the file in the same way — at
+the end of the order, or of the master block when the file's header says it loads there. Seeds may then name
+records the patch itself defines:
 
 ```
 housecarl_check(findings=["dialogue"], seeds=["000800:MyPatch.esp"], source="MyPatch.esp")

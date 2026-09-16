@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -75,6 +75,11 @@ public sealed record TopicValidation(
     /// <see cref="DialogueSubtype.MarkerDisagreesWithSubtype"/> for why the number goes stale.</summary>
     public bool SubtypeDisagreesWithMarker { get; init; }
 
+    /// <summary>The record this validation read came from the FOLDED file, not from the active order — so
+    /// <see cref="WinnerPlugin"/> names a file the game is not loading. Carried apart from the name because the
+    /// name is compared and rendered as data; this is the provenance a render states beside it.</summary>
+    public bool WinnerIsFolded { get; init; }
+
     /// <summary>The subtype name the SNAM marker itself names — the honest label when <see cref="Subtype"/> is stale.
     /// The MARKER itself for the one modeled row Mutagen's enum leaves unnamed (index 3, FVDL), so a consumer never
     /// has to re-implement the marker→name table to read past a disagreement. "" only when the marker is blank or not
@@ -112,6 +117,10 @@ public sealed record DialogueValidationReport(
     public string? Error { get; init; }
     public string? CheckError { get; init; }
     public bool ReadIncomplete { get; init; }
+
+    /// <summary>The input record itself came from the FOLDED file — see <see cref="TopicValidation.WinnerIsFolded"/>
+    /// for why the provenance rides beside the name rather than inside it.</summary>
+    public bool InputWinnerIsFolded { get; init; }
 
     /// <summary>Input-level findings that belong to the INPUT record itself, not any one topic: quest CK-parity gaps
     /// (ANAM / objective FNAM, checked once per QUEST input) and the DLVW/DLBR CK-parity gaps (the whole finding set
@@ -303,11 +312,22 @@ public static class DialogueValidate
             // Load-order winner resolver for each INFO's Speaker → NPC → VoiceType and the topic's Quest. Cached for
             // the run so a topic full of lines sharing a speaker doesn't re-enumerate a master per line.
             var loCache = new Dictionary<FormKey, IMajorRecordGetter?>();
+            // Does the FOLD win this record under the projection? A regular plugin is folded in LAST, so it wins
+            // everything it carries. One in the MASTER BLOCK is folded in ahead of every regular plugin, so an
+            // active regular plugin that touches the same record loads after it and wins — reading the fold's copy
+            // there would answer with a body the game would not use.
+            bool FoldWins(FormKey k)
+            {
+                if (fold?.Holds(k) != true) return false;
+                if (!fold.InMasterBlock) return true;
+                var touching = view.TouchingPlugins(k);
+                return touching is null || !touching.Any(p => !view.IsMasterBlock(p));
+            }
+
             IMajorRecordGetter? Resolve(FormKey k)
             {
                 if (k.IsNull) return null;
-                // The fold sits LAST in the projected order, so its copy is the winner of anything it carries.
-                if (fold?.Record(k) is { } folded) return folded;
+                if (FoldWins(k) && fold!.Record(k) is { } folded) return folded;
                 if (loCache.TryGetValue(k, out var c)) return c;
                 IMajorRecordGetter? g = view.ResolveWinner(k) is { } w ? view.GetRecord(session, w.WinnerPlugin, k) : null;
                 loCache[k] = g;
@@ -315,9 +335,13 @@ public static class DialogueValidate
             }
 
             // Which plugin the projected order says provides a record — the folded file where it carries one, so a
-            // report's "winner" never names a plugin that is not the one the validation actually read.
+            // report's "winner" never names a plugin that is not the one the validation actually read. The plain
+            // FILENAME, never the fold's display label: this value is DATA (a .seq lint compares it against the
+            // defining plugin's name, a render writes it as winner_plugin, an artifact as a plugin column), and a
+            // label there would make a file differ from itself. Which copy it was rides FoldedProvider instead.
+            bool FoldProvides(FormKey k) => FoldWins(k);
             string? ProviderOf(FormKey k)
-                => fold?.Holds(k) == true ? fold.Label : view.ResolveWinner(k)?.WinnerPlugin;
+                => FoldProvides(k) ? fold!.Plugin : view.ResolveWinner(k)?.WinnerPlugin;
 
             // Cheap O(1) existence check (the index dict, no body fetch): a dangling/missing reference — the common
             // breakage — is caught here, so only a PRESENT link pays Resolve's body fetch (to name a wrong type). See
@@ -333,10 +357,16 @@ public static class DialogueValidate
             {
                 if (baseCache.TryGetValue(k, out var c)) return c;
                 // A record the FOLDED file defines has no copy in the order to seek — the fold's own copy IS the
-                // base one, and asking the resolver for a plugin it does not carry is not a question it can answer.
-                var g = fold is not null && k.ModKey.FileName.String.Equals(fold.Plugin, StringComparison.OrdinalIgnoreCase)
-                    ? fold.Record(k) as IDialogTopicGetter
-                    : view.GetRecord(session, k.ModKey.FileName.String, k, typeof(IDialogTopicGetter)) as IDialogTopicGetter;
+                // base one. The fall-through matters as much as the branch: a shadowed fold shares its filename
+                // with an ACTIVE plugin, so a record that file does not carry still has a real defining body in
+                // the order, and taking the fold's silence for it would leave the SNAM gate blaming an override
+                // for a pair it inherited. The resolver is asked only for a plugin the order actually holds.
+                var g = fold?.Record(k) as IDialogTopicGetter
+                     ?? (fold is not null
+                         && k.ModKey.FileName.String.Equals(fold.Plugin, StringComparison.OrdinalIgnoreCase)
+                         && !view.ContainsPlugin(fold.Plugin)
+                            ? null
+                            : view.GetRecord(session, k.ModKey.FileName.String, k, typeof(IDialogTopicGetter)) as IDialogTopicGetter);
                 baseCache[k] = g;
                 return g;
             }
@@ -355,7 +385,9 @@ public static class DialogueValidate
             var win = view.ResolveWinner(fk);
             // The seed's own provider under the projection: the folded file where it carries the record, else the
             // active winner. A seed the folded file defines resolves nowhere in the order, and that is not a miss.
-            var seedFoldBody = fold?.Record(fk);
+            // The fold's own body only where the fold WINS it: a master-block fold that a regular plugin overrides
+            // is not what the game would read, and the seed is validated as the projection resolves it.
+            var seedFoldBody = FoldWins(fk) ? fold!.Record(fk) : null;
             if (win is null && seedFoldBody is null)
                 return DialogueValidationReport.ForError(fk,
                     $"{FormIdToken.Of(fk)} is not in the active load order — nothing to validate. Pass a dialogue topic (DIAL) FormID to validate one topic, a quest (QUST) FormID to validate all of a quest's topics, or a dialogue view (DLVW) / branch (DLBR) FormID for a record-level CK-parity check."
@@ -370,9 +402,9 @@ public static class DialogueValidate
             if (body is IDialogTopicGetter topic)
             {
                 var tv = ValidateTopic(topic, provider, InOrder, Resolve, av, BaseCopy, forceLoaded)
-                    with { InfoOrder = OrdersFor(new[] { fk }).GetValueOrDefault(fk) };
+                    with { InfoOrder = OrdersFor(new[] { fk }).GetValueOrDefault(fk), WinnerIsFolded = FoldProvides(fk) };
                 return new DialogueValidationReport(fk, "topic", topic.EditorID ?? "", provider, new[] { tv })
-                    { ReadIncomplete = av.ReadIncomplete };
+                    { ReadIncomplete = av.ReadIncomplete, InputWinnerIsFolded = FoldProvides(fk) };
             }
 
             if (body is IQuestGetter quest)
@@ -386,7 +418,9 @@ public static class DialogueValidate
                 // start-game-enabled quest needs a .seq that lists it, or it (and all its dialogue) stays dormant.
                 var seqLint = CheckSeq(view, av, fk, quest, provider, fold);
 
-                var topics = new List<TopicValidation>();
+                // Nullable entries, because a fold can DROP one: the slot is emptied in place so every other
+                // topic keeps the index topicAt gave it, and the empties are compacted out below.
+                var topics = new List<TopicValidation?>();
                 // Where each topic's validation sits, so a topic the folded file also owns REPLACES the active
                 // order's version rather than being validated twice under two providers.
                 var topicAt = new Dictionary<FormKey, int>();
@@ -409,9 +443,18 @@ public static class DialogueValidate
                 if (fold is not null)
                     foreach (var ft in fold.TopicBodies)
                     {
-                        if (NonNull(ft.Quest.FormKeyNullable) is not { } fq || fq != fk) continue;
-                        var tv = ValidateTopic(ft, fold.Label, InOrder, Resolve, av, BaseCopy, forceLoaded);
-                        if (topicAt.TryGetValue(ft.FormKey, out int at)) topics[at] = tv;
+                        // A topic an active regular plugin overrides above a master-block fold keeps the active
+                        // verdict: the fold does not win it, so its Quest link is not what the projection reads.
+                        if (!FoldWins(ft.FormKey)) continue;
+                        bool ownsIt = NonNull(ft.Quest.FormKeyNullable) is { } fq && fq == fk;
+                        bool listed = topicAt.TryGetValue(ft.FormKey, out int at);
+                        // A topic the fold RE-PARENTS away from this quest is no longer this quest's under the
+                        // projection: the active order's verdict for it is dropped rather than left standing, which
+                        // would report a topic the folded file moved elsewhere.
+                        if (!ownsIt) { if (listed) topics[at] = null; continue; }
+                        var tv = ValidateTopic(ft, fold.Plugin, InOrder, Resolve, av, BaseCopy, forceLoaded)
+                            with { WinnerIsFolded = true };
+                        if (listed) topics[at] = tv;
                         else { topicAt[ft.FormKey] = topics.Count; topics.Add(tv); }
                     }
 
@@ -420,9 +463,10 @@ public static class DialogueValidate
                 // other plugins' overlays. An InfoOrderView holds only FormKeys, names and indices (no overlay-backed
                 // body), so building it late is safe where reading a body late would not be. Batched so the whole
                 // fan-out costs one typed pass per contributing plugin, not one per (topic, plugin).
-                var orders = OrdersFor(topics.Select(t => t.Topic).ToList());
-                for (int i = 0; i < topics.Count; i++)
-                    topics[i] = topics[i] with { InfoOrder = orders.GetValueOrDefault(topics[i].Topic) };
+                var kept = topics.Where(t => t is not null).Select(t => t!).ToList();
+                var orders = OrdersFor(kept.Select(t => t.Topic).ToList());
+                for (int i = 0; i < kept.Count; i++)
+                    kept[i] = kept[i] with { InfoOrder = orders.GetValueOrDefault(kept[i].Topic) };
 
                 // Quest-level CK-parity gaps (ANAM / objective FNAM) — checked ONCE on the winning quest record and
                 // surfaced as InputIssues, never per topic (a multi-topic quest would repeat the same quest gap N
@@ -437,8 +481,9 @@ public static class DialogueValidate
                     .Select(u => $"{u.Message} Any topic of this quest that plugin owns is missing from this report.")
                     .ToList();
 
-                return new DialogueValidationReport(fk, "quest", quest.EditorID ?? "", provider, topics)
-                    { ReadIncomplete = av.ReadIncomplete, SeqLint = seqLint, InputIssues = questGaps, ScanGaps = scanGaps };
+                return new DialogueValidationReport(fk, "quest", quest.EditorID ?? "", provider, kept)
+                    { ReadIncomplete = av.ReadIncomplete, SeqLint = seqLint, InputIssues = questGaps, ScanGaps = scanGaps,
+                      InputWinnerIsFolded = FoldProvides(fk) };
             }
 
             // DLVW / DLBR inputs: a RECORD-LEVEL CK-parity check — these carry no INFO list, so there is no topic
@@ -451,7 +496,7 @@ public static class DialogueValidate
                 var gaps = DialogueCkParity.MissingViewDefaults(dlvw)
                     .Select(g => GapIssue("DialogView", fk, g)).ToList();
                 return new DialogueValidationReport(fk, "view", dlvw.EditorID ?? "", provider,
-                    Array.Empty<TopicValidation>()) { InputIssues = gaps };
+                    Array.Empty<TopicValidation>()) { InputIssues = gaps, InputWinnerIsFolded = FoldProvides(fk) };
             }
 
             if (body is IDialogBranchGetter dlbr)
@@ -459,7 +504,7 @@ public static class DialogueValidate
                 var gaps = DialogueCkParity.MissingBranchDefaults(dlbr)
                     .Select(g => GapIssue("DialogBranch", fk, g)).ToList();
                 return new DialogueValidationReport(fk, "branch", dlbr.EditorID ?? "", provider,
-                    Array.Empty<TopicValidation>()) { InputIssues = gaps };
+                    Array.Empty<TopicValidation>()) { InputIssues = gaps, InputWinnerIsFolded = FoldProvides(fk) };
             }
 
             return DialogueValidationReport.ForError(fk,
@@ -795,7 +840,13 @@ public static class DialogueValidate
         var defining = fk.ModKey.FileName;
         try
         {
-            var pluginPath = view.PluginPath(defining)
+            // The FOLD's own file wins where the quest came from it: a shadowed fold shares its filename with an
+            // active plugin, and that plugin's path would map the FormID through a different master list and stat
+            // a different file's mtime — answering the .seq question about a file this validation never read.
+            var pluginPath = (fold is not null && fold.Holds(fk)
+                              && defining.String.Equals(fold.Plugin, StringComparison.OrdinalIgnoreCase)
+                                  ? fold.Path : null)
+                ?? view.PluginPath(defining)
                 ?? (fold is not null && defining.String.Equals(fold.Plugin, StringComparison.OrdinalIgnoreCase)
                         ? fold.Path : null);
             if (pluginPath is null)
