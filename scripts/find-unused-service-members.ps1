@@ -11,10 +11,10 @@
 # CreateRecords. Overloads share one name, so a name is dead only when every overload
 # of it is. Deleting the member and building is the last word.
 #
-# Two kinds of member are listed and are not dead: one the language calls rather than
-# the code (Dispose, under a `using`), and a seam the CI guards drive from outside the
-# shipped process (the ForGuard pair, and Stats, which the probes and tests build the
-# lazy index through and read the epoch and counters off).
+# What it lists today is four names, none of them dead. Two are guard seams (ForGuard,
+# WithSourceChainForGuard) and two are lanes the CI probes and the tests drive from outside
+# the shipped process (ResolveTreePinned, ValidateDialogue). The scope is src/housecarl-mcp,
+# so a caller in the generator or the test project is not a call this script can see.
 #
 #   scripts/find-unused-service-members.ps1
 #   scripts/find-unused-service-members.ps1 -Sites          # with the other-receiver uses
