@@ -22,6 +22,18 @@ winner. For a vanilla NPC an overhaul re-dresses, that is `Skyrim.esm\`, not the
 cross-folder fallback: the engine reads that one path and regenerates if nothing wins there. The leading index
 byte is masked to `00` because the file already lives in the defining plugin's own named folder.
 
+Because the path is that transform, the file layer answers for a whole order in one call:
+`housecarl_asset_status` with `formids=` a list of NPCs derives both halves of each bake and resolves them
+together, one row per path, each naming the other half's winner beside its own. The whole-order sweep is two
+calls — `housecarl_records types=["NPC_"] to_file=<file>` for the identity set, then
+`housecarl_asset_status formids=["@<file>"] to_file=<file2>` — and the artifact's `winner`, `winner_kind`,
+`pair_winner` and `pair_differs` columns are the pairing map. Use it when you want the file-layer provenance
+over the order; `housecarl_check findings=["facegen"]` is what adds the record winner and the classes below.
+
+A split is decided on the winners' owning **mods**, not their provider names. Vanilla ships every head in
+`Skyrim - Meshes0.bsa` and every tint in `Skyrim - Textures0.bsa` — two archives, one product — so comparing
+names calls most of the order split; on the measured order that is 2,719 NPCs against 375.
+
 ## The check's classes, and the fix for each
 
 | Class | What it means | Fix |

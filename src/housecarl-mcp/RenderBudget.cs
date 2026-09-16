@@ -63,17 +63,17 @@ internal static class RenderBudget
     /// <summary>THE BOUND for <c>form='identity'</c>: ten minutes at <see cref="MillisPerIdentityRow"/>.</summary>
     internal const int DefaultMaxIdentityRows = 40_000;
 
-    /// <summary>The declared cost of resolving ONE asset path through the VFS. Two parts, and the second is what
-    /// costs: a lookup in every active archive's table (about a thousand of them on the measured order), plus, the
-    /// first time a path in that DIRECTORY is asked for, a loose warm that stats the directory in every mod folder.
-    /// A sweep spread over many defining-master folders pays that warm again per folder, which is why the per-path
-    /// figure is milliseconds and not microseconds. Measured on the ARR order; see the PR for the run.</summary>
-    internal const double MillisPerAssetPath = 3.0;
+    /// <summary>The declared cost of resolving ONE asset path through the VFS: a lookup in every active archive's
+    /// table, plus — the first time a path in that DIRECTORY is asked for — a loose warm that stats the directory in
+    /// every mod folder. Measured end to end at 0.22 ms a path on the ARR order (131,496 FaceGen paths across 65,748
+    /// NPCs in 28.8 s, artifact write included); 0.5 ms carries that plus better than a 2x margin for a sweep spread
+    /// over more directories, which is what makes the warm bite.</summary>
+    internal const double MillisPerAssetPath = 0.5;
 
-    /// <summary>THE BOUND for one <c>asset_status</c> call: ten minutes at <see cref="MillisPerAssetPath"/>. A
-    /// whole-order FaceGen pairing sweep is a few thousand paths and sits far inside it; an unanchored
-    /// <c>under=["meshes/**"]</c> is millions and announces itself instead of running for an hour.</summary>
-    internal const int DefaultMaxAssetPaths = 200_000;
+    /// <summary>THE BOUND for one <c>asset_status</c> call: ten minutes at <see cref="MillisPerAssetPath"/>. The
+    /// whole-order FaceGen pairing sweep this bound was measured on is 131,496 paths and sits an order of magnitude
+    /// inside it; an unanchored <c>under=["meshes/**"]</c> is the shape that reaches it.</summary>
+    internal const int DefaultMaxAssetPaths = 1_200_000;
 
     /// <summary>The bounds in force. Settable so a test can drive the seam over a world of a few records instead of
     /// building 300,000 — the same reason <see cref="Artifacts.WriteCrossQuery"/> takes a row cap. Production never

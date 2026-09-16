@@ -59,6 +59,22 @@ saying it sets an expectation their install may contradict. Say what is known, a
   skipped such a record — a field it cannot read has always been a non-match counted in its own rollup — and a
   predicate over `Effects` still reads that way. Check the read with `project.form="fields"`, `fields=["Effects"]`,
   `depth=3` on the perk.
+- **`housecarl_asset_status` takes a set and writes it to a file.** It already took a list of paths and an
+  `under=` directory or glob; it now also takes `formids=` — NPC FormIDs, from each of which BOTH halves of that
+  NPC's FaceGen bake are derived (the head `.nif` and the face tint `.dds`, a pure transform of the FormID, so no
+  record is read) and resolved as two rows, each naming the OTHER half's winner beside its own. A pair is called
+  split on the winners' owning MODS, not on their provider names: the vanilla game ships every head in
+  `Skyrim - Meshes0.bsa` and every tint in `Skyrim - Textures0.bsa`, and on a 3,244-plugin order the name
+  comparison calls 2,719 NPCs split where the mod comparison calls 375. Both list inputs take
+  `["@<absolute path>"]` in place of the inline list, and `to_file=` writes the complete result as a JSONL
+  artifact (line 1 = manifest) and renders only the manifest inline, the same convention `housecarl_records` and
+  `housecarl_check` use — the artifact's identity column is `path`, so it re-enters through `asset_paths=`, and
+  `offset=` is refused beside it because the artifact is never a window. What a call may resolve is bounded
+  (see `asset_status`'s own `BOUND:` clause); past it the call refuses up front with the count and the time
+  estimate. Check it by running the whole-order pairing sweep — `housecarl_records types=["NPC_"] to_file=`, then
+  `housecarl_asset_status formids=["@<that file>"] to_file=` — and grepping the artifact's `pair_differs` and
+  `pair_exists` columns: on the order above that is 65,748 NPCs, 131,496 paths in 28 s, and 59 NPCs whose winning
+  head mesh names a tint no active mod or archive provides.
 
 ## 2.0.2 — 2026-09-15
 

@@ -66,9 +66,17 @@ public sealed class AssetSelectWorld : IDisposable
     /// uses — so the world and the tool cannot disagree about where a bake lives.</summary>
     public static string Face(string formid, FaceGenSlot slot) => FaceGenPath.For(FormKey.Factory(formid), slot);
 
-    /// <summary>The three head meshes the pairs above add under <c>facegeom</c>, outside
+    /// <summary>An NPC whose two halves come from TWO ARCHIVES OF ONE MOD — the vanilla shape, where every head is in
+    /// "Skyrim - Meshes0.bsa" and every tint in "Skyrim - Textures0.bsa". Two provider names, one product, and NOT a
+    /// split.</summary>
+    public const string ArchivePairFormId = "0E0E0E:" + PairMaster;
+
+    /// <summary>The mod folder both archives ship from — what <c>pair_differs</c> is decided on.</summary>
+    public const string ArchiveModName = "ArchiveMod";
+
+    /// <summary>The four head meshes the pairs above add under <c>facegeom</c>, outside
     /// <see cref="FaceGeomDir"/>.</summary>
-    public const int PairFaceGeomNifs = 3;
+    public const int PairFaceGeomNifs = 4;
 
     /// <summary>Every <c>.nif</c> under <c>meshes\actors</c> in this world — what a '**' sweep from the actors root
     /// finds, as against <see cref="FaceGeomFiles"/> under one master's folder.</summary>
@@ -117,13 +125,23 @@ public sealed class AssetSelectWorld : IDisposable
         Loose(faceBase, Face(TintAbsentFormId, FaceGenSlot.Mesh));
 
         var pairGeomDir = FaceGenPath.Root(FaceGenSlot.Mesh).TrimEnd('\\') + "\\" + PairMaster;
+        var pairTintDir = FaceGenPath.Root(FaceGenSlot.Tint).TrimEnd('\\') + "\\" + PairMaster;
         File.WriteAllBytes(Path.Combine(archiveMod, "HcArch.bsa"),
             BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames,
                 new[]
                 {
                     (FaceGeomDir, new[] { ("0005.nif", BsaBuilder.Bytes("NIF-0005", 48)) }),
-                    (pairGeomDir, new[] { (Path.GetFileName(Face(SplitFormId, FaceGenSlot.Mesh)), BsaBuilder.Bytes("NIF-SPLIT", 48)) }),
+                    (pairGeomDir, new[]
+                    {
+                        (Path.GetFileName(Face(SplitFormId, FaceGenSlot.Mesh)), BsaBuilder.Bytes("NIF-SPLIT", 48)),
+                        (Path.GetFileName(Face(ArchivePairFormId, FaceGenSlot.Mesh)), BsaBuilder.Bytes("NIF-ARCH", 48)),
+                    }),
                 }));
+        // The SAME mod's second archive, the way the game splits meshes from textures. Two provider names, one
+        // owning mod — which is what a split has to be decided on.
+        File.WriteAllBytes(Path.Combine(archiveMod, "HcArch - Textures.bsa"),
+            BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames,
+                new[] { (pairTintDir, new[] { (Path.GetFileName(Face(ArchivePairFormId, FaceGenSlot.Tint)), BsaBuilder.Bytes("DDS-ARCH", 48)) }) }));
 
         File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\nHcArch.esp\r\n");
         File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*HcArch.esp\r\n");

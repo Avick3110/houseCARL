@@ -79,7 +79,11 @@ internal static class Artifacts
         sb.Append("  the file is JSONL (line 1 = this manifest, one row per line) — grep/read it with your own file tools, ")
           .Append(m.Identity is null
               ? "or re-run the producing query for fresh values.\n"
-              : $"or re-enter it server-side via formids=@{s.Path} / where=[\"formid in @{s.Path}\"] (epoch-checked against the current build).\n");
+              // The re-entry spelling follows the IDENTITY column: naming formids= over an artifact of paths would
+              // send the caller into the refusal that says the file carries no FormIDs.
+              : m.Identity.Equals("formid", StringComparison.OrdinalIgnoreCase)
+                  ? $"or re-enter it server-side via formids=@{s.Path} / where=[\"formid in @{s.Path}\"] (epoch-checked against the current build).\n"
+                  : $"or re-enter it server-side wherever a '{m.Identity}' list is taken, as @{s.Path} (epoch-checked against the current build).\n");
     }
 
     // ---- the shared spilled-marker emitter (json) ---------------------------------------------------

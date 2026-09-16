@@ -3192,6 +3192,9 @@ static class JsonWire
         foreach (var p in hit.Providers) WriteAssetProvider(w, null, p);
         w.WriteEndArray();
         w.WriteBoolean("ambiguous", hit.Ambiguous);
+        // On a formids= row only, so a plain path row is the document it always was: the mod behind a BSA winner is
+        // the side the pair's `differs` verdict is decided on, and a consumer needs both to check it.
+        if (r.FormId is not null) WriteNullable(w, "winner_mod", hit.Winner?.OwningMod);
         if (!hit.Exists)
         {
             WriteNullableStringArray(w, "prefix_suggestions", r.PrefixSuggestions);
@@ -3214,8 +3217,10 @@ static class JsonWire
             {
                 w.WriteBoolean("exists", pair.Exists);
                 if (pair.Winner is { } pw) WriteAssetProvider(w, "winner", pw); else w.WriteNull("winner");
+                // The mod behind a BSA winner, because `differs` below is decided on it and not on the archive name.
+                WriteNullable(w, "winner_mod", pair.Winner?.OwningMod);
             }
-            else { w.WriteNull("exists"); w.WriteNull("winner"); }
+            else { w.WriteNull("exists"); w.WriteNull("winner"); w.WriteNull("winner_mod"); }
             w.WriteBoolean("differs", r.PairDiffers);
             w.WriteEndObject();
         }

@@ -242,12 +242,19 @@ public sealed record AssetPathResult(string RelPath, AssetHit? Hit, string? Erro
                                      string? FormId = null, FaceGenSlot? Slot = null,
                                      string? PairPath = null, AssetHit? PairHit = null)
 {
-    /// <summary>Both halves resolved to a provider and they are NOT the same source — the split the dark-face
-    /// diagnosis is looking for. False when either half is absent (that is a different class, and the row already
-    /// says so) and on any row with no pair.</summary>
+    /// <summary>Both halves resolved and they come from DIFFERENT MODS — the split the dark-face diagnosis is looking
+    /// for. False when either half is absent (that is a different class, and the row already says so) and on any row
+    /// with no pair.
+    /// <para>Compared by the OWNING MOD, not by the provider name: the vanilla game ships every head in
+    /// <c>Skyrim - Meshes0.bsa</c> and every tint in <c>Skyrim - Textures0.bsa</c>, two provider names for one
+    /// product. Measured on the ARR order, comparing names called 2,719 NPCs split and comparing owners called
+    /// 375 — the 2,344 difference is that one shape, and every one of them would have been a false report.</para></summary>
     public bool PairDiffers =>
         Hit is { Exists: true, Winner: { } a } && PairHit is { Exists: true, Winner: { } b }
-        && !string.Equals(a.Source, b.Source, StringComparison.OrdinalIgnoreCase);
+        && !string.Equals(Owner(a), Owner(b), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Who ships this copy: the mod folder behind a BSA, or the loose provider's own name.</summary>
+    internal static string Owner(AssetProvider p) => p.OwningMod ?? p.Source;
 }
 
 /// <summary>One entry of <c>asset_status</c>'s <c>formids=</c> SELECT: the caller's raw token, the FormKey it parsed

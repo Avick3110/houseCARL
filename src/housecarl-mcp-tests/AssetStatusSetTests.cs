@@ -87,6 +87,29 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
         Assert.All(clean.Results, r => Assert.False(r.PairDiffers));
     }
 
+    /// <summary>Two ARCHIVES of ONE mod is not a split. It is how the vanilla game ships every bake — heads in
+    /// "Skyrim - Meshes0.bsa", tints in "Skyrim - Textures0.bsa" — so a verdict taken off the provider NAME calls
+    /// most of the order split. On the ARR order that was 2,719 NPCs against 375 decided on the owning mod.</summary>
+    [Fact]
+    public void TwoArchivesOfOneModAreNotASplit()
+    {
+        var d = _w.Svc.AssetStatus(Array.Empty<string>(), null, 0, 0,
+                                   new[] { new FaceGenSeed(AssetSelectWorld.ArchivePairFormId, Mutagen.Bethesda.Plugins.FormKey.Factory(AssetSelectWorld.ArchivePairFormId), null) });
+
+        var mesh = Row(d, AssetSelectWorld.Face(AssetSelectWorld.ArchivePairFormId, FaceGenSlot.Mesh));
+        var tint = Row(d, AssetSelectWorld.Face(AssetSelectWorld.ArchivePairFormId, FaceGenSlot.Tint));
+
+        // Two different archives win the two halves...
+        Assert.Equal(AssetKind.Bsa, mesh.Hit!.Winner!.Kind);
+        Assert.Equal(AssetKind.Bsa, tint.Hit!.Winner!.Kind);
+        Assert.NotEqual(mesh.Hit.Winner.Source, tint.Hit.Winner.Source);
+        // ...and both archives are the same mod, so the pair is whole.
+        Assert.Equal(AssetSelectWorld.ArchiveModName, mesh.Hit.Winner.OwningMod);
+        Assert.Equal(AssetSelectWorld.ArchiveModName, tint.Hit.Winner.OwningMod);
+        Assert.False(mesh.PairDiffers);
+        Assert.False(tint.PairDiffers);
+    }
+
     /// <summary>The whole-order sweep's own question: a winning head whose tint exists nowhere. The head row says the
     /// pair is ABSENT rather than leaving the caller to spot a missing row.</summary>
     [Fact]

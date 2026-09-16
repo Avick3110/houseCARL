@@ -32,8 +32,8 @@ public static class AssetTools
          "that cannot be read, or a " +
          "Skyrim.ini base-archive list that cannot be found, is reported LOUD — so an 'absent' answer is never silently " +
          "trusted when the scan was incomplete. format='json' returns the same data machine-readably, with the same " +
-         "accounting in-band. TRANSPORT — format= | limit= | offset= | max_chars= | to_file=. BOUND: 200,000 resolved " +
-         "paths a call; past it the call refuses up front with the count and the estimate. Read-only: resolves " +
+         "accounting in-band. TRANSPORT — format= | limit= | offset= | max_chars= | to_file=. BOUND: 1,200,000 " +
+         "resolved paths a call; past it the call refuses up front with the count and the estimate. Read-only: resolves " +
          "nothing to disk, writes nothing, changes no load order.")]
     public static string AssetStatus(
         LoadOrderService svc,
@@ -320,12 +320,18 @@ static class AssetWire
         if (r.Slot is { } s) sb.Append(" (").Append(FaceGenPath.Token(FaceGenPath.Other(s))).Append(')');
         sb.Append(": ").Append(r.PairPath).Append('\n');
         sb.Append("    ").Append(r.PairHit is { Exists: true, Winner: { } w }
-                                    ? "WINS: " + Provider(w)
+                                    ? "WINS: " + Provider(w) + Mod(w)
                                     : "ABSENT — no active mod or BSA provides this path").Append('\n');
         if (r.PairDiffers)
-            sb.Append("    [!] the two halves win from DIFFERENT sources — the head geometry and the face tint come " +
-                      "from different mods, which is the dark-face split.\n");
+            sb.Append("    [!] the two halves win from DIFFERENT mods — the head geometry and the face tint come from " +
+                      "different products, which is the dark-face split.\n");
     }
+
+    /// <summary>The mod folder behind a BSA provider, where the provider token is the archive's own filename and the
+    /// mod is what a caller would sort or disable. Nothing for a loose provider, whose token IS the mod.</summary>
+    static string Mod(HousecarlCore.AssetProvider p)
+        => p.OwningMod is { Length: > 0 } m && !string.Equals(m, p.Source, StringComparison.OrdinalIgnoreCase)
+            ? $"  [mod: {m}]" : "";
 
     static string Kind(HousecarlCore.AssetKind k) => k == HousecarlCore.AssetKind.Bsa ? "BSA" : "loose";
 
