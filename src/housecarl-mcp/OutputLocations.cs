@@ -245,8 +245,9 @@ public sealed partial class LoadOrderService
     /// deployability question to answer. The folder is the caller's, so the returned
     /// <see cref="RiderFolder"/> carries CreatedFresh=false and residue cleanup never deletes it. Refuses a path
     /// that is not absolute, and one naming an existing file; creates the folder when it is missing. Reads no
-    /// instance state — the .psc lands entirely outside the MO2 instance — so it takes no lock and needs no
-    /// configured instance.</summary>
+    /// instance state — the .psc lands entirely outside the MO2 instance — so it takes no lock, and the tool lets
+    /// this lane run with no instance configured, unlike the default one. What the instance would have added is the
+    /// class hierarchy's mods-tree top-up, which the tool states as degraded rather than requiring.</summary>
     public static RiderFolder ResolveExplicitSourceFolder(string outPath)
     {
         var given = (outPath ?? "").Trim().Trim('"');

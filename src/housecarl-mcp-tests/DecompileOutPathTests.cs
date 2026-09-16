@@ -59,6 +59,58 @@ public sealed class DecompileOutPathTests
     }
 
     [Fact]
+    public void ARefusalCarryingAnIgnoredPatchStillOpensWithErrorAndStatesTheIgnoredLane()
+    {
+        // The note is appended, never prepended: a caller (and every refusal test on this surface) reads the first
+        // word, and "note:" in front of an error hides that the call failed.
+        var dest = FreshDir();
+        try
+        {
+            var r = DecompileTools.DecompileScript(
+                W.Svc, Path.Combine(W.ScriptsDir, "HcSpNoSuchScript.pex"), patch: "HcIgnoredPatch", out_path: dest);
+
+            Assert.StartsWith("error:", r);
+            Assert.Contains("patch=/into= were ignored", r);
+            Assert.Contains("nothing was written", r);
+        }
+        finally { try { Directory.Delete(dest, true); } catch { /* temp cleanup */ } }
+    }
+
+    [Fact]
+    public void OutPathRunsWithNoInstanceConfiguredAndSaysTheHierarchyIsTheBaseline()
+    {
+        var dir = FreshDir();
+        Directory.CreateDirectory(dir);
+        var dest = Path.Combine(dir, "psc");
+        try
+        {
+            using var unconfigured = LoadOrderService.WithInstance(null, 0, new UserConfigStore(Path.Combine(dir, "user.json")));
+
+            var r = DecompileTools.DecompileScript(unconfigured, Pex, out_path: dest);
+
+            Assert.True(File.Exists(Path.Combine(dest, ScriptsWorld.BaseScript + ".psc")), r);
+            Assert.Contains("no MO2 instance is configured", r);
+        }
+        finally { try { Directory.Delete(dir, true); } catch { /* temp cleanup */ } }
+    }
+
+    [Fact]
+    public void WithoutOutPathNoInstanceConfiguredStillAsksForTheInstance()
+    {
+        var dir = FreshDir();
+        Directory.CreateDirectory(dir);
+        try
+        {
+            using var unconfigured = LoadOrderService.WithInstance(null, 0, new UserConfigStore(Path.Combine(dir, "user.json")));
+
+            var r = DecompileTools.DecompileScript(unconfigured, Pex);
+
+            Assert.Contains("Mod Organizer 2 instance", r);
+        }
+        finally { try { Directory.Delete(dir, true); } catch { /* temp cleanup */ } }
+    }
+
+    [Fact]
     public void OutPathSupersedesIntoAndTheResponseSaysSo()
     {
         var dest = FreshDir();

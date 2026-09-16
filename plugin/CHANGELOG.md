@@ -15,12 +15,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 - **`housecarl_decompile_script` now takes `out_path=`, a folder of your own to land the `.psc` in instead of a new
   mod folder.** Pass an absolute path and the `.psc` is written straight into it — nothing appended, the folder
-  created when it is missing, and never deleted by houseCARL, since it is yours. The same parameter, with the same
-  meaning, as `housecarl_bsa_extract`'s and `housecarl_compile_script`'s. A relative path is refused naming what to
-  pass instead, because the server would resolve it against its own working directory rather than yours. A call that
-  also carries `patch=` or `into=` lands in `out_path=` and the result says those were ignored, the same way
-  `housecarl_compile_script` and `housecarl_write_seq` answer that call. Without `out_path=` nothing changes:
-  the `.psc` lands in a houseCARL patch-mod folder under `Source\Scripts` as before. To check, decompile with
+  created when it is missing, and never deleted by houseCARL, since it is yours. It follows
+  `housecarl_bsa_extract`'s `out_path=` — the files land in the folder you name, which is created if it is not there
+  — and shares the name with `housecarl_compile_script`'s, nothing more. A path that is not absolute is refused
+  naming what to pass instead, because the server would resolve it against its own working directory rather than
+  yours. A call that also carries `patch=` or `into=` lands in `out_path=` and the result says those were ignored,
+  the same way `housecarl_compile_script` and `housecarl_write_seq` answer that call. This lane needs no MO2
+  instance; without one it says the class hierarchy is the shipped vanilla baseline, which costs explicit casts and
+  never wrong source. Without `out_path=` nothing changes: the `.psc` lands in a houseCARL patch-mod folder under
+  `Source\Scripts`, and an unconfigured houseCARL still asks for your instance. To check, decompile with
   `out_path=` a scratch folder and look there for the `.psc` the result names — your mods directory gains no folder.
 
 ## 2.0.2 — 2026-09-15
