@@ -310,17 +310,22 @@ internal static class FreshnessCaptureProbe
                 // has pinned its resolver, and stays parked until this thread's read has been served — so a runner
                 // that finishes the write inside a sleep cannot leave the race unstaged and report that as a product
                 // failure. Every judgement below then holds by construction rather than by luck.
-                int duringCount = -1; bool parked = false, midFlight = false;
+                int duringCount = -1; bool parked = false, midFlight = false, joined = false;
+                string? writeFault = null;
                 WritePatchBuilder.PatchOutcome? outcome = null;
                 using (var inGate = new ManualResetEventSlim())
                 using (var release = new ManualResetEventSlim())
                 {
                     LoadOrderService.InsideWriteGateForGuard = () => { inGate.Set(); release.Wait(); };
+                    Task<WritePatchBuilder.PatchOutcome>? wt = null;
                     try
                     {
-                        var wt = Task.Run(() => svc.ApplyEdits(ops, "HcFcgDefer", null));
-                        // Bounded: a write that never reaches the gate fails the arm loudly instead of hanging CI.
-                        parked = inGate.Wait(TimeSpan.FromSeconds(60));
+                        wt = Task.Run(() => svc.ApplyEdits(ops, "HcFcgDefer", null));
+                        // Wait for the park OR the write ending, never for the park alone: a write that refuses
+                        // before the gate, or wedges on the way to it, has to END the arm, not hang CI on a join.
+                        parked = WaitHandle.WaitAny(
+                            new[] { inGate.WaitHandle, ((IAsyncResult)wt).AsyncWaitHandle },
+                            TimeSpan.FromSeconds(60)) == 0;
                         if (parked)
                         {
                             WriteProfile(prof, new[] { masterName, extraName },   // a real MO2 toggle arrives MID-write
@@ -328,17 +333,25 @@ internal static class FreshnessCaptureProbe
                             duringCount = svc.Stats().plugins;        // the concurrent read, served while the write holds the gate
                             midFlight = !wt.IsCompleted;              // the write is parked on the seam, so this cannot have completed
                         }
-                        release.Set();                                // let the parked write run to completion
-                        outcome = wt.Result;
                     }
                     finally
                     {
                         LoadOrderService.InsideWriteGateForGuard = null;
                         release.Set();                                // a throw above must never leave the write parked
+                        // Join INSIDE the using, bounded: a parked write is sitting in release.Wait(), and disposing
+                        // that event under it throws on the write thread and leaves the task unobserved with its
+                        // files open while the arm's own finally deletes the scratch root.
+                        if (wt is not null)
+                        {
+                            try { joined = wt.Wait(TimeSpan.FromSeconds(60)); }
+                            catch (AggregateException ex) { joined = true; writeFault = ex.InnerException?.Message ?? ex.Message; }
+                            if (joined && writeFault is null) outcome = wt.Result;
+                        }
                     }
                 }
                 Check(parked && midFlight, "landed a read that completed while the write was still in flight");
-                Check(outcome is { Success: true }, $"the in-flight write succeeded — {outcome?.Error ?? "ok"}");
+                Check(joined, "the write completed once the park was released");
+                Check(outcome is { Success: true }, $"the in-flight write succeeded — {writeFault ?? outcome?.Error ?? "ok"}");
                 Check(duringCount == 1,
                       $"the mid-write read served the last good snapshot (refresh deferred, no mid-write rebuild) — saw {duringCount} plugin(s)");
                 var afterCount = svc.Stats().plugins;
