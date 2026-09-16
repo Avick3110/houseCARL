@@ -95,6 +95,28 @@ public sealed class DecompileOutPathTests
     }
 
     [Fact]
+    public void AConfiguredInstanceThatDoesNotResolveStillSaysTheHierarchyIsTheBaselineOnly()
+    {
+        // Configured is not the same as usable: the instance folder is gone, so the mods-tree top-up cannot run.
+        // The degraded hierarchy is stated off what the build reports, not off whether an instance was named.
+        var dir = FreshDir();
+        Directory.CreateDirectory(dir);
+        var dest = Path.Combine(dir, "psc");
+        try
+        {
+            using var broken = LoadOrderService.WithInstance(
+                Path.Combine(dir, "no-such-instance"), 0, new UserConfigStore(Path.Combine(dir, "user.json")));
+
+            var r = DecompileTools.DecompileScript(broken, Pex, out_path: dest);
+
+            Assert.True(File.Exists(Path.Combine(dest, ScriptsWorld.BaseScript + ".psc")), r);
+            Assert.Contains("the mods-tree sources were not read", r);
+            Assert.Contains("does not resolve", r);
+        }
+        finally { try { Directory.Delete(dir, true); } catch { /* temp cleanup */ } }
+    }
+
+    [Fact]
     public void WithoutOutPathNoInstanceConfiguredStillAsksForTheInstance()
     {
         var dir = FreshDir();

@@ -157,9 +157,11 @@ Then work the checks, in cost order:
 3. **The declaration itself.** `housecarl_decompile_script` with `pex=` recovers the real
    declaration — names, types, properties, states, events and docstrings all survive. Add
    `out_path=` an absolute folder to land the `.psc` there instead of in a new mod folder, which is
-   what you want when you are only reading a signature. For a class inside an archive,
-   `housecarl_bsa_extract` with `archive=` and `out_path=` first, then decompile the extracted path
-   (`out_path=` the same scratch folder). **Parameter defaults do not survive a decompile** — they
+   what you want when you are only reading a signature. Give each lookup its own empty folder: a
+   `.psc` already at that path is refused, never overwritten, so a reused folder stops the second
+   lookup. For a class inside an archive, `housecarl_bsa_extract` with `archive=` and `out_path=`
+   first, then decompile the extracted path with `out_path=` a different, empty folder.
+   **Parameter defaults do not survive a decompile** — they
    never existed in the `.pex` — so a decompiled declaration answers arity and types and cannot
    answer a default.
 4. **Compile it.** `housecarl_compile_script` with `script=` is the deterministic answer: it puts

@@ -20,9 +20,12 @@ saying it sets an expectation their install may contradict. Say what is known, a
   — and shares the name with `housecarl_compile_script`'s, nothing more. A path that is not absolute is refused
   naming what to pass instead, because the server would resolve it against its own working directory rather than
   yours. A call that also carries `patch=` or `into=` lands in `out_path=` and the result says those were ignored,
-  the same way `housecarl_compile_script` and `housecarl_write_seq` answer that call. This lane needs no MO2
-  instance; without one it says the class hierarchy is the shipped vanilla baseline, which costs explicit casts and
-  never wrong source. Without `out_path=` nothing changes: the `.psc` lands in a houseCARL patch-mod folder under
+  the same way `housecarl_compile_script` and `housecarl_write_seq` answer that call. A `.psc` already at that path
+  is refused and never overwritten, as in a houseCARL folder, so give each decompile an empty folder. This lane needs
+  no MO2 instance, and every decompile now says what its class hierarchy actually is whenever a piece of it is
+  missing — no instance, one that does not resolve, a mods folder that is gone — instead of going quiet about a
+  hierarchy that is the shipped vanilla baseline alone; the cost is explicit casts, never wrong source.
+  Without `out_path=` nothing changes: the `.psc` lands in a houseCARL patch-mod folder under
   `Source\Scripts`, and an unconfigured houseCARL still asks for your instance. To check, decompile with
   `out_path=` a scratch folder and look there for the `.psc` the result names — your mods directory gains no folder.
 

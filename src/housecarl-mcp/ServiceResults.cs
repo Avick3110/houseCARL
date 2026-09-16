@@ -733,3 +733,11 @@ public sealed record SeqOutcome(
     public static SeqOutcome Fail(string error)
         => new(false, error, null, null, Array.Empty<HousecarlCore.SeqFile.SeqQuest>(), "", false);
 }
+
+/// <summary>The decompiler's class hierarchy and what is missing from it. <see cref="BaselineNote"/> is non-null when
+/// the shipped vanilla baseline could not be read, <see cref="TopUpMissing"/> when the MO2 mods-tree top-up did not
+/// run, naming the reason. Both are soft: a missing edge costs an explicit cast in the output, never wrong source.
+/// They can be missing together, so the caller says what the hierarchy IS in one sentence rather than one note
+/// each.</summary>
+public sealed record ClassParents(
+    Dictionary<string, string> Edges, string? BaselineNote, string? TopUpMissing);
