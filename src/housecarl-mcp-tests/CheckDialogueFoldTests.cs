@@ -181,6 +181,67 @@ public sealed class CheckDialogueFoldTests
         Assert.Contains("END OF THE MASTER BLOCK", r);
     }
 
+    /// <summary>A SHADOWED copy takes the active filename's own slot, so the plugins below it still win what they
+    /// override — and the check reports that winner, not the folded copy.</summary>
+    [Fact]
+    public void AShadowedFoldTakesTheActiveSlotSoLowerPluginsStillWin()
+    {
+        using var w = new DialogueWorld();
+
+        var r = CheckTools.CheckTool(w.Svc, findings: new[] { "dialogue" },
+                                     seeds: new[] { Fid(w.Topic) },
+                                     source: Je($"{{\"file\": \"{DialogueWorld.MidName}\", \"mod\": \"{DialogueWorld.ShadowModFolder}\"}}"),
+                                     max_chars: 40000);
+
+        Assert.Contains("OWN slot in the load order", r);
+        Assert.Contains($"winner {DialogueWorld.LastName}", r);
+        Assert.DoesNotContain($"winner {DialogueWorld.MidName}", r);
+    }
+
+    /// <summary>The fold's override is not "what the override inherited": the SNAM/Subtype gate compares against
+    /// the record's real DEFINING copy, so a folded override carrying a contradicting pair is warned about exactly
+    /// as the same plugin is when it is enabled.</summary>
+    [Fact]
+    public void AFoldedOverrideIsJudgedAgainstTheRealDefiningCopy()
+    {
+        using var offOrder = new DialogueWorld();
+        var folded = CheckTools.CheckTool(offOrder.Svc, findings: new[] { "dialogue" },
+                                          seeds: new[] { Fid(offOrder.PatchSubtypeTopic) },
+                                          source: Je($"\"{DialogueWorld.PatchName}\""), max_chars: 40000);
+
+        using var enabled = new DialogueWorld(patchActive: true);
+        var live = CheckTools.CheckTool(enabled.Svc, findings: new[] { "dialogue" },
+                                        seeds: new[] { Fid(enabled.PatchSubtypeTopic) }, max_chars: 40000);
+
+        Assert.Contains("they disagree, and the MARKER is authoritative", live);
+        Assert.Contains("they disagree, and the MARKER is authoritative", folded);
+    }
+
+    /// <summary>The provenance is rendered where a reader looks for it and carried where a consumer reads it:
+    /// a bracket in text, a flag in json, and the frame in the manifest-only json a to_file= call returns.</summary>
+    [Fact]
+    public void TheFoldedProvenanceIsRenderedInTextAndCarriedInJson()
+    {
+        using var w = new DialogueWorld();
+        var seeds = new[] { Fid(w.PatchOwnTopic) };
+        var src = Je($"\"{DialogueWorld.PatchName}\"");
+
+        var text = CheckTools.CheckTool(w.Svc, findings: new[] { "dialogue" }, seeds: seeds, source: src, max_chars: 40000);
+        Assert.Contains("[the folded off-order copy]", text);
+
+        var json = CheckTools.CheckTool(w.Svc, findings: new[] { "dialogue" }, seeds: seeds, source: src,
+                                        format: "json", max_chars: 40000);
+        var dialogue = JsonDocument.Parse(json).RootElement.GetProperty("families").GetProperty("dialogue");
+        Assert.True(dialogue.GetProperty("seeds")[0].GetProperty("winner_folded").GetBoolean());
+        Assert.Contains(DialogueWorld.PatchName, dialogue.GetProperty("folded").GetString()!);
+
+        var path = Path.Combine(w.Root, "fold-manifest.jsonl");
+        var manifest = CheckTools.CheckTool(w.Svc, findings: new[] { "dialogue" }, seeds: seeds, source: src,
+                                            format: "json", to_file: path);
+        Assert.Contains(DialogueWorld.PatchName,
+                        JsonDocument.Parse(manifest).RootElement.GetProperty("folded").GetString()!);
+    }
+
     /// <summary>The family's own scope sentence now names the lane, so a caller reading the section learns it
     /// exists rather than being told there is none.</summary>
     [Fact]

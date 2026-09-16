@@ -185,7 +185,8 @@ public sealed class DialogueFold : IDisposable
     /// parameter, a quest's globals — and a CTDA parameter can name any record type at all. A type filter here
     /// would leave a record the folded file DEFINES reading as "not in the active load order", which is the
     /// silently-wrong answer the fold exists to prevent. The cost is bounded by what the caller named: one
-    /// plugin, and the lane that opens it is a patch check.</para></summary>
+    /// plugin, and the lane that opens it is a patch check. Seeking on demand instead would need a typed lookup
+    /// and a consumer-by-consumer change — filed as #795 with what it would take and what it would cost.</para></summary>
     public static DialogueFold Open(string plugin, string where, string path, string? dataDir, string? label = null)
     {
         var fold = new DialogueFold(plugin, string.IsNullOrEmpty(label) ? plugin : label!, where) { Path = path };

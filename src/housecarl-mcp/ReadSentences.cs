@@ -641,7 +641,9 @@ internal static class ReadSentences
     internal const string DialogueScopeNote =
         "scope: the dialogue family is seeded, not swept — plugins=, type=, formids=, editorid_contains= and " +
         "exclude= scope the sweep families and do NOT scope it. {0} Its off-order lane is source=: one plugin that " +
-        "is NOT in the active order, folded in last, which every seed is then validated against.";
+        "is NOT in the active order, folded in where MO2 would load it — LAST for a regular plugin, after the last " +
+        "master for a .esm/.esl or an ESM-flagged one, and in that plugin's OWN slot when the order already " +
+        "carries the filename — and every seed is then validated against it.";
 
     /// <summary>The folded-file frame, printed once at the top of the family's section: every verdict under it was
     /// read against the active order's winners PLUS a file the order does not load, so the section is a projection
