@@ -61,7 +61,8 @@ internal static class AssetArtifact
         if (noEpochBecause is not null)
             notes.Add("'epoch' is EMPTY: the load order could not be read for a fingerprint when this was written — "
                       + noEpochBecause + " The rows are unaffected (they are read off the VFS, not off the record "
-                      + "index), but nothing here says which build they sit beside.");
+                      + "index), but nothing here says which build they sit beside — re-run the call once the order "
+                      + "reads to stamp one.");
 
         // The §2.1 coverage stamp, in the field rather than in prose: EVERY row here is read off the VFS while the
         // fingerprint describes the record build, which is the strongest instance of the rule this server has.
