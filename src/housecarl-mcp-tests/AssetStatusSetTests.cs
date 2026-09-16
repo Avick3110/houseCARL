@@ -236,7 +236,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
     [Fact]
     public void AToFileTargetIsHeldToTheSameShapeTheRecordsSurfaceHoldsItTo()
     {
-        Assert.Contains("must be an ABSOLUTE path",
+        Assert.Contains("is not an absolute path",
                         AssetTools.AssetStatus(_w.Svc, new[] { _w.Rel("0001.nif") }, to_file: "sweep.jsonl"));
         Assert.Contains(".jsonl extension",
                         AssetTools.AssetStatus(_w.Svc, new[] { _w.Rel("0001.nif") }, to_file: Temp("sweep.txt")));
