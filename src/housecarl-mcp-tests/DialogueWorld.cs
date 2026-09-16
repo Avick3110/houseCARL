@@ -16,6 +16,9 @@ namespace HousecarlMcpTests;
 /// <see cref="LastName"/> — the WINNER — (re-lists ONLY INFO 0 with no PNAM, which evicts it to the
 /// tail).</para>
 ///
+/// <para>And one plugin OUTSIDE the order: <see cref="PatchName"/>, in a disabled mod folder and in neither
+/// loadorder.txt nor plugins.txt — the freshly authored patch an off-order fold names.</para>
+///
 /// <para><b>Never the shared instance for a test that locks a file.</b> Each of the three dialogue lock facts
 /// (<c>UNREAD-WIRED</c>, <c>DEFINER-LOCK-LOUD</c>, <c>WINNER-LOCK-LOUD</c>) constructs its OWN
 /// <see cref="DialogueWorld"/> via <c>new()</c> rather than the shared collection fixture — a held file is
@@ -41,11 +44,18 @@ public sealed class DialogueWorld : IDisposable
     /// implicit group the load-order status shows, and content the modder no more authored than a base master's.</summary>
     public const string CcName = "ccHcTest.esl";
 
+    /// <summary>The freshly authored patch: on disk in a DISABLED mod folder and in NEITHER loadorder.txt nor
+    /// plugins.txt, so the active order does not have it. What an off-order fold names.</summary>
+    public const string PatchName = "HcDvPatch.esp";
+
     public string Root { get; }
     public string Instance { get; }
     public string MasterPath { get; }
     public string MidPath { get; }
     public string LastPath { get; }
+
+    /// <summary>The off-order patch's path on disk — inside a mod folder MO2 has disabled.</summary>
+    public string PatchPath { get; private set; } = "";
 
     public LoadOrderService Svc { get; }
 
@@ -92,6 +102,13 @@ public sealed class DialogueWorld : IDisposable
     /// <summary>A topic whose SNAM is a non-blank marker the table does not model (<c>ZZZZ</c>) — neither blank nor a
     /// disagreement, and silently unbucketed in game if nothing says so.</summary>
     public FormKey UnmodeledMarkerTopic { get; }
+
+    /// <summary>The off-order patch's own new topic, defined in <see cref="PatchName"/> and therefore in no active
+    /// plugin at all — the topic a fold is the whole merge of.</summary>
+    public FormKey PatchOwnTopic { get; }
+
+    /// <summary>The two INFOs of <see cref="PatchOwnTopic"/>, in the patch's own list order.</summary>
+    public IReadOnlyList<FormKey> PatchOwnInfo { get; }
 
     readonly ResultsDirScope _results;
 
@@ -212,6 +229,32 @@ public sealed class DialogueWorld : IDisposable
         cc.BeginWrite.ToPath(Path.Combine(mods, "CcMod", CcName))
           .WithLoadOrder(new ISkyrimModGetter[] { sky, master, mid, last }).Write();
 
+        // The freshly authored patch: written into a DISABLED mod folder and listed in neither loadorder.txt nor
+        // plugins.txt, so nothing in the active order sees it. It re-lists INFO 3 with NO PNAM (the tail arm) and
+        // INFO 5 with a PNAM naming INFO 1 (the after-target arm), and defines a topic of its own.
+        var patchKey = ModKey.FromNameAndExtension(PatchName);
+        var patch = new SkyrimMod(patchKey, SkyrimRelease.SkyrimSE);
+        var patchTopic = (IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(patch, topic);
+        patchTopic.Responses.Clear();
+        patchTopic.Responses.Add(new DialogResponses(info[3], SkyrimRelease.SkyrimSE) { EditorID = "HcDvLine3" });
+        var reLinked = new DialogResponses(info[5], SkyrimRelease.SkyrimSE) { EditorID = "HcDvLine5" };
+        reLinked.PreviousDialog.SetTo(info[1]);
+        patchTopic.Responses.Add(reLinked);
+        var ownTopic = patch.DialogTopics.AddNew(); ownTopic.EditorID = "HcDvPatchOwn";
+        PatchOwnTopic = ownTopic.FormKey;
+        var ownInfo = new FormKey[2];
+        for (int i = 0; i < 2; i++)
+        {
+            var r = new DialogResponses(patch.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = $"HcDvPatchOwnLine{i}" };
+            ownInfo[i] = r.FormKey;
+            ownTopic.Responses.Add(r);
+        }
+        PatchOwnInfo = ownInfo;
+        Directory.CreateDirectory(Path.Combine(mods, "PatchMod"));
+        PatchPath = Path.Combine(mods, "PatchMod", PatchName);
+        patch.BeginWrite.ToPath(PatchPath)
+             .WithLoadOrder(new ISkyrimModGetter[] { sky, master, mid, last }).Write();
+
         File.WriteAllText(Path.Combine(Instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
@@ -222,7 +265,7 @@ public sealed class DialogueWorld : IDisposable
             + CcName + "\r\n");
         // Neither the base master nor the CC plugin is listed here — that absence is what makes them force-loaded.
         File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + MasterName + "\r\n*" + MidName + "\r\n*" + LastName + "\r\n");
-        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n+CcMod\r\n+LastMod\r\n+MidMod\r\n+MasterMod\r\n+VanillaStub\r\n");
+        File.WriteAllText(Path.Combine(prof, "modlist.txt"), "# header\r\n-PatchMod\r\n+CcMod\r\n+LastMod\r\n+MidMod\r\n+MasterMod\r\n+VanillaStub\r\n");
 
         var store = new UserConfigStore(Path.Combine(Root, "user.json"));
         Svc = LoadOrderService.WithInstance(Instance, 0, store);
