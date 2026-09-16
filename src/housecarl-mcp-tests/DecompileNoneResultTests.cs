@@ -13,9 +13,11 @@ namespace HousecarlMcpTests;
 /// checked by compiling that source, and by recompiling the decompiled output back to a .pex with
 /// an identical instruction stream. CI has no CK compiler, so the streams are pinned here by hand.
 ///
-/// The last two are the ordering rule the slot's route through the pending machinery exposed, and
+/// The last tests are the ordering rule the slot's route through the pending machinery exposed, and
 /// they are here rather than in a file of their own because that route is what found them: a
-/// statement that carries a pending value drains only what was produced before that value.
+/// statement that carries a pending value drains only what was produced before that value, and one
+/// that has an effect of its own — it runs a call, sets a property, sets an array element — refuses
+/// instead, because neither side of it is the source's order.
 /// </summary>
 [Trait("tier", "unit")]
 public class DecompileNoneResultTests
@@ -267,6 +269,90 @@ public class DecompileNoneResultTests
         AssertNoStatementAfterReturn(res.Source, "f.Bar()");
     }
 
+    [Fact]
+    public void ACallArgumentNeverOvertakesACallProducedAfterIt()
+    {
+        // `Poke`, then `Bar`, then `Eat` taking Poke's value. Folding Poke into Eat's argument list runs
+        // `Eat` before `Bar`; draining `Bar` first runs it before `Poke`. Neither is the stream's order.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "HC_NoneTarget", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "None", "::NoneVar");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Eat"), Id("f"), Id("::NoneVar"), Int(1), Id("::temp0"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("Num"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("CallArg", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+        Assert.DoesNotContain("f.Eat(f.Poke())", res.Source);
+    }
+
+    [Fact]
+    public void APropertySetNeverOvertakesACallProducedAfterIt()
+    {
+        // Same shape with the carrying statement a property set, which can be a real setter function.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "HC_NoneTarget", "::temp0");
+        Local(f, "Int", "::temp1");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.PROPSET, Str("Prop"), Id("f"), Id("::temp0"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("Num"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("PropSet", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+        Assert.DoesNotContain("f.Prop = f.Poke()", res.Source);
+    }
+
+    [Fact]
+    public void AnArrayElementSetNeverOvertakesACallProducedAfterIt()
+    {
+        // Same shape again, storing into an array — a reference another call can read.
+        var f = Fn(("HC_NoneTarget", "f"), ("Int[]", "arr"));
+        Local(f, "Int", "::temp0");
+        Local(f, "Int", "::temp1");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.ARRAY_SETELEMENT, Id("arr"), Int(0), Id("::temp0"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("Num"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("ArraySet", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+        Assert.DoesNotContain("arr[0] = f.Poke()", res.Source);
+    }
+
+    [Fact]
+    public void AWhileBodySetNeverOvertakesACallProducedAfterIt()
+    {
+        // The same pair inside a while body, where the body's own end-of-block flush is what emitted the
+        // held-back call after the store.
+        var f = Fn(("bool", "flag"), ("HC_NoneTarget", "f"));
+        Local(f, "HC_NoneTarget", "::temp0");
+        Local(f, "Int", "::temp1");
+        Ins(f, InstructionOpcode.JMPF, Id("flag"), Int(5));                      // 0 -> 5, past the loop
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.PROPSET, Str("Prop"), Id("f"), Id("::temp0"));
+        Ins(f, InstructionOpcode.JMP, Int(-4));                                  // 4 -> 0, the loop back-jump
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("WhileBody", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+        Assert.DoesNotContain("f.Prop = f.Poke()", res.Source);
+    }
+
     /// <summary>No emitted line carries <paramref name="stranded"/> after a `return` in the same block.</summary>
     static void AssertNoStatementAfterReturn(string source, string stranded)
     {
@@ -317,6 +403,9 @@ public class DecompileNoneResultTests
 
     static PexObjectVariableData Id(string name)
         => new() { VariableType = VariableType.Identifier, StringValue = name };
+
+    static PexObjectVariableData Str(string text)
+        => new() { VariableType = VariableType.String, StringValue = text };
 
     static PexObjectVariableData Int(int value)
         => new() { VariableType = VariableType.Integer, IntValue = value };

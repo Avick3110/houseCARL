@@ -442,7 +442,9 @@ public sealed class PapyrusDecompiler
         /// anything newer was evaluated after it, and emitting it here would put it ahead of the
         /// statement the older value belongs to, swapping two calls. Those stay pending for the next
         /// boundary, which is past this statement. `startBound` is that cut — int.MaxValue when the
-        /// statement carries nothing, which drains everything, as at a region end.</summary>
+        /// statement carries nothing, which drains everything, as at a region end. The cut only settles a
+        /// statement that has no effect of its own; one that calls or stores through an object refuses
+        /// first, in <see cref="RefuseCrossing"/>.</summary>
         void FlushPending(List<string> stmts) => FlushPending(stmts, _cur + 1, _consumedStart);
 
         void FlushPending(List<string> stmts, int scanFrom) => FlushPending(stmts, scanFrom, int.MaxValue);
@@ -484,6 +486,34 @@ public sealed class PapyrusDecompiler
         }
 
         static bool IsCallish(Expr e) => e is ECall or EStatic or EParent;
+
+        /// <summary>Does this expression run a call when it is emitted?</summary>
+        static bool RunsACall(Expr e) => e switch
+        {
+            ECall or EStatic or EParent => true,
+            EBin b => RunsACall(b.L) || RunsACall(b.R),
+            EUn u => RunsACall(u.E),
+            ECast c => RunsACall(c.E),
+            EProp p => p.Obj is not null && RunsACall(p.Obj),
+            EIndex x => RunsACall(x.Arr) || RunsACall(x.Idx),
+            ELen l => RunsACall(l.Arr),
+            ENew n => RunsACall(n.Size),
+            EFind f => RunsACall(f.Arr) || RunsACall(f.Val) || RunsACall(f.Start),
+            _ => false,
+        };
+
+        /// <summary>A statement that CARRIES a pending value and has an effect of its own — it runs a call,
+        /// sets a property, sets an array element, or ends the region — cannot be ordered against a value
+        /// produced after the one it carries. Emitting that newer value first swaps two evaluations; holding
+        /// it back moves it past this statement's effect, which the newer value's own call can observe.
+        /// Neither is the source's order, so the function refuses rather than picking one.</summary>
+        void RefuseCrossing(string what)
+        {
+            foreach (var name in _pendingOrder)
+                if (_pendingStart[name] > _consumedStart)
+                    throw new StructureException(
+                        $"{what} @{_cur} carries a value produced before pending {name}, which cannot be ordered either side of it");
+        }
 
         public Body(PapyrusDecompiler d, PexObjectFunction f)
         {
@@ -749,10 +779,7 @@ public sealed class PapyrusDecompiler
                         // where it never runs. Draining wide puts it before the return instead — but
                         // when the returned value was produced FIRST, that drain emits a later call
                         // ahead of an earlier one, and no ordering of the two is the source's. Say so.
-                        foreach (var name in _pendingOrder)
-                            if (_pendingStart[name] > _consumedStart)
-                                throw new StructureException(
-                                    $"return @{i} carries a value produced before pending {name}, which cannot be ordered either side of it");
+                        RefuseCrossing("return");
                         FlushPending(stmts, _cur + 1);
                         stmts.Add(stmt);
                         i++; break;
@@ -777,6 +804,9 @@ public sealed class PapyrusDecompiler
                         // Self. prefix for the same reason as EProp rendering: a PROPSET on self in
                         // the bytecode must recompile to a PROPSET, not the bare-name backing-var write.
                         var lhs = IsSelf(obj) ? $"Self.{prop}" : $"{Postfix2(obj)}.{prop}";
+                        // A property set can be a real setter function, and a pending call held back past
+                        // it would read the property after the set instead of before it.
+                        RefuseCrossing("property set");
                         FlushPending(stmts);
                         stmts.Add($"{lhs} = {Render(val)}");
                         i++; break;
@@ -787,6 +817,9 @@ public sealed class PapyrusDecompiler
                         var arr = Resolve(a[0]);
                         var idx = Resolve(a[1]);
                         var val = Resolve(a[2]);
+                        // An array is a reference, so a pending call held back past this store sees the
+                        // element after it was written rather than before.
+                        RefuseCrossing("array element set");
                         FlushPending(stmts);
                         stmts.Add($"{Postfix2(arr)}[{Render(idx)}] = {Render(val)}");
                         i++; break;
@@ -805,6 +838,9 @@ public sealed class PapyrusDecompiler
                             // call pending ONLY for that adjacent read: anything in between either
                             // produces a value of its own or is a statement, and the call would then
                             // be emitted after it rather than at its own position in the stream.
+                            // The call itself runs here, so a value produced after the one it carries as an
+                            // argument cannot be ordered either side of it.
+                            RefuseCrossing("call");
                             FlushPending(stmts);
                             if (NextReadsNoneVar(i + 1, hi))
                                 SetPending("::NoneVar", expr, stmts, Math.Min(_consumedStart, i));
@@ -814,6 +850,9 @@ public sealed class PapyrusDecompiler
                         }
                         if (dest is null) throw new StructureException($"value op with no dest @{i}");
                         if (IsTemp(dest) && !Materialized.Contains(dest)) { SetPending(dest, expr, stmts, Math.Min(_consumedStart, i)); i++; break; }
+                        // Same rule when the call writes a real variable instead of the discard slot. A
+                        // statement that only stores is left to the bounded drain, like a plain assignment.
+                        if (RunsACall(expr)) RefuseCrossing("call");
                         FlushPending(stmts);
                         stmts.Add($"{LhsName(dest)} = {Render(expr)}");
                         i++; break;
