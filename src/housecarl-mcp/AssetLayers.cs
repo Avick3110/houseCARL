@@ -15,6 +15,13 @@ public sealed partial class LoadOrderService
     /// <para><paramref name="under"/> is the directory / glob SELECT form (#246): each selector names a Data-relative
     /// folder, or a glob anchored under one, and contributes every path the VFS provides beneath it
     /// (<see cref="AssetGlob"/>). Its matches follow the explicit paths, sorted, with anything already named dropped.
+    /// <para><paramref name="seeds"/> is the <c>formids=</c> SELECT: each NPC contributes BOTH halves of its FaceGen
+    /// pair (<see cref="FaceGenPath"/>, a pure transform of the FormKey — no record is read), mesh then tint, and each
+    /// row carries the other half's winner beside its own so a whole-order pairing sweep is one call.
+    /// <paramref name="wholeSelection"/> is the <c>to_file=</c> disposition: the artifact is never a window, so every
+    /// selected path is resolved whatever <paramref name="limit"/> says. <paramref name="maxPaths"/> is the per-call
+    /// bound is <see cref="RenderBudget.MaxAssetPaths"/>, checked after the selection is counted and before anything
+    /// is resolved.</para>
     /// <paramref name="limit"/> and <paramref name="offset"/> window the SELECTION, so only the window is RESOLVED —
     /// the per-path winner and provider chain, which is the expensive half. The selector ENUMERATION is not memoized:
     /// each page re-walks the loose roots and re-scans the archive tables under the prefix, so a paged sweep pays the
@@ -23,16 +30,38 @@ public sealed partial class LoadOrderService
         IReadOnlyList<string> relPaths,
         IReadOnlyList<string>? under = null,
         int limit = 0,
-        int offset = 0)
+        int offset = 0,
+        IReadOnlyList<FaceGenSeed>? seeds = null,
+        bool wholeSelection = false)
     {
         lock (_gate)
         {
             var view = Assets.Capture();                          // reentrant gate; build/refresh the asset resolver once for the batch
             var notes = new List<string>();
-            var selected = new List<string>(relPaths);            // explicit paths first, in the order given, never deduped
+            // The selection, one entry per path to resolve. A FaceGen entry also names the NPC it came from and the
+            // OTHER half of its pair, which is the only thing the row shape carries beyond a plain path.
+            var selected = new List<Selection>(relPaths.Count);
+            foreach (var p in relPaths) selected.Add(new Selection(p ?? "", null, null, null));   // explicit paths first, in the order given, never deduped
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var p in relPaths)
                 try { seen.Add(AssetResolver.ValidateRelPath((p ?? "").Trim())); } catch (ArgumentException) { /* a bad explicit path answers per-path below */ }
+
+            // formids=: each NPC contributes BOTH halves of its FaceGen pair, mesh then tint, each row naming the
+            // other half. A pure transform of the FormKey — no record is read, so the list costs no winner seek.
+            foreach (var seed in seeds ?? Array.Empty<FaceGenSeed>())
+            {
+                if (seed.Error is not null || seed.Key is not { } fk)
+                {
+                    selected.Add(new Selection(seed.Token, seed.Token, null, null, seed.Error));
+                    continue;
+                }
+                var mesh = FaceGenPath.For(fk, FaceGenSlot.Mesh);
+                var tint = FaceGenPath.For(fk, FaceGenSlot.Tint);
+                selected.Add(new Selection(mesh, seed.Token, FaceGenSlot.Mesh, tint));
+                selected.Add(new Selection(tint, seed.Token, FaceGenSlot.Tint, mesh));
+                seen.Add(mesh);
+                seen.Add(tint);
+            }
 
             foreach (var raw in under ?? Array.Empty<string>())
             {
@@ -48,38 +77,69 @@ public sealed partial class LoadOrderService
                     // folder no enabled mod provides, and a typo would then read as a clean sweep.
                     else if (matched.Count == 0)
                         notes.Add($"under '{sel}' matched no file in the active load order — check the spelling, or nothing enabled provides that folder.");
-                    foreach (var m in matched) if (seen.Add(m)) selected.Add(m);
+                    foreach (var m in matched) if (seen.Add(m)) selected.Add(new Selection(m, null, null, null));
                 }
                 catch (ArgumentException ex) { notes.Add($"under '{sel}': {ex.Message}"); }
             }
 
             // Page over the SELECTED set and resolve only the window, so a 15k-file sweep pays for what it renders.
+            // wholeSelection is the to_file= disposition: the artifact is never a window, so it resolves everything.
             var total = selected.Count;
-            var start = Math.Min(Math.Max(offset, 0), total);
-            var window = selected.Skip(start).Take(limit > 0 ? limit : int.MaxValue).ToList();
+            var start = wholeSelection ? 0 : Math.Min(Math.Max(offset, 0), total);
+            var window = wholeSelection
+                ? selected
+                : selected.Skip(start).Take(limit > 0 ? limit : int.MaxValue).ToList();
+
+            // The declared cost, stated before a single path is resolved: past the bound the call says what it would
+            // have spent instead of going quiet. Counted DISTINCT, the way the resolve below memoizes — a pair's two
+            // halves are two rows naming each other, not four resolutions.
+            var toResolve = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var s in window)
+            {
+                if (s.Error is not null) continue;               // a token that never became a path resolves nothing
+                toResolve.Add(s.Path);
+                if (s.PairPath is not null) toResolve.Add(s.PairPath);
+            }
+            if (RenderBudget.RefuseAssetPaths(toResolve.Count, wholeSelection) is { } tooBig)
+                return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.ReadIncomplete,
+                                           _assetWarnings, _profileName, notes, total, Math.Max(offset, 0),
+                                           Math.Max(limit, 0), tooBig);
+
+            // One resolve per DISTINCT path for the whole call: a pair's two halves are two rows that name each
+            // other, so without this each NPC would resolve four paths for the two answers it has.
+            var resolved = new Dictionary<string, AssetHit>(StringComparer.OrdinalIgnoreCase);
+            AssetHit Resolve(string p) => resolved.TryGetValue(p, out var cached) ? cached : resolved[p] = view.Resolve(p);
 
             var results = new List<AssetPathResult>(window.Count);
-            foreach (var raw in window)
+            foreach (var sel in window)
             {
-                var p = (raw ?? "").Trim();
+                var p = (sel.Path ?? "").Trim();
+                if (sel.Error is not null) { results.Add(new AssetPathResult(p, null, sel.Error, null, sel.FormId)); continue; }
                 try
                 {
-                    var hit = view.Resolve(p);
+                    var hit = Resolve(p);
                     // Only on ABSENT: a path taken off a record is stored relative to its root folder (a model path
                     // to meshes\, a texture path to textures\). Both roots are tried because this lane, unlike
                     // nif_inspect, doesn't know the path's kind, and only VERIFIED prefixes are suggested — this tool
                     // legitimately answers for sound\, scripts\, interface\ and the rest.
                     var suggest = hit.Exists ? Array.Empty<string>()
                                              : AssetPathHint.VerifiedPrefixes(view, p, AssetPathHint.AssetRoots);
-                    results.Add(new AssetPathResult(p, hit, null, suggest));
+                    var pair = sel.PairPath is null ? null : Resolve(sel.PairPath);
+                    results.Add(new AssetPathResult(p, hit, null, suggest, sel.FormId, sel.Slot, sel.PairPath, pair));
                 }
-                catch (ArgumentException ex) { results.Add(new AssetPathResult(p, null, ex.Message)); }   // bad path → per-path note, never a batch failure
+                catch (ArgumentException ex) { results.Add(new AssetPathResult(p, null, ex.Message, null, sel.FormId)); }   // bad path → per-path note, never a batch failure
             }
             return new AssetStatusData(results, view.BsaFailures, view.ReadIncomplete, _assetWarnings, _profileName,
                                        notes, total, Math.Max(offset, 0),    // the offset ASKED for, so a past-the-end page can say so
                                        Math.Max(limit, 0));                  // the limit ASKED for, so the next-page advice repeats it
         }
     }
+
+    /// <summary>One entry of an <c>asset_status</c> selection: the path to resolve, and — on a row the
+    /// <c>formids=</c> SELECT derived — the NPC it came from, which half of the FaceGen pair it is, and the other
+    /// half's path. <c>Error</c> is a token that never became a path (a malformed FormID), carried through so it
+    /// answers as its own row.</summary>
+    readonly record struct Selection(string Path, string? FormId, FaceGenSlot? Slot, string? PairPath, string? Error = null);
 
     // ---- SKSE-plugin-layer visibility: inventory the DLLs, configs and winning provider, plus each plugin DLL's
     //      statically declared manifest. Read-only; reuses the asset VFS and the PE reader. ----

@@ -37,19 +37,68 @@ public enum FaceGenSlot { Mesh, Tint }
 
 public static class FaceGenPath
 {
+    /// <summary>The Data-relative folder each slot's files live under, trailing separator included.</summary>
+    public static string Root(FaceGenSlot slot) => slot == FaceGenSlot.Mesh
+        ? @"meshes\actors\character\facegendata\facegeom\"
+        : @"textures\actors\character\facegendata\facetint\";
+
+    /// <summary>The file extension each slot's files carry.</summary>
+    public static string Extension(FaceGenSlot slot) => slot == FaceGenSlot.Mesh ? ".nif" : ".dds";
+
+    /// <summary>The OTHER half of the pair — the slot whose winner has to agree with this one's.</summary>
+    public static FaceGenSlot Other(FaceGenSlot slot) => slot == FaceGenSlot.Mesh ? FaceGenSlot.Tint : FaceGenSlot.Mesh;
+
+    /// <summary>The slot's own word, for a rendered row and an artifact column.</summary>
+    public static string Token(FaceGenSlot slot) => slot == FaceGenSlot.Mesh ? "mesh" : "tint";
+
     /// <summary>The Data-relative FaceGen path for one NPC FormKey + slot — the pure transform (see the file header).
     /// Folder = the defining master (fk.ModKey.FileName); file = "00" + the 6-hex local FormID. Backslash-separated.</summary>
     public static string For(FormKey fk, FaceGenSlot slot)
     {
         var master = fk.ModKey.FileName.ToString();          // the DEFINING plugin in the FormKey — never the winner
         var name = "00" + fk.ID.ToString("X6");              // index byte masked to 00, then the 6-hex local id
-        return slot == FaceGenSlot.Mesh
-            ? $@"meshes\actors\character\facegendata\facegeom\{master}\{name}.nif"
-            : $@"textures\actors\character\facegendata\facetint\{master}\{name}.dds";
+        return Root(slot) + master + "\\" + name + Extension(slot);
     }
 
     /// <summary>Both FaceGen paths for one NPC, mesh first — the dark-face pair placed together. Each entry is the
     /// slot and its Data-relative path.</summary>
     public static IReadOnlyList<(FaceGenSlot Slot, string RelPath)> Both(FormKey fk)
         => new[] { (FaceGenSlot.Mesh, For(fk, FaceGenSlot.Mesh)), (FaceGenSlot.Tint, For(fk, FaceGenSlot.Tint)) };
+
+    /// <summary>The transform read BACKWARDS: is <paramref name="relPath"/> one half of a FaceGen pair, and if so
+    /// which slot is it and what is the OTHER half's Data-relative path? The pair is the same NPC's other file —
+    /// same defining-master folder, same filename stem, the other root and the other extension — so a caller
+    /// holding one path can ask who wins the other without holding the FormID.
+    ///
+    /// <para>Shape-checked, never guessed: the path must sit exactly one folder deep under a slot root
+    /// (<c>&lt;root&gt;\&lt;Master&gt;\&lt;file&gt;</c>), because that is the only shape the engine keys a bake by;
+    /// anything deeper, anything shallower, and anything outside the two roots is not a FaceGen path and answers
+    /// false. The FILENAME is left alone — a non-canonical stem (a bake keyed to somebody else's load-order index)
+    /// still pairs with the file beside it, which is what makes the mismatch visible rather than silently
+    /// unpairable.</para></summary>
+    public static bool TryPair(string? relPath, out FaceGenSlot slot, out string pairPath)
+    {
+        slot = FaceGenSlot.Mesh;
+        pairPath = "";
+        var norm = (relPath ?? "").Trim().Replace('/', '\\').TrimStart('\\');
+        if (norm.Length == 0) return false;
+
+        if (norm.StartsWith(Root(FaceGenSlot.Mesh), StringComparison.OrdinalIgnoreCase)) slot = FaceGenSlot.Mesh;
+        else if (norm.StartsWith(Root(FaceGenSlot.Tint), StringComparison.OrdinalIgnoreCase)) slot = FaceGenSlot.Tint;
+        else return false;
+
+        var rest = norm.Substring(Root(slot).Length);        // <Master>\<file>
+        int sep = rest.IndexOf('\\');
+        if (sep <= 0 || sep == rest.Length - 1) return false;                 // no master folder, or no filename
+        if (rest.IndexOf('\\', sep + 1) >= 0) return false;                   // deeper than the keyed shape
+        var master = rest.Substring(0, sep);
+        var file = rest.Substring(sep + 1);
+        int dot = file.LastIndexOf('.');
+        var stem = dot > 0 ? file.Substring(0, dot) : file;
+        if (stem.Length == 0) return false;
+
+        var other = Other(slot);
+        pairPath = Root(other) + master + "\\" + stem + Extension(other);
+        return true;
+    }
 }

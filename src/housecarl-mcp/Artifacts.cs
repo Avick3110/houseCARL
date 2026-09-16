@@ -436,8 +436,12 @@ internal static class Artifacts
     /// yields its identity column plus the epoch demand the consuming call must check; a plain file yields its
     /// tokens and claims no epoch. Mixing an @ element with inline entries is a named refusal — it is one
     /// spelling for the whole list, not a splice grammar. Non-@ input passes through untouched.
-    /// <c>EchoSource</c> is what the query echo and manifest should say the list was.</summary>
-    public static (string[]? Tokens, ArtifactDemand? Demand, string? EchoSource, string? Error) ExpandListInput(string[] items, string paramName)
+    /// <c>EchoSource</c> is what the query echo and manifest should say the list was.
+    /// <para><paramref name="identity"/> is the identity column this parameter's list is made of — "formid" on every
+    /// record lane, "path" on the asset lane. An artifact carrying a different one is refused by name rather than
+    /// having its rows read as the wrong kind of token.</para></summary>
+    public static (string[]? Tokens, ArtifactDemand? Demand, string? EchoSource, string? Error) ExpandListInput(
+        string[] items, string paramName, string identity = "formid")
     {
         // The null/length guards matter: a whitespace-only element must fall through to the per-item "not a
         // FormID" path rather than index [0] and surface as an internal failure.
@@ -459,9 +463,9 @@ internal static class Artifacts
         {
             var (manifest, tokens, aerr) = ResultArtifact.ReadIdentity(path, content);
             if (aerr is not null) return (null, null, null, "error: " + aerr);
-            if (!manifest!.Identity!.Equals("formid", StringComparison.OrdinalIgnoreCase))
+            if (!manifest!.Identity!.Equals(identity, StringComparison.OrdinalIgnoreCase))
                 return (null, null, null, $"error: artifact '{path}' (from {manifest.Tool}) carries '{manifest.Identity}' identities, " +
-                                          $"not FormIDs — there is no formid list in it for {paramName}=.");
+                                          $"not '{identity}' ones — there is no {identity} list in it for {paramName}=.");
             return (tokens!.ToArray(), new ArtifactDemand(path, manifest.Epoch), "@" + path, null);
         }
 
