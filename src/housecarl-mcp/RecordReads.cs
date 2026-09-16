@@ -2552,6 +2552,8 @@ public sealed partial class LoadOrderService
         int total = 0;
         int unscannable = 0;                                                // records whose body tests threw (Mutagen-unparseable content) — excluded and accounted, never silent
         var unscannableSamples = new List<string>();
+        int lenient = 0;                                                    // records whose links were read leniently (PerkEffectDecode) — scanned, but with a named gap
+        var lenientSamples = new List<string>();
         // Plugins the winner scan could not open at all — a whole-plugin coverage gap, named in the response rather
         // than left to read as a clean whole-order scan.
         var unreadablePlugins = new List<PluginUnreadableException>();
@@ -2823,7 +2825,20 @@ public sealed partial class LoadOrderService
                         {
                             if (filterBody is not IFormLinkContainerGetter flc) return true;
                             var hitSet = new HashSet<FormKey>();
-                            foreach (var l in flc.EnumerateFormLinks()) if (refSet.Contains(l.FormKey)) hitSet.Add(l.FormKey);
+                            // Mutagen's whole-record link walk is one lazy parse: a single unparseable part throws
+                            // and the record is excluded. Where that part is a PERK effect whose function byte and
+                            // EPFT disagree, the rest of the record still reads, so the walk is retried field by
+                            // field and the gap is named in the scan note rather than the whole record vanishing
+                            // from a references= answer (#301).
+                            try { foreach (var l in flc.EnumerateFormLinks()) if (refSet.Contains(l.FormKey)) hitSet.Add(l.FormKey); }
+                            catch (Exception)
+                            {
+                                if (PerkEffectDecode.ReadLinks(filterBody) is not { } relaxed) throw;   // nothing recovered — unscannable, exactly as before
+                                hitSet.Clear();                                   // start from what the lenient walk proved, not a half-filled set
+                                foreach (var link in relaxed.Links) if (refSet.Contains(link)) hitSet.Add(link);
+                                lenient++;
+                                if (lenientSamples.Count < 3) lenientSamples.Add(relaxed.Note);
+                            }
                             if (hitSet.Count == 0) return true;
                             if (multiTarget && groups is null) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();   // in input order; only the match-line path consumes it
                         }
@@ -2911,6 +2926,18 @@ public sealed partial class LoadOrderService
               + string.Join("; ", unscannableSamples)
               + (unscannable > unscannableSamples.Count ? $"; and {unscannable - unscannableSamples.Count} more" : "")
               + $". Inspect one with {ToolNames.Records} formids=[the FormID] (per-field fault isolation applies).";
+        // Records the scan DID filter, but only after reading around content Mutagen refused. They are answers, not
+        // skips — so they are said separately from the sentence above — and the gap is named, because what the
+        // lenient read could not reach cannot prove a non-match.
+        if (lenient > 0)
+        {
+            string note = $"note: {lenient} record(s) were read leniently — part of their content is encoded in a way "
+                        + "Mutagen refuses, so the filters ran on what houseCARL could still decode: "
+                        + string.Join("; ", lenientSamples)
+                        + (lenient > lenientSamples.Count ? $"; and {lenient - lenientSamples.Count} more" : "")
+                        + $". Read one with {ToolNames.Records} formids=[the FormID] to see the marked row.";
+            scanNote = scanNote is null ? note : scanNote + " " + note;
+        }
         // Whole-plugin coverage gap: the scan carried on past a plugin it could not open, so the answer covers the
         // rest of the order but not that plugin's winners. Named here so the result never reads as a clean scan.
         if (unreadablePlugins.Count > 0)
