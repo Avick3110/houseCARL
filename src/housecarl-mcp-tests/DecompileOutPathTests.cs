@@ -51,11 +51,15 @@ public sealed class DecompileOutPathTests
     [Fact]
     public void ARelativeOutPathIsRefusedAndSaysToPassAnAbsoluteOne()
     {
-        var r = DecompileTools.DecompileScript(W.Svc, Pex, out_path: "sources");
+        // A name nothing can have created before this run: the bug leaves a folder of it beside the server, and a
+        // fixed name would carry one run's residue into the next.
+        var relative = "hc-decompile-out-" + Guid.NewGuid().ToString("N");
+
+        var r = DecompileTools.DecompileScript(W.Svc, Pex, out_path: relative);
 
         Assert.StartsWith("error:", r);
         Assert.Contains("absolute", r);
-        Assert.False(Directory.Exists(Path.Combine(Directory.GetCurrentDirectory(), "sources")));
+        Assert.False(Directory.Exists(Path.Combine(Directory.GetCurrentDirectory(), relative)));
     }
 
     [Fact]

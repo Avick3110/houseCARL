@@ -329,7 +329,7 @@ internal static class DryRunProbe
                 Check(blank.StartsWith("error:") && blank.Contains("ops:") && blank.Contains("names no file"),
                     $"a blank @path refuses NAMED, never silently reinterpreted as absent  [{Snip(blank)}]");
                 var rel = ApplyTools.Apply(svc, ops: Json("\"@ops.json\""));
-                Check(rel.StartsWith("error:") && rel.Contains("ABSOLUTE"), $"a relative path refuses  [{Snip(rel)}]");
+                Check(rel.StartsWith("error:") && rel.Contains("is not an absolute path"), $"a relative path refuses  [{Snip(rel)}]");
                 var unreadable = ApplyTools.Apply(svc, ops: AtPath(Path.Combine(root, "no-such-manifest.json")));
                 Check(unreadable.StartsWith("error:") && unreadable.Contains("could not read") && unreadable.Contains("no-such-manifest.json"),
                     "an unreadable file refuses naming the path");

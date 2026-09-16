@@ -191,9 +191,12 @@ public sealed class FaceGenFamilyTests : IClassFixture<FaceGenWorld>
     [Fact]
     public void ARelativeToFilePathIsRefusedBeforeAnythingIsWritten()
     {
-        var refusal = CheckTools.CheckTool(_w.Svc, findings: new[] { "facegen" }, to_file: "facegen.jsonl");
-        Assert.Contains("must be an ABSOLUTE path", refusal, StringComparison.Ordinal);
-        Assert.False(File.Exists("facegen.jsonl"));
+        var relative = "hc-facegen-" + Guid.NewGuid().ToString("N") + ".jsonl";
+
+        var refusal = CheckTools.CheckTool(_w.Svc, findings: new[] { "facegen" }, to_file: relative);
+
+        Assert.Contains("is not an absolute path", refusal, StringComparison.Ordinal);
+        Assert.False(File.Exists(relative));
     }
 
     [Fact]

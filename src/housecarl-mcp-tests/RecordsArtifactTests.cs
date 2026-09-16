@@ -174,7 +174,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
 
     [Fact]
     public void ToFile_ARelativePathIsRefusedNamingTheAbsoluteRequirement() =>
-        Refused(RecordsTools.Records(Svc, types: new[] { "SPEL" }, to_file: "relative.jsonl"), "ABSOLUTE");
+        Refused(RecordsTools.Records(Svc, types: new[] { "SPEL" }, to_file: "relative.jsonl"), "absolute");
 
     [Fact]
     public void ToFile_ANonJsonlNameIsRefusedSoTheFileSaysWhatItIs() =>
@@ -633,7 +633,7 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
 
     [Fact]
     public void ARelativeAtPathIsRefusedNamed() =>
-        Refused(RecordsTools.Records(Svc, formids: new[] { "@relative.txt" }), "ABSOLUTE");
+        Refused(RecordsTools.Records(Svc, formids: new[] { "@relative.txt" }), "absolute");
 
     [Fact]
     public void ANoIdentityArtifactIsRefusedAtTheFormidsDoorToo() =>
