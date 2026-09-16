@@ -88,7 +88,7 @@ public static class AssetTools
             string? to_file = null,
         [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
             string? format = null,
-        [Description("TRANSPORT: character CEILING on the whole response, not just on the per-path list — the path whose block would cross it is not written at all, and the notice says how many were held back. The alarms and the accounting line are charged before the paths render, so both are inside the ceiling. A cap too small for what the response carries whatever the budget says so and names the cap that clears it in one step. 0 = the server default (~80k).")]
+        [Description("TRANSPORT: character CEILING on the whole response, not just on the per-path list — the path whose block would cross it is not written at all. What the ceiling holds back is NOT lost: the resolved result is written whole to an artifact in the server's results directory and the response names that file, so the complete answer is always somewhere you can read it. The alarms and the accounting line are charged before the paths render, so both are inside the ceiling. A cap too small for what the response carries whatever the budget says so and names the cap that clears it in one step. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.AssetStatus, () =>
     {
         // format first, so the unconfigured-MO2 prompt answers a json caller as a document.
@@ -188,9 +188,7 @@ public static class AssetTools
         // The declared-cost refusal: the selection was counted and is past the bound, so nothing was resolved.
         if (data.BoundRefusal is { } tooBig) return Wire.Refuse(json, tooBig);
 
-        if (!wantFile) return json ? JsonWire.RenderAssetStatus(data, cap) : AssetWire.Render(data, cap);
-
-        var query = new[]
+        KeyValuePair<string, string>[] Echo() => new[]
         {
             new KeyValuePair<string, string>("asset_paths", pathEcho ?? $"{pathTokens?.Length ?? 0} inline path(s)"),
             new KeyValuePair<string, string>("under", under is { Length: > 0 } ? string.Join(",", under) : "<none>"),
@@ -198,7 +196,29 @@ public static class AssetTools
             new KeyValuePair<string, string>("read_incomplete", data.ReadIncomplete ? "true" : "false"),
             new KeyValuePair<string, string>("discovery_warnings", data.Warnings.Count.ToString()),
         };
-        var (spill, artErr) = AssetArtifact.Write(data, toFile!, order, query, noEpochBecause);
+
+        if (!wantFile)
+        {
+            string Inline(SpillState? sp, out bool cut) => json
+                ? JsonWire.RenderAssetStatus(data, cap, sp, out cut)
+                : AssetWire.Render(data, cap, sp, out cut);
+
+            var rendered = Inline(null, out var truncated);
+            if (!truncated) return rendered;
+            // SPEC §2.1.1: an over-ceiling read result is written whole to the server-managed results directory and
+            // the response names the file — truncation is not a failure mode on a read lane. The stamp is taken only
+            // here, so an ordinary sweep still builds no record index; the same two degrades the to_file= lane
+            // allows are honest here too, since every row is read off the VFS.
+            if (order is null && noEpochBecause is null)
+                try { order = svc.CaptureView().Stamp; }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+                { noEpochBecause = Guard.Flatten(ex.Message); }
+            using var reservation = ResultsStore.Reserve(ToolNames.AssetStatus, order?.Epoch ?? "none");
+            var (auto, autoErr) = AssetArtifact.Write(data, reservation, "ceiling", order, Echo(), noEpochBecause);
+            return Inline(autoErr is null ? SpillState.Spilled(auto!, manifestOnly: false) : SpillState.WriteFailed(autoErr), out _);
+        }
+
+        var (spill, artErr) = AssetArtifact.Write(data, ArtifactTarget.Named(toFile!), "to_file", order, Echo(), noEpochBecause);
         if (artErr is not null) return Wire.Refuse(json, "error: " + artErr);
         var manifestOnly = AssetArtifact.RenderManifestOnly(data, spill!, json, cap);
         // The text lane's ceiling arm; the json document caps itself as it writes.
@@ -212,13 +232,19 @@ public static class AssetTools
 /// with an explicit cut notice.</summary>
 static class AssetWire
 {
-    public static string Render(AssetStatusData d, int cap)
+    public static string Render(AssetStatusData d, int cap) => Render(d, cap, null, out _);
+
+    /// <summary><paramref name="spill"/> is this call's artifact disposition, written after the accounting and
+    /// charged before the first path so the block lands inside max_chars. <paramref name="truncated"/> is whether
+    /// max_chars cut paths out of the window — what the caller auto-spills on.</summary>
+    public static string Render(AssetStatusData d, int cap, SpillState? spill, out bool truncated)
     {
         var header = new StringBuilder("asset status — profile '")
             .Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)")
             .Append("'  (").Append(d.Selected).Append(" path").Append(d.Selected == 1 ? "" : "s")
             .Append(" selected)").ToString();
 
+        var spillText = Wire.SpillText(spill);
         var body = BatchRender.Render(
             header, d.Results, "path(s)", cap,
             // Alarms come before the per-path list so a long batch cannot truncate them away.
@@ -233,9 +259,11 @@ static class AssetWire
             // The accounting block is priced INSIDE max_chars, the way the check sweep's footer is: it is written
             // after the body, so room for its longest spelling is held back before the paths render rather than
             // appended past the cap. max_chars then means the same on this tool as on every other.
-            reserve: AccountingReserve(d));
+            reserve: AccountingReserve(d) + spillText.Length);
 
-        return RenderCap.Settle(body + TransportAccounting.Compose(Tally(d, rendered), RowNoun, everySentence: false), cap);
+        var counts = Tally(d, rendered);
+        truncated = counts.Truncated > 0;
+        return RenderCap.Settle(body + TransportAccounting.Compose(counts, RowNoun, everySentence: false) + spillText, cap);
     }
 
     /// <summary>What this family's accounting counts.</summary>

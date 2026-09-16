@@ -151,7 +151,15 @@ public sealed class AssetSelectWorld : IDisposable
 
         ModsDir = mods;
         Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
+        // Every over-ceiling call here auto-spills, so the store points inside the world's temp root rather than
+        // piling artifacts into the test binary's folder.
+        _results = new ResultsDirScope(Path.Combine(Root, "server-results"));
     }
+
+    readonly ResultsDirScope _results;
+
+    /// <summary>The auto-spill store for this world, so a test can read the file its own call wrote.</summary>
+    public string ResultsDir => _results.Dir;
 
     static void Loose(string modDir, string rel)
     {
@@ -162,6 +170,7 @@ public sealed class AssetSelectWorld : IDisposable
 
     public void Dispose()
     {
+        _results.Dispose();
         Svc.Dispose();
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }

@@ -499,7 +499,7 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
                 "The process cannot access the file 'plugins.txt' because it is being used by another process.").Message);
             var data = _w.Svc.AssetStatus(new[] { _w.Rel("0001.nif") });
 
-            var (spill, err) = AssetArtifact.Write(data, file, order: null,
+            var (spill, err) = AssetArtifact.Write(data, ArtifactTarget.Named(file), "to_file", order: null,
                                                    Array.Empty<KeyValuePair<string, string>>(), why);
             Assert.Null(err);
             var text = AssetArtifact.RenderManifestOnly(data, spill!, json: false, cap: 80_000);
@@ -515,6 +515,75 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
                               && n.GetString()!.Contains("re-run the call once the order reads", StringComparison.Ordinal));
         }
         finally { File.Delete(file); }
+    }
+
+    /// <summary>SPEC §2.1.1: a read result over the inline ceiling is written WHOLE to the server-managed results
+    /// directory and the response names the file. What the ceiling held back is a prefix of a complete answer, not a
+    /// loss — the rows the render could not show are in the artifact, every one of them.</summary>
+    [Fact]
+    public void AnOverCeilingRenderIsSpilledWholeAndTheResponseNamesTheFile()
+    {
+        using var results = new ResultsDirScope(Temp("spills"));
+        try
+        {
+            var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir }, max_chars: 900);
+
+            var file = Assert.Single(Directory.GetFiles(results.Dir, "*.jsonl"));
+            Assert.Contains("spilled: complete result", text);
+            Assert.Contains(file, text);
+            Assert.Contains("the inline render hit max_chars", text);
+
+            var lines = File.ReadAllLines(file);
+            var manifest = JsonDocument.Parse(lines[0]).RootElement;
+            // Every selected path is in the file, whatever the render could show of them.
+            Assert.Equal(AssetSelectWorld.FaceGeomFiles, lines.Length - 1);
+            Assert.Equal(AssetSelectWorld.FaceGeomFiles, manifest.GetProperty("row_count").GetInt32());
+            Assert.Equal(AssetSelectWorld.FaceGeomFiles, manifest.GetProperty("total").GetInt32());
+            Assert.Equal("path", manifest.GetProperty("identity").GetString());
+        }
+        finally { try { Directory.Delete(results.Dir, true); } catch { } }
+    }
+
+    /// <summary>The json lane carries the same marker as data, with the reason a consumer branches on.</summary>
+    [Fact]
+    public void TheJsonLaneNamesTheAutoSpillAndItsReason()
+    {
+        using var results = new ResultsDirScope(Temp("spills-json"));
+        try
+        {
+            var root = JsonDocument.Parse(
+                AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
+                                       format: "json", max_chars: 1_200)).RootElement;
+
+            var spilled = root.GetProperty("spilled");
+            Assert.Equal("over_inline_ceiling", spilled.GetProperty("reason").GetString());
+            Assert.Equal(Assert.Single(Directory.GetFiles(results.Dir, "*.jsonl")), spilled.GetProperty("path").GetString());
+            Assert.True(spilled.GetProperty("complete").GetBoolean());
+            Assert.Equal(AssetSelectWorld.FaceGeomFiles, spilled.GetProperty("row_count").GetInt32());
+        }
+        finally { try { Directory.Delete(results.Dir, true); } catch { } }
+    }
+
+    /// <summary>A limit= window that then runs past the ceiling spills the window, and says so: the file is complete
+    /// as a window, and the matches beyond limit= are in NO file. Re-resolving the rest would pay the scan a second
+    /// time, which is the cost the auto-spill exists to avoid.</summary>
+    [Fact]
+    public void AnAutoSpilledWindowSaysTheMatchesBeyondLimitAreInNoFile()
+    {
+        using var results = new ResultsDirScope(Temp("spills-window"));
+        try
+        {
+            var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
+                                              limit: 2, max_chars: 700);
+
+            Assert.Contains("spilled: the returned WINDOW", text);
+            Assert.Contains("are in NO file", text);
+            var manifest = JsonDocument.Parse(
+                File.ReadAllLines(Assert.Single(Directory.GetFiles(results.Dir, "*.jsonl")))[0]).RootElement;
+            Assert.Equal(2, manifest.GetProperty("row_count").GetInt32());
+            Assert.Equal(AssetSelectWorld.FaceGeomFiles, manifest.GetProperty("total").GetInt32());
+        }
+        finally { try { Directory.Delete(results.Dir, true); } catch { } }
     }
 
     /// <summary>The empty-selection refusal names every SELECT there is, formids= included — a caller who passed
