@@ -132,6 +132,32 @@ public sealed class DecompileOutPathTests
         finally { try { Directory.Delete(dir, true); } catch { /* temp cleanup */ } }
     }
 
+    [Theory]
+    [InlineData("..\\HcEscapedByDots")]
+    [InlineData("C:\\HcEscapedByRoot")]
+    public void AnObjectNameThatWouldLeaveTheOutputFolderIsRefusedAndNothingIsWritten(string objectName)
+    {
+        // The object name becomes the .psc's filename, and Path.Combine drops the output folder for a rooted name
+        // and honours a "..", so such a name is refused before any file is created.
+        var dir = FreshDir();
+        var src = Path.Combine(dir, "src");
+        var dest = Path.Combine(dir, "psc");
+        Directory.CreateDirectory(src);
+        var pex = Path.Combine(src, "HcEscaping.pex");
+        PexWriter.WritePex(pex, objectName, null);
+        try
+        {
+            var r = DecompileTools.DecompileScript(W.Svc, pex, out_path: dest);
+
+            Assert.StartsWith("error:", r);
+            Assert.Contains(objectName, r);
+            Assert.Contains(dest, r);
+            Assert.Empty(Directory.Exists(dest) ? Directory.GetFiles(dest, "*.psc") : []);
+            Assert.Empty(Directory.GetFiles(dir, "*.psc", SearchOption.AllDirectories));
+        }
+        finally { try { Directory.Delete(dir, true); } catch { /* temp cleanup */ } }
+    }
+
     [Fact]
     public void OutPathSupersedesIntoAndTheResponseSaysSo()
     {
