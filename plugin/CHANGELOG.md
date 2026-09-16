@@ -14,9 +14,8 @@ made the change.
 - **`housecarl_decompile_script` takes `out_path=`, an absolute folder it writes the `.psc` into with no MO2
   instance needed; an incomplete class hierarchy is now named.** Decompile into a scratch folder: the `.psc`
   lands there and no mod folder is created.
-- **`housecarl_decompile_script` reconstructs a function that uses the value of a call returning `None`.** Such a
-  function used to come back as a raw-bytecode comment block; decompile a script that assigns or returns a void
-  call and read the line.
+- **`housecarl_decompile_script` reconstructs a function that uses the value of a call returning `None`.**
+  Decompile a script that assigns or returns a void call and read the line.
 - **A PERK entry-point effect Mutagen refuses reads as one marked row instead of taking the whole record, so
   `references=` scans no longer skip that perk.** Check with `project.form="fields"`, `fields=["Effects"]`,
   `depth=3` on the perk.
