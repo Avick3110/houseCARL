@@ -40,8 +40,12 @@ namespace HousecarlGenerator;
 ///
 /// Standalone: arm 4 hammers a freshness rebuild into the Phase-1 loop of a real multi-op write, and the window
 /// it sweeps is only a real window in a cold process — in the warm ci-all runner (hot JIT, memoized corpus) the
-/// write outruns the flip and the arm stops covering anything. So CI gives this guard its own step. Arm 5 no
-/// longer needs the cold process: it parks the write on the seam instead of racing it.
+/// write outruns the flip and the arm stops covering anything. So CI gives this guard its own step. That claim is
+/// not taken on trust: arm 4 prints how many of its rounds landed the flip INSIDE Apply, so a run that staged
+/// nothing says so instead of reporting the same mixed=0 as a run that staged twelve. It does not FAIL on zero —
+/// a runner too fast to stage a race is the thing #793 says must not be reported as a product failure — so
+/// making that flip staged rather than timed, the way arm 5 now is, is issue #804. Arm 5 no longer needs the
+/// cold process: it parks the write on the seam instead of racing it.
 /// </summary>
 internal static class FreshnessCaptureProbe
 {
@@ -256,23 +260,33 @@ internal static class FreshnessCaptureProbe
                     return false;
                 }
 
-                int mixed = 0, successes = 0, refusals = 0;
+                int mixed = 0, successes = 0, refusals = 0, staged = 0;
                 const int Rounds = 12;
+                var clock = System.Diagnostics.Stopwatch.StartNew();
                 for (int r = 0; r < Rounds; r++)
                 {
                     TryCopy(emptyFile, oPath);                        // reset: master wins everything (Damage=10)
                     resolver.RefreshIfStale();
                     int delay = 5 + r * 17 % 130;                     // sweep the flip across the Phase-1 loop
+                    long flipFrom = -1, flipTo = -1;                  // the flip's own window; read after flip.Wait()
                     var flip = Task.Run(() =>
                     {
                         Thread.Sleep(delay);
+                        flipFrom = clock.ElapsedMilliseconds;
                         if (TryCopy(fullFile, oPath))                 // the override now wins the OvN subset (Damage=20)
                             resolver.RefreshIfStale();                // the concurrent read's freshness path, mid-Apply
+                        flipTo = clock.ElapsedMilliseconds;
                     });
                     var outDir = Path.Combine(dir, $"out_{r:D3}");
                     Directory.CreateDirectory(outDir);
+                    long applyFrom = clock.ElapsedMilliseconds;
                     var o = WritePatchBuilder.Apply(resolver, rulebook, edits, Path.Combine(outDir, "HcFcgOut.esp"), extend: false);
+                    long applyTo = clock.ElapsedMilliseconds;
                     flip.Wait();
+                    // Whether this round staged anything at all. The arm's verdict is about what a STAGED round
+                    // produced, so a run where nothing landed inside Apply covers nothing and has to say so rather
+                    // than reporting the same mixed=0 as a run where every round landed.
+                    if (flipFrom <= applyTo && flipTo >= applyFrom) staged++;
                     if (!o.Success) { refusals++; continue; }         // an honest named refusal is fine — mixing silently is not
                     successes++;
                     ISkyrimModGetter? back = null;
@@ -287,7 +301,8 @@ internal static class FreshnessCaptureProbe
                     if (marks.Count > 1) mixed++;
                 }
                 Check(mixed == 0,
-                      $"no successful patch mixed two builds' winners — {successes} success(es), {refusals} honest refusal(s), mixed={mixed}");
+                      $"no successful patch mixed two builds' winners — {successes} success(es), {refusals} honest refusal(s), " +
+                      $"{staged}/{Rounds} flip(s) landed inside Apply, mixed={mixed}");
             }
 
             // ---- 5: deferral — a read's freshness refresh waits out an in-flight write ----
