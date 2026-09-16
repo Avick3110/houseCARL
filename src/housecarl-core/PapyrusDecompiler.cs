@@ -734,7 +734,7 @@ public sealed class PapyrusDecompiler
                             && _pending.Count == 1 && _pending.ContainsKey("::NoneVar"))
                         {
                             var (call, _) = Consume("::NoneVar", i);
-                            FlushPending(stmts);
+                            FlushPending(stmts, _cur + 1);
                             stmts.Add("return " + Render(call));
                             i++; break;
                         }
@@ -744,7 +744,16 @@ public sealed class PapyrusDecompiler
                             stmt = "return";
                         else
                             stmt = $"return {Render(Resolve(v))}";
-                        FlushPending(stmts);
+                        // A return ENDS the region, so it takes the wide bound: a value left pending
+                        // here has no later boundary to reach and would be emitted past the return,
+                        // where it never runs. Draining wide puts it before the return instead — but
+                        // when the returned value was produced FIRST, that drain emits a later call
+                        // ahead of an earlier one, and no ordering of the two is the source's. Say so.
+                        foreach (var name in _pendingOrder)
+                            if (_pendingStart[name] > _consumedStart)
+                                throw new StructureException(
+                                    $"return @{i} carries a value produced before pending {name}, which cannot be ordered either side of it");
+                        FlushPending(stmts, _cur + 1);
                         stmts.Add(stmt);
                         i++; break;
                     }
