@@ -412,7 +412,10 @@ public sealed class DialogueWorld : IDisposable
         midShadow.DialogTopics.Add(shadowOwn);
         // …and a start-game-enabled quest with no .seq anywhere, so the SEQ lint has a real DORMANT finding to
         // make — the finding a fold must not soften into an override ambiguity between a file and itself.
-        var shadowQuest = midShadow.Quests.AddNew(); shadowQuest.EditorID = "HcDvShadowSeqQuest";
+        // An explicit key past the copied topic's: this file carries records built in ANOTHER mod object, which
+        // the allocator here does not know about, so AddNew would hand out one of their FormIDs.
+        var shadowQuest = new Quest(midKey.MakeFormKey(0x900), SkyrimRelease.SkyrimSE) { EditorID = "HcDvShadowSeqQuest" };
+        midShadow.Quests.Add(shadowQuest);
         shadowQuest.Flags = Quest.Flag.StartGameEnabled;
         DialogueCkParity.ApplyQuestDefaults(shadowQuest);
         ShadowSeqQuest = shadowQuest.FormKey;

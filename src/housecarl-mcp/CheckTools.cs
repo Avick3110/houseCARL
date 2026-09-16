@@ -207,7 +207,9 @@ public static class CheckTools
         [Description("Optional. The DIALOGUE family only: ONE plugin that is NOT in the active load order, FOLDED " +
              "in where MO2 would load it — the END of the order for a regular plugin, after the LAST MASTER for a " +
              ".esm/.esl or an ESM-flagged one, and that plugin's OWN SLOT when the order already carries the " +
-             "filename (a shadowed copy: enabling its mod folder swaps the bytes at a position the order has) — " +
+             "filename (a shadowed copy: enabling its mod folder swaps the bytes at a position the order has, and " +
+             "the projection ADDS that copy at the slot rather than replacing the file, so a record only the " +
+             "active copy holds still reads from it — the answer says so) — " +
              "so a dialogue patch can be " +
              "checked BEFORE it is enabled. Spelled as every other off-order address on this surface: a filename " +
              "(\"MyPatch.esp\"), or {\"file\": \"MyPatch.esp\", \"mod\": \"<mod folder>\"} when two mod folders " +

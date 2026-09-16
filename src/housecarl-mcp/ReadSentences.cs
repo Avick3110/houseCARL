@@ -624,8 +624,19 @@ internal static class ReadSentences
     [MustState("validated NOTHING", "ACTIVE load order")]
     internal const string DialogueNoSeedResolved =
         "findings=[\"dialogue\"] validated NOTHING: not one of the {0} seed(s) named resolved. {1} A seed is a DIAL, " +
-        "QUST, DLVW or DLBR FormID spelled 'XXXXXX:Plugin.esp' and is resolved against the ACTIVE load order — a " +
-        "record only a disabled plugin defines is not reachable here.";
+        "QUST, DLVW or DLBR FormID spelled 'XXXXXX:Plugin.esp' and is resolved against the ACTIVE load order{2}.";
+
+    /// <summary>The resolution frame that closes the sentence above when nothing was folded — a plugin the order
+    /// does not carry is out of reach.</summary>
+    [NoClaims("a tail clause of DialogueNoSeedResolved, which carries the claim; this only says which world it searched")]
+    internal const string DialogueNoSeedResolvedPlain =
+        " — a record only a disabled plugin defines is not reachable here (source= folds one such plugin in)";
+
+    /// <summary>…and when a fold WAS in play, where the same clause would be false: the folded copy was searched
+    /// too, and the frame above says which file that was.</summary>
+    [NoClaims("the same tail clause under a fold; DialogueNoSeedResolved carries the claim and the fold frame names the file")]
+    internal const string DialogueNoSeedResolvedFolded =
+        " PLUS the folded copy named above — a record neither of those carries is not reachable here";
 
     /// <summary>One unresolved seed, named with why. Carried rather than dropped: this family's scope is its seed
     /// list, so a discarded seed is a silently narrowed scope the caller reads as a clean answer.</summary>
@@ -657,6 +668,16 @@ internal static class ReadSentences
         "say once the file is enabled: enable it and re-run for the live answer. Its own .fuz/.pex/.seq files are " +
         "resolved through the VFS, which serves only the mod folders MO2 has enabled, so a file shipped beside it " +
         "in a folder that is off reads as absent here.\n";
+
+    /// <summary>The one bound the shadowed-copy projection has, stated where the frame is: the folded copy is ADDED
+    /// at the active copy's slot, and the records only the active copy holds are still read from it. Enabling the
+    /// folded mod folder would swap the whole file, so those records would go away — this answer keeps them, and
+    /// says so rather than letting a reader take the swap for complete (#796).</summary>
+    [MustState("does NOT drop", "only the active copy")]
+    internal const string DialogueFoldedShadowBound =
+        "  bound: the folded copy is read AT that slot for the records it carries; this projection does NOT drop " +
+        "the records only the active copy holds, which enabling the folded mod folder WOULD (it replaces the whole " +
+        "file). A record the folded copy leaves out still reads from the active one here.\n";
 
     /// <summary>The seed count when the seed budget reached every one of them. The word is "reached", never
     /// "validated": this number counts every seed the call tried, refusals included, so "validated" would

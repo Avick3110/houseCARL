@@ -86,14 +86,20 @@ internal static class DialogueSweep
         // The placement is the FOLD's own spelling, shared with the info_order form: one sentence for where a
         // file lands, so the two surfaces cannot describe the same projection differently.
         string? folded = fold is null ? null
-                       : string.Format(ReadSentences.DialogueFolded, fold.Plugin, fold.Where, fold.Placement);
+                       : string.Format(ReadSentences.DialogueFolded, fold.Plugin, fold.Where, fold.Placement)
+                         + (fold.PlacementKind == DialogueFold.Where3.ActiveSlot
+                                ? ReadSentences.DialogueFoldedShadowBound : "");
 
         // Every seed named was malformed or unresolvable: there is nothing to render and nothing to claim, so the
         // family answers with one refusal rather than a section of nothing. It still carries the frame — a seed
         // that did not resolve was looked for in the projection, and the refusal is about that world.
         if (results.Count > 0 && results.All(r => r.Report is null))
             return DialogueCheckResult.Fail(string.Format(ReadSentences.DialogueNoSeedResolved, results.Count,
-                string.Join(" ", results.Select(r => $"{r.Seed}: {r.Refusal}."))), epoch) with { Folded = folded };
+                string.Join(" ", results.Select(r => $"{r.Seed}: {r.Refusal}.")),
+                // The closing clause has to match the world the seeds were looked for in: with a fold, "only a
+                // disabled plugin defines it" is not why they were missed.
+                fold is null ? ReadSentences.DialogueNoSeedResolvedPlain : ReadSentences.DialogueNoSeedResolvedFolded),
+                epoch) with { Folded = folded };
 
         return new DialogueCheckResult(results, topics, problems, readIncomplete, Limit: limit,
                                        SeedsNamed: named.Length, CountsOnly: countsOnly, Epoch: epoch)
