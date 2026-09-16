@@ -108,8 +108,11 @@ internal static class DialogueWire
 
         if (!io.Complete)
         {
-            int total = io.ContributingPlugins.Count + io.UnreadContributors.Count;
-            sb.Append(pad).Append("  INFO order: INCOMPLETE — read from ").Append(io.ContributingPlugins.Count)
+            // Both halves count plugins that TOUCH the topic in the order, so the folded file — which touches
+            // nothing there — is out of both: counting it would claim one more contributor read than there was.
+            int foldRead = io.FoldContributed ? 1 : 0;
+            int total = io.ContributingPlugins.Count + io.UnreadContributors.Count - foldRead;
+            sb.Append(pad).Append("  INFO order: INCOMPLETE — read from ").Append(io.ContributingPlugins.Count - foldRead)
               .Append(" of ").Append(total).Append(" plugin(s) that touch this topic.");
             sb.Append(io.Order.Count == 0
                 ? " NOTHING could be read, so no order is shown at all — this is a read failure, NOT an empty topic.\n"
@@ -207,7 +210,8 @@ internal static class DialogueWire
     static void AppendFoldNote(StringBuilder sb, InfoOrderView io, string pad)
     {
         if (io.FoldedPlugin is not { } fp) return;
-        sb.Append(pad).Append("  [folded] '").Append(fp).Append("' is NOT active and is projected in LAST, where MO2 puts a newly enabled plugin");
+        sb.Append(pad).Append("  [folded] '").Append(fp).Append("' is NOT active and is ")
+          .Append(io.FoldedPlacement ?? "folded in LAST, where MO2 puts a newly enabled regular plugin");
         sb.Append(!io.FoldContributed
             ? " — but it lists no line in this topic, so the order here is the live one.\n"
             : io.Contested

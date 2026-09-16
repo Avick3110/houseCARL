@@ -61,7 +61,8 @@ public sealed class RecordsInfoOrderFoldTests
         var r = Folded(W.Topic, $"\"{DialogueWorld.PatchName}\"");
 
         Assert.Contains("projection", r);
-        Assert.Contains($"'{DialogueWorld.PatchName}' is NOT in the load order", r);
+        Assert.Contains($"the folded file is '{DialogueWorld.PatchName}'", r);
+        Assert.Contains("NOT active", r);
         Assert.Contains("OUTSIDE the epoch fingerprint", r);
     }
 
@@ -118,6 +119,55 @@ public sealed class RecordsInfoOrderFoldTests
         Assert.Contains("error:", r);
         Assert.Contains("ACTIVE in the load order", r);
         Assert.Contains("Drop source=", r);
+    }
+
+    /// <summary>MO2 does not put a MASTER on the end of the order: an .esm lands in the master block, ahead of
+    /// every regular plugin. So the folded lines are evicted by the regular plugin that re-lists them, exactly as
+    /// they would be once the file is enabled — and the response says where it put the file and why.</summary>
+    [Fact]
+    public void AMasterFoldLandsInTheMasterBlockNotAtTheEnd()
+    {
+        var r = Folded(W.MasterBlockTopic, $"\"{DialogueWorld.PatchEsmName}\"");
+
+        // Base master: [0,1,2]. The .esm re-lists 1 with no PNAM -> [0,2,1]. The regular winner then re-lists 0
+        // with no PNAM -> [2,1,0]. Placed at the END instead, the last re-list would be the .esm's and 1 would sit
+        // at the bottom.
+        Assert.Contains($"#1  {Fid(W.MasterBlockInfo[2])}", r);
+        Assert.Contains($"#2  {Fid(W.MasterBlockInfo[1])}", r);
+        Assert.Contains($"#3  {Fid(W.MasterBlockInfo[0])}", r);
+        Assert.Contains("END OF THE MASTER BLOCK", r);
+        Assert.Contains("it is a .esm", r);
+    }
+
+    /// <summary>And a plain .esp says the other thing, because that is where MO2 puts it.</summary>
+    [Fact]
+    public void ARegularFoldSaysItWasPlacedLast()
+    {
+        var r = Folded(W.Topic, $"\"{DialogueWorld.PatchName}\"");
+
+        Assert.Contains("folded in LAST, where MO2 puts a newly enabled regular plugin", r);
+        Assert.DoesNotContain("MASTER BLOCK", r);
+    }
+
+    /// <summary>The {file, mod} arm over a copy whose FILENAME is active: the rows carry a label of their own, the
+    /// envelope names that same label, and the banner does not call an active filename absent.</summary>
+    [Fact]
+    public void AShadowedCopyIsLabelledApartAndTheBannerSaysTheFilenameIsActive()
+    {
+        var src = $"{{\"file\": \"{DialogueWorld.MidName}\", \"mod\": \"{DialogueWorld.ShadowModFolder}\"}}";
+        var r = Folded(W.Topic, src);
+
+        var row = r.Split('\n').Single(l => l.Contains(Fid(W.Info[2])));
+        Assert.Contains($"placed by {DialogueWorld.MidName} [off-order copy]", row);
+        Assert.Contains($"The FILENAME '{DialogueWorld.MidName}' IS in the order", r);
+        Assert.DoesNotContain($"'{DialogueWorld.MidName}' is NOT in the load order", r);
+
+        var j = RecordsTools.Records(Svc, formids: new[] { Fid(W.Topic) },
+                                     project: new RecordsTools.RecordsProject { form = "info_order" },
+                                     source: Je(src), format: "json");
+        var doc = JsonDocument.Parse(j).RootElement;
+        Assert.Equal(doc.GetProperty("folded").GetString(),
+                     doc.GetProperty("rows")[0].GetProperty("folded_plugin").GetString());
     }
 
     /// <summary>The overlay pole still has no seat on this form, and the refusal now names the one pole that does.</summary>

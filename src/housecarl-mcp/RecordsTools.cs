@@ -31,7 +31,7 @@ public static class RecordsTools
     /// them, so there is no flat spelling for an illegal pairing.</summary>
     public sealed class RecordsProject
     {
-        [Description("The form: 'identity' (FormID -> type/editorid/name/winner — the labeling form; needs formids=) | 'summary' (identity plus winner/override-depth header facts — the default) | 'fields' (named field values; takes fields= and depth=) | 'rows' (a LIST field folded to ONE LINE PER ELEMENT — the compact per-row view: takes fields= naming the list (index one element, 'Conditions[0]', to fold just that one), and depth= (default 4). Each line is the element's own summary plus every sub-field the read FOUND; only ABSENT optionals are omitted, which is what turns a 40-row condition stack from ~1,000 lines into 40. Auditing that stack (project.fields=[\"Conditions\"]) is ONE call, not an index probe per row. A declared-but-null link is kept — an empty slot is a fact. A named field that is not a list is refused by name) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only — source= is the subject, versus= the reference; takes fields= to narrow. Each delta line shows the SUBJECT's value with the reference's beside it, labeled by its plugin; versus=\"previous_provider\" answers 'what did this plugin change relative to what sat beneath it') | 'tree' (the conflict-resolution view: every provider of each record in priority order, winner last, each showing only the fields that DIFFER from the reference pole — default the winner; takes fields=. On a record type that OWNS child records — a cell's placed references, a topic's INFO lines, a worldspace's cells — it also states, per such field, which providers DECLARE children there (a COLLECTION field) or how many do (a SINGULAR one, e.g. Cell.Landscape), and says so when none do) | 'info_order' (DIAL topics only: the effective MERGED INFO sequence across every touching plugin, with MOVED annotations — the 'why does the wrong line play' diagnostic. The game walks the sequence top to bottom and plays the FIRST passing line; re-listing a line appends it to the BOTTOM unless the plugin also carries its PNAM, so a reorder changes which line answers while every field stays identical — invisible to a diff, which is what this form is for. A quest's topics select by composition: types=[\"DIAL\"] where=[\"Quest = <quest formid>\"]. A patch that is NOT yet enabled folds in: source=\"MyPatch.esp\" names ONE off-order file, and the merge answers as it WOULD be with that file enabled at the END of the order — where MO2 puts a newly enabled plugin — with every line it places marked and the projection stated) | 'chain' (a walk's own paths, endpoints and cycles rather than the records it reached — a cycle being a record the walk reached again from itself, found over the nodes it actually ENTERED — so one closing past walk.depth or walk.max_nodes is not yet visible — and reported ONE PER CLOSING LINK, which makes the count a lower bound on how many distinct loops are there — the search also stops at 200 loops per seed and says so. Over a walk that FINISHED, no cycles reported means there are none; over one the response says was cut at walk.depth or walk.max_nodes it means only that none was found in what was read; needs walk=, and carries the NPC-template inheritance report and the reverse MGEF carrier rows). The comparison forms 'delta' and 'tree' both compare by the content-keyed, truncation-honest engine: a list reorder is flagged, and a truncated deep read is reported, never claimed 'identical'.")]
+        [Description("The form: 'identity' (FormID -> type/editorid/name/winner — the labeling form; needs formids=) | 'summary' (identity plus winner/override-depth header facts — the default) | 'fields' (named field values; takes fields= and depth=) | 'rows' (a LIST field folded to ONE LINE PER ELEMENT — the compact per-row view: takes fields= naming the list (index one element, 'Conditions[0]', to fold just that one), and depth= (default 4). Each line is the element's own summary plus every sub-field the read FOUND; only ABSENT optionals are omitted, which is what turns a 40-row condition stack from ~1,000 lines into 40. Auditing that stack (project.fields=[\"Conditions\"]) is ONE call, not an index probe per row. A declared-but-null link is kept — an empty slot is a fact. A named field that is not a list is refused by name) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only — source= is the subject, versus= the reference; takes fields= to narrow. Each delta line shows the SUBJECT's value with the reference's beside it, labeled by its plugin; versus=\"previous_provider\" answers 'what did this plugin change relative to what sat beneath it') | 'tree' (the conflict-resolution view: every provider of each record in priority order, winner last, each showing only the fields that DIFFER from the reference pole — default the winner; takes fields=. On a record type that OWNS child records — a cell's placed references, a topic's INFO lines, a worldspace's cells — it also states, per such field, which providers DECLARE children there (a COLLECTION field) or how many do (a SINGULAR one, e.g. Cell.Landscape), and says so when none do) | 'info_order' (DIAL topics only: the effective MERGED INFO sequence across every touching plugin, with MOVED annotations — the 'why does the wrong line play' diagnostic. The game walks the sequence top to bottom and plays the FIRST passing line; re-listing a line appends it to the BOTTOM unless the plugin also carries its PNAM, so a reorder changes which line answers while every field stays identical — invisible to a diff, which is what this form is for. A quest's topics select by composition: types=[\"DIAL\"] where=[\"Quest = <quest formid>\"]. A patch that is NOT yet enabled folds in: source=\"MyPatch.esp\" names ONE off-order file, and the merge answers as it WOULD be with that file enabled — placed where MO2 would put it, which is the END of the order for a regular plugin and the end of the MASTER BLOCK for an ESM-flagged one or a .esm/.esl — with every line it places marked, the placement and the flag behind it stated, and the projection stated) | 'chain' (a walk's own paths, endpoints and cycles rather than the records it reached — a cycle being a record the walk reached again from itself, found over the nodes it actually ENTERED — so one closing past walk.depth or walk.max_nodes is not yet visible — and reported ONE PER CLOSING LINK, which makes the count a lower bound on how many distinct loops are there — the search also stops at 200 loops per seed and says so. Over a walk that FINISHED, no cycles reported means there are none; over one the response says was cut at walk.depth or walk.max_nodes it means only that none was found in what was read; needs walk=, and carries the NPC-template inheritance report and the reverse MGEF carrier rows). The comparison forms 'delta' and 'tree' both compare by the content-keyed, truncation-honest engine: a list reorder is flagged, and a truncated deep read is reported, never claimed 'identical'.")]
         public string? form { get; set; }
 
         [Description("fields/rows forms: dotted field paths to read, e.g. [\"BasicStats.Damage\", \"Keywords\", \"Effects\"]. Index a list/dict element with BRACKETS ('Effects[0].Data.Magnitude'). A path may LEAD with the containment step '*parent' — the record that CONTAINS this one, which group nesting makes invisible to references= ('*parent.EditorID' is an INFO's owning DIAL; '*parent.*parent.EditorID' a placed reference's worldspace) — and it chains. On the rows form these name the LIST(S) to fold, one line per element. On the fields form a step may be QUANTIFIED: 'Effects[*count]' is one number per record (how many elements), 'Effects[*]' one row per element in the rows form's own row shape, and 'Effects[*].Data.Magnitude' that leaf per element — under format='dense' the extra rows repeat the record's identity columns. [*any]/[*all]/[*none] fold to a boolean, which is not a row: they belong in where= and are refused here by name.")]
@@ -131,7 +131,7 @@ public static class RecordsTools
             string? where_source = null,
         [Description("SELECT: find records that REFERENCE these FormIDs (reverse, one step; OR over the list, each match names which target(s) it hit). Needs no bounding scope: unbounded it is answered off the reverse-reference index, which is built on the first such call, costs one whole-order link-walk, and reports that cost and its own per-plugin freshness key in the response. A bounded references= — with a types= or plugins= — is unchanged and still cheaper. A '!' before an entry NEGATES it: references=[\"!XXXXXX:A.esm\"] keeps only records that do NOT reference that target, and plain and negated entries in one call compose by AND; the sigil takes the @file spelling too — references=[\"!@C:/work/targets.jsonl\"] excludes every target the file names. A negated entry ALONE with no types=/plugins= scope is the ORPHAN sweep: the universe becomes every record nothing in the order references, and the named target then excludes any of those that link it — bound the call if you meant the narrower question. Accepts [\"@<path>\"] like formids=.")]
             string[]? references = null,
-        [Description("SOURCE decides whose version you read; this is the SUBJECT of the call. Omit or \"winner\" for the load-order winner (the default). A plugin filename (e.g. \"OldPatch.esp\") reads THAT plugin's version WHEREVER the plugin lives — active in your order, or sitting on disk unticked — you do not have to know which, and the response STATES which arm resolved (active, or out-of-load-order and from where); use {\"file\": \"X.esp\", \"mod\": \"<mod folder>\"} when two mods ship the same filename. A plugin found in neither place is refused naming both places searched. A record the named plugin does not touch is refused naming the plugins that DO touch it — never silently absent. {\"overlay\": \"skypatcher\", \"state\": \"pre\"|\"post\"} reads around the SkyPatcher INI layer (post = after it replays); add \"ini\": \"<absolute path to a draft .ini>\" (with \"subfolder\": the SkyPatcher type folder it would be placed in, or omit it when the draft's parent directory already IS that folder) to read the post state with a draft INI that is not yet in a mod folded into the layer, so a draft can be checked before it is placed. Content read from outside the load order — an off-order file, or the SkyPatcher INI layer — sits OUTSIDE the epoch fingerprint, and the response says so. On project.form='info_order' this parameter means something narrower: the merge IS the answer there, so the one value it takes is ONE OFF-ORDER plugin, FOLDED into the merge at the END of the order (an active filename is refused — it is already in the merge), which is how a dialogue patch's merged order is read before MO2 enables it. \"previous_provider\" is a versus= value only — it is measured FROM the subject this parameter names.")]
+        [Description("SOURCE decides whose version you read; this is the SUBJECT of the call. Omit or \"winner\" for the load-order winner (the default). A plugin filename (e.g. \"OldPatch.esp\") reads THAT plugin's version WHEREVER the plugin lives — active in your order, or sitting on disk unticked — you do not have to know which, and the response STATES which arm resolved (active, or out-of-load-order and from where); use {\"file\": \"X.esp\", \"mod\": \"<mod folder>\"} when two mods ship the same filename. A plugin found in neither place is refused naming both places searched. A record the named plugin does not touch is refused naming the plugins that DO touch it — never silently absent. {\"overlay\": \"skypatcher\", \"state\": \"pre\"|\"post\"} reads around the SkyPatcher INI layer (post = after it replays); add \"ini\": \"<absolute path to a draft .ini>\" (with \"subfolder\": the SkyPatcher type folder it would be placed in, or omit it when the draft's parent directory already IS that folder) to read the post state with a draft INI that is not yet in a mod folded into the layer, so a draft can be checked before it is placed. Content read from outside the load order — an off-order file, or the SkyPatcher INI layer — sits OUTSIDE the epoch fingerprint, and the response says so. On project.form='info_order' this parameter means something narrower: the merge IS the answer there, so the one value it takes is ONE OFF-ORDER plugin, FOLDED into the merge where MO2 would load it — the END of the order for a regular plugin, the end of the master block for a master (the response says which, and why) — (an active filename is refused — it is already in the merge), which is how a dialogue patch's merged order is read before MO2 enables it. \"previous_provider\" is a versus= value only — it is measured FROM the subject this parameter names.")]
             JsonElement? source = null,
         [Description("SOURCE (comparison forms): the REFERENCE pole a delta/tree compares against. Same forms as source= — \"winner\" | a plugin filename | {\"file\", \"mod\"} | {\"overlay\", \"state\"[, \"ini\", \"subfolder\"]} — plus \"previous_provider\": the plugin immediately below the SUBJECT (whatever source= names) in the record's touching stack, measured FROM THE SUBJECT, never from the winner. Its four cases are all declared: subject=winner → next plugin down; subject mid-stack → still the one below the SUBJECT, with what sits above reported as plain fact (a mid-stack patch is ordinary practice, not judged); subject defines the record → refused naming it (never an empty diff that reads as 'no changes'); subject doesn't touch it → refused naming the actual touchers. REQUIRED when project.form='delta'; defaults to \"winner\" on 'tree'; refused on other forms.")]
             JsonElement? versus = null,
@@ -289,7 +289,7 @@ public static class RecordsTools
         // the pole grammar's shape sentence: two files enabled together have an order between them that only MO2
         // decides, and projecting one arbitrary guess as the answer is the silently wrong answer.
         if (form == "info_order" && source is { ValueKind: JsonValueKind.Array } srcArr)
-            return Wire.Refuse(json, $"error: the info_order form folds ONE off-order file into the merge, at the END of the order where a freshly enabled plugin lands, and source= names {srcArr.GetArrayLength()} — two files have no order between them until MO2 sorts them, so there is no one merge to project. Fold one file per call.");
+            return Wire.Refuse(json, $"error: the info_order form folds ONE off-order file into the merge, where MO2 would load that file, and source= names {srcArr.GetArrayLength()} — two files have no order between them until MO2 sorts them, so there is no one merge to project. Fold one file per call.");
         // ParsePole has no transport in scope, so its refusals take their shape here.
         if (ParsePole(source, "source", subjectRole: true, out var srcSpec) is { } sperr) return Wire.Refuse(json, sperr);
         srcSpec ??= LoadOrderService.PoleSpec.Winner;
@@ -450,7 +450,7 @@ public static class RecordsTools
         // the order. Every other pole is refused — the merge across the active order IS the answer, so there is
         // nothing for a pole to pick.
         if (form == "info_order" && srcSpec.Kind is LoadOrderService.PoleKind.Overlay or LoadOrderService.PoleKind.PreviousProvider)
-            return Wire.Refuse(json, "error: the info_order form merges EVERY plugin touching each topic — that merge is the answer, so a runtime-overlay or previous_provider pole has no seat here (each line already names the plugin that placed it). The one source= this form takes is an OFF-ORDER plugin filename, folded into the merge at the END of the order.");
+            return Wire.Refuse(json, "error: the info_order form merges EVERY plugin touching each topic — that merge is the answer, so a runtime-overlay or previous_provider pole has no seat here (each line already names the plugin that placed it). The one source= this form takes is an OFF-ORDER plugin filename, folded into the merge where MO2 would load it.");
         // fields_source= is the scan lane's display pole: it retargets what a matched row displays. The list
         // lane's read IS its display, so it would be meaningless there and is refused by name instead of dropped.
         if (winnerFields && formids is { Length: > 0 } && !hasScan)
@@ -485,6 +485,24 @@ public static class RecordsTools
             ioFold = probe;
             // The fold is not a "whose version" pole, so the lanes below must not read it as one.
             srcName = null; srcMod = null;
+        }
+        // Filled by the batch that opens the file: the label its rows carry and where the merge placed it, so the
+        // statements below are the same facts the rows are, not a second spelling of them.
+        var ioFoldFacts = ioFold is null ? null : new LoadOrderService.FoldFacts();
+        // The probe decided OFF-ORDER against its own build, and the merge reads another: a plugin ticked in MO2
+        // between the two is in the order the merge saw AND folded in again, and every projection sentence above
+        // would be false. The same seam every other two-capture lane on this tool has.
+        string? FoldSeam(OrderStamp? mergeEpoch)
+            => ioFold?.Epoch is { } probeEpoch && mergeEpoch is not null && mergeEpoch.Epoch != probeEpoch
+                ? $"error: the load order changed between resolving '{ioFold.Plugin}' as off-order (epoch={probeEpoch}) and reading the merge (epoch={mergeEpoch.Epoch}) — that file may now be IN the order, and the fold would describe a different world. Retry the call."
+                : null;
+        // The fold's own statement rides the artifact echo too: on every other form a `source` there means "the
+        // rows were read from that plugin", which a projection is not.
+        void FoldEcho(List<KeyValuePair<string, string>> e)
+        {
+            var f = ioFoldFacts!;
+            e.Add(new("folded", f.Label));
+            e.Add(new("projection", $"{f.Where}; {f.Placement} — the rows below are a PROJECTION of the order with that file enabled, not the live order."));
         }
 
         // ---- the response envelope (form + resolved source arm) -----------------------------------------
@@ -619,15 +637,16 @@ public static class RecordsTools
             // ---- info_order: the merged effective INFO sequence. ----
             if (form == "info_order")
             {
-                var ioRows = svc.InfoOrderBatch(ids, demand, out var ioRefusal, out var ioEpoch, ioFold);
+                var ioRows = svc.InfoOrderBatch(ids, demand, out var ioRefusal, out var ioEpoch, ioFold, ioFoldFacts);
                 if (ioRefusal is not null)
                     return json ? JsonWire.RenderError(ioRefusal, ioEpoch) : "error: " + ioRefusal + Wire.EpochLine(ioEpoch);
+                if (FoldSeam(ioEpoch) is { } ioTear) return Wire.Refuse(json, ioTear, ioEpoch);
                 var e = new List<KeyValuePair<string, string>>
                 {
                     new("formids", echoSrc ?? $"{ids.Length} inline formid(s)"),
                     new("form", form),
                 };
-                if (ioFold is not null) e.Add(new("folded", ioFold.Plugin));
+                if (ioFoldFacts is not null) FoldEcho(e);
                 return InfoOrderResponse(ioRows, ioEpoch, e);
             }
 
@@ -1253,10 +1272,22 @@ public static class RecordsTools
             else
             {
                 // A projection, said as one: the caller asked what the order WOULD be, and nothing in the response
-                // may read as what the game is loading now.
-                Arm($"the merge of every touching plugin PLUS '{ioFold.Plugin}' folded in at the END of the order — {ioFold.Where}");
-                envelope.Add(new("projection", $"'{ioFold.Plugin}' is NOT active: this is the order as it WOULD be with that file enabled, placed where MO2 puts a newly enabled plugin (last). Enable it and re-read for the live order."));
-                headerLine += $"\n[projection] '{ioFold.Plugin}' is NOT in the load order — it is folded in LAST, where MO2 puts a newly enabled plugin. Every line it places is marked below. Enable it and re-read for the live order.";
+                // may read as what the game is loading now. Every statement names the LABEL the rows carry — for a
+                // shadowed copy that is not the bare filename, which IS in the order and must not be called absent.
+                var f = ioFoldFacts!;
+                Arm($"the merge of every touching plugin PLUS '{f.Label}' — {f.Where} — {f.Placement}");
+                envelope.Add(new("folded", f.Label));
+                envelope.Add(new("projection",
+                    $"the folded file is the copy at {f.Where}; it is {f.Placement}. "
+                    + (f.ShadowsActiveName
+                        ? $"The FILENAME '{f.Plugin}' IS in the load order — served from another mod folder — so the folded copy's lines are labelled '{f.Label}' to tell the two apart. "
+                        : "")
+                    + "This is the order as it WOULD be with that copy enabled. Enable it and re-read for the live order."));
+                headerLine += $"\n[projection] the folded file is '{f.Label}' — {f.Where} — and is {f.Placement}. "
+                            + (f.ShadowsActiveName
+                                ? $"The FILENAME '{f.Plugin}' IS in the order, served from another mod folder; the folded copy's lines carry the label above. "
+                                : "")
+                            + "Every line it places is marked below. Enable it and re-read for the live order.";
                 CoverageNote(false);
             }
             int contested = rows.Count(x => x.Error is null && x.Order is { Contested: true });
@@ -1569,16 +1600,25 @@ public static class RecordsTools
                     envelope.Add(new("fold_selection", $"the scan selected these topics from the ACTIVE order; a topic only '{ioFold.Plugin}' defines is not among them — name it in formids= to read its merge."));
                     headerLine += $"\n(the scan selects from the ACTIVE order; a topic only '{ioFold.Plugin}' defines is reached by naming it in formids=)";
                 }
-                var ioRows = svc.InfoOrderBatch(ioKeys, null, out var ioRefusal, out var ioEpoch, ioFold);
+                var ioRows = svc.InfoOrderBatch(ioKeys, null, out var ioRefusal, out var ioEpoch, ioFold, ioFoldFacts);
                 if (ioRefusal is not null)
                     return json ? JsonWire.RenderError(ioRefusal, ioEpoch) : "error: " + ioRefusal + Wire.EpochLine(ioEpoch);
+                if (FoldSeam(ioEpoch) is { } ioScanTear) return Wire.Refuse(json, ioScanTear, ioEpoch);
                 if (outcome.Epoch is not null && ioEpoch is not null && ioEpoch.Epoch != outcome.Epoch)
                 {
                     var tear = $"the load order changed between the scan (epoch={outcome.Epoch}) and the merge " +
                                $"(epoch={ioEpoch?.Epoch}) — the two halves would mix builds. Retry the call.";
                     return json ? JsonWire.RenderError(tear, ioEpoch) : "error: " + tear;
                 }
-                return InfoOrderResponse(ioRows, ioEpoch, Echo());
+                // The scan's own echo labels a named pole as a read source, which a fold is not: the fold's
+                // statement replaces it, so the artifact manifest says what its rows actually are.
+                var ioEcho = Echo();
+                if (ioFoldFacts is not null)
+                {
+                    ioEcho.RemoveAll(kv => kv.Key == "source");
+                    FoldEcho(ioEcho);
+                }
+                return InfoOrderResponse(ioRows, ioEpoch, ioEcho);
             }
 
             // ---- form=everything on a scan: selection here, bodies via the batch lane, window-bounded.
@@ -2627,7 +2667,10 @@ public static class RecordsTools
                 rendered++; continue;
             }
             sb.Append("  ").Append(row.Type ?? "?").Append("  ").Append(row.EditorId ?? "<no editorid>")
-              .Append("  winner=").Append(row.WinnerPlugin ?? "?").Append('\n');
+              // No winner is a FACT on a folded read — nothing in the order defines this topic — and '?', which on
+              // every other row means "could not be determined", would read as a degraded one.
+              .Append("  winner=").Append(row.WinnerPlugin ?? "<none: no active plugin has this record; only the folded file defines it>")
+              .Append('\n');
             if (row.Order is null)
                 sb.Append("  [!] the merge could not be computed for this topic (its key did not resolve in the touching index).\n");
             else if (row.Order.Order.Count == 0 && row.Order.Complete)
