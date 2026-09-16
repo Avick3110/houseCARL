@@ -42,6 +42,8 @@ made the change.
   asset answer off the older build says which.** Run `housecarl_asset_status` during an MO2 re-sort.
 - **The load order's index hands its spare memory back once it is built.** Watch the houseCARL process's memory
   after your first call on a large order.
+- **`housecarl_decompile_script` fails a function loudly instead of emitting two calls in an order the script never
+  ran them in.** Read the failure comment in the `.psc` for the function it names.
 
 ## 2.0.2 — 2026-09-15
 
