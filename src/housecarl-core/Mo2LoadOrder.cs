@@ -44,6 +44,22 @@ public sealed record Mo2Composition(
     IReadOnlyList<string> InactivePluginNames,
     IReadOnlyList<string> ImplicitPluginNames);
 
+/// <summary>An MO2 profile text file could not be read at this instant. MO2 rewrites loadorder.txt and plugins.txt on
+/// a re-sort and holds the handle while it does, so a tool call landing in that window is a transient to retry, not a
+/// failure of the call. Derives from <see cref="IOException"/> so the mid-write catches already written against that
+/// type keep seeing it.</summary>
+public sealed class ProfileUnreadableException : IOException
+{
+    /// <summary>The profile file that could not be read.</summary>
+    public string ProfilePath { get; }
+
+    public ProfileUnreadableException(string profilePath, Exception inner)
+        : base($"the MO2 profile is being rewritten right now — '{System.IO.Path.GetFileName(profilePath)}' is held " +
+               "open by another program (MO2 holds it while it re-sorts). Nothing was changed; run this again in a " +
+               "moment.", inner)
+        => ProfilePath = profilePath;
+}
+
 /// <summary>One on-disk sighting of a plugin FILENAME: its real path plus a human label for WHERE it was found
 /// (the overwrite layer, a named mod folder, or the game Data folder) and whether that source is ENABLED in the
 /// profile. <see cref="Mo2LoadOrder.LocatePlugin"/> returns these so a caller can distinguish a name NO folder
@@ -128,7 +144,7 @@ public static class Mo2LoadOrder
             warnings?.Add($"modlist.txt not found at '{modlistPath}' — duplicate-name plugins cannot be priority-resolved.");
             return;
         }
-        foreach (var raw in File.ReadAllLines(modlistPath))
+        foreach (var raw in ReadProfileLines(modlistPath))
         {
             var line = raw.TrimEnd();
             if (line.Length == 0 || line[0] == '#') continue;
@@ -187,7 +203,7 @@ public static class Mo2LoadOrder
     static void ParsePlugins(string pluginsPath, HashSet<string> active, List<string> inactive)
     {
         if (!File.Exists(pluginsPath)) return;
-        foreach (var raw in File.ReadAllLines(pluginsPath))
+        foreach (var raw in ReadProfileLines(pluginsPath))
         {
             var line = raw.Trim();
             if (line.Length == 0 || line[0] == '#') continue;
@@ -206,13 +222,25 @@ public static class Mo2LoadOrder
             warnings?.Add($"loadorder.txt not found at '{loadOrderPath}' — cannot determine the active load order.");
             return names;
         }
-        foreach (var raw in File.ReadAllLines(loadOrderPath))
+        foreach (var raw in ReadProfileLines(loadOrderPath))
         {
             var line = raw.Trim();
             if (line.Length == 0 || line[0] == '#') continue;
             names.Add(line);
         }
         return names;
+    }
+
+    /// <summary>Read one profile text file, naming a locked file as the transient it is. The three parsers go through
+    /// here so a re-sort in flight reaches a caller as <see cref="ProfileUnreadableException"/> — one sentence saying
+    /// to retry — rather than as a raw IOException the tool guard reports as an internal failure.</summary>
+    static string[] ReadProfileLines(string path)
+    {
+        try { return File.ReadAllLines(path); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new ProfileUnreadableException(path, ex);
+        }
     }
 
     /// <summary>Locate every on-disk copy of a plugin FILENAME across the WHOLE MO2 install — the overwrite layer,

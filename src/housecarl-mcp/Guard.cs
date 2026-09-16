@@ -15,6 +15,7 @@ internal static class Guard
     {
         try { return body(); }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (ProfileUnreadableException ex) { return Transient(ex); }
         catch (Exception ex) { return Named(tool, ex); }
     }
 
@@ -23,8 +24,13 @@ internal static class Guard
     {
         try { return await body(); }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (ProfileUnreadableException ex) { return Transient(ex); }
         catch (Exception ex) { return Named(tool, ex); }
     }
+
+    /// <summary>A profile file locked by MO2 mid-re-sort is a named transient, not an internal failure: the call
+    /// reached a load order that cannot be read at this instant, and the fix is to run it again.</summary>
+    static string Transient(ProfileUnreadableException ex) => "error: " + ex.Message;
 
     static string Named(string tool, Exception ex)
     {
