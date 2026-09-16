@@ -6,6 +6,7 @@
 | C# project directory and assembly | `kebab-case` | `housecarl-mcp` |
 | C# root namespace | `PascalCase` | `HousecarlMcp` |
 | C# class and file | `PascalCase.cs`, file name = class name | `RecordReader.cs` |
+| One part of a partial class | `PascalCase.cs`, file named for what the part does | `RecordWrites.cs`, a part of `LoadOrderService` |
 | Test project | `<component>-tests/` | `housecarl-mcp-tests/` |
 | Test class | `<Subject>Tests.cs` | `RecordsScanLaneTests.cs` |
 | Skill folder | `kebab-case/` | `spid-authoring/` |
