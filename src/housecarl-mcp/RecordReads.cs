@@ -2312,7 +2312,12 @@ public sealed partial class LoadOrderService
         DialogueFold? fold = null;
         if (foldArm is not null)
         {
-            fold = OpenDialogueFold(foldArm, out var foldErr);
+            // A shadowed copy carries a filename the order also has, so the folded lines get a label of their own:
+            // two contributors under one name would leave the reader unable to tell the projection from the live list.
+            // Short, because it repeats on every row it placed: the response's own source statement names the mod
+            // folder this copy came from.
+            var label = view.ContainsPlugin(foldArm.Plugin) ? $"{foldArm.Plugin} [off-order copy]" : foldArm.Plugin;
+            fold = OpenDialogueFold(foldArm, out var foldErr, label);
             if (foldErr is not null) { refusal = foldErr; return Array.Empty<InfoOrderRow>(); }
         }
         using var session = resolver.OpenSession();
@@ -2377,7 +2382,7 @@ public sealed partial class LoadOrderService
     /// <summary>Read an already-probed OFF-ORDER pole's DIAL content once, for a dialogue lane to fold at the end
     /// of the order. Every failure is a named refusal — the roots that could not be derived, the file that would
     /// not parse — never a fold that silently contributes nothing.</summary>
-    internal DialogueFold? OpenDialogueFold(PoleInfo arm, out string? error)
+    internal DialogueFold? OpenDialogueFold(PoleInfo arm, out string? error, string? label = null)
     {
         error = null;
         string dataDir;
@@ -2387,7 +2392,7 @@ public sealed partial class LoadOrderService
             error = $"the MO2 roots couldn't be derived to open '{arm.Plugin}': {ex.Message}";
             return null;
         }
-        try { return DialogueFold.Read(arm.Plugin, arm.Where, arm.Path!, dataDir); }
+        try { return DialogueFold.Read(arm.Plugin, arm.Where, arm.Path!, dataDir, label); }
         catch (Exception ex)
         {
             error = $"could not open '{arm.Path}' as a Skyrim plugin: {ex.Message}";
