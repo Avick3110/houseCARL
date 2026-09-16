@@ -65,6 +65,12 @@ public sealed record DialogueCheckResult(
 {
     public bool Success => Error is null;
 
+    /// <summary>The one sentence a folded call leads with: which off-order plugin was folded in at the END of the
+    /// order, and where it was found. Null when nothing was folded. Every verdict below it was read against the
+    /// active order's winners PLUS that file, so the sentence is the frame for the whole section and a render may
+    /// not drop it.</summary>
+    public string? Folded { get; init; }
+
     /// <summary>Seeds that produced a report — the ones with rows to render.</summary>
     public IEnumerable<DialogueSeedResult> Resolved => Seeds.Where(s => s.Report is not null);
 
