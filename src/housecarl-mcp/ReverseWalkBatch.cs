@@ -121,7 +121,7 @@ public static class ReverseWalkBatch
                         try { body = view.GetRecord(session, w.Value.WinnerPlugin, candidate); }
                         catch (Exception) { threw = true; }
                     if (threw || body is null) unreadable++;
-                    else if (DeletedRecordRule.HasNoLiveBody(body) || body is not IFormLinkContainerGetter flc) noLiveBody++;
+                    else if (DeletedRecordRule.HasNoLiveBody(body) || body is not IFormLinkContainerGetter) noLiveBody++;
                     else
                     {
                         // The SAME link walk references= makes (RecordLinks), so the two spellings of the reverse

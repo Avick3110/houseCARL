@@ -835,11 +835,16 @@ public static class RecordsTools
                     headerLine += $"\n{rev.Dropped.Total} index candidate(s) were dropped — the index names a plugin copy that carries the link, and this walk judges the load-order winner (the same second step references= takes): {string.Join("; ", causes)}. None of them was reached or expanded.";
                 }
                 // Records this walk's body check could only read leniently: verified and walked, with the same named
-                // gap the scan lanes report, so a reader is never told the walk read them whole.
+                // gap the scan lanes report, so a reader is never told the walk read them whole. It says WHICH
+                // records it counts, because the index's own line sits directly above it saying the same words about
+                // a different universe — the plugin copies it walked at build time, over the whole order — and read
+                // in sequence the second would otherwise look like a correction of the first.
                 if (rev.LenientRecords is { Count: > 0 } lenientRev)
-                    headerLine += $"\n{lenientRev.Count} record(s) were read leniently — part of their content is encoded in a way Mutagen refuses, "
-                                + "so the walk judged them on what houseCARL could still decode: " + string.Join("; ", lenientRev.Take(3))
-                                + (lenientRev.Count > 3 ? $"; and {lenientRev.Count - 3} more" : "") + ".";
+                    headerLine += $"\nof the candidates this walk judged, {lenientRev.Count} winner record(s) were read leniently — part of their "
+                                + "content is encoded in a way Mutagen refuses, so the walk judged them on what houseCARL could still decode: "
+                                + string.Join("; ", lenientRev.Take(3))
+                                + (lenientRev.Count > 3 ? $"; and {lenientRev.Count - 3} more" : "")
+                                + $". Read one with {ToolNames.Records} formids=[the FormID] to see the marked row.";
                 if (rev.Capped)
                     headerLine += $"\n[!] the walk.max_nodes budget ({walkMaxNodes}, one budget shared across every seed and hop on this lane) was reached — what is listed IS reached and proved, and the hop it cut is marked; raise walk.max_nodes to walk further.";
                 // The reached set's render bound, the same one the forward walk pays: this lane hands the list lane
