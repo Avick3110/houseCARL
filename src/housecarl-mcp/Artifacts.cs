@@ -556,6 +556,11 @@ internal static class Artifacts
 
     // ---- to_file validation -------------------------------------------------------------------------
 
+    /// <summary>The one refusal for <c>counts_only=</c> beside <c>to_file=</c>, spelled once for every surface that
+    /// takes both: the two ask for opposite dispositions of the same result.</summary>
+    public const string CountsOnlyWithToFile =
+        "error: counts_only= returns the census with no rows, and to_file= writes the rows — the two contradict; drop one.";
+
     /// <summary>Validate a caller-named <c>to_file=</c> target: absolute, .jsonl-suffixed (the artifact is jsonl,
     /// and another extension would promise a format the file does not have), and not inside the auto-spill
     /// results directory, which the server prunes by age. Null means fine; else the named refusal.</summary>

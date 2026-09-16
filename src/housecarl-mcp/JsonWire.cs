@@ -3125,6 +3125,54 @@ static class JsonWire
         return Finish(ms);
     }
 
+    /// <summary>The <c>counts_only=</c> twin of <see cref="RenderAssetStatus"/>: the same census the text lane
+    /// states, as data. No path rows — the counters are the answer. The mod table is an ORDERED array rather than a
+    /// map keyed by mod, because the order (count descending) is part of what the census says.</summary>
+    public static string RenderAssetCensus(AssetStatusData d, int maxChars)
+    {
+        int cap = Cap(maxChars);
+        var c = AssetCensus.Tally(d);
+        using var ms = new CharCountedStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteString("profile", d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)");
+            // The caveats lead here too: an absent= count is authoritative only where both are empty.
+            w.WriteBoolean("read_incomplete", d.ReadIncomplete);
+            int omitted = WriteCappedStringArray(w, ms, "bsa_failures", d.BsaFailures, cap)
+                        + WriteCappedStringArray(w, ms, "warnings", d.Warnings, cap);
+            if (d.SelectorNotes is null) { w.WriteNull("selector_notes"); w.WriteNumber("selector_notes_omitted", 0); }
+            else omitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, cap);
+
+            w.WriteNumber("selected", c.Selected);
+            w.WriteNumber("counted", c.Counted);
+            w.WriteNumber("present", c.Present);
+            w.WriteNumber("absent", c.Absent);
+            w.WriteNumber("errors", c.Errors);
+            w.WriteNumber("loose", c.Loose);
+            w.WriteNumber("bsa", c.Bsa);
+            // How many mods the table HAS, stated before the rows: a cut document otherwise says it was cut without
+            // saying what from.
+            w.WriteNumber("mods_total", c.ByMod.Count);
+            w.WriteStartArray("by_mod");
+            int shown = 0;
+            foreach (var (mod, count) in c.ByMod.Select(m => (m.Key, m.Value)))
+            {
+                if (shown > 0 && Over(w, ms, cap)) break;
+                w.WriteStartObject();
+                w.WriteString("mod", mod);
+                w.WriteNumber("count", count);
+                w.WriteEndObject();
+                shown++;
+            }
+            w.WriteEndArray();
+            w.WriteNumber("mods_rendered", shown);
+            w.WriteBoolean("truncated", shown < c.ByMod.Count || omitted > 0);
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
     /// <summary>The <c>to_file=</c> twin of <see cref="RenderAssetStatus"/>: the build-level caveats an ABSENT row in
     /// the FILE depends on, and the spilled marker. No rows, because the rows ARE the file. The caveats are the only
     /// budgeted content, so the cap they write against is the whole cap.</summary>

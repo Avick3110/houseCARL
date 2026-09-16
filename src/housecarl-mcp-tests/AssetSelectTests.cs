@@ -397,4 +397,88 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.Contains("empty", text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("under", text, StringComparison.Ordinal);
     }
+
+    /// <summary>counts_only= answers the aggregate question a sweep's rows only imply: which mods win how many
+    /// paths, how the winners split between loose and BSA, and how many are absent — with no path rows at all.</summary>
+    [Fact]
+    public void CountsOnlyAnswersTheCensusAndNoPathRows()
+    {
+        var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir }, counts_only: true);
+
+        Assert.Contains("census: counted=5 present=5 absent=0 errors=0", text);
+        Assert.Contains("winners: loose=4 BSA=1", text);
+        // Count descending, then name ascending — the mod that wins most sits at the top of the table.
+        Assert.Contains("winning mods (3):", text);
+        Assert.Matches(@"2  FaceBase\n\s+2  FaceHigher\n\s+1  ArchiveMod", text);
+        Assert.DoesNotContain("WINS:", text);
+    }
+
+    /// <summary>An absent path is counted apart from a present one, so the census answers "how many of this
+    /// selection does nothing provide" without the caller reading a row.</summary>
+    [Fact]
+    public void TheCensusCountsAbsentPathsApartFromPresentOnes()
+    {
+        var text = AssetTools.AssetStatus(_w.Svc, formids: new[] { AssetSelectWorld.TintAbsentFormId },
+                                          counts_only: true);
+
+        Assert.Contains("census: counted=2 present=1 absent=1 errors=0", text);
+    }
+
+    /// <summary>A census of a limit= window says it is one: the counters are of what the call RESOLVED, and read as
+    /// the whole selection's they would be a wrong answer about the order.</summary>
+    [Fact]
+    public void AWindowedCensusSaysItCountedTheWindowAndNotTheSelection()
+    {
+        var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
+                                          limit: 2, counts_only: true);
+
+        Assert.Contains("census: counted=2", text);
+        Assert.Contains("not the 5 the selection names", text);
+    }
+
+    /// <summary>The json twin carries the same census as data, the mod table as an ORDERED array — the order is part
+    /// of what the census says, and a map keyed by mod could not hold it.</summary>
+    [Fact]
+    public void TheJsonCensusCarriesTheModTableAsAnOrderedArray()
+    {
+        var root = System.Text.Json.JsonDocument.Parse(
+            AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
+                                   counts_only: true, format: "json")).RootElement;
+
+        Assert.Equal(5, root.GetProperty("counted").GetInt32());
+        Assert.Equal(4, root.GetProperty("loose").GetInt32());
+        Assert.Equal(1, root.GetProperty("bsa").GetInt32());
+        Assert.Equal(0, root.GetProperty("absent").GetInt32());
+        Assert.Equal(3, root.GetProperty("mods_total").GetInt32());
+        var byMod = root.GetProperty("by_mod");
+        Assert.Equal("FaceBase", byMod[0].GetProperty("mod").GetString());
+        Assert.Equal(2, byMod[0].GetProperty("count").GetInt32());
+        Assert.Equal("ArchiveMod", byMod[2].GetProperty("mod").GetString());
+        Assert.False(root.TryGetProperty("results", out _));
+    }
+
+    /// <summary>counts_only= and to_file= ask for opposite dispositions of the same result, so the pair is refused
+    /// by name — the same refusal the records lanes make.</summary>
+    [Fact]
+    public void CountsOnlyBesideToFileIsRefusedByName()
+    {
+        var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
+                                          counts_only: true, to_file: @"C:\work\never.jsonl");
+
+        Assert.Contains("counts_only", text);
+        Assert.Contains("the two contradict", text);
+        Assert.False(File.Exists(@"C:\work\never.jsonl"));
+    }
+
+    /// <summary>The mod table is bounded by max_chars with the same named cut the path list takes, and the counters
+    /// above it stay exact — a cut table never makes a total wrong.</summary>
+    [Fact]
+    public void TheCensusModTableIsCutAtMaxCharsWithTheCountersStillExact()
+    {
+        var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
+                                          counts_only: true, max_chars: 200);
+
+        Assert.Contains("census: counted=5 present=5", text);
+        Assert.Contains("more mod(s) omitted at max_chars=200", text);
+    }
 }
