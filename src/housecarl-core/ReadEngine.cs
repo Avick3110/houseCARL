@@ -785,6 +785,22 @@ public static class ReadEngine
                 ExpandChild(arm, armProp.PropertyType, val, $"{path}[{g}]", childDepth, sink, ref budget);
             }
         }
+        else if (val is not string && IndexedElements(val) is { } indexed)
+        {
+            // A binary overlay builds a list element only when it is INDEXED, so an element Mutagen cannot parse
+            // throws out of the ENUMERATOR and takes every sibling with it — the whole field then reads as one
+            // unreadable line, which is indistinguishable from a record that has no such content. Stepping by
+            // index isolates the fault to the element that carries it (#301); a list with no indexer keeps the
+            // enumeration below.
+            for (int i = 0; i < indexed.Count; i++)
+            {
+                if (budget < 0) return;
+                object? item;
+                try { item = indexed.At(i); }
+                catch (Exception ex) { Emit(sink, ref budget, ElementFault(parent, $"{path}[{i}]", i, ex)); continue; }
+                ExpandChild(item, item?.GetType() ?? typeof(object), val, $"{path}[{i}]", childDepth, sink, ref budget);
+            }
+        }
         else if (val is System.Collections.IEnumerable seq and not string)
         {
             int i = 0;
@@ -828,6 +844,42 @@ public static class ReadEngine
                 ExpandChild(fv, prop.PropertyType, val, $"{path}.{fname}", childDepth, sink, ref budget);
             }
         }
+    }
+
+    /// <summary>The line for a list element whose own getter threw. Ordinarily the read fault note; on a PERK's
+    /// effect list, the lenient decode's marker instead — the one place houseCARL reads content Mutagen refused,
+    /// and it says so in the same note (<see cref="PerkEffectDecode"/>).</summary>
+    static FieldValue ElementFault(object parent, string path, int index, Exception ex) =>
+        PerkEffectDecode.EffectNote(parent, index, Reason(ex)) is { } marker
+            ? new FieldValue(path, false, null, marker, Present: true, Readable: false)
+            : Fault(path, ex);
+
+    /// <summary>A collection's element count and its indexer, when it has one — the accessor an overlay list offers
+    /// so a caller can build ONE element at a time instead of enumerating. Null for a collection with no indexer
+    /// (the caller enumerates). Cached per runtime type, like <see cref="CountOf"/>'s accessor.</summary>
+    static (int Count, Func<int, object?> At)? IndexedElements(object val)
+    {
+        if (_itemAccessors.GetOrAdd(val.GetType(), ItemAccessor) is not { } item) return null;
+        if (_countAccessors.GetOrAdd(val.GetType(), CountAccessor) is not { } count) return null;
+        int n;
+        try { n = count(val); }
+        catch { return null; }                                   // a length we cannot read is not a list we can step
+        return (n, i => item(val, i));
+    }
+
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, Func<object, int, object?>?> _itemAccessors = new();
+
+    /// <summary>The <c>this[int]</c> accessor of a list type, or null when it has none (a set, a dictionary).</summary>
+    static Func<object, int, object?>? ItemAccessor(Type t)
+    {
+        foreach (var iface in t.GetInterfaces())
+        {
+            if (!iface.IsGenericType || iface.GetGenericTypeDefinition() != typeof(IReadOnlyList<>)) continue;
+            if (iface.GetProperty("Item")?.GetGetMethod() is { } getter)
+                return (o, i) => getter.Invoke(o, new object[] { i });
+        }
+        if (typeof(System.Collections.IList).IsAssignableFrom(t)) return (o, i) => ((System.Collections.IList)o)[i];
+        return null;
     }
 
     /// <summary>Append a line, decrementing the generation budget; at exhaustion emit ONE truncation note and
@@ -1499,6 +1551,12 @@ public static class ReadEngine
         // says "-> [WeaponBasicStats]" in its edit list and "[WeaponBasicStatsBinaryOverlay]" two lines below.
         return $"[{RecordNaming.StripGetterInterface(RecordNaming.StripOverlay(val.GetType().Name))}]";
     }
+
+    /// <summary>The modeled field names of one record — the same set the whole-record dump reads, for a caller that
+    /// has to walk a record field by field because the whole-record walk threw.</summary>
+    public static IEnumerable<string> ModeledFieldsOf(IMajorRecordGetter record) =>
+        ModeledFieldNames(RecordNaming.StripGetterInterface(WriteEngine.PrimaryGetter(record.GetType())?.Name ?? "I?Getter"),
+                          record.GetType());
 
     /// <summary>The modeled field names for the whole-record dump. Prefer the CORPUS — the authoritative
     /// by-construction modeled-field set (exactly what the read-proof drives, infra-free) — and fall back
