@@ -33,7 +33,14 @@ Code comments call the first two of these the cornerstones. A design question th
 
 | Path | What |
 |---|---|
-| `src/housecarl-mcp/` | The MCP server and tool surface. `LoadOrderService.cs` here holds most of the load-order logic |
+| `src/housecarl-mcp/` | The MCP server and tool surface |
+| `src/housecarl-mcp/LoadOrderService.cs` | The service's head, fields, and the instance, status, and config lane |
+| `src/housecarl-mcp/AssetLayers.cs` | Assets, the SKSE layer, NIF, SkyPatcher, place |
+| `src/housecarl-mcp/RecordReads.cs` | Read, resolve, query |
+| `src/housecarl-mcp/RecordChecks.cs` | The check lanes |
+| `src/housecarl-mcp/RecordWrites.cs` | The write lanes |
+| `src/housecarl-mcp/OutputLocations.cs` | Output folders, plugin locate, `.seq`, type lookup |
+| `src/housecarl-mcp/ServiceResults.cs` | The result records and enums those lanes return |
 | `src/housecarl-core/` | Record, asset, read, and write engines; the load-order resolver |
 | `src/housecarl-generator/` | Build-time schema generator; also the probe runner (`ci-all`) |
 | `src/housecarl-mcp-tests/` | xUnit tests against the built server |
@@ -54,6 +61,6 @@ MCP tools are named `housecarl_<snake_case>`; namespaces, classes, and files are
 - Don't hand-write coverage for a record type, or add a tool for one job.
 - Don't add a guard, sweep, or process rule to catch a mistake. Fix the mistake; if it recurs, fix the code that allows it.
 - Don't work around a block silently. Say what blocks you.
-- Don't add a new domain to `LoadOrderService.cs` (already 9,000 lines). A new subsystem gets its own file.
+- Don't add a new domain to any of the `LoadOrderService` partials. A new subsystem gets its own file.
 - Don't edit `dev/PRFAQ/` or `Housecarl [Legacy]/`. Both are frozen reference.
 - Don't spawn a Fable agent. Every session, reviewer, or helper you spawn runs on Opus or lower.
