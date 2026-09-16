@@ -81,8 +81,8 @@ internal static class ListParams
         var path = raw.StartsWith('@') ? raw[1..].Trim() : raw;
         if (path.Length == 0)
             return (null, $"{param}: \"@\" names no file — give the manifest's absolute path, e.g. \"@C:\\\\jobs\\\\ops.json\".");
-        if (!Path.IsPathRooted(path))
-            return (null, $"{param}: '{path}' must be an ABSOLUTE path — the server resolves relative paths against its OWN working directory, not yours.");
+        if (PathArguments.NotAbsolute(path, $"{param}:", "the file to read", "C:\\jobs\\ops.json") is { } notAbsolute)
+            return (null, notAbsolute);
         string text;
         try { text = File.ReadAllText(path); }
         catch (Exception ex) { return (null, $"{param}: could not read '{path}' — {ex.GetType().Name}: {ex.Message}"); }

@@ -114,7 +114,8 @@ public sealed partial class LoadOrderService
             if (!_configured) throw NotConfigured();
             EnsurePathsDerived();                          // cheap: derive ModsDir/DataDir for the deployability check, NO resolver build
             var given = (outputDir ?? "").Trim().Trim('"');
-            if (OutPathNotAbsolute(given, $"the mod-folder root to write into — houseCARL appends {sub}\\") is { } notAbsolute)
+            if (PathArguments.NotAbsolute(given, "out_path", $"the mod-folder root to write into (houseCARL appends {sub}\\)",
+                                          "C:\\MO2\\mods\\MyMod") is { } notAbsolute)
                 throw new InvalidOperationException(notAbsolute);
             string root;
             try { root = Path.GetFullPath(given); }
@@ -242,18 +243,6 @@ public sealed partial class LoadOrderService
         return f with { OutputDir = src };
     }
 
-    /// <summary>The one refusal every <c>out_path=</c> lane gives a path that is not absolute — the server would
-    /// resolve it against its OWN working directory, which no caller can predict, and the response would then name a
-    /// folder the caller cannot find. Fully-qualified rather than merely rooted: 'C:work' and '\work' are rooted and
-    /// still resolve against the server's directory. <paramref name="what"/> names what the caller should pass.
-    /// Returns null when the path is fine, so a tool body that answers in strings can refuse with it directly.</summary>
-    internal static string? OutPathNotAbsolute(string given, string what)
-        => Path.IsPathFullyQualified(given)
-            ? null
-            : $"out_path '{given}' is not an absolute path — pass the full path to {what} (e.g. " +
-              "'C:\\work\\output'), because the server resolves anything else against its OWN working directory, " +
-              "not yours.";
-
     /// <summary>The <c>out_path=</c> lane for a decompiled .psc: the caller names a folder and the .psc lands
     /// straight in it. Nothing is appended — a .psc is source a compiler reads, never a file the game loads — so
     /// this is the <c>bsa_extract</c> shape rather than <see cref="ResolveExplicitScriptFolder"/>'s, and there is no
@@ -266,7 +255,7 @@ public sealed partial class LoadOrderService
     public static RiderFolder ResolveExplicitSourceFolder(string outPath)
     {
         var given = (outPath ?? "").Trim().Trim('"');
-        if (OutPathNotAbsolute(given, "the folder the .psc should land in") is { } notAbsolute)
+        if (PathArguments.NotAbsolute(given, "out_path", "the folder the .psc should land in", "C:\\work\\sources") is { } notAbsolute)
             throw new InvalidOperationException(notAbsolute);
         string root;
         try { root = Path.GetFullPath(given); }
