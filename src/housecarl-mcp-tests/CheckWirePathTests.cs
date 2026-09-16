@@ -82,6 +82,9 @@ public sealed class CheckWirePathTests
         if (t == typeof(string)) return "\"zzz\"";
         if (t == typeof(bool)) return "true";
         if (t == typeof(int) || t == typeof(long) || t == typeof(double)) return "1";
+        // A free-shaped parameter (the dialogue fold's pole) binds whatever JSON it is sent; a string is the
+        // spelling a caller reaches for first.
+        if (t == typeof(System.Text.Json.JsonElement)) return "\"zzz\"";
         if (typeof(System.Collections.IEnumerable).IsAssignableFrom(t)) return """["zzz"]""";
         throw new NotSupportedException(
             $"No sample value for parameter type {t}. A new parameter shape reached this sweep; teach " +
