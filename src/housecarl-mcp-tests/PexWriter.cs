@@ -3,7 +3,8 @@ using Mutagen.Bethesda.Pex;
 
 namespace HousecarlMcpTests;
 
-/// <summary>Writes byte-valid single-object Skyrim <c>.pex</c> files with a chosen table of Auto properties.
+/// <summary>Writes byte-valid Skyrim <c>.pex</c> files: one object with a chosen table of Auto properties, or
+/// several bare objects.
 /// A copy, not a project reference on the generator's own writer: the test project must not depend on it.
 /// What the fixture uses it for: <c>docs/architecture/test-project-fixtures.md</c>.</summary>
 public static class PexWriter
@@ -65,6 +66,29 @@ public static class PexWriter
             MachineName = "ci",
         };
         pex.Objects.Add(obj);
+        pex.WritePexFile(path, GameCategory.Skyrim);
+    }
+
+    /// <summary>Write a .pex carrying several bare objects, in the order given — for the rules that read every
+    /// object in a file before writing any of them.</summary>
+    public static void WriteMultiObjectPex(string path, params string[] names)
+    {
+        var pex = new PexFile(GameCategory.Skyrim)
+        {
+            MajorVersion = 3,
+            MinorVersion = 2,
+            GameId = 1,
+            CompilationTime = default,
+            SourceFileName = names[0] + ".psc",
+            Username = "hc",
+            MachineName = "ci",
+        };
+        foreach (var name in names)
+        {
+            var obj = new PexObject { Name = name, ParentClassName = "", DocString = "", AutoStateName = "" };
+            obj.States.Add(new PexObjectState { Name = "" });
+            pex.Objects.Add(obj);
+        }
         pex.WritePexFile(path, GameCategory.Skyrim);
     }
 }
