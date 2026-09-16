@@ -257,7 +257,7 @@ public static class DialogueValidate
             // the lines it lists, exactly as the plugin would once enabled. It never becomes the move baseline —
             // it cannot be the first contributor unless nothing active touches the topic, and then it IS the
             // definer's list, which is the right baseline.
-            if (fold?.Topic(tfk) is { } folded) groups.Add((fold.Plugin, folded.Lines));
+            if (fold?.Topic(tfk) is { } folded) groups.Add((fold.Label, folded.Lines));
 
             int firstWithLines = groups.FindIndex(g => g.Item2.Count > 0);
             string? baselinePlugin = firstWithLines >= 0 ? groups[firstWithLines].Item1 : null;
@@ -267,7 +267,7 @@ public static class DialogueValidate
                                 .Any(p => unread.Contains(p, StringComparer.OrdinalIgnoreCase)));
 
             built[tfk] = DialogueInfoOrder.Compute(groups, ResolveInfo, unread, baselineTrusted)
-                with { FoldedPlugin = fold?.Plugin };
+                with { FoldedPlugin = fold?.Label };
         }
         return built;
     }

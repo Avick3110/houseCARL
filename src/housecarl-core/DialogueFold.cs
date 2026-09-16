@@ -25,8 +25,14 @@ public sealed record FoldedTopic(FormKey Topic, string? EditorId, IReadOnlyList<
 /// <see cref="DialogueValidate.InfoOrders"/> appends to each topic's merge as the last contributor.</summary>
 public sealed class DialogueFold
 {
-    /// <summary>The plugin's filename — what every row this fold placed is labelled with.</summary>
+    /// <summary>The plugin's filename.</summary>
     public string Plugin { get; }
+
+    /// <summary>What every row this fold placed is labelled with. The filename, unless an ACTIVE plugin already
+    /// carries that filename — a shadowed on-disk copy addressed by {file, mod} — in which case the label has to
+    /// differ, or two contributors to one merge would render under one name and the reader could not tell the
+    /// folded lines from the live ones.</summary>
+    public string Label { get; }
 
     /// <summary>Where the file was found, in the words the source pole resolved it with (the off-order arm
     /// statement), so a response can say which copy on disk was folded.</summary>
@@ -34,14 +40,15 @@ public sealed class DialogueFold
 
     readonly Dictionary<FormKey, FoldedTopic> _topics = new();
 
-    DialogueFold(string plugin, string where) { Plugin = plugin; Where = where; }
+    DialogueFold(string plugin, string label, string where) { Plugin = plugin; Label = label; Where = where; }
 
     /// <summary>Open the plugin at <paramref name="path"/>, project every DIAL topic's child list, and close it.
     /// Throws what Mutagen throws on a file it cannot parse; the caller names the file in its refusal.
-    /// <paramref name="dataDir"/> is the game Data folder, needed so a localized plugin's strings resolve.</summary>
-    public static DialogueFold Read(string plugin, string where, string path, string? dataDir)
+    /// <paramref name="dataDir"/> is the game Data folder, needed so a localized plugin's strings resolve.
+    /// <paramref name="label"/> is what rows this fold places are labelled with (see <see cref="Label"/>).</summary>
+    public static DialogueFold Read(string plugin, string where, string path, string? dataDir, string? label = null)
     {
-        var fold = new DialogueFold(plugin, where);
+        var fold = new DialogueFold(plugin, string.IsNullOrEmpty(label) ? plugin : label!, where);
         var ov = LoadOrderResolver.OpenOverlay(path, string.IsNullOrEmpty(dataDir) ? null : dataDir);
         try
         {

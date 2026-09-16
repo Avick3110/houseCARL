@@ -125,10 +125,14 @@ internal static class DialogueWire
 
         // Count the plugins that touch the topic, not the ones successfully read: on the incomplete path this line
         // sits directly beneath a banner giving the true total, and the two must not disagree.
-        int touching = io.ContributingPlugins.Count + io.UnreadContributors.Count;
+        // The folded file does not TOUCH this topic in the order — it is not in the order — so it is counted
+        // apart from the plugins that do, and named rather than folded into their number.
+        int touching = io.ContributingPlugins.Count + io.UnreadContributors.Count - (io.FoldContributed ? 1 : 0);
         sb.Append(pad).Append("  effective INFO order — merged across ").Append(touching)
           .Append(touching == 1 ? " plugin that touches" : " plugins that touch")
-          .Append(" this topic; the game walks it top to bottom and plays the FIRST line whose conditions pass:\n");
+          .Append(" this topic");
+        if (io.FoldContributed) sb.Append(", plus the folded file below");
+        sb.Append("; the game walks it top to bottom and plays the FIRST line whose conditions pass:\n");
         AppendFoldNote(sb, io, pad);
 
         // Over the cap and nothing moved: say so, rather than falling through to "listing only the 0 that moved"
