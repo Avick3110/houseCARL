@@ -29,6 +29,16 @@ saying it sets an expectation their install may contradict. Say what is known, a
   Without `out_path=` nothing changes: the `.psc` lands in a houseCARL patch-mod folder under
   `Source\Scripts`, and an unconfigured houseCARL still asks for your instance. To check, decompile with
   `out_path=` a scratch folder and look there for the `.psc` the result names — your mods directory gains no folder.
+- **`housecarl_decompile_script` now reconstructs a function that uses the value of a call returning
+  `None`.** Such a call puts its result in the compiler's `::NoneVar` discard slot, and the compiler reads
+  the slot back wherever the call's value is used — `x = obj.VoidCall()`, `return obj.VoidCall()`,
+  `if obj.VoidCall()`. The reader emitted the call as a bare statement and left nothing in the slot, so the
+  read back failed the whole function to a raw-bytecode comment block. The call now comes back as the value
+  it was, and the `as` cast the compiler emits to move that value into the destination's type is dropped,
+  because `<a None expression> as X` is not something the compiler accepts. A call whose result nothing reads
+  is a bare-call statement exactly as before. Across 51,262 `.pex` files on a local Skyrim install this
+  turned 22 failing functions in 19 scripts into zero, and left every other script's decompiled source
+  byte-identical; the failures that remain are named in the PR.
 
 ## 2.0.2 — 2026-09-15
 
