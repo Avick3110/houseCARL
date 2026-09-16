@@ -654,9 +654,10 @@ public sealed class RecordsArtifactTests : ArtifactTestBase, IClassFixture<Artif
     [Fact]
     public void AWindowedAutoSpillNamesWhereTheMissingMatchesAre()
     {
-        // Prose-only: "nowhere" is not a value the response can carry as a number.
+        // Prose-only: "nowhere" is not a value the response can carry as a number. The sentence names the WINDOW,
+        // not limit=, because offset= alone makes a window too and the matches it drops are the ones before it.
         using var d = OwnResults("windowed-missing");
-        Assert.Contains("beyond limit= are in NO file",
+        Assert.Contains("outside the returned window are in NO file",
                         RecordsTools.Records(Svc, types: new[] { "WEAP" }, limit: 2, max_chars: TinyScan));
     }
 
