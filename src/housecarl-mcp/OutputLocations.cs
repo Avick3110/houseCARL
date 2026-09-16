@@ -114,7 +114,7 @@ public sealed partial class LoadOrderService
             if (!_configured) throw NotConfigured();
             EnsurePathsDerived();                          // cheap: derive ModsDir/DataDir for the deployability check, NO resolver build
             var given = (outputDir ?? "").Trim().Trim('"');
-            if (OutPathNotAbsolute(given, $"the mod-folder root to write into (houseCARL appends {sub}\\)") is { } notAbsolute)
+            if (OutPathNotAbsolute(given, $"the mod-folder root to write into — houseCARL appends {sub}\\") is { } notAbsolute)
                 throw new InvalidOperationException(notAbsolute);
             string root;
             try { root = Path.GetFullPath(given); }

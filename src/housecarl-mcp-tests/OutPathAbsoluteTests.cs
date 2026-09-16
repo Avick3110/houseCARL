@@ -14,6 +14,10 @@ public sealed class OutPathAbsoluteTests
     readonly ScriptsWorld W;
     public OutPathAbsoluteTests(ScriptsFixture f) => W = f.W;
 
+    /// <summary>A relative out_path nothing can have created before this run — the bug these tests cover leaves a
+    /// folder of that name beside the server, and a fixed name would carry one run's residue into the next.</summary>
+    static string Relative() => "hc-out-path-" + Guid.NewGuid().ToString("N");
+
     /// <summary>The folder a relative out_path would have been resolved to, so a test can state it was not made.</summary>
     static string WhereARelativePathWouldLand(string relative) => Path.Combine(Directory.GetCurrentDirectory(), relative);
 
@@ -24,13 +28,14 @@ public sealed class OutPathAbsoluteTests
         // the refusal comes first.
         var archive = Path.Combine(Path.GetTempPath(), "hc-out-path-" + Guid.NewGuid().ToString("N") + ".bsa");
         File.WriteAllText(archive, "not a real archive");
+        var relative = Relative();
         try
         {
-            var r = BsaTools.BsaExtract(W.Svc, archive, out_path: "unpacked");
+            var r = BsaTools.BsaExtract(W.Svc, archive, out_path: relative);
 
             Assert.StartsWith("error:", r);
             Assert.Contains("absolute", r);
-            Assert.False(Directory.Exists(WhereARelativePathWouldLand("unpacked")));
+            Assert.False(Directory.Exists(WhereARelativePathWouldLand(relative)));
         }
         finally { try { File.Delete(archive); } catch { /* temp cleanup */ } }
     }
@@ -39,12 +44,13 @@ public sealed class OutPathAbsoluteTests
     public void WriteSeqRefusesARelativeOutPathAndWritesNoSeq()
     {
         using var w = new DialogueWorld();
+        var relative = Relative();
 
-        var r = SeqTools.WriteSeq(w.Svc, w.PatchPath, out_path: "seqhere");
+        var r = SeqTools.WriteSeq(w.Svc, w.PatchPath, out_path: relative);
 
         Assert.StartsWith("error:", r);
         Assert.Contains("absolute", r);
-        Assert.False(Directory.Exists(WhereARelativePathWouldLand("seqhere")));
+        Assert.False(Directory.Exists(WhereARelativePathWouldLand(relative)));
     }
 
     /// <summary>The compile lane's own resolver rather than the tool: <c>housecarl_compile_script</c> asks for the
@@ -53,10 +59,12 @@ public sealed class OutPathAbsoluteTests
     [Fact]
     public void TheCompiledScriptFolderRefusesARelativeOutPathAndCreatesNothing()
     {
-        var ex = Assert.Throws<InvalidOperationException>(() => W.Svc.ResolveExplicitScriptFolder("pexhere", out _));
+        var relative = Relative();
+
+        var ex = Assert.Throws<InvalidOperationException>(() => W.Svc.ResolveExplicitScriptFolder(relative, out _));
 
         Assert.Contains("absolute", ex.Message);
-        Assert.False(Directory.Exists(WhereARelativePathWouldLand("pexhere")));
+        Assert.False(Directory.Exists(WhereARelativePathWouldLand(relative)));
     }
 
     /// <summary>The vacuity check: an absolute out_path still resolves, so the refusals above are about the path
