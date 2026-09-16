@@ -27,6 +27,9 @@ public sealed class PerkEncodingWorld : IDisposable
     public string InconsistentPerkFid { get; }
     /// <summary>The spell that perk's FIRST, readable effect grants — the reference a scan must still find.</summary>
     public string AbilityFid { get; }
+    /// <summary>A perk named ONLY by a condition INSIDE the refused effect. Nothing but Mutagen's own condition
+    /// parse over those raw bytes can reach it, so it is what proves that parse runs.</summary>
+    public string ConditionTargetFid { get; }
     /// <summary>A perk with nothing wrong with it, so a scan's answer is not one row wide.</summary>
     public string SoundPerkFid { get; }
     /// <summary>A perk whose own RECORD-LEVEL condition Mutagen will not read, while its effect list is fine — the
@@ -59,6 +62,9 @@ public sealed class PerkEncodingWorld : IDisposable
         var ability = master.Spells.AddNew();
         ability.EditorID = "HcPerkEncodingAbility";
 
+        var conditionTarget = master.Perks.AddNew();
+        conditionTarget.EditorID = "HcPerkEncodingConditionTarget";
+
         var sound = master.Perks.AddNew();
         sound.EditorID = "HcPerkEncodingSound";
         sound.Effects.Add(new PerkAbilityEffect { Ability = ability.ToNullableLink() });
@@ -68,7 +74,16 @@ public sealed class PerkEncodingWorld : IDisposable
         var inconsistent = master.Perks.AddNew();
         inconsistent.EditorID = "HcPerkEncodingInconsistent";
         inconsistent.Effects.Add(new PerkAbilityEffect { Ability = ability.ToNullableLink() });
-        inconsistent.Effects.Add(NewMultiplyAvMultEffect());
+        var refused = NewMultiplyAvMultEffect();
+        // The link that ONLY the condition parse can reach: a CTDA inside the effect Mutagen refuses.
+        var inside = new HasPerkConditionData { RunOnType = Condition.RunOnType.Subject };
+        inside.Perk = new FormLinkOrIndex<IPerkGetter>(inside, conditionTarget.FormKey);
+        refused.Conditions.Add(new PerkCondition
+        {
+            RunOnTabIndex = 0,
+            Conditions = { new ConditionFloat { CompareOperator = CompareOperator.EqualTo, ComparisonValue = 1f, Data = inside } },
+        });
+        inconsistent.Effects.Add(refused);
 
         // Its own record-level condition is what breaks here; its effect list is perfectly decodable, which is the
         // trap — a marker built from the effect list would be a confident answer about the wrong subrecord.
@@ -95,6 +110,7 @@ public sealed class PerkEncodingWorld : IDisposable
         NullParamPerkFid = $"{nullParam.FormKey.ID:X6}:{masterKey.FileName}";
         LocalizedParamPerkFid = $"{localizedParam.FormKey.ID:X6}:{masterKey.FileName}";
         AbilityFid = $"{ability.FormKey.ID:X6}:{masterKey.FileName}";
+        ConditionTargetFid = $"{conditionTarget.FormKey.ID:X6}:{masterKey.FileName}";
         SoundPerkFid = $"{sound.FormKey.ID:X6}:{masterKey.FileName}";
 
         var path = Path.Combine(mods, "PerkEncodingMod", MasterName);
@@ -177,8 +193,9 @@ public sealed class PerkEffectEncodingTests : IClassFixture<PerkEncodingFixture>
         // …and the refused one says which bytes disagree and what the parameter was decoded off.
         Assert.Contains("Effects[1] = (unreadable:", r);
         Assert.Contains("read off its own bytes", r);
-        Assert.Contains("function byte 13", r);
-        Assert.Contains("decoded off EPFT alone, as xEdit does: 10", r);
+        Assert.Contains("entry point is ModSpellMagnitude", r);          // Mutagen's own entry-point enum, not a table of ours
+        Assert.Contains("function byte is 13", r);
+        Assert.Contains("parameter value, decoded off EPFT alone as xEdit does, is 10", r);
     }
 
     string Effects(string fid) => RecordsTools.Records(
@@ -199,6 +216,7 @@ public sealed class PerkEffectEncodingTests : IClassFixture<PerkEncodingFixture>
         Assert.Contains("Conditions[0] = (unreadable:", r);
         Assert.DoesNotContain("decoded off EPFT alone", r);
         Assert.DoesNotContain("function byte", r);
+        Assert.DoesNotContain("entry point is", r);
     }
 
     /// <summary>A FormID parameter of all zeroes is a declared-but-null link, which is what Mutagen reads it as.
@@ -239,6 +257,66 @@ public sealed class PerkEffectEncodingTests : IClassFixture<PerkEncodingFixture>
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
         Assert.Contains(_w.InconsistentPerkFid, r);
         Assert.DoesNotContain("could not be scanned", r);
+    }
+
+    /// <summary>The refused effect's own conditions are parsed by Mutagen's condition parser over the raw bytes.
+    /// This target is named ONLY there, so a scan that finds the perk through it is proof that parse ran — and the
+    /// only proof, since no other field on the record mentions it.</summary>
+    [Fact]
+    public void AScanReachesTheRecordThroughALinkInsideTheRefusedEffectsConditions()
+    {
+        var r = RecordsTools.Records(_w.Svc, types: new[] { "PERK" }, references: new[] { _w.ConditionTargetFid });
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        // The lenient note names the record too, so the MATCH COUNT is what proves it was reached.
+        Assert.Contains("scan: 1 match", r);
+        Assert.Contains(_w.InconsistentPerkFid, r);
+        Assert.DoesNotContain("could not be scanned", r);
+    }
+
+    /// <summary>The shape #301 is written around: references= with no types=, answered off the reverse-reference
+    /// index. The record has to be a key in the index at all, which is a different walk from the scoped scan's.</summary>
+    [Fact]
+    public void AnUnboundedReferencesScanFindsTheRecordThroughTheReverseIndex()
+    {
+        var r = RecordsTools.Records(_w.Svc, references: new[] { _w.ConditionTargetFid });
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.Contains("scan: 1 match", r);
+        Assert.Contains(_w.InconsistentPerkFid, r);
+        Assert.Contains("read leniently", r);
+        Assert.DoesNotContain("could not be scanned", r);
+    }
+
+    /// <summary>The same question with the universe bounded by formids= instead — a third lane, which used to
+    /// answer differently from the scoped one.</summary>
+    [Fact]
+    public void AFormidsUniverseScanAnswersTheSameWayTheScopedOneDoes()
+    {
+        var r = RecordsTools.Records(_w.Svc,
+                                     formids: new[] { _w.InconsistentPerkFid, _w.SoundPerkFid },
+                                     references: new[] { _w.ConditionTargetFid });
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.Contains("scan: 1 match", r);
+        Assert.Contains(_w.InconsistentPerkFid, r);
+        Assert.DoesNotContain("could not be scanned", r);
+    }
+
+    /// <summary>The transitive reverse WALK re-tests every index candidate against the winner body, so it has its
+    /// own link walk. Left alone it would drop the record as an unreadable winner while references= listed it —
+    /// the two spellings of the reverse question disagreeing about one record.</summary>
+    [Fact]
+    public void AReverseWalkReachesTheRecordTheReferencesScanFinds()
+    {
+        var r = RecordsTools.Records(
+            _w.Svc, formids: new[] { _w.ConditionTargetFid },
+            walk: new RecordsTools.RecordsWalk { direction = "reverse", depth = 1 },
+            project: new RecordsTools.RecordsProject { form = "summary" });
+
+        Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        Assert.Contains(_w.InconsistentPerkFid, r);
+        Assert.DoesNotContain("whose winning plugin could not be read", r);
     }
 
     [Fact]

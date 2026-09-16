@@ -834,6 +834,12 @@ public static class RecordsTools
                     if (rev.Dropped.NoWinner > 0) causes.Add($"{rev.Dropped.NoWinner} with no resolvable winner");
                     headerLine += $"\n{rev.Dropped.Total} index candidate(s) were dropped — the index names a plugin copy that carries the link, and this walk judges the load-order winner (the same second step references= takes): {string.Join("; ", causes)}. None of them was reached or expanded.";
                 }
+                // Records this walk's body check could only read leniently: verified and walked, with the same named
+                // gap the scan lanes report, so a reader is never told the walk read them whole.
+                if (rev.LenientRecords is { Count: > 0 } lenientRev)
+                    headerLine += $"\n{lenientRev.Count} record(s) were read leniently — part of their content is encoded in a way Mutagen refuses, "
+                                + "so the walk judged them on what houseCARL could still decode: " + string.Join("; ", lenientRev.Take(3))
+                                + (lenientRev.Count > 3 ? $"; and {lenientRev.Count - 3} more" : "") + ".";
                 if (rev.Capped)
                     headerLine += $"\n[!] the walk.max_nodes budget ({walkMaxNodes}, one budget shared across every seed and hop on this lane) was reached — what is listed IS reached and proved, and the hop it cut is marked; raise walk.max_nodes to walk further.";
                 // The reached set's render bound, the same one the forward walk pays: this lane hands the list lane

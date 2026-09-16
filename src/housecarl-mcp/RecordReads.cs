@@ -3033,18 +3033,38 @@ public sealed partial class LoadOrderService
         // references_none= either — the same rule both arms already applied separately.
         if (DeletedRecordRule.HasNoLiveBody(body) || body is not IFormLinkContainerGetter) return refSet is null;
 
-        var hitSet = refSet is null ? null : new HashSet<FormKey>();
-        bool excluded = false;
-        lenientNote = RecordLinks.Walk(body, key =>
-        {
-            if (refSet is not null && refSet.Contains(key)) hitSet!.Add(key);
-            if (refNone is not null && refNone.Contains(key)) excluded = true;
-        });
-        if (excluded) return false;
-        if (hitSet is null) return true;
-        if (hitSet.Count == 0) return false;
-        if (wantTargets) hitTargets = references!.Where(hitSet.Contains).Distinct().ToList();
+        // A struct visitor, so the walk allocates neither a closure nor a delegate per scanned record, and an
+        // exclusion-only filter still stops at the first excluded link the way the separate walk did.
+        var v = new ReferenceVisitor(refSet, refNone);
+        lenientNote = RecordLinks.Walk(body, ref v);
+        if (v.Excluded) return false;
+        if (refSet is null) return true;
+        if (v.Hits is not { Count: > 0 }) return false;
+        if (wantTargets) hitTargets = references!.Where(v.Hits.Contains).Distinct().ToList();
         return true;
+    }
+
+    /// <summary>Both reference arms in one pass over a record's links: collect the wanted targets it hits, and stop
+    /// the moment it hits an excluded one — there is nothing left to learn once the record is out.</summary>
+    struct ReferenceVisitor : RecordLinks.IVisitor
+    {
+        readonly HashSet<FormKey>? _wanted, _excluded;
+        public HashSet<FormKey>? Hits;
+        public bool Excluded;
+
+        public ReferenceVisitor(HashSet<FormKey>? wanted, HashSet<FormKey>? excluded)
+        {
+            _wanted = wanted; _excluded = excluded;
+            Hits = wanted is null ? null : new HashSet<FormKey>();
+            Excluded = false;
+        }
+
+        public RecordLinks.Step Link(FormKey key)
+        {
+            if (_excluded is not null && _excluded.Contains(key)) { Excluded = true; return RecordLinks.Step.Stop; }
+            if (_wanted is not null && _wanted.Contains(key)) Hits!.Add(key);
+            return RecordLinks.Step.Continue;
+        }
     }
 
     // ---- the off-order scan ----------------------------------------------------------------------------

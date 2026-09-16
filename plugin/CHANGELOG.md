@@ -42,8 +42,8 @@ saying it sets an expectation their install may contradict. Say what is known, a
 - **A PERK entry-point effect Mutagen refuses is read as one marked row instead of taking the whole record.** An
   effect whose `DATA` names an actor-value function while its `EPFT` says `Float` is a combination Mutagen will not
   build, and the refusal used to carry off the whole `Effects` field and the record with it: the field read
-  `(unreadable: …)`, and the record was skipped by every PERK `references=` / `where=` scan, so a "which perks touch
-  X" sweep returned a negative it had not actually proved. The effect list is now decoded off the record's own bytes
+  `(unreadable: …)`, and the record was skipped by every PERK `references=` scan, so a "which perks touch X" sweep
+  returned a negative it had not actually proved. The effect list is now decoded off the record's own bytes
   the way xEdit does — `EPFD`'s layout from `EPFT` alone, never from the function byte — and the refused effect
   renders as its own row carrying Mutagen's refusal, the entry point and function byte the `DATA` names, the `EPFT`
   value, and the parameter decoded from it, while its readable siblings read normally. The row states what the bytes
@@ -51,11 +51,14 @@ saying it sets an expectation their install may contradict. Say what is known, a
   which. The effect's own conditions are handed to Mutagen's condition parser, so their links are the ones it would
   have yielded. Every lane that walks a record's links for a scan takes the same retry — `references=` bounded by
   `types=`/`plugins=`, a `formids=` universe, an off-order `source=` file, and the reverse-reference index behind an
-  unbounded `references=` — and each response carries a "read leniently" note naming the record. The decode runs only
+  unbounded `references=`, and the transitive reverse walk that re-tests that index's candidates — and each response
+  carries a "read leniently" note naming the record. The decode runs only
   on a PERK, only on `Effects`, and only after Mutagen's own read has already thrown; an `EPFT` outside the layouts
   Mutagen's own writer emits fails the whole decode, leaving that record unscannable and accounted as before. A
-  localized `EPFT` 7 parameter is reported as the strings-table key it is rather than decoded as text. Check it with
-  a read of the perk at `project.form="fields"`, `fields=["Effects"]`, `depth=3`.
+  localized `EPFT` 7 parameter is reported as the strings-table key it is rather than decoded as text. `where=` is
+  unmoved: it never skipped such a record — a field it cannot read has always been a non-match counted in its own
+  rollup — and a predicate over `Effects` still reads that way. Check the read with `project.form="fields"`,
+  `fields=["Effects"]`, `depth=3` on the perk.
 
 ## 2.0.2 — 2026-09-15
 

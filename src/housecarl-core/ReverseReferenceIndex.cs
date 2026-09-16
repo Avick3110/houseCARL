@@ -254,6 +254,7 @@ public sealed class ReverseReferenceIndex
         catch (Exception ex) { part.Unreadable = ex.GetType().Name; return part; }
         var acc = new Dictionary<ulong, List<ulong>>();
         int unscannable = 0, lenient = 0;
+        var edges = new EdgeVisitor(acc, into);
         try
         {
             foreach (var rec in ov.EnumerateMajorRecords())
@@ -264,19 +265,12 @@ public sealed class ReverseReferenceIndex
                     // exclusion the dangling sweep makes, before the walk that would throw on such a body.
                     if (DeletedRecordRule.HasNoLiveBody(rec)) continue;
                     if (rec is not IFormLinkContainerGetter) continue;
-                    ulong src = Pack(into, rec.FormKey);
                     // The SAME link walk the scan lanes make, so a record whose links only read leniently is a key
                     // here too — the index is what an unbounded references= builds its universe from, and a record
-                    // missing here is missing from every lane downstream (#301).
-                    if (RecordLinks.Walk(rec, target =>
-                    {
-                        if (target.IsNull) return;
-                        ulong pt = Pack(into, target);
-                        if (!acc.TryGetValue(pt, out var list)) acc[pt] = list = new List<ulong>(1);
-                        // One record's links arrive together, so the same record linking a target twice is the
-                        // tail of this list — deduped without a per-target set.
-                        if (list.Count == 0 || list[^1] != src) list.Add(src);
-                    }) is not null) lenient++;
+                    // missing here is missing from every lane downstream (#301). The visitor is a struct holding the
+                    // per-record source key, so this walk allocates nothing per record.
+                    edges.Source = Pack(into, rec.FormKey);
+                    if (RecordLinks.Walk(rec, ref edges) is not null) lenient++;
                 }
                 catch { unscannable++; }
             }
@@ -295,6 +289,30 @@ public sealed class ReverseReferenceIndex
         foreach (var (k, v) in acc) { part.ByTarget[k] = v.ToArray(); pairs += v.Count; }
         part.Pairs = pairs;
         return part;
+    }
+
+    /// <summary>One record's reverse edges, staged into the partition's accumulator. A struct so the link walk
+    /// allocates neither a closure nor a delegate per record: <see cref="Source"/> is reassigned for each record and
+    /// the walk takes the visitor by reference.</summary>
+    struct EdgeVisitor : RecordLinks.IVisitor
+    {
+        readonly Dictionary<ulong, List<ulong>> _acc;
+        readonly Generation _gen;
+        public ulong Source;
+
+        public EdgeVisitor(Dictionary<ulong, List<ulong>> acc, Generation gen)
+        { _acc = acc; _gen = gen; Source = 0; }
+
+        public RecordLinks.Step Link(FormKey target)
+        {
+            if (target.IsNull) return RecordLinks.Step.Continue;
+            ulong pt = Pack(_gen, target);
+            if (!_acc.TryGetValue(pt, out var list)) _acc[pt] = list = new List<ulong>(1);
+            // One record's links arrive together, so the same record linking a target twice is the tail of this
+            // list — deduped without a per-target set.
+            if (list.Count == 0 || list[^1] != Source) list.Add(Source);
+            return RecordLinks.Step.Continue;
+        }
     }
 
     /// <summary>The index's own freshness key: a digest over every partition's (plugin, mtime). Distinct from the
