@@ -54,7 +54,7 @@ public static class BsaTools
         LoadOrderService svc,
         [Description("Full path to the .bsa archive to extract.")]
             string archive,
-        [Description("Optional. Folder to unpack into. If omitted, houseCARL creates a NEW mod folder under your mods directory and reports its path.")]
+        [Description("Optional. ABSOLUTE path to the folder to unpack into — a relative path is refused, because the server would resolve it against its own working directory. If omitted, houseCARL creates a NEW mod folder under your mods directory and reports its path.")]
             string? out_path = null) => Guard.Tool(ToolNames.BsaExtract, () =>
     {
         if (string.IsNullOrWhiteSpace(archive)) return "error: no archive given. Pass the full path to the .bsa.";
@@ -73,7 +73,10 @@ public static class BsaTools
         }
         else
         {
-            target = Path.GetFullPath(out_path!.Trim().Trim('"'));
+            var given = out_path!.Trim().Trim('"');
+            if (LoadOrderService.OutPathNotAbsolute(given, "the folder to unpack into") is { } notAbsolute)
+                return "error: " + notAbsolute;
+            target = Path.GetFullPath(given);
         }
 
         string residue = managed ? $"\nThe freshly created mod folder was left at '{target}' — delete it or retry into it." : "";
