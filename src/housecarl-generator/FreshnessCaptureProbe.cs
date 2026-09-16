@@ -366,6 +366,12 @@ internal static class FreshnessCaptureProbe
                 }
                 Check(parked && midFlight, "landed a read that completed while the write was still in flight");
                 Check(joined, "the write completed once the park was released");
+                // Scope of the next judgement: it confirms the write survives being parked and still produces a good
+                // patch, NOT the #24 serialize collision this arm's docstring names. The read is served before the
+                // serialize starts, and moving the park to the last statement before it does not bring the collision
+                // back — the write's OverlaySession owns its own overlays, so disposing the read-side resolver leaves
+                // the serialize untouched. Measured: with the deferral patched out of the Resolver getter, the arm
+                // goes red on the snapshot judgement below and this one stays green either way.
                 Check(outcome is { Success: true }, $"the in-flight write succeeded — {writeFault ?? outcome?.Error ?? "ok"}");
                 Check(duringCount == 1,
                       $"the mid-write read served the last good snapshot (refresh deferred, no mid-write rebuild) — saw {duringCount} plugin(s)");
