@@ -633,15 +633,28 @@ internal static class ReadSentences
     internal const string DialogueSeedRefused = "  [X] {0} — NOT validated: {1}\n";
 
     /// <summary>The scope asymmetry, stated in this family's own section beside its counts: the sweep families
-    /// take plugin scope, this one takes seeds, so the scope parameters passed alongside it did not narrow it. It
-    /// has no off-order lane either, because a seed is a record and must resolve in the active order. How many
-    /// seeds it reached is a separate sentence, so a call cut short by <c>limit=</c> cannot claim
+    /// take plugin scope, this one takes seeds, so the scope parameters passed alongside it did not narrow it. Its
+    /// off-order lane is source=, which folds ONE plugin the order does not carry in at the end rather than scoping
+    /// anything. How many seeds it reached is a separate sentence, so a call cut short by <c>limit=</c> cannot claim
     /// completeness.</summary>
-    [MustState("seeded, not swept", "do NOT scope it", "no off-order lane")]
+    [MustState("seeded, not swept", "do NOT scope it", "off-order lane is source=")]
     internal const string DialogueScopeNote =
         "scope: the dialogue family is seeded, not swept — plugins=, type=, formids=, editorid_contains= and " +
-        "exclude= scope the sweep families and do NOT scope it. {0} It has no off-order lane: a seed is a record, " +
-        "and it must resolve in the ACTIVE load order.";
+        "exclude= scope the sweep families and do NOT scope it. {0} Its off-order lane is source=: one plugin that " +
+        "is NOT in the active order, folded in last, which every seed is then validated against.";
+
+    /// <summary>The folded-file frame, printed once at the top of the family's section: every verdict under it was
+    /// read against the active order's winners PLUS a file the order does not load, so the section is a projection
+    /// of what the check would say once MO2 enables it. The asset half is named here because it does not move with
+    /// the plugin: the VFS serves the mod folders MO2 has enabled, so a voice or script file shipped beside a
+    /// folded plugin in a disabled folder reads ABSENT until that folder is on.</summary>
+    [MustState("folded", "NOT active", "enable it and re-run")]
+    internal const string DialogueFolded =
+        "folded: '{0}' is NOT active — {1} — and is {2}. Every " +
+        "finding below was read against the active order's winners PLUS that file, so it is what the check WOULD " +
+        "say once the file is enabled: enable it and re-run for the live answer. Its own .fuz/.pex/.seq files are " +
+        "resolved through the VFS, which serves only the mod folders MO2 has enabled, so a file shipped beside it " +
+        "in a folder that is off reads as absent here.\n";
 
     /// <summary>The seed count when the seed budget reached every one of them. The word is "reached", never
     /// "validated": this number counts every seed the call tried, refusals included, so "validated" would

@@ -42,7 +42,8 @@ public static class CheckTools
          "it runs the errors family alone. " +
          "SCOPE: the three SWEPT families share one — plugins= (off-order files included) / types= / formids= / " +
          "editorid_contains= / exclude=, plus property_contains= on the scripts family. The dialogue family is " +
-         "SEEDED instead: seeds= names what to validate, and no plugin scope narrows it. Narrowing narrows the " +
+         "SEEDED instead: seeds= names what to validate, source= folds ONE off-order plugin in at the end of the " +
+         "order, and no plugin scope narrows it. Narrowing narrows the " +
          "COUNTS too: they are always the counts for the scope actually swept, and the response says so. " +
          "TRANSPORT: counts_only= / format= / limit= / max_chars= / to_file=. Results cap at limit= and max_chars, both " +
          "overruns explicit and per family: the response states how much of each family's listing it carries, why " +
@@ -203,6 +204,19 @@ public static class CheckTools
              "graph walk across every touching plugin, and the order this bound was measured on carries 82,343 " +
              "dialogue topics). limit= caps how many seeds one call expands.")]
             string[]? seeds = null,
+        [Description("Optional. The DIALOGUE family only: ONE plugin that is NOT in the active load order, FOLDED " +
+             "in at the END of the order — where MO2 puts a newly enabled plugin — so a dialogue patch can be " +
+             "checked BEFORE it is enabled. Spelled as every other off-order address on this surface: a filename " +
+             "(\"MyPatch.esp\"), or {\"file\": \"MyPatch.esp\", \"mod\": \"<mod folder>\"} when two mod folders " +
+             "ship the same name. Every seed is then validated against the active order's WINNERS PLUS that file, " +
+             "and what the file carries wins; seeds= may name its own new records ('000800:MyPatch.esp'), which " +
+             "resolve nowhere in the order without it. The answer is a PROJECTION of what the check would say once " +
+             "the file is enabled and says so once at the top, including the one part that does not move with the " +
+             "plugin: its .fuz/.pex/.seq files resolve through the VFS, which serves only the mod folders MO2 has " +
+             "enabled. An ACTIVE filename is refused (it is already what the check reads), and so is source= " +
+             "alongside the swept families — errors, scripts and facegen take an off-order plugin on plugins= " +
+             "instead, which sweeps the file's own records rather than folding it into a resolution.")]
+            System.Text.Json.JsonElement? source = null,
         [Description("Optional. TRANSPORT: write the COMPLETE findings of every family that ran to this ABSOLUTE " +
              ".jsonl path as an artifact (line 1 = manifest) and render only the manifest inline - the same " +
              "convention " + ToolNames.Records + " uses, so an artifact re-enters via formids=[\"@<path>\"]. ONE " +
@@ -231,6 +245,24 @@ public static class CheckTools
             return json ? JsonWire.RenderCheck(refusal, max_chars, lim) : Wire.RenderCheck(refusal, max_chars, lim);
         }
 
+        // ---- the dialogue family's off-order fold ------------------------------------------------------
+        // Resolved through the same one-pole probe every off-order address on this surface goes through, before
+        // any family runs: a bad address refuses having swept nothing.
+        LoadOrderService.PoleInfo? dialogueFold = null;
+        if (source is { } srcEl && srcEl.ValueKind is not (System.Text.Json.JsonValueKind.Null or System.Text.Json.JsonValueKind.Undefined))
+        {
+            if (!selection.Ran.Contains(SweepFamily.Dialogue))
+                return Wire.Refuse(json, "error: source= folds an off-order plugin into the DIALOGUE family's resolution, and this call runs no dialogue family — add findings=[\"dialogue\"] with seeds=, or drop source=. The swept families (errors, scripts, facegen) take an off-order plugin on plugins= instead, which sweeps that file's own records.");
+            if (selection.Ran.Count > 1)
+                return Wire.Refuse(json, "error: source= folds an off-order plugin into the DIALOGUE family's resolution, and it is the only family with that arm — the swept families beside it in this call (errors, scripts, facegen) take an off-order plugin on plugins= instead, which sweeps the file's own records. Run findings=[\"dialogue\"] with source= on its own, and the swept families in their own call.");
+            if (ParseFoldPole(srcEl, out var foldPlugin, out var foldMod) is { } poleErr) return Wire.Refuse(json, poleErr);
+            var probe = svc.ProbeSourceArm(foldPlugin!, foldMod, out var probeErr);
+            if (probeErr is not null) return Wire.Refuse(json, "error: " + probeErr);
+            if (probe!.InOrder)
+                return Wire.Refuse(json, $"error: source='{probe.Plugin}' is ACTIVE in the load order, and the dialogue family already validates against the active order's winners — its records are what the check reads. Drop source=; it folds a plugin that is NOT enabled in MO2 into that resolution.", probe.Stamp);
+            dialogueFold = probe;
+        }
+
         // Both swept families take the same plugins= list whole: each resolves a name the active order does not hold
         // on disk and sweeps it off-order, so one list means the same scope in both sections. They share ONE memo of
         // that split, so the default findings set does not read the MO2 composition and sweep every mod folder twice
@@ -257,7 +289,7 @@ public static class CheckTools
             // Its own scope, not the plugins= list: this family selects records, not plugins, so handing it
             // `plugins` would give one parameter a second meaning. With no seeds it raises the cost refusal rather
             // than widening to the whole order.
-            dialogue = svc.CheckDialogue(seeds, lim, counts_only);
+            dialogue = svc.CheckDialogue(seeds, lim, counts_only, dialogueFold);
 
         // One call, one build. The root marker is a RESPONSE-level claim about the order every family answered
         // from, and nothing holds the captures together: a freshness rebuild between them would state it from one
@@ -270,8 +302,17 @@ public static class CheckTools
                   $"epoch={familyEpoch} when the {family} family answered) — the response would describe two " +
                   "builds. Retry the call."
                 : null;
+        // The dialogue family is in the seam too, and a fold makes it the one that most needs to be: the file was
+        // probed OFF-ORDER against one build and folded into another, so a plugin ticked in between would be in
+        // the order AND folded in again under a head that says it is not active.
+        string? foldSeam = dialogueFold?.Epoch is { } foldEpoch && dialogue?.Epoch is { } dialogueEpoch
+                        && foldEpoch != dialogueEpoch
+            ? $"the load order changed between resolving '{dialogueFold.Plugin}' as off-order (epoch={foldEpoch}) and "
+              + $"validating against it (epoch={dialogueEpoch}) — that file may now be IN the order, and the fold "
+              + "would describe a different world. Retry the call."
+            : null;
         if ((Seam(errors?.Epoch, "errors") ?? Seam(scripts?.Epoch, "scripts")
-             ?? Seam(facegen?.Epoch, "facegen")) is { } seam)
+             ?? Seam(facegen?.Epoch, "facegen") ?? Seam(dialogue?.Epoch, "dialogue") ?? foldSeam) is { } seam)
         {
             var torn = new CheckSweep(selection, OrderSeamError: seam);
             return json ? JsonWire.RenderCheck(torn, max_chars, lim) : Wire.RenderCheck(torn, max_chars, lim);
@@ -310,6 +351,36 @@ public static class CheckTools
 
         return json ? JsonWire.RenderCheck(sweep, max_chars, lim) : Wire.RenderCheck(sweep, max_chars, lim);
     });
+
+    /// <summary>Parse the dialogue fold's address — the off-order half of the <c>records</c> pole grammar, which is
+    /// all this parameter takes: a filename, or {"file", "mod"} to tell two copies apart. Returns the named refusal,
+    /// or null with the parts filled.</summary>
+    static string? ParseFoldPole(System.Text.Json.JsonElement el, out string? plugin, out string? mod)
+    {
+        plugin = null; mod = null;
+        if (el.ValueKind == System.Text.Json.JsonValueKind.String)
+        {
+            plugin = el.GetString()!.Trim();
+            return plugin.Length == 0
+                ? "error: source= is blank — name the off-order plugin to fold in (e.g. \"MyPatch.esp\")."
+                : null;
+        }
+        if (el.ValueKind == System.Text.Json.JsonValueKind.Object
+            && el.TryGetProperty("file", out var f) && f.ValueKind == System.Text.Json.JsonValueKind.String)
+        {
+            plugin = f.GetString()!.Trim();
+            // The same guard the string form has: a blank name would reach the locate and come back as whatever it
+            // says about an empty filename, rather than as the one sentence that says what to pass.
+            if (plugin.Length == 0)
+                return "error: source= names a blank file — name the off-order plugin to fold in (e.g. {\"file\": \"MyPatch.esp\", \"mod\": \"<mod folder>\"}).";
+            mod = el.TryGetProperty("mod", out var m) && m.ValueKind == System.Text.Json.JsonValueKind.String
+                ? m.GetString()!.Trim() : null;
+            return null;
+        }
+        return el.ValueKind == System.Text.Json.JsonValueKind.Array
+            ? $"error: source= folds ONE off-order plugin in at the end of the order, and this names {el.GetArrayLength()} — two files have no order between them until MO2 sorts them. Fold one file per call."
+            : "error: source= is the off-order plugin to fold in: a filename (\"MyPatch.esp\") or {\"file\": \"MyPatch.esp\", \"mod\": \"<mod folder>\"} when two mod folders ship that name.";
+    }
 
     /// <summary>The facegen class tokens a parsed selection spells, so the tool hands the service the same
     /// vocabulary a caller writes rather than a second representation of it.</summary>

@@ -103,6 +103,19 @@ reach it.
 This is a projection, not a measurement. Report it as what the order would be, and re-read without `source=`
 once the patch is enabled if you need the live order.
 
-One thing still cannot be measured on a patch that is not yet enabled: the dialogue findings family on
-`housecarl_check` resolves against the active load order, so a fresh, unenabled plugin cannot be
-dialogue-checked at all (#615).
+## Checking a patch before the patch is enabled
+
+The dialogue findings family takes the same address on its own `source=`, and folds the file in the same way — at
+the end of the order, or of the master block when the file's header says it loads there. Seeds may then name
+records the patch itself defines:
+
+```
+housecarl_check(findings=["dialogue"], seeds=["000800:MyPatch.esp"], source="MyPatch.esp")
+```
+
+Every seed is validated against the active order's winners plus that file, and what the file carries wins. The
+section says once at the top that the file is not active, so nothing under it reads as the live answer. One part
+does not move with the plugin: its `.fuz`, `.pex` and `.seq` files resolve through the VFS, which serves only the
+mod folders MO2 has enabled — so a voice file shipped beside the patch in a folder that is off reads as absent
+here. Only the dialogue family takes `source=`; the swept families (errors, scripts, facegen) take an off-order
+plugin on `plugins=`, which sweeps that file's own records instead.

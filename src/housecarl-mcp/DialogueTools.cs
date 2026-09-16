@@ -33,7 +33,11 @@ internal static class DialogueWire
     {
         string pad = indent ? "  " : "";
         sb.Append(pad).Append("topic ").Append(Edid(t.TopicEditorId)).Append(" (").Append(FormIdToken.Of(t.Topic)).Append(')')
-          .Append(" — winner ").Append(t.WinnerPlugin).Append('\n');
+          .Append(" — winner ").Append(t.WinnerPlugin);
+        // Which COPY provided it, in the text render only: the name itself stays a plain filename, because a .seq
+        // lint compares it and an artifact column holds it.
+        if (t.WinnerIsFolded) sb.Append(" [the folded off-order copy]");
+        sb.Append('\n');
         sb.Append(pad).Append("  ").Append(t.InfoCount).Append(t.InfoCount == 1 ? " INFO record" : " INFO records");
         if (t.ConditionedInfoCount > 0) sb.Append("; ").Append(t.ConditionedInfoCount).Append(" carry conditions (CTDA)");
         if (t.DeletedInfoCount > 0) sb.Append("; ").Append(t.DeletedInfoCount).Append(" deleted line(s) skipped");

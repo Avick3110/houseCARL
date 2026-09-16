@@ -52,7 +52,8 @@ namespace HousecarlGenerator;
 ///                               section, spells the seeds= that works, asserts no completeness about a validation
 ///                               that never ran, and does not refuse a call another family answered.
 ///   DIALOGUE-NOT-PLUGIN-SCOPED — the section states that the plugin-scope parameters do not narrow this family and
-///                               that it has no off-order lane. Unstated, a seeded answer reads as a scoped one.
+///                               names the off-order lane it does have (source=). Unstated, a seeded answer reads as
+///                               a scoped one.
 ///   DIALOGUE-CLASS-8-ABSENT   — the effective merged INFO order is NOT rendered here (it is records' surface), and
 ///                               the boundary names where it lives. The fixture's topics carry one, so the arm pins
 ///                               the gate rather than the absence of data to gate.
@@ -730,10 +731,10 @@ public static class CheckMergeProbe
         using (var doc = JsonDocument.Parse(dlgJson))
         {
             var fam = Obj(Obj(doc.RootElement, "families"), "dialogue");
-            Check("DIALOGUE-NOT-PLUGIN-SCOPED: the section states that plugins=/exclude= do not narrow this family and that it has no off-order lane — in both transports, beside its own counts",
+            Check("DIALOGUE-NOT-PLUGIN-SCOPED: the section states that plugins=/exclude= do not narrow this family and names the off-order lane it does have — in both transports, beside its own counts",
                 dlgText.Contains("seeded, not swept", StringComparison.Ordinal)
                 && dlgText.Contains("do NOT scope it", StringComparison.Ordinal)
-                && dlgText.Contains("no off-order lane", StringComparison.Ordinal)
+                && dlgText.Contains("off-order lane is source=", StringComparison.Ordinal)
                 && Str(fam, "scope") == FirstLineWith(dlgText, "scope:")
                 && Bool(fam, "seeded_not_swept") == true,
                 FirstLineWith(dlgText, "scope:"));

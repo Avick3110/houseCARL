@@ -31,7 +31,11 @@ public sealed partial class LoadOrderService
     /// <summary>The merged <c>check</c> surface's dialogue family: <see cref="ValidateDialogue"/> over a seed list,
     /// tallied for one section of a merged response. Deliberately thin — the family's own grammar (seed parse,
     /// cost refusal, seed budget, tally) lives in <see cref="DialogueSweep"/> rather than in this file.</summary>
-    public DialogueCheckResult CheckDialogue(IReadOnlyList<string>? seeds, int limit, bool countsOnly = false)
+    /// <param name="foldArm">an already-probed OFF-ORDER plugin, folded in at the END of the order: every seed is
+    /// then validated against the active order's winners plus that file. The file is opened once for the whole
+    /// sweep and closed when it ends — its record bodies live only while it is open.</param>
+    public DialogueCheckResult CheckDialogue(IReadOnlyList<string>? seeds, int limit, bool countsOnly = false,
+                                             PoleInfo? foldArm = null)
         // Bound LAZILY: the sweep calls this only once it has seeds to validate, so a call with no seeds= refuses
         // without building the index — the rule SweepSharedInput states, and what this family did before it stamped.
         => DialogueSweep.Run(() =>
@@ -50,8 +54,24 @@ public sealed partial class LoadOrderService
             // Read once for the whole sweep, for the same reason the resolver and view are: every seed's ownership
             // gate reads one composition, so one response cannot mix two answers to "who force-loads this".
             var forceLoaded = ForceLoadedPluginNames();
-            return new DialogueSweep.Binding(fk => DialogueValidate.Run(resolver, assets, fk, view, forceLoaded),
-                                             FormIdDoor.On(view).Parse, view.Epoch);
+            // The fold is opened ONCE for the whole sweep — one file read, one set of bodies every seed resolves
+            // against — and the sweep closes it. A file that will not open is the family's own refusal, named.
+            DialogueFold? fold = null;
+            string? foldError = null;
+            if (foldArm is not null)
+                fold = OpenDialogueFold(foldArm, out foldError, FoldLabel(view, foldArm), withRecords: true);
+            try
+            {
+                return new DialogueSweep.Binding(fk => DialogueValidate.Run(resolver, assets, fk, view, forceLoaded, fold),
+                                                 FormIdDoor.On(view).Parse, view.Epoch, fold, foldError);
+            }
+            catch
+            {
+                // The sweep takes ownership of the fold only once this returns, so anything that throws while the
+                // binding is being built has to close the file here or it stays open for the process's life.
+                fold?.Dispose();
+                throw;
+            }
         }, seeds, limit, countsOnly);
 
     // ---- integrity sweep -------------------------------------------------------------------------------

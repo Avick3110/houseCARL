@@ -45,6 +45,20 @@ saying it sets an expectation their install may contradict. Say what is known, a
   reading a topic your patch re-lists with and without `source=`: the folded read shows where the patch's lines
   land, the plain read shows the order the game is loading now.
 
+- **`check(findings=["dialogue"])` takes an off-order plugin on `source=`, so a dialogue patch can be validated
+  before MO2 enables it.** The address is the one the rest of the surface uses for a file outside the order — a
+  filename, or `{"file", "mod"}` — and the named plugin is folded in at the END of the order, where a newly enabled
+  plugin lands. Every seed is then validated against the active order's winners PLUS that file, what the file
+  carries wins, and `seeds=` may name records the file itself defines (`000800:MyPatch.esp`), which resolve nowhere
+  in the order without it. The section states the fold once at the top, including the part that does not move with
+  the plugin: the file's own `.fuz`, `.pex` and `.seq` resolve through the VFS, which serves the mod folders MO2 has
+  enabled, so a file shipped beside a folded plugin in a folder that is off reads as absent. That frame rides the
+  `to_file=` manifest too, in the response and in the artifact's own notes, since a spilled projection is read from
+  the file long after the call. The dialogue family is
+  the only one with this arm — the swept families take an off-order plugin on `plugins=` (see that parameter), and
+  `source=` beside them is refused naming both. An active filename is refused: it is already what the check reads.
+  Check it by running the family over a seed in your unenabled patch with and without `source=`.
+
 ## 2.0.2 — 2026-09-15
 
 houseCARL 2.0.2 fixes three answers 2.0.1 got wrong and closes two costs measured after it shipped. `housecarl_create` now reports every field from the file it wrote, superseding 2.0.1's interim entry; the entry says which claim it withdraws. An auto-spill no longer fails when another process holds the file it is about to write; the entry says what changed and what a `to_file=` write keeps. `format="json"` carries non-ASCII text as itself and `max_chars` counts characters on every json render; the entry names the one range that still escapes. A `tree` or `delta` reads its bodies a plugin at a time, and a bulk `create` under many parents reads per plugin rather than per parent; each entry carries its bound and its measurements. The entries below are in the order they landed.

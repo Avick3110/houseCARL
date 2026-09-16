@@ -16,9 +16,15 @@ internal static class DialogueSweep
     /// class needs nothing of the service but the one call it makes.</param>
     /// <param name="ParseFormId">the seed parse, pinned to the same build.</param>
     /// <param name="Epoch">that build's stamp.</param>
+    /// <param name="Fold">the off-order plugin folded in at the END of the order for this sweep, or null. Owned by
+    /// the sweep, which closes it: its record bodies live only while the file is open.</param>
+    /// <param name="FoldError">why the fold could not be read, when it could not. The sweep refuses on it rather
+    /// than validating every seed against the active order alone under a response that promises a fold.</param>
     internal readonly record struct Binding(Func<FormKey, DialogueValidationReport> Validate,
                                             Func<string?, FormKey> ParseFormId,
-                                            string Epoch);
+                                            string Epoch,
+                                            DialogueFold? Fold = null,
+                                            string? FoldError = null);
 
     /// <summary>Validate each seed and tally the result.</summary>
     /// <param name="bind">pins the build and hands back what this sweep reads it through. Called only once the seed
@@ -36,7 +42,9 @@ internal static class DialogueSweep
         var named = (seeds ?? Array.Empty<string>()).Where(s => !string.IsNullOrWhiteSpace(s)).ToArray();
         if (named.Length == 0) return DialogueCheckResult.Fail(ReadSentences.DialogueNeedsSeeds);
 
-        var (validate, parseFormId, epoch) = bind();
+        var (validate, parseFormId, epoch, fold, foldError) = bind();
+        using var _ = fold;                                   // the sweep owns the folded file for its own run
+        if (foldError is not null) return DialogueCheckResult.Fail(foldError, epoch);
 
         var results = new List<DialogueSeedResult>();
         int topics = 0, problems = 0;
@@ -82,7 +90,11 @@ internal static class DialogueSweep
                 string.Join(" ", results.Select(r => $"{r.Seed}: {r.Refusal}."))), epoch);
 
         return new DialogueCheckResult(results, topics, problems, readIncomplete, Limit: limit,
-                                       SeedsNamed: named.Length, CountsOnly: countsOnly, Epoch: epoch);
+                                       SeedsNamed: named.Length, CountsOnly: countsOnly, Epoch: epoch)
+            // The placement is the FOLD's own spelling, shared with the info_order form: one sentence for where a
+            // file lands, so the two surfaces cannot describe the same projection differently.
+            { Folded = fold is null ? null
+                       : string.Format(ReadSentences.DialogueFolded, fold.Plugin, fold.Where, fold.Placement) };
     }
 
     /// <summary>Every finding one report carries, at both levels. Counted off the report rather than off what

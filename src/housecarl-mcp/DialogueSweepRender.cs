@@ -23,8 +23,12 @@ internal static class DialogueSweepRender
     internal static string ComposeSeedUnit(DialogueSeedResult seed)
     {
         var report = seed.Report!;
+        // The bracket is a TEXT annotation on the name, never part of it: InputWinnerPlugin is a filename other
+        // code compares and writes as data (see TopicValidation.WinnerIsFolded).
+        var winner = (report.InputWinnerPlugin ?? "<unknown>")
+                   + (report.InputWinnerIsFolded ? " [the folded off-order copy]" : "");
         return string.Format(ReadSentences.DialogueSeedHead, seed.Seed, KindLabel(report.InputKind),
-                             Edid(report.InputEditorId), report.InputWinnerPlugin ?? "<unknown>",
+                             Edid(report.InputEditorId), winner,
                              report.Topics.Count)
              + ComposeSeedBody(report);
     }
@@ -48,6 +52,9 @@ internal static class DialogueSweepRender
     internal static void AppendHead(StringBuilder sb, CheckOutcome o)
     {
         var d = o.Dialogue!.Value;
+        // The fold frames everything under it, so it is the first thing the section says — and it is part of the
+        // head, which no budget may refuse: a projection presented without its frame reads as the live answer.
+        if (o.Sweep.Dialogue?.Folded is { } folded) sb.Append(folded);
         // The scope note sits above this family's own counts and inside its own section: a caller who passed
         // plugins= alongside would otherwise read a seeded answer as a scoped one.
         sb.Append(ScopeNote(d)).Append('\n');
@@ -180,6 +187,9 @@ internal static class DialogueSweepRender
         var d = o.Dialogue!.Value;
         w.WriteString("scope", ScopeNote(d));
         w.WriteBoolean("seeded_not_swept", true);
+        // The same frame the text head leads with: a json consumer reading findings must see that they came off a
+        // projected order, not the live one.
+        if (o.Sweep.Dialogue?.Folded is { } folded) w.WriteString("folded", folded.TrimEnd('\n'));
         // The stamp in the shape the swept families write, with the bound declared: this family also reports asset
         // verdicts, so it names them rather than claiming the fingerprint covers them.
         JsonWire.WriteSweepEpoch(w, o.Sweep.Dialogue?.Epoch, o.Sweep.OrderExcluded.Count, null, UncoveredBy(d));
@@ -255,6 +265,8 @@ internal static class DialogueSweepRender
         w.WriteString("kind", r.InputKind);
         w.WriteString("editor_id", r.InputEditorId ?? "");
         w.WriteString("winner_plugin", r.InputWinnerPlugin ?? "");
+        // The provenance beside the name, never inside it: a consumer indexes winner_plugin as a filename.
+        if (r.InputWinnerIsFolded) w.WriteBoolean("winner_folded", true);
         w.WriteNumber("topic_count", r.Topics.Count);
         w.WriteBoolean("read_incomplete", r.ReadIncomplete);
         // Which checks this seed's kind ran, as data: the text lane says it by printing the verdict, while here an
@@ -288,6 +300,7 @@ internal static class DialogueSweepRender
         w.WriteString("topic", FormIdToken.Of(t.Topic));
         w.WriteString("editor_id", t.TopicEditorId);
         w.WriteString("winner_plugin", t.WinnerPlugin);
+        if (t.WinnerIsFolded) w.WriteBoolean("winner_folded", true);
         w.WriteNumber("info_count", t.InfoCount);
         w.WriteNumber("conditioned_info_count", t.ConditionedInfoCount);
         w.WriteNumber("deleted_info_count", t.DeletedInfoCount);
