@@ -53,12 +53,12 @@ internal static class HierarchyCacheProbe
             {
                 var store = new UserConfigStore(Path.Combine(root, "userA.json"));
                 using var svc = LoadOrderService.WithInstance(instance, 0, store);
-                var (edges, _) = svc.ClassParentsForDecompile();
+                var edges = svc.ClassParentsForDecompile().Edges;
                 Check(edges.TryGetValue("HcGuardChild", out var p1) && p1 == "HcGuardParent",
                       "FIRST call already sees the mods-tree edge (paths derive before the build)");
                 var outDir = svc.ResolveDecompiledSourceFolder(null, null).OutputDir;
                 Check(outDir.StartsWith(mods, StringComparison.OrdinalIgnoreCase), "output folder resolves under the instance's mods dir");
-                var (edges2, _) = svc.ClassParentsForDecompile();
+                var edges2 = svc.ClassParentsForDecompile().Edges;
                 Check(edges2.ContainsKey("HcGuardChild"), "the cache stays correct after derivation (no poisoned survivor)");
             }
 
@@ -69,7 +69,7 @@ internal static class HierarchyCacheProbe
                 var store = new UserConfigStore(Path.Combine(root, "userB.json"));
                 using var svc = LoadOrderService.WithInstance(instance, 0, store);
                 svc.ResolveDecompiledSourceFolder(null, null);
-                var (edges, _) = svc.ClassParentsForDecompile();
+                var edges = svc.ClassParentsForDecompile().Edges;
                 Check(edges.TryGetValue("HcGuardChild", out var p) && p == "HcGuardParent",
                       "derive-first still sees the mods-tree edge");
             }

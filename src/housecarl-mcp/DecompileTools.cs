@@ -53,31 +53,28 @@ public static class DecompileTools
             ? "\nnote: out_path= was given, so patch=/into= are ignored (the .psc lands in out_path, not a houseCARL patch folder)."
             : "";
         // The ignored-lane note rides a refusal too — a refusal is when a caller re-reads their parameters — but a
-        // refusal claims no destination for a .psc it did not write, so it states where nothing landed instead.
-        string LaneNoteFail(bool anythingWritten) => ignoredLane
-            ? "\nnote: out_path= was given, so patch=/into= were ignored" + (anythingWritten ? "." : "; nothing was written.")
+        // refusal claims no destination for a .psc it did not write, and adds "nothing was written" only where the
+        // sentence it follows does not already say so.
+        string LaneNoteFail(bool sayNothingWritten = true) => ignoredLane
+            ? "\nnote: out_path= was given, so patch=/into= were ignored" + (sayNothingWritten ? "; nothing was written." : ".")
             : "";
 
         // 2) the instance. The default lane writes into a mod folder under it, so it must be configured. out_path=
         //    writes entirely outside it and runs without one, as bsa_extract's out_path lane does: all the instance
         //    adds to a decompile is the class hierarchy's mods-tree top-up, and a missing top-up costs explicit
-        //    casts, never wrong source. Degraded, so it is stated rather than left silent.
-        string unconfiguredNote = "";
-        if (svc.ConfigPromptOrNull() is { } cfgPrompt)
-        {
-            if (!chosenOutput) return cfgPrompt;
-            unconfiguredNote = "\nnote: no MO2 instance is configured, so the class hierarchy is the shipped vanilla " +
-                               "baseline only (cosmetic: some implicit casts may render explicitly; the source stays correct).";
-        }
+        //    casts, never wrong source. What the hierarchy actually is gets stated at the render, off what the
+        //    hierarchy build reports rather than off whether an instance is configured — an instance can be
+        //    configured and still not resolve.
+        if (!chosenOutput && svc.ConfigPromptOrNull() is { } cfgPrompt) return cfgPrompt;
 
         // 3) validate the pex path.
         if (string.IsNullOrWhiteSpace(pex))
-            return "error: no pex given. Pass pex= the full path to the .pex file to decompile." + LaneNoteFail(false);
+            return "error: no pex given. Pass pex= the full path to the .pex file to decompile." + LaneNoteFail();
         pex = pex.Trim().Trim('"');
         if (!File.Exists(pex))
-            return $"error: no such file: '{pex}'. Pass the full path to the .pex (for a BSA member, {ToolNames.BsaExtract} it first)." + LaneNoteFail(false);
+            return $"error: no such file: '{pex}'. Pass the full path to the .pex (for a BSA member, {ToolNames.BsaExtract} it first)." + LaneNoteFail();
         if (!pex.EndsWith(".pex", StringComparison.OrdinalIgnoreCase))
-            return $"error: '{Path.GetFileName(pex)}' is not a .pex compiled script." + LaneNoteFail(false);
+            return $"error: '{Path.GetFileName(pex)}' is not a .pex compiled script." + LaneNoteFail();
         pex = Path.GetFullPath(pex);
 
         // 4) read the pex via Mutagen. An unreadable one fails loud naming the file.
@@ -87,10 +84,11 @@ public static class DecompileTools
         {
             return $"error: Mutagen cannot read '{Path.GetFileName(pex)}' ({ex.GetType().Name}: {ex.Message}). " +
                    "This is the known unreadable-pex class (corrupt, non-standard, or obfuscated) — no output was written."
-                   + LaneNoteFail(false);
+                   + LaneNoteFail(sayNothingWritten: false);
         }
         if (pexFile.Objects.Count == 0)
-            return $"error: '{Path.GetFileName(pex)}' contains no script objects — no output was written." + LaneNoteFail(false);
+            return $"error: '{Path.GetFileName(pex)}' contains no script objects — no output was written."
+                   + LaneNoteFail(sayNothingWritten: false);
 
         // 5) output folder: out_path= a folder the caller owns, else folder-per-patch with the Source\Scripts subdir.
         //    Resolved before the hierarchy build so a folder-resolution error costs nothing and the instance paths
@@ -102,41 +100,46 @@ public static class DecompileTools
                 ? LoadOrderService.ResolveExplicitSourceFolder(out_path!)
                 : svc.ResolveDecompiledSourceFolder(patch, into);
         }
-        catch (InvalidOperationException ex) { return "error: " + ex.Message + LaneNoteFail(false); }
+        catch (InvalidOperationException ex)
+        {
+            // This refusal is out_path='s own, so the note points at the parameter to fix rather than steering back
+            // to the lanes out_path= superseded.
+            return "error: " + ex.Message + (ignoredLane
+                ? "\nnote: patch=/into= were ignored because out_path= was given, and nothing was written. Fix out_path=, or drop it to write into the patch folder patch=/into= names."
+                : "");
+        }
 
-        // 6) class hierarchy: cached vanilla baseline + mods-tree sources, topped up with the input pex itself
+        // 6) class hierarchy: the vanilla baseline plus the mods-tree sources, topped up with the input pex itself
         //    and its sibling .pex files (every pex declares its own parent). Soft input — missing pieces mean
-        //    explicit casts in the output, never wrong code. A missing/corrupt BASELINE is named in the
-        //    result; the runtime top-ups degrade silently to fewer edges (purely cosmetic).
-        var (cached, hierarchyNote) = svc.ClassParentsForDecompile();
-        var edges = new Dictionary<string, string>(cached, StringComparer.OrdinalIgnoreCase);
+        //    explicit casts in the output, never wrong code — and whatever is missing is named at the render.
+        var hierarchy = svc.ClassParentsForDecompile();
+        var edges = new Dictionary<string, string>(hierarchy.Edges, StringComparer.OrdinalIgnoreCase);
         HousecarlCore.PapyrusClassParents.AddFromPex(edges, pexFile);
         try { HousecarlCore.PapyrusClassParents.AddFromPexFolder(edges, Path.GetDirectoryName(pex)!); }
         catch { /* fewer edges, never fatal */ }
 
         // A refused decompile leaves no orphan: an empty fresh folder is deleted, one holding partial .psc output is
         // kept and named, and an into= reuse is left alone.
-        string Refuse(string msg, bool anythingWritten)
+        string Refuse(string msg)
         {
             var left = svc.RemoveOrNameRiderResidue(rf);
             return (left is null ? msg
                 : msg + $" The freshly created mod folder at '{left}' still holds partial output — delete it or retry with into=.")
-                + LaneNoteFail(anythingWritten);
+                // Every message reaching here already accounts for what landed, so the note only states the lane.
+                + LaneNoteFail(sayNothingWritten: false);
         }
 
         // 7) decompile + write.
         var o = WriteObjects(pexFile, edges, rf.OutputDir);
         if (o.UnnamedObject)
             return Refuse($"error: '{Path.GetFileName(pex)}' carries an unnamed script object. " +
-                   (o.Written.Count > 0 ? $"Already written this call: {string.Join(", ", o.Written)}." : "Nothing was written."),
-                   o.Written.Count > 0);
+                   (o.Written.Count > 0 ? $"Already written this call: {string.Join(", ", o.Written)}." : "Nothing was written."));
         if (o.ExistingTarget is not null)
             return Refuse($"error: '{o.ExistingTarget}' already exists — houseCARL never overwrites a source file. " +
                    (chosenOutput
                        ? "Move/delete it, or pass a different out_path=. "
                        : "Move/delete it, or pass a different patch= (or into= another patch folder). ") +
-                   (o.Written.Count > 0 ? $"Already written this call: {string.Join(", ", o.Written)}." : "Nothing was written."),
-                   o.Written.Count > 0);
+                   (o.Written.Count > 0 ? $"Already written this call: {string.Join(", ", o.Written)}." : "Nothing was written."));
 
         // 8) render: totals, failures, and every degraded mode named.
         var outSb = new StringBuilder();
@@ -151,9 +154,7 @@ public static class DecompileTools
         else outSb.Append(", all structured clean.");
         if (o.OptimizerHints > 0)
             outSb.Append("\nnote: optimizer-compiled patterns detected (Caprica class) — source is correct; byte-identity vs the original .pex under the CK compiler is not expected.");
-        if (hierarchyNote is not null)
-            outSb.Append("\nnote: ").Append(hierarchyNote).Append(" (cosmetic: some implicit casts may render explicitly; the source stays correct).");
-        outSb.Append(unconfiguredNote);
+        outSb.Append(HierarchySentence(hierarchy));
         outSb.Append("\nknown format losses (every decompiler): parameter defaults are baked at call sites; comments/layout are gone (docstrings survive).");
         // The destination line must match where the .psc actually went: an out_path= folder is the caller's, with no
         // patch to recompile back into.
@@ -162,6 +163,21 @@ public static class DecompileTools
             : "\nthe .psc is in a houseCARL patch-mod folder — review it, edit it, and recompile with " + ToolNames.CompileScript + " (into= the same patch).");
         return outSb.ToString() + LaneNoteOk();
     });
+
+    /// <summary>One sentence saying what the class hierarchy IS whenever a source of it is missing, and nothing when
+    /// both are there. One sentence rather than one note per source: the baseline and the mods-tree top-up can be
+    /// missing together, and two notes then contradict each other about what was read.</summary>
+    internal static string HierarchySentence(ClassParents h)
+    {
+        const string tail = " (cosmetic: some implicit casts may render explicitly; the source stays correct).";
+        if (h.BaselineNote is null && h.TopUpMissing is null) return "";
+        if (h.BaselineNote is not null && h.TopUpMissing is not null)
+            return $"\nnote: the class hierarchy is only what this .pex and the .pex files beside it declare — {h.BaselineNote}, " +
+                   $"and the mods-tree sources were not read ({h.TopUpMissing}){tail}";
+        if (h.BaselineNote is not null)
+            return $"\nnote: the class hierarchy is the mods-tree sources only — {h.BaselineNote}{tail}";
+        return $"\nnote: the class hierarchy is the shipped vanilla baseline only — the mods-tree sources were not read ({h.TopUpMissing}){tail}";
+    }
 
     /// <summary>The decompile-and-write outcome.</summary>
     public sealed record DecompileOutcome(

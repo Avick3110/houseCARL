@@ -498,26 +498,43 @@ public sealed partial class LoadOrderService
 
     Dictionary<string, string>? _classParents;
     string? _classParentsNote;
+    bool _classParentsToppedUp;
+    string? _classParentsTopUpMissing;
     readonly object _classParentsLock = new();
 
     /// <summary>Drop the cached hierarchy whenever <see cref="_modsDir"/> can have changed — an instance switch or a
     /// profile re-derive — because a stale tree's edges could suppress a cast the new order's hierarchy does not
     /// justify. Rebuilds lazily.</summary>
-    void InvalidateClassParents() { lock (_classParentsLock) { _classParents = null; _classParentsNote = null; } }
+    void InvalidateClassParents()
+    {
+        lock (_classParentsLock)
+        {
+            _classParents = null; _classParentsNote = null;
+            _classParentsToppedUp = false; _classParentsTopUpMissing = null;
+        }
+    }
 
     /// <summary>The decompiler's child-to-parent class map: the committed vanilla baseline beside the exe, plus
-    /// loose .psc headers across the MO2 mods tree from mods that ship sources. Built on the first decompile call and
-    /// cached for the process lifetime. It is a soft input by construction — missing pieces mean explicit casts in
-    /// the output, never wrong code — and the note names any degraded mode. The input pex's own folder is topped up
-    /// per call by the caller, since it varies per input. Paths derive FIRST, under the gate, because in instance
-    /// mode ModsDir is lazy: otherwise a decompile-first session caches a baseline-only map for the process lifetime
-    /// with the mods-tree harvest silently skipped. Lock order is _gate then _classParentsLock.</summary>
-    public (Dictionary<string, string> Edges, string? Note) ClassParentsForDecompile()
+    /// loose .psc headers across the MO2 mods tree from mods that ship sources. The baseline is read once and cached;
+    /// the mods-tree top-up is RETRIED on every call until it runs, so a baseline-only map is never cached as if it
+    /// were complete and the caller can say so every time. It is a soft input by construction — missing pieces mean
+    /// explicit casts in the output, never wrong code — and the result names both degraded modes: a missing or
+    /// unreadable baseline, and a top-up that did not happen, whatever the cause (no instance, an instance that does
+    /// not resolve, a mods folder that is gone or unreadable). The input pex's own folder is topped up per call by
+    /// the caller, since it varies per input. Paths derive FIRST, under the gate, because in instance mode ModsDir is
+    /// lazy. Lock order is _gate then _classParentsLock.</summary>
+    public ClassParents ClassParentsForDecompile()
     {
+        bool configured;
+        string? deriveError = null;
         lock (_gate)
         {
-            try { EnsurePathsDerived(); }
-            catch { /* unusable instance: the tool's config gate reports it; here = fewer edges, never a throw */ }
+            configured = _configured;
+            // An instance that does not resolve is not fatal here — the tool's own gate decides whether the call can
+            // proceed — but the reason is carried out, because it is why the top-up below cannot run.
+            if (configured)
+                try { EnsurePathsDerived(); }
+                catch (Exception ex) { deriveError = ex.Message; }
         }
         lock (_classParentsLock)
         {
@@ -525,16 +542,25 @@ public sealed partial class LoadOrderService
             {
                 var (edges, note) = HousecarlCore.PapyrusClassParents.LoadBaseline(
                     Path.Combine(AppContext.BaseDirectory, "vanilla-class-parents.json"));
-                try
-                {
-                    if (!string.IsNullOrEmpty(_modsDir) && Directory.Exists(_modsDir))
-                        HousecarlCore.PapyrusClassParents.AddFromPscHeaders(edges, new[] { _modsDir });
-                }
-                catch { /* fewer edges, never fatal — the baseline still applies */ }
                 _classParents = edges;
                 _classParentsNote = note;
             }
-            return (_classParents, _classParentsNote);
+            if (!_classParentsToppedUp)
+            {
+                string? missing =
+                    !configured ? "no MO2 instance is configured"
+                    : deriveError is not null ? $"the MO2 instance does not resolve ({deriveError})"
+                    : string.IsNullOrEmpty(_modsDir) ? "the instance has no mods folder"
+                    : !Directory.Exists(_modsDir) ? $"the mods folder '{_modsDir}' does not exist"
+                    : null;
+                if (missing is null)
+                {
+                    try { HousecarlCore.PapyrusClassParents.AddFromPscHeaders(_classParents, new[] { _modsDir }); _classParentsToppedUp = true; }
+                    catch (Exception ex) { missing = $"the mods folder '{_modsDir}' could not be read ({ex.Message})"; }
+                }
+                _classParentsTopUpMissing = missing;
+            }
+            return new ClassParents(_classParents, _classParentsNote, _classParentsTopUpMissing);
         }
     }
 
