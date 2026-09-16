@@ -9,6 +9,13 @@ public sealed partial class LoadOrderService
 {
     // ---- writes ----------------------------------------------------------------------------------------
 
+    /// <summary>Test seam: called once inside <see cref="ApplyEdits"/>'s write gate, after the write has taken the
+    /// gate and pinned its resolver. The freshness guard's deferral arm needs a write that is PROVABLY still in
+    /// flight while a concurrent read lands; a sleep cannot stage that on a runner that finishes the write first,
+    /// so the guard blocks here until its read has been served. Null in the product — one null check per write.
+    /// Never used by the product.</summary>
+    internal static Action? InsideWriteGateForGuard;
+
     /// <summary>Apply one or more edits as a single patch. Parses each op's FormID, field path and optional
     /// composition spec into the core's <see cref="WritePatchBuilder.PatchEdit"/>, resolves the output path as a new
     /// MO2 mod folder under ModsDir, then drives <see cref="WritePatchBuilder.Apply"/>: resolve winner, derive type,
@@ -61,6 +68,7 @@ public sealed partial class LoadOrderService
         {
             var resolver = Resolver;                                      // builds/refreshes the index
             var rulebook = Rulebook;
+            InsideWriteGateForGuard?.Invoke();                            // test seam; null in the product
 
             if (inPlace)
             {
