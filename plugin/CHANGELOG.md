@@ -11,17 +11,18 @@ made the change.
 
 ## Unreleased
 
-- **`housecarl_decompile_script` takes `out_path=`, an absolute folder it writes the `.psc` into, and needs no MO2
-  instance; an incomplete class hierarchy is now named.** Decompile into a scratch folder: the `.psc` lands there
-  and no mod folder is cut.
+- **`housecarl_decompile_script` takes `out_path=`, an absolute folder it writes the `.psc` into with no MO2
+  instance needed; an incomplete class hierarchy is now named.** Decompile into a scratch folder: the `.psc`
+  lands there and no mod folder is created.
 - **`housecarl_decompile_script` reconstructs a function that uses the value of a call returning `None`.** Such a
   function used to come back as a raw-bytecode comment block; decompile a script that assigns or returns a void
   call and read the line.
 - **A PERK entry-point effect Mutagen refuses reads as one marked row instead of taking the whole record, so
   `references=` scans no longer skip that perk.** Check with `project.form="fields"`, `fields=["Effects"]`,
   `depth=3` on the perk.
-- **`housecarl_asset_status` takes `formids=`, `to_file=`, and `@file` lists.** Each NPC returns both FaceGen
-  files as rows; a pair is split when the winners sit in different mods.
+- **`housecarl_asset_status` takes `formids=`, `to_file=`, and `@file` lists; each NPC resolves as two FaceGen
+  rows, split when their winners sit in different mods.** Run `formids=` over your NPCs with `to_file=` and read
+  the artifact's `pair_differs` and `pair_exists` columns.
 - **`project.form="info_order"` folds one off-order plugin named on `source=` into the merge, so a dialogue
   patch's merged order reads before MO2 enables it.** Read a topic your patch re-lists with and without
   `source=`.
