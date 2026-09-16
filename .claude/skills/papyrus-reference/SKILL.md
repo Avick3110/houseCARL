@@ -155,10 +155,13 @@ Then work the checks, in cost order:
    answers whether a pairing is plausible and healthy, never whether the DLL registers exactly
    these functions, and the absence of a token proves nothing.
 3. **The declaration itself.** `housecarl_decompile_script` with `pex=` recovers the real
-   declaration — names, types, properties, states, events and docstrings all survive. For a class
-   inside an archive, `housecarl_bsa_extract` with `archive=` and `out_path=` first, then decompile the
-   extracted path. **Parameter defaults do not survive a decompile** — they never existed in the
-   `.pex` — so a decompiled declaration answers arity and types and cannot answer a default.
+   declaration — names, types, properties, states, events and docstrings all survive. Add
+   `out_path=` an absolute folder to land the `.psc` there instead of in a new mod folder, which is
+   what you want when you are only reading a signature. For a class inside an archive,
+   `housecarl_bsa_extract` with `archive=` and `out_path=` first, then decompile the extracted path
+   (`out_path=` the same scratch folder). **Parameter defaults do not survive a decompile** — they
+   never existed in the `.pex` — so a decompiled declaration answers arity and types and cannot
+   answer a default.
 4. **Compile it.** `housecarl_compile_script` with `script=` is the deterministic answer: it puts
    the enabled mods' own Papyrus sources on the import path and returns per-line errors. A call
    that compiles binds; a call the corpus lacks that compiles is a corpus hole to report.
