@@ -126,6 +126,61 @@ public sealed class CheckDialogueFoldTests
         Assert.Contains("Drop source=", r);
     }
 
+    /// <summary>A folded copy whose FILENAME is also active must not soften its own findings: the .seq lint
+    /// compares the winning plugin's name against the defining one, so a display label there would make a file
+    /// read as an override of itself and turn a dormant quest into an ambiguity.</summary>
+    [Fact]
+    public void AShadowedFoldMakesTheSameSeqFindingAsAPlainOne()
+    {
+        using var w = new DialogueWorld();
+        var shadow = CheckTools.CheckTool(w.Svc, findings: new[] { "dialogue" },
+                                          seeds: new[] { Fid(w.ShadowSeqQuest) },
+                                          source: Je($"{{\"file\": \"{DialogueWorld.MidName}\", \"mod\": \"{DialogueWorld.ShadowModFolder}\"}}"),
+                                          max_chars: 40000);
+        var plain = CheckTools.CheckTool(w.Svc, findings: new[] { "dialogue" },
+                                         seeds: new[] { Fid(w.PatchSeqQuest) },
+                                         source: Je($"\"{DialogueWorld.PatchName}\""), max_chars: 40000);
+
+        Assert.Contains("stays DORMANT", plain);
+        Assert.Contains("stays DORMANT", shadow);
+        Assert.DoesNotContain("WINNING override", shadow);
+    }
+
+    /// <summary>A folded call that spills its findings to a file still carries the frame: the manifest render is
+    /// the only render it gets, and the artifact's own notes say the rows are a projection.</summary>
+    [Fact]
+    public void AFoldedToFileCallCarriesTheFrameInTheResponseAndTheManifest()
+    {
+        using var w = new DialogueWorld();
+        var path = Path.Combine(w.Root, "fold-findings.jsonl");
+
+        var r = CheckTools.CheckTool(w.Svc, findings: new[] { "dialogue" },
+                                     seeds: new[] { Fid(w.PatchOwnTopic) },
+                                     source: Je($"\"{DialogueWorld.PatchName}\""), to_file: path);
+
+        Assert.Contains($"folded: '{DialogueWorld.PatchName}' is NOT active", r);
+        var manifest = JsonDocument.Parse(File.ReadLines(path).First()).RootElement;
+        Assert.Contains(manifest.GetProperty("notes").EnumerateArray().Select(n => n.GetString()!),
+                        n => n.Contains("PROJECTION") && n.Contains(DialogueWorld.PatchName));
+    }
+
+    /// <summary>A folded MASTER does not win a record a regular plugin overrides: it lands in the master block,
+    /// so the active plugin below it is still what the game reads, and the check says so.</summary>
+    [Fact]
+    public void AMasterFoldDoesNotWinWhatARegularPluginOverrides()
+    {
+        using var w = new DialogueWorld();
+
+        var r = CheckTools.CheckTool(w.Svc, findings: new[] { "dialogue" },
+                                     seeds: new[] { Fid(w.MasterBlockTopic) },
+                                     source: Je($"\"{DialogueWorld.PatchEsmName}\""), max_chars: 40000);
+
+        // The fold lands after the last master in the order; the regular plugin below that still wins the record.
+        Assert.Contains($"winner {DialogueWorld.TailName}", r);
+        Assert.DoesNotContain($"winner {DialogueWorld.PatchEsmName}", r);
+        Assert.Contains("END OF THE MASTER BLOCK", r);
+    }
+
     /// <summary>The family's own scope sentence now names the lane, so a caller reading the section learns it
     /// exists rather than being told there is none.</summary>
     [Fact]

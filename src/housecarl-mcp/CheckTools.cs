@@ -259,7 +259,7 @@ public static class CheckTools
             var probe = svc.ProbeSourceArm(foldPlugin!, foldMod, out var probeErr);
             if (probeErr is not null) return Wire.Refuse(json, "error: " + probeErr);
             if (probe!.InOrder)
-                return Wire.Refuse(json, $"error: source='{probe.Plugin}' is ACTIVE in the load order, and the dialogue family already validates against the active order's winners — its records are what the check reads. Drop source=; it folds a plugin that is NOT enabled in MO2 into that resolution.");
+                return Wire.Refuse(json, $"error: source='{probe.Plugin}' is ACTIVE in the load order, and the dialogue family already validates against the active order's winners — its records are what the check reads. Drop source=; it folds a plugin that is NOT enabled in MO2 into that resolution.", probe.Stamp);
             dialogueFold = probe;
         }
 
@@ -302,8 +302,17 @@ public static class CheckTools
                   $"epoch={familyEpoch} when the {family} family answered) — the response would describe two " +
                   "builds. Retry the call."
                 : null;
+        // The dialogue family is in the seam too, and a fold makes it the one that most needs to be: the file was
+        // probed OFF-ORDER against one build and folded into another, so a plugin ticked in between would be in
+        // the order AND folded in again under a head that says it is not active.
+        string? foldSeam = dialogueFold?.Epoch is { } foldEpoch && dialogue?.Epoch is { } dialogueEpoch
+                        && foldEpoch != dialogueEpoch
+            ? $"the load order changed between resolving '{dialogueFold.Plugin}' as off-order (epoch={foldEpoch}) and "
+              + $"validating against it (epoch={dialogueEpoch}) — that file may now be IN the order, and the fold "
+              + "would describe a different world. Retry the call."
+            : null;
         if ((Seam(errors?.Epoch, "errors") ?? Seam(scripts?.Epoch, "scripts")
-             ?? Seam(facegen?.Epoch, "facegen")) is { } seam)
+             ?? Seam(facegen?.Epoch, "facegen") ?? Seam(dialogue?.Epoch, "dialogue") ?? foldSeam) is { } seam)
         {
             var torn = new CheckSweep(selection, OrderSeamError: seam);
             return json ? JsonWire.RenderCheck(torn, max_chars, lim) : Wire.RenderCheck(torn, max_chars, lim);
@@ -360,6 +369,10 @@ public static class CheckTools
             && el.TryGetProperty("file", out var f) && f.ValueKind == System.Text.Json.JsonValueKind.String)
         {
             plugin = f.GetString()!.Trim();
+            // The same guard the string form has: a blank name would reach the locate and come back as whatever it
+            // says about an empty filename, rather than as the one sentence that says what to pass.
+            if (plugin.Length == 0)
+                return "error: source= names a blank file — name the off-order plugin to fold in (e.g. {\"file\": \"MyPatch.esp\", \"mod\": \"<mod folder>\"}).";
             mod = el.TryGetProperty("mod", out var m) && m.ValueKind == System.Text.Json.JsonValueKind.String
                 ? m.GetString()!.Trim() : null;
             return null;

@@ -23,8 +23,12 @@ internal static class DialogueSweepRender
     internal static string ComposeSeedUnit(DialogueSeedResult seed)
     {
         var report = seed.Report!;
+        // The bracket is a TEXT annotation on the name, never part of it: InputWinnerPlugin is a filename other
+        // code compares and writes as data (see TopicValidation.WinnerIsFolded).
+        var winner = (report.InputWinnerPlugin ?? "<unknown>")
+                   + (report.InputWinnerIsFolded ? " [the folded off-order copy]" : "");
         return string.Format(ReadSentences.DialogueSeedHead, seed.Seed, KindLabel(report.InputKind),
-                             Edid(report.InputEditorId), report.InputWinnerPlugin ?? "<unknown>",
+                             Edid(report.InputEditorId), winner,
                              report.Topics.Count)
              + ComposeSeedBody(report);
     }
@@ -261,6 +265,8 @@ internal static class DialogueSweepRender
         w.WriteString("kind", r.InputKind);
         w.WriteString("editor_id", r.InputEditorId ?? "");
         w.WriteString("winner_plugin", r.InputWinnerPlugin ?? "");
+        // The provenance beside the name, never inside it: a consumer indexes winner_plugin as a filename.
+        if (r.InputWinnerIsFolded) w.WriteBoolean("winner_folded", true);
         w.WriteNumber("topic_count", r.Topics.Count);
         w.WriteBoolean("read_incomplete", r.ReadIncomplete);
         // Which checks this seed's kind ran, as data: the text lane says it by printing the verdict, while here an
@@ -294,6 +300,7 @@ internal static class DialogueSweepRender
         w.WriteString("topic", FormIdToken.Of(t.Topic));
         w.WriteString("editor_id", t.TopicEditorId);
         w.WriteString("winner_plugin", t.WinnerPlugin);
+        if (t.WinnerIsFolded) w.WriteBoolean("winner_folded", true);
         w.WriteNumber("info_count", t.InfoCount);
         w.WriteNumber("conditioned_info_count", t.ConditionedInfoCount);
         w.WriteNumber("deleted_info_count", t.DeletedInfoCount);
