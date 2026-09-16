@@ -38,22 +38,77 @@ public static class ProbeBytes
         return hits;
     }
 
-    /// <summary>Corrupt every EPFT subrecord's parameter-type flag byte in the written plugin (sig + len(2) + 1-byte
-    /// payload → payload at +6), returning how many were hit. This is the suite's canonical "a body whose LAZY parse
-    /// throws" fixture: a perk with one entry-point effect, its EPFT byte set to a value that is not a legal parameter
-    /// type, so <c>ParseEffect</c> throws the moment anything reaches for the perk's Effects. Callers write exactly one
-    /// entry-point effect and assert exactly one hit.</summary>
-    /// <summary>Rewrite every entry-point effect in the plugin to the INTERNALLY INCONSISTENT encoding #301 found in
-    /// the wild: EPFT set to 1 (Float) while the effect's DATA function byte still names an actor-value arm, and the
-    /// 8-byte EPFD cut to the 4 bytes EPFT 1 declares. Both subrecords stay well-formed, so the file is one xEdit
-    /// renders and Mutagen refuses — unlike <see cref="CorruptEpftBytes"/>, which writes a parameter type nothing can
-    /// decode. The record's content length, its GRUP's length and the file all shrink with the cut. Returns how many
-    /// EPFD subrecords were cut; callers write exactly one entry-point effect and assert exactly one.</summary>
-    public static int MakeEpftFunctionMismatch(string espPath)
+    /// <summary>Rewrite ONE record's entry-point effect to the INTERNALLY INCONSISTENT encoding #301 found in the
+    /// wild: EPFT set to 1 (Float) while the effect's DATA function byte still names an actor-value arm, and the
+    /// 8-byte EPFD cut to the 4 bytes EPFT 1 declares — the leading actor-value dword is dropped, so what is left is
+    /// the float. Both subrecords stay well-formed, so the file is one xEdit renders and Mutagen refuses — unlike
+    /// <see cref="CorruptEpftBytes"/>, which writes a parameter type nothing can decode.</summary>
+    public static int MakeEpftFunctionMismatch(string espPath, uint rawFormId) =>
+        PatchEffectParameter(espPath, rawFormId, epft: 1, dropLeadingDword: true, zeroKept: false);
+
+    /// <summary>Rewrite ONE record's entry-point effect to declare a FormID parameter that is all zeroes: EPFT set to
+    /// 4 (a SPEL link, which Mutagen itself writes as a NULLABLE link) and the 8-byte EPFD cut to four zero bytes.
+    /// Mutagen still refuses the effect — the function byte names another arm — so the lenient decode reads it, and
+    /// an all-zero reference FormID must come back as a declared-but-null link rather than record 000000 of the
+    /// plugin's first master.</summary>
+    public static int MakeEpftNullFormIdParameter(string espPath, uint rawFormId) =>
+        PatchEffectParameter(espPath, rawFormId, epft: 4, dropLeadingDword: false, zeroKept: true);
+
+    /// <summary>Rewrite ONE record's entry-point effect to declare EPFT 7 (a LOCALIZED string) over four bytes. In a
+    /// plugin the mod header flags localized — see <see cref="SetLocalizedFlag"/> — those four bytes are a
+    /// strings-table key, not characters, so a reader that prints them as text hands back mojibake.</summary>
+    public static int MakeEpftLocalizedTextParameter(string espPath, uint rawFormId) =>
+        PatchEffectParameter(espPath, rawFormId, epft: 7, dropLeadingDword: true, zeroKept: false);
+
+    /// <summary>Set the mod header's Localized flag (0x80) so Mutagen reads the plugin's translated strings through a
+    /// strings table rather than inline. Returns true when the flag was not already set.</summary>
+    public static bool SetLocalizedFlag(string espPath)
+    {
+        var bytes = File.ReadAllBytes(espPath);
+        if ((bytes[8] & 0x80) != 0) return false;
+        bytes[8] |= 0x80;
+        File.WriteAllBytes(espPath, bytes);
+        return true;
+    }
+
+    /// <summary>Cut ONE of a record's CTDA subrecords short, so reading that condition runs off the end of its own
+    /// payload and throws while everything else in the record still reads. <paramref name="skip"/> leaves the first N
+    /// CTDAs alone, which is how a condition INSIDE an effect is passed over. The record, its GRUP and the file all
+    /// shrink with the cut. Returns how many were cut.</summary>
+    public static int TruncateCondition(string espPath, uint rawFormId, int skip = 0)
+    {
+        const int Keep = 8;
+        var bytes = File.ReadAllBytes(espPath);
+        int rec = FindRecord(bytes, "PERK", rawFormId);
+        if (rec < 0) return 0;
+        int end = rec + 24 + (int)BitConverter.ToUInt32(bytes, rec + 4);
+        int seen = 0;
+        for (int i = rec + 24; i + 6 < end; i++)
+        {
+            if (bytes[i] != (byte)'C' || bytes[i + 1] != (byte)'T' || bytes[i + 2] != (byte)'D' || bytes[i + 3] != (byte)'A') continue;
+            if (seen++ < skip) continue;
+            int len = BitConverter.ToUInt16(bytes, i + 4);
+            if (len <= Keep) return 0;
+            BitConverter.GetBytes((ushort)Keep).CopyTo(bytes, i + 4);
+            Shrink(ref bytes, i + 6 + Keep, len - Keep);
+            File.WriteAllBytes(espPath, bytes);
+            return 1;
+        }
+        return 0;
+    }
+
+    /// <summary>The shared surgery behind the two fixtures above: inside the PERK whose on-disk FormID is
+    /// <paramref name="rawFormId"/>, set the EPFT payload and cut its 8-byte EPFD to 4. The record's content length,
+    /// its GRUP's length and the file all shrink with the cut. Returns how many EPFD subrecords were cut; callers
+    /// write exactly one entry-point effect in that record and assert exactly one.</summary>
+    static int PatchEffectParameter(string espPath, uint rawFormId, byte epft, bool dropLeadingDword, bool zeroKept)
     {
         var bytes = File.ReadAllBytes(espPath);
         int hits = 0;
-        for (int i = 0; i + 6 < bytes.Length; i++)
+        int rec = FindRecord(bytes, "PERK", rawFormId);
+        if (rec < 0) return 0;
+        int end = rec + 24 + (int)BitConverter.ToUInt32(bytes, rec + 4);
+        for (int i = rec + 24; i + 6 < end; i++)
         {
             if (bytes[i] != (byte)'E' || bytes[i + 1] != (byte)'P' || bytes[i + 2] != (byte)'F' || bytes[i + 3] != (byte)'T') continue;
             int epftLen = BitConverter.ToUInt16(bytes, i + 4);
@@ -62,14 +117,30 @@ public static class ProbeBytes
             if (bytes[epfd] != (byte)'E' || bytes[epfd + 1] != (byte)'P' || bytes[epfd + 2] != (byte)'F' || bytes[epfd + 3] != (byte)'D') continue;
             int epfdLen = BitConverter.ToUInt16(bytes, epfd + 4);
             if (epfdLen != 8) continue;                       // only the two-dword arms carry the disagreement
-            bytes[i + 6] = 1;                                 // EPFT = Float
+            bytes[i + 6] = epft;
             BitConverter.GetBytes((ushort)4).CopyTo(bytes, epfd + 4);
-            Shrink(ref bytes, epfd + 6, 4);                   // drop the leading actor-value dword, leaving the float EPFT 1 declares
+            int cutAt = dropLeadingDword ? epfd + 6 : epfd + 6 + 4;
+            Shrink(ref bytes, cutAt, 4);
+            if (zeroKept) Array.Clear(bytes, epfd + 6, 4);
             hits++;
+            end -= 4;
             i = epfd;                                         // the cut moved everything after it
         }
         if (hits > 0) File.WriteAllBytes(espPath, bytes);
         return hits;
+    }
+
+    /// <summary>The offset of the major-record header of signature <paramref name="sig"/> whose on-disk FormID is
+    /// <paramref name="rawFormId"/> (see <see cref="SetDeletedFlag"/> for what that dword is), or -1.</summary>
+    static int FindRecord(byte[] bytes, string sig, uint rawFormId)
+    {
+        var s = System.Text.Encoding.ASCII.GetBytes(sig);
+        for (int i = 0; i + 24 <= bytes.Length; i++)
+        {
+            if (bytes[i] != s[0] || bytes[i + 1] != s[1] || bytes[i + 2] != s[2] || bytes[i + 3] != s[3]) continue;
+            if (BitConverter.ToUInt32(bytes, i + 12) == rawFormId) return i;
+        }
+        return -1;
     }
 
     /// <summary>Drop <paramref name="count"/> bytes at <paramref name="at"/> and shrink every record and GRUP header
@@ -113,6 +184,11 @@ public static class ProbeBytes
         return hits;
     }
 
+    /// <summary>Corrupt every EPFT subrecord's parameter-type flag byte in the written plugin (sig + len(2) + 1-byte
+    /// payload → payload at +6), returning how many were hit. This is the suite's canonical "a body whose LAZY parse
+    /// throws" fixture: a perk with one entry-point effect, its EPFT byte set to a value that is not a legal parameter
+    /// type, so <c>ParseEffect</c> throws the moment anything reaches for the perk's Effects. Callers write exactly one
+    /// entry-point effect and assert exactly one hit.</summary>
     public static int CorruptEpftBytes(string espPath)
     {
         var bytes = File.ReadAllBytes(espPath);

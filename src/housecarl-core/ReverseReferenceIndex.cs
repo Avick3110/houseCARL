@@ -46,6 +46,7 @@ public sealed class ReverseReferenceIndex
         public Dictionary<ulong, ulong[]> ByTarget = new();
         public long Pairs;
         public int Unscannable;                        // records whose own link walk threw — excluded and counted
+        public int Lenient;                            // records whose links were read leniently — indexed, with a named gap
         public string? Unreadable;                     // set ⇒ this plugin contributed nothing, and why
     }
 
@@ -156,7 +157,7 @@ public sealed class ReverseReferenceIndex
     /// one that paid it, the per-plugin freshness key, and every plugin the walk could not read.</summary>
     public sealed record Refreshed(int Partitions, int Rebuilt, long ElapsedMs, int TargetSlots, long Pairs,
                                    long ApproxBytes, IReadOnlyList<string> Unreadable, int UnscannableRecords,
-                                   string Key)
+                                   string Key, int LenientRecords = 0)
     {
         /// <summary>The one accounting line, for the question that asks who references a target. The BUILD clause
         /// is only true of the call that paid it; the freshness key and the coverage disclosures are true of every
@@ -184,6 +185,8 @@ public sealed class ReverseReferenceIndex
                       : " — the answer is short by whatever they reference.");
             if (UnscannableRecords > 0)
                 sb.Append($" {UnscannableRecords} record(s) Mutagen could not parse were excluded from the walk.");
+            if (LenientRecords > 0)
+                sb.Append($" {LenientRecords} record(s) were read leniently — part of their content is encoded in a way Mutagen refuses, so their edges are the ones houseCARL could still decode.");
             return sb.ToString();
         }
     }
@@ -238,7 +241,8 @@ public sealed class ReverseReferenceIndex
         sw.Stop();
         return new Refreshed(next.ByPath.Count, rebuilt, sw.ElapsedMilliseconds,
                              next.ByPath.Values.Sum(p => p.ByTarget.Count), next.ByPath.Values.Sum(p => p.Pairs),
-                             ApproxBytes, unreadable, next.ByPath.Values.Sum(p => p.Unscannable), next.Key);
+                             ApproxBytes, unreadable, next.ByPath.Values.Sum(p => p.Unscannable), next.Key,
+                             next.ByPath.Values.Sum(p => p.Lenient));
     }
 
     /// <summary>One plugin's reverse edges, staged whole and committed only if the enumeration finished.</summary>
@@ -249,7 +253,7 @@ public sealed class ReverseReferenceIndex
         try { ov = open(); }
         catch (Exception ex) { part.Unreadable = ex.GetType().Name; return part; }
         var acc = new Dictionary<ulong, List<ulong>>();
-        int unscannable = 0;
+        int unscannable = 0, lenient = 0;
         try
         {
             foreach (var rec in ov.EnumerateMajorRecords())
@@ -259,18 +263,20 @@ public sealed class ReverseReferenceIndex
                     // A deleted record's content is not live, so none of its links is a real reference — the same
                     // exclusion the dangling sweep makes, before the walk that would throw on such a body.
                     if (DeletedRecordRule.HasNoLiveBody(rec)) continue;
-                    if (rec is not IFormLinkContainerGetter flc) continue;
+                    if (rec is not IFormLinkContainerGetter) continue;
                     ulong src = Pack(into, rec.FormKey);
-                    foreach (var link in flc.EnumerateFormLinks())
+                    // The SAME link walk the scan lanes make, so a record whose links only read leniently is a key
+                    // here too — the index is what an unbounded references= builds its universe from, and a record
+                    // missing here is missing from every lane downstream (#301).
+                    if (RecordLinks.Walk(rec, target =>
                     {
-                        var target = link.FormKey;
-                        if (target.IsNull) continue;
+                        if (target.IsNull) return;
                         ulong pt = Pack(into, target);
                         if (!acc.TryGetValue(pt, out var list)) acc[pt] = list = new List<ulong>(1);
                         // One record's links arrive together, so the same record linking a target twice is the
                         // tail of this list — deduped without a per-target set.
                         if (list.Count == 0 || list[^1] != src) list.Add(src);
-                    }
+                    }) is not null) lenient++;
                 }
                 catch { unscannable++; }
             }
@@ -283,6 +289,7 @@ public sealed class ReverseReferenceIndex
         }
         finally { (ov as IDisposable)?.Dispose(); }
         part.Unscannable = unscannable;
+        part.Lenient = lenient;
         part.ByTarget = new Dictionary<ulong, ulong[]>(acc.Count);
         long pairs = 0;
         foreach (var (k, v) in acc) { part.ByTarget[k] = v.ToArray(); pairs += v.Count; }
