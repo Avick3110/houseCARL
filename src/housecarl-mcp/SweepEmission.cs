@@ -83,6 +83,12 @@ internal enum SweepSubject
     /// Its own subject, for the reason the dangling axes each have one: a shared subject lets the first axis to
     /// close on the budget refuse every row of the second.</summary>
     FaceGenModRows,
+
+    /// <summary>Rows of <c>asset_status</c>'s <c>counts_only</c> histogram, by the MO2 layer that wins the path.
+    /// The one subject declared by a tool outside the check sweep: it is a histogram axis and takes the axis
+    /// grammar, so it is a subject for the reason every axis is one — its framing lines and its rows go through the
+    /// same bound as everything else.</summary>
+    AssetWinnerRows,
 }
 
 /// <summary>
@@ -94,7 +100,7 @@ internal static class SweepSubjects
 {
     internal static bool IsHistogram(this SweepSubject s)
         => s is SweepSubject.HistogramByTarget or SweepSubject.HistogramBySource or SweepSubject.HistogramByProperty
-             or SweepSubject.FaceGenClassRows or SweepSubject.FaceGenModRows;
+             or SweepSubject.FaceGenClassRows or SweepSubject.FaceGenModRows or SweepSubject.AssetWinnerRows;
 }
 
 /// <summary>

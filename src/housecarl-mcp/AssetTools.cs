@@ -32,8 +32,8 @@ public static class AssetTools
          "missing Skyrim.ini base-archive list, is reported LOUD — so an 'absent' answer is never silently " +
          "trusted. format='json' returns the same data machine-readably, with the same " +
          "accounting in-band. TRANSPORT — format= | limit= | offset= | max_chars= | counts_only= | to_file=. BOUND: 1,200,000 paths " +
-         "RESOLVED a call — the window where limit= takes one, except under to_file=, which always resolves the " +
-         "whole selection — and past it the call refuses up front with the count and the estimate. Read-only: " +
+         "RESOLVED a call — the window where limit= takes one, except under to_file= and counts_only=, which each " +
+         "resolve the whole selection — and past it the call refuses up front with the count and the estimate. Read-only: " +
          "resolves nothing to disk, writes nothing, changes no load order.")]
     public static string AssetStatus(
         LoadOrderService svc,
@@ -73,9 +73,11 @@ public static class AssetTools
                      "whole-order sweep.")]
             string[]? formids = null,
         [Description("Optional. Max paths to resolve and render from the selection. 0 = no limit. Ignored by to_file=, " +
-                     "which covers the WHOLE selection — the artifact is never a window.")]
+                     "which covers the WHOLE selection — the artifact is never a window. Under counts_only=true this " +
+                     "caps the census TABLE's rows instead: the census covers the whole selection too, and its table " +
+                     "is what needs paging.")]
             int limit = 0,
-        [Description("Optional. Where in the selection the rendered window starts, for paging a large under= sweep. 0 = the beginning. Refused with to_file=.")]
+        [Description("Optional. Where in the selection the rendered window starts, for paging a large under= sweep. 0 = the beginning. Refused with to_file= and with counts_only=, neither of which takes a selection window.")]
             int offset = 0,
         [Description("TRANSPORT: write the COMPLETE result to this ABSOLUTE .jsonl path as an artifact (line 1 = " +
                      "manifest) and render only the manifest inline — the same convention housecarl_records and " +
@@ -86,11 +88,11 @@ public static class AssetTools
                      "via asset_paths=[\"@<path>\"]; its identity column is 'path', so it is NOT a formids= list for " +
                      "housecarl_records.")]
             string? to_file = null,
-        [Description("TRANSPORT: return the census and no path rows — what the file layer looks like in aggregate " +
-                     "over the paths this call resolved: which mods win how many, how the winners split between " +
-                     "loose and BSA, and how many are absent. The question a whole-order sweep usually has of its " +
-                     "rows. The census covers what the call RESOLVED, so a limit= window is counted as a window and " +
-                     "the response says so. Refused beside to_file=, which writes the rows the census replaces.")]
+        [Description("TRANSPORT: return the census and no path rows — what the file layer looks like in aggregate: " +
+                     "which MO2 layers win how many paths, how the winners split between loose and BSA, and how " +
+                     "many are absent. The question a whole-order sweep usually has of its rows. It covers the " +
+                     "WHOLE selection whatever limit= says, so limit= caps the census table's rows instead and " +
+                     "offset= is refused. Refused beside to_file=, which writes the rows the census replaces.")]
             bool counts_only = false,
         [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
             string? format = null,
@@ -132,6 +134,11 @@ public static class AssetTools
                 return Wire.Refuse(json, "error: to_file= captures the COMPLETE result (the artifact is never a " +
                                          "window), so offset= has nothing to page — drop offset=.");
         }
+        // Same shape, same reason as the records lanes' aggregate: a census covers the whole selection, so there is
+        // no selection window for offset= to move, and limit= is what pages the table it renders instead.
+        if (counts_only && offset > 0)
+            return Wire.Refuse(json, "error: counts_only= counts the COMPLETE selection, so offset= has nothing to " +
+                                     "page — drop offset=, and use limit= to page the census table's rows.");
 
         // The @file convention on both list inputs: an artifact stands in place of the whole list, and each takes
         // the identity column its own tokens are made of.
@@ -193,12 +200,16 @@ public static class AssetTools
                 return Wire.Refuse(json, "error: " + LoadOrderService.ArtifactEpochMismatch(demand, order.Epoch));
         }
 
-        var data = svc.AssetStatus(pathTokens ?? Array.Empty<string>(), under, limit, offset, seeds, wholeSelection: wantFile);
+        // counts_only= resolves the WHOLE selection, the way to_file= does: a census of a window would answer about
+        // a window while the rows that actually need paging — the table's — had no knob at all. limit= is spent
+        // there instead.
+        var data = svc.AssetStatus(pathTokens ?? Array.Empty<string>(), under, counts_only ? 0 : limit, offset, seeds,
+                                   wholeSelection: wantFile || counts_only);
         // The declared-cost refusal: the selection was counted and is past the bound, so nothing was resolved.
         if (data.BoundRefusal is { } tooBig) return Wire.Refuse(json, tooBig);
 
         if (counts_only)
-            return json ? JsonWire.RenderAssetCensus(data, cap) : AssetCensus.Render(data, cap);
+            return json ? JsonWire.RenderAssetCensus(data, cap, limit) : AssetCensus.Render(data, cap, limit);
 
         KeyValuePair<string, string>[] Echo()
         {
@@ -426,20 +437,33 @@ static class AssetWire
 /// BSA, and how many are absent. A whole-order FaceGen sweep is over a hundred thousand rows, and the question a
 /// caller usually has of it is this histogram rather than the rows.
 ///
-/// <para>The census counts what the call RESOLVED, which under a <c>limit=</c> is that window: <c>counted</c> is
-/// stated beside <c>selected</c> so a windowed census is never read as the whole selection's.</para></summary>
+/// <para>The census covers the WHOLE selection — it is the cost <c>counts_only=</c> exists to pay, the one
+/// <c>to_file=</c> already pays — and <c>limit=</c> is spent on the table's rows instead, which is the thing here
+/// that actually needs paging (SPEC §2.1, closure-proof §G4).</para>
+///
+/// <para>The table itself is the surface's ONE histogram axis (<see cref="HistogramAxis"/>), the same grammar
+/// <c>check</c>'s <c>counts_only=</c> axes take: the head that rides its first row, the cut line naming the knob
+/// that stopped it, the reserve taken before the rows render, and the distinct empty-axis sentence. Only the
+/// counters above it are this lane's own.</para></summary>
 static class AssetCensus
 {
-    /// <summary>The census over one resolution. <see cref="ByMod"/> is the winning mods, count descending then name
-    /// ascending — the MO2 layer a caller would sort or disable, which is the same value the artifact's
-    /// <c>winner_mod</c> column carries and the pair verdict is taken on.</summary>
-    internal readonly record struct Counts(int Selected, int Counted, int Present, int Absent, int Errors,
-                                           int Loose, int Bsa, IReadOnlyList<KeyValuePair<string, int>> ByMod);
+    /// <summary>The census over one resolution. <see cref="ByLayer"/> is the winning MO2 LAYERS, count descending
+    /// then name ascending — the same value the artifact's <c>winner_mod</c> column carries and the pair verdict is
+    /// taken on, which for a loose winner is a mod folder, the game's own Data folder, or overwrite.</summary>
+    internal readonly record struct Counts(int Selected, int Present, int Absent, int Errors,
+                                           int Loose, int Bsa, IReadOnlyList<SweepCount> ByLayer);
+
+    /// <summary>What the axis is titled, and the note that keeps its two non-mod values honest. The note rides the
+    /// axis, so it is written whatever the budget says — the same treatment the sibling by-mod axis gives its
+    /// own.</summary>
+    const string AxisTitle = "winning layers";
+    const string AxisNote = "a winning LAYER is a mod folder, the game's own Data folder, or overwrite — the last "
+                          + "two are layers rather than mods, so they cannot be sorted or disabled.";
 
     internal static Counts Tally(AssetStatusData d)
     {
         int present = 0, absent = 0, errors = 0, loose = 0, bsa = 0;
-        var byMod = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var byLayer = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var r in d.Results)
         {
             if (r.Error is not null) { errors++; continue; }
@@ -447,16 +471,26 @@ static class AssetCensus
             present++;
             if (win.Kind == HousecarlCore.AssetKind.Bsa) bsa++; else loose++;
             var owner = AssetPathResult.Owner(win);
-            byMod[owner] = byMod.GetValueOrDefault(owner) + 1;
+            byLayer[owner] = byLayer.GetValueOrDefault(owner) + 1;
         }
-        var rows = byMod.OrderByDescending(m => m.Value).ThenBy(m => m.Key, StringComparer.Ordinal).ToList();
-        return new Counts(d.Selected, d.Results.Count, present, absent, errors, loose, bsa, rows);
+        var rows = byLayer.OrderByDescending(m => m.Value).ThenBy(m => m.Key, StringComparer.Ordinal)
+                          .Select(m => new SweepCount(m.Key, m.Value)).ToList();
+        // The census always covers the whole selection, so its counters are the selection's — never a window's.
+        return new Counts(d.Selected, present, absent, errors, loose, bsa, rows);
     }
 
-    /// <summary>The text census: the alarms an ABSENT count depends on, the counters, then the mod table. The table
-    /// is bounded by max_chars with the same named cut the path list takes — the counters above it are exact
-    /// whatever the cut, so a cut table never makes a total wrong.</summary>
-    public static string Render(AssetStatusData d, int cap)
+    /// <summary>The axis this census renders, in one place so the text lane and the json lane cannot title or note
+    /// it differently.</summary>
+    internal static HistogramAxis Axis(Counts c) =>
+        new(SweepSubject.AssetWinnerRows, c.ByLayer, AxisTitle, Note: AxisNote);
+
+    /// <summary>The rows one call may render, from its <c>limit=</c>: 0 is no limit, the shape every transport axis
+    /// defaults to on this tool.</summary>
+    internal static int RowLimit(int limit) => limit > 0 ? limit : int.MaxValue;
+
+    /// <summary>The text census: the alarms an ABSENT count depends on, the counters, then the layer axis. The
+    /// counters are exact whatever the axis's cut, so a cut table never makes a total wrong.</summary>
+    public static string Render(AssetStatusData d, int cap, int limit)
     {
         var c = Tally(d);
         var sb = new StringBuilder(AssetWire.Header(d)).Append('\n');
@@ -471,26 +505,14 @@ static class AssetCensus
             BatchRender.AppendLines(sb, notes, "selector(s)", room);
         }
 
-        sb.Append("\ncensus: counted=").Append(c.Counted).Append(" present=").Append(c.Present)
+        sb.Append("\ncensus: counted=").Append(c.Selected).Append(" present=").Append(c.Present)
           .Append(" absent=").Append(c.Absent).Append(" errors=").Append(c.Errors).Append('\n');
-        // Said only where the two differ, and said as the window it is: a census of a limit= window read as the
-        // selection's would be a wrong answer about the order.
-        if (c.Counted < c.Selected)
-            sb.Append("this census counted the ").Append(c.Counted).Append(" path(s) this call RESOLVED, not the ")
-              .Append(c.Selected).Append(" the selection names — limit=/offset= windowed it. Drop them to count the whole selection.\n");
         sb.Append("winners: loose=").Append(c.Loose).Append(" BSA=").Append(c.Bsa).Append('\n');
-        sb.Append("winning mods (").Append(c.ByMod.Count).Append("):\n");
 
-        // The cut marker's own room is charged before the first mod row, so cutting the table cannot push the
-        // marker past the ceiling.
-        var table = room.Less(BatchRender.CutReserve("mod(s)", cap));
-        int shown = 0;
-        for (; shown < c.ByMod.Count; shown++)
-        {
-            var row = "  " + c.ByMod[shown].Value.ToString().PadLeft(6) + "  " + c.ByMod[shown].Key + "\n";
-            if (!table.TryAppend(sb, row)) break;
-        }
-        if (shown < c.ByMod.Count) BatchRender.AppendCut(sb, c.ByMod.Count - shown, "mod(s)", cap);
+        // The one bounded emission path, as the sweep lanes use it: the budget is the whole cap, because
+        // Outstanding reads the live builder and so already charges everything written above.
+        var body = new BoundedBody(acct: null, budget: cap, () => sb.Length);
+        Wire.AppendHistogramAxes(sb, body, RowLimit(limit), Axis(c));
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 }

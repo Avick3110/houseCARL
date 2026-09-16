@@ -398,8 +398,9 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.Contains("under", text, StringComparison.Ordinal);
     }
 
-    /// <summary>counts_only= answers the aggregate question a sweep's rows only imply: which mods win how many
-    /// paths, how the winners split between loose and BSA, and how many are absent — with no path rows at all.</summary>
+    /// <summary>counts_only= answers the aggregate question a sweep's rows only imply: which layers win how many
+    /// paths, how the winners split between loose and BSA, and how many are absent — with no path rows at all. The
+    /// table is titled by LAYER and carries the note that says why: two of its values are not mods.</summary>
     [Fact]
     public void CountsOnlyAnswersTheCensusAndNoPathRows()
     {
@@ -407,9 +408,10 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
 
         Assert.Contains("census: counted=5 present=5 absent=0 errors=0", text);
         Assert.Contains("winners: loose=4 BSA=1", text);
-        // Count descending, then name ascending — the mod that wins most sits at the top of the table.
-        Assert.Contains("winning mods (3):", text);
+        // Count descending, then name ascending — the layer that wins most sits at the top of the table.
+        Assert.Contains("winning layers (3 distinct):", text);
         Assert.Matches(@"2  FaceBase\n\s+2  FaceHigher\n\s+1  ArchiveMod", text);
+        Assert.Contains("the game's own Data folder, or overwrite", text);
         Assert.DoesNotContain("WINS:", text);
     }
 
@@ -424,22 +426,24 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.Contains("census: counted=2 present=1 absent=1 errors=0", text);
     }
 
-    /// <summary>A census of a limit= window says it is one: the counters are of what the call RESOLVED, and read as
-    /// the whole selection's they would be a wrong answer about the order.</summary>
+    /// <summary>A census is never a window: limit= does not lower what it counts, it pages the table instead. A
+    /// census of a window read as the selection's would be a wrong answer about the order.</summary>
     [Fact]
-    public void AWindowedCensusSaysItCountedTheWindowAndNotTheSelection()
+    public void ACensusCountsTheWholeSelectionWhateverLimitSays()
     {
-        var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
-                                          limit: 2, counts_only: true);
+        var windowed = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
+                                              limit: 2, counts_only: true);
+        var whole = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir }, counts_only: true);
 
-        Assert.Contains("census: counted=2", text);
-        Assert.Contains("not the 5 the selection names", text);
+        Assert.Contains("census: counted=5 present=5 absent=0 errors=0", windowed);
+        Assert.Contains("winning layers (3 distinct):", windowed);   // the distinct count is the selection's too
+        Assert.Contains("census: counted=5 present=5 absent=0 errors=0", whole);
     }
 
-    /// <summary>The json twin carries the same census as data, the mod table as an ORDERED array — the order is part
-    /// of what the census says, and a map keyed by mod could not hold it.</summary>
+    /// <summary>The json twin carries the same census as data, the layer table as the shared histogram axis — the
+    /// shape a consumer already reads on check's counts_only=, ordered, with its own distinct/rendered/cut_by.</summary>
     [Fact]
-    public void TheJsonCensusCarriesTheModTableAsAnOrderedArray()
+    public void TheJsonCensusCarriesTheLayerTableAsTheSharedHistogramAxis()
     {
         var root = System.Text.Json.JsonDocument.Parse(
             AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
@@ -449,12 +453,33 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.Equal(4, root.GetProperty("loose").GetInt32());
         Assert.Equal(1, root.GetProperty("bsa").GetInt32());
         Assert.Equal(0, root.GetProperty("absent").GetInt32());
-        Assert.Equal(3, root.GetProperty("mods_total").GetInt32());
-        var byMod = root.GetProperty("by_mod");
-        Assert.Equal("FaceBase", byMod[0].GetProperty("mod").GetString());
-        Assert.Equal(2, byMod[0].GetProperty("count").GetInt32());
-        Assert.Equal("ArchiveMod", byMod[2].GetProperty("mod").GetString());
+        var axis = root.GetProperty("winners_by_layer");
+        Assert.Equal(3, axis.GetProperty("distinct").GetInt32());
+        Assert.Equal(3, axis.GetProperty("rendered").GetInt32());
+        var rows = axis.GetProperty("rows");
+        Assert.Equal("FaceBase", rows[0].GetProperty("key").GetString());
+        Assert.Equal(2, rows[0].GetProperty("count").GetInt32());
+        Assert.Equal("ArchiveMod", rows[2].GetProperty("key").GetString());
         Assert.False(root.TryGetProperty("results", out _));
+    }
+
+    /// <summary>The json document's tail is reserved out of max_chars before anything is written, as the path
+    /// render's is — a census that overran by its own closing members would make max_chars mean two things on one
+    /// tool.</summary>
+    [Fact]
+    public void TheJsonCensusFitsTheMaxCharsItWasGiven()
+    {
+        const int Cap = 1_000;
+        var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
+                                          counts_only: true, format: "json", max_chars: Cap);
+
+        var root = System.Text.Json.JsonDocument.Parse(text).RootElement;
+        // A real cut: some rows in, the rest disclosed by the axis's own frame.
+        Assert.Equal(3, root.GetProperty("winners_by_layer").GetProperty("distinct").GetInt32());
+        Assert.Equal(2, root.GetProperty("winners_by_layer").GetProperty("rendered").GetInt32());
+        Assert.Equal("max_chars", root.GetProperty("winners_by_layer").GetProperty("cut_by").GetString());
+        Assert.True(root.GetProperty("truncated").GetBoolean());
+        Assert.True(text.Length <= Cap, $"the census document is {text.Length} chars on max_chars={Cap}");
     }
 
     /// <summary>counts_only= and to_file= ask for opposite dispositions of the same result, so the pair is refused
@@ -473,12 +498,50 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
     /// <summary>The mod table is bounded by max_chars with the same named cut the path list takes, and the counters
     /// above it stay exact — a cut table never makes a total wrong.</summary>
     [Fact]
-    public void TheCensusModTableIsCutAtMaxCharsWithTheCountersStillExact()
+    public void TheCensusTableIsCutAtMaxCharsWithTheCountersStillExact()
+    {
+        // A cap that admits SOME rows and refuses the rest — the partial cut this is about. A cap small enough to
+        // admit none proves only that the counters survive a collapse.
+        var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
+                                          counts_only: true, max_chars: 800);
+
+        Assert.Contains("census: counted=5 present=5", text);       // the counters are exact whatever the cut
+        Assert.Contains("winning layers (3 distinct):", text);      // and so is the distinct count
+        Assert.Equal(1, Rows(text));
+        // The knob named is the one that stopped the axis: these rows were refused room, not capped by limit=.
+        Assert.Contains("2 more row(s) — raise max_chars= to see them", text);
+        Assert.True(text.Length <= 800, $"the census is {text.Length} chars on max_chars=800");
+    }
+
+    /// <summary>limit= pages the census TABLE, which is the thing here that needs paging — the census itself covers
+    /// the whole selection whatever limit= says. The cut names limit=, not max_chars=: raising the cap over rows
+    /// limit= held back moves nothing.</summary>
+    [Fact]
+    public void LimitPagesTheCensusTableAndTheCutNamesThatKnob()
     {
         var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
-                                          counts_only: true, max_chars: 200);
+                                          counts_only: true, limit: 1);
 
-        Assert.Contains("census: counted=5 present=5", text);
-        Assert.Contains("more mod(s) omitted at max_chars=200", text);
+        Assert.Contains("census: counted=5 present=5 absent=0 errors=0", text);   // the whole selection, not a window
+        Assert.Contains("winning layers (3 distinct):", text);
+        Assert.Equal(1, Rows(text));
+        Assert.Contains("2 more row(s) — raise limit= to see them", text);
     }
+
+    /// <summary>offset= has no selection window to move under a census, so it is refused rather than silently
+    /// ignored — and the refusal names the knob that does page the table.</summary>
+    [Fact]
+    public void OffsetBesideCountsOnlyIsRefusedAndNamesLimitInstead()
+    {
+        var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
+                                          counts_only: true, offset: 2);
+
+        Assert.Contains("counts_only= counts the COMPLETE selection", text);
+        Assert.Contains("use limit=", text);
+    }
+
+    /// <summary>How many table rows a census rendered — a row is a count padded to six columns, which nothing else
+    /// in this response writes.</summary>
+    static int Rows(string text) =>
+        System.Text.RegularExpressions.Regex.Matches(text, @"\n {2,}\d+  \S").Count;
 }
