@@ -197,6 +197,56 @@ public sealed class RecordsInfoOrderFoldTests
                      doc.GetProperty("rows")[0].GetProperty("folded_plugin").GetString());
     }
 
+    /// <summary>The placement sentence names the plugin at the position it computed. With a plugin the build
+    /// EXCLUDED, the scannable list is shorter than the order, so a name taken out of that list would be the wrong
+    /// plugin's — or none at all.</summary>
+    [Fact]
+    public void ThePlacementNamesTheRightPluginWhenTheBuildExcludedOne()
+    {
+        using var w = new DialogueWorld(unreadablePlugin: true);
+
+        var r = RecordsTools.Records(w.Svc, formids: new[] { Fid(w.MasterBlockTopic) },
+                                     project: new RecordsTools.RecordsProject { form = "info_order" },
+                                     source: Je($"\"{DialogueWorld.PatchEsmName}\""));
+
+        Assert.Contains($"immediately after '{DialogueWorld.CcName}'", r);
+        Assert.DoesNotContain("after '<none>'", r);
+    }
+
+    /// <summary>A topic the folded file DEFINES has the fold's own list as its baseline — it is the definer — so
+    /// no line reads as a later plugin's addition and none is claimed to have moved.</summary>
+    [Fact]
+    public void AFoldDefinedTopicTakesTheFoldsOwnListAsItsBaseline()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.PatchOwnTopic) },
+                                     project: new RecordsTools.RecordsProject { form = "info_order" },
+                                     source: Je($"\"{DialogueWorld.PatchName}\""), format: "json");
+
+        var row = JsonDocument.Parse(r).RootElement.GetProperty("rows")[0];
+        Assert.True(row.GetProperty("baseline_trusted").GetBoolean());
+        Assert.True(row.GetProperty("moves_computed").GetBoolean());
+        Assert.Equal(0, row.GetProperty("moved_count").GetInt32());
+        foreach (var line in row.GetProperty("order").EnumerateArray())
+            Assert.False(line.TryGetProperty("added_by_later_plugin", out _));
+    }
+
+    /// <summary>Same rule through the shadowed arm: a copy of the plugin that DEFINES the topic is the definer's
+    /// own list once folded, so its lines are the baseline rather than a later plugin's additions.</summary>
+    [Fact]
+    public void AShadowedFoldOfTheDefinerIsStillTheBaseline()
+    {
+        var r = RecordsTools.Records(Svc, formids: new[] { Fid(W.MidOwnTopic) },
+                                     project: new RecordsTools.RecordsProject { form = "info_order" },
+                                     source: Je($"{{\"file\": \"{DialogueWorld.MidName}\", \"mod\": \"{DialogueWorld.ShadowModFolder}\"}}"),
+                                     format: "json");
+
+        var row = JsonDocument.Parse(r).RootElement.GetProperty("rows")[0];
+        Assert.True(row.GetProperty("baseline_trusted").GetBoolean());
+        Assert.Equal(0, row.GetProperty("moved_count").GetInt32());
+        foreach (var line in row.GetProperty("order").EnumerateArray())
+            Assert.False(line.TryGetProperty("added_by_later_plugin", out _));
+    }
+
     /// <summary>The overlay pole still has no seat on this form, and the refusal now names the one pole that does.</summary>
     [Fact]
     public void AnOverlayPoleIsRefusedNamingTheOffOrderFoldInstead()

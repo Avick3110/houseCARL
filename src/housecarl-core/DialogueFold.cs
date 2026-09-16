@@ -93,8 +93,9 @@ public sealed class DialogueFold
     /// Idempotent: calling it again against the same build changes nothing.</summary>
     public void PlaceIn(LoadOrderResolver.IndexView view)
     {
-        var names = view.ScannablePluginNames;
-        string At(int i) => i >= 0 && i < names.Count ? names[i] : "<none>";
+        // Named out of the ORDER's own index space, which is what SlotIndex is in: the scannable list omits the
+        // plugins this build excluded, so naming a position out of it would print a different plugin's name.
+        string At(int i) => view.PluginNameAt(i) ?? "<none>";
         int Position(int i) => i + 1;
 
         if (view.ContainsPlugin(Plugin))
@@ -110,7 +111,8 @@ public sealed class DialogueFold
             // The last master IN LOAD ORDER, found by walking the order — the master block is not always a
             // contiguous prefix (an order can list a .esl after regular plugins, and this fixture's own does).
             int last = -1;
-            for (int i = 0; i < names.Count; i++) if (view.IsMasterBlock(names[i])) last = view.OrderIndexOf(names[i]);
+            foreach (var name in view.ScannablePluginNames)
+                if (view.IsMasterBlock(name)) last = Math.Max(last, view.OrderIndexOf(name));
             PlacementKind = Where3.EndOfMasterBlock;
             SlotIndex = last;
             Placement = $"folded in at the END OF THE MASTER BLOCK — immediately after '{At(last)}' (position {Position(last)} of {view.PluginCount}), "

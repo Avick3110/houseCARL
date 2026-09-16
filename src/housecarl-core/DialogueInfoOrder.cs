@@ -199,9 +199,11 @@ public static class DialogueInfoOrder
     /// implementation is typically an expensive per-record lookup — is reached only for a genuinely foreign target.
     /// Deterministic and pure — the same inputs always give the same order.</summary>
     /// <param name="projectedPlugin">a group that is a PROJECTION rather than a plugin the order carries — an
-    /// off-order file folded in. It merges like any other contributor, but it never sets the move baseline: the
-    /// baseline is the DEFINING plugin's own list, and a folded master can sit ahead of the definer, which would
-    /// turn the definer's own lines into "added by a later plugin" and half the topic into MOVED.</param>
+    /// off-order file folded in — AND is not this topic's definer. It merges like any other contributor, but it
+    /// does not set the move baseline: the baseline is the DEFINING plugin's own list, and a folded master can sit
+    /// ahead of the definer, which would turn the definer's own lines into "added by a later plugin" and half the
+    /// topic into MOVED. Where the folded file IS the definer — a topic only it has, or a shadowed copy of the
+    /// plugin that defines the topic — its list is the baseline and the caller passes null.</param>
     public static InfoOrderView Compute(
         IReadOnlyList<(string Plugin, IReadOnlyList<InfoLine> Lines)> groups,
         Func<FormKey, (InfoLine Line, string Plugin)?> resolveInfo,

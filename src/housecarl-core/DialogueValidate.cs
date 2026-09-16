@@ -270,19 +270,23 @@ public static class DialogueValidate
                 groups.Insert(at < 0 ? groups.Count : at, (fold.Label, folded.Lines));
             }
 
-            // The baseline is the DEFINING plugin's own list, and the fold is not it: a master fold can land
-            // AHEAD of the definer, and taking its list as the baseline would render the definer's own lines as
-            // "added by a later plugin" and half the topic as MOVED against a projection. Compute is told which
-            // group is the projection so it skips it when it picks the baseline.
+            // The baseline is the DEFINING plugin's own list — which the fold IS when it defines this topic (a
+            // topic only the folded file has, or a shadowed copy of the plugin that defines it). Where it does
+            // not, the fold is skipped as a baseline candidate: a master fold can land AHEAD of the definer, and
+            // taking its list would render the definer's own lines as "added by a later plugin" and half the
+            // topic as MOVED against a projection. Compute is told the same thing.
+            bool foldDefinesTopic = fold is not null
+                && tfk.ModKey.FileName.String.Equals(fold.Plugin, StringComparison.OrdinalIgnoreCase);
+            string? projectedGroup = foldDefinesTopic ? null : fold?.Label;
             int firstWithLines = groups.FindIndex(g => g.Item2.Count > 0
-                                                    && !g.Item1.Equals(fold?.Label, StringComparison.OrdinalIgnoreCase));
+                                                    && !g.Item1.Equals(projectedGroup, StringComparison.OrdinalIgnoreCase));
             string? baselinePlugin = firstWithLines >= 0 ? groups[firstWithLines].Item1 : null;
             bool baselineTrusted = unread.Count == 0
                 || (baselinePlugin is not null
                     && !touching.TakeWhile(p => !p.Equals(baselinePlugin, StringComparison.OrdinalIgnoreCase))
                                 .Any(p => unread.Contains(p, StringComparer.OrdinalIgnoreCase)));
 
-            built[tfk] = DialogueInfoOrder.Compute(groups, ResolveInfo, unread, baselineTrusted, fold?.Label)
+            built[tfk] = DialogueInfoOrder.Compute(groups, ResolveInfo, unread, baselineTrusted, projectedGroup)
                 with { FoldedPlugin = fold?.Label, FoldedPlacement = fold?.Placement };
         }
         return built;
