@@ -222,13 +222,21 @@ public static class PerkEffectDecode
         var e = effects[index];
         if (e.ParameterType is not { } epft) return null;
         return ReadEngine.UnreadablePrefix + mutagenReason
-             + " — Mutagen refused this effect, so it is read off its own bytes: DATA names entry point "
-             + (e.EntryPoint?.ToString(CultureInfo.InvariantCulture) ?? "?")
-             + " and function byte " + (e.Function?.ToString(CultureInfo.InvariantCulture) ?? "?")
-             + $", EPFT says {epft}, and the parameter was decoded off EPFT alone, as xEdit does: {e.Value ?? "(no parameter)"}"
-             + $"; its {e.ConditionCount} condition(s) "
+             + $" — Mutagen refused this effect, so it is read off its own bytes: its entry point is {EntryPointName(e.EntryPoint)}"
+             + $", its function byte is {e.Function?.ToString(CultureInfo.InvariantCulture) ?? "?"} (which function that names is the very thing in dispute, so it is left a number)"
+             + $", its parameter type EPFT is {epft}, and its parameter value, decoded off EPFT alone as xEdit does, is {e.Value ?? "(none)"}"
+             + $". Its {e.ConditionCount} condition(s) "
              + (e.ConditionGap is null ? "were read by Mutagen's own condition parser" : e.ConditionGap)
-             + ")";
+             + ". That value is the one xEdit shows for this effect; the typed field is not available, so read the effect here rather than through its modeled sub-fields)";
+    }
+
+    /// <summary>The entry point's NAME for the marker row. Mutagen models the entry point as one enum, so naming it
+    /// is still Mutagen's answer and not a table of ours; a byte outside it is left as the number it is.</summary>
+    static string EntryPointName(byte? entryPoint)
+    {
+        if (entryPoint is not { } b) return "not stated by this effect's DATA";
+        var name = Enum.GetName(typeof(APerkEntryPointEffect.EntryType), (APerkEntryPointEffect.EntryType)b);
+        return name is null ? $"{b} (a value Mutagen's entry-point enum does not name)" : $"{name} ({b})";
     }
 
     /// <summary>The lenient link read a scan falls back to when Mutagen's whole-record link walk throws on a PERK.

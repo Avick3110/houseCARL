@@ -23,11 +23,12 @@ public static class ReverseWalkBatch
 
     /// <summary>What one reverse walk produced: the per-hop reached sets (an empty hop is kept and reported), the
     /// selection the reading forms consume, the index candidates the body check dropped and why, the winner plugins
-    /// the body check could not read at all, the index's own accounting line, and the build the whole answer was
-    /// read from.</summary>
+    /// the body check could not read at all, the records the body check could only read leniently, the index's own
+    /// accounting line, and the build the whole answer was read from.</summary>
     public sealed record Result(IReadOnlyList<ReverseSelection.Hop> Hops, IReadOnlyList<string> Selection,
                                 int Seeds, bool Capped, DropCensus Dropped, string? IndexNote, OrderStamp? Stamp,
-                                string? Refusal, IReadOnlyList<string>? UnreadableWinners = null)
+                                string? Refusal, IReadOnlyList<string>? UnreadableWinners = null,
+                                IReadOnlyList<string>? LenientRecords = null)
     {
         /// <summary>The build's fingerprint alone, for the places that compare epochs rather than render them.</summary>
         public string? Epoch => Stamp?.Epoch;
@@ -81,6 +82,10 @@ public static class ReverseWalkBatch
         // The winner plugins the gather could not read, named once each: an unreadable winner is a coverage gap,
         // and a caller can only act on it — close the file, check the plugin — if the drop count says which file.
         var unreadableWinners = new List<string>();
+        // Candidates the body check could only read leniently: verified, but with a named gap, exactly as the scan
+        // lanes report them.
+        var lenientRecords = new List<string>();
+        var lenientSeen = new HashSet<FormKey>();
         var unreadableSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         void Gather(IReadOnlyList<FormKey> block)
         {
@@ -119,8 +124,17 @@ public static class ReverseWalkBatch
                     else if (DeletedRecordRule.HasNoLiveBody(body) || body is not IFormLinkContainerGetter flc) noLiveBody++;
                     else
                     {
+                        // The SAME link walk references= makes (RecordLinks), so the two spellings of the reverse
+                        // question cannot disagree about a record whose links only read leniently: without it, a
+                        // candidate the index now holds would be re-tested here, throw, and be dropped as an
+                        // unreadable winner while references= listed it (#301).
                         var set = new HashSet<FormKey>();
-                        try { foreach (var l in flc.EnumerateFormLinks()) set.Add(l.FormKey); links = set; }
+                        try
+                        {
+                            if (RecordLinks.Collect(body, set) is { } note && lenientSeen.Add(candidate))
+                                lenientRecords.Add(note);
+                            links = set;
+                        }
                         catch (Exception) { unreadable++; }
                     }
                 }
@@ -144,6 +158,6 @@ public static class ReverseWalkBatch
 
         return new Result(hops, selection, seedKeys.Count, capped,
                           new DropCensus(noLink.Count, unreadable, noLiveBody, noWinner), built.Note, stamp, null,
-                          unreadableWinners);
+                          unreadableWinners, lenientRecords);
     }
 }
