@@ -32,13 +32,16 @@ namespace HousecarlGenerator;
 ///      UNDER an in-flight write (transiently mmap-opening every plugin INCLUDING the file the write is
 ///      serializing — the #24 "no mapped handle on the target survives the serialize" invariant, breached
 ///      from the read path). The fix defers the read-path refresh while a write holds the write gate: a
-///      mid-write read serves the last good snapshot; the NEXT call refreshes. Deterministic given a write
-///      long enough to straddle the read (retried; judged only when the read provably finished mid-write).
+///      mid-write read serves the last good snapshot; the NEXT call refreshes. Deterministic: the write PARKS
+///      inside the write gate on <see cref="LoadOrderService.InsideWriteGateForGuard"/> until the read has
+///      been served, so the race is staged rather than timed and no runner can be too fast to stage it.
 ///
 /// Self-contained: synthetic MO2 instances + synthesized plugins in temp; generates its own corpus. No game data.
 ///
-/// Standalone by necessity: in the warm ci-all runner (hot JIT, memoized corpus) the write finishes before the
-/// read can land inside it, so arm 5 holds only in a cold process and CI gives this guard its own step.
+/// Standalone: arm 4 hammers a freshness rebuild into the Phase-1 loop of a real multi-op write, and the window
+/// it sweeps is only a real window in a cold process — in the warm ci-all runner (hot JIT, memoized corpus) the
+/// write outruns the flip and the arm stops covering anything. So CI gives this guard its own step. Arm 5 no
+/// longer needs the cold process: it parks the write on the seam instead of racing it.
 /// </summary>
 internal static class FreshnessCaptureProbe
 {
@@ -303,26 +306,38 @@ internal static class FreshnessCaptureProbe
                     Formid = Fid(fk), FieldPath = "BasicStats.Weight", Verb = "Set", Value = "9",
                 }).ToList();
 
-                int duringCount = -1; bool judged = false;
+                // The race is STAGED, not timed. The write parks on the guard seam once it holds the write gate and
+                // has pinned its resolver, and stays parked until this thread's read has been served — so a runner
+                // that finishes the write inside a sleep cannot leave the race unstaged and report that as a product
+                // failure. Every judgement below then holds by construction rather than by luck.
+                int duringCount = -1; bool parked = false, midFlight = false;
                 WritePatchBuilder.PatchOutcome? outcome = null;
-                for (int attempt = 0; attempt < 5 && !judged; attempt++)
+                using (var inGate = new ManualResetEventSlim())
+                using (var release = new ManualResetEventSlim())
                 {
-                    WriteProfile(prof, new[] { masterName }, new[] { "*" + masterName }, new[] { "+MasterMod" });
-                    svc.Stats();                                      // settle back on the 1-plugin order
-                    var started = new ManualResetEventSlim();
-                    var wt = Task.Run(() => { started.Set(); return svc.ApplyEdits(ops, $"HcFcgDefer{attempt}", null); });
-                    started.Wait();
-                    Thread.Sleep(100);                                // let the write get into its resolve/serialize body
-                    if (wt.IsCompleted) { outcome = wt.Result; continue; }   // write finished too fast to straddle — retry
-                    WriteProfile(prof, new[] { masterName, extraName },     // a real MO2 toggle arrives MID-write
-                                 new[] { "*" + masterName, "*" + extraName }, new[] { "+MasterMod", "+ExtraMod" });
-                    var dc = svc.Stats().plugins;                     // the concurrent read
-                    bool midFlight = !wt.IsCompleted;                 // judge only a read that provably finished mid-write
-                    outcome = wt.Result;
-                    if (!midFlight) continue;
-                    duringCount = dc; judged = true;
+                    LoadOrderService.InsideWriteGateForGuard = () => { inGate.Set(); release.Wait(); };
+                    try
+                    {
+                        var wt = Task.Run(() => svc.ApplyEdits(ops, "HcFcgDefer", null));
+                        // Bounded: a write that never reaches the gate fails the arm loudly instead of hanging CI.
+                        parked = inGate.Wait(TimeSpan.FromSeconds(60));
+                        if (parked)
+                        {
+                            WriteProfile(prof, new[] { masterName, extraName },   // a real MO2 toggle arrives MID-write
+                                         new[] { "*" + masterName, "*" + extraName }, new[] { "+MasterMod", "+ExtraMod" });
+                            duringCount = svc.Stats().plugins;        // the concurrent read, served while the write holds the gate
+                            midFlight = !wt.IsCompleted;              // the write is parked on the seam, so this cannot have completed
+                        }
+                        release.Set();                                // let the parked write run to completion
+                        outcome = wt.Result;
+                    }
+                    finally
+                    {
+                        LoadOrderService.InsideWriteGateForGuard = null;
+                        release.Set();                                // a throw above must never leave the write parked
+                    }
                 }
-                Check(judged, "landed a read that completed while the write was still in flight");
+                Check(parked && midFlight, "landed a read that completed while the write was still in flight");
                 Check(outcome is { Success: true }, $"the in-flight write succeeded — {outcome?.Error ?? "ok"}");
                 Check(duringCount == 1,
                       $"the mid-write read served the last good snapshot (refresh deferred, no mid-write rebuild) — saw {duringCount} plugin(s)");
