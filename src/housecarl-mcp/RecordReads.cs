@@ -2408,7 +2408,8 @@ public sealed partial class LoadOrderService
     /// <summary>Read an already-probed OFF-ORDER pole's DIAL content once, for a dialogue lane to fold at the end
     /// of the order. Every failure is a named refusal — the roots that could not be derived, the file that would
     /// not parse — never a fold that silently contributes nothing.</summary>
-    internal DialogueFold? OpenDialogueFold(PoleInfo arm, out string? error, string? label = null)
+    internal DialogueFold? OpenDialogueFold(PoleInfo arm, out string? error, string? label = null,
+                                            bool withRecords = false)
     {
         error = null;
         string dataDir;
@@ -2418,7 +2419,12 @@ public sealed partial class LoadOrderService
             error = $"the MO2 roots couldn't be derived to open '{arm.Plugin}': {ex.Message}";
             return null;
         }
-        try { return DialogueFold.Read(arm.Plugin, arm.Where, arm.Path!, dataDir, label); }
+        try
+        {
+            return withRecords
+                ? DialogueFold.Open(arm.Plugin, arm.Where, arm.Path!, dataDir, label)
+                : DialogueFold.Read(arm.Plugin, arm.Where, arm.Path!, dataDir, label);
+        }
         catch (Exception ex)
         {
             error = $"could not open '{arm.Path}' as a Skyrim plugin: {ex.Message}";

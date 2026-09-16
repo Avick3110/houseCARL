@@ -1,4 +1,5 @@
-using Mutagen.Bethesda.Plugins;
+﻿using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
@@ -12,18 +13,21 @@ namespace HousecarlCore;
 //  is not in it. Folding it at the end answers the question before the enable, and every answer built on it is
 //  a PROJECTION: the caller is told which file was folded, on the response and on every line the file placed.
 //
-//  PLAIN DATA, NOT GETTERS. The DIAL child lists are projected while the overlay is open (the
-//  consume-before-advance contract) and the overlay is closed before this object is handed back, so a fold
-//  outlives the file handle and holds no plugin open — the same rule the rest of the read surface keeps.
+//  TWO DEPTHS. Read() projects the DIAL child lists to plain data and CLOSES the file, so the merge lane holds
+//  no plugin open — the rule the rest of the read surface keeps. Open() also keeps the file's record BODIES,
+//  which are overlay-backed and so live only while the file is open: that fold is disposable, and the one lane
+//  that takes it (the dialogue check, which resolves whole records against the fold) disposes it at the end of
+//  its run.
 // ======================================================================
 
 /// <summary>One folded topic: the DIAL record the off-order file carries, projected to what the merge reads —
 /// its EditorID (for a topic the active order does not have at all) and its child list.</summary>
 public sealed record FoldedTopic(FormKey Topic, string? EditorId, IReadOnlyList<InfoLine> Lines);
 
-/// <summary>The DIAL content of one off-order plugin, read once and held as plain data: what
-/// <see cref="DialogueValidate.InfoOrders"/> appends to each topic's merge as the last contributor.</summary>
-public sealed class DialogueFold
+/// <summary>The content of one off-order plugin, read once: the DIAL child lists
+/// <see cref="DialogueValidate.InfoOrders"/> appends to each topic's merge as the last contributor, and — when the
+/// fold was opened with <see cref="Open"/> — the record bodies a validation resolves against.</summary>
+public sealed class DialogueFold : IDisposable
 {
     /// <summary>The plugin's filename.</summary>
     public string Plugin { get; }
@@ -60,6 +64,11 @@ public sealed class DialogueFold
 
     readonly Dictionary<FormKey, FoldedTopic> _topics = new();
 
+    /// <summary>Every record the file carries, by FormKey — set only by <see cref="Open"/>. The bodies are
+    /// overlay-backed, so they are valid only until <see cref="Dispose"/>.</summary>
+    Dictionary<FormKey, IMajorRecordGetter>? _records;
+    IDisposable? _openFile;
+
     DialogueFold(string plugin, string label, string where) { Plugin = plugin; Label = label; Where = where; }
 
     /// <summary>Read the file's own kind off its header while the overlay is open: which block of the order it
@@ -89,12 +98,36 @@ public sealed class DialogueFold
         {
             fold.TakeKind(ov);
             // Typed enumeration walks the DIAL group only, and each topic is projected while its body is live.
-            foreach (var topic in ov.DialogTopics)
-                fold._topics[topic.FormKey] = new FoldedTopic(topic.FormKey, topic.EditorID,
-                                                              DialogueInfoOrder.LinesOf(topic));
+            foreach (var topic in ov.DialogTopics) fold.TakeTopic(topic);
         }
         finally { (ov as IDisposable)?.Dispose(); }
         return fold;
+    }
+
+    /// <summary>As <see cref="Read"/>, but the file STAYS OPEN and every record it carries is held, so a caller
+    /// can resolve whole records against the fold. Disposable, and the bodies die with it. Throws what Mutagen
+    /// throws on a file it cannot parse.</summary>
+    public static DialogueFold Open(string plugin, string where, string path, string? dataDir, string? label = null)
+    {
+        var fold = new DialogueFold(plugin, string.IsNullOrEmpty(label) ? plugin : label!, where) { Path = path };
+        var ov = LoadOrderResolver.OpenOverlay(path, string.IsNullOrEmpty(dataDir) ? null : dataDir);
+        fold._openFile = ov as IDisposable;
+        try
+        {
+            fold._records = new Dictionary<FormKey, IMajorRecordGetter>();
+            foreach (var r in ov.EnumerateMajorRecords())
+            {
+                fold._records[r.FormKey] = r;
+                if (r is IDialogTopicGetter topic) fold.TakeTopic(topic);
+            }
+        }
+        catch { fold.Dispose(); throw; }
+        return fold;
+    }
+
+    void TakeTopic(IDialogTopicGetter topic)
+    {
+        _topics[topic.FormKey] = new FoldedTopic(topic.FormKey, topic.EditorID, DialogueInfoOrder.LinesOf(topic));
     }
 
     /// <summary>How many DIAL topics this file carries — what a response states so a fold that touches none of
@@ -103,4 +136,28 @@ public sealed class DialogueFold
 
     /// <summary>The folded copy of this topic, or null when the file does not touch it.</summary>
     public FoldedTopic? Topic(FormKey fk) => _topics.TryGetValue(fk, out var t) ? t : null;
+
+    /// <summary>This file's own body for a record, or null when it carries none — the fold sits LAST in the
+    /// projected order, so what it holds wins. Only an <see cref="Open"/> fold holds bodies.</summary>
+    public IMajorRecordGetter? Record(FormKey fk)
+        => _records is not null && _records.TryGetValue(fk, out var r) ? r : null;
+
+    /// <summary>Does the folded file carry this record at all? The existence half of the resolution, so a link
+    /// into the folded file does not read as dangling.</summary>
+    public bool Holds(FormKey fk) => _records?.ContainsKey(fk) ?? _topics.ContainsKey(fk);
+
+    /// <summary>Every DIAL topic the file carries, with its body — what a quest fan-out walks to find the topics
+    /// the folded file owns. Empty on a <see cref="Read"/> fold, which holds no bodies.</summary>
+    public IEnumerable<IDialogTopicGetter> TopicBodies
+        => _records is null
+            ? Array.Empty<IDialogTopicGetter>()
+            : _topics.Keys.Select(k => _records.TryGetValue(k, out var r) ? r as IDialogTopicGetter : null)
+                          .Where(t => t is not null)!;
+
+    public void Dispose()
+    {
+        _records = null;
+        _openFile?.Dispose();
+        _openFile = null;
+    }
 }

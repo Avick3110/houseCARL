@@ -48,6 +48,9 @@ internal static class DialogueSweepRender
     internal static void AppendHead(StringBuilder sb, CheckOutcome o)
     {
         var d = o.Dialogue!.Value;
+        // The fold frames everything under it, so it is the first thing the section says — and it is part of the
+        // head, which no budget may refuse: a projection presented without its frame reads as the live answer.
+        if (o.Sweep.Dialogue?.Folded is { } folded) sb.Append(folded);
         // The scope note sits above this family's own counts and inside its own section: a caller who passed
         // plugins= alongside would otherwise read a seeded answer as a scoped one.
         sb.Append(ScopeNote(d)).Append('\n');
@@ -180,6 +183,9 @@ internal static class DialogueSweepRender
         var d = o.Dialogue!.Value;
         w.WriteString("scope", ScopeNote(d));
         w.WriteBoolean("seeded_not_swept", true);
+        // The same frame the text head leads with: a json consumer reading findings must see that they came off a
+        // projected order, not the live one.
+        if (o.Sweep.Dialogue?.Folded is { } folded) w.WriteString("folded", folded.TrimEnd('\n'));
         // The stamp in the shape the swept families write, with the bound declared: this family also reports asset
         // verdicts, so it names them rather than claiming the fingerprint covers them.
         JsonWire.WriteSweepEpoch(w, o.Sweep.Dialogue?.Epoch, o.Sweep.OrderExcluded.Count, null, UncoveredBy(d));

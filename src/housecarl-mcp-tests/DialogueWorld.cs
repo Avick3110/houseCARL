@@ -1,4 +1,4 @@
-using Mutagen.Bethesda;
+﻿using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using HousecarlCore;
@@ -130,7 +130,13 @@ public sealed class DialogueWorld : IDisposable
 
     readonly ResultsDirScope _results;
 
-    public DialogueWorld()
+    /// <summary>The default world: <see cref="PatchName"/> sits on disk OUTSIDE the order.</summary>
+    public DialogueWorld() : this(patchActive: false) { }
+
+    /// <param name="patchActive">write the same patch into the ACTIVE order instead — the comparison arm for a
+    /// folded read, so what the fold projects can be measured against what the order really says once the plugin
+    /// is enabled. Its own instance, never the shared fixture.</param>
+    public DialogueWorld(bool patchActive)
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-dialogue-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
@@ -317,17 +323,21 @@ public sealed class DialogueWorld : IDisposable
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
         var prof = Path.Combine(Instance, "profiles", "Default");
         Directory.CreateDirectory(prof);
+        // The patch is in the order only on the comparison arm — the same file, the same records, read as the
+        // game would read it once MO2 enables it.
+        var patchLine = patchActive ? PatchName + "\r\n" : "";
         File.WriteAllText(Path.Combine(prof, "loadorder.txt"),
             "# header\r\n" + VanillaName + "\r\n" + MasterName + "\r\n" + MidName + "\r\n" + LastName + "\r\n"
-            + CcName + "\r\n");
+            + CcName + "\r\n" + patchLine);
         // Neither the base master nor the CC plugin is listed here — that absence is what makes them force-loaded.
-        File.WriteAllText(Path.Combine(prof, "plugins.txt"), "*" + MasterName + "\r\n*" + MidName + "\r\n*" + LastName + "\r\n");
+        File.WriteAllText(Path.Combine(prof, "plugins.txt"),
+            "*" + MasterName + "\r\n*" + MidName + "\r\n*" + LastName + "\r\n" + (patchActive ? "*" + PatchName + "\r\n" : ""));
         // PatchMod, PatchEsmMod and the shadow folder are switched OFF: their files are on disk and out of the
         // order, which is what a fold names. MidMod sits above the shadow folder, so the copy the order loads —
         // and the copy a {file, mod} fold of the shadow is measured against — is MidMod's.
         File.WriteAllText(Path.Combine(prof, "modlist.txt"),
-            "# header\r\n-PatchMod\r\n-PatchEsmMod\r\n+CcMod\r\n+LastMod\r\n+MidMod\r\n-" + ShadowModFolder
-            + "\r\n+MasterMod\r\n+VanillaStub\r\n");
+            "# header\r\n" + (patchActive ? "+" : "-") + "PatchMod\r\n-PatchEsmMod\r\n+CcMod\r\n+LastMod\r\n+MidMod\r\n-"
+            + ShadowModFolder + "\r\n+MasterMod\r\n+VanillaStub\r\n");
 
         var store = new UserConfigStore(Path.Combine(Root, "user.json"));
         Svc = LoadOrderService.WithInstance(Instance, 0, store);
