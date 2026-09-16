@@ -23,7 +23,8 @@ internal static class AssetArtifact
     internal static readonly string[] RowSchema =
     {
         "path", "formid", "slot", "exists", "winner", "winner_kind", "winner_mod", "provider_count", "providers",
-        "ambiguous", "pair_path", "pair_exists", "pair_winner", "pair_winner_kind", "pair_differs", "error",
+        "ambiguous", "pair_path", "pair_exists", "pair_winner", "pair_winner_kind", "pair_winner_mod", "pair_differs",
+        "error",
     };
 
     /// <summary>Write the artifact for one resolution. Returns the spill to render, or a named error the caller
@@ -40,7 +41,9 @@ internal static class AssetArtifact
             "One row per resolved path. 'winner' is the copy the game actually uses; 'winner_kind' is loose or BSA, "
             + "and for a BSA the winner NAMES the archive while 'winner_mod' names the mod folder shipping it.",
             "A 'formid' row was derived from that NPC: the pair's other half is in 'pair_path' with its own winner "
-            + "beside it, and 'pair_differs' is true when both halves resolve and come from different sources.",
+            + "beside it, and 'pair_differs' is true when both halves resolve and come from different MODS — compared "
+            + "by 'winner_mod' / 'pair_winner_mod', because vanilla ships every head in Skyrim - Meshes0.bsa and "
+            + "every tint in Skyrim - Textures0.bsa, which is two provider names for one product and not a split.",
             // The §2.1 coverage statement, spelled rather than implied: the fingerprint describes a different
             // substrate from the rows, and an artifact re-read months later carries no conversation to say so.
             "'epoch' fingerprints the RECORD build this call answered from and nothing else — the VFS layer these "
@@ -99,7 +102,7 @@ internal static class AssetArtifact
             w.WriteNull("exists"); w.WriteNull("winner"); w.WriteNull("winner_kind"); w.WriteNull("winner_mod");
             w.WriteNull("provider_count"); w.WriteNull("providers"); w.WriteNull("ambiguous");
             w.WriteNull("pair_path"); w.WriteNull("pair_exists"); w.WriteNull("pair_winner");
-            w.WriteNull("pair_winner_kind"); w.WriteNull("pair_differs");
+            w.WriteNull("pair_winner_kind"); w.WriteNull("pair_winner_mod"); w.WriteNull("pair_differs");
             w.WriteString("error", r.Error);
             w.WriteEndObject();
             return;
@@ -128,9 +131,17 @@ internal static class AssetArtifact
             w.WriteBoolean("pair_exists", pair.Exists);
             Str(w, "pair_winner", pair.Winner?.Source);
             Str(w, "pair_winner_kind", Kind(pair.Winner));
+            Str(w, "pair_winner_mod", pair.Winner?.OwningMod);
+            // Compared by OWNING MOD, which is why both mod columns are here: two archive names of one product are
+            // not a split, and a consumer re-deriving this from the winner names alone would get the vanilla answer
+            // wrong 2,344 times on the measured order.
             w.WriteBoolean("pair_differs", r.PairDiffers);
         }
-        else { w.WriteNull("pair_exists"); w.WriteNull("pair_winner"); w.WriteNull("pair_winner_kind"); w.WriteNull("pair_differs"); }
+        else
+        {
+            w.WriteNull("pair_exists"); w.WriteNull("pair_winner"); w.WriteNull("pair_winner_kind");
+            w.WriteNull("pair_winner_mod"); w.WriteNull("pair_differs");
+        }
         w.WriteEndObject();
     }
 
