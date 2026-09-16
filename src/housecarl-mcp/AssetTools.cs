@@ -31,7 +31,7 @@ public static class AssetTools
          "list-valued one takes '@<absolute path>' in place of the inline list. An archive that cannot be read, or a " +
          "missing Skyrim.ini base-archive list, is reported LOUD — so an 'absent' answer is never silently " +
          "trusted. format='json' returns the same data machine-readably, with the same " +
-         "accounting in-band. TRANSPORT — format= | limit= | offset= | max_chars= | to_file=. BOUND: 1,200,000 paths " +
+         "accounting in-band. TRANSPORT — format= | limit= | offset= | max_chars= | counts_only= | to_file=. BOUND: 1,200,000 paths " +
          "RESOLVED a call — the window where limit= takes one, except under to_file=, which always resolves the " +
          "whole selection — and past it the call refuses up front with the count and the estimate. Read-only: " +
          "resolves nothing to disk, writes nothing, changes no load order.")]
@@ -86,6 +86,12 @@ public static class AssetTools
                      "via asset_paths=[\"@<path>\"]; its identity column is 'path', so it is NOT a formids= list for " +
                      "housecarl_records.")]
             string? to_file = null,
+        [Description("TRANSPORT: return the census and no path rows — what the file layer looks like in aggregate " +
+                     "over the paths this call resolved: which mods win how many, how the winners split between " +
+                     "loose and BSA, and how many are absent. The question a whole-order sweep usually has of its " +
+                     "rows. The census covers what the call RESOLVED, so a limit= window is counted as a window and " +
+                     "the response says so. Refused beside to_file=, which writes the rows the census replaces.")]
+            bool counts_only = false,
         [Description("TRANSPORT: 'text' (default) | 'json' (the same data, machine-readable, accounting in-band).")]
             string? format = null,
         [Description("TRANSPORT: character CEILING on the whole response, not just on the per-path list — the path whose block would cross it is not written at all. What the ceiling holds back is NOT lost: the RESOLVED result is written whole to an artifact in the server's results directory and the response names that file — under limit= the resolved result IS the window, and the marker says so. Spilling also FINGERPRINTS the order, so on a path-only sweep, which otherwise reads no record at all, the first spill builds the record index (seconds on a big order). The alarms and the accounting line are charged before the paths render, so both are inside the ceiling. A cap too small for what the response carries whatever the budget says so and names the cap that clears it in one step. 0 = the server default (~80k).")]
@@ -119,6 +125,9 @@ public static class AssetTools
             // directory. Unvalidated, a relative path writes under the SERVER's working directory and the response
             // names an artifact the caller cannot find.
             if (Artifacts.ValidateToFile(toFile!) is { } verr) return Wire.Refuse(json, verr);
+            // The same pair the records lanes refuse, in the same words: one returns the census with no rows, the
+            // other writes the rows.
+            if (counts_only) return Wire.Refuse(json, Artifacts.CountsOnlyWithToFile);
             if (offset > 0)
                 return Wire.Refuse(json, "error: to_file= captures the COMPLETE result (the artifact is never a " +
                                          "window), so offset= has nothing to page — drop offset=.");
@@ -188,6 +197,9 @@ public static class AssetTools
         // The declared-cost refusal: the selection was counted and is past the bound, so nothing was resolved.
         if (data.BoundRefusal is { } tooBig) return Wire.Refuse(json, tooBig);
 
+        if (counts_only)
+            return json ? JsonWire.RenderAssetCensus(data, cap) : AssetCensus.Render(data, cap);
+
         KeyValuePair<string, string>[] Echo()
         {
             var e = new List<KeyValuePair<string, string>>
@@ -243,6 +255,13 @@ public static class AssetTools
 /// with an explicit cut notice.</summary>
 static class AssetWire
 {
+    /// <summary>The one header line both renders open with: the profile, and how many paths the SELECTION named.</summary>
+    internal static string Header(AssetStatusData d) =>
+        new StringBuilder("asset status — profile '")
+            .Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)")
+            .Append("'  (").Append(d.Selected).Append(" path").Append(d.Selected == 1 ? "" : "s")
+            .Append(" selected)").ToString();
+
     public static string Render(AssetStatusData d, int cap) => Render(d, cap, null, out _);
 
     /// <summary><paramref name="spill"/> is this call's artifact disposition, written after the accounting and
@@ -250,10 +269,7 @@ static class AssetWire
     /// max_chars cut paths out of the window — what the caller auto-spills on.</summary>
     public static string Render(AssetStatusData d, int cap, SpillState? spill, out bool truncated)
     {
-        var header = new StringBuilder("asset status — profile '")
-            .Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)")
-            .Append("'  (").Append(d.Selected).Append(" path").Append(d.Selected == 1 ? "" : "s")
-            .Append(" selected)").ToString();
+        var header = Header(d);
 
         var spillText = Wire.SpillText(spill);
         var body = BatchRender.Render(
@@ -403,4 +419,78 @@ static class AssetWire
     /// source selector accepts.</summary>
     static string Provider(HousecarlCore.AssetProvider p)
         => HousecarlCore.AssetSourceSelection.Describe(p.Source, Kind(p.Kind));
+}
+
+/// <summary><c>asset_status</c>'s <c>counts_only=</c> census (SPEC §2.1): what the file layer looks like in
+/// AGGREGATE over the paths this call resolved — which mods win how many, how the winners split between loose and
+/// BSA, and how many are absent. A whole-order FaceGen sweep is over a hundred thousand rows, and the question a
+/// caller usually has of it is this histogram rather than the rows.
+///
+/// <para>The census counts what the call RESOLVED, which under a <c>limit=</c> is that window: <c>counted</c> is
+/// stated beside <c>selected</c> so a windowed census is never read as the whole selection's.</para></summary>
+static class AssetCensus
+{
+    /// <summary>The census over one resolution. <see cref="ByMod"/> is the winning mods, count descending then name
+    /// ascending — the MO2 layer a caller would sort or disable, which is the same value the artifact's
+    /// <c>winner_mod</c> column carries and the pair verdict is taken on.</summary>
+    internal readonly record struct Counts(int Selected, int Counted, int Present, int Absent, int Errors,
+                                           int Loose, int Bsa, IReadOnlyList<KeyValuePair<string, int>> ByMod);
+
+    internal static Counts Tally(AssetStatusData d)
+    {
+        int present = 0, absent = 0, errors = 0, loose = 0, bsa = 0;
+        var byMod = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var r in d.Results)
+        {
+            if (r.Error is not null) { errors++; continue; }
+            if (r.Hit is not { Exists: true, Winner: { } win }) { absent++; continue; }
+            present++;
+            if (win.Kind == HousecarlCore.AssetKind.Bsa) bsa++; else loose++;
+            var owner = AssetPathResult.Owner(win);
+            byMod[owner] = byMod.GetValueOrDefault(owner) + 1;
+        }
+        var rows = byMod.OrderByDescending(m => m.Value).ThenBy(m => m.Key, StringComparer.Ordinal).ToList();
+        return new Counts(d.Selected, d.Results.Count, present, absent, errors, loose, bsa, rows);
+    }
+
+    /// <summary>The text census: the alarms an ABSENT count depends on, the counters, then the mod table. The table
+    /// is bounded by max_chars with the same named cut the path list takes — the counters above it are exact
+    /// whatever the cut, so a cut table never makes a total wrong.</summary>
+    public static string Render(AssetStatusData d, int cap)
+    {
+        var c = Tally(d);
+        var sb = new StringBuilder(AssetWire.Header(d)).Append('\n');
+        // The alarms first, for the reason the path render puts them first: an ABSENT count is authoritative only
+        // where an archive read failed nowhere, and a long table must not be able to cut that away.
+        var room = RenderCap.For(cap, 0);
+        BatchRender.AppendReadFailures(sb, d.BsaFailures, "an asset", room);
+        BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, room);
+        if (d.SelectorNotes is { Count: > 0 } notes)
+        {
+            sb.Append("\n[!] under (").Append(notes.Count).Append("):\n");
+            BatchRender.AppendLines(sb, notes, "selector(s)", room);
+        }
+
+        sb.Append("\ncensus: counted=").Append(c.Counted).Append(" present=").Append(c.Present)
+          .Append(" absent=").Append(c.Absent).Append(" errors=").Append(c.Errors).Append('\n');
+        // Said only where the two differ, and said as the window it is: a census of a limit= window read as the
+        // selection's would be a wrong answer about the order.
+        if (c.Counted < c.Selected)
+            sb.Append("this census counted the ").Append(c.Counted).Append(" path(s) this call RESOLVED, not the ")
+              .Append(c.Selected).Append(" the selection names — limit=/offset= windowed it. Drop them to count the whole selection.\n");
+        sb.Append("winners: loose=").Append(c.Loose).Append(" BSA=").Append(c.Bsa).Append('\n');
+        sb.Append("winning mods (").Append(c.ByMod.Count).Append("):\n");
+
+        // The cut marker's own room is charged before the first mod row, so cutting the table cannot push the
+        // marker past the ceiling.
+        var table = room.Less(BatchRender.CutReserve("mod(s)", cap));
+        int shown = 0;
+        for (; shown < c.ByMod.Count; shown++)
+        {
+            var row = "  " + c.ByMod[shown].Value.ToString().PadLeft(6) + "  " + c.ByMod[shown].Key + "\n";
+            if (!table.TryAppend(sb, row)) break;
+        }
+        if (shown < c.ByMod.Count) BatchRender.AppendCut(sb, c.ByMod.Count - shown, "mod(s)", cap);
+        return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
+    }
 }

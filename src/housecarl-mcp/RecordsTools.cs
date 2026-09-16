@@ -473,7 +473,7 @@ public static class RecordsTools
             if (Artifacts.ValidateToFile(toFile!) is { } verr) return Wire.Refuse(json, verr);
             if (offset > 0) return Wire.Refuse(json, "error: to_file= captures the COMPLETE result (the artifact is never a window), so offset= has nothing to page — drop offset=.");
             if (form == "aggregate") return Wire.Refuse(json, "error: to_file= writes row artifacts, and the aggregate form is a count table with no record rows — drop one of the two.");
-            if (counts_only) return Wire.Refuse(json, "error: counts_only= returns the census with no rows, and to_file= writes the rows — the two contradict; drop one (review: this pair used to return the census and silently write nothing).");
+            if (counts_only) return Wire.Refuse(json, Artifacts.CountsOnlyWithToFile);
         }
         if (where_source is not null && where is not { Length: > 0 })
             return Wire.Refuse(json, "error: where_source= retargets the where= predicates and needs where= — add predicates, or drop where_source=.");
