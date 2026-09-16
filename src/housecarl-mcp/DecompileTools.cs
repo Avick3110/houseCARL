@@ -8,16 +8,19 @@ namespace HousecarlMcp;
 
 /// <summary>Reconstructs Papyrus source (.psc) from a compiled .pex over Mutagen's PexFile model via
 /// <see cref="HousecarlCore.PapyrusDecompiler"/>; no external tool is needed. The .psc lands in a houseCARL patch-mod
-/// folder under the SE-canonical Source\Scripts layout, so decompile, edit and recompile compose. A function the
-/// engine cannot prove is emitted as a loud failure comment with its raw bytecode; an existing target is refused,
-/// never overwritten.</summary>
+/// folder under the SE-canonical Source\Scripts layout, so decompile, edit and recompile compose — or, with
+/// <c>out_path=</c>, straight into a folder the caller names, for a look at a declaration no mod folder is wanted for.
+/// A function the engine cannot prove is emitted as a loud failure comment with its raw bytecode; an existing target
+/// is refused, never overwritten.</summary>
 [McpServerToolType]
 public static class DecompileTools
 {
     [McpServerTool(Name = ToolNames.DecompileScript, Title = "Decompile a compiled Papyrus script (.pex → .psc)"),
      Description(
          "Decompile a compiled Papyrus script (.pex) back to source (.psc), landing the .psc in a NEW houseCARL " +
-         "patch-mod folder you review (originals untouched; an existing .psc is never overwritten). Pass pex= the full " +
+         "patch-mod folder you review — or pass out_path= an absolute folder to land it there instead, for a read-only " +
+         "look at a declaration you don't want a mod folder for (originals untouched; an existing .psc is never " +
+         "overwritten). Pass pex= the full " +
          "path to the .pex — for a script inside a BSA, extract it first with " + ToolNames.BsaExtract + " and pass the " +
          "extracted path. Names, types, properties, states, events and docstrings survive; control flow is " +
          "reconstructed and proven (98.80% of provable scripts recompile to identical bytecode). KNOWN LOSSES every " +
@@ -29,7 +32,7 @@ public static class DecompileTools
          "came from the CK compiler. Any " +
          "function the engine cannot prove is emitted as a LOUD failure comment with its raw bytecode (the .psc then " +
          "won't compile as-is) — never silently wrong source. Needs houseCARL pointed at your MO2 instance for the " +
-         "output folder; no compiler or external tool required.")]
+         "output folder and for the class hierarchy it reads (out_path= included); no compiler or external tool required.")]
     public static string DecompileScript(
         LoadOrderService svc,
         [Description("Full path to the .pex compiled script to decompile. For a script inside a BSA, run " + ToolNames.BsaExtract + " first and pass the extracted path.")]
@@ -37,10 +40,19 @@ public static class DecompileTools
         [Description("Optional. Base name for the NEW patch-mod folder the .psc lands in (default 'houseCARL_Scripts'); auto-suffixed if taken.")]
             string? patch = null,
         [Description("Optional. Filename of an existing houseCARL patch mod to add the .psc into instead of creating a fresh folder (accumulate sources; pairs with " + ToolNames.CompileScript + "'s into=). Found by the plugin's filename even if you've renamed its MO2 mod folder; for two patches sharing a filename, pass the mod-folder name here instead (folder & plugin names need not match).")]
-            string? into = null) => Guard.Tool(ToolNames.DecompileScript, () =>
+            string? into = null,
+        [Description("Optional. Land the .psc in a folder of YOUR choosing instead of a houseCARL patch folder — an ABSOLUTE path, created if it doesn't exist. The .psc is written straight into it (nothing appended: a .psc is source a compiler reads, not a file the game loads), so the folder is yours and houseCARL never deletes it. Cannot be combined with patch= or into=.")]
+            string? out_path = null) => Guard.Tool(ToolNames.DecompileScript, () =>
     {
-        // 1) MO2 must be configured — the .psc lands under the instance's mods folder.
+        // 1) MO2 must be configured — for the output folder, and for the class hierarchy the decompile reads.
         if (svc.ConfigPromptOrNull() is { } cfgPrompt) return cfgPrompt;
+
+        // out_path= and patch=/into= name different destinations, so a call carrying both is refused rather than
+        // resolved by precedence: which folder the .psc landed in is the one fact the caller needs next.
+        bool chosenOutput = !string.IsNullOrWhiteSpace(out_path);
+        if (chosenOutput && (!string.IsNullOrWhiteSpace(patch) || !string.IsNullOrWhiteSpace(into)))
+            return "error: out_path= writes the .psc straight into the folder you name and patch=/into= put it in a " +
+                   "houseCARL patch-mod folder, so pass one or the other, not both.";
 
         // 2) validate the pex path.
         if (string.IsNullOrWhiteSpace(pex))
@@ -63,10 +75,16 @@ public static class DecompileTools
         if (pexFile.Objects.Count == 0)
             return $"error: '{Path.GetFileName(pex)}' contains no script objects — no output was written.";
 
-        // 4) output folder (folder-per-patch, Source\Scripts subdir) — resolved before the hierarchy build so a
-        //    folder-resolution error costs nothing and the instance paths are derived before the cached walk.
+        // 4) output folder: out_path= a folder the caller owns, else folder-per-patch with the Source\Scripts subdir.
+        //    Resolved before the hierarchy build so a folder-resolution error costs nothing and the instance paths
+        //    are derived before the cached walk.
         LoadOrderService.RiderFolder rf;
-        try { rf = svc.ResolveDecompiledSourceFolder(patch, into); }
+        try
+        {
+            rf = chosenOutput
+                ? LoadOrderService.ResolveExplicitSourceFolder(out_path!)
+                : svc.ResolveDecompiledSourceFolder(patch, into);
+        }
         catch (InvalidOperationException ex) { return "error: " + ex.Message; }
 
         // 5) class hierarchy: cached vanilla baseline + mods-tree sources, topped up with the input pex itself
@@ -95,7 +113,9 @@ public static class DecompileTools
                    (o.Written.Count > 0 ? $"Already written this call: {string.Join(", ", o.Written)}." : "Nothing was written."));
         if (o.ExistingTarget is not null)
             return Refuse($"error: '{o.ExistingTarget}' already exists — houseCARL never overwrites a source file. " +
-                   "Move/delete it, or pass a different patch= (or into= another patch folder). " +
+                   (chosenOutput
+                       ? "Move/delete it, or pass a different out_path=. "
+                       : "Move/delete it, or pass a different patch= (or into= another patch folder). ") +
                    (o.Written.Count > 0 ? $"Already written this call: {string.Join(", ", o.Written)}." : "Nothing was written."));
 
         // 7) render: totals, failures, and every degraded mode named.
@@ -114,7 +134,11 @@ public static class DecompileTools
         if (hierarchyNote is not null)
             outSb.Append("\nnote: ").Append(hierarchyNote).Append(" (cosmetic: some implicit casts may render explicitly; the source stays correct).");
         outSb.Append("\nknown format losses (every decompiler): parameter defaults are baked at call sites; comments/layout are gone (docstrings survive).");
-        outSb.Append("\nthe .psc is in a houseCARL patch-mod folder — review it, edit it, and recompile with " + ToolNames.CompileScript + " (into= the same patch).");
+        // The destination line must match where the .psc actually went: an out_path= folder is the caller's, with no
+        // patch to recompile back into.
+        outSb.Append(chosenOutput
+            ? "\nthe .psc is in the folder you named with out_path= (path above) — review it, edit it, and recompile with " + ToolNames.CompileScript + "."
+            : "\nthe .psc is in a houseCARL patch-mod folder — review it, edit it, and recompile with " + ToolNames.CompileScript + " (into= the same patch).");
         return outSb.ToString();
     });
 

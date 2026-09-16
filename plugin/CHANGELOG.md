@@ -13,6 +13,15 @@ saying it sets an expectation their install may contradict. Say what is known, a
 
 ## Unreleased
 
+- **`housecarl_decompile_script` now takes `out_path=`, a folder of your own to land the `.psc` in instead of a new
+  mod folder.** Pass an absolute path and the `.psc` is written straight into it — nothing appended, the folder
+  created when it is missing, and never deleted by houseCARL, since it is yours. The same parameter, with the same
+  meaning, as `housecarl_bsa_extract`'s and `housecarl_compile_script`'s. A relative path is refused naming what to
+  pass instead, because the server would resolve it against its own working directory rather than yours; so is a
+  call that also carries `patch=` or `into=`, which name the other destination. Without `out_path=` nothing changes:
+  the `.psc` lands in a houseCARL patch-mod folder under `Source\Scripts` as before. To check, decompile with
+  `out_path=` a scratch folder and look there for the `.psc` the result names — your mods directory gains no folder.
+
 ## 2.0.2 — 2026-09-15
 
 houseCARL 2.0.2 fixes three answers 2.0.1 got wrong and closes two costs measured after it shipped. `housecarl_create` now reports every field from the file it wrote, superseding 2.0.1's interim entry; the entry says which claim it withdraws. An auto-spill no longer fails when another process holds the file it is about to write; the entry says what changed and what a `to_file=` write keeps. `format="json"` carries non-ASCII text as itself and `max_chars` counts characters on every json render; the entry names the one range that still escapes. A `tree` or `delta` reads its bodies a plugin at a time, and a bulk `create` under many parents reads per plugin rather than per parent; each entry carries its bound and its measurements. The entries below are in the order they landed.

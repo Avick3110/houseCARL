@@ -239,6 +239,35 @@ public sealed partial class LoadOrderService
         return f with { OutputDir = src };
     }
 
+    /// <summary>The <c>out_path=</c> lane for a decompiled .psc: the caller names a folder and the .psc lands
+    /// straight in it. Nothing is appended — a .psc is source a compiler reads, never a file the game loads — so
+    /// this is the <c>bsa_extract</c> shape rather than <see cref="ResolveExplicitScriptFolder"/>'s, and there is no
+    /// deployability question to answer. The folder is the caller's, so the returned
+    /// <see cref="RiderFolder"/> carries CreatedFresh=false and residue cleanup never deletes it. Refuses a path
+    /// that is not absolute, and one naming an existing file; creates the folder when it is missing. Reads no
+    /// instance state — the .psc lands entirely outside the MO2 instance — so it takes no lock and needs no
+    /// configured instance.</summary>
+    public static RiderFolder ResolveExplicitSourceFolder(string outPath)
+    {
+        var given = (outPath ?? "").Trim().Trim('"');
+        // Fully-qualified, not merely rooted: 'C:sources' and '\sources' are rooted yet resolve against the
+        // server's own current directory, which is the confusion this refusal exists to stop.
+        if (!Path.IsPathFullyQualified(given))
+            throw new InvalidOperationException(
+                $"out_path '{outPath}' is not an absolute path — pass the full path to the folder the .psc should " +
+                "land in (e.g. 'C:\\work\\sources'), because the server resolves anything else against its OWN " +
+                "working directory, not yours.");
+        string root;
+        try { root = Path.GetFullPath(given); }
+        catch (Exception ex) { throw new InvalidOperationException($"out_path '{outPath}' is not a usable path ({ex.Message})."); }
+        if (File.Exists(root))
+            throw new InvalidOperationException($"out_path '{root}' is a file, not a folder. Give the folder the .psc should land in.");
+        try { Directory.CreateDirectory(root); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { throw new InvalidOperationException($"out_path: couldn't create the output folder '{root}' ({ex.Message}). Check the path and that it's writable."); }
+        return new RiderFolder(root, root, CreatedFresh: false, FolderStem(root));   // caller-owned: cleanup never touches it
+    }
+
     /// <summary>A non-.esp rider that failed after creating a fresh houseCARL mod folder cleans up after itself, the
     /// same "a refusal leaves no orphan folder" principle the .esp lane follows. If the fresh folder is genuinely
     /// empty — holding nothing but our own meta.ini marker anywhere in its tree — it is deleted, so "no output
