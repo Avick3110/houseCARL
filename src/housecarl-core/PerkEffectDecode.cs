@@ -56,19 +56,22 @@ public static class PerkEffectDecode
     /// so no caller can report the links without the gap.</summary>
     public sealed record LenientRead(IReadOnlyList<FormKey> Links, IReadOnlyList<int> RefusedEffects, string Note);
 
-    /// <summary>How EPFD is laid out for a parameter type: how many bytes, and how to read them. The set is the one
-    /// Mutagen's own writer emits (0 no parameter, 1 float, 2 two dwords, 3/4/5 a FormID, 6 a string, 7 a localized
-    /// string). Null for any other value — an EPFT houseCARL has no layout for is not guessed at.</summary>
+    /// <summary>How EPFD is laid out for a parameter type: how many bytes, and how to read them. WHICH values exist
+    /// is Mutagen's own <see cref="APerkEntryPointEffect.ParameterType"/> enum, so a byte outside it decodes to
+    /// nothing rather than being guessed at; only the BYTE LAYOUT per member is ours, and that is the delta this
+    /// class exists for.</summary>
     enum ParameterShape { None, Float, TwoDwords, FormId, Text, LocalizedText }
 
-    static ParameterShape? Shape(byte epft) => epft switch
+    static ParameterShape? Shape(byte epft) => (APerkEntryPointEffect.ParameterType)epft switch
     {
-        0 => ParameterShape.None,
-        1 => ParameterShape.Float,
-        2 => ParameterShape.TwoDwords,
-        3 or 4 or 5 => ParameterShape.FormId,
-        6 => ParameterShape.Text,
-        7 => ParameterShape.LocalizedText,
+        APerkEntryPointEffect.ParameterType.None => ParameterShape.None,
+        APerkEntryPointEffect.ParameterType.Float => ParameterShape.Float,
+        APerkEntryPointEffect.ParameterType.FloatFloat => ParameterShape.TwoDwords,
+        APerkEntryPointEffect.ParameterType.LeveledItem
+            or APerkEntryPointEffect.ParameterType.SpellWithStrings
+            or APerkEntryPointEffect.ParameterType.Spell => ParameterShape.FormId,
+        APerkEntryPointEffect.ParameterType.String => ParameterShape.Text,
+        APerkEntryPointEffect.ParameterType.LString => ParameterShape.LocalizedText,
         _ => null,
     };
 
@@ -224,10 +227,19 @@ public static class PerkEffectDecode
         return ReadEngine.UnreadablePrefix + mutagenReason
              + $" — Mutagen refused this effect, so it is read off its own bytes: its entry point is {EntryPointName(e.EntryPoint)}"
              + $", its function byte is {e.Function?.ToString(CultureInfo.InvariantCulture) ?? "?"} (which function that names is the very thing in dispute, so it is left a number)"
-             + $", its parameter type EPFT is {epft}, and its parameter value, decoded off EPFT alone as xEdit does, is {e.Value ?? "(none)"}"
+             + $", its parameter type EPFT is {ParameterTypeName(epft)}, and its parameter value, decoded off EPFT alone as xEdit does, is {e.Value ?? "(none)"}"
              + $". Its {e.ConditionCount} condition(s) "
              + (e.ConditionGap is null ? "were read by Mutagen's own condition parser" : e.ConditionGap)
              + ". That value is the one xEdit shows for this effect; the typed field is not available, so read the effect here rather than through its modeled sub-fields)";
+    }
+
+    /// <summary>The parameter type's NAME for the marker row — Mutagen's own word for the byte, the same one its
+    /// refusal prints, so the row does not put a number beside a name for one field and leave the reader to join
+    /// them. Only a byte Mutagen's enum does not name stays a bare number.</summary>
+    static string ParameterTypeName(byte epft)
+    {
+        var name = Enum.GetName(typeof(APerkEntryPointEffect.ParameterType), (APerkEntryPointEffect.ParameterType)epft);
+        return name is null ? epft.ToString(CultureInfo.InvariantCulture) : $"{epft} ({name})";
     }
 
     /// <summary>The entry point's NAME for the marker row. Mutagen models the entry point as one enum, so naming it

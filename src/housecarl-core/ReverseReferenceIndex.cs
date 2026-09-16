@@ -185,8 +185,11 @@ public sealed class ReverseReferenceIndex
                       : " — the answer is short by whatever they reference.");
             if (UnscannableRecords > 0)
                 sb.Append($" {UnscannableRecords} record(s) Mutagen could not parse were excluded from the walk.");
+            // Says WHICH records it counts: a reverse walk prints its own lenient line right after this one, over a
+            // different universe (the winner records that one walk judged), and two identically worded counts would
+            // read as one correcting the other.
             if (LenientRecords > 0)
-                sb.Append($" {LenientRecords} record(s) were read leniently — part of their content is encoded in a way Mutagen refuses, so their edges are the ones houseCARL could still decode.");
+                sb.Append($" Of the plugin copies walked at build time, {LenientRecords} record(s) were read leniently — part of their content is encoded in a way Mutagen refuses, so their edges are the ones houseCARL could still decode.");
             return sb.ToString();
         }
     }

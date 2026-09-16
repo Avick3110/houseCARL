@@ -2999,10 +2999,6 @@ public sealed partial class LoadOrderService
         return null;
     }
 
-    /// <summary>The negated references= test: true when this body links to ANY excluded target, so the scan drops
-    /// it. A record that carries no links at all references nothing and is kept — that is the whole point of the
-    /// term, and a DELETED record (no live body to read links from) is the strongest case of it, so it is kept
-    /// rather than skipped the way the positive term skips it.</summary>
     /// <summary>The one sentence a scan owes for records it filtered only after reading around content Mutagen
     /// refused. They are answers, not skips, so it is said apart from the unscannable sentence — and the gap is
     /// named, because what the lenient read could not reach cannot prove a non-match.</summary>

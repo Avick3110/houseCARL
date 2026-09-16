@@ -315,6 +315,9 @@ public sealed class PerkEffectEncodingTests : IClassFixture<PerkEncodingFixture>
             project: new RecordsTools.RecordsProject { form = "summary" });
 
         Assert.False(r.StartsWith("error:", StringComparison.Ordinal), r);
+        // The walk's own lenient line names the record too, so the SELECTION COUNT is what proves it was reached:
+        // the seed plus the one referrer.
+        Assert.Contains("selection = 2 record(s)", r);
         Assert.Contains(_w.InconsistentPerkFid, r);
         Assert.DoesNotContain("whose winning plugin could not be read", r);
     }
