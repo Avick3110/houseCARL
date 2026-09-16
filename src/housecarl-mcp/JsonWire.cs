@@ -3100,6 +3100,29 @@ static class JsonWire
         return Finish(ms);
     }
 
+    /// <summary>The <c>to_file=</c> twin of <see cref="RenderAssetStatus"/>: the build-level caveats an ABSENT row in
+    /// the FILE depends on, and the spilled marker. No rows, because the rows ARE the file. The caveats are the only
+    /// budgeted content, so the cap they write against is the whole cap.</summary>
+    public static string RenderAssetStatusManifestOnly(AssetStatusData d, SpillInfo spill, int maxChars)
+    {
+        int cap = Cap(maxChars);
+        using var ms = new CharCountedStream();
+        using (var w = new Utf8JsonWriter(ms, Opts))
+        {
+            w.WriteStartObject();
+            w.WriteString("profile", d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)");
+            w.WriteBoolean("read_incomplete", d.ReadIncomplete);
+            int omitted = WriteCappedStringArray(w, ms, "bsa_failures", d.BsaFailures, cap)
+                        + WriteCappedStringArray(w, ms, "warnings", d.Warnings, cap);
+            if (d.SelectorNotes is null) { w.WriteNull("selector_notes"); w.WriteNumber("selector_notes_omitted", 0); }
+            else omitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, cap);
+            w.WriteBoolean("truncated", omitted > 0);
+            Artifacts.WriteSpillJson(w, spill);
+            w.WriteEndObject();
+        }
+        return Finish(ms);
+    }
+
     /// <summary>The three conditional sentences the text accounting composes, on the same three conditions: the next
     /// page (measured off what was RENDERED, so a consumer paging by these lands on the first path it has not seen),
     /// an offset past the end, and the max_chars cut. Siblings of the <c>accounting</c> object rather than members of
@@ -3151,6 +3174,9 @@ static class JsonWire
     {
         w.WriteStartObject();
         w.WriteString("path", r.RelPath);
+        // Only on a row the formids= SELECT derived, so a plain path row is byte-for-byte the document it always was.
+        if (r.FormId is not null) w.WriteString("formid", r.FormId);
+        if (r.Slot is { } slot) w.WriteString("slot", FaceGenPath.Token(slot));
         if (r.Error is not null)                                  // a rejected path: drive-rooted, or escaping with '..'
         {
             // A per-ROW error, never the document's discriminant: the call succeeded and rendered a row that failed.
@@ -3176,6 +3202,22 @@ static class JsonWire
             // one OR of them would leave the consumer re-deriving which applies from the top-level pair.
             w.WriteBoolean("absent_may_be_incomplete_read_failure", readIncomplete);
             w.WriteBoolean("absent_may_be_incomplete_undiscovered_archives", discoveryIncomplete);
+        }
+        // The other half of the FaceGen pair, resolved beside this one: the dark-face question is whether the two
+        // halves come from the same source, which neither row can answer alone. Absent on a plain path row.
+        if (r.PairPath is not null)
+        {
+            w.WriteStartObject("pair");
+            w.WriteString("path", r.PairPath);
+            if (r.Slot is { } s) w.WriteString("slot", FaceGenPath.Token(FaceGenPath.Other(s)));
+            if (r.PairHit is { } pair)
+            {
+                w.WriteBoolean("exists", pair.Exists);
+                if (pair.Winner is { } pw) WriteAssetProvider(w, "winner", pw); else w.WriteNull("winner");
+            }
+            else { w.WriteNull("exists"); w.WriteNull("winner"); }
+            w.WriteBoolean("differs", r.PairDiffers);
+            w.WriteEndObject();
         }
         w.WriteEndObject();
     }

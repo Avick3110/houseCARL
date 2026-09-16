@@ -72,9 +72,9 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         var one = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { AssetSelectWorld.FaceGeomDir + @"\0004.*" });
         Assert.Equal("0004.nif", Leaf(Assert.Single(one.Results).RelPath));
 
-        // '**' crosses separators, so one selector reaches every facegen mesh from the actors root.
+        // '**' crosses separators, so one selector reaches every facegen mesh from the actors root — both masters'.
         var deep = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { @"meshes\actors\**\*.nif" });
-        Assert.Equal(AssetSelectWorld.FaceGeomFiles, deep.Selected);
+        Assert.Equal(AssetSelectWorld.AllFaceGeomNifs, deep.Selected);
 
         // '*' does NOT cross a separator, so the same shape one level up matches nothing.
         var shallow = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { @"meshes\actors\*.nif" });
@@ -308,7 +308,7 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         var plain = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { "meshes" });
         var dotted = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { "./meshes" });
 
-        Assert.Equal(AssetSelectWorld.FaceGeomFiles, plain.Selected);
+        Assert.Equal(AssetSelectWorld.AllFaceGeomNifs, plain.Selected);
         Assert.Equal(Paths(plain), Paths(dotted));
         // The BSA-only file is in both, not just the loose lane's answer.
         Assert.Contains(Paths(dotted), p => Leaf(p) == "0005.nif");

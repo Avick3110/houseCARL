@@ -63,6 +63,18 @@ internal static class RenderBudget
     /// <summary>THE BOUND for <c>form='identity'</c>: ten minutes at <see cref="MillisPerIdentityRow"/>.</summary>
     internal const int DefaultMaxIdentityRows = 40_000;
 
+    /// <summary>The declared cost of resolving ONE asset path through the VFS. Two parts, and the second is what
+    /// costs: a lookup in every active archive's table (about a thousand of them on the measured order), plus, the
+    /// first time a path in that DIRECTORY is asked for, a loose warm that stats the directory in every mod folder.
+    /// A sweep spread over many defining-master folders pays that warm again per folder, which is why the per-path
+    /// figure is milliseconds and not microseconds. Measured on the ARR order; see the PR for the run.</summary>
+    internal const double MillisPerAssetPath = 3.0;
+
+    /// <summary>THE BOUND for one <c>asset_status</c> call: ten minutes at <see cref="MillisPerAssetPath"/>. A
+    /// whole-order FaceGen pairing sweep is a few thousand paths and sits far inside it; an unanchored
+    /// <c>under=["meshes/**"]</c> is millions and announces itself instead of running for an hour.</summary>
+    internal const int DefaultMaxAssetPaths = 200_000;
+
     /// <summary>The bounds in force. Settable so a test can drive the seam over a world of a few records instead of
     /// building 300,000 — the same reason <see cref="Artifacts.WriteCrossQuery"/> takes a row cap. Production never
     /// assigns them.</summary>
@@ -76,6 +88,9 @@ internal static class RenderBudget
 
     /// <inheritdoc cref="MaxRenderRows"/>
     internal static int MaxComparisonRows { get; set; } = DefaultMaxComparisonRows;
+
+    /// <inheritdoc cref="MaxRenderRows"/>
+    internal static int MaxAssetPaths { get; set; } = DefaultMaxAssetPaths;
 
     /// <summary>The chars a text render holds back from <c>max_chars</c> for the accounting line it appends after
     /// its rows. Held back for the same reason the owned-child clause is: a line the response is going to state is
@@ -251,6 +266,25 @@ internal static class RenderBudget
     /// <inheritdoc cref="ComparisonScanLever"/>
     internal const string ComparisonWalkLever =
         "narrow the seeds you passed, or lower walk.depth or walk.max_nodes, until the set the walk reaches fits — the rows are what the walk reached, so limit= windows the render and not the walk.";
+
+    /// <summary>The refusal for an <c>asset_status</c> call whose selection is over <see cref="MaxAssetPaths"/>, or
+    /// null when it fits. Its own tier, because the row is not a record read at all: it is a VFS resolution, and what
+    /// it costs is archive tables and loose directory warms rather than a record body.
+    /// <paramref name="wholeSelection"/> is the <c>to_file=</c> disposition, whose artifact covers every selected
+    /// path — so limit= is not its lever and the sentence does not offer it.</summary>
+    internal static string? RefuseAssetPaths(int paths, bool wholeSelection)
+    {
+        if (paths <= MaxAssetPaths) return null;
+        return $"error: this call resolves {paths:N0} asset path(s) through the VFS, each one a lookup in every " +
+               $"active archive plus a loose-directory warm across every mod folder — {ProjectedAt(paths, MillisPerAssetPath)}, " +
+               $"past the {MaxAssetPaths:N0}-path bound one call is given (a client stops waiting at 30 minutes). " +
+               (wholeSelection
+                   ? "to_file= writes the COMPLETE selection, so limit= does not lower what it resolves: narrow the " +
+                     "selection itself — a tighter under= selector (anchor it at the folder you mean, not at " +
+                     "'meshes/**'), or fewer asset_paths=/formids= entries — and write it in one call."
+                   : "Narrow the selection with a tighter under= selector, pass fewer asset_paths=/formids= entries, " +
+                     "or take it in windows with limit= and offset=.");
+    }
 
     /// <summary>The refusal for an <c>form='identity'</c> render over its own bound, or null when it fits. Its own
     /// tier and its own lead, because its row is neither a named-field read nor a whole record: it is one untyped

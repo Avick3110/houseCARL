@@ -1,5 +1,7 @@
+using HousecarlCore;
 using HousecarlGenerator;
 using HousecarlMcp;
+using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcpTests;
 
@@ -17,6 +19,10 @@ namespace HousecarlMcpTests;
 ///   <c>HcArch.esp</c>, carrying <c>0005.nif</c> — reachable only through the archive lane.</item>
 /// <item><c>Face Extras (SE)</c> — a mod whose NAME carries a parenthetical, providing one file outside every sweep
 ///   target above, so a rendered provider token can be read for where the name ends (#340).</item>
+/// <item>Three canonically-named FaceGen PAIRS under a second master (<see cref="PairMaster"/>), which is what the
+///   <c>formids=</c> SELECT derives: <see cref="SplitFormId"/> (head from FaceHigher and from the BSA, tint from
+///   FaceBase — the two halves win from different mods), <see cref="MatchedFormId"/> (both halves FaceBase) and
+///   <see cref="TintAbsentFormId"/> (a winning head whose tint has no provider at all).</item>
 /// </list>
 ///
 /// <para>No .esp is written to disk: asset resolution is decoupled from the record index, so the profile naming a
@@ -39,6 +45,34 @@ public sealed class AssetSelectWorld : IDisposable
     /// <summary>Distinct files the facegeom folder holds across every provider: three from FaceBase, one more from
     /// FaceHigher, one from the BSA (FaceHigher's 0002 is a contender, not a sixth file).</summary>
     public const int FaceGeomFiles = 5;
+
+    /// <summary>A SECOND defining master, holding the canonically-named FaceGen pairs the <c>formids=</c> SELECT
+    /// derives. Its own master so the pairs sit outside <see cref="FaceGeomDir"/> and leave every count the
+    /// directory-sweep tests assert exactly as it was.</summary>
+    public const string PairMaster = "HcPair.esm";
+
+    /// <summary>An NPC whose two halves win from DIFFERENT mods — the dark-face split. Its head is also in the BSA,
+    /// so the head is loose-over-BSA as well.</summary>
+    public const string SplitFormId = "0B0B0B:" + PairMaster;
+
+    /// <summary>An NPC whose two halves win from the same mod — the clean pair.</summary>
+    public const string MatchedFormId = "0C0C0C:" + PairMaster;
+
+    /// <summary>An NPC whose head wins and whose tint has no provider anywhere — the "winning mesh names a tint that
+    /// exists nowhere" case the whole-order sweep counts.</summary>
+    public const string TintAbsentFormId = "0D0D0D:" + PairMaster;
+
+    /// <summary>The Data-relative FaceGen path for one of the FormIDs above, computed by the very transform the tool
+    /// uses — so the world and the tool cannot disagree about where a bake lives.</summary>
+    public static string Face(string formid, FaceGenSlot slot) => FaceGenPath.For(FormKey.Factory(formid), slot);
+
+    /// <summary>The three head meshes the pairs above add under <c>facegeom</c>, outside
+    /// <see cref="FaceGeomDir"/>.</summary>
+    public const int PairFaceGeomNifs = 3;
+
+    /// <summary>Every <c>.nif</c> under <c>meshes\actors</c> in this world — what a '**' sweep from the actors root
+    /// finds, as against <see cref="FaceGeomFiles"/> under one master's folder.</summary>
+    public const int AllFaceGeomNifs = FaceGeomFiles + PairFaceGeomNifs;
 
     /// <summary>A mod folder whose own name carries a parenthetical, which is legal on Windows and common in the
     /// wild ("SkyUI (SE)"). Its only file sits outside every sweep target above, so it changes no other count.</summary>
@@ -73,9 +107,23 @@ public sealed class AssetSelectWorld : IDisposable
         Loose(faceHigher, Rel("0004.nif"));
         Loose(parenMod, ParenPath);                            // a provider name that contains its own parenthetical
 
+        // The FaceGen pairs, keyed by FormID the way the game keys a bake. Split's head is in FaceHigher AND in the
+        // BSA (loose beats BSA) while its tint is in FaceBase, so the two halves win from different mods; Matched is
+        // a clean same-source pair; TintAbsent has a winning head and no tint anywhere.
+        Loose(faceHigher, Face(SplitFormId, FaceGenSlot.Mesh));
+        Loose(faceBase, Face(SplitFormId, FaceGenSlot.Tint));
+        Loose(faceBase, Face(MatchedFormId, FaceGenSlot.Mesh));
+        Loose(faceBase, Face(MatchedFormId, FaceGenSlot.Tint));
+        Loose(faceBase, Face(TintAbsentFormId, FaceGenSlot.Mesh));
+
+        var pairGeomDir = FaceGenPath.Root(FaceGenSlot.Mesh).TrimEnd('\\') + "\\" + PairMaster;
         File.WriteAllBytes(Path.Combine(archiveMod, "HcArch.bsa"),
             BsaBuilder.Build(105, BsaBuilder.HasFolderNames | BsaBuilder.HasFileNames,
-                new[] { (FaceGeomDir, new[] { ("0005.nif", BsaBuilder.Bytes("NIF-0005", 48)) }) }));
+                new[]
+                {
+                    (FaceGeomDir, new[] { ("0005.nif", BsaBuilder.Bytes("NIF-0005", 48)) }),
+                    (pairGeomDir, new[] { (Path.GetFileName(Face(SplitFormId, FaceGenSlot.Mesh)), BsaBuilder.Bytes("NIF-SPLIT", 48)) }),
+                }));
 
         File.WriteAllText(Path.Combine(profile, "loadorder.txt"), "# header\r\nHcArch.esp\r\n");
         File.WriteAllText(Path.Combine(profile, "plugins.txt"), "*HcArch.esp\r\n");

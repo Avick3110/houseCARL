@@ -232,8 +232,30 @@ public sealed record NamedProfileResult(
 /// <para><see cref="PrefixSuggestions"/> — on an ABSENT answer only, the root-prefixed forms of this path that
 /// a real active mod or BSA DOES provide (<see cref="AssetPathHint"/>), for the common case of a path taken straight
 /// off a record and therefore missing its <c>meshes\</c> / <c>textures\</c> root. Verified by re-resolution, so a
-/// suggestion always names a file that exists; empty when there is nothing honest to offer.</para></summary>
-public sealed record AssetPathResult(string RelPath, AssetHit? Hit, string? Error, IReadOnlyList<string>? PrefixSuggestions = null);
+/// suggestion always names a file that exists; empty when there is nothing honest to offer.</para>
+/// <para>The FaceGen members are set only on a row the <c>formids=</c> SELECT derived (see <see cref="FaceGenSeed"/>):
+/// <see cref="FormId"/> is the NPC the path was computed from, <see cref="Slot"/> which half of the pair this row is,
+/// and <see cref="PairPath"/> / <see cref="PairHit"/> the OTHER half resolved beside it — the dark-face question is
+/// whether the two halves win from the same source, which one row per path cannot answer alone.</para></summary>
+public sealed record AssetPathResult(string RelPath, AssetHit? Hit, string? Error,
+                                     IReadOnlyList<string>? PrefixSuggestions = null,
+                                     string? FormId = null, FaceGenSlot? Slot = null,
+                                     string? PairPath = null, AssetHit? PairHit = null)
+{
+    /// <summary>Both halves resolved to a provider and they are NOT the same source — the split the dark-face
+    /// diagnosis is looking for. False when either half is absent (that is a different class, and the row already
+    /// says so) and on any row with no pair.</summary>
+    public bool PairDiffers =>
+        Hit is { Exists: true, Winner: { } a } && PairHit is { Exists: true, Winner: { } b }
+        && !string.Equals(a.Source, b.Source, StringComparison.OrdinalIgnoreCase);
+}
+
+/// <summary>One entry of <c>asset_status</c>'s <c>formids=</c> SELECT: the caller's raw token, the FormKey it parsed
+/// to, and the sentence to report instead when it did not. A malformed token is ONE error row, never a failed call —
+/// the same posture a malformed asset path takes on this tool.
+/// <para>The FormKey is all the derivation needs: a FaceGen path is a pure transform of it
+/// (<see cref="FaceGenPath"/>), so this lane reads no record and pays no per-id winner seek.</para></summary>
+public sealed record FaceGenSeed(string Token, FormKey? Key, string? Error);
 
 /// <summary>The data behind housecarl_asset_status: one <see cref="AssetPathResult"/> per queried path, plus the
 /// build-level caveats — <see cref="BsaFailures"/> (archives that couldn't be read) and <see cref="ReadIncomplete"/>
@@ -244,7 +266,10 @@ public sealed record AssetPathResult(string RelPath, AssetHit? Hit, string? Erro
 /// (a selector that matched nothing, or was rejected), <see cref="Total"/> is how many paths the whole selection named
 /// before paging, <see cref="Offset"/> where the rendered window starts, and <see cref="Limit"/> the window size the
 /// caller asked for (0 = none), which the next-page advice repeats so a caller following it keeps paging. A negative
-/// <see cref="Total"/> means nothing paged — the results ARE the selection.</para></summary>
+/// <see cref="Total"/> means nothing paged — the results ARE the selection.</para>
+/// <para><see cref="BoundRefusal"/> is the declared-cost refusal (<see cref="RenderBudget.RefuseAssetPaths"/>): the
+/// selection was made, counted, and found past the per-call bound, so NOTHING was resolved and the sentence names
+/// the count, the estimate and the lever. Set means the other members carry no answer.</para></summary>
 public sealed record AssetStatusData(
     IReadOnlyList<AssetPathResult> Results,
     IReadOnlyList<string> BsaFailures,
@@ -254,7 +279,8 @@ public sealed record AssetStatusData(
     IReadOnlyList<string>? SelectorNotes = null,
     int Total = -1,
     int Offset = 0,
-    int Limit = 0)
+    int Limit = 0,
+    string? BoundRefusal = null)
 {
     /// <summary>How many paths the selection named — <see cref="Results"/>'s own count when nothing paged.</summary>
     public int Selected => Total < 0 ? Results.Count : Total;

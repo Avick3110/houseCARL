@@ -142,7 +142,7 @@ public sealed class AssetStatusJsonLaneTests : IClassFixture<AssetSelectWorld>
         var root = Parse(AssetTools.AssetStatus(_w.Svc, Array.Empty<string>(), format: "json"));
 
         Assert.False(root.GetProperty("ok").GetBoolean());
-        Assert.Contains("both empty", root.GetProperty("error").GetString());
+        Assert.Contains("all empty", root.GetProperty("error").GetString());
     }
 
     /// <summary>An unrecognized format is named rather than falling through to text on a typo.</summary>
