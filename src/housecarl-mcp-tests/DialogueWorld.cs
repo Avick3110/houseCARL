@@ -129,6 +129,17 @@ public sealed class DialogueWorld : IDisposable
     /// positions apart from a backward scan over contributors.</summary>
     public const string TailName = "HcDvTail.esp";
 
+    /// <summary>A file the index build cannot open, listed FIRST in the order on the arm that ships it — so the
+    /// build excludes it and the scannable plugin list stops sharing indices with the order.</summary>
+    public const string UnreadableName = "HcDvBroken.esp";
+
+    /// <summary>A topic <see cref="MidName"/> DEFINES, which its shadowed copy carries too — so folding that copy
+    /// is folding the definer, whose own list is the move baseline.</summary>
+    public FormKey MidOwnTopic { get; private set; }
+
+    /// <summary>Its two INFOs, in the defining plugin's own list order.</summary>
+    public IReadOnlyList<FormKey> MidOwnInfo { get; private set; } = Array.Empty<FormKey>();
+
     /// <summary>A topic <see cref="TailName"/> DEFINES, below the last master — so a folded master lands ahead of
     /// its defining plugin, which is where a projection must not become the move baseline.</summary>
     public FormKey TailTopic { get; private set; }
@@ -142,7 +153,11 @@ public sealed class DialogueWorld : IDisposable
 
     readonly ResultsDirScope _results;
 
-    public DialogueWorld()
+    /// <param name="unreadablePlugin">also ship a plugin the index build CANNOT open, listed in the order before
+    /// the rest. The build excludes it, so the scannable plugin list and the order's own index space stop agreeing
+    /// — the shape that catches a position named out of the wrong list. Its own instance, never the shared one:
+    /// every response in that world carries the excluded-plugin clause.</param>
+    public DialogueWorld(bool unreadablePlugin = false)
     {
         Root = Path.Combine(Path.GetTempPath(), "hc-dialogue-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(Root, "game", "Data"));
@@ -251,6 +266,17 @@ public sealed class DialogueWorld : IDisposable
             r.PreviousDialog.SetTo(info[i - 1]);
             midTopic.Responses.Add(r);
         }
+        // A topic MID itself defines, so a fold of that filename's other copy is a fold of the DEFINER.
+        var midOwn = mid.DialogTopics.AddNew(); midOwn.EditorID = "HcDvMidOwn";
+        MidOwnTopic = midOwn.FormKey;
+        var midOwnInfo = new FormKey[2];
+        for (int i = 0; i < 2; i++)
+        {
+            var r = new DialogResponses(mid.GetNextFormKey(), SkyrimRelease.SkyrimSE) { EditorID = $"HcDvMidOwnLine{i}" };
+            midOwnInfo[i] = r.FormKey;
+            midOwn.Responses.Add(r);
+        }
+        MidOwnInfo = midOwnInfo;
         mid.BeginWrite.ToPath(MidPath).WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
 
         // LAST (the winner): re-lists ONLY INFO 0, no PNAM — evicted from the top, appended to the bottom.
@@ -347,6 +373,12 @@ public sealed class DialogueWorld : IDisposable
         var shadowTopic = (IDialogTopic)WriteEngine.GenericGetOrAddAsOverride(midShadow, topic);
         shadowTopic.Responses.Clear();
         shadowTopic.Responses.Add(new DialogResponses(info[2], SkyrimRelease.SkyrimSE) { EditorID = "HcDvLine2" });
+        // …and its own copy of the topic MID DEFINES, with the same two lines: folding this copy folds the
+        // DEFINER's own list, which is the baseline the MOVED annotations are measured against.
+        var shadowOwn = new DialogTopic(MidOwnTopic, SkyrimRelease.SkyrimSE) { EditorID = "HcDvMidOwn" };
+        foreach (var k in midOwnInfo)
+            shadowOwn.Responses.Add(new DialogResponses(k, SkyrimRelease.SkyrimSE) { EditorID = "HcDvMidOwnLine" });
+        midShadow.DialogTopics.Add(shadowOwn);
         Directory.CreateDirectory(Path.Combine(mods, ShadowModFolder));
         midShadow.BeginWrite.ToPath(Path.Combine(mods, ShadowModFolder, MidName))
                  .WithLoadOrder(new ISkyrimModGetter[] { master }).Write();
@@ -356,19 +388,29 @@ public sealed class DialogueWorld : IDisposable
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
         var prof = Path.Combine(Instance, "profiles", "Default");
         Directory.CreateDirectory(prof);
+        // A file the build cannot open, FIRST in the order on that arm: it is excluded from the build, so the
+        // scannable plugin list is shorter than the order and their indices no longer line up.
+        if (unreadablePlugin)
+        {
+            Directory.CreateDirectory(Path.Combine(mods, "BrokenMod"));
+            File.WriteAllBytes(Path.Combine(mods, "BrokenMod", UnreadableName), new byte[] { 0x00, 0x01, 0x02, 0x03 });
+        }
+        var brokenLine = unreadablePlugin ? UnreadableName + "\r\n" : "";
+
         // The .esl sits ABOVE a regular plugin here, which is legal and is the shape that catches a placement
         // rule assuming the master block is a prefix of the order.
         File.WriteAllText(Path.Combine(prof, "loadorder.txt"),
-            "# header\r\n" + VanillaName + "\r\n" + MasterName + "\r\n" + MidName + "\r\n" + LastName + "\r\n"
+            "# header\r\n" + brokenLine + VanillaName + "\r\n" + MasterName + "\r\n" + MidName + "\r\n" + LastName + "\r\n"
             + CcName + "\r\n" + TailName + "\r\n");
         // Neither the base master nor the CC plugin is listed here — that absence is what makes them force-loaded.
         File.WriteAllText(Path.Combine(prof, "plugins.txt"),
-            "*" + MasterName + "\r\n*" + MidName + "\r\n*" + LastName + "\r\n*" + TailName + "\r\n");
+            (unreadablePlugin ? "*" + UnreadableName + "\r\n" : "")
+            + "*" + MasterName + "\r\n*" + MidName + "\r\n*" + LastName + "\r\n*" + TailName + "\r\n");
         // PatchMod, PatchEsmMod and the shadow folder are switched OFF: their files are on disk and out of the
         // order, which is what a fold names. MidMod sits above the shadow folder, so the copy the order loads —
         // and the copy a {file, mod} fold of the shadow is measured against — is MidMod's.
         File.WriteAllText(Path.Combine(prof, "modlist.txt"),
-            "# header\r\n-PatchMod\r\n-PatchEsmMod\r\n+TailMod\r\n+CcMod\r\n+LastMod\r\n+MidMod\r\n-" + ShadowModFolder
+            "# header\r\n" + (unreadablePlugin ? "+BrokenMod\r\n" : "") + "-PatchMod\r\n-PatchEsmMod\r\n+TailMod\r\n+CcMod\r\n+LastMod\r\n+MidMod\r\n-" + ShadowModFolder
             + "\r\n+MasterMod\r\n+VanillaStub\r\n");
 
         var store = new UserConfigStore(Path.Combine(Root, "user.json"));

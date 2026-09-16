@@ -925,6 +925,13 @@ public sealed class LoadOrderResolver : IDisposable
         /// against a plugin that is not touching the record.</summary>
         public int OrderIndexOf(string pluginName) => _r._nameToIdx.TryGetValue(pluginName, out int i) ? i : -1;
 
+        /// <summary>The plugin AT an order index — the inverse of <see cref="OrderIndexOf"/>, over the same index
+        /// space, so a caller that computed a position can name the plugin there. Null outside the order.
+        /// Deliberately not <see cref="ScannablePluginNames"/>, which omits the plugins this build excluded and so
+        /// carries different indices: naming a position out of that list puts a different plugin's name on it.</summary>
+        public string? PluginNameAt(int orderIndex)
+            => orderIndex >= 0 && orderIndex < _r._names.Length ? _r._names[orderIndex] : null;
+
         /// <summary>The trailing clause for a refusal naming a plugin <see cref="ContainsPlugin"/> just returned false
         /// for: WHY it isn't in the order (injected — typically "installed, but UNTICKED in plugins.txt"), else a
         /// did-you-mean. Always safe to append; returns "" when there is nothing to add. Every ContainsPlugin-false
