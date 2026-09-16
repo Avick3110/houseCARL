@@ -28,6 +28,8 @@ made the change.
 - **`check(findings=["dialogue"])` takes an off-order plugin on `source=`, folded in where MO2 would load it, so
   a dialogue patch validates before it is enabled.** Run the family over a seed in your unenabled patch with and
   without `source=`.
+- **`housecarl_decompile_script` refuses a `.pex` whose script object is not named like a plain script, instead of
+  writing the `.psc` outside the folder you asked for.** Decompile such a file and read the refusal.
 
 ## 2.0.2 — 2026-09-15
 
