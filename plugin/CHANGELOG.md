@@ -39,6 +39,18 @@ saying it sets an expectation their install may contradict. Say what is known, a
   is a bare-call statement exactly as before. Across 51,262 `.pex` files on a local Skyrim install this
   turned 22 failing functions in 19 scripts into zero, and left every other script's decompiled source
   byte-identical; the failures that remain are named in the PR.
+- **A PERK effect whose function byte and parameter-type flag disagree is read as one marked row instead of taking
+  the whole record.** An entry-point effect whose `DATA` names an actor-value function while its `EPFT` says `Float`
+  is a combination Mutagen refuses, and the refusal used to carry off the whole `Effects` field and the record with
+  it: the field read `(unreadable: …)`, and the record was skipped by every PERK `references=` / `where=` scan, so a
+  "which perks touch X" sweep returned a negative it had not actually proved. The effect list is now decoded off the
+  record's own bytes the way xEdit does — `EPFD`'s layout from `EPFT` alone, never from the function byte — and the
+  refused effect renders as its own row naming the entry point, the function byte, the `EPFT` value and the parameter
+  decoded from it, while its readable siblings read normally. A `references=` scan walks such a record field by field,
+  so its readable effects and its own conditions still match, and the response carries a "read leniently" note naming
+  the record. The decode runs only on a PERK, only on `Effects`, and only after Mutagen's own read has already thrown;
+  what it does not reach is the conditions inside the refused effect, which the marked row and the scan note both
+  state. Check it with a read of the perk at `project.form="fields"`, `fields=["Effects"]`, `depth=3`.
 
 ## 2.0.2 — 2026-09-15
 
