@@ -1,4 +1,4 @@
-﻿using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Skyrim;
 
@@ -179,7 +179,13 @@ public sealed class DialogueFold : IDisposable
 
     /// <summary>As <see cref="Read"/>, but the file STAYS OPEN and every record it carries is held, so a caller
     /// can resolve whole records against the fold. Disposable, and the bodies die with it. Throws what Mutagen
-    /// throws on a file it cannot parse.</summary>
+    /// throws on a file it cannot parse.
+    /// <para>EVERY record, deliberately, where <see cref="Read"/> walks the DIAL group alone: the validation this
+    /// serves resolves whatever a record points at — a line's Speaker, that NPC's voice type, a condition's form
+    /// parameter, a quest's globals — and a CTDA parameter can name any record type at all. A type filter here
+    /// would leave a record the folded file DEFINES reading as "not in the active load order", which is the
+    /// silently-wrong answer the fold exists to prevent. The cost is bounded by what the caller named: one
+    /// plugin, and the lane that opens it is a patch check.</para></summary>
     public static DialogueFold Open(string plugin, string where, string path, string? dataDir, string? label = null)
     {
         var fold = new DialogueFold(plugin, string.IsNullOrEmpty(label) ? plugin : label!, where) { Path = path };
@@ -187,6 +193,7 @@ public sealed class DialogueFold : IDisposable
         fold._openFile = ov as IDisposable;
         try
         {
+            fold.TakeKind(ov);
             fold._records = new Dictionary<FormKey, IMajorRecordGetter>();
             foreach (var r in ov.EnumerateMajorRecords())
             {
@@ -218,10 +225,17 @@ public sealed class DialogueFold : IDisposable
     /// <summary>Every DIAL topic the file carries, with its body — what a quest fan-out walks to find the topics
     /// the folded file owns. Empty on a <see cref="Read"/> fold, which holds no bodies.</summary>
     public IEnumerable<IDialogTopicGetter> TopicBodies
-        => _records is null
-            ? Array.Empty<IDialogTopicGetter>()
-            : _topics.Keys.Select(k => _records.TryGetValue(k, out var r) ? r as IDialogTopicGetter : null)
-                          .Where(t => t is not null)!;
+    {
+        get
+        {
+            // The dictionary is taken ONCE, here: the sequence is lazy, and a Dispose landing mid-enumeration
+            // would otherwise null the field the closure reads and throw instead of ending the sequence.
+            var records = _records;
+            if (records is null) return Array.Empty<IDialogTopicGetter>();
+            return _topics.Keys.Select(k => records.TryGetValue(k, out var r) ? r as IDialogTopicGetter : null)
+                               .Where(t => t is not null)!;
+        }
+    }
 
     public void Dispose()
     {

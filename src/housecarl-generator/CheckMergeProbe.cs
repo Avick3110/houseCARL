@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Pex;
 using Mutagen.Bethesda.Plugins;

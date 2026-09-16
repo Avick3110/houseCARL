@@ -648,9 +648,9 @@ internal static class ReadSentences
     /// of what the check would say once MO2 enables it. The asset half is named here because it does not move with
     /// the plugin: the VFS serves the mod folders MO2 has enabled, so a voice or script file shipped beside a
     /// folded plugin in a disabled folder reads ABSENT until that folder is on.</summary>
-    [MustState("folded in LAST", "NOT active", "enable it and re-run")]
+    [MustState("folded", "NOT active", "enable it and re-run")]
     internal const string DialogueFolded =
-        "folded: '{0}' is NOT active — {1} — and is folded in LAST, where MO2 puts a newly enabled plugin. Every " +
+        "folded: '{0}' is NOT active — {1} — and is {2}. Every " +
         "finding below was read against the active order's winners PLUS that file, so it is what the check WOULD " +
         "say once the file is enabled: enable it and re-run for the live answer. Its own .fuz/.pex/.seq files are " +
         "resolved through the VFS, which serves only the mod folders MO2 has enabled, so a file shipped beside it " +
