@@ -212,9 +212,11 @@ internal static class DialogueWire
         if (io.FoldedPlugin is not { } fp) return;
         sb.Append(pad).Append("  [folded] '").Append(fp).Append("' is NOT active and is ")
           .Append(io.FoldedPlacement ?? "folded in LAST, where MO2 puts a newly enabled regular plugin");
+        // "The only plugin listing lines here" is a claim about every contributor, so it holds only where every
+        // contributor was READ: with one unread it would say a topic is the fold's alone when a list is missing.
         sb.Append(!io.FoldContributed
             ? " — but it lists no line in this topic, so the order here is the live one.\n"
-            : io.Contested
+            : io.Contested || !io.Complete
                 ? " — the lines it places are marked below.\n"
                 : " — and it is the only plugin listing lines here, so the whole order shown is its own list.\n");
     }

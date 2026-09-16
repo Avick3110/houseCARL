@@ -678,6 +678,11 @@ public sealed partial class LoadOrderService
         /// an arm statement about a different build.</summary>
         public OrderStamp? Stamp { get; init; }
 
+        /// <summary>The FILENAME is in the order even though THIS COPY is not — a shadowed copy addressed by
+        /// {file, mod}. Carried from the probe so a caller can say the true thing about the name, and label the
+        /// copy apart, without capturing a second build to ask.</summary>
+        public bool NameActive { get; init; }
+
         /// <summary>That build's fingerprint, read through the stamp.</summary>
         public string? Epoch => Stamp?.Epoch;
     }
@@ -728,7 +733,7 @@ public sealed partial class LoadOrderService
             return (new PoleInfo(plugin, "active in the load order", InOrder: true, EpochCoversPole: true), null);
         var poleWhere = $"OUT-OF-LOAD-ORDER ({loc.Where}{(loc.WhyNotActive is { } why ? $"; NOT active — {why}" : "")})";
         return (new PoleInfo(plugin, poleWhere, InOrder: false, EpochCoversPole: false)
-                { Path = loc.Path, Layer = loc.WhereNamesLayer ? loc.Where : null }, null);
+                { Path = loc.Path, Layer = loc.WhereNamesLayer ? loc.Where : null, NameActive = activeFilename }, null);
     }
 
     /// <summary>The tool-layer probe: WHICH arm would this source= pole resolve to (active / off-order / neither)?
@@ -2312,11 +2317,12 @@ public sealed partial class LoadOrderService
         DialogueFold? fold = null;
         if (foldArm is not null)
         {
-            fold = OpenDialogueFold(foldArm, out var foldErr, FoldLabel(view, foldArm));
+            fold = OpenDialogueFold(foldArm, out var foldErr, FoldLabel(foldArm));
             if (foldErr is not null) { refusal = foldErr; return Array.Empty<InfoOrderRow>(); }
-            // The caller states the fold, and it must state the SAME label the rows carry and the SAME placement
-            // the merge used — two spellings of one fact is how an envelope stops matching its own rows.
-            foldFacts?.Fill(fold!, view.ContainsPlugin(foldArm.Plugin));
+            // Where the file would load, decided against THIS build before the merge reads it, so the caller's
+            // statement and the merge's own placement are one fact rather than two spellings of it.
+            fold!.PlaceIn(view);
+            foldFacts?.Fill(fold);
         }
         using var session = resolver.OpenSession();
 
@@ -2385,25 +2391,37 @@ public sealed partial class LoadOrderService
         public string Plugin { get; private set; } = "";
         public string Label { get; private set; } = "";
         public string Where { get; private set; } = "";
+
+        /// <summary>Where the fold was placed — known only once the file's header has been read, so it is filled
+        /// by the lane that opens it and is empty before that.</summary>
         public string Placement { get; private set; } = "";
 
         /// <summary>The folded file's FILENAME is also active, from another mod folder — so the response may not
         /// say the filename is absent from the order, only that THIS COPY is not the one it loads.</summary>
         public bool ShadowsActiveName { get; private set; }
 
-        internal void Fill(DialogueFold fold, bool shadowsActiveName)
+        /// <summary>What the PROBE already knows: the name, the label its rows will carry, where the copy is, and
+        /// whether the filename is active. Filled before anything is read, so a statement written before the merge
+        /// runs still names the same file the rows will.</summary>
+        internal void FromArm(PoleInfo arm)
         {
-            Plugin = fold.Plugin; Label = fold.Label; Where = fold.Where;
-            Placement = fold.Placement; ShadowsActiveName = shadowsActiveName;
+            Plugin = arm.Plugin; Label = FoldLabel(arm); Where = arm.Where; ShadowsActiveName = arm.NameActive;
+        }
+
+        /// <summary>…and what the opened file adds: where the projection put it.</summary>
+        internal void Fill(DialogueFold fold)
+        {
+            Plugin = fold.Plugin; Label = fold.Label; Where = fold.Where; Placement = fold.Placement;
         }
     }
 
     /// <summary>The name a fold's rows carry. The filename, unless an ACTIVE plugin already has that filename — a
     /// shadowed on-disk copy addressed by {file, mod} — because two contributors under one name leave the reader
     /// unable to tell the projected lines from the live ones. Short: it repeats on every row the fold places, and
-    /// the response's own statement names the mod folder the copy came from.</summary>
-    internal static string FoldLabel(LoadOrderResolver.IndexView view, PoleInfo arm)
-        => view.ContainsPlugin(arm.Plugin) ? $"{arm.Plugin} [off-order copy]" : arm.Plugin;
+    /// the response's own statement names the mod folder the copy came from. Read off the PROBE, so the label is
+    /// in hand before the file is opened.</summary>
+    internal static string FoldLabel(PoleInfo arm)
+        => arm.NameActive ? $"{arm.Plugin} [off-order copy]" : arm.Plugin;
 
     /// <summary>Read an already-probed OFF-ORDER pole's DIAL content once, for a dialogue lane to fold at the end
     /// of the order. Every failure is a named refusal — the roots that could not be derived, the file that would

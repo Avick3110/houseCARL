@@ -131,7 +131,7 @@ public static class RecordsTools
             string? where_source = null,
         [Description("SELECT: find records that REFERENCE these FormIDs (reverse, one step; OR over the list, each match names which target(s) it hit). Needs no bounding scope: unbounded it is answered off the reverse-reference index, which is built on the first such call, costs one whole-order link-walk, and reports that cost and its own per-plugin freshness key in the response. A bounded references= — with a types= or plugins= — is unchanged and still cheaper. A '!' before an entry NEGATES it: references=[\"!XXXXXX:A.esm\"] keeps only records that do NOT reference that target, and plain and negated entries in one call compose by AND; the sigil takes the @file spelling too — references=[\"!@C:/work/targets.jsonl\"] excludes every target the file names. A negated entry ALONE with no types=/plugins= scope is the ORPHAN sweep: the universe becomes every record nothing in the order references, and the named target then excludes any of those that link it — bound the call if you meant the narrower question. Accepts [\"@<path>\"] like formids=.")]
             string[]? references = null,
-        [Description("SOURCE decides whose version you read; this is the SUBJECT of the call. Omit or \"winner\" for the load-order winner (the default). A plugin filename (e.g. \"OldPatch.esp\") reads THAT plugin's version WHEREVER the plugin lives — active in your order, or sitting on disk unticked — you do not have to know which, and the response STATES which arm resolved (active, or out-of-load-order and from where); use {\"file\": \"X.esp\", \"mod\": \"<mod folder>\"} when two mods ship the same filename. A plugin found in neither place is refused naming both places searched. A record the named plugin does not touch is refused naming the plugins that DO touch it — never silently absent. {\"overlay\": \"skypatcher\", \"state\": \"pre\"|\"post\"} reads around the SkyPatcher INI layer (post = after it replays); add \"ini\": \"<absolute path to a draft .ini>\" (with \"subfolder\": the SkyPatcher type folder it would be placed in, or omit it when the draft's parent directory already IS that folder) to read the post state with a draft INI that is not yet in a mod folded into the layer, so a draft can be checked before it is placed. Content read from outside the load order — an off-order file, or the SkyPatcher INI layer — sits OUTSIDE the epoch fingerprint, and the response says so. On project.form='info_order' this parameter means something narrower: the merge IS the answer there, so the one value it takes is ONE OFF-ORDER plugin, FOLDED into the merge where MO2 would load it — the END of the order for a regular plugin, the end of the master block for a master (the response says which, and why) — (an active filename is refused — it is already in the merge), which is how a dialogue patch's merged order is read before MO2 enables it. \"previous_provider\" is a versus= value only — it is measured FROM the subject this parameter names.")]
+        [Description("SOURCE decides whose version you read; this is the SUBJECT of the call. Omit or \"winner\" for the load-order winner (the default). A plugin filename (e.g. \"OldPatch.esp\") reads THAT plugin's version WHEREVER the plugin lives — active in your order, or sitting on disk unticked — you do not have to know which, and the response STATES which arm resolved (active, or out-of-load-order and from where); use {\"file\": \"X.esp\", \"mod\": \"<mod folder>\"} when two mods ship the same filename. A plugin found in neither place is refused naming both places searched. A record the named plugin does not touch is refused naming the plugins that DO touch it — never silently absent. {\"overlay\": \"skypatcher\", \"state\": \"pre\"|\"post\"} reads around the SkyPatcher INI layer (post = after it replays); add \"ini\": \"<absolute path to a draft .ini>\" (with \"subfolder\": the SkyPatcher type folder it would be placed in, or omit it when the draft's parent directory already IS that folder) to read the post state with a draft INI that is not yet in a mod folded into the layer, so a draft can be checked before it is placed. Content read from outside the load order — an off-order file, or the SkyPatcher INI layer — sits OUTSIDE the epoch fingerprint, and the response says so. On project.form='info_order' this parameter means something narrower: the merge IS the answer there, so the one value it takes is ONE OFF-ORDER plugin, FOLDED into the merge where MO2 would load that file — the END of the order for a regular plugin, after the LAST MASTER for an ESM-flagged one or a .esm/.esl, and the plugin's OWN SLOT when the order already carries that FILENAME (a shadowed copy named by {\"file\", \"mod\"}: enabling its mod folder swaps the bytes at a position the order already has). The response names the placement, the neighbour it landed beside and the flag behind it. A filename whose ACTIVE copy is the one you named is refused — it is already in the merge. This is how a dialogue patch's merged order is read before MO2 enables it. \"previous_provider\" is a versus= value only — it is measured FROM the subject this parameter names.")]
             JsonElement? source = null,
         [Description("SOURCE (comparison forms): the REFERENCE pole a delta/tree compares against. Same forms as source= — \"winner\" | a plugin filename | {\"file\", \"mod\"} | {\"overlay\", \"state\"[, \"ini\", \"subfolder\"]} — plus \"previous_provider\": the plugin immediately below the SUBJECT (whatever source= names) in the record's touching stack, measured FROM THE SUBJECT, never from the winner. Its four cases are all declared: subject=winner → next plugin down; subject mid-stack → still the one below the SUBJECT, with what sits above reported as plain fact (a mid-stack patch is ordinary practice, not judged); subject defines the record → refused naming it (never an empty diff that reads as 'no changes'); subject doesn't touch it → refused naming the actual touchers. REQUIRED when project.form='delta'; defaults to \"winner\" on 'tree'; refused on other forms.")]
             JsonElement? versus = null,
@@ -285,13 +285,20 @@ public static class RecordsTools
              : read;
 
         // ---- SOURCE: the pole grammar (source = the subject; versus = the comparison reference) ----
-        // The info_order fold takes ONE file, so a list of them is refused by the fold's own rule rather than by
-        // the pole grammar's shape sentence: two files enabled together have an order between them that only MO2
-        // decides, and projecting one arbitrary guess as the answer is the silently wrong answer.
-        if (form == "info_order" && source is { ValueKind: JsonValueKind.Array } srcArr)
-            return Wire.Refuse(json, $"error: the info_order form folds ONE off-order file into the merge, where MO2 would load that file, and source= names {srcArr.GetArrayLength()} — two files have no order between them until MO2 sorts them, so there is no one merge to project. Fold one file per call.");
+        // The info_order fold takes ONE file. A list of ONE is that file — the set-valued spelling every other
+        // list parameter on this tool accepts — so it is unwrapped rather than refused; two or more have an order
+        // between them that only MO2 decides, and projecting one arbitrary guess is the silently wrong answer.
+        var sourceEl = source;
+        if (form == "info_order" && sourceEl is { ValueKind: JsonValueKind.Array } srcArr)
+        {
+            if (srcArr.GetArrayLength() == 1) sourceEl = srcArr[0].Clone();
+            else
+                return Wire.Refuse(json, srcArr.GetArrayLength() == 0
+                    ? "error: source= is an empty list — name the ONE off-order file to fold into the merge (e.g. source=\"MyPatch.esp\"), or drop source= for the live order."
+                    : $"error: the info_order form folds ONE off-order file into the merge, where MO2 would load that file, and source= names {srcArr.GetArrayLength()} — two files have no order between them until MO2 sorts them, so there is no one merge to project. Fold one file per call.");
+        }
         // ParsePole has no transport in scope, so its refusals take their shape here.
-        if (ParsePole(source, "source", subjectRole: true, out var srcSpec) is { } sperr) return Wire.Refuse(json, sperr);
+        if (ParsePole(sourceEl, "source", subjectRole: true, out var srcSpec) is { } sperr) return Wire.Refuse(json, sperr);
         srcSpec ??= LoadOrderService.PoleSpec.Winner;
         if (ParsePole(versus, "versus", subjectRole: false, out var versusSpec) is { } vperr) return Wire.Refuse(json, vperr);
 
@@ -486,15 +493,17 @@ public static class RecordsTools
             // The fold is not a "whose version" pole, so the lanes below must not read it as one.
             srcName = null; srcMod = null;
         }
-        // Filled by the batch that opens the file: the label its rows carry and where the merge placed it, so the
-        // statements below are the same facts the rows are, not a second spelling of them.
-        var ioFoldFacts = ioFold is null ? null : new LoadOrderService.FoldFacts();
-        // The probe decided OFF-ORDER against its own build, and the merge reads another: a plugin ticked in MO2
-        // between the two is in the order the merge saw AND folded in again, and every projection sentence above
-        // would be false. The same seam every other two-capture lane on this tool has.
+        // The probe already knows the name, the label the rows will carry and where the copy is; the batch that
+        // opens the file adds where it was placed. Filled here so a statement written before the merge runs names
+        // the same file the rows will — the scan lane's own note is one of those.
+        LoadOrderService.FoldFacts? ioFoldFacts = null;
+        if (ioFold is not null) { ioFoldFacts = new LoadOrderService.FoldFacts(); ioFoldFacts.FromArm(ioFold); }
+        // The probe decided OFF-ORDER against its own build, and the merge reads another: a copy whose mod folder
+        // is ticked in MO2 between the two is in the order the merge saw AND folded in again, and every projection
+        // sentence above would be false. The same seam every other two-capture lane on this tool has.
         string? FoldSeam(OrderStamp? mergeEpoch)
             => ioFold?.Epoch is { } probeEpoch && mergeEpoch is not null && mergeEpoch.Epoch != probeEpoch
-                ? $"error: the load order changed between resolving '{ioFold.Plugin}' as off-order (epoch={probeEpoch}) and reading the merge (epoch={mergeEpoch.Epoch}) — that file may now be IN the order, and the fold would describe a different world. Retry the call."
+                ? $"error: the load order changed between resolving '{ioFoldFacts!.Label}' as off-order (epoch={probeEpoch}) and reading the merge (epoch={mergeEpoch.Epoch}) — that copy may now be IN the order, and the fold would describe a different world. Retry the call."
                 : null;
         // The fold's own statement rides the artifact echo too: on every other form a `source` there means "the
         // rows were read from that plugin", which a projection is not.
@@ -1595,10 +1604,10 @@ public static class RecordsTools
                 // The scan selects out of the ACTIVE order's index, which the folded file is not in: it folds into
                 // the merge of each selected topic, and a topic only that file defines is reached by naming it in
                 // formids=. Said here rather than left to be discovered from a topic that is quietly absent.
-                if (ioFold is not null)
+                if (ioFoldFacts is not null)
                 {
-                    envelope.Add(new("fold_selection", $"the scan selected these topics from the ACTIVE order; a topic only '{ioFold.Plugin}' defines is not among them — name it in formids= to read its merge."));
-                    headerLine += $"\n(the scan selects from the ACTIVE order; a topic only '{ioFold.Plugin}' defines is reached by naming it in formids=)";
+                    envelope.Add(new("fold_selection", $"the scan selected these topics from the ACTIVE order; a topic only '{ioFoldFacts.Label}' defines is not among them — name it in formids= to read its merge."));
+                    headerLine += $"\n(the scan selects from the ACTIVE order; a topic only '{ioFoldFacts.Label}' defines is reached by naming it in formids=)";
                 }
                 var ioRows = svc.InfoOrderBatch(ioKeys, null, out var ioRefusal, out var ioEpoch, ioFold, ioFoldFacts);
                 if (ioRefusal is not null)

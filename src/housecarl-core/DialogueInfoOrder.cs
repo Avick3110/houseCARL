@@ -198,11 +198,16 @@ public static class DialogueInfoOrder
     /// (HEAD), never a throw. Targets that DO appear in the groups are served from those, so the fallback — whose
     /// implementation is typically an expensive per-record lookup — is reached only for a genuinely foreign target.
     /// Deterministic and pure — the same inputs always give the same order.</summary>
+    /// <param name="projectedPlugin">a group that is a PROJECTION rather than a plugin the order carries — an
+    /// off-order file folded in. It merges like any other contributor, but it never sets the move baseline: the
+    /// baseline is the DEFINING plugin's own list, and a folded master can sit ahead of the definer, which would
+    /// turn the definer's own lines into "added by a later plugin" and half the topic into MOVED.</param>
     public static InfoOrderView Compute(
         IReadOnlyList<(string Plugin, IReadOnlyList<InfoLine> Lines)> groups,
         Func<FormKey, (InfoLine Line, string Plugin)?> resolveInfo,
         IReadOnlyList<string>? unreadContributors = null,
-        bool originIsDefiningPlugin = true)
+        bool originIsDefiningPlugin = true,
+        string? projectedPlugin = null)
     {
         var state = new MergeState { Fallback = resolveInfo };
         var contributing = new List<string>();
@@ -221,10 +226,13 @@ public static class DialogueInfoOrder
             if (lines.Count == 0) continue;                       // an override carrying no child list places nothing
             contributing.Add(plugin);
 
-            originIdx ??= lines
-                .Select((l, i) => (l.Info, i))
-                .GroupBy(p => p.Info)                             // a malformed duplicate keeps its FIRST index
-                .ToDictionary(g => g.Key, g => g.First().i);
+            // The projection never sets the baseline — see projectedPlugin. Everything else about it merges
+            // exactly as a plugin at that position would.
+            if (!plugin.Equals(projectedPlugin, StringComparison.OrdinalIgnoreCase))
+                originIdx ??= lines
+                    .Select((l, i) => (l.Info, i))
+                    .GroupBy(p => p.Info)                         // a malformed duplicate keeps its FIRST index
+                    .ToDictionary(g => g.Key, g => g.First().i);
 
             foreach (var line in lines)
                 Place(state, line, plugin, depth: 0);

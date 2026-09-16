@@ -85,8 +85,9 @@ INFO's own `Flags` struct. The create path materialises that struct to all-zero,
 
 A patch that is written but not yet ticked in MO2 is not in the active order, so the merge cannot see it. Name it
 on `source=` and `info_order` folds it in where MO2 would load it — the **end** of the order for a regular plugin,
-the end of the **master block** for an ESM-flagged one or a `.esm`/`.esl`, which the response states along with the
-flag it read:
+after the **last master** for an ESM-flagged one or a `.esm`/`.esl`, and in the plugin's **own slot** when the order
+already carries that filename (a shadowed copy named by `{"file", "mod"}`). The response states which, the plugin it
+landed beside, and the flag it read:
 
 ```
 housecarl_records(formids=["02707A:Skyrim.esm"], project={"form":"info_order"},
