@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
@@ -174,6 +174,13 @@ public sealed class LoadOrderResolver : IDisposable
         /// index, so it is the only extra fact the runtime-FormID tables need.</summary>
         public readonly bool[] Light;
 
+        /// <summary>Per plugin index: does this plugin sit in the MASTER BLOCK of the load order — the run of
+        /// plugins MO2 and the game keep ahead of every regular one? Read off the same open overlay the light flag
+        /// is: the header's Master flag, or a .esm/.esl filename (the engine force-treats both as masters). The ESL
+        /// header flag alone does NOT put a plugin here: an esp-fe is light in the FormID space and a regular plugin
+        /// in the order, which is why this is a separate fact from <see cref="Light"/>.</summary>
+        public readonly bool[] MasterBlock;
+
         /// <summary>The FIRST active plugin whose kind could not be read, because the file could not be opened and
         /// its extension does not settle it (a .esl is light whatever the header says). Its kind decides every runtime
         /// slot from its own position onward, so a runtime FormID landing there or later cannot be answered — but one
@@ -192,10 +199,11 @@ public sealed class LoadOrderResolver : IDisposable
                              List<string> loadFailures, HashSet<int> excluded, HashSet<int> unopenable,
                              Dictionary<string, string> excludedPlugins, int maxDepth, string epoch,
                              bool[] light, int firstUnknownKind, string? firstUnknownKindName,
-                             ContainmentIndex containment)
+                             ContainmentIndex containment, bool[] masterBlock)
         {
             Index = index; Overriders = overriders; LoadFailures = loadFailures; Excluded = excluded; Unopenable = unopenable;
             ExcludedPlugins = excludedPlugins; MaxDepth = maxDepth; Epoch = epoch; Light = light; Containment = containment;
+            MasterBlock = masterBlock;
             FirstUnknownKind = firstUnknownKind; FirstUnknownKindName = firstUnknownKindName;
             Slots = new Lazy<RuntimeSlots>(() => RuntimeSlots.Build(light));
             // The fingerprint and the plugins this build lost, as the one value every response stamps (#353).
@@ -599,6 +607,7 @@ public sealed class LoadOrderResolver : IDisposable
         var unopenable = new HashSet<int>();                          // the could-not-be-OPENED subset
         var excludedPlugins = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var light = new bool[_paths.Length];
+        var masterBlock = new bool[_paths.Length];
         var containment = new ContainmentIndex();                     // child → parent, off the same walk
         int firstUnknownKind = -1;
         string? firstUnknownKindName = null;
@@ -615,6 +624,8 @@ public sealed class LoadOrderResolver : IDisposable
                 // The header is unreadable, so only the extension can settle whether the game loads this one into
                 // the light block. A .esl always does; anything else is unknown, and the runtime tables say so.
                 light[i] = ModKey.FromFileName(_names[i]).Type == ModType.Light;
+                // Same fallback for the block: with no header, only the filename settles it.
+                masterBlock[i] = ModKey.FromFileName(_names[i]).Type is ModType.Master or ModType.Light;
                 if (!light[i] && firstUnknownKind < 0) { firstUnknownKind = i; firstUnknownKindName = _names[i]; }
                 continue;
             }
@@ -622,6 +633,10 @@ public sealed class LoadOrderResolver : IDisposable
             // Both ways, like the merge report reads it: the engine force-treats the .esl extension as light
             // whatever the header bit says, and an esp-fe carries the bit without the extension.
             light[i] = ov.IsSmallMaster || ov.ModKey.Type == ModType.Light;
+            // The master BLOCK is a different question from the light FormID space: the header's Master flag or a
+            // .esm/.esl filename puts a plugin ahead of every regular one, while an esp-fe's ESL flag does not.
+            masterBlock[i] = ov.ModHeader.Flags.HasFlag(SkyrimModHeader.HeaderFlag.Master)
+                          || ov.ModKey.Type is ModType.Master or ModType.Light;
 
             // Buffer the WHOLE plugin's keys first (plugin-atomic). The walk constructs each record body as it
             // advances, so a record Mutagen rejects (e.g. a malformed PKCU data-count) throws HERE. The
@@ -675,7 +690,7 @@ public sealed class LoadOrderResolver : IDisposable
             index,
             overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
             failures, excluded, unopenable, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _stamps, excludedPlugins),
-            light, firstUnknownKind, firstUnknownKindName, containment);
+            light, firstUnknownKind, firstUnknownKindName, containment, masterBlock);
     }
 
     /// <summary>The epoch fingerprint: a compact, deterministic identity for ONE index build, derived from the
@@ -928,6 +943,13 @@ public sealed class LoadOrderResolver : IDisposable
         /// order.</summary>
         public bool IsLightFlagged(string pluginName)
             => _r._nameToIdx.TryGetValue(pluginName, out int i) && _s.Light[i];
+
+        /// <summary>Is this plugin in the MASTER BLOCK — the run of plugins the order keeps ahead of every regular
+        /// one (a header Master flag, or a .esm/.esl filename)? False for a plugin not in the order. A caller
+        /// projecting where a not-yet-enabled file would land reads this to find the end of that block; see
+        /// <see cref="IndexSnapshot.MasterBlock"/> for why it is not the light flag.</summary>
+        public bool IsMasterBlock(string pluginName)
+            => _r._nameToIdx.TryGetValue(pluginName, out int i) && _s.MasterBlock[i];
 
         /// <summary>Only the injected CAUSE (null when there is none) — see
         /// <see cref="LoadOrderResolver.ExplainAbsence"/>; pair with <see cref="NameSuggestion"/> to rebuild the full

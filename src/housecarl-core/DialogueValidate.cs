@@ -253,11 +253,19 @@ public static class DialogueValidate
             // if no unread plugin sits BEFORE that plugin in load order. Testing `touching[0] is unread` is too
             // weak: a first plugin that read but carries an empty child list contributes no baseline, so an
             // unread SECOND plugin still shifts it.
-            // The fold is appended LAST, which is where MO2 puts a freshly enabled plugin: it evicts and re-places
-            // the lines it lists, exactly as the plugin would once enabled. It never becomes the move baseline —
-            // it cannot be the first contributor unless nothing active touches the topic, and then it IS the
-            // definer's list, which is the right baseline.
-            if (fold?.Topic(tfk) is { } folded) groups.Add((fold.Label, folded.Lines));
+            // The fold goes where MO2 would put the file. A regular plugin lands at the END of the order, so it is
+            // appended and evicts whatever it re-lists. A file in the MASTER BLOCK — ESM-flagged, or a .esm/.esl —
+            // lands at the end of that block instead, ahead of every regular plugin, so it is inserted after the
+            // last master-block contributor and the regular plugins below it still evict what they re-list. It
+            // does not take the move baseline from the definer: a master can only touch a topic one of ITS masters
+            // defines, so the definer is already ahead of it, and where the fold IS the definer it is the baseline.
+            if (fold?.Topic(tfk) is { } folded)
+            {
+                int at = groups.Count;
+                if (fold.InMasterBlock)
+                    while (at > 0 && !view.IsMasterBlock(groups[at - 1].Item1)) at--;
+                groups.Insert(at, (fold.Label, folded.Lines));
+            }
 
             int firstWithLines = groups.FindIndex(g => g.Item2.Count > 0);
             string? baselinePlugin = firstWithLines >= 0 ? groups[firstWithLines].Item1 : null;
@@ -267,7 +275,7 @@ public static class DialogueValidate
                                 .Any(p => unread.Contains(p, StringComparer.OrdinalIgnoreCase)));
 
             built[tfk] = DialogueInfoOrder.Compute(groups, ResolveInfo, unread, baselineTrusted)
-                with { FoldedPlugin = fold?.Label };
+                with { FoldedPlugin = fold?.Label, FoldedPlacement = fold?.Placement };
         }
         return built;
     }
