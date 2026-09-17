@@ -142,9 +142,15 @@ public sealed partial class LoadOrderService : IDisposable
                             $"No active plugins resolved from the MO2 profile. ProfileDir='{_profileDir}', " +
                             $"ModsDir='{_modsDir}', DataDir='{_dataDir}'. {order.Warnings.Count} warning(s). Check " +
                             "HouseCarl config and that MO2 has written loadorder.txt/modlist.txt (a refresh/re-sort in MO2).");
+                    // This read is a refresh for the asset lane too. When the asset build was KEPT across a profile
+                    // change — held profile, or a mid-write read that resolved nothing — advancing the baseline here
+                    // would strand that build: the next asset call would see a matching baseline, drop the pending
+                    // flag, and serve the old answer with nothing said. Drop it so it rebuilds off this read.
+                    bool assetBuildIsBehind = _profileHeld is not null || _resolvedPaths.Count == 0;
                     _resolver = LoadOrderResolver.Build(paths, ExplainPluginAbsence);
                     _resolvedPaths = paths;
                     _profileStamps = profileStamps;
+                    if (assetBuildIsBehind) { InvalidateAssetResolver(); _profileHeld = null; }
                 }
                 else if (Monitor.TryEnter(_writeGate))
                 {
