@@ -3,9 +3,8 @@ using System.Text.Json;
 
 namespace HousecarlMcp;
 
-/// <summary>The TRANSPORT paging window (SPEC 2.1): <c>offset=</c> steps over rows before the window,
-/// <c>limit=</c> bounds it, and <c>Limit = 0</c> is no limit. <paramref name="Spent"/> is the third state
-/// those two cannot express: a limit that WAS asked for and is now used up.</summary>
+/// <summary>The TRANSPORT paging window (SPEC 2.1). <paramref name="Spent"/> is the third state
+/// <c>Offset</c> and <c>Limit</c> cannot express: a limit that WAS asked for and is now used up.</summary>
 internal readonly record struct RowWindow(int Offset, int Limit, bool Spent = false)
 {
     internal static readonly RowWindow All = new(0, 0);
@@ -19,9 +18,8 @@ internal readonly record struct RowWindow(int Offset, int Limit, bool Spent = fa
         return q.ToList();
     }
 
-    /// <summary>The window over a SECOND list that continues the first (SKSE inventory: DLLs then configs).
-    /// <paramref name="consumed"/> is how many rows the first list held, so the offset lands where it stopped and
-    /// a limit the first list exhausted carries over as spent rather than as no limit.</summary>
+    /// <summary>The window over a SECOND list that continues the first, so a limit the first list exhausted carries
+    /// over as spent rather than as no limit.</summary>
     internal RowWindow After(int consumed, int taken) =>
         new(Math.Max(Offset - consumed, 0),
             Limit <= 0 ? 0 : Math.Max(Limit - taken, 0),
@@ -34,8 +32,7 @@ internal readonly record struct RowWindow(int Offset, int Limit, bool Spent = fa
             : null;
 }
 
-/// <summary>How many DISTINCT rows a render put on the page — a set, not a counter, because a render whose
-/// sections overlap would otherwise report more rendered rows than the window held.</summary>
+/// <summary>How many DISTINCT rows a render put on the page — a set, so overlapping sections count once.</summary>
 internal sealed class RowTally
 {
     readonly HashSet<string> _seen = new(StringComparer.OrdinalIgnoreCase);
@@ -45,23 +42,20 @@ internal sealed class RowTally
     internal int Count => _seen.Count;
 }
 
-/// <summary>The numbers one in-band accounting block states, so the text line, the JSON twin and the
-/// widest-case line the reserve measures all go through ONE composer.</summary>
+/// <summary>The numbers one in-band accounting block states, so every spelling of it has ONE composer.</summary>
 internal readonly record struct TransportCounts(int Total, int Rendered, int Skipped, int Capped, int Truncated,
                                                 int Offset, int Remaining, int Notes, int NextLimit);
 
-/// <summary>The one in-band accounting block (SPEC 2.1: <c>total / rendered / capped / truncated / notes</c> is
-/// required output on every bulk lane), shared by every surface that pages a row list. The four omissions have
-/// four distinct causes, each counted once, so <c>skipped + rendered + truncated + capped == total</c>;
+/// <summary>The one in-band accounting block, shared by every surface that pages a row list. Its four omissions
+/// have four distinct causes, each counted once, so <c>skipped + rendered + truncated + capped == total</c>;
 /// <c>remaining</c> and the next page are measured off what was RENDERED, not off the window.</summary>
 internal static class TransportAccounting
 {
     /// <summary>The window the next-page advice names when the caller passed none, so a caller following it does
-    /// not call back with limit=0 and resolve the whole remainder on every page.</summary>
+    /// not call back with limit=0 and resolve the whole remainder.</summary>
     internal const int DefaultPageLimit = 200;
 
-    /// <summary>What this response actually did: <paramref name="windowed"/> is how many rows the window handed
-    /// the render, <paramref name="rendered"/> how many of those reached the page.</summary>
+    /// <summary>What this response actually did: rows the window handed the render, and rows that reached the page.</summary>
     internal static TransportCounts Tally(int total, int windowed, int rendered, RowWindow w, int notes) => new(
         Total: total,
         Rendered: rendered,
@@ -73,13 +67,11 @@ internal static class TransportAccounting
         Notes: notes,
         NextLimit: w.Limit > 0 ? w.Limit : DefaultPageLimit);
 
-    /// <summary>The chars held back from max_chars so the accounting block is always affordable, measured by
-    /// composing the WIDEST line this response could write.</summary>
+    /// <summary>The chars held back so the accounting block is affordable, measured off its WIDEST spelling.</summary>
     internal static int Reserve(int total, int windowed, RowWindow w, int notes, string rowNoun)
         => Compose(Widest(total, windowed, w, notes), rowNoun, everySentence: true).Length;
 
-    /// <summary>The widest line this response could produce: every count at its largest and, with
-    /// <c>everySentence</c>, every optional sentence present.</summary>
+    /// <summary>The widest line this response could produce: every count at its largest, every sentence present.</summary>
     internal static TransportCounts Widest(int total, int windowed, RowWindow w, int notes)
     {
         int most = Math.Max(total, windowed);
@@ -87,9 +79,8 @@ internal static class TransportAccounting
                                    Math.Max(w.Limit, DefaultPageLimit));
     }
 
-    /// <summary>The one machine-readable accounting line, closing the render body: how many rows the selection
-    /// named, how many rendered, how many the window stepped over or left behind, and how many max_chars cut.
-    /// <paramref name="rowNoun"/> names what the counts count, e.g. "path(s)" or "DLL(s)".</summary>
+    /// <summary>The one machine-readable accounting line, closing the render body. <paramref name="rowNoun"/> names
+    /// what the counts count, e.g. "path(s)" or "DLL(s)".</summary>
     internal static string Compose(TransportCounts c, string rowNoun, bool everySentence)
     {
         var sb = new StringBuilder("\n\n[accounting] total=").Append(c.Total)
@@ -121,8 +112,7 @@ internal static class TransportAccounting
         return sb.ToString();
     }
 
-    /// <summary>The JSON twin of <see cref="Compose"/>: the same eight numbers as named fields, spelled exactly as
-    /// the text line spells them.</summary>
+    /// <summary>The JSON twin of <see cref="Compose"/>, field names matching the text spelling exactly.</summary>
     internal static void WriteJson(Utf8JsonWriter w, TransportCounts c)
     {
         w.WriteStartObject("accounting");
