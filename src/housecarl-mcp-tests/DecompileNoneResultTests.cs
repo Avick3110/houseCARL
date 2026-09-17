@@ -949,6 +949,31 @@ public class DecompileNoneResultTests
         Assert.Contains("f.Q((a as int))", res.Source);
     }
 
+    [Fact]
+    public void TheShortCircuitDrainEmitsInTheOrderTheValuesWereProduced()
+    {
+        // The add is created after `Bar` and starts where `Poke` does, so the drain before the arm has to
+        // take it first — the same production-order rule the region-end drain follows.
+        var f = Fn(("HC_NoneTarget", "f"), ("Bool", "b"), ("Bool", "c"));
+        Local(f, "Int", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "Int", "::temp2");
+        Local(f, "Bool", "::temp3");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));        // 0
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));         // 1
+        Ins(f, InstructionOpcode.IADD, Id("::temp2"), Id("::temp0"), Int(1));                    // 2
+        Ins(f, InstructionOpcode.ASSIGN, Id("::temp3"), Id("b"));                                // 3
+        Ins(f, InstructionOpcode.JMPF, Id("::temp3"), Int(2));                                   // 4 -> 6
+        Ins(f, InstructionOpcode.ASSIGN, Id("::temp3"), Id("c"));                                // 5
+        Ins(f, InstructionOpcode.ASSIGN, Id("Flag"), Id("::temp3"));                             // 6
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("DrainOrder", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        AssertOrder(res.Source, "f.Poke() + 1", "f.Bar()");
+    }
+
     /// <summary>No emitted line carries <paramref name="stranded"/> after a `return` in the same block.</summary>
     static void AssertNoStatementAfterReturn(string source, string stranded)
     {
