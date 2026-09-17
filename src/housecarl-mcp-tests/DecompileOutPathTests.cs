@@ -145,6 +145,10 @@ public sealed class DecompileOutPathTests
         Directory.CreateDirectory(src);
         var pex = Path.Combine(src, "HcEscaping.pex");
         PexWriter.WritePex(pex, objectName, null);
+        // Where the write would land without the check: the drive root for the rooted name, the temp root
+        // for the dotted one. Asserting on it is what makes the rooted case pin its own escape — a folder
+        // scan under dir cannot see a file at C:\.
+        var escaped = Path.Combine(dest, objectName + ".psc");
         try
         {
             var r = DecompileTools.DecompileScript(W.Svc, pex, out_path: dest);
@@ -152,10 +156,15 @@ public sealed class DecompileOutPathTests
             Assert.StartsWith("error:", r);
             Assert.Contains(objectName, r);
             Assert.Contains(dest, r);
+            Assert.False(File.Exists(escaped), escaped);
             Assert.Empty(Directory.Exists(dest) ? Directory.GetFiles(dest, "*.psc") : []);
-            Assert.Empty(Directory.GetFiles(dir, "*.psc", SearchOption.AllDirectories));
         }
-        finally { try { Directory.Delete(dir, true); } catch { /* temp cleanup */ } }
+        finally
+        {
+            // The escape target first: it can sit outside dir, and deleting dir would not reach it.
+            try { File.Delete(escaped); } catch { /* temp cleanup */ }
+            try { Directory.Delete(dir, true); } catch { /* temp cleanup */ }
+        }
     }
 
     [Fact]
