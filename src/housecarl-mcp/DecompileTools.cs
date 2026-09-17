@@ -25,7 +25,8 @@ public static class DecompileTools
          "extracted path. Names, types, properties, states, events and docstrings survive; control flow is " +
          "reconstructed and proven (98.80% of provable scripts recompile to identical bytecode). KNOWN LOSSES every " +
          "decompiler shares, baked into the PEX format itself: parameter DEFAULTS don't exist in .pex (callers baked " +
-         "the literals, so defaulted parameters come back as plain parameters), and comments/blank-line layout are " +
+         "the literals), so a `= None` default comes back only where a call in the SAME script omitted that " +
+         "argument, and a parameter with no such call comes back plain, and comments/blank-line layout are " +
          "gone (docstrings survive). Scripts built by an OPTIMIZING compiler (Caprica) decompile to correct source " +
          "but won't re-produce byte-identical output under the CK compiler — the result says so when optimizer " +
          "patterns are detected, but detection is best-effort: a result WITHOUT the note does not prove the .pex " +
@@ -159,7 +160,7 @@ public static class DecompileTools
         if (o.OptimizerHints > 0)
             outSb.Append("\nnote: optimizer-compiled patterns detected (Caprica class) — source is correct; byte-identity vs the original .pex under the CK compiler is not expected.");
         outSb.Append(HierarchySentence(hierarchy));
-        outSb.Append("\nknown format losses (every decompiler): parameter defaults are baked at call sites; comments/layout are gone (docstrings survive).");
+        outSb.Append("\nknown format losses (every decompiler): a parameter default is not in the .pex, so it survives only where a call in the same script omitted the argument — a parameter with no such call comes back with its default missing; comments/layout are gone (docstrings survive).");
         // The destination line must match where the .psc actually went: an out_path= folder is the caller's, with no
         // patch to recompile back into.
         outSb.Append(chosenOutput
