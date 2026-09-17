@@ -2,19 +2,12 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// The facegen family's service entry: the load order, the VFS build and the MO2 composition, handed to
-/// <see cref="FaceGenCheck"/> as ONE build each.
-///
-/// <para>Its own file rather than another domain inside <c>LoadOrderService</c>. What lives here is only what the
-/// core sweep cannot know: which plugins a MOD FOLDER ships (the pole a stale-bake comparison runs against), and
-/// the plugins=/exclude= resolution the other swept families already share.</para>
-/// </summary>
+/// <summary>The facegen family's service entry: the load order, the VFS build and the MO2 composition, handed to
+/// <see cref="FaceGenCheck"/> as ONE build each. What lives here is what the core sweep cannot know — which plugins
+/// a MOD FOLDER ships, and the plugins=/exclude= resolution the other swept families share.</summary>
 public sealed partial class LoadOrderService
 {
-    /// <summary>Sweep the facegen join. <paramref name="plugins"/> takes the same active/off-order split the errors
-    /// and scripts families take, through the same memo, so one call's families cannot disagree about which names
-    /// resolved.</summary>
+    /// <summary>Sweep the facegen join. <paramref name="plugins"/> takes the same active/off-order split the errors and scripts families take, through the same memo.</summary>
     public FaceGenCheckResult CheckFaceGen(IReadOnlyList<string>? plugins, int limit,
                                            IReadOnlyList<string>? formids = null, string? editoridContains = null,
                                            IReadOnlyList<string>? types = null, IReadOnlyList<string>? findings = null,
@@ -54,8 +47,8 @@ public sealed partial class LoadOrderService
                     : FaceGenCheckResult.Fail(splitErr.Message);
         }
 
-        // Which plugins one provider ships, read lazily and memoized: only a provider that actually WINS a facegen
-        // half is ever asked, so a whole-order sweep pays for a handful of directory listings, not one per mod.
+        // Which plugins one provider ships, read lazily and memoized: only a provider that WINS a facegen half is
+        // ever asked, so a whole-order sweep pays for a handful of directory listings.
         var shipped = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         IReadOnlyList<string> PluginsIn(string provider)
         {
@@ -84,8 +77,7 @@ public sealed partial class LoadOrderService
                                 offOrder.Count > 0 ? offOrder : null, recordScope, classes, countsOnly, excluded);
     }
 
-    /// <summary>The facegen family's <c>findings=</c> class tokens. An unrecognized token is a named refusal listing
-    /// the whole vocabulary, never a silent widening to every class.</summary>
+    /// <summary>The facegen family's <c>findings=</c> class tokens. An unrecognized token is a named refusal listing the vocabulary, never a silent widening.</summary>
     static bool TryParseFaceGenClasses(IReadOnlyList<string>? names, out FaceGenFindingClass classes, out string? error)
     {
         classes = FaceGenFindingClass.All; error = null;

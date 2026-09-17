@@ -4,18 +4,14 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// The facegen family's own render, in both transports — its head, its rows, and the unit costs the demand pass
-/// measures with. Its own file for the reason every family's render is: what a family says about itself is that
-/// family's fact.
-/// </summary>
+/// <summary>The facegen family's own render, in both transports — its head, its rows, and the unit costs the demand
+/// pass measures with.</summary>
 internal static class FaceGenSweepRender
 {
     // ---- text ---------------------------------------------------------------------------------------
 
-    /// <summary>The family's head: what it swept, what it excluded, and what it found by class. Every number states
-    /// its own scope, and the two things this family does NOT claim — the benign class it counts but does not list,
-    /// and the clean pairs whose record test could not run — are stated here rather than left to silence.</summary>
+    /// <summary>The family's head: what it swept, what it excluded, and what it found by class. The two things this
+    /// family does not claim — the withheld benign class and the untestable clean pairs — are stated here.</summary>
     internal static void AppendHead(StringBuilder sb, FaceGenCheckResult r)
     {
         sb.Append("scanned ").Append(r.NpcsScanned).Append(r.NpcsScanned == 1 ? " NPC · " : " NPCs · ")
@@ -73,8 +69,7 @@ internal static class FaceGenSweepRender
         }
     }
 
-    /// <summary>One finding's whole row, composed before it is offered to the budget — measured before the write,
-    /// so a unit can never land the response over its cap.</summary>
+    /// <summary>One finding's whole row, composed before it is offered to the budget, so a unit can never land the response over its cap.</summary>
     internal static string ComposeRow(FaceGenFinding f)
     {
         var sb = new StringBuilder();
@@ -149,8 +144,7 @@ internal static class FaceGenSweepRender
         w.WriteNumber("findings_rendered", shown);
     }
 
-    /// <summary>One row, in the json lane — the same facts the text row carries, and the same shape the
-    /// <c>to_file=</c> artifact writes.</summary>
+    /// <summary>One row, in the json lane — the same facts the text row carries, and the shape the artifact writes.</summary>
     internal static void WriteRow(Utf8JsonWriter w, FaceGenFinding f)
     {
         w.WriteStartObject();
