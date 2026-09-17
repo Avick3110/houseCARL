@@ -510,9 +510,12 @@ public sealed class PapyrusDecompiler
         void SetPending(string name, Expr e, List<string> stmts, int startIdx, int lastCallIdx)
         {
             // Overwriting an unconsumed pending means the earlier value was discarded — a statement in
-            // the original source, which comes back as a bare expression statement.
+            // the original source, which comes back as a bare expression statement. It is emitted here, at
+            // its own position, so anything produced BEFORE it has to come out first: those are still
+            // pending only because nothing has consumed them yet, and they ran earlier.
             if (_pending.TryGetValue(name, out var old))
             {
+                FlushPending(stmts, _cur + 1, _pendingStart[name]);
                 if (EmitsAnInstruction(old)) stmts.Add(Render(old));
                 else throw new StructureException($"pending non-statement value on {name} overwritten ({old.GetType().Name})");
                 DropPending(name);

@@ -862,6 +862,26 @@ public class DecompileNoneResultTests
         Assert.Contains("::temp0", Assert.Single(res.Failures));
     }
 
+    [Fact]
+    public void ADiscardedCallProducedBeforeAnOverwriteComesOutBeforeIt()
+    {
+        // The overwrite emits the value it replaces at its own position, so a discarded call that ran before
+        // it — still pending only because nothing has consumed it — has to come out first.
+        var f = Fn(("HC_NoneTarget", "f"), ("Float", "a"), ("Float", "b"));
+        Local(f, "Float", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "Int", "kept");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CAST, Id("::temp1"), Id("a"));
+        Ins(f, InstructionOpcode.CAST, Id("::temp1"), Id("b"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("kept"), Id("::temp1"));
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("OverwriteAfterCall", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        AssertOrder(res.Source, "f.Bar()", "a as int");
+    }
+
     /// <summary>No emitted line carries <paramref name="stranded"/> after a `return` in the same block.</summary>
     static void AssertNoStatementAfterReturn(string source, string stranded)
     {
