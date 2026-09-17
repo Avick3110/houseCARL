@@ -143,10 +143,10 @@ public sealed class PapyrusDecompiler
         HarvestBakedDefaults(obj);
     }
 
-    /// <summary>Read every call this object makes to one of its own functions and note the trailing run of
-    /// arguments the compiler baked as a raw null — the run the call site re-omits. Name and parameter count
-    /// both have to match, and every parameter in the run has to be a type `None` is a legal value for, so a
-    /// same-named function on another script cannot put a default on a parameter that could not carry one.
+    /// <summary>Read every call this object makes to ITSELF and note the trailing run of arguments the
+    /// compiler baked as a raw null — the run the call site re-omits. Whose function it is comes off the
+    /// call's target: `self` for a CALLMETHOD, this object's own name for a CALLSTATIC. A call to another
+    /// script's same-named function carries that script's defaults, not this one's, and says nothing here.
     /// The longest run any call shows is the one declared: a shorter one still compiles against it.</summary>
     void HarvestBakedDefaults(PexObject obj)
     {
@@ -170,11 +170,21 @@ public sealed class PapyrusDecompiler
                     var a = ins.Arguments;
                     const int argcIdx = 3;
                     if (a.Count <= argcIdx) continue;
+                    // Whose function this call runs. A CALLMETHOD on anything but `self`, or a CALLSTATIC
+                    // naming another script, is that script's function and its defaults, not this one's.
+                    bool toSelf = ins.OpCode == InstructionOpcode.CALLMETHOD
+                        ? a[1].VariableType == VariableType.Identifier
+                          && string.Equals(a[1].StringValue, "self", StringComparison.OrdinalIgnoreCase)
+                        : string.Equals(a[0].StringValue, obj.Name, StringComparison.OrdinalIgnoreCase);
+                    if (!toSelf) continue;
                     if (a[nameIdx].VariableType is not (VariableType.Identifier or VariableType.String)) continue;
                     var callee = a[nameIdx].StringValue;
                     if (callee is null || !own.TryGetValue(callee, out var target)) continue;
                     if (a[argcIdx].VariableType != VariableType.Integer) continue;
                     int n = a[argcIdx].IntValue ?? 0;
+                    // The argument run only lines up with the parameter list when the counts match. A call to
+                    // itself always matches; a pex where it does not is malformed, and skipping it is what
+                    // keeps the walk below inside both lists.
                     if (n != target.Parameters.Count || a.Count != argcIdx + 1 + n) continue;
 
                     int keep = n;
@@ -187,7 +197,9 @@ public sealed class PapyrusDecompiler
                 }
     }
 
-    /// <summary>Is `None` a legal value for this declared type? The four scalars are the ones it is not.</summary>
+    /// <summary>Is `None` a legal value for this declared type? The four scalars are the ones it is not. The
+    /// CK compiler bakes a scalar default as its own literal and never as a raw null — measured — so this only
+    /// bites on a pex some other compiler wrote, where it keeps `int n = None` out of the source.</summary>
     static bool CanBeNone(string? type)
         => type is not null
            && !(type.Equals("int", StringComparison.OrdinalIgnoreCase)
