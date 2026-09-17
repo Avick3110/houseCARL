@@ -5,10 +5,8 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>Read-only asset resolution: which mod or BSA provides a Data-relative path, and which copy wins in game —
-/// loose files beat BSA-packed, and among BSAs the latest-loaded plugin's wins. Active BSAs are discovered from the
-/// same static MO2 profile read the load order uses (per-plugin "X.bsa" / "X - Textures.bsa" plus the Skyrim.ini base
-/// archives). No archive handles are held at rest; freshness is a last-write-plus-size check.</summary>
+/// <summary>Read-only asset resolution: which mod or BSA provides a Data-relative path, and which copy wins in
+/// game. Precedence, archive discovery and the zero-handles rule are in docs/architecture/assets.md.</summary>
 [McpServerToolType]
 public static class AssetTools
 {
@@ -104,8 +102,7 @@ public static class AssetTools
         if (ferr is not null) return ferr;
         if (svc.ConfigPromptOrNull() is { } prompt)
             return json ? JsonWire.RenderError(prompt, null) : prompt;
-        // The read/write surface's one refusal shape, through its one owner: Wire.Refuse strips the prefix for the
-        // json document, so this shorthand only saves the two call sites below from repeating the transport flag.
+        // The read/write surface's one refusal shape, through its one owner: Wire.Refuse owns the prefix the json document strips.
         string Refuse(string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
 
         if ((asset_paths is null || asset_paths.Length == 0) && (under is null || under.Length == 0)
@@ -114,8 +111,7 @@ public static class AssetTools
                           "asset_paths (e.g. 'textures/armor/iron/cuirass_1.dds'), a Data-relative directory or glob " +
                           "in under (e.g. 'meshes/actors/character/facegendata/facegeom/Skyrim.esm'), or NPC " +
                           "FormID(s) in formids (e.g. '01A51A:Dawnguard.esm') for their FaceGen pairs.");
-        // The window's own refusal, from the window: this tool and housecarl_skse answer the same input class, so the
-        // sentence is spelled once rather than reworded in two places.
+        // The window's own refusal, from the window: this tool and housecarl_skse answer the same input class.
         if (new RowWindow(offset, limit).Error is { } bad) return Wire.Refuse(json, bad);
         int cap = max_chars > 0 ? max_chars : 80_000;
 
@@ -123,25 +119,20 @@ public static class AssetTools
         bool wantFile = toFile is { Length: > 0 };
         if (wantFile)
         {
-            // The same validator the records surface runs: absolute, .jsonl, and outside the pruned results
-            // directory. Unvalidated, a relative path writes under the SERVER's working directory and the response
-            // names an artifact the caller cannot find.
+            // The same validator the records surface runs: absolute, .jsonl, and outside the pruned results directory.
             if (Artifacts.ValidateToFile(toFile!) is { } verr) return Wire.Refuse(json, verr);
-            // The same pair the records lanes refuse, in the same words: one returns the census with no rows, the
-            // other writes the rows.
+            // The same pair the records lanes refuse, in the same words: one returns the census, the other writes the rows.
             if (counts_only) return Wire.Refuse(json, Artifacts.CountsOnlyWithToFile);
             if (offset > 0)
                 return Wire.Refuse(json, "error: to_file= captures the COMPLETE result (the artifact is never a " +
                                          "window), so offset= has nothing to page — drop offset=.");
         }
-        // Same shape, same reason as the records lanes' aggregate: a census covers the whole selection, so there is
-        // no selection window for offset= to move, and limit= is what pages the table it renders instead.
+        // A census covers the whole selection, so there is no selection window for offset= to move.
         if (counts_only && offset > 0)
             return Wire.Refuse(json, "error: counts_only= counts the COMPLETE selection, so offset= has nothing to " +
                                      "page — drop offset=, and use limit= to page the census table's rows.");
 
-        // The @file convention on both list inputs: an artifact stands in place of the whole list, and each takes
-        // the identity column its own tokens are made of.
+        // The @file convention on both list inputs, each taking the identity column its own tokens are made of.
         var (pathTokens, pathDemand, pathEcho, perr) =
             Artifacts.ExpandListInput(asset_paths ?? Array.Empty<string>(), "asset_paths", identity: "path");
         if (perr is not null) return Wire.Refuse(json, perr);
@@ -149,16 +140,12 @@ public static class AssetTools
             Artifacts.ExpandListInput(formids ?? Array.Empty<string>(), "formids");
         if (ferr2 is not null) return Wire.Refuse(json, ferr2);
 
-        // The FormID door parses the plugin-qualified form without touching the index, and reaches for one build only
-        // if a RUNTIME FormID actually arrives — so an ordinary sweep costs no record read at all.
+        // The FormID door parses the plugin-qualified form without touching the index, so an ordinary sweep reads no record.
         var door = FormIdDoor.For(svc);
         var seeds = new List<FaceGenSeed>(idTokens?.Length ?? 0);
         foreach (var raw in idTokens ?? Array.Empty<string>())
         {
-            // Every token that is not a FormID answers as ONE error row, whatever the door threw. Narrower than
-            // this, a RUNTIME FormID on an order that cannot build reaches CaptureView, whose InvalidOperationException
-            // would escape to Guard as "an internal houseCARL failure (the arguments bound fine)" — for input this
-            // tool can plainly name. The sibling lanes catch Exception here for the same reason.
+            // Every token that is not a FormID answers as ONE error row, whatever the door threw: a runtime FormID on an order that cannot build would otherwise escape to Guard.
             try { seeds.Add(new FaceGenSeed(raw, door.Parse(raw), null)); }
             catch (Exception ex)
             {
@@ -166,25 +153,16 @@ public static class AssetTools
             }
         }
 
-        // An artifact of FORMIDS was captured at one record build, and consuming it server-side is epoch-checked
-        // against the build answering now — a mismatch is a loud refusal naming both, with no stale-override switch.
-        // An artifact of PATHS is not checked and deliberately so: a path is a string, every answer about it is read
-        // live off the VFS, and nothing in it can go stale against a record build. Gating it would refuse the loop
-        // this feature exists for — sweep, fix a mod, re-ask the same path list — over a build the answer never used.
-        // Captured only where something needs it, so a plain path sweep still builds no record index. And it is
-        // allowed to FAIL: this tool answers "which mod wins this file" off the VFS alone, so an order whose plugins
-        // do not resolve must not stop it — the artifact then carries no fingerprint and says why, rather than the
-        // call dying on a build its answer never needed.
+        // A FORMIDS artifact is epoch-checked against the build answering now. A PATHS artifact is not, deliberately: a
+        // path is a string answered live off the VFS, and gating it would refuse the sweep-fix-re-ask loop this exists
+        // for. The stamp is captured only where something needs it, and it is allowed to FAIL — every row is read off
+        // the VFS, so an order whose plugins do not resolve must not stop the call.
         OrderStamp? order = null;
         string? noEpochBecause = null;
         if (wantFile || idDemand is not null)
         {
-            // What READING the order can throw, and nothing else. A profile file MO2 holds while it re-sorts arrives
-            // as ProfileUnreadableException, which derives from IOException and is caught here deliberately by that
-            // base — a UnauthorizedAccessException is the denied read, and an order with no active plugins is the
-            // InvalidOperationException. All three are honest degrades for a sweep that never needed the record
-            // index. Anything else is a bug, and the sentence below names a cause ("the order could not be read …
-            // re-run once it reads") that would be false of one.
+            // What READING the order can throw, and nothing else: a held profile file, a denied read, an order with no
+            // active plugins. Anything else is a bug, and the sentence below would be false of one.
             try { order = svc.CaptureView().Stamp; }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
             { noEpochBecause = Guard.Flatten(ex.Message); }
@@ -201,9 +179,7 @@ public static class AssetTools
                 return Wire.Refuse(json, "error: " + LoadOrderService.ArtifactEpochMismatch(demand, order.Epoch));
         }
 
-        // counts_only= resolves the WHOLE selection, the way to_file= does: a census of a window would answer about
-        // a window while the rows that actually need paging — the table's — had no knob at all. limit= is spent
-        // there instead.
+        // counts_only= resolves the WHOLE selection, as to_file= does: a census of a window would answer about a window while the rows that need paging had no knob.
         var data = svc.AssetStatus(pathTokens ?? Array.Empty<string>(), under, counts_only ? 0 : limit, offset, seeds,
                                    wholeSelection: wantFile || counts_only);
         // The declared-cost refusal: the selection was counted and is past the bound, so nothing was resolved.
@@ -222,9 +198,7 @@ public static class AssetTools
                 new("read_incomplete", data.ReadIncomplete ? "true" : "false"),
                 new("discovery_warnings", data.Warnings.Count.ToString()),
             };
-            // WHICH rows the file holds, in the records lane's spelling: an auto-spilled window's manifest states
-            // row_count and total, and without this nothing says which of the total those rows are. A re-read months
-            // later has no conversation to recover it from. Never on the to_file= arm, which is never a window.
+            // WHICH rows the file holds, in the records lane's spelling — a re-read months later has no conversation to recover it from. Never on the to_file= arm, which is never a window.
             if (!wantFile && data.Selected != data.Results.Count)
                 e.Add(new("window", data.Results.Count == 0
                     ? $"window: no rows — offset={data.Offset} is past the end of the {data.Selected}-path selection"
@@ -240,10 +214,8 @@ public static class AssetTools
 
             var rendered = Inline(null, out var truncated);
             if (!truncated) return rendered;
-            // SPEC §2.1.1: an over-ceiling read result is written whole to the server-managed results directory and
-            // the response names the file — truncation is not a failure mode on a read lane. The stamp is taken only
-            // here, so an ordinary sweep still builds no record index; the same two degrades the to_file= lane
-            // allows are honest here too, since every row is read off the VFS.
+            // SPEC §2.1.1: an over-ceiling read result is written whole to the results directory and the response names the
+            // file. The stamp is taken only here, so an ordinary sweep still builds no record index.
             if (order is null && noEpochBecause is null)
                 try { order = svc.CaptureView().Stamp; }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
@@ -261,10 +233,8 @@ public static class AssetTools
     });
 }
 
-/// <summary>Renders <see cref="AssetStatusData"/>: the build-level alarms first (archives that failed to read,
-/// discovery warnings), then one block per queried path — winner and every provider in precedence order. Contention is
-/// worded neutrally, since more than one source is the common healthy case. The per-path list is bounded by max_chars
-/// with an explicit cut notice.</summary>
+/// <summary>Renders <see cref="AssetStatusData"/>: the build-level alarms first, then one block per queried path —
+/// winner and every provider in precedence order. Contention is worded neutrally; the list is bounded by max_chars.</summary>
 static class AssetWire
 {
     /// <summary>The one header line both renders open with: the profile, and how many paths the SELECTION named.</summary>
@@ -276,9 +246,7 @@ static class AssetWire
 
     public static string Render(AssetStatusData d, int cap) => Render(d, cap, null, out _);
 
-    /// <summary><paramref name="spill"/> is this call's artifact disposition, written after the accounting and
-    /// charged before the first path so the block lands inside max_chars. <paramref name="truncated"/> is whether
-    /// max_chars cut paths out of the window — what the caller auto-spills on.</summary>
+        /// <summary><paramref name="spill"/> is this call's artifact disposition, charged before the first path; <paramref name="truncated"/> is what the caller auto-spills on.</summary>
     public static string Render(AssetStatusData d, int cap, SpillState? spill, out bool truncated)
     {
         var header = Header(d);
@@ -295,9 +263,7 @@ static class AssetWire
             },
             (sb, r, _) => AppendPath(sb, r, d.ReadIncomplete, d.Warnings.Count > 0),
             out int rendered,
-            // The accounting block is priced INSIDE max_chars, the way the check sweep's footer is: it is written
-            // after the body, so room for its longest spelling is held back before the paths render rather than
-            // appended past the cap. max_chars then means the same on this tool as on every other.
+                        // The accounting block is priced INSIDE max_chars, the way the check sweep's footer is, so max_chars means the same on this tool as on every other.
             reserve: AccountingReserve(d) + spillText.Length);
 
         var counts = Tally(d, rendered);
@@ -308,22 +274,17 @@ static class AssetWire
     /// <summary>What this family's accounting counts.</summary>
     const string RowNoun = "path(s)";
 
-    /// <summary>What each under= selector had to say for itself — a selector that matched nothing, or was rejected.
-    /// Above the per-path list, with the other alarms, so a truncated sweep cannot cut it away. Capped like its two
-    /// sibling alarm blocks: one note per selector is bounded by the call's own input, but that input can be thousands
-    /// of selectors, which would write megabytes before the per-path loop ever checks the budget.</summary>
+        /// <summary>What each under= selector had to say for itself, above the per-path list so a truncated sweep
+        /// cannot cut it away. Capped like its sibling alarm blocks, because the input can be thousands of selectors.</summary>
     internal static void AppendSelectorNotes(StringBuilder sb, IReadOnlyList<string>? notes, RenderCap cap)
     {
         if (notes is not { Count: > 0 }) return;
-        // The heading carries the count and is written whatever the budget — a selector that matched nothing must not
-        // vanish into a render that then reads as complete. Only the per-selector lines below it are cut.
+                // The heading carries the count and is written whatever the budget: a selector that matched nothing must not vanish into a render that then reads as complete.
         sb.Append("\n[!] under (").Append(notes.Count).Append("):\n");
         BatchRender.AppendLines(sb, notes, "selector(s)", cap);
     }
 
-    /// <summary>What this response actually did, in the shared TRANSPORT vocabulary
-    /// (<see cref="TransportAccounting"/>): the selection total, the window this response rendered, and the four
-    /// distinct omissions.</summary>
+        /// <summary>What this response actually did, in the shared TRANSPORT vocabulary: the selection total, the window rendered, and the four distinct omissions.</summary>
     internal static TransportCounts Tally(AssetStatusData d, int rendered) =>
         TransportAccounting.Tally(d.Selected, d.Results.Count, rendered, new RowWindow(d.Offset, d.Limit),
                                   d.SelectorNotes?.Count ?? 0);
@@ -360,15 +321,11 @@ static class AssetWire
         if (!hit.Exists)
         {
             sb.Append("  ABSENT — no active mod or BSA provides this path\n");
-            // A path taken straight off a record is missing its root folder: a model path is stored relative to
-            // meshes\, a texture path to textures\. Each suggestion was verified by re-resolving the prefixed form.
-            // Backticks, not single quotes — an asset path can carry the mod author's own apostrophes.
+                        // Each suggestion was verified by re-resolving the prefixed form. Backticks, not single quotes — an asset path can carry the author's own apostrophes.
             if (r.PrefixSuggestions is { Count: > 0 } sug)
                 sb.Append("  did you mean ").Append(string.Join(" or ", sug.Select(s => "`" + s + "`")))
                   .Append("?  (a path read off a record is relative to its root folder, not to Data)\n");
-            // Both incomplete-scan conditions hedge an ABSENT at the point of use, not only in the top-of-output note:
-            // an archive that failed to read, and base archives never discovered (no Skyrim.ini found, so the vanilla
-            // "Skyrim - Textures*.bsa" went unscanned). Either means the asset could exist where we did not look.
+                        // Both incomplete-scan conditions hedge an ABSENT at the point of use, not only in the top-of-output note: the asset could exist where we did not look.
             if (readIncomplete)
                 sb.Append("  [!] but an archive failed to read this build (see the read-failure note above), so " +
                           "\"absent\" may be incomplete — the asset could live in the unreadable archive.\n");
@@ -379,12 +336,8 @@ static class AssetWire
             return;
         }
 
-        // The provider token is spelled by the one formatter the asset surface uses, so the name printed here is the
-        // name place_asset's source_provider= accepts — the third surface of #340. A mod folder can legitimately hold
-        // a parenthetical ("SkyUI (SE)"), so the delimiter is what tells a caller where the name ends.
-        // The owning mod rides the WINS: line on a formids= row, so the text lane shows the same evidence the pair
-        // verdict is taken on — two archive names of one mod read as a split without it. Only there, so a plain path
-        // block is byte for byte the block it always was.
+                // The provider token is spelled by the one formatter the asset surface uses, so the name printed here is
+                // the name a source selector accepts. The owning mod rides the WINS: line only on a formids= row.
         sb.Append("  WINS: ").Append(Provider(hit.Winner!))
           .Append(r.FormId is not null ? Mod(hit.Winner!) : "").Append('\n');
         sb.Append("  providers (").Append(hit.Providers.Count).Append("): ");
@@ -400,10 +353,7 @@ static class AssetWire
         AppendPair(sb, r);
     }
 
-    /// <summary>The OTHER half of the FaceGen pair, beside this one: its path and its own winner. An NPC's head
-    /// renders from BOTH files and a dark face is almost always the two disagreeing, so a row that named only its own
-    /// winner would leave the diagnosis a second call away. Written on both a present and an ABSENT row — the absent
-    /// half IS the finding on half the classes. Nothing at all on a row no FormID derived.</summary>
+        /// <summary>The OTHER half of the FaceGen pair, beside this one: its path and its own winner, written on a present and an ABSENT row alike. Nothing on a row no FormID derived.</summary>
     static void AppendPair(StringBuilder sb, AssetPathResult r)
     {
         if (r.PairPath is null) return;
@@ -418,45 +368,30 @@ static class AssetWire
                       "different products, which is the dark-face split.\n");
     }
 
-    /// <summary>The mod folder behind a BSA provider, where the provider token is the archive's own filename and the
-    /// mod is what a caller would sort or disable. Nothing for a loose provider, whose token IS the mod.</summary>
+        /// <summary>The mod folder behind a BSA provider, whose token is the archive's filename. Nothing for a loose provider, whose token IS the mod.</summary>
     static string Mod(HousecarlCore.AssetProvider p)
         => p.OwningMod is { Length: > 0 } m && !string.Equals(m, p.Source, StringComparison.OrdinalIgnoreCase)
             ? $"  [mod: {m}]" : "";
 
     static string Kind(HousecarlCore.AssetKind k) => k == HousecarlCore.AssetKind.Bsa ? "BSA" : "loose";
 
-    /// <summary>One provider, spelled by the shared formatter (#340): the name inside double quotes — a character a
-    /// Windows folder or file name cannot contain — with the kind outside them, so the printed token is the token a
-    /// source selector accepts.</summary>
+        /// <summary>One provider, spelled by the shared formatter: the name inside double quotes with the kind outside them, so the printed token is the token a selector accepts.</summary>
     static string Provider(HousecarlCore.AssetProvider p)
         => HousecarlCore.AssetSourceSelection.Describe(p.Source, Kind(p.Kind));
 }
 
 /// <summary><c>asset_status</c>'s <c>counts_only=</c> census (SPEC §2.1): what the file layer looks like in
-/// AGGREGATE over the paths this call resolved — which mods win how many, how the winners split between loose and
-/// BSA, and how many are absent. A whole-order FaceGen sweep is over a hundred thousand rows, and the question a
-/// caller usually has of it is this histogram rather than the rows.
-///
-/// <para>The census covers the WHOLE selection — it is the cost <c>counts_only=</c> exists to pay, the one
-/// <c>to_file=</c> already pays — and <c>limit=</c> is spent on the table's rows instead, which is the thing here
-/// that actually needs paging (SPEC §2.1, closure-proof §G4).</para>
-///
-/// <para>The table itself is the surface's ONE histogram axis (<see cref="HistogramAxis"/>), the same grammar
-/// <c>check</c>'s <c>counts_only=</c> axes take: the head that rides its first row, the cut line naming the knob
-/// that stopped it, the reserve taken before the rows render, and the distinct empty-axis sentence. Only the
-/// counters above it are this lane's own.</para></summary>
+/// AGGREGATE over the paths this call resolved. It covers the WHOLE selection and <c>limit=</c> is spent on the
+/// table's rows instead, which is the thing here that actually needs paging. The table is the surface's one
+/// <see cref="HistogramAxis"/>, so only the counters above it are this lane's own.</summary>
 static class AssetCensus
 {
-    /// <summary>The census over one resolution. <see cref="ByLayer"/> is the winning MO2 LAYERS, count descending
-    /// then name ascending — the same value the artifact's <c>winner_mod</c> column carries and the pair verdict is
-    /// taken on, which for a loose winner is a mod folder, the game's own Data folder, or overwrite.</summary>
+        /// <summary>The census over one resolution. <see cref="ByLayer"/> is the winning MO2 LAYERS, count descending
+        /// then name ascending — the same value the artifact's <c>winner_mod</c> column carries.</summary>
     internal readonly record struct Counts(int Selected, int Present, int Absent, int Errors,
                                            int Loose, int Bsa, IReadOnlyList<SweepCount> ByLayer);
 
-    /// <summary>What the axis is titled, and the note that keeps its two non-mod values honest. The note rides the
-    /// axis, so it is written whatever the budget says — the same treatment the sibling by-mod axis gives its
-    /// own.</summary>
+        /// <summary>What the axis is titled, and the note that keeps its two non-mod values honest. The note rides the axis, so it is written whatever the budget says.</summary>
     const string AxisTitle = "winning layers";
     const string AxisNote = "a winning LAYER is a mod folder, the game's own Data folder, or overwrite — the last "
                           + "two are layers rather than mods, so they cannot be sorted or disabled.";
@@ -480,42 +415,34 @@ static class AssetCensus
         return new Counts(d.Selected, present, absent, errors, loose, bsa, rows);
     }
 
-    /// <summary>The axis this census renders, in one place so the text lane and the json lane cannot title or note
-    /// it differently.</summary>
+        /// <summary>The axis this census renders, in one place so the two transports cannot title or note it differently.</summary>
     internal static HistogramAxis Axis(Counts c) =>
         new(SweepSubject.AssetWinnerRows, c.ByLayer, AxisTitle, Note: AxisNote);
 
-    /// <summary>The rows one call may render, from its <c>limit=</c>: 0 is no limit, the shape every transport axis
-    /// defaults to on this tool.</summary>
+        /// <summary>The rows one call may render, from its <c>limit=</c>: 0 is no limit.</summary>
     internal static int RowLimit(int limit) => limit > 0 ? limit : int.MaxValue;
 
-    /// <summary>The two counter lines — the census's whole answer, written whatever the budget says. Composed
-    /// rather than appended so the reserve and the render read one spelling.</summary>
+        /// <summary>The two counter lines — the census's whole answer, written whatever the budget says.</summary>
     static string Counters(Counts c) =>
         $"\ncensus: counted={c.Selected} present={c.Present} absent={c.Absent} errors={c.Errors}\n"
         + $"winners: loose={c.Loose} BSA={c.Bsa}\n";
 
-    /// <summary>The text census: the alarms an ABSENT count depends on, the counters, then the layer axis. The
-    /// counters are exact whatever the axis's cut, so a cut table never makes a total wrong.</summary>
+        /// <summary>The text census: the alarms an ABSENT count depends on, the counters, then the layer axis. The counters are exact whatever the axis's cut.</summary>
     public static string Render(AssetStatusData d, int cap, int limit)
     {
         var c = Tally(d);
         var sb = new StringBuilder(AssetWire.Header(d)).Append('\n');
-        // What this response writes whatever the budget says, held back BEFORE the alarms — the counters, and the
-        // axis's note, head and cut line. The alarms are the only cuttable thing above the axis, so uncharged they
-        // take the room the census's own answer needs and the response lands over the cap on a cut that would have
-        // fitted. The path render holds its accounting back the same way.
+                // What this response writes whatever the budget says, held back BEFORE the alarms: uncharged, they take
+                // the room the census's own answer needs and the response lands over the cap on a cut that would have fitted.
         var room = RenderCap.For(cap, Counters(c).Length + Axis(c).TextFixed);
-        // The alarms first, for the reason the path render puts them first: an ABSENT count is authoritative only
-        // where an archive read failed nowhere, and a long table must not be able to cut that away.
+                // The alarms first, for the reason the path render puts them first: an ABSENT count is authoritative only where no archive read failed.
         BatchRender.AppendReadFailures(sb, d.BsaFailures, "an asset", room);
         BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, room);
         AssetWire.AppendSelectorNotes(sb, d.SelectorNotes, room);
 
         sb.Append(Counters(c));
 
-        // The one bounded emission path, as the sweep lanes use it: the budget is the whole cap, because
-        // Outstanding reads the live builder and so already charges everything written above.
+                // The one bounded emission path: the budget is the whole cap, because Outstanding reads the live builder.
         var body = new BoundedBody(acct: null, budget: cap, () => sb.Length);
         Wire.AppendHistogramAxes(sb, body, RowLimit(limit), Axis(c));
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
