@@ -29,6 +29,7 @@ internal enum SweepSubject
     /// <summary>Rows of the scripts family's <c>counts_only</c> honesty layer: plugins whose enumeration faulted.</summary>
     ScriptScanRows,
 
+    /// <summary>Rows of validate_scripts' <c>counts_only</c> histogram, by property NAME.</summary>
     HistogramByProperty,
 
     /// <summary>The dialogue family's per-seed heads, one per seed that RESOLVED.</summary>
@@ -43,6 +44,7 @@ internal enum SweepSubject
     /// <summary>The facegen family's finding rows, one per NPC or per orphaned bake, emitted whole or not at all.</summary>
     FaceGenRows,
 
+    /// <summary>Rows of the facegen family's <c>counts_only</c> histogram, by finding CLASS.</summary>
     FaceGenClassRows,
 
     /// <summary>Rows of the facegen <c>counts_only</c> histogram, by the mod that owns the winning bake.</summary>
