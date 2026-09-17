@@ -27,6 +27,7 @@ following is a STATIC reason it will not, and this list is the rule's one home:
 
 | blocker | why the loader refuses it |
 |---|---|
+| no active provider | nothing in the active order supplies the path at all, so there is no image to load; the chain's first arm |
 | BSA-only | the loader scans loose `Data\SKSE\Plugins` only, so an archive-shipped DLL is never opened |
 | subfolder | the scan is `SKSE\Plugins\*.dll` top-level only; a nested DLL is parent-loaded or bundled, not loaded |
 | 32-bit | an x86 image cannot load in SE/AE |
@@ -54,7 +55,7 @@ The rule is applied in three shapes, on purpose, and they must agree:
   version lock on top of the blocker and reduces a class to the best fate among its candidate DLLs.
 
 Consolidating the three into one helper is issue #415. Until then, a new blocker lands in all three or the tools
-disagree, which is the drift the issue records: 32-bit and Debug-CRT were each known to one tool alone for a while.
+disagree.
 
 ## The PE manifest read
 
@@ -141,6 +142,14 @@ Extraction is a heuristic over token SHAPES, line-local, with no object model �
 block still surfaces, and the framing is "references this file declares", never "references the DLL will use". Bare
 EditorID and name strings are out of scope: a JSON string is not unambiguously an EditorID, and validating every string
 would drown the signal. An over-wide or unparseable hex is CAPTURED and named, never guessed.
+
+The plugin-name charset in `PluginRun` is two deliberate choices with one accepted cost. Apostrophes are ALLOWED,
+because excluding them truncates real names mid-word (`kryptopyr's Trade & Barter.esp`). Parentheses are EXCLUDED,
+because a token embedded in prose (`will cast fireball (Skyrim.esm|0x5)`) otherwise takes the whole prose prefix as the
+plugin name. The price, which the extractor accepts rather than solves, is a KNOWN false negative: a plugin literally
+named `Mod (v2).esp` is never matched, so a reference to it is silently absent from the audit rather than reported.
+That is the safe direction for this family — a missed reference is a gap, a prose false positive would be a false
+DANGLING — and both charset directions are pinned by `SkseConfigAuditProbe` arms 2b and 2d.
 
 The verdict is the service's, over the active order: OK, PLUGIN MISSING, DANGLING, UNPARSEABLE. The headline keeps two
 signals apart. BROKEN (dangling + unparseable) should resolve and does not, and is actionable. INERT (plugin missing) is

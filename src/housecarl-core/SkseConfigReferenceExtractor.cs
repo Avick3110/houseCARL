@@ -7,6 +7,7 @@ namespace HousecarlCore;
 public static class SkseConfigReferenceExtractor
 {
     // A hex FormID and a plugin filename joined by '|' or '~' in either order; every shape is pinned by SkseConfigAuditProbe.
+    // The name charset's two choices and the "Mod (v2).esp" miss they cost are in docs/architecture/skse-layer.md.
     const string PluginRun = @"[^|~""=,:{}()\[\]/\\\r\n]*?\.es[lmp]";
     const string HexRun = @"(?:0x)?[0-9A-Fa-f]{1,16}";
     static readonly Regex FormToken = new(

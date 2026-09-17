@@ -57,6 +57,14 @@ than a blank when read wrong:
   not model the concept. On an FO4-layout block with an all-zero flag word, `HasSoftlight`, `HasBacklight` and
   `Parallax` are all true.
 
+The shader TYPE is read wrong in two more ways, each also answering a confident `Default` rather than a blank, and each
+is why one line of `ShaderTypeName` cannot be removed. WRONG BLOCK: a `BSEffectShaderProperty` serializes no shader
+type at all, but the property sits on the shared base, so reading it there yields 0 — which is what the
+`blockType == nameof(BSEffectShaderProperty)` guard exists for. WRONG FIELD: the type property is layout-dispatched,
+not shared, so `ShaderType_SK_FO4` reads 0 on a block parsed as FO76/SF while `ShaderType_FO76_SF` is garbage on an SK
+block — which is why the switch picks the field by the LAYOUT the block was parsed as, never by its type name. A layout
+with no type field of its own reports null and the renderer says so plainly.
+
 So houseCARL's claim is scoped to its own coverage: it interprets a SKYRIM shader. The lighting values and the slot
 semantics are reported only on an SK-layout block, and `nif_inspect` reads non-SE meshes on purpose, so this is
 reachable rather than theoretical. The DECLINE is stated, not just performed — a bare `tex[2]:` is otherwise ambiguous
