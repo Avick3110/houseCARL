@@ -495,6 +495,31 @@ public class DecompileNoneResultTests
         Assert.DoesNotContain("while f.Poke()", res.Source);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ACallFoldedIntoATempNeverOvertakesACallProducedAfterIt(bool discarded)
+    {
+        // `Inner` runs at its own index, after `Bar`, and folding `Poke` into its arguments puts it before
+        // `Bar`. Nothing downstream consumes the result — it is discarded, or the region ends — so the
+        // crossing has to be settled where the call runs and not at a later statement.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "HC_NoneTarget", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "Int", "::temp2");
+        Local(f, "Int", "num");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Inner"), Id("f"), Id("::temp2"), Int(1), Id("::temp0"));
+        if (discarded) Ins(f, InstructionOpcode.ASSIGN, Id("num"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("TempFold", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+    }
+
     /// <summary>No emitted line carries <paramref name="stranded"/> after a `return` in the same block.</summary>
     static void AssertNoStatementAfterReturn(string source, string stranded)
     {
