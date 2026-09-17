@@ -29,7 +29,7 @@ packages/
 
 ## Test / coverage results
 [Tt]est[Rr]esult*/
-coverage/
+/coverage/
 *.trx
 *.coverage
 *.coveragexml
