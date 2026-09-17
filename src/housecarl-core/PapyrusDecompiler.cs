@@ -656,9 +656,22 @@ public sealed class PapyrusDecompiler
                         $"{what} @{_cur} carries a value produced before pending {name}, which cannot be ordered either side of it");
         }
         /// <summary>Does writing this expression as a bare statement compile back to the instruction it came
-        /// from? Every kind here does — checked by compiling one of each with PapyrusCompiler and reading the
-        /// instruction back — except a bare identifier or literal, for which the compiler emits nothing.</summary>
-        static bool EmitsAnInstruction(Expr e) => e is not (EIdent or EConst);
+        /// from? Every kind does — checked by compiling one of each with PapyrusCompiler and reading the
+        /// instruction back — as long as it is not a bare variable read, for which the compiler emits nothing,
+        /// and as long as something in it has to be read at runtime: the compiler folds an expression whose
+        /// leaves are all literals into a literal and emits nothing for that either.</summary>
+        static bool EmitsAnInstruction(Expr e) => e is not EIdent && ReadsOrCalls(e);
+
+        /// <summary>Does anything in this expression have to be read or called at runtime, rather than folding
+        /// to a literal? `new` is its own answer: the compiler emits ARRAY_CREATE even for a literal size.</summary>
+        static bool ReadsOrCalls(Expr e) => e switch
+        {
+            EConst => false,
+            EBin b => ReadsOrCalls(b.L) || ReadsOrCalls(b.R),
+            EUn u => ReadsOrCalls(u.E),
+            ECast c => ReadsOrCalls(c.E),
+            _ => true,
+        };
 
         public Body(PapyrusDecompiler d, PexObjectFunction f)
         {
