@@ -1,0 +1,97 @@
+# The SkyPatcher layer
+
+**Class:** LIVING. Subsystem: `src/housecarl-core/SkyPatcherParse.cs` (tokenizer),
+`SkyPatcherCatalog.cs` (key classification), `SkyPatcherFieldMap.cs` (op → Mutagen field),
+`SkyPatcherDiscovery.cs` (layer enumeration), `SkyPatcherOverlay.cs` (replay onto a record),
+`SkyPatcherConflicts.cs` (INI-vs-INI report), `SkyPatcherDraft.cs` (an unplaced INI folded in),
+rendered by `src/housecarl-mcp/SkyPatcherTools.cs`. Pinned by the generator probes
+`skypatcher-parse-guard`, `skypatcher-catalog-guard`, `skypatcher-fieldmap-guard`,
+`skypatcher-discovery-guard`, `skypatcher-overlay-guard` and `skypatcher-conflicts-guard`, and by
+`SkyPatcherLayerFilterTests`, `SkyPatcherWarningSinkTests` and `RecordsSkyPatcherDraftTests` in
+`src/housecarl-mcp-tests`.
+
+SkyPatcher is a runtime record patcher: it edits Bethesda records from INI files at load, so a
+plugin read alone does not say what the game sees. houseCARL reads that layer in four tiers, each
+of which only knows its own job — tokenizer, catalog, field map, overlay. The tokenizer is pure
+grammar and cannot drift when the hand-modeled catalog changes.
+
+## Addressing: `Plugin.esp|FormID`
+
+The tokenizer resolves only the unambiguous `Plugin.esp|FormID` form. A bare identifier is left
+un-addressed, because an EditorID (`filterByWeapons=IronSword`) and an enum scalar
+(`armorType=heavy`) are lexically identical — telling them apart needs the catalog's knowledge of
+whether the key is form-valued, so EditorID resolution belongs to the overlay. The catalog
+classifies keys; it does not resolve values.
+
+The FormID side is hex with trimmable leading zeros. A full load-indexed ESL FormID (`FExxxYYY`)
+keeps only its 12-bit local id; anything else keeps the low 24 bits. That normalization lives in
+`FormIdRange`, shared with the SKSE config audit, because getting it wrong inverts every verdict.
+
+## The per-type subfolder rule and the filename gate
+
+INIs live under `Data/SKSE/Plugins/SkyPatcher/<type>/`. The first path component under the root is
+the record type; deeper nesting is organisation only. An INI sitting directly in the root is listed
+with a note and applied to nothing — the DLL reads type subfolders only. An unrecognized subfolder
+name is listed but not interpreted, never guessed.
+
+Within a type folder, files apply `0`→`z` by their folder-relative path (ordinal, case-insensitive).
+DECLARED ASSUMPTION: the grammar reference documents filename sort for a flat folder; the DLL's
+order across nested subfolders is unverified, and relative-path sort matches flat-folder sort
+exactly.
+
+A file named `<Plugin>.esp.ini` loads only when that plugin is in the active load order. A
+gated-off file keeps its parsed content — an inactive patch is still inspectable — and carries
+`NotApplied` naming the gate. `SkyPatcher.ini`'s `[Patcher]` `iEnable<Type>Patching=0` switches a
+whole type folder off the same way. Both are flags, never a silent drop.
+
+Two further discovery contracts: the layer is **loose-only** (an INI resolving only into a BSA is
+`NotApplied` for that reason), and it is a **union, not a filename winner** — every distinct loose
+INI applies, and the VFS winner rule collapses only two mods shipping the *identical* relative
+path, which is surfaced per file as `ShadowedProviders`.
+
+## How the overlay replays onto a record
+
+`SkyPatcherOverlay.Apply` takes the ordered, game-visible line union for a type folder and replays
+it onto a deep **mutable copy** of the record's load-order winner:
+
+1. Classify every key of the line against the type's catalog. An unknown key poisons the **whole
+   line** — if it was an unrecognized filter, evaluating the rest would mis-scope the line, worst
+   case applying its ops to every record of the type — so the line skips loud as unresolved.
+2. Evaluate the filters against this record. Built-in families (primary, `noFilter…`, `hasPlugins`,
+   keyword / EditorID / name contains, mod-name and override-aware tokens, attached mgefs,
+   alternate textures) need no per-record path; the rest come from the field map's `FilterSpec`s. A
+   filter that is neither, or is explicitly unmapped-with-reason, makes the line skip loud rather
+   than be guessed either way. The player matches only a lone bare primary filter naming it.
+3. Apply each op, in segment order, onto the running copy. Because the copy carries state,
+   `…Mult`/`…ToAdd` accumulate exactly as the DLL does and a later `set` of the same field
+   overwrites an earlier one — apply-order replay, not last-write-wins bookkeeping.
+
+Mutation rides `WriteEngine.ApplyVerb` and reads ride `ReadEngine.ReadLeaf`, so field addressing
+cannot drift from the read/write surface.
+
+**Tiered honesty.** CLEAN and COLLECTION ops resolve to a post-state value. HARD ops come back as
+`SkyPatcherDirective`s — the directive text plus why it has no static resolution — never a silently
+wrong value. Unknown keys, unmapped ops, unevaluable filters and value failures are all named
+warnings. Every CLEAN and COLLECTION op in the catalog has exactly one field-map entry, either a
+mapping or an explicit `Unmapped` with a reason; HARD ops have none, and CI rejects one that
+acquires a mapping.
+
+## Reports and drafts
+
+`SkyPatcherConflicts` is report-only: it names same-field, same-target SET collisions across files
+(the later-sorted file wins), plus the ITM classes — intra-file dead writes, cross-INI duplicates,
+and no-op writes. Which value *should* win stays with the agent. Add/remove/mult/collection ops
+accumulate by design and are not conflicts.
+
+`SkyPatcherDraft` folds an INI that is not yet placed in a mod into the live scan, so a record can
+be read as the game would see it once placed. A draft that is already one of the layer's live
+files, or whose filename would collide at the same relative path, is refused: which copy wins would
+then depend on mod order, not on the draft.
+
+## Known limitation
+
+Line splitting on `:`, item splitting on `,` and compound splitting on `~` are naive, matching the
+documented "`:` separates every segment". A rename literal containing `:` or `,`
+(`fullName=~Amulet of Mara, Blessed~`), or a plugin filename containing `~`, over-splits. The real
+DLL's delimiter precedence must be verified against the running binary before any of this is
+hardened.
