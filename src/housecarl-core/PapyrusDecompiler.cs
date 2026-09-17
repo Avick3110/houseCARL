@@ -458,7 +458,9 @@ public sealed class PapyrusDecompiler
 
         void FlushPending(List<string> stmts, int scanFrom, int startBound)
         {
-            foreach (var name in _pendingOrder.ToList())
+            // Production order, not creation order: a pure fold is created after the call it folds in and
+            // starts where that call does, so walking the creation list would emit it after a newer call.
+            foreach (var name in _pendingOrder.OrderBy(n => _pendingStart[n]).ToList())
             {
                 if (_pendingStart[name] >= startBound) continue;
                 var e = _pending[name];
