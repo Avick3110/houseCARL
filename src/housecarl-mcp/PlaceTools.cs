@@ -57,13 +57,13 @@ public static class PlaceTools
             return json ? JsonWire.RenderError(prompt, null) : prompt;
         if (assets is not { } el || el.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
             return Refuse(json, "assets is empty. Pass one or more { path|formid, kind?, source?, source_provider? } destinations.");
-                // The strict reader, not the SDK's binder: a member the shape does not declare is refused by name at its element, because a dropped one would place another provider's copy.
+        // The strict reader, not the SDK's binder: a member the shape does not declare is refused by name at its element, because a dropped one would place another provider's copy.
         var (items, listErr) = ListParams.Read<PlaceTarget>(el, "assets", "{path|formid, kind?, source?, source_provider?}");
         if (listErr is not null) return Refuse(json, listErr);
         return PlaceTargets(svc, items!, source_provider, kind, patch, into, max_chars, json);
     });
 
-        /// <summary>The same call over destinations already read — the seam the probes and tests drive with typed members, while a real call comes through the strict reader.</summary>
+    /// <summary>The same call over destinations already read — the seam the probes and tests drive with typed members, while a real call comes through the strict reader.</summary>
     internal static string Place(LoadOrderService svc, PlaceTarget[] assets, string? source_provider = null,
                                  string? kind = null, string? patch = null, string? into = null,
                                  string? format = null, int max_chars = 0)
@@ -78,27 +78,27 @@ public static class PlaceTools
         return PlaceTargets(svc, assets, source_provider, kind, patch, into, max_chars, json);
     });
 
-        /// <summary>The one refusal shape, through its one owner — <see cref="Wire.Refuse"/>, which owns the prefix the json document strips.</summary>
+    /// <summary>The one refusal shape, through its one owner — <see cref="Wire.Refuse"/>, which owns the prefix the json document strips.</summary>
     static string Refuse(bool json, string message) => Wire.Refuse(json, Wire.RefusalPrefix + message);
 
     static string PlaceTargets(LoadOrderService svc, PlaceTarget[] assets, string? source_provider,
                                string? kind, string? patch, string? into, int max_chars, bool json)
     {
-                // The set-level slot is validated ONCE, under its own name: attributed to a member it would blame input the caller never wrote there.
+        // The set-level slot is validated ONCE, under its own name: attributed to a member it would blame input the caller never wrote there.
         if (ParseSlot(NullIfBlank(kind), out var setKindErr) is null && setKindErr is not null)
             return Refuse(json, setKindErr);
 
-                // Malformed members refuse the WHOLE call, like create; placement-time issues stay per-member.
+        // Malformed members refuse the WHOLE call, like create; placement-time issues stay per-member.
         var all = new List<PlaceRequest>();
         var problems = new List<string>();
-                // Destinations the set-level pole was withheld from, said on their row rather than dropped.
+        // Destinations the set-level pole was withheld from, said on their row rather than dropped.
         var poleWithheld = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var door = svc.OpenWriteFormIdDoor();
         var modsRoot = svc.ModsRootOrNull;
         for (int i = 0; i < assets.Length; i++)
         {
             var a = assets[i];
-                        // A raw mods path as the DESTINATION is a malformed member and refuses the whole call; the same path as a SOURCE stays per-member.
+            // A raw mods path as the DESTINATION is a malformed member and refuses the whole call; the same path as a SOURCE stays per-member.
             if (ModsPathAddress.Split(a.Path, modsRoot) is { } dest)
             {
                 problems.Add(ModsPathAddress.Refusal($"assets[{i}]: ", a.Path!.Trim(),
@@ -122,10 +122,10 @@ public static class PlaceTools
                     : PlaceWire.Render(outcome, cap, poleWithheld);
     }
 
-        /// <summary>Map one destination to its placement request(s): path is one, formid+kind is one computed FaceGen
-        /// path, formid with NO kind is BOTH halves — which forbids a single loose or entry source, since one file
-        /// cannot serve two. Every bad input is a NAMED error; <paramref name="poleWithheld"/> is true when a
-        /// set-level pole existed but could not apply to this member.</summary>
+    /// <summary>Map one destination to its placement request(s): path is one, formid+kind is one computed FaceGen
+    /// path, formid with NO kind is BOTH halves — which forbids a single loose or entry source, since one file
+    /// cannot serve two. Every bad input is a NAMED error; <paramref name="poleWithheld"/> is true when a
+    /// set-level pole existed but could not apply to this member.</summary>
     static List<PlaceRequest>? MapTarget(Func<string?, FormKey> parseFormId, PlaceTarget t,
                                          string? setProvider, string? setKind, string where, out string? error,
                                          out bool poleWithheld)
@@ -137,7 +137,7 @@ public static class PlaceTools
         if (hasFormid == hasPath) { error = $"{where}provide exactly one of formid or path."; return null; }
 
         var src = NullIfBlank(t.Source);
-                // The set-level pole fills in only where it CAN apply: fanning it onto an on-disk source would refuse the member over input the caller never wrote there.
+        // The set-level pole fills in only where it CAN apply: fanning it onto an on-disk source would refuse the member over input the caller never wrote there.
         var ownProv = NullIfBlank(t.SourceProvider);
         bool setApplies = LoadOrderService.SourceTakesAProvider(src);
         poleWithheld = ownProv is null && !setApplies && NullIfBlank(setProvider) is not null;
@@ -156,8 +156,8 @@ public static class PlaceTools
         if (slot is { } s)                                            // explicit mesh|tint → one file
             return new List<PlaceRequest> { new(FaceGenPath.For(fk, s), src, prov) };
 
-                // kind omitted at both levels means both slots. FULLY-QUALIFIED matches the service's routing: a relative
-                // '.bsa' is a Data-relative asset path, and one such path cannot serve two slots.
+        // kind omitted at both levels means both slots. FULLY-QUALIFIED matches the service's routing: a relative
+        // '.bsa' is a Data-relative asset path, and one such path cannot serve two slots.
         var srcProbe = src?.Trim('"');
         bool srcOkForBoth = srcProbe is null
             || (srcProbe.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase)
@@ -169,12 +169,12 @@ public static class PlaceTools
             return null;
         }
         var reqs = new List<PlaceRequest>(2);
-                // Flagged, because a refusal about this member's source= has to hand back a form this member will accept.
+        // Flagged, because a refusal about this member's source= has to hand back a form this member will accept.
         foreach (var (_, rel) in FaceGenPath.Both(fk)) reqs.Add(new PlaceRequest(rel, src, prov) { BothSlots = true });
         return reqs;
     }
 
-        /// <summary>Parse the FaceGen slot token; blank is unspecified (both files) and a bad token is a named error.</summary>
+    /// <summary>Parse the FaceGen slot token; blank is unspecified (both files) and a bad token is a named error.</summary>
     static FaceGenSlot? ParseSlot(string? kind, out string? error)
     {
         error = null;
@@ -188,7 +188,7 @@ public static class PlaceTools
         }
     }
 
-        /// <summary>Key a withheld-pole note the way the result row will read back: the placer validates every destination, so a raw key would miss a 'meshes/x.nif' member's row.</summary>
+    /// <summary>Key a withheld-pole note the way the result row will read back: the placer validates every destination, so a raw key would miss a 'meshes/x.nif' member's row.</summary>
     static string PoleKey(string path)
     {
         try { return AssetResolver.ValidateRelPath(path); }
@@ -217,10 +217,10 @@ static class PlaceWire
             .Append(failed > 0 ? $" ({failed} failed)" : "")
             .Append(modFolder is null ? "" : $"\nmod folder: {modFolder}").ToString();
 
-                // Everything below the rows is charged before the first row is laid, so a filled render answers inside max_chars.
+        // Everything below the rows is charged before the first row is laid, so a filled render answers inside max_chars.
         var body = BatchRender.Render(
             header, o.Results, "asset(s)", cap,
-                        // Whole warnings, in order, and the list STOPS at the first one that does not fit: skipping a long warning for a short one hands back a list that looks complete and is not.
+            // Whole warnings, in order, and the list STOPS at the first one that does not fit: skipping a long warning for a short one hands back a list that looks complete and is not.
             (sb, room) =>
             {
                 if (o.Warnings.Count == 0) return;
@@ -251,13 +251,13 @@ static class PlaceWire
     static string WarningsOmitted(int omitted, int cap) =>
         "[!] " + omitted + " more discovery warning(s) omitted at max_chars=" + cap + "; raise max_chars to see them\n";
 
-        /// <summary>The chars this render owes below its rows, at their widest spelling.</summary>
+    /// <summary>The chars this render owes below its rows, at their widest spelling.</summary>
     static int TrailerReserve(PlaceOutcome o, string? modFolder, int placed, int failed)
     {
         int n = o.Results.Count;
         int counts = $"\n\ntotal={n} rendered={n} placed={placed} failed={failed} truncated=false\n".Length;
         int leftover = o.LeftoverFolder is null ? 0 : ("note: " + LeftoverNote(o.LeftoverFolder) + "\n").Length;
-                // Which sentence it ends on turns on how many rows reached the page, so the reserve takes the longer end.
+        // Which sentence it ends on turns on how many rows reached the page, so the reserve takes the longer end.
         int enable = placed > 0
             ? 2 + Math.Max(EnableAndSort(o, modFolder, 0).Length, EnableAndSort(o, modFolder, n).Length)
             : 0;
@@ -268,11 +268,11 @@ static class PlaceWire
     internal static string LeftoverNote(string leftoverFolder)
         => $"the fresh folder at '{leftoverFolder}' holds a partial result — delete it or retry with into=.";
 
-        /// <summary>The instruction a placement is incomplete without: written bytes do not win the VFS until the mod
-        /// is enabled, and on the into= lane sorted above the current winner. One home, because both transports carry
-        /// it verbatim. The five arms, and why the lane decides as much as contention does, are in
-        /// docs/architecture/assets.md. <paramref name="rendered"/> is how many rows reached the page, so a contended
-        /// row max_chars cut is named as cut rather than pointed at with "listed above".</summary>
+    /// <summary>The instruction a placement is incomplete without: written bytes do not win the VFS until the mod
+    /// is enabled, and on the into= lane sorted above the current winner. One home, because both transports carry
+    /// it verbatim. The five arms, and why the lane decides as much as contention does, are in
+    /// docs/architecture/assets.md. <paramref name="rendered"/> is how many rows reached the page, so a contended
+    /// row max_chars cut is named as cut rather than pointed at with "listed above".</summary>
     internal static string EnableAndSort(PlaceOutcome o, string? modFolder, int rendered)
     {
         bool anyContended = false, shownContended = false, anyOverwrite = false, shownOverwrite = false, anyLosesOnEnable = false;
@@ -283,7 +283,7 @@ static class PlaceWire
             if (!r.Placed) continue;
             placedRows++;
             if (r.CurrentWinner is null) continue;
-                        // A row the destination folder itself won owes no instruction: it keeps winning, so counting it as contention would ask for a sort above this folder.
+            // A row the destination folder itself won owes no instruction: it keeps winning, so counting it as contention would ask for a sort above this folder.
             if (r.WinnerIsDestination) { destinationRows++; continue; }
             // An overwrite winner is not reachable by enabling or sorting, so it is counted apart and answered apart.
             if (r.WinnerIsOverwrite) { anyOverwrite = true; if (i < rendered) shownOverwrite = true; continue; }
@@ -293,7 +293,7 @@ static class PlaceWire
             if (i < rendered) shownContended = true;
         }
         var folder = modFolder ?? "(the new folder)";
-                // Every placed row won by the destination folder: it is enabled already, so there is nothing left to do.
+        // Every placed row won by the destination folder: it is enabled already, so there is nothing left to do.
         if (placedRows > 0 && destinationRows == placedRows)
             return "the placed file(s) went into '" + folder + "', which already provided these path(s) and already "
                  + "wins the VFS for them — it is enabled, so there is nothing to enable or sort (sort it above any "
@@ -324,7 +324,7 @@ static class PlaceWire
 
     static void AppendResult(StringBuilder sb, PlaceResult r, string? modFolder, bool freshFolder, bool poleWithheld)
     {
-                // An input the call carried but this destination could not use is SAID, not dropped, or it reads as honoured.
+        // An input the call carried but this destination could not use is SAID, not dropped, or it reads as honoured.
         void Withheld()
         {
             if (poleWithheld)
@@ -335,15 +335,15 @@ static class PlaceWire
 
         sb.Append("  OK    ").Append(r.AssetPath).Append("  (").Append(r.Bytes).Append(" bytes from ").Append(r.SourceDesc).Append(")\n");
         Withheld();
-                // Bytes served out of a mod MO2 does not load look like any other placement, so say so on their own line.
+        // Bytes served out of a mod MO2 does not load look like any other placement, so say so on their own line.
         if (r.SourceOffOrderProvider is { } offOrder)
             sb.Append("        ").Append(WriteSentences.PlaceSourceOffOrder(offOrder, r.SourceOffOrderOwnerEnabled)).Append('\n');
-                // Name the destination folder rather than "the mod": the off-order line above can put a SECOND mod in scope.
+        // Name the destination folder rather than "the mod": the off-order line above can put a SECOND mod in scope.
         sb.Append("        ").Append(WinnerLine(r, modFolder, freshFolder)).Append('\n');
     }
 
-        /// <summary>What this destination's current VFS winner means for the caller, in five arms
-        /// (docs/architecture/assets.md). One home, because the json twin's <c>winner_note</c> says exactly this.</summary>
+    /// <summary>What this destination's current VFS winner means for the caller, in five arms
+    /// (docs/architecture/assets.md). One home, because the json twin's <c>winner_note</c> says exactly this.</summary>
     internal static string WinnerLine(PlaceResult r, string? modFolder, bool freshFolder)
     {
         var folder = modFolder ?? (freshFolder ? "(the new folder)" : "(the patch folder)");
