@@ -516,10 +516,28 @@ public sealed class PapyrusDecompiler
         void RefuseCrossing(string what, int effectIndex)
         {
             foreach (var name in _pendingOrder)
-                if (_pendingStart[name] >= _consumedStart && _pendingStart[name] < effectIndex)
+                if (_pendingStart[name] >= _consumedStart && _pendingStart[name] < effectIndex
+                    && CanObserveAnEffect(name))
                     throw new StructureException(
                         $"{what} @{_cur} runs after pending {name} in the stream and would be emitted before it, which is an order the source cannot express");
         }
+
+        /// <summary>Can this pending value tell whether it ran before or after a statement's effect? Only if
+        /// it runs a call, or reads through an object — a property, an array element. Arithmetic over locals
+        /// cannot see a store and no store can see it, so moving it to either side of one is not a reorder
+        /// anyone can observe, and refusing it would cost an answer that is right.</summary>
+        bool CanObserveAnEffect(string name)
+            => _pendingLastCall[name] != int.MinValue || ReadsThroughAnObject(_pending[name]);
+
+        static bool ReadsThroughAnObject(Expr e) => e switch
+        {
+            EProp or EIndex or ELen or EFind or ECall or EStatic or EParent => true,
+            EBin b => ReadsThroughAnObject(b.L) || ReadsThroughAnObject(b.R),
+            EUn u => ReadsThroughAnObject(u.E),
+            ECast c => ReadsThroughAnObject(c.E),
+            ENew n => ReadsThroughAnObject(n.Size),
+            _ => false,
+        };
 
         /// <summary>A statement that drains everything pending before it — a return, a branch condition —
         /// takes the same refusal from the other side: a value produced after the one this statement carries
@@ -527,7 +545,7 @@ public sealed class PapyrusDecompiler
         void RefuseDrainingPast(string what, int carriedStart)
         {
             foreach (var name in _pendingOrder)
-                if (_pendingStart[name] > carriedStart)
+                if (_pendingStart[name] > carriedStart && CanObserveAnEffect(name))
                     throw new StructureException(
                         $"{what} @{_cur} carries a value produced before pending {name}, which cannot be ordered either side of it");
         }
