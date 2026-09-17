@@ -873,7 +873,15 @@ public sealed class PapyrusDecompiler
                             i++; break;
                         }
                         if (dest is null) throw new StructureException($"value op with no dest @{i}");
-                        if (IsTemp(dest) && !Materialized.Contains(dest)) { SetPending(dest, expr, stmts, Math.Min(_consumedStart, i), effect); i++; break; }
+                        if (IsTemp(dest) && !Materialized.Contains(dest))
+                        {
+                            // The call runs here even though its result only goes pending, so the crossing is
+                            // settled at the fold rather than at whatever later statement consumes the temp —
+                            // a discarded result or a region-end flush never reaches one.
+                            if (IsCallOpcode(op)) RefuseCrossing("call", i);
+                            SetPending(dest, expr, stmts, Math.Min(_consumedStart, i), effect);
+                            i++; break;
+                        }
                         // The write is the same store as a plain assignment: outside function scope it is
                         // visible to a call held back past it, inside it is not.
                         RefuseCrossing(IsCallOpcode(op) ? "call" : "store", IsFunctionScoped(dest) ? effect : i);
