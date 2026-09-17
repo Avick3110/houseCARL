@@ -4,15 +4,12 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>The json skeleton the three <c>housecarl_skse</c> family documents share: the family it ran, the two it
-/// did not (the in-band twin of the text footer — a json document cannot carry the footer's prose), the filter and
-/// profile it answered under, and the small writers the three bodies reuse. Each family's own serializer lives
-/// beside its text render rather than here, because the twin must classify with the SAME judge the text render uses
-/// — a copy elsewhere would be free to drift, which is the one thing a twin may not do.</summary>
+/// <summary>The json skeleton the three <c>housecarl_skse</c> family documents share: the family that ran, the two
+/// that did not, the filter and profile, and the small writers the bodies reuse. Each family's own serializer lives
+/// beside its text render, because the twin must classify with the SAME judge; see docs/architecture/skse-layer.md.</summary>
 static class SkseJsonDoc
 {
-    /// <summary>Write one family document. <paramref name="body"/> gets the writer and the stream behind it, so a
-    /// row loop can flush and measure against max_chars the way every other json render does.</summary>
+    /// <summary>Write one family document; <paramref name="body"/> gets the writer and the stream, so a row loop can flush and measure.</summary>
     internal static string Write(SkseTools.SkseFamily family, string? filter, string profile,
                                  Action<Utf8JsonWriter, CharCountedStream> body)
     {
@@ -57,8 +54,7 @@ static class SkseJsonDoc
         w.WriteEndArray();
     }
 
-    /// <summary>The build-level caveats every family carries — the same three the text render's caveat block writes,
-    /// and the three the accounting's <c>notes</c> counts.</summary>
+    /// <summary>The build-level caveats every family carries — the same three the text render writes and the accounting counts.</summary>
     internal static void Caveats(Utf8JsonWriter w, bool readIncomplete, IReadOnlyList<string> warnings,
                                  IReadOnlyList<string> bsaFailures)
     {
@@ -69,20 +65,15 @@ static class SkseJsonDoc
         w.WriteEndObject();
     }
 
-    /// <summary>Is the document already at its char ceiling? Characters, not the bytes the stream holds — the same
-    /// count <see cref="JsonWire.Chars"/> gives every other json render. The writer BUFFERS, so what it still holds
-    /// is part of the document and a row loop that budgets by length must flush first, as this does.</summary>
+    /// <summary>Is the document already at its char ceiling? Characters, not bytes, and the writer is flushed first because it buffers.</summary>
     internal static bool Over(Utf8JsonWriter w, CharCountedStream ms, int cap)
     {
         w.Flush();
         return JsonWire.Chars(ms) >= cap;
     }
 
-    /// <summary>The chars held back from max_chars for the tail every family document closes on — the caveats object,
-    /// the accounting object, and whatever conditional members that family may still write after its row arrays. The
-    /// json twin of <see cref="TransportAccounting.Reserve"/>: without it the row loops fill the document to the cap
-    /// and the tail is written past it. Measured by composing the widest tail, so no rendering of it can outgrow its
-    /// own room.</summary>
+    /// <summary>The chars held back from max_chars for the tail every family document closes on — the json twin of
+    /// <see cref="TransportAccounting.Reserve"/>, measured by composing the widest tail so no rendering outgrows it.</summary>
     internal static int TailReserve(bool readIncomplete, IReadOnlyList<string> warnings, IReadOnlyList<string> bsaFailures,
                                     TransportCounts widest, Action<Utf8JsonWriter>? conditional = null)
     {
