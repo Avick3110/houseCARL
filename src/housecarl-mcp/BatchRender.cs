@@ -2,23 +2,14 @@ using System.Text;
 
 namespace HousecarlMcp;
 
-/// <summary>The shared batch-render skeleton behind housecarl_asset_status, housecarl_nif_inspect and housecarl_place: a header count line, the batch-level
-/// alarms once and first (so a long batch cannot truncate them away), a per-item loop that lays WHOLE items inside a
-/// budget, and an explicit omitted-count cut. max_chars is a ceiling on the finished response: everything written
-/// after the items — the caller's trailer and this skeleton's own cut notice — is charged before the first item is
-/// laid, and an item that would cross what is left is taken back out rather than left hanging past the cap. A cut is
-/// always named — never a silent truncation. Callers supply the header, the alarms block, the per-item renderer, the
-/// cap, and the noun the omitted-count line counts in.</summary>
+/// <summary>The shared batch-render skeleton behind housecarl_asset_status, housecarl_nif_inspect and
+/// housecarl_place: a header count line, the batch-level alarms once and first, a per-item loop that lays WHOLE
+/// items inside a budget, and an explicit omitted-count cut. Contract in docs/architecture/render-budget.md.</summary>
 static class BatchRender
 {
-    /// <summary>Renders one batch. <paramref name="itemNoun"/> is the plural-ish noun the cut line counts, e.g.
-    /// "path(s)" or "mesh(es)". <paramref name="reserve"/> is room the caller will write AFTER this body — an
-    /// accounting line, a footer — held back out of <paramref name="cap"/> so what follows fits inside max_chars
-    /// rather than past it. <paramref name="shown"/> is how many items reached the page, so the caller's accounting
-    /// counts what the reader can see rather than a counter the loop bumped for an item it then took back out.
-    /// The alarms and the item renderer are handed the budget, not the cap, so their own inner cuts land where the
-    /// response's ceiling actually is. The cut marker still names <paramref name="cap"/>: that is the number the
-    /// caller passed and the number they would raise.</summary>
+    /// <summary>Renders one batch. <paramref name="reserve"/> is room the caller will write AFTER this body, held
+    /// back out of <paramref name="cap"/>; <paramref name="shown"/> is how many items reached the page. The alarms
+    /// and the item renderer are handed the budget, not the cap, while the cut marker still names the cap.</summary>
     public static string Render<T>(
         string header,
         IReadOnlyList<T> items,
@@ -29,8 +20,7 @@ static class BatchRender
         out int shown,
         int reserve = 0)
     {
-        // The notice is written INSIDE the ceiling when it fires, so its widest spelling is charged with the
-        // caller's trailer before anything else is laid.
+        // The notice is written INSIDE the ceiling, so its widest spelling is charged before anything is laid.
         var budget = RenderCap.For(cap, reserve + NoticeReserve(items.Count, itemNoun, cap));
         var sb = new StringBuilder();
         sb.Append(header).Append('\n');
@@ -45,15 +35,11 @@ static class BatchRender
             if (roomBefore) appendItem(sb, items[i], budget);
             if (roomBefore && sb.Length <= budget.Budget) { shown++; continue; }
 
-            // Whole items only: the one that crossed is taken back out, and what it would have needed is named.
+            // Whole items only: the one that crossed is taken back out.
             int itemLength = sb.Length - mark;
             sb.Length = mark;
             sb.Append('\n');
-            // "Wider than the whole budget" is a claim about the item, so it is made only when the item would not
-            // have fitted an empty page either. When the alarms above it are what filled the budget, the item is
-            // ordinary and the cut marker is the honest line. The item's place in the list does not change that: an
-            // item nothing can make room for is named wherever it falls, or the cut marker sends the caller round a
-            // raise that cannot work.
+            // "Wider than the whole budget" is claimed only when the item would not have fitted an empty page.
             if (roomBefore && headerEnd + itemLength > budget.Budget)
                 sb.Append(Oversize(items.Count - shown, itemNoun, cap,
                                    Needed(Widest(header, items, i, appendAlarms, appendItem) + reserve, items.Count, itemNoun, cap)));
@@ -63,15 +49,13 @@ static class BatchRender
         return sb.ToString().TrimEnd('\n');
     }
 
-    /// <summary>What this response costs with nothing cut down to <paramref name="upTo"/>: the header, the alarms and
-    /// every item through the one that crossed, each rendered against a budget none of them can exhaust. A render whose
-    /// content grows to fill the room it is given — a mesh's detail sections, a cut alarm list — is WIDER at a wider
-    /// cap, so a remedy measured against the cut form comes back short and has to be followed twice. Measured only on
-    /// the path that names one, which is the path that already gave up on this response.</summary>
+    /// <summary>What this response costs with nothing cut down to <paramref name="upTo"/>, each part rendered
+    /// against a budget none of them can exhaust — a render that grows to fill its room is WIDER at a wider cap,
+    /// so a remedy measured against the cut form would come back short.</summary>
     static int Widest<T>(string header, IReadOnlyList<T> items, int upTo,
                          Action<StringBuilder, RenderCap> appendAlarms, Action<StringBuilder, T, RenderCap> appendItem)
     {
-        // Half of int.MaxValue: a budget no render can reach, with room left for the reserves each one subtracts.
+        // Half of int.MaxValue: a budget no render can reach, with room for the reserves each one subtracts.
         var room = new RenderCap(int.MaxValue / 2, int.MaxValue / 2);
         var sb = new StringBuilder();
         sb.Append(header).Append('\n');
@@ -80,9 +64,7 @@ static class BatchRender
         return sb.Length;
     }
 
-    /// <summary>The max_chars that clears this item in ONE step. The notice quoting it prints the cap as well as the
-    /// remedy, so a wider answer widens the reserve the item then has to clear: the number is settled against its own
-    /// rendered width rather than named short by the digits it grew.</summary>
+    /// <summary>The max_chars that clears this item in ONE step, settled against its own rendered width.</summary>
     static int Needed(int floor, int count, string itemNoun, int cap)
     {
         int needed = floor + NoticeReserve(count, itemNoun, cap);
@@ -95,17 +77,14 @@ static class BatchRender
         return needed;
     }
 
-    /// <summary>The chars held back for whichever notice this render may end on, at its widest spelling: every item
-    /// omitted, and an oversize remedy whose number has grown to its full width.</summary>
+    /// <summary>The chars held back for whichever notice this render may end on, at its widest spelling.</summary>
     static int NoticeReserve(int count, string itemNoun, int cap) =>
         1 + Math.Max(Cut(count, itemNoun, cap).Length, Oversize(count, itemNoun, cap, int.MaxValue).Length);
 
-    /// <summary>The widest this cut marker can be spelled at <paramref name="cap"/>, so a caller whose list may end on
-    /// one charges its room before the list starts rather than appending it past the budget.</summary>
+    /// <summary>The widest this cut marker can be spelled at <paramref name="cap"/>.</summary>
     public static int CutReserve(string itemNoun, int cap) => Cut(int.MaxValue, itemNoun, cap).Length;
 
-    /// <summary>The one cut marker: how many items were left out, and the max_chars that left them out. An empty
-    /// <paramref name="itemNoun"/> counts unnamed items ("3 more omitted").</summary>
+    /// <summary>The one cut marker: how many items were left out, and the max_chars that left them out.</summary>
     public static void AppendCut(StringBuilder sb, int remaining, string itemNoun, int cap) =>
         sb.Append(Cut(remaining, itemNoun, cap));
 
@@ -118,9 +97,8 @@ static class BatchRender
         return sb.ToString();
     }
 
-    /// <summary>The other way a batch stops: ONE item is wider than the whole budget, so no cut of the list can help.
-    /// It is said rather than dropped, and the remedy is the number that clears it in one step — max_chars is the
-    /// parameter that narrows nothing else here.</summary>
+    /// <summary>The other way a batch stops: ONE item is wider than the whole budget, so no cut of the list can
+    /// help. It is said rather than dropped, with the number that clears it in one step.</summary>
     static string Oversize(int count, string itemNoun, int cap, int needed)
     {
         var sb = new StringBuilder();
@@ -132,23 +110,19 @@ static class BatchRender
         return sb.ToString();
     }
 
-    /// <summary>The BSAs that could not be read this build, each named with its owning plugin and the reason. An item
-    /// present only in one of these is indistinguishable from a truly absent one, so an "ABSENT" below is
-    /// authoritative only when this list is empty. <paramref name="subjectPhrase"/> names the thing with its article,
-    /// e.g. "an asset" or "a mesh".</summary>
+    /// <summary>The BSAs that could not be read this build, each named with its owning plugin and the reason — an
+    /// "ABSENT" below is authoritative only when this list is empty.</summary>
     public static void AppendReadFailures(StringBuilder sb, IReadOnlyList<string> failures, string subjectPhrase, RenderCap cap)
     {
         if (failures.Count == 0) return;
-        // The heading carries the count, and the count IS the alarm, so it is written whatever the budget: an answer
-        // that quietly loses it reads as a clean sweep. A cap too small to hold it is named by RenderCap.Settle, which
-        // is the arm for what a response must carry whatever the budget.
+        // The heading carries the count, and the count IS the alarm, so it is written whatever the budget.
         sb.Append("\n[!] ").Append(failures.Count).Append(" archive(s) could NOT be read this build — ")
           .Append(subjectPhrase).Append(" present only in these may read as ABSENT below:\n");
         AppendLines(sb, failures, "archive(s)", cap);
     }
 
-    /// <summary>Archive-discovery warnings, e.g. a Skyrim.ini whose [Archive] base-archive list could not be found, so
-    /// the vanilla base BSAs are not in the scan and an "ABSENT" for a base-game asset must not be over-trusted.</summary>
+    /// <summary>Archive-discovery warnings, e.g. a Skyrim.ini whose [Archive] base-archive list could not be found,
+    /// so the vanilla base BSAs are not in the scan.</summary>
     public static void AppendDiscoveryWarnings(StringBuilder sb, IReadOnlyList<string> warnings, RenderCap cap)
     {
         if (warnings.Count == 0) return;
@@ -157,9 +131,8 @@ static class BatchRender
         AppendLines(sb, warnings, "warning(s)", cap);
     }
 
-    /// <summary>A capped bullet list inside an alarm block, cut with the same named marker. Whole lines only, and the
-    /// marker's own room is charged before the first line, so cutting the list cannot push it past the ceiling. The
-    /// heading above it is the alarm and is unconditional; only these detail lines are cut.</summary>
+    /// <summary>A capped bullet list inside an alarm block, cut with the same named marker. Whole lines only, and
+    /// the marker's own room is charged before the first line; the heading above it is unconditional.</summary>
     public static void AppendLines(StringBuilder sb, IReadOnlyList<string> lines, string itemNoun, RenderCap cap)
     {
         var room = cap.Less(Cut(lines.Count, itemNoun, cap.Cap).Length);
