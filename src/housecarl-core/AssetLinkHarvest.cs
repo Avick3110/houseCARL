@@ -7,20 +7,12 @@ using Mutagen.Bethesda.Plugins.Records;
 
 namespace HousecarlCore;
 
-// ======================================================================
-//  AssetLinkHarvest — every asset path a set of records declares, by construction.
-//
-//  A generic IAssetLinkGetter walk over each record's property graph (lists and substructs
-//  included), never a per-record-type field list: a record type Mutagen models carries its
-//  asset links here with no edit. It reads paths and nothing else — it opens no file, decides
-//  no precedence and places nothing; what to do with a path is the caller's.
-// ======================================================================
+// AssetLinkHarvest — every asset path a set of records declares, by construction: a generic IAssetLinkGetter walk
+// over each record's property graph, never a per-record-type field list. It reads paths and nothing else.
 
 public static class AssetLinkHarvest
 {
-    /// <summary>Harvest every asset path the given records list — the generic <see cref="IAssetLinkGetter"/> walk over
-    /// each record's property graph (lists + substructs included), by construction rather than a per-type field list.
-    /// Paths come back Data-relative (Mutagen's DataRelativePath — e.g. a Model.File 'x.nif' → 'meshes\x.nif').</summary>
+    /// <summary>Harvest every asset path the given records list. Paths come back Data-relative (Mutagen's DataRelativePath).</summary>
     public static IReadOnlyList<string> HarvestAssetPaths(IEnumerable<IMajorRecordGetter> records)
     {
         var paths = new List<string>();
