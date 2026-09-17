@@ -587,10 +587,11 @@ public sealed class PapyrusDecompiler
         /// <see cref="EmitsAnInstruction"/> accepts is a statement here, not only a call: a discarded cast or
         /// property read that ran before a discarded call would otherwise come out after it. The scan for a
         /// downstream read starts at the instruction after the branch, so a value only the ARM reads survives
-        /// too, not only one the join reads.</summary>
+        /// too, not only one the join reads. Production order, like the other drain: a pure fold is created
+        /// after the call it folds in and starts where that call does.</summary>
         void FlushPendingStatements(List<string> stmts, int scanFrom)
         {
-            foreach (var name in _pendingOrder.ToList())
+            foreach (var name in _pendingOrder.OrderBy(n => _pendingStart[n]).ToList())
             {
                 // A temp read downstream is a value, not a statement — the later flush materializes it.
                 if (IsTemp(name) && ReadsBeforeWrite(scanFrom, _ins.Count, name)) continue;
