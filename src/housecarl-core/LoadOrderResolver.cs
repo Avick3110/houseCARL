@@ -686,15 +686,14 @@ public sealed class LoadOrderResolver : IDisposable
             }
         }
 
-        // Both dictionaries are readonly from here on (every use is TryGetValue / Keys / Count), so the spare buckets
-        // a 3-million-key build grows are dead weight for the whole session — trim them, then settle the heap once so
-        // the slack goes back to the OS instead of being held until something else asks for it. #728.
+        // The winner index is readonly from here on (every use is TryGetValue / Keys / Count) and was built at about
+        // half fill, so its spare buckets are dead weight for the whole session — trim them, then settle the heap once
+        // so the slack goes back to the OS instead of being held until something else asks for it. The overrider map
+        // needs no trim: ToDictionary presizes from the source's count. #728.
         index.TrimExcess();
-        var overriderArrays = overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray());  // trim List overhead → int[]
-        overriderArrays.TrimExcess();
         var snapshot = new IndexSnapshot(
             index,
-            overriderArrays,
+            overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
             failures, excluded, unopenable, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _stamps, excludedPlugins),
             light, firstUnknownKind, firstUnknownKindName, containment, masterBlock);
         GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
