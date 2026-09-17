@@ -697,6 +697,52 @@ public class DecompileNoneResultTests
         Assert.Contains("::temp1", Assert.Single(res.Failures));
     }
 
+    [Fact]
+    public void AnArrayElementReadNeverOvertakesACallProducedAfterIt()
+    {
+        // The element is read where the instruction is, and `Bar` can write it — the array element set's
+        // reason with the read and the write swapped.
+        var f = Fn(("HC_NoneTarget", "f"), ("Int[]", "arr"));
+        Local(f, "Int", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "Int", "::temp2");
+        Local(f, "Int", "x");
+        Local(f, "Int", "num");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.ARRAY_GETELEMENT, Id("::temp2"), Id("arr"), Id("::temp0"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("x"), Id("::temp2"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("num"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("ElementRead", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+    }
+
+    [Fact]
+    public void AnArrayLengthReadIsNotTreatedAsARead()
+    {
+        // A Papyrus array's length cannot change under a call, so this one stays clean and in order.
+        var f = Fn(("HC_NoneTarget", "f"), ("Int[]", "arr"));
+        Local(f, "Int", "::temp1");
+        Local(f, "Int", "::temp2");
+        Local(f, "Int", "x");
+        Local(f, "Int", "num");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("arr"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.ARRAY_LENGTH, Id("::temp2"), Id("arr"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("x"), Id("::temp2"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("num"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("LengthRead", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        AssertOrder(res.Source, "f.Bar()", "arr.Length");
+    }
+
     /// <summary>No emitted line carries <paramref name="stranded"/> after a `return` in the same block.</summary>
     static void AssertNoStatementAfterReturn(string source, string stranded)
     {
