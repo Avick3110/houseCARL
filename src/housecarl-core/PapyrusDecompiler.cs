@@ -540,9 +540,11 @@ public sealed class PapyrusDecompiler
         /// materialize it as a named-local assignment, never discard it. The rest are discarded
         /// results from earlier statements — emit in evaluation order as bare expression statements, which
         /// PCompiler accepts and compiles back to the one instruction each came from — a bare call, a bare
-        /// `x + y`, a bare `x as int`, a bare property read, a bare `arr[0]`. A bare identifier or literal
-        /// is the exception: PCompiler emits nothing at all for it, so emitting one would drop the
-        /// instruction the value came from, and it stays a loud failure.
+        /// `x + y`, a bare explicit `x as int`, a bare property read, a bare `arr[0]`. A bare identifier or
+        /// literal is the exception: PCompiler emits nothing at all for it, so emitting one would drop the
+        /// instruction the value came from, and it stays a loud failure. That takes in a CAST the decoder
+        /// strips as implicit — to Bool or String, Int to Float, an identity cast, an upcast — because what
+        /// is left pending for it is the bare source.
         /// A statement that CARRIES a pending value only drains what was produced before that value:
         /// anything newer was evaluated after it, and emitting it here would put it ahead of the
         /// statement the older value belongs to, swapping two calls. Those stay pending for the next
