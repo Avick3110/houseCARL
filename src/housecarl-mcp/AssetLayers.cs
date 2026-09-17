@@ -7,28 +7,11 @@ namespace HousecarlMcp;
 
 public sealed partial class LoadOrderService
 {
-    /// <summary>Resolve a batch of Data-relative asset paths through the MO2 VFS (housecarl_asset_status): for each,
-    /// which source provides it and which copy wins (loose beats BSA; among BSAs the higher plugin rank). One
-    /// <see cref="AssetResolver.Capture"/> for the whole batch, so every path and the build-level BsaFailures /
-    /// ReadIncomplete caveat describe a single build. A drive-rooted or '..'-escaping path is a per-path recoverable
-    /// error, never a batch failure.
-    /// <para><paramref name="under"/> is the directory / glob SELECT form (#246): each selector names a Data-relative
-    /// folder, or a glob anchored under one, and contributes every path the VFS provides beneath it
-    /// (<see cref="AssetGlob"/>). Its matches follow the explicit paths, sorted, with anything already named dropped.
-    /// <para><paramref name="seeds"/> is the <c>formids=</c> SELECT: each NPC contributes BOTH halves of its FaceGen
-    /// pair (<see cref="FaceGenPath"/>, a pure transform of the FormKey — no record is read), mesh then tint, and each
-    /// row carries the other half's winner beside its own so a whole-order pairing sweep is one call.
-    /// <paramref name="wholeSelection"/> is the <c>to_file=</c> disposition: the artifact is never a window, so every
-    /// selected path is resolved whatever <paramref name="limit"/> says. The per-call bound is
-    /// <see cref="RenderBudget.MaxAssetPaths"/> and it is on the paths this call RESOLVES: where a window is taken
-    /// only the window is resolved and the walk runs to the end as it always has, and where the whole selection is
-    /// resolved — <paramref name="wholeSelection"/>, or no <paramref name="limit"/> at all — the
-    /// <paramref name="under"/> enumeration stops the moment it would cross the bound, so the refusal costs the
-    /// bound's worth of walking rather than the whole order's.</para>
-    /// <paramref name="limit"/> and <paramref name="offset"/> window the SELECTION, so only the window is RESOLVED —
-    /// the per-path winner and provider chain, which is the expensive half. The selector ENUMERATION is not memoized:
-    /// each page re-walks the loose roots and re-scans the archive tables under the prefix, so a paged sweep pays the
-    /// enumeration once per page and the resolution once per rendered path.</para></summary>
+    /// <summary>Resolve a batch of Data-relative asset paths through the MO2 VFS (housecarl_asset_status): which source
+    /// provides each, and which copy wins. ONE <see cref="AssetResolver.Capture"/> for the batch, so every path and the
+    /// build-level caveats describe a single build; a bad path is a per-path error, never a batch failure.
+    /// <paramref name="under"/> is the directory/glob SELECT, <paramref name="seeds"/> the FaceGen <c>formids=</c> one,
+    /// and <paramref name="wholeSelection"/> the <c>to_file=</c> disposition (docs/architecture/assets.md).</summary>
     public AssetStatusData AssetStatus(
         IReadOnlyList<string> relPaths,
         IReadOnlyList<string>? under = null,
@@ -41,16 +24,13 @@ public sealed partial class LoadOrderService
         {
             var view = Assets.Capture();                          // reentrant gate; build/refresh the asset resolver once for the batch
             var notes = new List<string>();
-            // The selection, one entry per path to resolve. A FaceGen entry also names the NPC it came from and the
-            // OTHER half of its pair, which is the only thing the row shape carries beyond a plain path.
             var selected = new List<Selection>(relPaths.Count);
             foreach (var p in relPaths) selected.Add(new Selection(p ?? "", null, null, null));   // explicit paths first, in the order given, never deduped
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var p in relPaths)
                 try { seen.Add(AssetResolver.ValidateRelPath((p ?? "").Trim())); } catch (ArgumentException) { /* a bad explicit path answers per-path below */ }
 
-            // formids=: each NPC contributes BOTH halves of its FaceGen pair, mesh then tint, each row naming the
-            // other half. A pure transform of the FormKey — no record is read, so the list costs no winner seek.
+            // formids=: each NPC contributes BOTH halves of its pair, a pure transform of the FormKey, so no record is read.
             foreach (var seed in seeds ?? Array.Empty<FaceGenSeed>())
             {
                 if (seed.Error is not null || seed.Key is not { } fk)
@@ -66,12 +46,7 @@ public sealed partial class LoadOrderService
                 seen.Add(tint);
             }
 
-            // The bound is on what this call RESOLVES. Where a window is taken, only the window is resolved — so the
-            // walk runs to the end exactly as it always has, and the bound applies to the window below; a paged sweep
-            // over a huge folder still answers, which is what the under= lane was built for. Where the whole
-            // selection is resolved instead — to_file=, or no limit= at all — the selection IS the resolve, so the
-            // enumeration stops the moment it would cross the bound and the refusal costs the bound's worth of
-            // walking rather than the whole order's.
+            // The bound is on what this call RESOLVES: a window's walk runs to the end, while a whole-selection resolve stops the enumeration the moment it would cross it.
             bool wholeIsResolved = wholeSelection || limit <= 0;
             bool overBound = false;
             foreach (var raw in under ?? Array.Empty<string>())
@@ -81,16 +56,14 @@ public sealed partial class LoadOrderService
                 if (sel.Length == 0) { notes.Add("under: an empty selector was skipped — pass a Data-relative directory or glob."); continue; }
                 try
                 {
-                    // One past what is left of the budget: a selector that fills it has proved the selection is over.
-                    // 0 = no cap, for the windowed lane, where the selection is not what gets resolved.
+                    // One past what is left of the budget: a selector that fills it has proved the selection is over. 0 = no cap.
                     int room = wholeIsResolved ? Math.Max(RenderBudget.MaxAssetPaths - selected.Count, 0) + 1 : 0;
                     var matched = AssetGlob.Select(view, sel, out var namedOneFile, room, out var stopped);
                     overBound |= stopped;
                     // A selector that named a FILE is said out loud too, so the sweep's own count is explained.
                     if (namedOneFile)
                         notes.Add($"under '{sel}' names a file, not a directory — it was resolved as that one path.");
-                    // A selector that matched nothing is said out loud: read as a silent no-op it looks identical to a
-                    // folder no enabled mod provides, and a typo would then read as a clean sweep.
+                    // A selector that matched nothing is said out loud: silent, a typo would read as a clean sweep.
                     else if (matched.Count == 0)
                         notes.Add($"under '{sel}' matched no file in the active load order — check the spelling, or nothing enabled provides that folder.");
                     foreach (var m in matched) if (seen.Add(m)) selected.Add(new Selection(m, null, null, null));
@@ -101,23 +74,17 @@ public sealed partial class LoadOrderService
                 return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.ReadIncomplete,
                                            AssetWarningsLocked(), _profileName, notes, selected.Count, Math.Max(offset, 0),
                                            Math.Max(limit, 0),
-                                           // Dedup against paths already named can leave the running count at the
-                                           // bound rather than past it; the walk stopping is the proof it is over.
+                                           // Dedup can leave the running count at the bound rather than past it; the walk stopping is the proof.
                                            RenderBudget.RefuseAssetPaths(Math.Max(selected.Count, RenderBudget.MaxAssetPaths + 1),
                                                                          wholeSelection, atLeast: true)!);
 
-            // Page over the SELECTED set and resolve only the window, so a 15k-file sweep pays for what it renders.
-            // wholeSelection is the to_file= disposition: the artifact is never a window, so it resolves everything.
             var total = selected.Count;
             var start = wholeSelection ? 0 : Math.Min(Math.Max(offset, 0), total);
             var window = wholeSelection
                 ? selected
                 : selected.Skip(start).Take(limit > 0 ? limit : int.MaxValue).ToList();
 
-            // The declared cost, stated before a single path is resolved: past the bound the call says what it would
-            // have spent instead of going quiet. One resolution a row, because the lookaside below reuses a pair's —
-            // plus one where the window's LAST row's partner fell outside it, whose pair is then resolved for a row
-            // nobody renders.
+            // The declared cost, stated before a path is resolved: past the bound the call says what it would have spent.
             int toResolve = window.Count(s => s.Error is null)
                           + (window.Count > 0 && window[^1].PairPath is { } lastPair
                              && (window.Count < 2 || !string.Equals(lastPair, window[^2].Path, StringComparison.OrdinalIgnoreCase))
@@ -127,12 +94,7 @@ public sealed partial class LoadOrderService
                                            AssetWarningsLocked(), _profileName, notes, total, Math.Max(offset, 0),
                                            Math.Max(limit, 0), tooBig);
 
-            // A TWO-ENTRY lookaside, not a call-scoped memo. A pair's halves are pushed adjacently above, so the tint
-            // row's own path is the mesh row's pair and vice versa — one row of history gives the identical dedup at
-            // O(1) retention, where a whole-call dictionary would hold a third reference to every AssetHit in the
-            // selection plus a fresh copy of every path string until the call returned (131,496 of each on the
-            // measured sweep). An explicit path repeated in the selection resolves twice, which is what
-            // "explicit paths are never deduped" already says.
+            // A TWO-ENTRY lookaside, not a call-scoped memo: a pair's halves are adjacent, so one row of history gives the identical dedup at O(1) retention.
             string? seenA = null, seenB = null;
             AssetHit? seenAHit = null, seenBHit = null;
             AssetHit Resolve(string p)
@@ -150,15 +112,11 @@ public sealed partial class LoadOrderService
                 try
                 {
                     var hit = Resolve(p);
-                    // Only on ABSENT: a path taken off a record is stored relative to its root folder (a model path
-                    // to meshes\, a texture path to textures\). Both roots are tried because this lane, unlike
-                    // nif_inspect, doesn't know the path's kind, and only VERIFIED prefixes are suggested — this tool
-                    // legitimately answers for sound\, scripts\, interface\ and the rest.
+                    // Only on ABSENT, and only VERIFIED prefixes: a path taken off a record is stored relative to its root folder.
                     var suggest = hit.Exists ? Array.Empty<string>()
                                              : AssetPathHint.VerifiedPrefixes(view, p, AssetPathHint.AssetRoots);
                     var pair = sel.PairPath is null ? null : Resolve(sel.PairPath);
                     results.Add(new AssetPathResult(p, hit, null, suggest, sel.FormId, sel.Slot, sel.PairPath, pair));
-                    // This row's two hits are the next row's, when the next row is this one's partner.
                     seenA = p; seenAHit = hit;
                     seenB = sel.PairPath; seenBHit = pair;
                 }
@@ -170,29 +128,16 @@ public sealed partial class LoadOrderService
         }
     }
 
-    /// <summary>One entry of an <c>asset_status</c> selection: the path to resolve, and — on a row the
-    /// <c>formids=</c> SELECT derived — the NPC it came from, which half of the FaceGen pair it is, and the other
-    /// half's path. <c>Error</c> is a token that never became a path (a malformed FormID), carried through so it
-    /// answers as its own row.</summary>
+    /// <summary>One entry of an <c>asset_status</c> selection: the path, and on a <c>formids=</c> row the NPC, the slot and the other half's path. <c>Error</c> answers as its own row.</summary>
     readonly record struct Selection(string Path, string? FormId, FaceGenSlot? Slot, string? PairPath, string? Error = null);
 
-    // ---- SKSE-plugin-layer visibility: inventory the DLLs, configs and winning provider, plus each plugin DLL's
-    //      statically declared manifest. Read-only; reuses the asset VFS and the PE reader. ----
+    // ---- SKSE-plugin-layer visibility: the DLLs, configs, winning provider and each DLL's declared manifest ----
 
-    /// <summary>Inventory the SKSE-plugin layer as the active load order resolves it: the full depth of
-    /// Data\SKSE\Plugins — every <c>.dll</c> and every <c>.ini</c>/<c>.toml</c>/<c>.json</c>/<c>.yaml</c> config at any
-    /// depth — with the mod that wins the VFS for each, and for every DLL the statically declared manifest via
-    /// <see cref="SksePluginReader"/>. Every file is accounted for: configs carry their derived subfolder
-    /// <see cref="SkseFileEntry.Group"/> (whatever the modlist ships, never a hardcoded framework list) and non-config
-    /// content is counted in <see cref="SkseInventoryData.OtherFileCount"/> rather than dropped. A subfolder DLL is
-    /// listed but flagged: SKSE scans Data\SKSE\Plugins\*.dll top-level only, so it is not loaded as a plugin. One
-    /// asset capture pins the whole scan, and the enumerate, resolve and PE reads run outside the gate (the captured
-    /// view is a handle-free immutable snapshot) so an inventory never serializes other tool calls behind its file
-    /// I/O. Distributor INIs (SPID <c>*_DISTR</c>, KID <c>*_KID</c>) live in the Data root, not here.</summary>
-    /// <param name="peekFilter">When non-null, every DLL entry matching it (<see cref="SkseFileEntry.MatchesDll"/>,
-    /// the same predicate the renderer filters on) also gets its image string-scanned into
-    /// <see cref="SkseFileEntry.Peek"/>. Null = no scan. Per-DLL because the scan reads the whole image, unlike the
-    /// import walk, which rides the manifest read every DLL already gets.</param>
+    /// <summary>Inventory the SKSE-plugin layer as the active order resolves it: every .dll and every config at any
+    /// depth under Data\SKSE\Plugins, with the mod that wins each and every DLL's declared manifest. Every file is
+    /// accounted for, the subfolder group is derived rather than a hardcoded framework list, and a subfolder DLL is
+    /// listed but flagged, because SKSE scans the top level only.</summary>
+    /// <param name="peekFilter">When non-null, a matching DLL entry is also string-scanned; per-DLL, because the scan reads the whole image.</param>
     public SkseInventoryData SkseInventory(string? peekFilter = null)
     {
         AssetResolver.AssetView view;
@@ -206,11 +151,8 @@ public sealed partial class LoadOrderService
             profileName = _profileName;
             profileDir = _profileDir;
         }
-        // The plugin names a peek's embedded-reference cross-check adjudicates against. A cheap three-file text parse
-        // with no index build, skipped entirely without peek= so a normal inventory pays nothing for it. The set is
-        // what the game actually loads: plugins.txt `*` entries plus the force-loaded base and CC masters, which load
-        // despite never appearing there — omitting the implicit ones would flag Dawnguard.esm absent on an install
-        // that has it.
+        // The plugin names a peek's cross-check adjudicates against, skipped entirely without peek=. The set is what
+        // the game loads: plugins.txt entries plus the force-loaded base and CC masters, which never appear there.
         IReadOnlySet<string>? activePlugins = null;
         if (peekFilter is { Length: > 0 })
         {
@@ -218,9 +160,7 @@ public sealed partial class LoadOrderService
             activePlugins = PeekPluginSet(Mo2LoadOrder.ReadComposition(profileDir, compWarnings));
             if (compWarnings.Count > 0) warnings = [.. warnings, .. compWarnings];
         }
-        // Outside the gate: the view is pinned and handle-free (Resolve reads only the captured snapshot and readonly
-        // roots), so enumerating, resolving and PE-reading here cannot race a concurrent refresh into wrongness and
-        // does not block other tools behind these file reads.
+        // Outside the gate: the view is pinned and handle-free, so this cannot race a refresh into wrongness.
         const string pre = "SKSE\\Plugins\\";
         var dlls = new List<SkseFileEntry>();
         var configs = new List<SkseFileEntry>();
@@ -235,7 +175,6 @@ public sealed partial class LoadOrderService
 
             string group = SkseGroupOf(rel, pre);                 // "" = top-level; else the immediate subfolder (the derived group key)
             var place = view.ResolveForPlacement(rel);
-            // The full conflict chain, winner-first: every provider and its loose/BSA kind, not just a count.
             var providers = place.Sources
                 .Select(s => new SkseProvider(s.ProviderName, KindLabel(s.Kind)))   // shared kind→label helper (explicit switch, never a defaulted "loose")
                 .ToList();
@@ -249,10 +188,7 @@ public sealed partial class LoadOrderService
                 if (winner is { Kind: AssetKind.Loose, LooseFilePath: { } path })
                 {
                     info = SksePluginReader.Read(path);           // the winning loose copy
-                    // What MO2 recorded for the mod that ships it, read once per mod: a mod shipping several DLLs
-                    // (an AIO) would otherwise re-read the same meta.ini for each of them. Carried only for a DLL that
-                    // IS an SKSE plugin: a mod's version describes the plugin it ships, not the redistributable
-                    // (tbb.dll, msdia140.dll) bundled beside it, where it would read as a false disagreement.
+                    // What MO2 recorded for the mod that ships it, read once per mod, and only for a DLL that IS an SKSE plugin.
                     if (info.Kind is SksePluginReader.SksePluginKind.Modern or SksePluginReader.SksePluginKind.LegacyQuery
                         && Mo2ModMeta.ModRootForLooseFile(path, rel) is { } modRoot)
                     {
@@ -265,8 +201,7 @@ public sealed partial class LoadOrderService
                 if (group.Length > 0 && note is null)
                     note = $"in subfolder '{group}' — NOT on SKSE's loader path (scans SKSE\\Plugins\\*.dll top-level only); a bundled/parent-loaded DLL, not a plugin SKSE loads";
                 var entry = new SkseFileEntry(rel, Path.GetFileName(rel), group, providers, info, note, ModVersion: modVersion);
-                // String peek only for a filter-matched DLL with a loose winner — the copy SKSE would load. A BSA-only
-                // DLL never loads, so peeking it would describe an image the game never reads.
+                // String peek only for a loose winner — the copy SKSE would load. A BSA-only DLL never loads.
                 if (peekFilter is { Length: > 0 } && entry.MatchesDll(peekFilter)
                     && winner is { Kind: AssetKind.Loose, LooseFilePath: { } peekPath })
                     entry = entry with { Peek = SksePeek.Scan(peekPath) };
@@ -279,13 +214,8 @@ public sealed partial class LoadOrderService
             warnings, profileName, activePlugins, peekFilter is { Length: > 0 });
     }
 
-    /// <summary>Why a loose, loader-scoped SKSE plugin DLL statically cannot load, or null when nothing stops it. The
-    /// blocker chain for the winning loose copy, in severity order; a non-null result rides
-    /// <see cref="NativePairedDll.LoadBlocker"/>, which the pairing verdict already treats as dead.
-    /// The debug-build check matters because a debug-built DLL is loose, top-level, x64, readable and usually
-    /// version-independent — every other check passes it while the loader refuses it with error 126.
-    /// <paramref name="resolvable"/> is injected so the chain can be tested without a live order or a live machine
-    /// carrying the debug runtime.</summary>
+    /// <summary>Why a loose, loader-scoped SKSE plugin DLL statically cannot load, or null. The debug-build check
+    /// matters because such a DLL passes every other check while the loader refuses it with error 126.</summary>
     internal static string? LooseDllBlocker(SksePluginReader.SksePluginInfo info, Func<string, bool> resolvable)
     {
         if (info.Kind == SksePluginReader.SksePluginKind.Unreadable) return $"not a readable SKSE plugin ({info.Note})";
@@ -294,14 +224,7 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>The plugin names a peek adjudicates an embedded reference against — active plus the force-loaded
-    /// implicit masters, which load despite never appearing in plugins.txt. Returns <c>null</c>, never a partial set,
-    /// when the answer is unknowable, because "the order could not be determined" and "the order is empty" must not
-    /// render the same.
-    /// The gate is <see cref="Mo2Composition.OrderedPluginNames"/> and that choice is load-bearing: the implicit set
-    /// is derived by iterating the ordered list, so with loadorder.txt missing it collapses to empty while plugins.txt
-    /// can still hand back a non-empty active set. Gating on the merged set instead would return an active-only set
-    /// whose force-loaded masters are silently gone. Reachable in practice — reading the composition never throws on
-    /// a missing profile file, and the three profile files are independently mutable.</summary>
+    /// implicit masters. Returns null, never a partial set, when the answer is unknowable.</summary>
     internal static IReadOnlySet<string>? PeekPluginSet(Mo2Composition comp)
     {
         if (comp.OrderedPluginNames.Count == 0) return null;   // no loadorder.txt ⇒ the implicit masters are unknowable, not absent
@@ -310,10 +233,7 @@ public sealed partial class LoadOrderService
         return set.Count > 0 ? set : null;
     }
 
-    /// <summary>The immediate subfolder under SKSE\Plugins a file sits in ("" = top level) — the derived grouping key
-    /// for the SKSE inventory. Whatever a modlist ships becomes a group; a hardcoded framework list would break the
-    /// generated-coverage cornerstone and silently miscategorize anything not on it.
-    /// e.g. <c>SKSE\Plugins\SkyPatcher\Weapons\x.ini</c> → "SkyPatcher"; <c>SKSE\Plugins\EngineFixes.toml</c> → "".</summary>
+    /// <summary>The immediate subfolder under SKSE\Plugins a file sits in ("" = top level) — the DERIVED grouping key, since a hardcoded framework list would miscategorize anything not on it.</summary>
     static string SkseGroupOf(string rel, string pre)
     {
         if (!rel.StartsWith(pre, StringComparison.OrdinalIgnoreCase)) return "";
@@ -321,29 +241,20 @@ public sealed partial class LoadOrderService
         return slash < 0 ? "" : rel.Substring(pre.Length, slash - pre.Length);
     }
 
-    // ---- SKSE config audit: cross-check the form references SKSE-plugin configs declare against the real records
-    //      of the active load order. ----
+    // ---- SKSE config audit: the form references SKSE-plugin configs declare, against the real records ----
 
-    /// <summary>Per-file byte cap for the config scan: a config larger than this is a named skip, not fed to the token
-    /// scanner. Real distributor configs are KB-scale, so 16 MB trips only on content mislabeled as a config.</summary>
+    /// <summary>Per-file byte cap for the config scan: a larger config is a named skip, so 16 MB trips only on content mislabeled as a config.</summary>
     const long SkseConfigSizeCap = 16L * 1024 * 1024;
 
-    /// <summary>Audit the SKSE-plugin config layer against the load order. For every .ini/.toml/.json/.yaml under
-    /// Data\SKSE\Plugins, read the winning copy (the DLL never reads the losers), extract the form-shaped references
-    /// and path-segment plugin gates it declares, and resolve each against the active order into a verdict: OK,
-    /// PLUGIN MISSING, DANGLING, or UNPARSEABLE. Framework-agnostic — it never interprets what a reference is for.
-    /// One asset capture and one resolver index pin the whole scan; the enumerate, read and resolve run outside the
-    /// gate (the captured view is handle-free and the index a pure snapshot read). "No references found" is a normal
-    /// per-file outcome, accounted for rather than warned about.</summary>
+    /// <summary>Audit the SKSE-plugin config layer: read each config's winning copy, extract the form references and
+    /// plugin gates it declares, and resolve each into a verdict. Framework-agnostic; two captures pin the scan.</summary>
     public SkseConfigAuditData SkseConfigAudit()
     {
         AssetResolver.AssetView view;
         LoadOrderResolver.IndexView index;
         IReadOnlyList<string> warnings;
         string profileName;
-        // Capture the asset view AND the record index under one gate hold, so a freshness rebuild cannot interleave
-        // and pair a config read from one asset build against a record index from the next. Both are handle-free
-        // snapshots, so the enumerate, read and resolve below run outside the gate.
+        // One gate hold for both captures, so a rebuild cannot pair a config read from one build against an index from the next.
         lock (_gate)
         {
             view = Assets.Capture();
@@ -378,8 +289,7 @@ public sealed partial class LoadOrderService
                 else text = DecodeConfigText(bytes);
             }
 
-            // Path-segment gates come from the relPath, so they surface even when the file could not be read — the
-            // gate is a property of where the file lives, not its content. Only the token scan needs the text.
+            // Path-segment gates come from the relPath, so they surface even when the file could not be read.
             var extracted = SkseConfigReferenceExtractor.Extract(rel, readError is null ? text : "");
             var audited = new List<SkseAuditedRef>(extracted.Count);
             foreach (var r in extracted) audited.Add(Adjudicate(r, index));
@@ -390,9 +300,7 @@ public sealed partial class LoadOrderService
         return new SkseConfigAuditData(files, files.Count, view.BsaFailures, view.ReadIncomplete, warnings, profileName);
     }
 
-    /// <summary>Resolve one extracted reference into a verdict against the load-order index. A path-segment gate is
-    /// plugin-presence only (OK / PLUGIN MISSING); a form token additionally checks the record exists (DANGLING when the
-    /// plugin is present but the masked FormID resolves to nothing). Never speculates about runtime behavior.</summary>
+    /// <summary>Resolve one extracted reference into a verdict: a path-segment gate is plugin-presence only, a form token also checks the record exists. Never speculates about runtime behavior.</summary>
     internal static SkseAuditedRef Adjudicate(SkseConfigRef r, LoadOrderResolver.IndexView index)   // internal: a test drives it over a synthetic order
     {
         if (r.Unparseable is not null)
@@ -404,7 +312,6 @@ public sealed partial class LoadOrderService
         if (r.Shape == SkseRefShape.PathSegmentGate)
             return new SkseAuditedRef(r, SkseRefVerdict.Ok, null);   // gate satisfied — the plugin is present
 
-        // Form token: the plugin is present; does the (masked) FormID resolve to a record in the order?
         if (!ModKey.TryFromNameAndExtension(r.Plugin, out var mk))
             return new SkseAuditedRef(r, SkseRefVerdict.Unparseable, $"'{r.Plugin}' is not a valid plugin name");
         var fk = new FormKey(mk, r.LocalId!.Value);
@@ -413,8 +320,7 @@ public sealed partial class LoadOrderService
             : new SkseAuditedRef(r, SkseRefVerdict.Dangling, $"{FormIdToken.Of(fk)} resolves to no record in '{r.Plugin}'");
     }
 
-    /// <summary>Decode a config file's bytes to text, honoring a BOM (UTF-8/16) when present (real shipped configs carry
-    /// one), defaulting to UTF-8 otherwise — the config formats (.ini/.toml/.json/.yaml) are all UTF-8 in practice.</summary>
+    /// <summary>Decode a config's bytes, honoring a BOM when present and defaulting to UTF-8, which the config formats are in practice.</summary>
     static string DecodeConfigText(byte[] bytes)
     {
         using var ms = new MemoryStream(bytes);
@@ -422,31 +328,17 @@ public sealed partial class LoadOrderService
         return sr.ReadToEnd();
     }
 
-    /// <summary>The over-size-cap skip note. The size carries one decimal so a 16.4 MB file reads "16.4 MB (> 16 MB
-    /// cap)" rather than the self-contradictory "16 MB (> 16 MB cap)" an integer divide would give.</summary>
+    /// <summary>The over-cap skip note; the size carries one decimal, so a 16.4 MB file does not read "16 MB (> 16 MB cap)".</summary>
     static string OverCapNote(long len) =>
         $"config is {len / (1024.0 * 1024):0.0} MB (> {SkseConfigSizeCap / (1024 * 1024)} MB cap) — not scanned";
 
-    // ---- Native-function pairing audit: cross-check the native Papyrus functions the order's scripts declare
-    //      against the DLLs that must implement them. ----
+    // ---- Native-function pairing audit: the native Papyrus functions the order declares, against the DLLs ----
 
-    /// <summary>Audit the declaration-to-implementation pairing of every native Papyrus class in the active order. One
-    /// pass over the winning <c>.pex</c> files extracts native-flagged declarations; one pass over SKSE\Plugins finds
-    /// the DLL candidates each mod ships; then per third-party class an evidence ladder — same-mod DLL, conflict-chain
-    /// DLL, or UNPAIRED (a verify flag, never "broken": registration is runtime behavior this cannot see).
-    /// <para>A class whose provider chain includes an official archive (the Skyrim.ini base block or a BaseMaster-owned
-    /// BSA) is ENGINE, implemented by the executable, even when a mod's loose copy wins it — SKSE overrides Actor,
-    /// Game and others with native additions, and the official-archive presence still marks the class baseline. A
-    /// third-party class whose winning provider also provides an ENGINE class is SKSE CORE: the skse64 scripts payload
-    /// co-ships a hundred-odd vanilla overrides with its new classes, and its implementation is the game-root loader
-    /// rather than anything under SKSE\Plugins. Known residual edges: an INI-injected third-party BSA reads official;
-    /// a paid-CC archive is not BaseMaster-owned, so its engine-native classes read third-party and get a verify flag;
-    /// and a mod co-shipping a vanilla-script override with a declaration copy of an absent framework gets its copy
-    /// rescued into SKSE CORE, visible in the accounting and unflagged.</para>
-    /// <para>One gate hold captures the asset view, the archive list and the warnings; the enumerate, parse and
-    /// classify run outside the gate over the pinned handle-free view. The per-file Pex parses are parallelized (the
-    /// view's caches are concurrency-safe) with deterministic output ordering. An unreadable .pex is a named entry,
-    /// never a silent skip.</para></summary>
+    /// <summary>Audit the declaration-to-implementation pairing of every native Papyrus class in the order: one pass
+    /// over the winning .pex files for native-flagged declarations, one over SKSE\Plugins for each mod's DLL
+    /// candidates, then an evidence ladder per third-party class — same-mod DLL, chain DLL, or UNPAIRED, which is a
+    /// verify flag and never "broken". A class whose chain includes an official archive is ENGINE; a third-party class
+    /// whose winning provider also provides an ENGINE class is SKSE CORE. An unreadable .pex is a named entry.</summary>
     public NativePairingAuditData NativePairingAudit()
     {
         AssetResolver.AssetView view;
@@ -473,19 +365,14 @@ public sealed partial class LoadOrderService
             if (IsOfficialArchive(a, baseMasters))
                 officialArchives.Add(Path.GetFileName(a.Path));
 
-        // A BSA provider's name is the archive filename, but pairing identity needs the MOD that ships the archive: a
-        // mod's scripts can ride its own BSA while its DLL sits loose in the same folder, and untranslated the ladder
-        // would see two unrelated providers and call it UNPAIRED. The winning physical path of each active archive
-        // names its shipper: mods\<mod>\X.bsa → that mod; overwrite\ → "overwrite"; Data → "Data".
+        // Pairing identity needs the MOD that ships an archive, not the archive filename, or a mod whose scripts ride its own BSA reads as UNPAIRED.
         var archiveShipper = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var a in archives)
             if (LayerOfInstallPath(a.Path, modsDir, overwriteDir, dataDir) is { } shipper)
                 archiveShipper[Path.GetFileName(a.Path)] = shipper;
 
         // ---- DLL candidates: one SKSE\Plugins pass. A mod "ships" a DLL when it appears anywhere in that file's
-        //      chain, so the bundling case pairs through the chain; the health verdict describes the winning copy. A
-        //      winner that PE-reads as NotSkse — loose or BSA-packed — is a bundled dependency, not an
-        //      implementation candidate. ----
+        //      chain; a winner that PE-reads as NotSkse is a bundled dependency, not a candidate. ----
         const string skseRootPre = "SKSE\\Plugins\\";
         var modDlls = new Dictionary<string, List<NativePairedDll>>(StringComparer.OrdinalIgnoreCase);
         foreach (var rel in view.EnumerateUnder("SKSE\\Plugins").OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
@@ -503,8 +390,7 @@ public sealed partial class LoadOrderService
                 blocker = "provided only inside a BSA — the SKSE loader scans loose DLLs only, so it will not load";
                 try
                 {
-                    // PE-screen the packed copy too (DLLs are few, so the per-entry read is fine): a packed NotSkse
-                    // dependency must not count as a candidate, or its mod gains pairing evidence it never earned.
+                    // PE-screen the packed copy too: a packed NotSkse dependency must not count as a candidate.
                     if (AssetResolver.TryReadArchiveEntry(winner.ArchivePath!, winner.EntryPath) is { } bytes)
                         info = SksePluginReader.ReadBytes(Path.GetFileName(rel), bytes);
                 }
@@ -529,17 +415,12 @@ public sealed partial class LoadOrderService
             }
         }
 
-        // ---- the .pex sweep, two phases. Phase 1 (parallel): resolve every path, parse loose winners in place, and
-        //      defer BSA winners to a per-archive batch — a per-entry read re-opens the archive and walks its whole
-        //      table each time, which is the dominant cost against the ten-thousand-script vanilla archives. Phase 2:
-        //      one table walk per archive collects all its wanted entries, then the parses run parallel over the
-        //      bytes. An unreadable .pex is a named entry, never a silent skip. ----
+        // ---- the .pex sweep, two phases: loose winners parse in place, BSA winners defer to a per-archive batch,
+        //      because a per-entry read re-opens the archive and walks its whole table each time. ----
         var pexPaths = view.EnumerateUnder("Scripts")
             .Where(p => Path.GetExtension(p).Equals(".pex", StringComparison.OrdinalIgnoreCase))
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
 
-        // Only native-declaring files are kept — a large order yields a couple of hundred — and their conflict chains
-        // are re-resolved on collection, which is cheap at that count.
         var natives = new System.Collections.Concurrent.ConcurrentBag<(string Rel, IReadOnlyList<HousecarlCore.NativeClassDecl> Decls)>();
         var unreadable = new System.Collections.Concurrent.ConcurrentBag<NativeUnreadablePex>();
         var bsaWanted = new System.Collections.Concurrent.ConcurrentBag<(string Rel, string ArchivePath, string EntryPath, string Provider)>();
@@ -591,9 +472,7 @@ public sealed partial class LoadOrderService
             });
         }
 
-        // ---- classify and pair (sequential; cheap set lookups over a few hundred native files). Provenance and
-        //      pairing key on the enum-typed PlacementSource, never the render label — the display string must not
-        //      double as the semantic discriminator. ----
+        // ---- classify and pair. Provenance keys on the enum-typed PlacementSource, never the render label. ----
         var native = natives.OrderBy(s => s.Rel, StringComparer.OrdinalIgnoreCase)
             .Select(s => (s.Rel, s.Decls, Sources: view.ResolveForPlacement(s.Rel).Sources))
             .ToList();
@@ -605,10 +484,8 @@ public sealed partial class LoadOrderService
                 foreach (var src in s.Sources)
                     if (!(src.Kind == AssetKind.Bsa && officialArchives.Contains(src.ProviderName)))
                         engineProviders.Add(PairingIdentity(src, archiveShipper));
-        // "overwrite" is excluded from the rescue: a recompiled vanilla .pex in MO2's overwrite is routine (the
-        // compile lane writes there), and letting it rescue every orphan declaration copy that also lands in overwrite
-        // would silence the flag this tool exists for. "Data" stays — the manual game-folder SKSE install is the
-        // layout the rescue must cover.
+        // "overwrite" is excluded from the rescue: a recompiled vanilla .pex there is routine, and letting it rescue
+        // every orphan declaration copy would silence the flag this tool exists for. "Data" stays.
         engineProviders.Remove("overwrite");
 
         // Pass 2: build the entries (Classify carries the decision order: engine → ladder → rescue).
@@ -626,10 +503,7 @@ public sealed partial class LoadOrderService
             }
         }
 
-        // Is an skse64 loader visible at all? Two places to look: the game root (a manual install), and each enabled
-        // mod's Root\ folder — the MO2 Root Builder layout, where the loader lives at mods\<mod>\Root\skse64_loader.exe
-        // and only materializes in the game root at launch. The mod list is the same capture as the view. Tri-state:
-        // a check that threw yields null, "could not check", never a false "checked and absent".
+        // Is an skse64 loader visible at all — the game root, or a mod's Root\ folder? Tri-state: a check that threw yields null, never a false absent.
         bool? loaderSeen;
         try
         {
@@ -648,20 +522,15 @@ public sealed partial class LoadOrderService
             view.BsaFailures, view.ReadIncomplete, warnings, profileName);
     }
 
-    /// <summary>The MO2 LAYER a physical file path belongs to — the mod folder behind a BSA provider name, and the
-    /// same answer for a plugin file: mods\&lt;mod&gt;\X → that mod folder; the overwrite layer → "overwrite"; the
-    /// game Data folder → "Data"; anywhere else → null (no translation).
-    /// <para>The NAME only. A caller that has to say which of the three answered — the name alone cannot tell it,
-    /// since a mod folder may be called "Data" — takes <see cref="InstallLayerOfPath"/> instead.</para></summary>
+    /// <summary>The MO2 LAYER a physical file path belongs to, as a NAME. A caller that has to say WHICH of the three
+    /// answered takes <see cref="InstallLayerOfPath"/> instead, because a mod folder may itself be called "Data".</summary>
     internal static string? LayerOfInstallPath(string archivePath, string modsDir, string overwriteDir, string dataDir) =>
         InstallLayerOfPath(archivePath, modsDir, overwriteDir, dataDir)?.Name;
 
-    /// <summary>The MO2 layer a physical file path belongs to, as the BRANCH that answered plus the name it
-    /// produced. Null anywhere else, exactly as <see cref="LayerOfInstallPath"/>.</summary>
+    /// <summary>The MO2 layer a physical file path belongs to, as the BRANCH that answered plus the name it produced.</summary>
     internal static SourceLayer? InstallLayerOfPath(string archivePath, string modsDir, string overwriteDir, string dataDir)
     {
-        // Full-path-normalize both sides so forward slashes, '..' segments or a trailing-separator root from config
-        // cannot make the under-root test disagree with the rest of the plumbing.
+        // Full-path-normalize both sides, or a trailing separator or '..' from config makes this test disagree with the rest of the plumbing.
         static string Norm(string p) { try { return Path.GetFullPath(p); } catch { return p; } }
         archivePath = Norm(archivePath);
         static bool Under(string path, string root, out string remainder)
@@ -686,34 +555,23 @@ public sealed partial class LoadOrderService
         return null;
     }
 
-    /// <summary>An archive is OFFICIAL — its scripts' natives are the engine's own — when it loads from Skyrim.ini's
-    /// base [Archive] block or is owned by a base master (Mutagen's implicit list, by construction — never a name
-    /// list).</summary>
+    /// <summary>An archive is OFFICIAL — its scripts' natives are the engine's own — when it loads from Skyrim.ini's base block or is owned by a base master (Mutagen's implicit list, never a name list).</summary>
     internal static bool IsOfficialArchive(ActiveArchive a, IReadOnlyList<ModKey> baseMasters) =>
         a.OwningPlugin.Equals(ArchiveDiscovery.IniArchiveOwner, StringComparison.OrdinalIgnoreCase)   // ignore-case like every other archive compare — this must not hinge on the marker's casing
         || (ModKey.TryFromNameAndExtension(a.OwningPlugin, out var mk) && baseMasters.Contains(mk));
 
-    /// <summary>True when any source in a file's chain is an official archive — the ENGINE provenance test. Keys on
-    /// the <see cref="AssetKind"/> enum plus the archive filename (a BSA source's provider name IS its archive
-    /// filename), so a loose override winning the file still leaves the class baseline, and a render-label change
-    /// cannot silently break it.</summary>
+    /// <summary>True when any source in a file's chain is an official archive — the ENGINE provenance test, keyed on the <see cref="AssetKind"/> enum, never the render label.</summary>
     internal static bool HasOfficialSource(IReadOnlyList<PlacementSource> sources, HashSet<string> officialArchives) =>
         sources.Any(s => s.Kind == AssetKind.Bsa && officialArchives.Contains(s.ProviderName));
 
-    /// <summary>One source's PAIRING IDENTITY — the mod it means: a BSA source translates to the mod shipping the
-    /// archive (via the archiveShipper map); everything else is its provider name (mod folder / overwrite / Data).</summary>
+    /// <summary>One source's PAIRING IDENTITY — the mod it means: a BSA translates to the mod shipping the archive.</summary>
     internal static string PairingIdentity(PlacementSource src, IReadOnlyDictionary<string, string> archiveShipper) =>
         src.Kind == AssetKind.Bsa && archiveShipper.TryGetValue(src.ProviderName, out var mod) ? mod : src.ProviderName;
 
-    /// <summary>The pairing-evidence ladder for one third-party class, over the chain's pairing identities, winner
-    /// first: rung 1, the winning identity ships at least one candidate DLL; rung 2, an identity deeper in the chain
-    /// does (a patch mod wins the script while the framework beneath ships the DLL); rung 3, nobody in sight does, so
-    /// UNPAIRED — a verify flag. An identity whose candidates all carry a static LoadBlocker does not stop the descent
-    /// when a deeper identity has a loadable candidate, so a bundler shipping one dead helper DLL cannot mask the real
-    /// framework beneath it; if no identity has a loadable candidate, the shallowest with any candidate pairs and its
-    /// deadness becomes the finding. "Loadable" here means no STATIC blocker — version-locked-versus-runtime deadness
-    /// is adjudicated by the renderer, which owns that decision. The evidence is structural (file co-location and VFS
-    /// chains), never semantic: which DLL implements which class is out of reach.</summary>
+    /// <summary>The pairing-evidence ladder for one third-party class, over the chain's identities winner first: the
+    /// winning identity ships a candidate DLL, one deeper does, or nobody does (UNPAIRED). An identity whose
+    /// candidates all carry a static LoadBlocker does not stop the descent, so a bundler's one dead helper cannot mask
+    /// the real framework. The evidence is structural, never semantic.</summary>
     internal static (NativePairingRung Rung, string? PairedMod, IReadOnlyList<NativePairedDll> Dlls) Ladder(
         IReadOnlyList<string> identities, IReadOnlyDictionary<string, List<NativePairedDll>> modDlls)
     {
@@ -730,13 +588,8 @@ public sealed partial class LoadOrderService
         return (NativePairingRung.Unpaired, null, Array.Empty<NativePairedDll>());
     }
 
-    /// <summary>The full per-class decision, in order: ENGINE (official-archive presence), then the pairing ladder,
-    /// then the SKSE-CORE rescue for an UNPAIRED class whose winning identity also ships an ENGINE-class copy — the
-    /// skse64 payload co-ships many vanilla overrides with its new classes. Pairing evidence beats the rescue: a class
-    /// that pairs to a DLL stays third-party regardless of its provider's other files. Known residual: a provider that
-    /// co-ships a vanilla-script override AND a declaration copy of an absent framework gets that copy rescued into
-    /// the unflagged baseline, which for the game Data folder covers everything manually installed there. "overwrite"
-    /// is excluded from the pool at the call site for that reason.</summary>
+    /// <summary>The full per-class decision, in order: ENGINE, then the ladder, then the SKSE-CORE rescue for an
+    /// UNPAIRED class whose winning identity also ships an ENGINE-class copy. Pairing evidence beats the rescue.</summary>
     internal static (NativeProvenance Provenance, NativePairingRung? Rung, string? PairedMod, IReadOnlyList<NativePairedDll> Dlls) Classify(
         bool engine, IReadOnlyList<string> identities,
         IReadOnlyDictionary<string, List<NativePairedDll>> modDlls, HashSet<string> engineProviders)
@@ -750,18 +603,13 @@ public sealed partial class LoadOrderService
 
     // ---- SkyPatcher distributor: the per-record true post-SkyPatcher state. Read-only. ----
 
-    /// <summary>Cross-call INI parse cache (FileStamp keyed — see <see cref="SkyPatcherDiscovery.ParseCache"/>):
-    /// repeat post-state calls over an untouched layer skip every per-file read+parse.</summary>
+    /// <summary>Cross-call INI parse cache, FileStamp keyed: repeat calls over an untouched layer skip every read and parse.</summary>
     readonly SkyPatcherDiscovery.ParseCache _skyPatcherParseCache = new();
 
-    /// <summary>The in-memory scratch mod the replay copy is overridden into — never written to disk.
-    /// Named per the Housecarl* scratch-mod convention (<c>HousecarlWriteProof</c> is the sibling).</summary>
+    /// <summary>The in-memory scratch mod the replay copy is overridden into — never written to disk.</summary>
     static readonly ModKey SkyPatcherScratchKey = new("HousecarlSkyPatcherScratch", ModType.Plugin);
 
-    /// <summary>The per-record SkyPatcher replay core, shared by the post-state read and the layer
-    /// no-op (true-ITM) scan: resolve the winner, materialize a mutable scratch copy, apply every
-    /// type folder's ordered lines in field-map order. Error is the named reason the record cannot be
-    /// replayed; the caller decides whether that is a failure or a skip-with-count.</summary>
+    /// <summary>The per-record SkyPatcher replay core, shared by the post-state read and the layer no-op scan; Error is the named reason a record cannot be replayed.</summary>
     (string? TypeName, string? WinnerPlugin, string? EditorId, List<SkyPatcherFolderOutcome> Folders, string? Error, IMajorRecord? Copy)
         ReplaySkyPatcher(
             LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
@@ -784,10 +632,7 @@ public sealed partial class LoadOrderService
             return (typeName, winner.Value.WinnerPlugin, body.EditorID, none,
                 $"Record type '{typeName}' is not a SkyPatcher-patchable type (or has no field map) — the SkyPatcher layer cannot touch {FormIdToken.Of(fk)}.", null);
 
-        // The running copy: the winner overridden into an in-memory scratch mod (never written to disk).
-        // Nested-group types (CELL / REFR / INFO…) need the source link cache to rebuild their parent
-        // chain — the same RecordNeedsSourceCache + LinkCacheFor idiom every write path uses. Without it
-        // those types throw unhandled instead of failing by name.
+        // The running copy: the winner overridden into an in-memory scratch mod. Nested-group types need the source link cache, or they throw instead of failing by name.
         IMajorRecord copy;
         try
         {
@@ -801,8 +646,7 @@ public sealed partial class LoadOrderService
                 $"Could not materialize a mutable copy of {FormIdToken.Of(fk)} ({typeName}) for the replay — {ex.GetType().Name}: {ex.Message}", null);
         }
 
-        // Watch this record's own EditorID lookups: only a replay that actually read from a table missing a
-        // plugin's records is affected, so a record addressed purely by FormID answers normally.
+        // Watch this record's own EditorID lookups: a record addressed purely by FormID answers normally.
         var spr = formResolver as SkyPatcherServiceResolver;
         spr?.WatchLookups();
 
@@ -820,17 +664,13 @@ public sealed partial class LoadOrderService
             else if (!linesCache.TryGetValue(folder.Subfolder, out lines!))
                 linesCache[folder.Subfolder] = lines = SkyPatcherDiscovery.OrderedLines(folder);
             var result = SkyPatcherOverlay.Apply(copy, fk, body.EditorID, catalog, folder.Catalog, m, lines, formResolver);
-            // A toggled-off folder contributes nothing: reporting its files as "applied" would assert as
-            // live the INIs the DLL skips wholesale. Enabled rides along so the render can say why the
-            // counts are zero.
+            // A toggled-off folder contributes nothing: reporting its files as applied would assert INIs the DLL skips.
             folders.Add(new SkyPatcherFolderOutcome(folder.Subfolder,
                 folder.PatchingEnabled ? folder.Files.Count(f => f.NotApplied is null) : 0, lines.Count, result,
                 folder.PatchingEnabled));
         }
 
-        // An EditorID sweep that could not read a plugin leaves that plugin's EditorIDs out of the lookup table, so a
-        // line naming one resolves to nothing and this replay would report a state the layer does not produce.
-        // Named as the record's error rather than answered wrong.
+        // A plugin an EditorID sweep could not read leaves its EditorIDs out of the table, so this replay would report a state the layer does not produce. Named, not answered wrong.
         if (spr is { ConsumedIncompleteTable: true })
             return (typeName, winner.Value.WinnerPlugin, body.EditorID, none,
                 $"the SkyPatcher replay of {FormIdToken.Of(fk)} resolved an EditorID against the load order, and "
@@ -839,9 +679,7 @@ public sealed partial class LoadOrderService
         return (typeName, winner.Value.WinnerPlugin, body.EditorID, folders, null, copy);
     }
 
-    /// <summary>Carry one replay's warnings (unknown key, unmapped op, unresolved filter, parse note) into the
-    /// caller's sink, deduplicated: a line the layer could not apply belongs beside the answer, not in silence.
-    /// Each warning already names its own file and line, so a draft's warnings name the draft's path.</summary>
+    /// <summary>Carry one replay's warnings into the caller's sink, deduplicated; each already names its own file and line.</summary>
     static void CollectOverlayWarnings(IReadOnlyList<SkyPatcherFolderOutcome> folders, SkyPatcherOverlay.WarningSink? sink)
     {
         if (sink is null) return;
@@ -850,15 +688,8 @@ public sealed partial class LoadOrderService
                 sink.Add(w);
     }
 
-    /// <summary>
-    /// Scan the whole SkyPatcher layer: every loose INI as the DLL reads it (ordered union, VFS
-    /// same-path collisions surfaced, gates and toggles evaluated), plus the INI-vs-INI same-field SET
-    /// collisions and the three ITM classes — intra-file dead writes, cross-INI duplicates, and the
-    /// no-op writes found by the per-record replay below. Report-only. One record capture answers the
-    /// filename gates and one asset capture pins the scan; the enumerate, parse and detect run outside
-    /// the gate on the handle-free captured view. A layer with no INIs is a named outcome, never an
-    /// empty guess.
-    /// </summary>
+    /// <summary>Scan the whole SkyPatcher layer: every loose INI as the DLL reads it, the same-field SET collisions,
+    /// and the three ITM classes including the no-op writes the per-record replay finds. Report-only.</summary>
     public SkyPatcherLayerData SkyPatcherLayer()
     {
         // No epoch is stamped: the INI layer is outside the index fingerprint, so a bare index epoch would overclaim.
@@ -887,13 +718,8 @@ public sealed partial class LoadOrderService
             duplicates.AddRange(report.Duplicates);
         }
 
-        // ---- the TRUE-ITM (no-op write) scan: replay every explicitly-targeted record through the
-        //      same per-record core the post-state read uses, and flag SET-class ops whose before ==
-        //      after — the line writes the value the record already has at that point in the replay
-        //      (which handles chains: a set that restores an earlier INI's change is NOT a no-op).
-        //      Broad (type-wide) lines are evaluated only against the explicitly-targeted records;
-        //      replaying every record of a type is not attempted, and the note says so. Deliberate
-        //      leave-unchanged values ('none') are the author's explicit choice, not flagged. ----
+        // ---- the TRUE-ITM scan: replay every explicitly-targeted record through the same per-record core the post-state
+        //      read uses, and flag SET ops whose before == after. Broad (type-wide) lines see only the explicit targets ----
         var noOps = new List<SkyPatcherNoOpWrite>();
         var noOpNotes = new List<string>();
         {
@@ -930,8 +756,7 @@ public sealed partial class LoadOrderService
                                 a.FieldPath, a.File, a.LineNumber, a.Op, a.RawValue, a.Before!));
                 }
             }
-            // Stable output: targets is a hash set, so without this the findings' order varies run to
-            // run and a re-run cannot be diffed against the previous one.
+            // Stable output: targets is a hash set, so without this a re-run cannot be diffed against the previous one.
             noOps.Sort((x, y) =>
             {
                 int c = string.Compare(x.File, y.File, StringComparison.OrdinalIgnoreCase);
@@ -942,8 +767,7 @@ public sealed partial class LoadOrderService
             if (broadLines > 0) noOpNotes.Add($"no-op scan: {broadLines} broad (type-wide) line(s) were evaluated only against the explicitly-targeted records, not every record of their type.");
             if (unresolvedTargets > 0) noOpNotes.Add($"no-op scan: {unresolvedTargets} explicit target(s) did not resolve (the overlay's per-record warnings name them; read one with {ToolNames.Records} formids=[\"<FormID>\"] source={{\"overlay\": \"skypatcher\", \"state\": \"post\"}}).");
             if (failedReplays > 0) noOpNotes.Add($"no-op scan: {failedReplays} targeted record(s) could not be replayed (not in the order / unpatchable type / copy failure / an EditorID lookup that could not be completed).");
-            // Emitted AFTER the replays: a plugin can first turn out unreadable in a sweep the replay itself runs
-            // (a value operand naming a donor by EditorID), not only in the target-collection sweep above.
+            // Emitted AFTER the replays: a plugin can first turn out unreadable in a sweep the replay itself runs.
             foreach (var msg in formResolver.Unreadable.Select(u => u.Message).Distinct())
                 noOpNotes.Add($"no-op scan: {msg} Lines naming a record it defines could not be resolved.");
         }
@@ -952,11 +776,8 @@ public sealed partial class LoadOrderService
             scan.ReadIncomplete || assets.ReadIncomplete, assetWarnings, profileName);
     }
 
-    /// <summary>The live-load-order lookups the overlay needs (<see cref="SkyPatcherOverlay.IFormResolver"/>),
-    /// answered off the ONE pinned record view + open session the post-state call holds. EditorID resolution
-    /// sweeps the requested type's winners once into an eid→FormKey table, because an INI layer typically names
-    /// many EditorIDs of the same type and a per-eid sweep would walk the full order once each. A miss is null,
-    /// reported loudly upstream, never a guess.</summary>
+    /// <summary>The live-load-order lookups the overlay needs, off the ONE pinned view and session the call holds.
+    /// EditorID resolution sweeps a type's winners once into a table; a miss is null, reported loudly upstream.</summary>
     sealed class SkyPatcherServiceResolver : SkyPatcherOverlay.IFormResolver
     {
         readonly LoadOrderService _svc;
@@ -967,17 +788,12 @@ public sealed partial class LoadOrderService
         readonly HashSet<string> _incompleteTypes = new(StringComparer.OrdinalIgnoreCase);   // types whose sweep missed a plugin
         bool _consumedIncomplete;
 
-        /// <summary>Plugins an EditorID sweep could not open. Their EditorIDs are absent from the table, so a miss
-        /// here is not proof the name does not exist — the callers state the gap rather than let a lookup answer
-        /// "no such record" on a plugin they never read.</summary>
+        /// <summary>Plugins an EditorID sweep could not open, so a miss here is not proof the name does not exist.</summary>
         public IReadOnlyList<PluginUnreadableException> Unreadable => _unreadable;
 
-        /// <summary>Whether a lookup since the last <see cref="WatchLookups"/> was answered from a table a plugin is
-        /// missing from. The table is memoized across records, so the count of unreadable plugins does not grow on
-        /// the second record that consults it — this flag is what tells a caller its OWN answer is affected.</summary>
+                /// <summary>Whether a lookup since the last <see cref="WatchLookups"/> was answered from a table a plugin is missing from — the flag that tells a caller its OWN answer is affected.</summary>
         public bool ConsumedIncompleteTable => _consumedIncomplete;
 
-        /// <summary>Start watching lookups for a single record's replay.</summary>
         public void WatchLookups() => _consumedIncomplete = false;
 
         public SkyPatcherServiceResolver(LoadOrderService svc, LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session)
@@ -1036,15 +852,10 @@ public sealed partial class LoadOrderService
 
     // ---- NIF layer: read the data values inside one or many meshes (housecarl_nif_inspect) ----
 
-    /// <summary>Inspect the data values inside one or many Skyrim meshes: capture the asset resolver once under
-    /// <see cref="_gate"/>, then, per Data-relative path and outside the gate on the pinned handle-free view, resolve
-    /// through the MO2 VFS to the winning copy (or the <paramref name="mod"/>-named provider), read that copy's bytes
-    /// in process (a loose file, or a single entry out of a BSA — no disk extraction), and hand them to
-    /// <see cref="NifService.Inspect"/>. Read-only. Results come back in input order, one per path; a per-path failure
-    /// is a named <see cref="NifInspectData.Error"/> that never aborts the rest of the batch. Each path carries its
-    /// full winner-to-loser provider chain and ambiguity flag, while the build-level caveats
-    /// (<see cref="AssetView.BsaFailures"/>, discovery warnings) ride once on the batch so an ABSENT answer is never
-    /// over-trusted. The single capture is what makes a load-order-wide sweep one call instead of one per mesh.</summary>
+    /// <summary>Inspect the data values inside one or many Skyrim meshes: capture the resolver once under the gate,
+    /// then per path and outside it resolve through the VFS to the winning copy (or <paramref name="mod"/>'s), read the
+    /// bytes in process — a loose file, or one BSA entry, no disk extraction — and hand them to
+    /// <see cref="NifService.Inspect"/>. A per-path failure never aborts the batch; the build-level caveats ride it.</summary>
     public NifInspectBatchData NifInspect(IReadOnlyList<string> relPaths, string? sourceProvider)
     {
         AssetResolver.AssetView view;
@@ -1057,31 +868,26 @@ public sealed partial class LoadOrderService
             profileName = _profileName;
         }
 
-        // Outside the gate: the captured view is pinned and handle-free, so resolving, reading and parsing here cannot
-        // race a concurrent refresh into wrongness and does not block other tools behind these file reads.
         var modsRoot = ModsRootOrNull;
         var results = new List<NifInspectData>(relPaths.Count);
         foreach (var raw in relPaths)
         {
             var rel = (raw ?? "").Trim();
-            // A raw path into the mods tree reads past the VFS, so it is this path's own refusal with the address
-            // form — ahead of the generic drive-rooted message, which says nothing about how to name the mod.
+            // A raw path into the mods tree reads past the VFS, so it is this path's own refusal with the address form.
             if (ModsPathAddress.Split(rel, modsRoot) is { } hit)
             {
                 results.Add(NifInspectData.Fail(rel, ModsPathAddress.Refusal("", rel,
                     ModsPathAddress.Address(hit.ModFolder, hit.RelPath, "mesh_paths", "source_provider"))));
                 continue;
             }
-            // Per-path isolation holds by construction rather than by trusting the callee: anything unexpected from
-            // one path's resolve, read or parse becomes that path's named error, never the whole batch's.
+            // Per-path isolation by construction: anything unexpected becomes that path's named error.
             try { results.Add(NifInspectOne(view, rel, sourceProvider)); }
             catch (Exception ex) { results.Add(NifInspectData.Fail(rel, $"unexpected error inspecting this path — {ex.GetType().Name}: {ex.Message}")); }
         }
         return new NifInspectBatchData(results, view.BsaFailures, warnings, profileName);
     }
 
-    /// <summary>One path's inspect against the already-captured view — the per-path body of <see cref="NifInspect"/>.
-    /// Every failure is a named per-path outcome, never a throw.</summary>
+    /// <summary>One path's inspect against the already-captured view. Every failure is a named per-path outcome, never a throw.</summary>
     static NifInspectData NifInspectOne(AssetResolver.AssetView view, string rel, string? sourceProvider)
     {
         if (rel.Length == 0)
@@ -1093,11 +899,7 @@ public sealed partial class LoadOrderService
 
         var providers = place.Sources.Select(s => new NifProvider(s.ProviderName, KindLabel(s.Kind))).ToList();
 
-        // Pick the copy to read: the VFS winner by default, or a specific provider when source_provider= names one.
-        // source_provider= is
-        // answered FIRST, ahead of the ABSENT return: naming a mod reaches that mod whether or not MO2 ticks it, and
-        // a donor outside the active set is exactly a path nothing active supplies — under ABSENT its name would
-        // never be consulted and the answer would read as "the donor has no mesh" (#388 ii).
+        // Pick the copy to read: the VFS winner, or the provider source_provider= names — answered FIRST, ahead of the ABSENT return.
         PlacementSource chosen;
         if (!string.IsNullOrWhiteSpace(sourceProvider))
         {
@@ -1110,12 +912,8 @@ public sealed partial class LoadOrderService
         {
             if (place.Sources.Count == 0)
             {
-                // A model path taken straight off a record is stored relative to meshes\, so a flat ABSENT is a dead
-                // end for the normal way one arrives at a mesh. The hint is re-resolved, never guessed: a "did you
-                // mean" always names a file that exists, and the weaker fallback names only the convention.
+                // A model path off a record is stored relative to meshes\, so a flat ABSENT is a dead end. The hint is re-resolved, never guessed.
                 var hint = AssetPathHint.MeshHint(view, rel);
-                // Absent=true lets the renderer hedge this at the point of use against the batch-level caveats; the
-                // top-of-output warning alone scrolls away in a long batch.
                 return new NifInspectData(rel, null, providers, place.Ambiguous, Absent: true, null,
                     "ABSENT — no active mod or BSA provides this mesh path." + (hint is null ? "" : " " + hint));
             }
@@ -1132,58 +930,39 @@ public sealed partial class LoadOrderService
             false, outcome.Inspect, outcome.Error);
     }
 
-    /// <summary>The provider record for a CHOSEN source, carrying the off-order provenance the chain entries never
-    /// need: only the copy actually read can have come from outside what the game loads.</summary>
+    /// <summary>The provider record for a CHOSEN source, carrying the off-order provenance only the copy actually read can have.</summary>
     static NifProvider NifProviderFor(PlacementSource s)
         => new(s.ProviderName, KindLabel(s.Kind), s.OffOrder, s.OwnerEnabled);
 
-    /// <summary>Answer <c>source_provider=</c> for the NIF surface: pick the named provider's copy through the ONE source policy
-    /// every asset caller rides, or hand back the refusal sentence. Shared by nif_inspect and nif_set, which are the
-    /// same code twice and have drifted once before.
-    ///
-    /// <para>Two things follow from routing it here rather than matching the name in place. Naming a mod reaches
-    /// that mod's loose files AND its own root archives, ticked or not (#388), so the refusal never reports a donor's
-    /// mesh as absent. And the provider names the refusal lists are spelled by the same formatter the tool prints
-    /// them with, so the token in the message is the token <c>source_provider=</c> takes (#340).</para></summary>
+    /// <summary>Answer <c>source_provider=</c> for the NIF surface through the ONE source policy every asset caller
+    /// rides, or hand back the refusal sentence. Shared by nif_inspect and nif_set, which have drifted once before.</summary>
     static (PlacementSource? Source, string? Error, bool Absent) NifPick(AssetResolver.AssetView view, PlacementResolution place, string rel, string sourceProvider)
     {
-        // Parse, not Named: the refusal's tail teaches the '*winner' pole, so this surface has to take it. The sigil
-        // is what makes that safe — '*' cannot appear in a Windows name, so a bare token is always a provider.
+        // Parse, not Named: the refusal's tail teaches the '*winner' pole, so this surface has to take it.
         var choice = AssetSourceChoice.Parse(sourceProvider);
         var pick = AssetSourceSelection.Select(place, choice, n => view.TryResolveOffOrderProvider(n, rel));
         if (pick.Verdict == AssetSourceVerdict.Selected) return (pick.Source, null, false);
-        // The winner pole over an empty universe is the ABSENT case, not a named miss; say so rather than quote
-        // '*winner' back as a mod name that supplies nothing. Absent travels with it: this is the same absence the
-        // no-source_provider= arm reports, so it earns the same scan-incomplete hedging at the point of use.
+        // The winner pole over an empty universe is the ABSENT case, not a named miss, and Absent travels with it.
         if (choice.Pole != AssetSourcePole.Named)
             return (null, "ABSENT — no active mod or BSA provides '" + rel + "', so there is no winner to read."
                         + (AssetPathHint.MeshHint(view, rel) is { } wh ? " " + wh : ""), true);
-        // A named miss is NOT an absence — it says which mod, and carries its own inline scan caveat instead, so it
-        // must not also draw the ABSENT-worded hedges.
+        // A named miss is NOT an absence — it says which mod and carries its own inline caveat instead.
         return (null, WriteSentences.PlaceSourceNamedAbsent(
             sourceProvider, rel, pick.ProviderNames,
             pick.OffOrderReason, pick.OffOrderUnreadableName, pick.OffOrderUnreadableCause,
             AssetPathHint.MeshHint(view, rel), place.ReadIncomplete), false);
     }
 
-    /// <summary>Render an <see cref="AssetKind"/> as the tool-facing label ("loose" / "BSA"). An explicit switch
-    /// rather than a ternary, so a new AssetKind renders its real name instead of being mislabelled.</summary>
+    /// <summary>Render an <see cref="AssetKind"/> as the tool-facing label. An explicit switch, so a new kind renders its real name instead of being mislabelled.</summary>
     static string KindLabel(AssetKind k) => k switch { AssetKind.Bsa => "BSA", AssetKind.Loose => "loose", var other => other.ToString() };
 
     // ---- NIF layer: whitelisted writes into a mesh (housecarl_nif_set) ----
 
-    /// <summary>Apply the whitelisted write ops to a mesh: resolve the Data-relative <paramref name="relPath"/> to the
-    /// winning copy (or <paramref name="sourceProvider"/>'s copy), read its bytes in process, hand them to
-    /// <see cref="NifService.Set"/>, which applies and verifies or refuses loudly — nothing reaches disk unless it
-    /// verified — then place the verified bytes. Two lanes, mirroring the record write lanes:
-    ///   • DEFAULT (non-destructive): write into a new houseCARL-owned MO2 mod folder at the same relative path, which
-    ///     the modder enables — and, on the into= lane, sorts above the current winner — so the edited copy wins the VFS. Originals untouched,
-    ///     and a BSA-packed source becomes a loose winning override this way.
-    ///   • IN-PLACE (opt-in): overwrite the winning loose file where it sits, behind the same persistent first-touch
-    ///     consent handshake as the record in-place lane, keyed on the resolved file path. No backup. A BSA-only winner
-    ///     has no loose file to edit and is refused with the default-lane guidance.
-    /// Serialized on the write gate. For the default lane, "wrote it" is not "it wins": the render says to enable the
-    /// mod (and to sort it, on the into= lane), and this never claims the fix took effect on write.</summary>
+    /// <summary>Apply the whitelisted write ops to a mesh: resolve to the winning copy (or
+    /// <paramref name="sourceProvider"/>'s), read the bytes in process, hand them to <see cref="NifService.Set"/>,
+    /// which verifies or refuses loudly, then place the verified bytes. Two lanes, mirroring the record writes: a
+    /// loose override in a houseCARL folder, or IN-PLACE behind the same consent handshake with no backup. Serialized
+    /// on the write gate, and "wrote it" is never "it wins" (docs/architecture/assets.md).</summary>
     public NifSetResult NifSet(string relPath, IReadOnlyList<NifSetOp> ops, string? sourceProvider, string? patchName, string? into, bool inPlace, bool acknowledge)
     {
         var rel = (relPath ?? "").Trim();
@@ -1204,9 +983,7 @@ public sealed partial class LoadOrderService
 
             var providers = place.Sources.Select(s => new NifProvider(s.ProviderName, KindLabel(s.Kind))).ToList();
 
-            // pick the copy to read/edit: the VFS winner, or a specific provider when source_provider= names one.
-            // source_provider= is
-            // answered ahead of the ABSENT return, for the same reason nif_inspect answers it there.
+            // Pick the copy to read/edit: the VFS winner, or source_provider='s, answered ahead of the ABSENT return.
             PlacementSource chosen;
             if (!string.IsNullOrWhiteSpace(sourceProvider))
             {
@@ -1241,9 +1018,7 @@ public sealed partial class LoadOrderService
             // ---- IN-PLACE lane ----
             if (inPlace)
             {
-                // The lane overwrites the WINNING file with no backup, and its consent handshake is written about
-                // that file. A copy the game is not loading is not that file, so this lane declines it rather than
-                // mutating an original the caller reached by naming a mod.
+                // The lane overwrites the WINNING file with no backup, and its handshake is written about that file — so a copy the game is not loading is declined.
                 if (chosen.OffOrder)
                     return NifSetResult.Fail(
                         $"in-place edits the copy the game loads, but '{chosen.ProviderName}' supplied one it does not "
@@ -1256,9 +1031,7 @@ public sealed partial class LoadOrderService
                 var targetPath = chosen.LooseFilePath!;
                 var meshName = Path.GetFileName(targetPath);
 
-                // The check gates entry here; the acknowledgement is recorded below, only once the overwrite has landed
-                // and verified. The parent pre-flight and the write's own failure both refuse without changing the
-                // file, and neither may spend the caller's one-time confirmation.
+                // The acknowledgement is recorded only once the overwrite has landed and verified, so neither the pre-flight nor a failed write spends the caller's one-time confirmation.
                 bool already = _store.IsInPlaceAcknowledged(targetPath);
                 if (!already && !acknowledge)
                     return NifSetResult.NeedsAck(NifInPlaceHandshakeText(meshName, targetPath), chosenProv, providers, profileName);
@@ -1301,8 +1074,7 @@ public sealed partial class LoadOrderService
             var winSrc = place.Sources.Count > 0 ? place.Sources[0] : null;
             bool winnerIsOverwrite = winSrc is { Kind: AssetKind.Loose }
                 && string.Equals(winSrc.ProviderName, AssetResolver.OverwriteLayerName, StringComparison.OrdinalIgnoreCase);
-            // The folder the mesh was just written into is already the winner — an into= re-edit of the same mesh,
-            // which is the normal iterate loop. Sorting that folder above itself is not an instruction.
+            // The folder just written into is already the winner — an into= re-edit. Sorting it above itself is not an instruction.
             bool winnerIsDestination = winSrc is not null
                 && string.Equals(winSrc.ProviderName, Path.GetFileName(rf.ModFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
                                  StringComparison.OrdinalIgnoreCase);
@@ -1316,9 +1088,7 @@ public sealed partial class LoadOrderService
         }
     }
 
-    /// <summary>Merge the write report's notes with the asset-layer discovery warnings and an optional extra note.
-    /// Both lanes surface both sets, so a preservation disclosure cannot vanish by riding the other lane's
-    /// list.</summary>
+    /// <summary>Merge the write report's notes with the asset-layer warnings and an optional extra, so a disclosure cannot vanish by riding the other lane's list.</summary>
     static IReadOnlyList<string> MergeWarnings(IReadOnlyList<string> reportWarnings, IReadOnlyList<string> assetWarnings, string? extra)
     {
         var list = new List<string>(reportWarnings.Count + assetWarnings.Count + 1);
@@ -1328,10 +1098,7 @@ public sealed partial class LoadOrderService
         return list;
     }
 
-    /// <summary>The mesh-specific first-touch in-place consent prompt. Shares its opening lead with the plugin
-    /// handshake (<see cref="InPlaceHandshakeLead"/>) and diverges after it, because that prompt's wording about
-    /// re-serializing a whole plugin and engine-reserved sub-0x800 records is false for a .nif: a mesh write is a
-    /// whole-file NiflySharp re-serialization, then verified.</summary>
+    /// <summary>The mesh-specific in-place consent prompt: it shares its lead with the plugin handshake and diverges after it, because a mesh write is a whole-file re-serialization.</summary>
     static string NifInPlaceHandshakeText(string meshName, string path) =>
         InPlaceHandshakeLead(meshName, path, "mesh", "overwrites") +
         "  • The written mesh is a WHOLE-FILE re-serialization through NiflySharp's canonical writer (the way NifSkope / BodySlide rewrite a mesh on save), NOT a byte-surgical patch — then VERIFIED (only the value you edited changed; it reloads as a valid SE mesh).\n" +
@@ -1341,31 +1108,21 @@ public sealed partial class LoadOrderService
 
     // ---- place assets so the correct copies win the VFS (housecarl_place) ----
 
-    /// <summary>Place one or more assets into a new houseCARL-owned MO2 mod folder so the correct copy can win the
-    /// VFS. For each request: resolve its current providers (auto-resolving a source when none was named — a sole
-    /// provider is used, more than one is refused as ambiguous, none is refused with guidance), read the source bytes
-    /// in process (a loose file, or a single entry out of a BSA), and write them crash-atomically under the owned
-    /// folder. Originals are untouched: only a fresh or houseCARL-owned folder is ever written. On failure a fresh
-    /// folder that ended up with nothing placed is removed, and a partial one is kept and named. "Wrote it" is not
-    /// "it wins": the mod must be enabled — and, on the into= lane only, sorted above the current winner — which the
-    /// render says, and this never claims the fix took effect on write. Serialized on the write gate.</summary>
+    /// <summary>Place one or more assets into a houseCARL-owned MO2 mod folder so the correct copy can win the VFS:
+    /// resolve each request's providers (auto-resolving only a sole provider), read the bytes in process, and write
+    /// them crash-atomically. Originals untouched; "wrote it" is not "it wins" (docs/architecture/assets.md).</summary>
     public PlaceOutcome PlaceAssets(IReadOnlyList<PlaceRequest> requests, string? patchName, string? into)
     {
         if (requests is null || requests.Count == 0) return PlaceOutcome.Fail("no assets to place.");
 
         lock (_writeGate)                                                 // one placement batch at a time: resolve, stage, commit
         {
-            // Precondition: _writeGate is held for the WHOLE method. ResolvePatchModFolder and the `Assets` getter each
-            // take and release _gate, so this method straddles two _gate sections — safe only because _writeGate
-            // excludes every other writer and instance switch throughout, so no profile refresh can land between them.
-            // Do not call PlaceOne or Assets here outside this _writeGate hold.
+            // Precondition: _writeGate is held for the WHOLE method, which straddles two _gate sections. Do not call PlaceOne or Assets outside that hold.
             RiderFolder rf;
             try { rf = ResolvePatchModFolder(patchName, into, "houseCARL_Assets", new RiderNaming("patch")); }   // neutral default stem; a caller with a better name passes patch
             catch (InvalidOperationException ex) { return PlaceOutcome.Fail(ex.Message); }
 
-            // One asset build for the whole batch, reentrant on _gate. Captured rather than the live resolver, so every
-            // request in the batch — and the missing-root suggestion's re-resolve — answers from the same snapshot and
-            // a refresh landing mid-batch cannot make two placements describe two builds.
+            // One asset build for the whole batch, captured rather than live, so no two placements describe two builds.
             AssetResolver.AssetView view; IReadOnlyList<string> warnings;
             try { lock (_gate) { view = Assets.Capture(); warnings = AssetWarningsLocked(); } }
             catch (Exception ex)
@@ -1384,19 +1141,15 @@ public sealed partial class LoadOrderService
                 if (r.Placed) placed++;
             }
 
-            // Nothing placed into a fresh folder → remove the orphan. A reused into= folder belongs to the user and is
-            // never touched. A partial fresh folder is kept and its path surfaced.
+            // Nothing placed into a fresh folder means an orphan to remove; a reused into= folder is never touched.
             string? leftover = placed == 0 ? RemoveOrNameRiderResidue(rf) : null;
             return new PlaceOutcome(results, placed > 0 ? rf.ModFolder : null, warnings, leftover, null)
                 { FreshFolder = rf.CreatedFresh };
         }
     }
 
-    /// <summary>The refusal for a <c>source=</c> that reaches into MO2's mods tree, or null when it does not. A
-    /// <c>'&lt;archive.bsa&gt;|&lt;entry&gt;'</c> pair is judged on the archive's path and keeps its entry in the
-    /// remedy. A both-slots member reaches here only with a fully-qualified '.bsa', which IS the single source that
-    /// serves two slots — so the remedy keeps that archive, named as a provider, rather than telling the caller a
-    /// shape the tool documents is impossible.</summary>
+    /// <summary>The refusal for a <c>source=</c> that reaches into MO2's mods tree, or null. An archive-plus-entry pair
+    /// is judged on the archive's path and keeps its entry in the remedy, as a both-slots member keeps the archive.</summary>
     string? RawModsSourceRefusal(string source, bool bothSlots)
     {
         var v = source.Trim().Trim('"');
@@ -1409,12 +1162,8 @@ public sealed partial class LoadOrderService
         return ModsPathAddress.Refusal("", v, remedy);
     }
 
-    /// <summary>Place one asset: validate the destination rel-path (drive-rooted and '..' paths are rejected by the
-    /// resolver's own check), get the source bytes (explicit source= or auto-resolve), and write them atomically under
-    /// <paramref name="outDir"/>. Reports the CURRENT VFS winner, because the placed file does NOT win until the mod is
-    /// enabled (the folder isn't in the active profile yet) — and on the into= lane, whose folder already has a fixed
-    /// priority, until it is also sorted above that winner.
-    /// A per-asset failure is a recoverable named error, never a thrown batch abort.</summary>
+    /// <summary>Place one asset: validate the destination rel-path, get the source bytes, and write them atomically
+    /// under <paramref name="outDir"/>. Reports the CURRENT winner, because the placed file does not win until enabled.</summary>
     PlaceResult PlaceOne(PlaceRequest req, AssetResolver.AssetView view, string outDir)
     {
         string rel;
@@ -1424,44 +1173,29 @@ public sealed partial class LoadOrderService
         var res = view.ResolveForPlacement(rel);                         // rel already validated — won't throw
         var winnerSrc = res.Sources.Count > 0 ? res.Sources[0] : null;
         var winner = winnerSrc is null ? null : DescribeSource(winnerSrc);
-        // MO2's overwrite folder is the TOP loose root (AssetResolver.BuildLooseRoots: overwrite > mods > Data), so no
-        // mod folder out-ranks it and no left-pane sort reaches it — the render owes a different instruction there.
         bool winnerIsOverwrite = winnerSrc is { Kind: AssetKind.Loose }
             && string.Equals(winnerSrc.ProviderName, AssetResolver.OverwriteLayerName, StringComparison.OrdinalIgnoreCase);
-        // The destination folder is ALREADY the winner — a re-place into an enabled houseCARL patch. Sorting it above
-        // itself is not an instruction anyone can follow.
+        // The destination folder is ALREADY the winner — a re-place. Sorting it above itself is not an instruction.
         bool winnerIsDestination = winnerSrc is not null
             && string.Equals(winnerSrc.ProviderName, Path.GetFileName(outDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
                              StringComparison.OrdinalIgnoreCase);
-        // The other end of the root list: a BSA wins only when no loose copy exists, and the game's Data folder only
-        // when no mod provides the path — so a placed loose copy beats either one on enable, at any mod priority.
+        // The other end of the root list: a placed loose copy beats a BSA or Data on enable, at any mod priority.
         bool winnerLosesOnEnable = winnerSrc is not null && !winnerIsDestination
             && (winnerSrc.Kind == AssetKind.Bsa
                 || string.Equals(winnerSrc.ProviderName, AssetResolver.DataLayerName, StringComparison.OrdinalIgnoreCase));
 
-        // ---- source bytes: an ON-DISK source= is read as named; anything else resolves through the VFS ----
-        // Three source shapes reach here: an on-disk file the caller named exactly (a FULLY-QUALIFIED path, which a
-        // '.bsa' must also be to count as an archive, or a '<bsa>|<entry>' pair), a DATA-RELATIVE path resolved
-        // through the VFS under a pole, and no source at all — which
-        // is the same VFS lane pointed at the destination path. The last two share one code path because they are
-        // one question ("which provider supplies this Data-relative path") asked about different paths.
+        // ---- source bytes: three shapes reach here — an on-disk file named exactly, a Data-relative path resolved
+        //      through the VFS under a pole, and no source at all, which is that same lane aimed at the destination ----
         byte[] bytes; string sourceDesc;
-        // The mod folder an off-order read was served from, or null when the bytes came from the active order. Typed
-        // rather than baked into sourceDesc, because the render owns the sentence and a caller cannot infer this from
-        // a provider name.
+        // The mod folder an off-order read was served from, typed rather than baked into sourceDesc.
         string? offOrderProvider = null;
         bool offOrderOwnerEnabled = false;                 // WHICH off-order reason — an unticked mod, or a ticked mod's unloaded archive
-        // One normalization point for source=, ahead of both the classification and every consumer: whatever trimming
-        // the routing decision depends on must have happened before this line, or a quoted Data-relative source
-        // classifies one way and is read another.
+        // One normalization point for source=, ahead of the classification and every consumer, or a quoted Data-relative source classifies one way and is read another.
         var explicitSrc = NormalizeSourceArg(req.Source);
         var providerSel = req.SourceProvider?.Trim();
         if (!string.IsNullOrEmpty(explicitSrc) && !IsVfsSource(explicitSrc!))
         {
-            // A raw path into the mods tree reads past the VFS. Judged on the ARCHIVE's own path for a
-            // '<archive.bsa>|<entry>' source, and the remedy keeps the entry — a bare archive would place the whole
-            // .bsa. On a both-slots member no Data-relative source is accepted at all, so that one is told to name
-            // the provider or pick a slot rather than handed a form its retry would refuse.
+            // A raw path into the mods tree reads past the VFS, judged on the ARCHIVE's own path for a pair source.
             if (RawModsSourceRefusal(explicitSrc!, req.BothSlots) is { } rawErr)
                 return PlaceResult.Fail(rel, rawErr, winner);
             // An on-disk source already IS one exact copy, so a pole cannot apply to it — said, never dropped.
@@ -1482,26 +1216,18 @@ public sealed partial class LoadOrderService
                 catch (ArgumentException ex) { return PlaceResult.Fail(rel, $"source '{explicitSrc}': {ex.Message}", winner); }
             }
             var srcRes = sourceNamed ? view.ResolveForPlacement(srcRel) : res;
-            // The off-order lane is handed to the one source policy rather than spelled here: naming a mod means that
-            // mod's copy whether or not MO2 ticks it, and every caller reaches that rule through this call.
+            // The off-order lane goes through the one source policy rather than being spelled here.
             var choice = AssetSourceChoice.Parse(providerSel);
             var pick = AssetSourceSelection.Select(srcRes, choice,
                                                    n => view.TryResolveOffOrderProvider(n, srcRel));
 
-            // Both named-provider misses render as one refusal: they are the same fact — the named provider does not
-            // supply this path — differing only in which places were searched and whether there is anyone else to
-            // suggest, and the sentence takes both as inputs.
-            // Gated on the POLE, not on "a provider string was passed": '*winner' is a non-empty selector that parses
-            // to the winner pole, and gating on the string would quote it back as if it were a mod name and claim a
-            // folder of that name had been searched, which is impossible since '*' cannot appear in a folder name.
+            // Both named-provider misses render as one refusal. Gated on the POLE, not on a passed string: '*winner' parses to the winner pole.
             if (choice.Pole == AssetSourcePole.Named
                 && pick.Verdict is AssetSourceVerdict.NamedAbsent or AssetSourceVerdict.NoProvider)
                 return PlaceResult.Fail(rel, WriteSentences.PlaceSourceNamedAbsent(
                     providerSel!, srcRel, pick.ProviderNames,
                     pick.OffOrderReason, pick.OffOrderUnreadableName, pick.OffOrderUnreadableCause,
-                    // The root-prefix hint: a path taken off a record is stored relative to meshes\ or textures\, and
-                    // naming a provider does not stop that being the caller's actual mistake. Verified before it is
-                    // offered, like every other site that shows it.
+                    // The root-prefix hint, verified before it is offered, like every other site that shows it.
                     AssetPathHint.AssetRootHint(view, srcRel),
                     // srcRes, not res: the caveat has to describe the scan that answered for the SOURCE path.
                     srcRes.ReadIncomplete), winner);
@@ -1512,29 +1238,20 @@ public sealed partial class LoadOrderService
                     $"nothing in the active load order provides the source '{srcRel}'."
                     + (AssetPathHint.AssetRootHint(view, srcRel) is { } srcHint ? " " + srcHint : "")
                     + (srcRes.ReadIncomplete ? " " + WriteSentences.PlaceSourceScanIncomplete : "")
-                    // The other dead end: a Data-relative source= with no source_provider=. Same sentence as the
-                    // auto-resolve refusal below, so a caller who passed a source and no provider gets the same route
-                    // out.
+                    // The other dead end: a Data-relative source= with no source_provider=, given the same route out.
                     + " " + WriteSentences.PlaceSourceNameReachesUnticked,
                     winner);
             if (pick.Verdict == AssetSourceVerdict.NoProvider)
             {
-                // A path taken off a record is stored relative to its root folder, so passing it verbatim is the
-                // normal way one arrives here. Both roots are tried (this lane cannot know the path's kind) and
-                // verified by re-resolving, so a suggestion always names a copy that really is provided and silence
-                // is the default. Not offered on the explicit-source= arm above: placing a NEW file at a path
-                // nothing provides is legitimate there.
+                // A path off a record is relative to its root folder, so passing it verbatim is the normal way here. Not offered on the explicit-source= arm.
                 var hint = AssetPathHint.AssetRootHint(view, rel);
-                // Order is load-bearing: the hint sits directly after the sentence about the PATH and before the
-                // "Pass source=" fallback. It names a destination, not a source, and must not trail an imperative
-                // about sources or it reads as one.
+                // Order is load-bearing: the hint names a destination, not a source, so it must not trail an imperative about sources.
                 return PlaceResult.Fail(rel,
                     $"nothing in the active load order provides '{rel}', so there is no copy to auto-place."
                     + (hint is null ? "" : " " + hint)
                     + " Pass source= the copy to place — a Data-relative path (resolved through the VFS, with"
                     + " source_provider= to name which mod's copy), a full loose path, '<archive.bsa>|<entry>', or a '.bsa' path."
-                    // The commonest way of reaching this refusal is that the only copy lives in a mod MO2 does not
-                    // load, and naming a mod reaches it, so the caller who is here is the one who needs to be told.
+                    // The commonest way here is that the only copy lives in a mod MO2 does not load, and naming a mod reaches it.
                     + " " + WriteSentences.PlaceSourceNameReachesUnticked
                     + (res.ReadIncomplete ? " " + WriteSentences.PlaceSourceScanIncomplete : ""),
                     winner);
@@ -1543,10 +1260,7 @@ public sealed partial class LoadOrderService
             if (err is not null) return PlaceResult.Fail(rel, err, winner);
             bytes = b!;
             if (pick.Source!.OffOrder) { offOrderProvider = pick.Source.ProviderName; offOrderOwnerEnabled = pick.Source.OwnerEnabled; }
-            // A source read from a different path than the destination is a rename and the render has to say so,
-            // since "placed from ModX" alone hides that the bytes are another file's. Keyed on whether the two paths
-            // differ, not on whether a source was named — a provider-scoped placement of the same path is not a
-            // rename.
+            // A source read from a different path than the destination is a RENAME and the render has to say so; keyed on the paths differing, not on a source being named.
             sourceDesc = sourceNamed && !SameAssetPath(srcRel, rel) ? $"{srcRel} — {desc}" : desc!;
         }
 
@@ -1559,9 +1273,7 @@ public sealed partial class LoadOrderService
         }
         catch (Exception ex) { return PlaceResult.Fail(rel, $"could not write '{rel}' into the patch folder: {ex.Message}", winner); }
 
-        // ---- integrity: the on-disk size matches the source bytes, so success is never claimed falsely ----
-        // Truncation / short-write detection, not a content hash: the bytes are in memory and the swap is atomic, so a
-        // same-length corruption is not a reachable failure here. Defensive; AtomicFile's swap is the real guarantee.
+        // ---- integrity: truncation / short-write detection, not a content hash — the swap is atomic ----
         long size; try { size = new FileInfo(dest).Length; } catch { size = -1; }
         if (size != bytes.Length)
             return PlaceResult.Fail(rel,
@@ -1572,17 +1284,11 @@ public sealed partial class LoadOrderService
               WinnerLosesOnEnable = winnerLosesOnEnable };
     }
 
-    /// <summary>Read an ON-DISK source= the caller named exactly. Forms: "&lt;archive.bsa&gt;|&lt;entry&gt;" (a specific
-    /// BSA entry, split on the FIRST '|'); a path ending ".bsa" (the entry is the destination rel-path — the FaceGen
-    /// case, where the entry inside the BSA IS the Data-relative path); a FULLY-QUALIFIED path (a loose file on disk).
-    /// A Data-relative source never reaches here — <see cref="IsVfsSource"/> routes it to the VFS lane, which is the one
-    /// that can say which provider's copy. Returns the bytes plus a human description, or a named error for a
-    /// missing file, missing entry, or unreadable archive.</summary>
+    /// <summary>Read an ON-DISK source= the caller named exactly: an archive-plus-entry pair, a '.bsa' path (the entry
+    /// is the destination rel-path), or a fully-qualified loose path. A Data-relative source never reaches here.</summary>
     static (byte[]? bytes, string? desc, string? error) ReadExplicitSource(string source, string destRel)
     {
-        // The whole-string trim and unquote happened in NormalizeSourceArg, ahead of the routing decision. The
-        // per-part trims below stay: each side of a '<archive>|<entry>' pair can carry its own quotes, which no
-        // whole-string normalization can reach.
+        // The whole-string trim happened in NormalizeSourceArg; the per-part trims stay, because each side of a pair can carry its own quotes.
         int bar = source.IndexOf('|');
         if (bar >= 0)
             return ReadBsaEntry(source[..bar].Trim().Trim('"'), source[(bar + 1)..].Trim().Trim('"'));
@@ -1596,9 +1302,7 @@ public sealed partial class LoadOrderService
         catch (Exception ex) { return (null, null, $"could not read source file '{path}': {ex.Message}"); }
     }
 
-    /// <summary>Read the bytes of an AUTO-resolved provider (the sole VFS provider when no source= was named). A loose
-    /// provider reads off disk; a BSA provider extracts its single entry natively. A named error if the resolved copy
-    /// vanished between resolve and read, or the archive cannot be read.</summary>
+    /// <summary>Read the bytes of an AUTO-resolved provider: loose off disk, or a BSA's single entry natively.</summary>
     static (byte[]? bytes, string? desc, string? error) ReadResolvedSource(PlacementSource s)
     {
         if (s.Kind == AssetKind.Loose)
@@ -1611,9 +1315,7 @@ public sealed partial class LoadOrderService
         return ReadBsaEntry(s.ArchivePath!, s.EntryPath);
     }
 
-    /// <summary>Read one entry out of a BSA (native Mutagen, no BSArch, zero handles at rest — see
-    /// <see cref="AssetResolver.TryReadArchiveEntry"/>). Named errors for a missing archive, an entry not inside it,
-    /// or an unreadable archive.</summary>
+    /// <summary>Read one entry out of a BSA natively, with named errors for a missing archive, a missing entry, or an unreadable archive.</summary>
     static (byte[]? bytes, string? desc, string? error) ReadBsaEntry(string archive, string entry)
     {
         string ap;
@@ -1632,16 +1334,10 @@ public sealed partial class LoadOrderService
     /// <summary>A human label for the current winner (the sort target). "ModX (loose)" / "Y.bsa (BSA)".</summary>
     static string DescribeSource(PlacementSource s) => $"{s.ProviderName} ({(s.Kind == AssetKind.Bsa ? "BSA" : "loose")})";
 
-    /// <summary>Do two Data-relative paths name the SAME asset, by the key the VFS itself resolves on? Both inputs
-    /// have already been through <see cref="AssetResolver.ValidateRelPath"/>, which folds separators and any leading
-    /// separator; the remaining axis is CASE, and the asset layer's own lookups are ordinal-case-insensitive. So a
-    /// raw string compare would call <c>Meshes/X.NIF</c> and <c>meshes\x.nif</c> two different files and report a
-    /// rename between one file and itself.</summary>
+    /// <summary>Do two Data-relative paths name the SAME asset, by the key the VFS resolves on? Both are already validated, so the remaining axis is CASE.</summary>
     static bool SameAssetPath(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>The ONE normalization of a caller's source= — trim, then strip surrounding quotes — applied before
-    /// the routing decision and before every consumer, so no two of them can disagree about what the string is.
-    /// Blank becomes null (the "no source" lane) rather than an empty path nobody can resolve.</summary>
+    /// <summary>The ONE normalization of a caller's source= — trim, then strip surrounding quotes — applied ahead of the routing decision and every consumer.</summary>
     static string? NormalizeSourceArg(string? source)
     {
         var s = source?.Trim();
@@ -1650,26 +1346,16 @@ public sealed partial class LoadOrderService
         return string.IsNullOrEmpty(s) ? null : s;
     }
 
-    /// <summary>Whether a <c>source=</c> is one a provider pole can even apply to — nothing named (the pole then
-    /// says whose copy of the DESTINATION to place), or a Data-relative path resolved through the VFS. False for an
-    /// on-disk file, which already names one exact copy: <see cref="PlaceOne"/> refuses a pole there rather than
-    /// dropping it, so a CALL-LEVEL pole must not be attached to such a member in the first place. Same routing
-    /// decision as the placer, through the same two helpers, so the two cannot drift.</summary>
+    /// <summary>Whether a <c>source=</c> is one a provider pole can apply to: nothing named, or a Data-relative path.
+    /// False for an on-disk file, so a CALL-LEVEL pole must not be attached to such a member at all.</summary>
     internal static bool SourceTakesAProvider(string? source)
     {
         var s = NormalizeSourceArg(source);
         return string.IsNullOrEmpty(s) || IsVfsSource(s!);
     }
 
-    /// <summary>Does this source= name a copy through the VFS (a Data-relative path) rather than one exact file on
-    /// disk? Expects an already-<see cref="NormalizeSourceArg"/>d string. The on-disk forms are tested in the same
-    /// order <see cref="ReadExplicitSource"/> routes them.
-    /// <para>Fully qualified, not merely rooted: on Windows <c>Path.IsPathRooted</c> is true for a leading '\' or '/',
-    /// but <c>AssetResolver.Normalize</c> trims exactly those, so <c>\meshes\…</c> is a legal Data-relative
-    /// destination. A path is on-disk only when it names a volume (<c>C:\…</c>) or a UNC share.</para>
-    /// <para>The qualified test runs BEFORE the extension test, because an extension says nothing about where the
-    /// file is: a mod can legitimately ship <c>meshes\thing.bsa</c> as a Data-relative asset. A '.bsa' means "an
-    /// archive to open" only once the caller is known to have named a file on disk.</para></summary>
+    /// <summary>Does this source= name a copy through the VFS rather than one exact file on disk? Fully qualified, not
+    /// merely rooted, and the qualified test runs BEFORE the extension test, since a mod may ship a .bsa as an asset.</summary>
     static bool IsVfsSource(string source)
     {
         if (source.IndexOf('|') >= 0) return false;                      // '<archive.bsa>|<entry>' — an entry, not a path
@@ -1677,9 +1363,7 @@ public sealed partial class LoadOrderService
         return false;                                                    // a volume or UNC path ⇒ one exact file (or archive) on disk
     }
 
-    /// <summary>Whole-order stats (forces the lazy build). A test seam: the probes and tests warm the lazy index
-    /// through it and read the epoch and counters off it. No shipped caller — the product reads the same numbers
-    /// through <see cref="StatusData"/>.</summary>
+    /// <summary>Whole-order stats (forces the lazy build). A test seam: the probes warm the lazy index through it. No shipped caller.</summary>
     public (int plugins, int records, int conflicts, int maxDepth, IReadOnlyList<string> loadFailures, string epoch) Stats()
     {
         var view = Resolver.Capture();          // one build for every counter in the line
