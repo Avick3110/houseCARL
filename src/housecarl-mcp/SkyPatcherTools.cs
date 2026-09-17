@@ -6,10 +6,7 @@ using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcp;
 
-/// <summary>Read-only view of the SkyPatcher distributor layer. The record tools answer what the plugins say; this
-/// answers what the SkyPatcher INI layer does to those records at load: a whole-layer inventory plus the INI-vs-INI
-/// conflict report. One record's computed post-SkyPatcher state is the overlay source pole on
-/// <c>housecarl_records</c> instead. Authoring stays with the skypatcher-authoring skill; this is its verifier.</summary>
+/// <summary>Read-only view of the SkyPatcher distributor layer: a whole-layer inventory plus the INI-vs-INI conflict report; one record's post-SkyPatcher state is the overlay source pole on <c>housecarl_records</c> instead.</summary>
 [McpServerToolType]
 public static class SkyPatcherTools
 {
@@ -48,8 +45,7 @@ public static class SkyPatcherTools
     });
 }
 
-/// <summary>Renders the SkyPatcher reader DTOs as text, bounded by max_chars with explicit cut notices; the caveats
-/// are always rendered.</summary>
+/// <summary>Renders the SkyPatcher reader DTOs as text, bounded by max_chars with explicit cut notices; the caveats are always rendered.</summary>
 static class SkyPatcherWire
 {
     // ---- housecarl_skypatcher_layer ------------------------------------------------------------------
@@ -79,8 +75,7 @@ static class SkyPatcherWire
           .Append(d.NoOps.Count).Append(" no-op write(s)\n");
         if (folders.Count == 0)
             sb.Append("\nno SkyPatcher INIs in the active order (no Data\\SKSE\\Plugins\\SkyPatcher content, or SkyPatcher itself is not installed).\n");
-        // filter= selects at the FOLDER level: a folder with no match is skipped, so a late-sorting match is never cut by
-        // the cap, and a matching folder still lists every file in apply order so the neighbours around a match stay visible.
+        // filter= selects at the FOLDER level, so a late-sorting match is never cut by the cap and a matching folder still lists every file in apply order.
         if (filter is { } hdr)
             sb.Append("filter '").Append(hdr).Append("' — ")
               .Append(folders.Sum(f => f.Files.Count(x => Matches(hdr, f, x)))).Append(" of ").Append(files)
@@ -242,8 +237,7 @@ static class SkyPatcherWire
         return In(folder.Subfolder) || In(file.WinningProvider) || In(file.RelPath);
     }
 
-    /// <summary>What a filter matching no INI returns: the count (zero), what the filter is matched against, and the
-    /// folders that are there. Never the overview — an unfiltered dump would read as the filter's own result.</summary>
+    /// <summary>What a filter matching no INI returns: the zero count, what the filter is matched against, and the folders that are there — never the unfiltered overview.</summary>
     static string ZeroMatch(SkyPatcherLayerData d, string filter, int cap)
     {
         var folders = d.Scan.Folders;
