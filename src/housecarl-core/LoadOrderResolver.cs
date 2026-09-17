@@ -472,6 +472,11 @@ public sealed class LoadOrderResolver : IDisposable
         _explainAbsence = explainAbsence;
         _dataDir = ComputeDataDir(nameToIdx, paths);
         _snap = BuildIndex();
+        // Settle the heap ONCE, here, where the first build's garbage — the per-plugin buffers and the index's
+        // discarded buckets — is dead and this is the only snapshot alive. A re-index does not pay it: blocking every
+        // thread on a compacting collect each time a plugin's bytes change is the opposite of what an aggressive
+        // collect is for, and there the old snapshot is still live and would be copied. #728.
+        GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
     }
 
     /// <summary>The trailing clause for a refusal naming a plugin this order does not contain. Prefers the injected
@@ -687,17 +692,15 @@ public sealed class LoadOrderResolver : IDisposable
         }
 
         // The winner index is readonly from here on (every use is TryGetValue / Keys / Count) and was built at about
-        // half fill, so its spare buckets are dead weight for the whole session — trim them, then settle the heap once
-        // so the slack goes back to the OS instead of being held until something else asks for it. The overrider map
-        // needs no trim: ToDictionary presizes from the source's count. #728.
+        // half fill, so its spare buckets are dead weight for the whole session — trim them. The overrider map needs
+        // no trim: ToDictionary presizes from the source's count. Settling the heap is the CONSTRUCTOR's job, not
+        // this method's: a RefreshIfStale re-index lands here too, and both snapshots are live at this point. #728.
         index.TrimExcess();
-        var snapshot = new IndexSnapshot(
+        return new IndexSnapshot(
             index,
             overriders.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),  // trim List overhead → int[]
             failures, excluded, unopenable, excludedPlugins, maxDepth, ComputeEpoch(_names, _paths, _stamps, excludedPlugins),
             light, firstUnknownKind, firstUnknownKindName, containment, masterBlock);
-        GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
-        return snapshot;
     }
 
     /// <summary>The epoch fingerprint: a compact, deterministic identity for ONE index build, derived from the
