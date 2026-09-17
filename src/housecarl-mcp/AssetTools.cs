@@ -179,11 +179,12 @@ public static class AssetTools
         string? noEpochBecause = null;
         if (wantFile || idDemand is not null)
         {
-            // What READING the order can throw, and nothing else. The profile files are read unguarded, so MO2
-            // rewriting them on a re-sort hands this an IOException while it holds the handle, and an order with no
-            // active plugins is the InvalidOperationException — both are honest degrades for a sweep that never
-            // needed the record index. Anything else is a bug, and the sentence below names a cause ("the order
-            // could not be read … re-run once it reads") that would be false of one.
+            // What READING the order can throw, and nothing else. A profile file MO2 holds while it re-sorts arrives
+            // as ProfileUnreadableException, which derives from IOException and is caught here deliberately by that
+            // base — a UnauthorizedAccessException is the denied read, and an order with no active plugins is the
+            // InvalidOperationException. All three are honest degrades for a sweep that never needed the record
+            // index. Anything else is a bug, and the sentence below names a cause ("the order could not be read …
+            // re-run once it reads") that would be false of one.
             try { order = svc.CaptureView().Stamp; }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
             { noEpochBecause = Guard.Flatten(ex.Message); }

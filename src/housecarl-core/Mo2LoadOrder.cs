@@ -44,19 +44,20 @@ public sealed record Mo2Composition(
     IReadOnlyList<string> InactivePluginNames,
     IReadOnlyList<string> ImplicitPluginNames);
 
-/// <summary>An MO2 profile text file could not be read at this instant. MO2 rewrites loadorder.txt and plugins.txt on
-/// a re-sort and holds the handle while it does, so a tool call landing in that window is a transient to retry, not a
-/// failure of the call. Derives from <see cref="IOException"/> so the mid-write catches already written against that
-/// type keep seeing it.</summary>
+/// <summary>An MO2 profile text file is LOCKED by another process at this instant — the sharing/lock violation only,
+/// which is what MO2 hands out while it rewrites loadorder.txt and plugins.txt on a re-sort, so a call landing in that
+/// window is a transient to retry rather than a failure of the call. Every other read fault (missing, denied, a real
+/// disk error) keeps its own error and its own sentence. Derives from <see cref="IOException"/> so the mid-write
+/// catches already written against that type keep seeing it.</summary>
 public sealed class ProfileUnreadableException : IOException
 {
     /// <summary>The profile file that could not be read.</summary>
     public string ProfilePath { get; }
 
     public ProfileUnreadableException(string profilePath, Exception inner)
-        : base($"the MO2 profile is being rewritten right now — '{System.IO.Path.GetFileName(profilePath)}' is held " +
-               "open by another program (MO2 holds it while it re-sorts). Nothing was changed; run this again in a " +
-               "moment.", inner)
+        : base($"the MO2 profile file '{System.IO.Path.GetFileName(profilePath)}' is held open by another process " +
+               "right now, so the load order could not be read (MO2 holds these while it re-sorts). Nothing was " +
+               "changed; run this again in a moment.", inner)
         => ProfilePath = profilePath;
 }
 
@@ -231,13 +232,17 @@ public static class Mo2LoadOrder
         return names;
     }
 
-    /// <summary>Read one profile text file, naming a locked file as the transient it is. The three parsers go through
+    /// <summary>Read one profile text file, naming a LOCKED file as the transient it is. The three parsers go through
     /// here so a re-sort in flight reaches a caller as <see cref="ProfileUnreadableException"/> — one sentence saying
-    /// to retry — rather than as a raw IOException the tool guard reports as an internal failure.</summary>
+    /// to retry — rather than as a raw IOException the tool guard reports as an internal failure. Only the Win32
+    /// sharing/lock violations are taken as that case, like <see cref="AtomicFile"/>'s own narrow catch: a denied,
+    /// missing or genuinely faulty read keeps its own error, because telling a user to wait for a re-sort that is not
+    /// happening is the silently-wrong answer this rename exists to avoid.</summary>
     static string[] ReadProfileLines(string path)
     {
         try { return File.ReadAllLines(path); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (IOException ex) when (ex is not (FileNotFoundException or DirectoryNotFoundException)
+                                     && (ex.HResult & 0xFFFF) is 32 or 33)   // ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION
         {
             throw new ProfileUnreadableException(path, ex);
         }
