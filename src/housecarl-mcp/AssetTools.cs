@@ -188,14 +188,25 @@ public static class AssetTools
         // The declared-cost refusal: the selection was counted and is past the bound, so nothing was resolved.
         if (data.BoundRefusal is { } tooBig) return Wire.Refuse(json, tooBig);
 
-        KeyValuePair<string, string>[] Echo() => new[]
+        KeyValuePair<string, string>[] Echo()
         {
-            new KeyValuePair<string, string>("asset_paths", pathEcho ?? $"{pathTokens?.Length ?? 0} inline path(s)"),
-            new KeyValuePair<string, string>("under", under is { Length: > 0 } ? string.Join(",", under) : "<none>"),
-            new KeyValuePair<string, string>("formids", idEcho ?? $"{seeds.Count} inline formid(s)"),
-            new KeyValuePair<string, string>("read_incomplete", data.ReadIncomplete ? "true" : "false"),
-            new KeyValuePair<string, string>("discovery_warnings", data.Warnings.Count.ToString()),
-        };
+            var e = new List<KeyValuePair<string, string>>
+            {
+                new("asset_paths", pathEcho ?? $"{pathTokens?.Length ?? 0} inline path(s)"),
+                new("under", under is { Length: > 0 } ? string.Join(",", under) : "<none>"),
+                new("formids", idEcho ?? $"{seeds.Count} inline formid(s)"),
+                new("read_incomplete", data.ReadIncomplete ? "true" : "false"),
+                new("discovery_warnings", data.Warnings.Count.ToString()),
+            };
+            // WHICH rows the file holds, in the records lane's spelling: an auto-spilled window's manifest states
+            // row_count and total, and without this nothing says which of the total those rows are. A re-read months
+            // later has no conversation to recover it from. Never on the to_file= arm, which is never a window.
+            if (!wantFile && data.Selected != data.Results.Count)
+                e.Add(new("window", data.Results.Count == 0
+                    ? $"window: no rows — offset={data.Offset} is past the end of the {data.Selected}-path selection"
+                    : $"window: rows {data.Offset + 1}–{data.Offset + data.Results.Count} of {data.Selected} (limit={data.Limit}, offset={data.Offset})"));
+            return e.ToArray();
+        }
 
         if (!wantFile)
         {
