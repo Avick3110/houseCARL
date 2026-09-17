@@ -124,6 +124,15 @@ public sealed class PapyrusDecompiler
     /// still correct, only cosmetically different.</summary>
     readonly IReadOnlyDictionary<string, string>? _classParents;
 
+    /// <summary>Index of the first parameter a `= None` default is emitted on, by function name — every
+    /// parameter from there to the end takes one, because Papyrus only allows defaults as a suffix. A .pex
+    /// stores no defaults at all, so the only evidence is a call in this same object that omitted the
+    /// arguments: the compiler bakes an omitted `None` default as a RAW null argument slot, while an
+    /// explicitly written `None` compiles to a typed null-CAST passed by ident. This is the same trailing
+    /// run of raw nulls the call site re-omits, so the two agree — and since the pex carries no defaults,
+    /// declaring one costs nothing in what the source recompiles to.</summary>
+    readonly Dictionary<string, int> _defaultedParams = new(StringComparer.OrdinalIgnoreCase);
+
     public PapyrusDecompiler(PexFile pex, PexObject obj, IReadOnlyDictionary<string, string>? classParents = null)
     {
         _pex = pex; _obj = obj; _classParents = classParents;
@@ -131,7 +140,60 @@ public sealed class PapyrusDecompiler
         // detection on casts whose source is a script variable, not a function local.
         foreach (var v in obj.Variables)
             if (v.Name is not null && v.TypeName is not null) _objVarTypes.TryAdd(v.Name, v.TypeName);
+        HarvestBakedDefaults(obj);
     }
+
+    /// <summary>Read every call this object makes to one of its own functions and note the trailing run of
+    /// arguments the compiler baked as a raw null — the run the call site re-omits. Name and parameter count
+    /// both have to match, and every parameter in the run has to be a type `None` is a legal value for, so a
+    /// same-named function on another script cannot put a default on a parameter that could not carry one.
+    /// The longest run any call shows is the one declared: a shorter one still compiles against it.</summary>
+    void HarvestBakedDefaults(PexObject obj)
+    {
+        var own = new Dictionary<string, PexObjectFunction>(StringComparer.OrdinalIgnoreCase);
+        foreach (var st in obj.States)
+            foreach (var nf in st.Functions)
+                if (nf.FunctionName is not null && nf.Function is not null) own.TryAdd(nf.FunctionName, nf.Function);
+
+        foreach (var st in obj.States)
+            foreach (var nf in st.Functions)
+                foreach (var ins in nf.Function?.Instructions ?? [])
+                {
+                    // CALLPARENT is left out: it runs the parent's function, whose own source declares it.
+                    int nameIdx = ins.OpCode switch
+                    {
+                        InstructionOpcode.CALLMETHOD => 0,
+                        InstructionOpcode.CALLSTATIC => 1,
+                        _ => -1,
+                    };
+                    if (nameIdx < 0) continue;
+                    var a = ins.Arguments;
+                    const int argcIdx = 3;
+                    if (a.Count <= argcIdx) continue;
+                    if (a[nameIdx].VariableType is not (VariableType.Identifier or VariableType.String)) continue;
+                    var callee = a[nameIdx].StringValue;
+                    if (callee is null || !own.TryGetValue(callee, out var target)) continue;
+                    if (a[argcIdx].VariableType != VariableType.Integer) continue;
+                    int n = a[argcIdx].IntValue ?? 0;
+                    if (n != target.Parameters.Count || a.Count != argcIdx + 1 + n) continue;
+
+                    int keep = n;
+                    while (keep > 0
+                           && a[argcIdx + keep].VariableType == VariableType.Null
+                           && CanBeNone(target.Parameters[keep - 1].TypeName)) keep--;
+                    if (keep == n) continue;
+                    if (!_defaultedParams.TryGetValue(callee, out var seen) || keep < seen)
+                        _defaultedParams[callee] = keep;
+                }
+    }
+
+    /// <summary>Is `None` a legal value for this declared type? The four scalars are the ones it is not.</summary>
+    static bool CanBeNone(string? type)
+        => type is not null
+           && !(type.Equals("int", StringComparison.OrdinalIgnoreCase)
+                || type.Equals("float", StringComparison.OrdinalIgnoreCase)
+                || type.Equals("bool", StringComparison.OrdinalIgnoreCase)
+                || type.Equals("string", StringComparison.OrdinalIgnoreCase));
 
     public static Result DecompileFile(PexFile pex, IReadOnlyDictionary<string, string>? classParents = null)
     {
@@ -282,7 +344,9 @@ public sealed class PapyrusDecompiler
             ? null : TypeName(f.ReturnTypeName);
         bool asEvent = !propertyHandler && ret is null && !isGlobal && name.StartsWith("On", StringComparison.OrdinalIgnoreCase);
 
-        var ps = string.Join(", ", f.Parameters.Select(p => $"{TypeName(p.TypeName)} {p.Name}"));
+        int firstDefaulted = _defaultedParams.TryGetValue(name, out var dp) ? dp : int.MaxValue;
+        var ps = string.Join(", ", f.Parameters.Select((p, k) =>
+            $"{TypeName(p.TypeName)} {p.Name}" + (k >= firstDefaulted ? " = None" : "")));
         var kw = asEvent ? "Event" : "Function";
         var header = $"{ind}{(ret is not null ? ret + " " : "")}{kw} {name}({ps})"
                    + (isGlobal ? " Global" : "") + (isNative ? " Native" : "");

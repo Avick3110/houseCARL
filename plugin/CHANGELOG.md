@@ -44,6 +44,8 @@ made the change.
   after your first call on a large order.
 - **`housecarl_decompile_script` fails a function loudly instead of emitting two calls in an order the script never
   ran them in.** Read the failure comment in the `.psc` for the function it names.
+- **`housecarl_decompile_script` puts a `= None` default back on a function whose own script calls it without that
+  argument, so the source it writes still compiles.** Decompile a script with such a call and read the signature.
 
 ## 2.0.2 — 2026-09-15
 
