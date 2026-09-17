@@ -48,13 +48,16 @@ $xml = [xml](Get-Content -LiteralPath $report.FullName -Raw)
 
 foreach ($pkg in $xml.coverage.packages.package) {
   if ($subjects -notcontains $pkg.name) { continue }
-  $files = @{}
+  # A report can carry more than one package element per assembly, so merge rather than replace.
+  if (-not $byAssembly.Contains($pkg.name)) { $byAssembly[$pkg.name] = @{} }
+  $files = $byAssembly[$pkg.name]
   foreach ($cls in $pkg.classes.class) {
     $name = $cls.filename
     if (-not $name) { continue }
     # Absolute runner paths -> repo-relative, so the table reads the same locally and in CI.
     $name = ($name -replace '\\', '/')
     if ($name -match '(src/.*)$') { $name = $Matches[1] }
+    elseif ($name -match '^(housecarl-[a-z]+/.*)$') { $name = 'src/' + $Matches[1] }
     if (-not $files.ContainsKey($name)) { $files[$name] = @{} }
     foreach ($line in $cls.lines.line) {
       $n = [int]$line.number
@@ -62,7 +65,6 @@ foreach ($pkg in $xml.coverage.packages.package) {
       if ($hit -or -not $files[$name].ContainsKey($n)) { $files[$name][$n] = $hit }
     }
   }
-  $byAssembly[$pkg.name] = $files
 }
 
 $out = [System.Collections.Generic.List[string]]::new()
