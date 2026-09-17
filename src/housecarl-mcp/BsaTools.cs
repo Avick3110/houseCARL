@@ -4,10 +4,9 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>List, extract and repack Bethesda .bsa archives via <see cref="HousecarlCore.BsaArchive"/>. Repack drives
-/// BSArch, whose path comes from <see cref="ToolPathResolver"/> and prompts if unset. BSArch has no per-file extract,
-/// so reading one file inside an archive means extracting the archive first. Extract and repack write into a new
-/// houseCARL mod folder; originals are untouched.</summary>
+/// <summary>List, extract and repack Bethesda .bsa archives via <see cref="HousecarlCore.BsaArchive"/>. Repack
+/// drives BSArch, whose path comes from <see cref="ToolPathResolver"/>; extract and repack write into a new
+/// houseCARL mod folder and originals are untouched (docs/architecture/assets.md).</summary>
 [McpServerToolType]
 public static class BsaTools
 {
@@ -76,8 +75,7 @@ public static class BsaTools
             var given = out_path!.Trim().Trim('"');
             if (PathArguments.NotAbsolute(given, "out_path", "the folder to unpack into", "C:\\work\\extracted") is { } notAbsolute)
                 return "error: " + notAbsolute;
-            // An absolute path can still be unusable (an embedded NUL, or one past the OS length limit); named here
-            // like the archive argument above, rather than thrown at the guard as an internal failure.
+        // Extract names the folder it left behind on failure rather than deleting it, unlike repack below.
             try { target = Path.GetFullPath(given); }
             catch (Exception ex) { return $"error: out_path '{given}' is not a usable path ({ex.Message})."; }
         }
@@ -97,11 +95,9 @@ public static class BsaTools
         return sb.ToString();
     });
 
-    /// <summary>How the repack lane names its mod folder, for the into= not-found refusal (#357): patch=, the same
-    /// parameter as every other tool that writes a folder, since the .bsa inside takes that folder's name. That name
-    /// is load-bearing — the game auto-loads an archive only as &lt;activePluginBasename&gt;.bsa (or one listed in
-    /// sResourceArchiveList) — so a taken stem REFUSES here rather than suffixing the archive to a name nothing
-    /// loads.</summary>
+    /// <summary>How the repack lane names its mod folder, for the into= not-found refusal. That name is load-bearing
+    /// — the game auto-loads an archive only as &lt;activePluginBasename&gt;.bsa — so a taken stem REFUSES here
+    /// rather than suffixing the archive to a name nothing loads.</summary>
     public static readonly LoadOrderService.RiderNaming RepackNaming = new(
         "patch",
         new LoadOrderService.StemRefusal(
@@ -134,9 +130,8 @@ public static class BsaTools
         if (string.IsNullOrWhiteSpace(source_folder)) return "error: no source_folder given.";
         source_folder = Path.GetFullPath(source_folder.Trim().Trim('"'));
         if (!Directory.Exists(source_folder)) return $"error: no such folder: '{source_folder}'.";
-        // Lane exclusivity, as on write_seq: patch= names a NEW folder and into= an existing one, and the .bsa takes
-        // whichever folder's name — two ways of naming it with no way to choose, so the pair refuses by name rather
-        // than silently taking into='s folder (which the resolver reaches before patch= is read).
+        // Lane exclusivity, as on write_seq: the .bsa takes whichever folder's name, so two ways of naming it with
+        // no way to choose refuses rather than silently taking into='s folder.
         if (!string.IsNullOrWhiteSpace(patch) && !string.IsNullOrWhiteSpace(into))
             return $"error: patch='{patch}' names a NEW mod folder for the .bsa, but into='{into}' packs it into an existing "
                  + "houseCARL patch — the two lanes are exclusive, and the archive takes the folder's name either way. "
@@ -144,10 +139,8 @@ public static class BsaTools
         if (svc.ConfigPromptOrNull() is { } cfg) return cfg;
         if (bridge.RequireOrPrompt(ToolDependency.Bsarch, out var bsarch) is { } prompt) return prompt;
 
-        // patch= names the mod FOLDER and the .bsa inside takes that folder's name, as on every other tool that
-        // writes one — including the into= case, where the archive is named for the folder it lands in.
-        // A caller who spells the archive itself — patch="MyArchive.bsa" — means that name, so the extension is
-        // stripped here rather than folded into the folder name and doubled on the file.
+        // patch= names the mod FOLDER and the .bsa inside takes that folder's name. A caller who spells the archive
+        // itself means that name, so the extension is stripped rather than doubled on the file.
         LoadOrderService.RiderFolder rf;
         var stem = patch?.Trim().Trim('"');
         if (stem is not null && stem.EndsWith(".bsa", StringComparison.OrdinalIgnoreCase)) stem = stem[..^4];
@@ -156,8 +149,7 @@ public static class BsaTools
         var folder = rf.OutputDir;
         var name = rf.Stem + ".bsa";
 
-        // On any post-allocation failure: an empty fresh folder is deleted, a partial .bsa is kept and named, and a
-        // reused into= folder is left alone.
+        // On any post-allocation failure: an empty fresh folder is deleted, a partial .bsa is kept and named, and a reused into= folder is left alone.
         string Refuse(string msg)
         {
             var left = svc.RemoveOrNameRiderResidue(rf);
@@ -166,9 +158,8 @@ public static class BsaTools
         }
 
         var archive = Path.Combine(folder, name);
-        // An archive already at that path is REFUSED, never replaced and never backed up: on the into= lane every
-        // repack into one folder resolves to the same filename, and a silent overwrite loses the first archive's
-        // contents with the report saying only "packed".
+        // An archive already at that path is REFUSED, never replaced: on the into= lane every repack resolves to the
+        // same filename, and a silent overwrite loses the first archive's contents.
         if (File.Exists(archive))
             return Refuse($"error: '{name}' already exists in that mod folder ('{archive}') — houseCARL won't replace an "
                         + "archive it did not just write. Delete it, or repack into a different folder.");
@@ -185,8 +176,7 @@ public static class BsaTools
         return PackReport(r, name, archive, fmtFlag, compress);
     });
 
-    /// <summary>The success message for a repack: how many files the archive holds, where it landed, and any root-level
-    /// files BSArch dropped.</summary>
+    /// <summary>The success message for a repack: how many files the archive holds, where it landed, and any root-level files BSArch dropped.</summary>
     internal static string PackReport(HousecarlCore.BsaPackResult r, string name, string archive, string fmtFlag, bool compress)
     {
         var sb = new StringBuilder();

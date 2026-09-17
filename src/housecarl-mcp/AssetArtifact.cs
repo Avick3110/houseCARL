@@ -3,26 +3,13 @@ using System.Text.Json;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// <c>asset_status</c>'s <c>to_file=</c> artifact: one JSONL row per resolved path under the manifest convention
-/// <c>records</c> already uses (<see cref="ResultArtifact"/>), and the manifest-only render that goes back inline.
-///
-/// <para><b>One row shape, whichever SELECT filled it.</b> A path named in <c>asset_paths=</c>, a path an
-/// <c>under=</c> selector swept up, and a path derived from an NPC's FormID are the same answer about the same VFS,
-/// so they are one row shape and the columns a lane does not use are null. The identity column is <c>path</c>, so the
-/// file re-enters this tool as <c>asset_paths=["@&lt;path&gt;"]</c>.</para>
-///
-/// <para><b>The rows are the RESULT's, not the render's.</b> A <c>to_file=</c> call resolves the whole selection —
-/// the artifact is never a window — so no row is missing because the inline body ran out of characters, and
-/// <c>row_count</c> equals <c>total</c>. An AUTO-SPILL writes what the call resolved, which under a limit= is that
-/// window: the manifest then carries <c>total</c> above <c>row_count</c> and the spilled marker says the matches
-/// beyond the window are in no file. Re-resolving the rest would pay the scan a second time, which is the cost
-/// auto-spill exists to avoid.</para>
-/// </summary>
+/// <summary><c>asset_status</c>'s <c>to_file=</c> artifact: one JSONL row per resolved path under the manifest
+/// convention <c>records</c> uses, plus the manifest-only render that goes back inline. ONE row shape whichever
+/// SELECT filled it, identity column <c>path</c>; a to_file= call resolves the whole selection, so row_count equals
+/// total, while an AUTO-SPILL writes the window the call resolved and the marker says so.</summary>
 internal static class AssetArtifact
 {
-    /// <summary>The columns every row carries, in order. Written into the manifest, so a consumer reading the file
-    /// back has the shape without opening a row.</summary>
+    /// <summary>The columns every row carries, in order, written into the manifest so a consumer has the shape without opening a row.</summary>
     internal static readonly string[] RowSchema =
     {
         "path", "formid", "slot", "exists", "winner", "winner_kind", "winner_mod", "provider_count", "providers",
@@ -30,13 +17,9 @@ internal static class AssetArtifact
         "error",
     };
 
-    /// <summary>Write the artifact for one resolution. Returns the spill to render, or a named error the caller
-    /// renders verbatim — never throws for an IO failure.</summary>
-    /// <summary><paramref name="order"/> is the build the call fingerprinted, or null where the order could not be
-    /// read at all and <paramref name="noEpochBecause"/> says why. The stamp is taken whole, not just its epoch
-    /// string: the plugins it lost to a load failure are what <c>order_degraded</c> names.
-    /// <paramref name="target"/> is the caller's <c>to_file=</c> path or a reservation in the server-managed results
-    /// directory, and <paramref name="reason"/> says which — <c>to_file</c> or <c>ceiling</c>.</summary>
+    /// <summary>Write the artifact for one resolution: the spill to render, or a named error the caller renders
+    /// verbatim. <paramref name="order"/> is the fingerprinted build, or null with <paramref name="noEpochBecause"/>
+    /// saying why; <paramref name="reason"/> is <c>to_file</c> or <c>ceiling</c>. Never throws for an IO failure.</summary>
     internal static (SpillInfo? Spill, string? Error) Write(AssetStatusData d, ArtifactTarget target, string reason,
                                                            OrderStamp? order,
                                                            IReadOnlyList<KeyValuePair<string, string>> query,
@@ -62,24 +45,23 @@ internal static class AssetArtifact
             + "the manifest's query echo names whether they were.",
         };
 
-        // Said in the FILE as well as beside the spill marker: an artifact re-read months later carries no
-        // conversation, and an empty stamp with nothing explaining it is the unstamped state, not an honest one.
+        // Said in the FILE as well as beside the spill marker: an artifact re-read months later carries no conversation.
         if (noEpochBecause is not null)
             notes.Add("'epoch' is EMPTY: the load order could not be read for a fingerprint when this was written — "
                       + noEpochBecause + " The rows are unaffected (they are read off the VFS, not off the record "
                       + "index), but nothing here says which build they sit beside — re-run the call once the order "
                       + "reads to stamp one.");
 
-        // The §2.1 coverage stamp, in the field rather than in prose: EVERY row here is read off the VFS while the
-        // fingerprint describes the record build, which is the strongest instance of the rule this server has.
+        // The §2.1 coverage stamp, in the field rather than in prose: every row here is read off the VFS while the
+        // fingerprint describes the record build.
         var uncovered = new[]
         {
             "the MO2 VFS layer — every winner, provider chain and pair verdict in these rows is read off mod folders "
             + "and archives, which the record-build fingerprint does not describe",
         };
 
-        // The SELECTION's total, not the rows written: a to_file= call resolved everything so the two are equal,
-        // and an auto-spilled limit= window is the case where they must differ.
+        // The SELECTION's total, not the rows written: a to_file= call resolved everything, and an auto-spilled
+        // limit= window is the case where the two must differ.
         var (manifest, err) = writer.Save(target, ToolNames.AssetStatus, query, identity: "path",
                                           RowSchema, sort: "asset_paths= in the order given, then formids= (mesh then tint per NPC), then under= matches sorted",
                                           total: d.Selected, epoch: order?.Epoch ?? "", notes: notes,
@@ -90,8 +72,7 @@ internal static class AssetArtifact
     }
 
     /// <summary>The response a <c>to_file=</c> call renders: the header, the build-level alarms and the selector
-    /// notes — the things an ABSENT row in the file depends on — and the manifest. No rows, because the rows ARE the
-    /// file. The same disposition <c>records</c> and <c>check</c> take.</summary>
+    /// notes — the things an ABSENT row in the file depends on — and the manifest. No rows; the rows ARE the file.</summary>
     internal static string RenderManifestOnly(AssetStatusData d, SpillInfo spill, bool json, int cap)
     {
         if (json) return JsonWire.RenderAssetStatusManifestOnly(d, spill, cap);
@@ -99,8 +80,7 @@ internal static class AssetArtifact
         var sb = new StringBuilder();
         sb.Append("asset status — profile '").Append(d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)")
           .Append("'  (").Append(d.Selected).Append(" path").Append(d.Selected == 1 ? "" : "s").Append(" selected)\n");
-        // The alarms an ABSENT row in the FILE depends on, rendered whatever the budget: the file carries no place to
-        // state them, so a manifest-only response that dropped them would leave the artifact's absences unqualified.
+        // The alarms an ABSENT row in the FILE depends on, rendered whatever the budget: the file carries no place to state them.
         var room = RenderCap.For(cap, 0);
         BatchRender.AppendReadFailures(sb, d.BsaFailures, "an asset", room);
         BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, room);
@@ -113,10 +93,8 @@ internal static class AssetArtifact
         return sb.ToString();
     }
 
-    /// <summary>One row, every column present so a consumer can index by name without probing — except
-    /// <c>error</c>, which is written ONLY on a row that failed. Its PRESENCE is the artifact contract's marker for
-    /// a row that names no identity (<see cref="ResultArtifact.ReadIdentity"/>), so writing it as null on a good row
-    /// would make every row unre-enterable.</summary>
+    /// <summary>One row, every column present so a consumer can index by name — except <c>error</c>, written ONLY on
+    /// a failed row, because its presence is the artifact contract's marker for a row that names no identity.</summary>
     static void Row(Utf8JsonWriter w, AssetPathResult r)
     {
         w.WriteStartObject();
@@ -139,9 +117,8 @@ internal static class AssetArtifact
         w.WriteBoolean("exists", hit.Exists);
         Str(w, "winner", hit.Winner?.Source);
         Str(w, "winner_kind", Kind(hit.Winner));
-        // The OWNER, not the bare OwningMod: pair_differs is decided on AssetPathResult.Owner, and a loose provider
-        // carries no OwningMod at all — writing the raw field would put null in both mod columns of every
-        // loose-vs-loose split and leave a consumer re-deriving the verdict with null == null.
+        // The OWNER, not the bare OwningMod: a loose provider carries no OwningMod, so the raw field would put null
+        // in both mod columns of every loose-vs-loose split.
         Str(w, "winner_mod", hit.Winner is { } win ? AssetPathResult.Owner(win) : null);
         w.WriteNumber("provider_count", hit.Providers.Count);
         w.WriteStartArray("providers");
@@ -162,9 +139,7 @@ internal static class AssetArtifact
             Str(w, "pair_winner", pair.Winner?.Source);
             Str(w, "pair_winner_kind", Kind(pair.Winner));
             Str(w, "pair_winner_mod", pair.Winner is { } pw ? AssetPathResult.Owner(pw) : null);
-            // Compared by OWNING MOD, which is why both mod columns are here: two archive names of one product are
-            // not a split, and a consumer re-deriving this from the winner names alone would get the vanilla answer
-            // wrong 2,344 times on the measured order.
+            // Compared by OWNING MOD, which is why both mod columns are here: two archive names of one product are not a split.
             w.WriteBoolean("pair_differs", r.PairDiffers);
         }
         else
