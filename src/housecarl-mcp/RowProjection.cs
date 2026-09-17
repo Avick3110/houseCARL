@@ -67,7 +67,7 @@ static class RowProjection
                 seen[key] = new HashSet<string>(StringComparer.Ordinal);
                 outp.Add(f);                                                    // placeholder, rewritten below
             }
-            // The element's own line always leads the row; a sub-field goes only when it is an ABSENT optional.
+            // The element's own line always leads the row; a sub-field is dropped only when it is an ABSENT optional.
             bool isElement = f.Path.Length == key.Length;
             if (!seen[key].Add(f.Path)) continue;
             if (isElement || f.Present || !f.Readable || f.Note != ReadEngine.AbsentNote) cells[key].Add(f);
