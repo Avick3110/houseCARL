@@ -13,9 +13,11 @@
   where the built-in "Code Coverage" collector reported 99 of 125 and 732 of 2340 for that run.
 
   CI therefore publishes its per-run summary from the built-in collector, which follows the whole
-  process tree and ships with Microsoft.NET.Test.Sdk. The two cannot be combined: passing both
-  collectors to one `dotnet test` fails every test. This file is the in-process view, kept for a
-  developer who wants coverlet's filters or its branch numbers.
+  process tree and ships with Microsoft.NET.Test.Sdk. The two cannot be combined for THIS suite:
+  asking one `dotnet test` run for both collectors failed all 316 stdio tests, because the server
+  they spawn comes up with a second profiler attached over coverlet's instrumented copy. Plain
+  projects that spawn nothing take both collectors fine. This file is the in-process view, kept
+  for a developer who wants coverlet's filters or its branch numbers.
 
   The collector reports every referenced project; scripts/coverage-summary.ps1 keeps the two a
   coverage number means something for (the MCP layer and the core engines) and drops the rest.
