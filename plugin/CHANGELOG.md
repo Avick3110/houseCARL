@@ -38,8 +38,10 @@ made the change.
   read the layer table.
 - **Every path you name — `out_path=`, `to_file=`, an `@file` list, a `where=` list file, a SkyPatcher draft INI —
   has to be absolute, and one that is not is refused by name.** Pass one with no drive letter and read the refusal.
-- **A call that lands while MO2 is rewriting the profile now says so and asks for a retry instead of failing, and
-  the order index hands back its spare memory once built.** Run `housecarl_asset_status` during an MO2 re-sort.
+- **A call that lands while MO2 holds the profile open says so and asks for a retry instead of failing, and an
+  asset answer off the older build says which.** Run `housecarl_asset_status` during an MO2 re-sort.
+- **The load order's index hands its spare memory back once it is built.** Watch the houseCARL process's memory
+  after your first call on a large order.
 
 ## 2.0.2 — 2026-09-15
 
