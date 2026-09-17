@@ -13,11 +13,13 @@ namespace HousecarlMcpTests;
 /// checked by compiling that source, and by recompiling the decompiled output back to a .pex with
 /// an identical instruction stream. CI has no CK compiler, so the streams are pinned here by hand.
 ///
-/// The last tests are the ordering rule the slot's route through the pending machinery exposed, and
-/// they are here rather than in a file of their own because that route is what found them: a
-/// statement that carries a pending value drains only what was produced before that value, and one
-/// that has an effect of its own — it runs a call, sets a property, sets an array element — refuses
-/// instead, because neither side of it is the source's order.
+/// The rest are the other rules of the same pending machinery, kept here rather than in files of
+/// their own so one set of stream builders serves them all. The ordering rule: a statement that
+/// carries a pending value drains only what was produced before that value, and one that has an
+/// effect of its own refuses instead. The discarded-value rule: an expression nothing ever reads
+/// comes back as a bare expression statement, which the compiler compiles back to the one
+/// instruction it came from - unless it is a bare variable read or folds to a literal, for which
+/// the compiler emits nothing, and which stay a loud failure.
 /// </summary>
 [Trait("tier", "unit")]
 public class DecompileNoneResultTests
@@ -741,6 +743,123 @@ public class DecompileNoneResultTests
 
         Assert.Equal(0, res.FunctionsFailed);
         AssertOrder(res.Source, "f.Bar()", "arr.Length");
+    }
+
+    // ------------------------------------------------------------ discarded expressions
+    // ------------------------------------------------------------ discarded expressions
+    [Fact]
+    public void ADiscardedCastComesBackAsABareCastStatement()
+    {
+        // Function Probe(float modified)
+        //     modified as int
+        // EndFunction
+        // The shape that fails vanilla `WEBountyCollectorScript.OnStoryScript`: a cast into a temp nothing reads.
+        var f = Fn(("Float", "modified"));
+        Local(f, "Int", "::temp0");
+        Ins(f, InstructionOpcode.CAST, Id("::temp0"), Id("modified"));
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("Probe", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        Assert.Contains("modified as int", res.Source);
+    }
+
+    [Fact]
+    public void ADiscardedPropertyReadComesBackAsABarePropertyRead()
+    {
+        // Function Probe()
+        //     Self.Room
+        // EndFunction
+        // The shape that fails `RN_Utility_PropManager._getDisplayRoom` and `nl_mcm_module.Get`.
+        var f = Fn();
+        Local(f, "Float", "::temp0");
+        Ins(f, InstructionOpcode.PROPGET, Id("Room"), Id("self"), Id("::temp0"));
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("Probe", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        Assert.Contains("Self.Room", res.Source);
+    }
+
+    [Fact]
+    public void ADiscardedArrayReadComesBackAsABareIndexStatement()
+    {
+        // Function Probe(int[] nums)
+        //     nums[0]
+        // EndFunction
+        var f = Fn(("Int[]", "nums"));
+        Local(f, "Int", "::temp0");
+        Ins(f, InstructionOpcode.ARRAY_GETELEMENT, Id("::temp0"), Id("nums"), Int(0));
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("Probe", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        Assert.Contains("nums[0]", res.Source);
+    }
+
+    [Fact]
+    public void AnOverwrittenDiscardedCastIsEmittedWhereItRan()
+    {
+        // The same rule on the other path: the temp is written again while the first value is still
+        // pending, so that first value was a statement in the source and is emitted at its own position.
+        var f = Fn(("Float", "modified"), ("Float", "other"));
+        Local(f, "Int", "::temp0");
+        Local(f, "Int", "kept");
+        Ins(f, InstructionOpcode.CAST, Id("::temp0"), Id("modified"));
+        Ins(f, InstructionOpcode.CAST, Id("::temp0"), Id("other"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("kept"), Id("::temp0"));
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("Overwrite", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        AssertOrder(res.Source, "modified as int", "kept = (other as int)");
+    }
+
+    [Fact]
+    public void ADiscardedPlainReadStaysALoudFailure()
+    {
+        // A copy into a temp nothing reads. Written out as `modified`, the compiler emits nothing, so the
+        // instruction would be lost.
+        var f = Fn(("Float", "modified"));
+        Local(f, "Float", "::temp0");
+        Ins(f, InstructionOpcode.ASSIGN, Id("::temp0"), Id("modified"));
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("Probe", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp0", Assert.Single(res.Failures));
+    }
+
+    [Fact]
+    public void ADiscardedLiteralStaysALoudFailure()
+    {
+        // The other half of the same exception: a literal parked in a temp nothing reads.
+        var f = Fn();
+        Local(f, "Int", "::temp0");
+        Ins(f, InstructionOpcode.ASSIGN, Id("::temp0"), Int(5));
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("Probe", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp0", Assert.Single(res.Failures));
+    }
+
+    [Theory]
+    [InlineData("negate")]
+    [InlineData("add")]
+    public void ADiscardedExpressionOverOnlyLiteralsStaysALoudFailure(string shape)
+    {
+        // `-5` and `1 + 2` are folded to a literal by the compiler, which then emits nothing for them, so
+        // writing one out would lose the instruction the value came from just as a bare literal would.
+        var f = Fn();
+        Local(f, "Int", "::temp0");
+        if (shape == "negate") Ins(f, InstructionOpcode.INEG, Id("::temp0"), Int(5));
+        else Ins(f, InstructionOpcode.IADD, Id("::temp0"), Int(1), Int(2));
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("Probe", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp0", Assert.Single(res.Failures));
     }
 
     /// <summary>No emitted line carries <paramref name="stranded"/> after a `return` in the same block.</summary>
