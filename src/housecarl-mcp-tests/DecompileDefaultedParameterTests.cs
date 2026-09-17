@@ -160,6 +160,29 @@ public class DecompileDefaultedParameterTests
         Assert.DoesNotContain("= None", res.Source);
     }
 
+    [Fact]
+    public void ACallFromInsideAPropertyHandlerCountsAsEvidence()
+    {
+        // The only call that omits the argument is in a property's Set handler. Those bodies go through the
+        // same re-omission at the call site, so the signature has to learn the default from them too.
+        var target = Fn(("HC_DefProbe", "f"));
+        var setter = Fn(("Int", "value"));
+        Local(setter, "None", "::NoneVar");
+        Ins(setter, InstructionOpcode.CALLMETHOD, Id("Refresh"), Id("self"), Id("::NoneVar"), Int(1), Null());
+
+        var pex = File("HC_DefProbe", ("Refresh", target));
+        pex.Objects[0].Properties.Add(new PexObjectProperty
+        {
+            Name = "Level", TypeName = "Int", DocString = "",
+            Flags = PropertyFlags.Read | PropertyFlags.Write, WriteHandler = setter,
+        });
+
+        var res = PapyrusDecompiler.DecompileFile(pex);
+
+        Assert.Equal(0, res.FunctionsFailed);
+        Assert.Contains("HC_DefProbe f = None", res.Source);
+    }
+
     // ---------------------------------------------------------------- in-memory pex builders
     static PexFile File(string objectName, params (string Name, PexObjectFunction Fn)[] fns)
     {
