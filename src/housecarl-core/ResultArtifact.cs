@@ -2,47 +2,26 @@ using System.Text.Json;
 
 namespace HousecarlCore;
 
-/// <summary>The result artifact: ONE self-contained file that decouples result size from render size. Line 1 is the
-/// MANIFEST (what query produced it, what shape its rows are, and — load-bearing — the EPOCH fingerprint of the
-/// build it was read from); lines 2+ are one JSON row per line (JSONL). Immutable once written: the server never
-/// appends to or mutates an artifact — a re-run writes a NEW file (or overwrites a caller-named to_file= target
-/// wholesale). Line-addressable and greppable by design: the traversal ergonomics are the client's own file tools,
-/// inherited, not built.
-///
-/// <para>Re-entry contract: an <c>@&lt;path&gt;</c> list input whose target is an artifact yields its
-/// IDENTITY column as the list — scan once, project forever — and server-side consumption is EPOCH-CHECKED against
-/// the current build: mismatch is a loud refusal naming both epochs, with deliberately NO stale-override parameter
-/// (fresh re-projection goes through the server; honest-snapshot traversal of the file is the client's own lane,
-/// which the server cannot and should not police).</para></summary>
+/// <summary>The result artifact: one JSONL file whose line 1 is the manifest and lines 2+ are the rows, immutable once written; contract in docs/architecture/output-and-artifacts.md.</summary>
 public static class ResultArtifact
 {
-    /// <summary>The manifest-format version stamped as the <c>housecarl_artifact</c> value — bumped only if line 1's
-    /// schema ever changes incompatibly. Its PRESENCE is what marks a file as an artifact (vs a plain formid list).</summary>
+    /// <summary>The manifest-format version stamped as the <c>housecarl_artifact</c> value; its PRESENCE is what marks a file as an artifact rather than a plain formid list.</summary>
     public const int ManifestVersion = 1;
 
-    /// <summary>Leading characters stripped before sniffing/parsing line 1: a UTF-8 BOM (a file round-tripped
-    /// through a BOM-writing editor is still the same artifact) and ordinary indentation.</summary>
+    /// <summary>Leading characters stripped before sniffing or parsing line 1: a UTF-8 BOM and ordinary indentation.</summary>
     static readonly char[] LineNoise = { '\uFEFF', ' ', '\t' };
 
     // ---- writing ------------------------------------------------------------------------------------
 
-    /// <summary>Accumulates JSONL rows for one artifact, then <see cref="Save"/> writes manifest + rows into the
-    /// target's file. Rows buffer in memory: an artifact is written in one call's scope and even a very large
-    /// result (100k+ rows) is tens of MB transiently — no server-side state survives the call; the STATE is the
-    /// file.</summary>
+    /// <summary>Accumulates JSONL rows for one artifact in memory, then <see cref="Save"/> writes manifest and rows into the target's file; no server-side state survives the call.</summary>
     public sealed class Writer : IDisposable
     {
-        // Counts as it writes, so a row writer sharing the inline renders' (stream, cap) pair measures
-        // characters without rescanning a buffer that runs to megabytes.
+        // Counts as it writes, so a shared row writer measures characters without rescanning the buffer.
         readonly CharCountedStream _rows = new();
         readonly Dictionary<string, int> _typeCounts = new(StringComparer.Ordinal);
         int _rowCount;
 
-        /// <summary>Append one row: <paramref name="write"/> emits exactly one JSON value (an object) into the
-        /// writer; a newline is appended after it. <paramref name="type"/> — when the row has a record type —
-        /// feeds the manifest's per-type counts. The row stream is handed in too so budget-aware row writers
-        /// shared with the inline renders can take their (stream, cap) pair — the artifact passes an unreachable
-        /// cap, because an artifact row is NEVER truncated: the file must be complete.</summary>
+        /// <summary>Append one row, newline-terminated, counting <paramref name="type"/> into the manifest; the artifact passes an unreachable cap, because an artifact row is NEVER truncated.</summary>
         public void WriteRow(Action<Utf8JsonWriter, CharCountedStream> write, string? type = null)
         {
             using (var w = new Utf8JsonWriter(_rows, JsonTextEncoder.OneLine))   // deliberately NOT indented — one row, one line
@@ -57,21 +36,10 @@ public static class ResultArtifact
 
         public int RowCount => _rowCount;
 
-        /// <summary>Write the finished artifact: line 1 = manifest, lines 2+ = the accumulated rows. Returns the
-        /// manifest it stamped (echoed into the response's spilled marker) or a named error — never throws for an
-        /// IO failure; the caller renders it. <paramref name="total"/> is the TRUE result total; it equals
-        /// <see cref="RowCount"/> unless the producing lane deliberately windowed (an auto-spill of an explicit
-        /// limit= window writes the window and says so via total &gt; row_count).</summary>
-        /// <param name="notes">Response-level statements the ROWS depend on for their meaning — a note a row's own
-        /// annotation would otherwise leave unexplained. An artifact is re-entered later with no conversation
-        /// attached, so a label that ships without its meaning ships as noise — rows carrying "also declared by X"
-        /// need the sentence that says what a child record is. Stated once here rather than per row, which
-        /// on a 100k-row artifact would be megabytes of one repeated sentence.</param>
-        /// <param name="epochUncovered">The verdict classes the <paramref name="epoch"/> fingerprint does NOT
-        /// describe (SPEC §2.1, amended 2026-09-05). Non-empty stamps <c>epoch_covers_all_inputs: false</c> and
-        /// names them, rather than leaving the caveat to prose a consumer cannot grep.</param>
-        /// <param name="excludedPlugins">Plugins the build lost to a load failure, from the same
-        /// <c>OrderStamp</c> the response carries: non-empty stamps <c>order_degraded: true</c> and names them.</param>
+        /// <summary>Write the finished artifact, returning the manifest it stamped or a named error; never throws for an IO failure. <paramref name="total"/> exceeds <see cref="RowCount"/> only when the producing lane windowed.</summary>
+        /// <param name="notes">Response-level statements the ROWS depend on for their meaning, stated once here rather than per row.</param>
+        /// <param name="epochUncovered">The verdict classes <paramref name="epoch"/> does NOT describe (SPEC §2.1); non-empty stamps <c>epoch_covers_all_inputs: false</c>.</param>
+        /// <param name="excludedPlugins">Plugins the build lost to a load failure, from the response's own <c>OrderStamp</c>; non-empty stamps <c>order_degraded: true</c>.</param>
         public (Manifest? Manifest, string? Error) Save(
             ArtifactTarget target, string tool, IReadOnlyList<KeyValuePair<string, string>> query, string? identity,
             IReadOnlyList<string> rowSchema, string sort, int total, string epoch,
@@ -82,17 +50,13 @@ public static class ResultArtifact
                                         _typeCounts.Count > 0 ? _typeCounts : null, epoch,
                                         DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
                                         notes is { Count: > 0 } ? notes : null,
-                                        // Passed through as given, empty included: null is "this lane makes no
-                                        // coverage claim", an EMPTY list is "it makes one and the stamp covers
-                                        // everything". Normalizing empty to null would make the true stamp
-                                        // unwritable, so no artifact could ever say its epoch covers its rows.
+                                        // Empty included: null is "no coverage claim", empty is "the stamp covers everything".
                                         epochUncovered,
                                         excludedPlugins is { Count: > 0 } ? excludedPlugins : null);
             target.EnsureUnwritten();   // a target is single-use; writing one twice is a bug, not an IO failure
             try
             {
-                // The target decides where the bytes land — its own reserved handle, or a temp it then moves into
-                // place — and cleans up after itself if this throws.
+                // The target decides where the bytes land, and cleans up after itself if this throws.
                 target.Write(fs =>
                 {
                     using (var w = new Utf8JsonWriter(fs, JsonTextEncoder.OneLine)) { manifest.WriteTo(w); w.Flush(); }
@@ -111,10 +75,7 @@ public static class ResultArtifact
         public void Dispose() => _rows.Dispose();
     }
 
-    /// <summary>Line 1 of an artifact, parsed. <see cref="Identity"/> names the row column an <c>@file</c> re-entry
-    /// extracts (the identity column — <c>formid</c> on every record lane); null means the rows carry no
-    /// per-record identity (a group_by count table) and re-entry refuses by name. <see cref="Total"/> vs
-    /// <see cref="RowCount"/>: equal unless the producing lane windowed (see <see cref="Writer.Save"/>).</summary>
+    /// <summary>Line 1 of an artifact, parsed. <see cref="Identity"/> names the column an <c>@file</c> re-entry extracts, or is null for a count table, which re-entry refuses by name.</summary>
     public sealed record Manifest(
         string Tool,
         IReadOnlyList<KeyValuePair<string, string>> Query,
@@ -130,9 +91,7 @@ public static class ResultArtifact
         IReadOnlyList<string>? EpochUncovered = null,
         IReadOnlyList<string>? ExcludedPlugins = null)
     {
-        /// <summary>Does <see cref="Epoch"/> describe everything these rows were read off? False when
-        /// <see cref="EpochUncovered"/> names a substrate the record fingerprint says nothing about — the asset
-        /// lane's whole row shape, for one. Null when the producing lane made no coverage claim.</summary>
+        /// <summary>Does <see cref="Epoch"/> describe everything these rows were read off? Null when the producing lane made no coverage claim.</summary>
         public bool? EpochCoversAllInputs => EpochUncovered is null ? null : EpochUncovered.Count == 0;
 
         /// <summary>Did the build these rows came from lose plugins to a load failure (SPEC §2.1)?</summary>
@@ -161,10 +120,7 @@ public static class ResultArtifact
                 w.WriteEndObject();
             }
             w.WriteString("epoch", Epoch);
-            // The §2.1 coverage stamp and the degraded-order roster, in the vocabulary the read surface already uses
-            // (JsonWire.WriteSweepEpoch). Written only by a lane that passes them: asset_status stamps both today,
-            // the record lanes stamp neither yet, so a consumer greps one key where it is written rather than
-            // everywhere.
+            // The §2.1 coverage stamp and degraded-order roster, in JsonWire.WriteSweepEpoch's vocabulary.
             if (EpochCoversAllInputs is { } covers)
             {
                 w.WriteBoolean("epoch_covers_all_inputs", covers);
@@ -195,10 +151,7 @@ public static class ResultArtifact
 
     // ---- reading (the @file re-entry) ---------------------------------------------------------------
 
-    /// <summary>Cheap artifact sniff on a file's already-read content: is the FIRST LINE a manifest? Used by the
-    /// list-input readers to route between "plain formid list" and "artifact → identity column". Robust to a
-    /// leading BOM; anything that fails to parse as a manifest is NOT an artifact (a plain list whose first entry
-    /// happens to start with '{' would fail the marker check, not crash).</summary>
+    /// <summary>Cheap sniff on already-read content: is line 1 a manifest? Anything that fails to parse as one is NOT an artifact, never a crash.</summary>
     public static bool LooksLikeArtifact(string content)
     {
         var firstLine = FirstLine(content).TrimStart(LineNoise);
@@ -212,19 +165,7 @@ public static class ResultArtifact
         catch (JsonException) { return false; }
     }
 
-    /// <summary>Parse an artifact's manifest + extract its identity-column tokens, in row order. A named error
-    /// — never a throw, never a silent partial list — on: a malformed manifest, a manifest declaring NO identity
-    /// column (a count-table artifact has no per-record identity to re-enter with), a non-error row missing the
-    /// column, or a row that isn't valid JSON. <paramref name="content"/> is the file's full text (the callers
-    /// already hold it — one read, two uses).
-    /// <para><b>Error rows are not identity-bearing.</b> A row carrying an <c>error</c> member
-    /// documents a failure — a malformed input token, an absent record — it does not name a record: resolve/batch
-    /// write the caller's RAW token (or the null FormKey) into such rows, so their identity values are legitimately
-    /// not FormIDs. Extraction SKIPS them by contract: re-entering an artifact means "the records this file
-    /// resolved", and treating a failure row's raw token as a record identity is how the reconciliation subtraction
-    /// would go wrong, not right. An all-error artifact refuses by name (nothing resolvable to re-enter). The
-    /// was-it-edited refusal below is reserved for genuine mismatches — a SUCCESS row without the identity column —
-    /// which a server-written artifact never contains.</para></summary>
+    /// <summary>Parse an artifact's manifest and extract its identity-column tokens in row order, or return a named error; error rows are skipped, not identity-bearing — re-entry contract in docs/architecture/output-and-artifacts.md.</summary>
     public static (Manifest? Manifest, List<string>? Tokens, string? Error) ReadIdentity(string path, string content)
     {
         Manifest? manifest;
@@ -284,16 +225,14 @@ public static class ResultArtifact
                 typeCounts = new(StringComparer.Ordinal);
                 foreach (var p in tc.EnumerateObject()) typeCounts[p.Name] = p.Value.GetInt32();
             }
-            // Parsed back for the same reason it is written: a note explains what the ROWS mean. A parse that
-            // dropped it would let a round-trip quietly strip the sentence the rows depend on.
+            // Parsed back so a round-trip cannot strip the sentence the rows depend on.
             List<string>? notes = null;
             if (r.TryGetProperty("notes", out var nt) && nt.ValueKind == JsonValueKind.Array)
             {
                 notes = new List<string>();
                 foreach (var n in nt.EnumerateArray()) if (n.ValueKind == JsonValueKind.String) notes.Add(n.GetString()!);
             }
-            // Parsed back for the same reason the notes are: a coverage caveat and a degraded-order roster that a
-            // round-trip dropped would leave the re-read file claiming more than the write did.
+            // Parsed back too, so a re-read file never claims more coverage than the write did.
             List<string>? uncovered = null;
             if (r.TryGetProperty("epoch_covers_all_inputs", out var cov) && cov.ValueKind is JsonValueKind.True or JsonValueKind.False)
             {
@@ -346,12 +285,7 @@ public static class ResultArtifact
     }
 }
 
-/// <summary>Where one artifact is written: a caller-named <c>to_file=</c> path, or a RESERVED auto-spill path whose
-/// exclusive handle this owns. The reservation IS the file — the handle that claimed the name is the handle
-/// <see cref="ResultArtifact.Writer.Save"/> writes through, so nothing can take or hold the file in between.
-/// Disposing a reservation that was never written closes the handle and deletes the file it owns, best-effort, so a
-/// cancelled call strands nothing; a named target owns no handle and needs no disposal, and a failed write there
-/// leaves the caller's file exactly as it was. <see cref="Write"/> says why the two kinds land differently.</summary>
+/// <summary>Where one artifact is written: a caller-named <c>to_file=</c> path, or a RESERVED auto-spill path whose exclusive handle this owns; contract in docs/architecture/output-and-artifacts.md.</summary>
 public sealed class ArtifactTarget : IDisposable
 {
     readonly FileStream? _reserved;
@@ -368,16 +302,7 @@ public sealed class ArtifactTarget : IDisposable
     /// <summary>A reserved target: the open, exclusive handle that holds the name.</summary>
     public static ArtifactTarget Reserved(string path, FileStream held) => new(path, held);
 
-    /// <summary>Put the artifact on disk: <paramref name="writeInto"/> emits the whole file into the stream it is
-    /// given. One path per kind of target, because they have opposite hazards.
-    /// <para>A RESERVATION is written through the handle that claimed the name: the file is the server's own, it was
-    /// empty a moment ago, and a temp-then-move onto it is what #766 was — a replace-move fails while anything holds
-    /// the destination without share-delete. A crash mid-write cannot pass a half artifact for a whole one, because
-    /// the manifest is line 1 and carries row_count, so a short file fails its own manifest.</para>
-    /// <para>A NAMED target is the CALLER's file and may already hold an artifact they still want, so it is written
-    /// through a same-directory temp moved into place — atomic on NTFS — and a failure anywhere, or a process kill,
-    /// leaves the destination untouched. There is no empty placeholder at the destination for a scanner to hold, so
-    /// the move here is not the #766 hazard.</para></summary>
+    /// <summary>Put the artifact on disk: a reservation writes through the handle that claimed the name, a named target through a same-directory temp moved into place — one path per kind, because the hazards are opposite.</summary>
     internal void Write(Action<Stream> writeInto)
     {
         if (_reserved is not null)
@@ -398,15 +323,13 @@ public sealed class ArtifactTarget : IDisposable
         }
         catch (Exception)
         {
-            // The temp is full artifact size and a failed write is likeliest exactly when the volume is tight, so
-            // never leave it behind. Best-effort: a second failure deleting it must not mask the first.
+            // Best-effort: a full-size temp is never left behind, and a second failure must not mask the first.
             try { File.Delete(tmp); } catch (Exception) { }
             throw;
         }
     }
 
-    /// <summary>A target is written once: a reservation's handle is closed by the write, so a second one would fail
-    /// against a dead stream and take the landed artifact with it.</summary>
+    /// <summary>A target is written once; a second write would fail against the reservation's closed stream and take the landed artifact with it.</summary>
     internal void EnsureUnwritten()
     {
         if (_wrote) throw new InvalidOperationException($"the artifact target '{Path}' has already been written");
@@ -420,8 +343,5 @@ public sealed class ArtifactTarget : IDisposable
     }
 }
 
-/// <summary>An epoch obligation carried by an artifact-backed list input: the artifact at <see cref="Path"/> was
-/// captured at <see cref="Epoch"/>, and the consuming call must compare that against the build it actually captures
-/// — AFTER its own Capture(), inside the service, so the check and the answer read the same build (one view per
-/// call; a tool-layer pre-check would race a freshness rebuild). Mismatch = loud refusal naming both epochs.</summary>
+/// <summary>An epoch obligation carried by an artifact-backed list input: the consuming call must compare <see cref="Epoch"/> against the build it captures, AFTER its own Capture() and inside the service.</summary>
 public sealed record ArtifactDemand(string Path, string Epoch);
