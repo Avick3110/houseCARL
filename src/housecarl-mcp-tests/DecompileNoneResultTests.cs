@@ -906,6 +906,49 @@ public class DecompileNoneResultTests
         AssertOrder(res.Source, "a as int", "f.Bar()");
     }
 
+    [Fact]
+    public void AValueTheJoinReadsSurvivesTheShortCircuitDrain()
+    {
+        // `mq201partydoorblockactivationscript.OnLoad` reduced: the call target is produced before the
+        // short-circuit and read after the join, so draining it there as a statement loses it.
+        var f = Fn(("HC_NoneTarget", "f"), ("Bool", "b"), ("Bool", "c"));
+        Local(f, "HC_NoneTarget", "::temp1");
+        Local(f, "Bool", "::temp2");
+        Local(f, "None", "::NoneVar");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("GetRef"), Id("self"), Id("::temp1"), Int(0));   // 0
+        Ins(f, InstructionOpcode.ASSIGN, Id("::temp2"), Id("b"));                                // 1
+        Ins(f, InstructionOpcode.JMPF, Id("::temp2"), Int(2));                                   // 2 -> 4
+        Ins(f, InstructionOpcode.ASSIGN, Id("::temp2"), Id("c"));                                // 3
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Block"), Id("::temp1"), Id("::NoneVar"), Int(1), Id("::temp2"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("JoinReads", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        Assert.Contains("GetRef().Block(b && c)", res.Source);
+    }
+
+    [Fact]
+    public void AValueOnlyTheArmReadsSurvivesTheShortCircuitDrain()
+    {
+        // The read is inside the arm rather than at the join, so the scan for it has to start at the branch
+        // and not at the join — otherwise the cast drains here and the arm's read finds nothing.
+        var f = Fn(("HC_NoneTarget", "f"), ("Float", "a"), ("Bool", "b"));
+        Local(f, "Int", "::temp1");
+        Local(f, "Bool", "::temp2");
+        Ins(f, InstructionOpcode.CAST, Id("::temp1"), Id("a"));                                  // 0
+        Ins(f, InstructionOpcode.ASSIGN, Id("::temp2"), Id("b"));                                // 1
+        Ins(f, InstructionOpcode.JMPF, Id("::temp2"), Int(2));                                   // 2 -> 4
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Q"), Id("f"), Id("::temp2"), Int(1), Id("::temp1"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("Flag"), Id("::temp2"));                             // 4
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("ArmReads", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        Assert.Contains("f.Q((a as int))", res.Source);
+    }
+
     /// <summary>No emitted line carries <paramref name="stranded"/> after a `return` in the same block.</summary>
     static void AssertNoStatementAfterReturn(string source, string stranded)
     {
