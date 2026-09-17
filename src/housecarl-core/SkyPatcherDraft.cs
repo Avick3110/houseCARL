@@ -1,33 +1,16 @@
 namespace HousecarlCore;
 
-/// <summary>
-/// DRAFT INI: fold one not-yet-placed SkyPatcher INI into the discovered layer, so a record can be read
-/// as the game would see it once the draft is placed in a mod. A draft is a file anywhere on disk plus
-/// the type subfolder it would be placed in; everything after that is the live layer's own machinery,
-/// unchanged — the <c>Plugin.esp.ini</c> filename gate, the ordinal sort within the type folder, the
-/// per-line warnings. The draft's file NAME in the layer is its full path, so every warning the replay
-/// produces for one of its lines names the draft rather than a Data-relative path that does not exist.
-///
-/// <para><b>No shadowing.</b> A draft whose filename collides with a live INI at the same relative path
-/// is refused: once placed, one of the two would win the VFS and which one depends on mod order, so the
-/// answer would not be the draft's.</para>
-/// </summary>
+/// <summary>Fold one not-yet-placed SkyPatcher INI into the discovered layer, so a record reads as the game would see it once the draft is placed; contract in docs/architecture/skypatcher-layer.md.</summary>
 public static class SkyPatcherDraft
 {
-    /// <summary>A validated draft: the file, the type folder it would sit in, and whether that folder was
-    /// taken from the file's parent directory rather than named — which the arm line says out loud.</summary>
+    /// <summary>A validated draft: the file, the type folder it would sit in, and whether that folder was taken from the file's parent directory rather than named.</summary>
     public sealed record Plan(string IniPath, string Subfolder, bool SubfolderInferred)
     {
         /// <summary>The arm clause a response leads with, so the answer always names the draft it included.</summary>
         public string Arm => $"the draft INI '{IniPath}' placed in the '{Subfolder}' folder"
                            + (SubfolderInferred ? " (subfolder taken from the draft's parent directory)" : "");
 
-        /// <summary>Fold this draft into a live layer scan: its type folder gains the draft, sorted among the
-        /// live files by filename exactly as <see cref="SkyPatcherDiscovery.Scan"/> sorts them. Returns the live
-        /// scan unchanged when <paramref name="refusal"/> is set. <paramref name="warnings"/> collects the facts
-        /// a replay would otherwise swallow — a gated-off draft, or one in a type the <c>SkyPatcher.ini</c>
-        /// <c>[Patcher]</c> toggles off, applies nothing, and silence there would read as "the draft changes
-        /// nothing".</summary>
+        /// <summary>Fold this draft into a live layer scan, sorted among the live files as <see cref="SkyPatcherDiscovery.Scan"/> sorts them; returns the live scan unchanged when <paramref name="refusal"/> is set, and <paramref name="warnings"/> collects what a replay would otherwise swallow.</summary>
         public SkyPatcherDiscovery.LayerScan Fold(SkyPatcherDiscovery.LayerScan live, SkyPatcherCatalog catalog,
                                                   Func<string, bool> pluginPresent, out string? refusal,
                                                   SkyPatcherOverlay.WarningSink? warnings = null)
@@ -38,10 +21,7 @@ public static class SkyPatcherDraft
             for (int i = 0; i < live.Folders.Count; i++)
                 if (live.Folders[i].Subfolder.Equals(Subfolder, StringComparison.OrdinalIgnoreCase)) { at = i; break; }
 
-            // A draft that IS one of the layer's live files: folding it in would put the same file in the folder
-            // twice and replay every one of its lines twice, a post state the game never produces. The filename
-            // clash below catches this only when the live copy sits flat in the type folder, since a nested one
-            // sorts under 'MyMod\Blades.ini' and no bare filename matches it.
+            // A draft that IS one of the layer's live files would replay its lines twice; the filename clash below catches only a live copy sitting flat in the type folder.
             var placed = live.Folders.SelectMany(f => f.Files)
                              .FirstOrDefault(f => f.LooseFilePath is { } p && SamePath(p, IniPath));
             if (placed is not null)
@@ -52,8 +32,7 @@ public static class SkyPatcherDraft
                 return live;
             }
 
-            // Same relative path once placed = the VFS same-path collision: one copy wins by mod order and the
-            // other is never read, so which body this call would answer with is not the draft's to decide.
+            // Same relative path once placed is the VFS same-path collision: one copy wins by mod order and the other is never read.
             var clash = at < 0 ? null
                 : live.Folders[at].Files.FirstOrDefault(f => f.SortKey.Equals(name, StringComparison.OrdinalIgnoreCase));
             if (clash is not null)
@@ -72,8 +51,7 @@ public static class SkyPatcherDraft
                 return live;
             }
 
-            // The filename gate applies to the draft as to any file: '<Plugin>.esp.ini' loads only when that
-            // plugin is active.
+            // The filename gate applies to the draft as to any file.
             var gate = SkyPatcherDiscovery.GatePluginOf(name);
             string? notApplied = null;
             if (gate is not null && !pluginPresent(gate))
@@ -85,9 +63,7 @@ public static class SkyPatcherDraft
             var draft = new SkyPatcherDiscovery.IniFile(IniPath, Subfolder, name, DraftProvider, IniPath,
                                                         Array.Empty<string>(), gate, notApplied, lines);
 
-            // The SkyPatcher.ini [Patcher] toggle for this type. A folder the live scan built carries it already;
-            // a folder invented here for a type with no live INI has no scan to carry it, so it is read off the
-            // layer's toggle map — assuming enabled there would read a disabled type as applied.
+            // The [Patcher] toggle for this type; a folder invented here has no scan to carry it, so it is read off the layer's toggle map.
             bool folderEnabled = at >= 0
                 ? live.Folders[at].PatchingEnabled
                 : SkyPatcherDiscovery.ToggleEnabled(live.PatcherToggles, Subfolder);
@@ -123,13 +99,10 @@ public static class SkyPatcherDraft
         catch { return false; }
     }
 
-    /// <summary>What the draft's provider column says: it comes from no mod, and saying so keeps a render from
-    /// naming a mod folder that does not have it.</summary>
+    /// <summary>What the draft's provider column says: it comes from no mod, so a render cannot name a mod folder that does not have it.</summary>
     public const string DraftProvider = "the draft (not placed in a mod)";
 
-    /// <summary>Validate a draft pole expression into a <see cref="Plan"/>. Returns the refusal sentence, or null
-    /// on success. <paramref name="subfolder"/> may be null, in which case the file's parent directory name is
-    /// used when it is a documented type folder and the call is refused when it is not.</summary>
+    /// <summary>Validate a draft pole expression into a <see cref="Plan"/>, returning the refusal sentence or null; a null <paramref name="subfolder"/> falls back to the file's parent directory name when that is a documented type folder.</summary>
     public static string? Prepare(string? iniPath, string? subfolder, SkyPatcherCatalog catalog, out Plan? plan)
     {
         plan = null;
