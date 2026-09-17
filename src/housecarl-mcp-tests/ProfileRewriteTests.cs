@@ -128,6 +128,28 @@ public sealed class ProfileRewriteTests
         Assert.DoesNotContain(after.Warnings, s => s.Contains("could not be re-read", StringComparison.Ordinal));
     }
 
+    /// <summary>The first record call after the hold is released reads the profile for itself, and that read is a
+    /// refresh for the asset lane too: the kept asset build is dropped there, or the baseline it advances would leave
+    /// the next asset call matching, the pending flag cleared, and the old answer served with nothing said.</summary>
+    [Fact]
+    public void AColdRecordBuildAfterAHoldDoesNotStrandTheKeptAssetBuild()
+    {
+        using var w = new RewriteWorld();
+        Assert.Equal(RewriteWorld.Higher, w.Contest().Results.Single().Hit!.Winner!.Source);
+
+        w.WriteModlist(RewriteWorld.Lower, RewriteWorld.Higher);
+        var hold = HeldOpen.Hold(w.LoadOrderPath);
+        try { Assert.Equal(RewriteWorld.Higher, w.Contest().Results.Single().Hit!.Winner!.Source); }
+        finally { hold.Dispose(); }
+
+        w.Svc.CaptureView();               // the first record call: builds the index off the NEW profile
+
+        var after = w.Contest();
+
+        Assert.Equal(RewriteWorld.Lower, after.Results.Single().Hit!.Winner!.Source);
+        Assert.DoesNotContain(after.Warnings, s => s.Contains("could not be re-read", StringComparison.Ordinal));
+    }
+
     /// <summary>The record lane has no channel to say a refresh is pending and its answer IS the order, so it refuses
     /// instead of answering off an index the profile has moved on from. Driven on the index accessor every record
     /// tool goes through rather than on a tool: a tool call would also need this world to generate the whole write
