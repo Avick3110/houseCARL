@@ -585,7 +585,9 @@ public sealed class PapyrusDecompiler
         /// is structured (their temps may be reused inside the arm), while a value the arm or the join still
         /// reads has to survive into the combined expression. Every kind
         /// <see cref="EmitsAnInstruction"/> accepts is a statement here, not only a call: a discarded cast or
-        /// property read that ran before a discarded call would otherwise come out after it.</summary>
+        /// property read that ran before a discarded call would otherwise come out after it. The scan for a
+        /// downstream read starts at the instruction after the branch, so a value only the ARM reads survives
+        /// too, not only one the join reads.</summary>
         void FlushPendingStatements(List<string> stmts, int scanFrom)
         {
             foreach (var name in _pendingOrder.ToList())
