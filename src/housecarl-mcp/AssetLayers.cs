@@ -7,12 +7,11 @@ namespace HousecarlMcp;
 
 public sealed partial class LoadOrderService
 {
-    /// <summary>Resolve a batch of Data-relative asset paths through the MO2 VFS (housecarl_asset_status): which source
-    /// provides each, and which copy wins. ONE <see cref="AssetResolver.Capture"/> for the batch, so every path and the
-    /// build-level caveats describe a single build; a bad path is a per-path error, never a batch failure.
-    /// <paramref name="under"/> is the directory/glob SELECT (<see cref="AssetGlob"/>), <paramref name="seeds"/> the
-    /// FaceGen <c>formids=</c> one, and <paramref name="wholeSelection"/> the <c>to_file=</c> disposition, whose
-    /// never-a-window rule is <see cref="AssetArtifact"/>'s.</summary>
+    /// <summary>Resolve a batch of Data-relative asset paths through the MO2 VFS (housecarl_asset_status): which
+    /// source provides each, and which copy wins. ONE <see cref="AssetResolver.Capture"/> for the batch, so every
+    /// path and the build-level caveats describe a single build; a bad path is a per-path error, never a batch
+    /// failure. <paramref name="under"/> is the directory/glob SELECT (<see cref="AssetGlob"/>),
+    /// <paramref name="seeds"/> the FaceGen one, and <paramref name="wholeSelection"/> <see cref="AssetArtifact"/>'s never-a-window <c>to_file=</c> disposition.</summary>
     public AssetStatusData AssetStatus(
         IReadOnlyList<string> relPaths,
         IReadOnlyList<string>? under = null,
