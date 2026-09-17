@@ -4,7 +4,9 @@
 
 .DESCRIPTION
   Visibility only. This script never fails a build on a coverage number: it has no threshold and
-  no gate, and it exits 0 whenever it could read a report.
+  no gate, and it exits 0 whenever it could read a report. When it cannot — no report, an
+  unparseable one, or one holding neither subject assembly — it says which of those happened in
+  one sentence and still exits 0. It never publishes an empty table.
 
   It keeps the two assemblies a coverage number means something for — housecarl-mcp and
   housecarl-core — and drops the test assembly, the build-time generator, the installer and the
@@ -44,9 +46,16 @@ $subjects = @('housecarl-mcp', 'housecarl-core')
 
 # file -> @{ total; covered }, keyed per assembly.
 $byAssembly = [ordered]@{}
-$xml = [xml](Get-Content -LiteralPath $report.FullName -Raw)
+try {
+  $xml = [xml](Get-Content -LiteralPath $report.FullName -Raw)
+} catch {
+  Write-Host "Could not parse '$($report.Name)' as Cobertura - nothing to summarise."
+  exit 0
+}
 
+$seen = @()
 foreach ($pkg in $xml.coverage.packages.package) {
+  if ($pkg.name) { $seen += $pkg.name }
   if ($subjects -notcontains $pkg.name) { continue }
   # A report can carry more than one package element per assembly, so merge rather than replace.
   if (-not $byAssembly.Contains($pkg.name)) { $byAssembly[$pkg.name] = @{} }
@@ -72,6 +81,18 @@ $out.Add('## Coverage (visibility only, not a gate)')
 $out.Add('')
 $out.Add("Report: ``$($report.Name)``")
 $out.Add('')
+
+# An empty table would read as a real answer. Say what happened instead: which assemblies were
+# wanted, and what the report actually held.
+$measured = @($byAssembly.Keys | Where-Object { @($byAssembly[$_].Values | ForEach-Object { $_.Values }).Count -gt 0 })
+if ($measured.Count -eq 0) {
+  $had = if ($seen.Count -gt 0) { ($seen | Sort-Object -Unique) -join ', ' } else { 'no packages at all' }
+  $out.Add("No coverage package matched $($subjects -join ' or '). The report contained: $had.")
+  $text = $out -join "`n"
+  if ($OutFile) { Add-Content -LiteralPath $OutFile -Value $text -Encoding utf8 } else { Write-Host $text }
+  exit 0
+}
+
 $out.Add('| Assembly | Lines | Covered | % |')
 $out.Add('|---|---:|---:|---:|')
 
