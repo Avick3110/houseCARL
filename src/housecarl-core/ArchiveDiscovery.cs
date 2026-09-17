@@ -1,53 +1,26 @@
 namespace HousecarlCore;
 
-// ArchiveDiscovery — builds the active-archive list (the BSAs the game loads, each bound to its owning
-// plugin and that plugin's load-order rank) for AssetResolver, from the same static MO2 profile read
-// Mo2LoadOrder does. No game state, no VFS hooking, no live tracking.
-//
-// Skyrim SE loads BSAs from two sources, and both must be scanned or an asset present only in an
-// un-scanned archive reads as falsely absent:
-//   1. Base archives — the always-loaded set in Skyrim.ini's [Archive] sResourceArchiveList and
-//      sResourceArchiveList2 (vanilla "Skyrim - Textures*.bsa" etc., where base-game facegen lives).
-//      They load first, so they take the lowest ranks.
-//   2. Plugin-associated archives — for each active plugin X.<esp/esm/esl> the engine auto-loads "X.bsa"
-//      and "X - Textures.bsa" when present, in plugin load order, so they outrank every base archive.
-//
-// A .bsa is itself subject to MO2's overwrite > enabled mods (highest priority first) > Data precedence,
-// so each archive FILENAME resolves through that same map — never "look beside the .esp", which would miss
-// an archive overridden by a higher-priority mod. AssetResolver.DedupeArchives collapses a path bound by
-// more than one plugin to its max-rank binding, so emitting a duplicate is harmless.
-//
-// Rank means "higher wins among BSAs" (AssetResolver.ActiveArchive's contract). Base archives take the low
-// block in INI order (later entry = later loaded = higher); plugin archives rank above all of them, in load
-// order. A plugin's "X.bsa" and "X - Textures.bsa" share its rank, and AssetResolver tie-breaks equal ranks
-// by filename. A Skyrim.ini that cannot be found is surfaced as a warning, never dropped silently; a base
-// archive named in the INI but absent on disk simply isn't loaded (the INI lists a superset across game
-// variants), which is not worth a warning.
+// ArchiveDiscovery — builds the active-archive list (the BSAs the game loads, each bound to its owning plugin and
+// that plugin's rank) for AssetResolver, from the same static MO2 profile read Mo2LoadOrder does. Both archive
+// sources, the rank scheme and the VFS resolution of each filename are in docs/architecture/assets.md.
 
-/// <summary>The active archives for a profile (feed <see cref="ArchiveDiscoveryResult.Archives"/> straight to
-/// <see cref="AssetResolver.Build"/>'s activeArchives) plus any non-fatal problems — e.g. a Skyrim.ini that
-/// couldn't be found, so base-game BSAs aren't in the scan.</summary>
+/// <summary>The active archives for a profile, ready for <see cref="AssetResolver.Build"/>, plus any non-fatal problems.</summary>
 public sealed record ArchiveDiscoveryResult(IReadOnlyList<ActiveArchive> Archives, IReadOnlyList<string> Warnings);
 
 public static class ArchiveDiscovery
 {
-    /// <summary>The <see cref="ActiveArchive.OwningPlugin"/> marker for a BASE archive (loaded via Skyrim.ini's
-    /// [Archive] list, not bound to a plugin). Single-sourced: consumers that discriminate "official base archive"
-    /// (the native-pairing audit's ENGINE carve-out) key on THIS const, never a re-typed literal.</summary>
+    /// <summary>The <see cref="ActiveArchive.OwningPlugin"/> marker for a BASE archive. Single-sourced: consumers that discriminate official base archives key on THIS const.</summary>
     public const string IniArchiveOwner = "Skyrim.ini [Archive]";
 
-    /// <summary>Discover the active BSAs for the MO2 profile at <paramref name="profileDir"/>, resolving each
-    /// through the same overwrite &gt; mods(priority) &gt; Data VFS the loose/plugin layers use. The roots are the
-    /// ones <see cref="Mo2LoadOrder.Build"/> already receives; <paramref name="gamePath"/> is only the game-dir
-    /// Skyrim.ini fallback (the profile's Skyrim.ini — the MO2 profile-specific INI — is tried first).</summary>
+    /// <summary>Discover the active BSAs for the MO2 profile at <paramref name="profileDir"/>.
+    /// <paramref name="gamePath"/> is only the game-dir Skyrim.ini fallback; the profile's own is tried first.</summary>
     public static ArchiveDiscoveryResult Discover(
         string profileDir, string modsDir, string dataDir, string overwriteDir, string gamePath)
     {
         var warnings = new List<string>();
         var comp = Mo2LoadOrder.ReadComposition(profileDir, warnings);
 
-        // Active plugins in load order (winner LAST) — same filter as Mo2LoadOrder.Build: drop the unchecked
-        // (inactive) ones; implicit masters/CC and explicitly-active plugins both load.
+        // Active plugins in load order (winner LAST) — the same filter as Mo2LoadOrder.Build.
         var inactive = new HashSet<string>(comp.InactivePluginNames, StringComparer.OrdinalIgnoreCase);
         var activeOrdered = new List<string>(comp.OrderedPluginNames.Count);
         foreach (var name in comp.OrderedPluginNames)
@@ -80,11 +53,8 @@ public static class ArchiveDiscovery
         return new ArchiveDiscoveryResult(archives, warnings);
     }
 
-    /// <summary>Build archive-filename → the winning real path AND the MO2 layer it came from, the .bsa twin of
-    /// <see cref="Mo2LoadOrder"/>'s plugin filename map: MO2's overwrite layer first (beats every mod), then enabled
-    /// mods highest-priority-first (first sighting wins), then the game Data folder last (base game = lowest).
-    /// OrdinalIgnoreCase keys. The layer rides along so a caller can address an archive by naming the mod it lives
-    /// in, not only by its filename (#388).</summary>
+    /// <summary>Build archive-filename to the winning real path AND the MO2 layer it came from, the .bsa twin of
+    /// <see cref="Mo2LoadOrder"/>'s plugin filename map.</summary>
     static Dictionary<string, (string Path, string OwningMod)> BuildArchiveMap(
         IReadOnlyList<string> enabledModsByPriority, string modsDir, string dataDir, string overwriteDir)
     {
@@ -103,10 +73,7 @@ public static class ArchiveDiscovery
         return map;
     }
 
-    /// <summary>Top-level *.bsa in one folder (a mod root is the Data root, so archives live at its top level).
-    /// Yields (filename, full path). Silent on a missing/inaccessible folder — a modlist entry can lack a real
-    /// folder. The explicit extension check guards the Windows "*.bsa matches short names" quirk (as
-    /// <see cref="Mo2LoadOrder"/>'s plugin enumerator does for *.es*).</summary>
+    /// <summary>Top-level *.bsa in one folder, as (filename, full path). Silent on a missing folder; the explicit extension check guards Windows' short-name quirk.</summary>
     static IEnumerable<(string fn, string full)> EnumerateArchives(string dir)
     {
         if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir)) yield break;
@@ -119,11 +86,9 @@ public static class ArchiveDiscovery
                 yield return (Path.GetFileName(f), f);
     }
 
-    /// <summary>The always-loaded base archive filenames from Skyrim.ini's [Archive] sResourceArchiveList +
-    /// sResourceArchiveList2, in file order. MO2 redirects the game INIs into the active PROFILE folder (the common
-    /// Wabbajack/portable setup), so the profile's Skyrim.ini is tried first, then the game-dir copy. The user's
-    /// Documents\My Games copy is NOT reachable from the MO2 instance, so if neither is found we surface it loud —
-    /// base-game-only assets then can't be seen, which a caller acting on "absent → fine" must know.</summary>
+    /// <summary>The always-loaded base archive filenames from Skyrim.ini's [Archive] lists, in file order. MO2
+    /// redirects the game INIs into the active profile, so the profile's copy is tried before the game dir's, and
+    /// neither being found is surfaced loud.</summary>
     static IReadOnlyList<string> ReadBaseArchiveNames(string profileDir, string gamePath, List<string> warnings)
     {
         var candidates = new List<string>(2);
@@ -145,10 +110,7 @@ public static class ArchiveDiscovery
         return Array.Empty<string>();
     }
 
-    /// <summary>Parse a Skyrim.ini's [Archive] section for sResourceArchiveList + sResourceArchiveList2, returning
-    /// the comma-separated archive filenames in file order (sResourceArchiveList before its "2"). Tolerant of
-    /// section/comment lines; returns empty (not an error) for an INI without the section — the caller then tries
-    /// the next candidate.</summary>
+    /// <summary>Parse a Skyrim.ini's [Archive] section, returning the archive filenames in file order. An INI without the section returns empty, not an error.</summary>
     static IReadOnlyList<string> ParseResourceArchiveList(string iniPath)
     {
         var names = new List<string>();
