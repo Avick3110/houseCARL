@@ -857,7 +857,10 @@ public sealed class PapyrusDecompiler
                         // call, and otherwise the last call folded in from the values it consumed — the
                         // instruction itself only reads and writes.
                         var (dest, expr) = Produce(ins);
-                        int effect = IsCallOpcode(op) ? i : _consumedLastCall;
+                        // A property get can be a real `Function Get()`, so it runs where the instruction
+                        // is, like a call — the same reason a PROPSET is an effect below.
+                        bool runsHere = IsCallOpcode(op) || op == InstructionOpcode.PROPGET;
+                        int effect = runsHere ? i : _consumedLastCall;
                         if (dest == "")
                         {
                             // A call whose dest is the ::NoneVar discard slot. Usually a bare-call
