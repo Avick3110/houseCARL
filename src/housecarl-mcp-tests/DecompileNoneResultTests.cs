@@ -586,6 +586,27 @@ public class DecompileNoneResultTests
         Assert.Contains("::temp1", Assert.Single(res.Failures));
     }
 
+    [Fact]
+    public void ADiscardedPropertyReadIsRefusedForTheOrderAndNotForTheKind()
+    {
+        // Same fold with nothing reading the result. It comes back as a failure either way today, but for the
+        // wrong reason — the kind of the leftover value, which is a rule that is on its way out — so the
+        // order is settled where the read runs, and the failure names the value it cannot be ordered against.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "HC_NoneTarget", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "Int", "::temp2");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.PROPGET, Id("Prop"), Id("::temp0"), Id("::temp2"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("DiscardedPropGet", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+    }
+
     /// <summary>No emitted line carries <paramref name="stranded"/> after a `return` in the same block.</summary>
     static void AssertNoStatementAfterReturn(string source, string stranded)
     {

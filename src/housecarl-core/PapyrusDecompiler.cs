@@ -883,10 +883,10 @@ public sealed class PapyrusDecompiler
                         if (dest is null) throw new StructureException($"value op with no dest @{i}");
                         if (IsTemp(dest) && !Materialized.Contains(dest))
                         {
-                            // The call runs here even though its result only goes pending, so the crossing is
+                            // It runs here even though its result only goes pending, so the crossing is
                             // settled at the fold rather than at whatever later statement consumes the temp —
                             // a discarded result or a region-end flush never reaches one.
-                            if (IsCallOpcode(op)) RefuseCrossing("call", i);
+                            if (runsHere) RefuseCrossing(IsCallOpcode(op) ? "call" : "property read", i);
                             SetPending(dest, expr, stmts, Math.Min(_consumedStart, i), effect);
                             i++; break;
                         }
