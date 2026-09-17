@@ -201,6 +201,31 @@ public class DecompileDefaultedParameterTests
         Assert.Contains("HC_DefProbe f = None", res.Source);
     }
 
+    [Fact]
+    public void APropertyHandlerNeverInheritsADefaultFromASameNamedFunction()
+    {
+        // A script function called `Set` with a default of its own must not put that default on every full
+        // property's `Set(value)` handler, which is emitted under the same fixed name.
+        var scriptSet = Fn(("HC_DefProbe", "f"));
+        var caller = Fn();
+        Local(caller, "None", "::NoneVar");
+        Ins(caller, InstructionOpcode.CALLMETHOD, Id("Set"), Id("self"), Id("::NoneVar"), Int(1), Null());
+        var handler = Fn(("HC_DefProbe", "value"));
+
+        var pex = File("HC_DefProbe", ("Set", scriptSet), ("CallSet", caller));
+        pex.Objects[0].Properties.Add(new PexObjectProperty
+        {
+            Name = "Held", TypeName = "HC_DefProbe", DocString = "",
+            Flags = PropertyFlags.Read | PropertyFlags.Write, WriteHandler = handler,
+        });
+
+        var res = PapyrusDecompiler.DecompileFile(pex);
+
+        Assert.Equal(0, res.FunctionsFailed);
+        Assert.Contains("HC_DefProbe f = None", res.Source);          // the script function keeps its default
+        Assert.DoesNotContain("HC_DefProbe value = None", res.Source);   // the handler never borrows it
+    }
+
     // ---------------------------------------------------------------- in-memory pex builders
     static PexFile File(string objectName, params (string Name, PexObjectFunction Fn)[] fns)
     {

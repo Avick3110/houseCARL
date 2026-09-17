@@ -374,7 +374,9 @@ public sealed class PapyrusDecompiler
             ? null : TypeName(f.ReturnTypeName);
         bool asEvent = !propertyHandler && ret is null && !isGlobal && name.StartsWith("On", StringComparison.OrdinalIgnoreCase);
 
-        int firstDefaulted = _defaultedParams.TryGetValue(name, out var dp) ? dp : int.MaxValue;
+        // A property handler is emitted under the fixed name Get or Set, so a default harvested for a script
+        // function of that name is not this one's.
+        int firstDefaulted = !propertyHandler && _defaultedParams.TryGetValue(name, out var dp) ? dp : int.MaxValue;
         var ps = string.Join(", ", f.Parameters.Select((p, k) =>
             $"{TypeName(p.TypeName)} {p.Name}" + (k >= firstDefaulted ? " = None" : "")));
         var kw = asEvent ? "Event" : "Function";
