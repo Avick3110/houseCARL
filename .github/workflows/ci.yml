@@ -96,6 +96,26 @@ jobs:
           if ([int]$c.executed -eq 0) { throw "The guard suite selected ZERO tests. The filter excludes everything it should not." }
           if ([int]$c.failed -ne 0) { throw "$($c.failed) guard test(s) failed." }
 
+      # Coverage, for reading only — no threshold, no gate, and `continue-on-error` so a collector
+      # problem can never turn the job red. It runs the suite a SECOND time rather than adding
+      # --collect to the gating step above: the collector attaches a CLR profiler to the test host
+      # and to everything it spawns, and the gate must not depend on that.
+      #
+      # The collector is "Code Coverage", which ships with Microsoft.NET.Test.Sdk (no new package),
+      # and it is here instead of coverlet for a measured reason: these tests drive the BUILT
+      # housecarl-mcp.exe as a separate process, and coverlet's in-process collector cannot see a
+      # child. Measured on the 316 tier=stdio tests — coverlet reported Program.cs 0/125 and
+      # RecordsTools.cs 0/2340 for the same run where this collector reported 99/125 and 732/2340.
+      # coverlet.collector stays referenced for an offline in-process run via coverage.runsettings;
+      # the two collectors cannot run together (every test fails when both are passed).
+      - name: Coverage — summary for this run (visibility only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          dotnet test src/housecarl-mcp-tests --configuration Release --no-build --filter "tier!=bridge" --collect "Code Coverage;Format=cobertura" --results-directory coverage
+          ./scripts/coverage-summary.ps1 -Path coverage
+
       # freshness-capture-guard runs as its own cold process: its mid-write capture arm sweeps a flip across the
       # Phase-1 loop of a real multi-op write, and that window is only a real window cold. The warm ci-all runner
       # outruns the flip, so this probe is carved out here and ci-all does not run it.

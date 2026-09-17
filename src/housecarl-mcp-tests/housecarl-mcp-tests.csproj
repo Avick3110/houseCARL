@@ -12,6 +12,9 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
+    <!-- Coverage for the in-process part of this suite only; it cannot see the server process the
+         stdio tests spawn. Read coverage.runsettings before trusting a number from it. Never a gate. -->
+    <PackageReference Include="coverlet.collector" Version="10.0.1" PrivateAssets="all" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0" />
   </ItemGroup>

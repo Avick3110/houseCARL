@@ -29,9 +29,11 @@ packages/
 
 ## Test / coverage results
 [Tt]est[Rr]esult*/
+coverage/
 *.trx
 *.coverage
 *.coveragexml
+*.cobertura.xml
 
 ## OS cruft
 Thumbs.db

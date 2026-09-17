@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  coverlet's settings, for an offline in-process coverage run: a `dotnet test
+  src/housecarl-mcp-tests` that collects "XPlat Code Coverage" and points its settings here.
+
+  Visibility only. Nothing here gates a build and no threshold is set.
+
+  READ THIS BEFORE TRUSTING A NUMBER FROM IT. coverlet instruments the assemblies in the TEST
+  project's output directory and records hits inside the test process. Part of this suite drives
+  the built src/housecarl-mcp/bin/Release/net9.0/housecarl-mcp.exe as a separate process, and that
+  copy is not instrumented, so nothing the server executes is counted. Measured on the 316
+  tier=stdio tests: coverlet reported Program.cs 0 of 125 lines and RecordsTools.cs 0 of 2340,
+  where the built-in "Code Coverage" collector reported 99 of 125 and 732 of 2340 for that run.
+
+  CI therefore publishes its per-run summary from the built-in collector, which follows the whole
+  process tree and ships with Microsoft.NET.Test.Sdk. The two cannot be combined: passing both
+  collectors to one `dotnet test` fails every test. This file is the in-process view, kept for a
+  developer who wants coverlet's filters or its branch numbers.
+
+  The collector reports every referenced project; scripts/coverage-summary.ps1 keeps the two a
+  coverage number means something for (the MCP layer and the core engines) and drops the rest.
+-->
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat code coverage">
+        <Configuration>
+          <Format>cobertura</Format>
+          <SkipAutoProps>true</SkipAutoProps>
+          <DeterministicReport>false</DeterministicReport>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>
