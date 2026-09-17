@@ -36,9 +36,8 @@ internal static class SchemaDepthCap
     /// <summary>What one cut is for: the configured cap, and the tool whose schema is being cut.</summary>
     readonly record struct Cutting(int Cap, string Tool);
 
-    /// <summary>The configured cap, or null when the variable is unset or blank.</summary>
-    /// <exception cref="ArgumentException">The variable is set to something that is not a whole number of
-    /// <see cref="Minimum"/> or more. Refused rather than ignored.</exception>
+    /// <summary>The configured cap, or null when the variable is unset or blank; a value that is not a whole
+    /// number of <see cref="Minimum"/> or more is refused rather than ignored.</summary>
     internal static int? Configured() => Read(Environment.GetEnvironmentVariable(Variable));
 
     /// <summary>Parse one value of the variable. Separate from <see cref="Configured"/> so a test can drive it.</summary>
@@ -53,9 +52,8 @@ internal static class SchemaDepthCap
             "call is checked against), or leave it unset to publish them in full.");
     }
 
-    /// <summary>Cut one tool schema to <paramref name="maxDepth"/>; false leaves the document untouched.</summary>
-    /// <exception cref="InvalidOperationException">The cut could not produce a document at the cap, which is thrown
-    /// rather than published.</exception>
+    /// <summary>Cut one tool schema to <paramref name="maxDepth"/>; false leaves the document untouched, and a cut
+    /// that could not reach the cap throws rather than publishing.</summary>
     internal static bool Cut(JsonObject root, int? maxDepth, string tool)
     {
         if (maxDepth is not { } cap || Depth(root) <= cap) return false;
@@ -112,8 +110,7 @@ internal static class SchemaDepthCap
         return node;
     }
 
-    /// <summary>Put a cut node back in its slot, only when it is a NEW node: assigning a node into the parent it
-    /// already hangs off throws.</summary>
+    /// <summary>Put a cut node back in its slot, only when it is a NEW node.</summary>
     static void Replace(JsonObject parent, string key, JsonObject cut)
     {
         if (!ReferenceEquals(parent[key], cut)) parent[key] = cut;
@@ -131,8 +128,7 @@ internal static class SchemaDepthCap
             $"\"{member}\" member, which this pass has no rule for — unset the variable to publish the schemas in " +
             "full and report the member.");
 
-    /// <summary>The node the cut closes a branch with — the SAME one the recursion bound emits, plus one sentence
-    /// and trimmed to fit.</summary>
+    /// <summary>The node the cut closes a branch with — the SAME one the recursion bound emits, plus a sentence.</summary>
     static JsonObject Terminator(JsonObject node, int budget, Cutting cut)
     {
         var open = ToolSchemas.Terminator(node, node, CutContinues(cut.Cap));
@@ -140,8 +136,7 @@ internal static class SchemaDepthCap
         return open;
     }
 
-    /// <summary>What a CUT node says about the nesting below it: the claim is the bound's, but the shape is in no
-    /// part of this document, so it is not sent to one "shown above".</summary>
+    /// <summary>What a CUT node says about the nesting below it: the bound's claim, without its "shown above".</summary>
     internal static string CutContinues(int cap) =>
         $"Nesting continues below this level and is accepted, but is not spelled out in this document: it was cut " +
         $"at depth {cap} by {Variable}. The tool accepts the full shape, and the members are named in the " +

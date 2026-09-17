@@ -5,13 +5,11 @@ using HousecarlCore;
 namespace HousecarlMcp;
 
 /// <summary>The bulk body gather both reading lanes share: a chunk of rows' bodies collected ONE enumeration
-/// per source plugin, instead of the whole-plugin seek per record <see cref="LoadOrderResolver.IndexView"/>
-/// costs (#582). DEFERRED: a plugin is walked when a row that wants it is actually READ, and that walk then
-/// covers every row of the chunk from that plugin.</summary>
+/// per source plugin, instead of the whole-plugin seek per record (#582). DEFERRED: a plugin is walked when a
+/// row that wants it is actually READ, and that walk covers every row of the chunk from that plugin.</summary>
 internal static class BodyPrefetch
 {
-    /// <summary>Rows gathered per chunk: enough that a large master is walked tens of times over a whole-order
-    /// catalogue rather than tens of thousands, few enough that the pinned getters stay bounded.</summary>
+    /// <summary>Rows gathered per chunk: few enough that the pinned getters stay bounded.</summary>
     internal const int ChunkRows = 2000;
 
     internal static int ChunkStart(int i) => i / ChunkRows * ChunkRows;
@@ -20,10 +18,9 @@ internal static class BodyPrefetch
     /// RecordsWalkCostTests.ACappedSeedGathersNoBodiesPastItsCap.</summary>
     internal static long KeysWanted;
 
-    /// <summary>The chunk covering rows <paramref name="start"/> (inclusive) to <paramref name="end"/>
-    /// (exclusive), ready to walk a plugin when a row asks for it. <paramref name="sourceAt"/> names the plugin
-    /// whose body a row displays, or null for the load-order winner; <paramref name="getterTypes"/> narrows each
-    /// plugin's walk to the GRUPs the caller's types live in.</summary>
+    /// <summary>The chunk covering rows <paramref name="start"/> to <paramref name="end"/>, ready to walk a plugin
+    /// when a row asks. <paramref name="sourceAt"/> names the plugin whose body a row displays, or null for the
+    /// winner; <paramref name="getterTypes"/> narrows each walk to the GRUPs the caller's types live in.</summary>
     internal static Chunk Gather(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
         IReadOnlyList<FormKey> keys, int start, int end, Func<int, string?> sourceAt,
@@ -53,8 +50,8 @@ internal static class BodyPrefetch
         internal Chunk(BodyGather gather, Dictionary<FormKey, string> plugins)
         { _gather = gather; _plugins = plugins; }
 
-        /// <summary>This row's body, walking its source plugin once for the whole chunk on the first row that wants it.
-        /// A body that is not gathered comes back null and the row's own read raises the fault it always did; an
+        /// <summary>This row's body, walking its source plugin once for the whole chunk. A body that is not gathered
+        /// comes back null and the row's own read raises the fault it always did; an
         /// <see cref="OutOfMemoryException"/> from the walk propagates rather than being swallowed (#756).</summary>
         internal IMajorRecordGetter? Body(FormKey fk)
             => _plugins.TryGetValue(fk, out var plugin) ? _gather.Body(plugin, fk) : null;
