@@ -178,8 +178,7 @@ public sealed class PapyrusDecompiler
                     // Whose function this call runs. A CALLMETHOD on anything but `self`, or a CALLSTATIC
                     // naming another script, is that script's function and its defaults, not this one's.
                     bool toSelf = ins.OpCode == InstructionOpcode.CALLMETHOD
-                        ? a[1].VariableType == VariableType.Identifier
-                          && string.Equals(a[1].StringValue, "self", StringComparison.OrdinalIgnoreCase)
+                        ? RunsThisObject(obj, body, a[1])
                         : string.Equals(a[0].StringValue, obj.Name, StringComparison.OrdinalIgnoreCase);
                     if (!toSelf) continue;
                     if (a[nameIdx].VariableType is not (VariableType.Identifier or VariableType.String)) continue;
@@ -200,6 +199,20 @@ public sealed class PapyrusDecompiler
                     if (!_defaultedParams.TryGetValue(callee, out var seen) || keep < seen)
                         _defaultedParams[callee] = keep;
                 }
+    }
+
+    /// <summary>Does a CALLMETHOD on this target run THIS object's function? `self` does, and so does anything
+    /// declared as this object's own class — a parameter, a local (a temp holding a property read included), or
+    /// a script variable. Anything else is another script's function and carries that script's defaults.</summary>
+    bool RunsThisObject(PexObject obj, PexObjectFunction body, IPexObjectVariableDataGetter target)
+    {
+        if (target.VariableType != VariableType.Identifier || target.StringValue is null) return false;
+        var name = target.StringValue;
+        if (name.Equals("self", StringComparison.OrdinalIgnoreCase)) return true;
+        var type = body.Parameters.FirstOrDefault(v => name.Equals(v.Name, StringComparison.OrdinalIgnoreCase))?.TypeName
+                   ?? body.Locals.FirstOrDefault(v => name.Equals(v.Name, StringComparison.OrdinalIgnoreCase))?.TypeName
+                   ?? (_objVarTypes.TryGetValue(name, out var t) ? t : null);
+        return type is not null && string.Equals(type, obj.Name, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Is `None` a legal value for this declared type? The four scalars are the ones it is not. The

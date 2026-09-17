@@ -183,6 +183,24 @@ public class DecompileDefaultedParameterTests
         Assert.Contains("HC_DefProbe f = None", res.Source);
     }
 
+    [Fact]
+    public void ACallOnATargetTypedAsThisScriptCountsAsEvidence()
+    {
+        // `Next.Tick()` where `Next` is this script's own class runs this script's function, so the baked
+        // null is this signature's default even though the target is not the literal `self`.
+        var target = Fn(("HC_DefProbe", "f"));
+        var caller = Fn();
+        Local(caller, "HC_DefProbe", "::temp0");
+        Local(caller, "None", "::NoneVar");
+        Ins(caller, InstructionOpcode.PROPGET, Id("Next"), Id("self"), Id("::temp0"));
+        Ins(caller, InstructionOpcode.CALLMETHOD, Id("Tick"), Id("::temp0"), Id("::NoneVar"), Int(1), Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_DefProbe", ("Tick", target), ("Walk", caller)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        Assert.Contains("HC_DefProbe f = None", res.Source);
+    }
+
     // ---------------------------------------------------------------- in-memory pex builders
     static PexFile File(string objectName, params (string Name, PexObjectFunction Fn)[] fns)
     {
