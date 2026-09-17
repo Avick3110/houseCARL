@@ -268,14 +268,19 @@ internal static class FreshnessCaptureProbe
                     TryCopy(emptyFile, oPath);                        // reset: master wins everything (Damage=10)
                     resolver.RefreshIfStale();
                     int delay = 5 + r * 17 % 130;                     // sweep the flip across the Phase-1 loop
-                    long flipFrom = -1, flipTo = -1;                  // the flip's own window; read after flip.Wait()
+                    // The flip's own window, read after flip.Wait(). It stays -1 when the copy never succeeded,
+                    // which fails the overlap test below on its own: TryCopy spins on the IOException Windows
+                    // raises while Apply has the file mapped, and that retry spin is not a staged flip.
+                    long flipFrom = -1, flipTo = -1;
                     var flip = Task.Run(() =>
                     {
                         Thread.Sleep(delay);
-                        flipFrom = clock.ElapsedMilliseconds;
                         if (TryCopy(fullFile, oPath))                 // the override now wins the OvN subset (Damage=20)
+                        {
+                            flipFrom = clock.ElapsedMilliseconds;     // the window is the refresh, not the copy's retry spin
                             resolver.RefreshIfStale();                // the concurrent read's freshness path, mid-Apply
-                        flipTo = clock.ElapsedMilliseconds;
+                            flipTo = clock.ElapsedMilliseconds;
+                        }
                     });
                     var outDir = Path.Combine(dir, $"out_{r:D3}");
                     Directory.CreateDirectory(outDir);
