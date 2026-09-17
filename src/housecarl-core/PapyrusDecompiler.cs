@@ -578,21 +578,23 @@ public sealed class PapyrusDecompiler
             }
         }
 
-        /// <summary>Flush ONLY pending discarded-result calls (statements by construction), leaving
-        /// expression values in place. Used at a short-circuit boundary: pre-if bare-call statements
-        /// must drain BEFORE the arm is structured (their temps may be reused inside the arm), but
-        /// the condition's own pending values must survive into the combined expression.</summary>
-        void FlushPendingCalls(List<string> stmts)
+        /// <summary>Flush the pending values that are discarded statements, leaving everything else in
+        /// place. Used at a short-circuit boundary: statements that precede the if must drain BEFORE the arm
+        /// is structured (their temps may be reused inside the arm), while a value the arm or the join still
+        /// reads has to survive into the combined expression. Every kind
+        /// <see cref="EmitsAnInstruction"/> accepts is a statement here, not only a call: a discarded cast or
+        /// property read that ran before a discarded call would otherwise come out after it.</summary>
+        void FlushPendingStatements(List<string> stmts, int scanFrom)
         {
             foreach (var name in _pendingOrder.ToList())
             {
-                if (!IsCallish(_pending[name])) continue;
+                // A temp read downstream is a value, not a statement — the later flush materializes it.
+                if (IsTemp(name) && ReadsBeforeWrite(scanFrom, _ins.Count, name)) continue;
+                if (!EmitsAnInstruction(_pending[name])) continue;
                 stmts.Add(Render(_pending[name]));
                 DropPending(name);
             }
         }
-
-        static bool IsCallish(Expr e) => e is ECall or EStatic or EParent;
 
         /// <summary>Is this instruction's own effect a call?</summary>
         static bool IsCallOpcode(InstructionOpcode op) =>
@@ -789,7 +791,7 @@ public sealed class PapyrusDecompiler
                             // produced AFTER the left operand is not one of them — draining it here puts a
                             // later call ahead of the one this statement carries.
                             RefuseDrainingPast("condition", leftStart);
-                            FlushPendingCalls(stmts);
+                            FlushPendingStatements(stmts, i + 1);
                             // Evaluate the right side (cur+1 .. target) — must produce only pending values.
                             var sub = Structure(i + 1, target, flushAtEnd: false, exits: new HashSet<int>(), cont: target);
                             // The arm is lazily evaluated, so a statement in it cannot be hoisted out

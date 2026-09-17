@@ -882,6 +882,30 @@ public class DecompileNoneResultTests
         AssertOrder(res.Source, "f.Bar()", "a as int");
     }
 
+    [Fact]
+    public void AShortCircuitDrainsEveryDiscardedStatementInOrder()
+    {
+        // The drain before a short-circuit arm took only calls, so a discarded cast that ran before a
+        // discarded call survived it and came out after the call at the next flush.
+        var f = Fn(("HC_NoneTarget", "f"), ("Float", "a"), ("Bool", "b"), ("Bool", "c"));
+        Local(f, "Int", "::temp0");
+        Local(f, "Float", "::temp1");
+        Local(f, "Bool", "::temp2");
+        Ins(f, InstructionOpcode.CAST, Id("::temp0"), Id("a"));                  // 0, discarded
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));   // 1, discarded
+        Ins(f, InstructionOpcode.ASSIGN, Id("::temp2"), Id("b"));                // 2
+        Ins(f, InstructionOpcode.JMPF, Id("::temp2"), Int(2));                   // 3 -> 5
+        Ins(f, InstructionOpcode.ASSIGN, Id("::temp2"), Id("c"));                // 4
+        Ins(f, InstructionOpcode.JMPF, Id("::temp2"), Int(2));                   // 5 -> 7
+        Ins(f, InstructionOpcode.ASSIGN, Id("Flag"), Int(1));                    // 6
+        Ins(f, InstructionOpcode.RETURN, Null());                                // 7
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("ShortCircuitDrain", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        AssertOrder(res.Source, "a as int", "f.Bar()");
+    }
+
     /// <summary>No emitted line carries <paramref name="stranded"/> after a `return` in the same block.</summary>
     static void AssertNoStatementAfterReturn(string source, string stranded)
     {
