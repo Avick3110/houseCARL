@@ -562,6 +562,30 @@ public class DecompileNoneResultTests
         AssertOrder(res.Source, "f.Poke() + 1", "f.Bar()");
     }
 
+    [Fact]
+    public void APropertyReadNeverOvertakesACallProducedAfterIt()
+    {
+        // A property get can be a real `Function Get()`, the same way a set can be a real setter, so the
+        // read runs at its own index — after `Bar` — and must not be emitted before it.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "HC_NoneTarget", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "Int", "::temp2");
+        Local(f, "Int", "x");
+        Local(f, "Int", "num");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.PROPGET, Id("Prop"), Id("::temp0"), Id("::temp2"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("x"), Id("::temp2"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("num"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("PropGetFold", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+    }
+
     /// <summary>No emitted line carries <paramref name="stranded"/> after a `return` in the same block.</summary>
     static void AssertNoStatementAfterReturn(string source, string stranded)
     {
