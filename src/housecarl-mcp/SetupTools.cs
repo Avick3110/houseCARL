@@ -4,10 +4,7 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>The setup tools for user-owned config, persisted to houseCARL.user.json; nothing is saved on a bad value.
-/// housecarl_set_mo2_instance takes one path (the MO2 instance folder) and derives the mods folder, active profile and
-/// game Data folder from ModOrganizer.ini. housecarl_set_tool_path records where an external tool lives (Papyrus
-/// compiler, BSArch, a log folder).</summary>
+/// <summary>The setup tools for user-owned config, persisted to houseCARL.user.json; nothing is saved on a bad value.</summary>
 [McpServerToolType]
 public static class SetupTools
 {
@@ -76,9 +73,7 @@ public static class SetupTools
         return sb.ToString();
     });
 
-    /// <summary>The confirmation text: the instance, the derived roots, the auto-detected profile, a cheap
-    /// enabled/active summary, and whether the choice was persisted. A failed save or a corrupt-file recovery is
-    /// named rather than hidden.</summary>
+    /// <summary>The confirmation text: the instance, the derived roots, the auto-detected profile, a cheap enabled/active summary, and whether the choice was persisted.</summary>
     internal static string Render(Mo2InstancePaths p, bool persisted, string? persistError, string? persistNote)
     {
         var sb = new StringBuilder();
@@ -86,13 +81,11 @@ public static class SetupTools
         sb.Append("active profile: ").Append(p.ProfileName).Append("  (auto-detected from ModOrganizer.ini)\n");
         sb.Append("  mods folder: ").Append(p.ModsDir).Append('\n');
         sb.Append("  game Data  : ").Append(p.DataDir).Append('\n');
-        // MO2 does not create the overwrite folder until a tool writes there, so an absent one is annotated rather
-        // than printed as a bare path that reads like a broken root.
+        // MO2 does not create the overwrite folder until a tool writes there, so an absent one is annotated.
         sb.Append("  overwrite  : ").Append(p.OverwriteDir)
           .Append(Directory.Exists(p.OverwriteDir) ? "" : "  (none yet — MO2 creates it when a tool writes here)").Append('\n');
 
-        // Reads the three profile text files only, no deep index. A read failure here is non-fatal but is named: this
-        // line is what tells the user the setup worked, so its absence must not be silent.
+        // Reads the three profile text files only. A read failure here is non-fatal but is named, since this line is what tells the user the setup worked.
         try
         {
             var comp = Mo2LoadOrder.ReadComposition(p.ProfileDir);

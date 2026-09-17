@@ -4,10 +4,7 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>Read-only view of the active MO2 profile's load-order composition: enabled versus disabled mods, and
-/// active versus inactive versus implicit plugins. The enabled/disabled picture is read fresh from the profile each
-/// call via <see cref="HousecarlCore.Mo2LoadOrder.ReadComposition"/>; the resolved and record counts reflect the
-/// resolver's last build, with a staleness note if the profile changed since.</summary>
+/// <summary>Read-only view of the active MO2 profile's load-order composition; the enabled/disabled picture is read fresh each call, while the resolved and record counts reflect the resolver's last build.</summary>
 [McpServerToolType]
 public static class StatusTools
 {
@@ -41,8 +38,7 @@ public static class StatusTools
         [Description("Optional. Max characters before name lists are cut with an explicit notice. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.LoadOrderStatus, () =>
     {
-        // The server line goes ahead of the config prompt, not after it: an unconfigured server is exactly the stale
-        // staged install this line exists to catch, and that answer returns before anything else renders.
+        // The server line goes ahead of the config prompt: an unconfigured server is exactly the stale staged install this line exists to catch.
         if (svc.ConfigPromptOrNull() is { } prompt) return StatusWire.ServerLine + prompt;
         var data = svc.StatusData();
         var logs = StatusWire.LogFolders(tools);                 // resolved Papyrus/crash log dirs (pure — no persist)
@@ -53,13 +49,10 @@ public static class StatusTools
     });
 }
 
-/// <summary>Renders <see cref="LoadOrderStatusData"/>: a header line per category, then the name lists (disabled mods,
-/// inactive plugins, implicit masters), each bounded by max_chars with an explicit cut notice. filter= switches to a
-/// single mod/plugin verdict.</summary>
+/// <summary>Renders <see cref="LoadOrderStatusData"/>: a header line per category, then the name lists, each bounded by max_chars with an explicit cut notice; filter= switches to a single mod/plugin verdict.</summary>
 static class StatusWire
 {
-    /// <summary>The running server's own build, so an installed-build-vs-source check never leaves the tool surface.
-    /// Public because the unconfigured answer returns before <see cref="Render"/> runs and prints this itself.</summary>
+    /// <summary>The running server's own build; public because the unconfigured answer returns before <see cref="Render"/> runs and prints this itself.</summary>
     public static string ServerLine => "server:   " + ServerBuild.Line + "\n";
 
     public static string Render(LoadOrderStatusData d, IReadOnlyList<LogFolderView> logs, NamedProfileResult profiles,
@@ -74,8 +67,7 @@ static class StatusWire
         var sb = new StringBuilder();
         sb.Append("load order status — profile '").Append(d.ProfileName).Append("'\n");
         sb.Append(ServerLine);
-        // The resolved MO2 instance; null means explicit-paths mode, where the three roots are set directly and there
-        // is no MO2 instance folder.
+        // The resolved MO2 instance; null means explicit-paths mode, which has no MO2 instance folder.
         sb.Append("instance: ").Append(d.InstanceDir ?? "explicit-paths mode (no MO2 instance configured)").Append('\n');
         sb.Append("mods:    ").Append(c.EnabledMods.Count).Append(" enabled · ").Append(c.DisabledMods.Count).Append(" disabled\n");
         sb.Append("plugins in load order: ").Append(c.OrderedPluginNames.Count).Append('\n');
@@ -85,16 +77,14 @@ static class StatusWire
         if (d.MaxPlugins > 0) sb.Append(" [capped at MaxPlugins=").Append(d.MaxPlugins).Append(']');
         if (d.Epoch is not null) sb.Append("  epoch=").Append(d.Epoch);   // the current build's fingerprint — bulk responses stamp the build they read, matched against this
         sb.Append('\n');
-        // The containment map's size, in band: it is built on every index build for the '*parent' step whether or
-        // not the user ever spells one, so its cost is stated here rather than discovered as memory.
+        // The containment map's size, in band: it is built on every index build, so its cost is stated rather than discovered as memory.
         sb.Append("containment: ").Append(d.ContainedRecordCount.ToString("N0", System.Globalization.CultureInfo.InvariantCulture))
           .Append(" child record(s) mapped to a containing record (the '*parent' step reads this)\n");
         if (d.ProfileChanged)
             sb.Append("[!] the profile changed mid-call and a refresh is still pending — houseCARL re-reads it " +
                       "automatically on the next tool call (lazy refresh; no restart needed).\n");
 
-        // profile= renders before the filter branch, which returns early: the two compose, since filter verdicts the
-        // active profile while this inspects another, possibly inactive, one without switching to it.
+        // profile= renders before the filter branch, which returns early: the two compose, since filter verdicts the active profile while this inspects another.
         if (profiles.RequestedName is not null) AppendNamedProfile(sb, profiles, cap);
 
         if (filter is { Length: > 0 })
@@ -124,9 +114,7 @@ static class StatusWire
         return sb.ToString().TrimEnd('\n');
     }
 
-    /// <summary>Where papyrus_logs and crash_logs resolve — saved, auto-detected, or unset — without persisting, since a
-    /// read-only status call must mutate nothing. These two are the only tool dependencies surfaced here because they
-    /// have no wrapping tool; the compiler and BSArch surface through their own prompts when called.</summary>
+    /// <summary>Where papyrus_logs and crash_logs resolve — saved, auto-detected, or unset — without persisting, since a read-only status call must mutate nothing.</summary>
     public static IReadOnlyList<LogFolderView> LogFolders(ToolPathResolver tools)
     {
         var views = new List<LogFolderView>(2);
@@ -138,9 +126,7 @@ static class StatusWire
         return views;
     }
 
-    /// <summary>The log-folders section: where the Papyrus script-log and SKSE crash-log directories resolve. Logs have
-    /// no wrapping tool, so this says where to read them, and an unset one names the call that points at it. Two
-    /// entries, rendered before the cap-bounded name lists so they can never be truncated away.</summary>
+    /// <summary>The log-folders section: where the Papyrus script-log and SKSE crash-log directories resolve, rendered before the cap-bounded name lists so they can never be truncated away.</summary>
     static void AppendLogs(StringBuilder sb, IReadOnlyList<LogFolderView> logs)
     {
         sb.Append("\nlog folders (Read the .log files directly — logs have no wrapping tool):\n");
@@ -155,9 +141,7 @@ static class StatusWire
         }
     }
 
-    /// <summary>Plugins dropped from the index this build: unopenable, or carrying a record Mutagen cannot parse (a
-    /// malformed subrecord the game ignores but Mutagen rejects). None of an excluded plugin is read, while every
-    /// other plugin still works. Rendered before the routine name lists so a long modlist cannot truncate it away.</summary>
+    /// <summary>Plugins dropped from the index this build — unopenable, or carrying a record Mutagen cannot parse; rendered before the routine name lists so a long modlist cannot truncate it away.</summary>
     static void AppendExcluded(StringBuilder sb, IReadOnlyDictionary<string, string> excluded, int cap)
     {
         if (excluded.Count == 0) return;
@@ -184,10 +168,7 @@ static class StatusWire
         }
     }
 
-    /// <summary>Render the requested named profile's composition, or a refusal. Explicit-paths mode has no profiles
-    /// folder, so it refuses rather than enumerating an arbitrary directory; a name matching no profile lists the real
-    /// options rather than rendering an empty composition. A match says plainly that the active profile is
-    /// unchanged — this is inspection, not a switch.</summary>
+    /// <summary>Render the requested named profile's composition, or a refusal: explicit-paths mode has no profiles folder, and a name matching none lists the real options. A match says plainly that the active profile is unchanged.</summary>
     static void AppendNamedProfile(StringBuilder sb, NamedProfileResult p, int cap)
     {
         if (!p.InstanceMode)
@@ -208,17 +189,14 @@ static class StatusWire
         sb.Append("  mods:    ").Append(c.EnabledMods.Count).Append(" enabled · ").Append(c.DisabledMods.Count).Append(" disabled\n");
         sb.Append("  plugins: ").Append(c.OrderedPluginNames.Count).Append(" in order · ").Append(active).Append(" active · ")
           .Append(c.InactivePluginNames.Count).Append(" inactive\n");
-        // Any read note, e.g. a missing modlist.txt, so a zero-enabled-mods inspection is not mistaken for a genuinely
-        // empty profile. Rendered before the lists, like the active status' own warnings block.
+        // Any read note, e.g. a missing modlist.txt, so a zero-enabled-mods inspection is not mistaken for an empty profile.
         foreach (var warn in p.Warnings)
             sb.Append("  [!] ").Append(warn).Append('\n');
         AppendList(sb, "  disabled mods", c.DisabledMods, cap);
         AppendList(sb, "  inactive plugins", c.InactivePluginNames, cap);
     }
 
-    /// <summary>The available profile names, so the inactive-profile read is discoverable from the default status.
-    /// Suppressed in explicit-paths mode, which has no profiles folder, and when profile= was asked for, since the
-    /// named block already lists them on a miss.</summary>
+    /// <summary>The available profile names, so the inactive-profile read is discoverable; suppressed in explicit-paths mode and when profile= was asked for, which lists them on a miss.</summary>
     static void AppendAvailableProfiles(StringBuilder sb, NamedProfileResult p, int cap)
     {
         if (!p.InstanceMode || p.RequestedName is not null) return;
@@ -250,16 +228,14 @@ static class StatusWire
     {
         sb.Append("\nfilter '").Append(name).Append("':\n");
 
-        // modMiss and pluginMiss must stay in sync with the not-found arm of their ternary below — each is the negation
-        // of every hit case. They gate the "did you mean", so a desync would surface a suggestion on a non-miss.
+        // modMiss and pluginMiss must stay in sync with the not-found arm of their ternary below — each is the negation of every hit case, and they gate the "did you mean".
         bool modMiss = !Contains(c.EnabledMods, name) && !Contains(c.DisabledMods, name);
         string asMod =
             Contains(c.EnabledMods, name)  ? "ENABLED (mod present + switched on)" :
             Contains(c.DisabledMods, name) ? "DISABLED (mod present but switched OFF — houseCARL excludes it)" :
                                              "not found in modlist.txt (not a managed mod folder name, or a UI separator)";
         sb.Append("  as a mod:    ").Append(asMod);
-        // A near-miss is an easy slip — a dropped apostrophe, a stray word — so point at the nearest real mod folders
-        // across both the enabled and disabled lists rather than leaving a flat "not found".
+        // A near-miss is an easy slip, so point at the nearest real mod folders across both the enabled and disabled lists.
         if (modMiss) sb.Append(HousecarlCore.PluginNameSuggest.DidYouMean(name, c.EnabledMods.Concat(c.DisabledMods)));
         sb.Append('\n');
 
@@ -271,21 +247,15 @@ static class StatusWire
             Contains(c.InactivePluginNames, name) ? "INACTIVE (present but unchecked — houseCARL EXCLUDES it)" :
                                                     "not in the load order (no such plugin in loadorder.txt)";
         sb.Append("  as a plugin: ").Append(asPlugin);
-        // The common slip is the mod-folder name passed where the .esp filename was wanted. The suggester's
-        // extension-difference and prefix rules turn that into the plugin filename. Match across the whole order.
+        // The common slip is the mod-folder name passed where the .esp filename was wanted; the suggester turns that into the plugin filename.
         if (pluginMiss) sb.Append(HousecarlCore.PluginNameSuggest.DidYouMean(name, c.OrderedPluginNames));
         sb.Append('\n');
 
-        // An active plugin can still be excluded from the index if it carries a record Mutagen cannot parse, so the
-        // "ACTIVE ... houseCARL reads/writes it" line above must not be taken as the whole truth.
+        // An active plugin can still be excluded from the index, so the ACTIVE line above must not be taken as the whole truth.
         if (excluded.TryGetValue(name, out var why))
             sb.Append("  [!] EXCLUDED this session: ").Append(why).Append("\n      → houseCARL does NOT read this plugin (every other plugin is unaffected).\n");
 
-        // The LOCALIZED header flag (#376): a localized plugin's text lives in .STRINGS files rather than in the
-        // plugin, and that is what the in-place write lanes refuse on — so the refusal is visible here, before a job
-        // meets it halfway through. Three answers, never a bool: an unreadable header asserts nothing either way.
-        // Rendered for every name the profile lists as a plugin, active or inactive — an inactive plugin is one a
-        // caller may still read, so it gets the answer too. A mod folder or a typo has no header and gets no line.
+        // The LOCALIZED header flag: a localized plugin's text lives in .STRINGS files, which is what the in-place write lanes refuse on. Three answers, never a bool, and rendered for every name the profile lists as a plugin.
         if (localized is { } flag)
             sb.Append("  localized:   ").Append(flag switch
             {
@@ -305,7 +275,5 @@ static class StatusWire
     }
 }
 
-/// <summary>One external log folder for the status surface: its wire key (papyrus_logs or crash_logs), where it
-/// resolved (null if unset), and how (<see cref="ToolPathSource"/>). The .log files at <see cref="Path"/> are read
-/// directly — logs are the one dependency with no wrapping tool.</summary>
+/// <summary>One external log folder for the status surface: its wire key, where it resolved, and how; the .log files at <see cref="Path"/> are read directly, logs being the one dependency with no wrapping tool.</summary>
 public sealed record LogFolderView(string Key, string? Path, ToolPathSource Source);

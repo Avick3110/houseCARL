@@ -1,49 +1,15 @@
 namespace HousecarlCore;
 
-// ======================================================================
-//  Mo2ModMeta — read the Nexus update-cache fields MO2 writes into each
-//  mod's meta.ini (mods\<Folder>\meta.ini). Reads MO2's cache only; no
-//  network.
-//
-//  The [General] fields that drive "is there an update":
-//      modid=12604               (the Nexus mod id; 0/absent ⇒ not a Nexus mod)
-//      version=5.2SE             (the INSTALLED version)
-//      newestVersion=6.11        (what MO2 last learned is newest; empty ⇒ never checked)
-//      ignoredVersion=6.10       (a version the user told MO2 to stop nagging about)
-//      lastNexusUpdate=1778020881(unix seconds of MO2's last update check)
-//
-//  MO2's own rule (what its update flag shows): an update is available when
-//  newestVersion is set, non-empty, and != version (and != ignoredVersion).
-//  We report the RAW fields and let the caller apply that rule, so the
-//  reasoning stays visible rather than collapsing into a hidden boolean.
-//
-//  Format is QSettings-ini: a value may be wrapped @ByteArray(...), quoted
-//  outside that wrapper, @Invalid() for unset, and Qt-escaped (backslashes
-//  doubled, non-ASCII bytes as \xHH). QtIniEscapes.Clean reads one value and
-//  its header carries the grammar; this file never re-states it. The
-//  [installedFiles] section uses prefixed keys (1\modid=...) so a plain
-//  first-match on "modid" reads the [General] one, which is written first.
-//
-//  That same [installedFiles] section ALSO records the exact Nexus FILE id(s)
-//  MO2 installed (1\fileid=..., 2\fileid=..., a size= count key in any order),
-//  the join key for a FILE-level currency check — a Nexus page hosts many
-//  independently-versioned files, so a mod-level version compare is not
-//  enough. A FOMOD / merged / hand-installed mod has size=0 with no fileid,
-//  so the check must say so rather than guess.
-// ======================================================================
+// Read the Nexus update-cache fields MO2 writes into each mod's meta.ini; no network. The fields, MO2's own update rule and the [installedFiles] join key are in docs/architecture/mo2-instance.md.
 
-/// <summary>The Nexus update-cache fields from one mod's meta.ini. <see cref="ModId"/> is 0 when the mod has no Nexus
-/// id (a hand-installed mod / separator). <see cref="NewestVersion"/> empty ⇒ MO2 never learned a newer version.
-/// <see cref="InstalledFileIds"/> are the <c>[installedFiles] N\fileid</c> values — the exact Nexus file(s) installed,
-/// the FILE-level currency join key; empty for a FOMOD/manual install (<c>size=0</c>, no fileid).</summary>
+/// <summary>The Nexus update-cache fields from one mod's meta.ini; <see cref="ModId"/> is 0 for a mod with no Nexus id, and <see cref="InstalledFileIds"/> is empty for a FOMOD or manual install.</summary>
 public sealed record ModMetaIni(
     int ModId, string? Version, string? NewestVersion, string? IgnoredVersion, string? LastNexusUpdate,
     IReadOnlyList<int> InstalledFileIds);
 
 public static class Mo2ModMeta
 {
-    /// <summary>Read one mod's meta.ini update-cache fields, or null if the file can't be read. A missing/blank field
-    /// reads as null (never throws — the caller keeps going over the rest of the mods folder).</summary>
+    /// <summary>Read one mod's meta.ini update-cache fields, or null when the file cannot be read; a missing or blank field reads as null and nothing throws.</summary>
     public static ModMetaIni? Read(string metaIniPath)
     {
         string[] lines;
@@ -61,11 +27,7 @@ public static class Mo2ModMeta
             ReadInstalledFileIds(lines));
     }
 
-    /// <summary>The folder MO2 would keep a loose file's meta.ini in: the file's path with its Data-relative tail
-    /// removed. Null when the path does not end in that tail (nothing to strip, so nothing to claim) or when what is
-    /// left is a bare drive ("C:"), which <see cref="Path.Combine"/> would resolve against the process's current
-    /// directory on that drive rather than the drive root. Separate from the read so a caller inventorying many files
-    /// can read each mod's meta.ini once.</summary>
+    /// <summary>The folder MO2 would keep a loose file's meta.ini in — the file's path with its Data-relative tail removed; null when the path does not end in that tail or what is left is a bare drive.</summary>
     public static string? ModRootForLooseFile(string looseFilePath, string dataRelativePath)
     {
         var tail = dataRelativePath.Replace('/', Path.DirectorySeparatorChar);
@@ -75,11 +37,7 @@ public static class Mo2ModMeta
         return root.Length == 0 || root.EndsWith(':') ? null : root;
     }
 
-    /// <summary>The <c>N\fileid</c> values from the <c>[installedFiles]</c> section, in index (N) order — the exact Nexus
-    /// file(s) MO2 recorded as installed for this mod. A mod can have several (<c>1\fileid</c>, <c>2\fileid</c>, …); a
-    /// FOMOD/manual install has <c>size=0</c> and none (⇒ empty list). Scoped to the section (a stray <c>fileid=</c>
-    /// elsewhere is ignored) and tolerant of the <c>size=</c> / <c>N\modid</c> siblings and any key ordering. Empty,
-    /// never null, so the caller can handle "no fileids" as a case rather than a crash.</summary>
+    /// <summary>The <c>N\fileid</c> values from the <c>[installedFiles]</c> section, in index order; scoped to the section, tolerant of key ordering, and empty rather than null.</summary>
     static IReadOnlyList<int> ReadInstalledFileIds(string[] lines)
     {
         List<(int idx, int fileId)>? found = null;
@@ -109,8 +67,7 @@ public static class Mo2ModMeta
         return found.OrderBy(t => t.idx).Select(t => t.fileId).ToList();
     }
 
-    /// <summary>First <c>key=</c> line's raw value, key matched case-insensitively and EXACTLY (so "modid" never matches
-    /// the [installedFiles] "1\modid"). Tolerates whitespace around '='. Null if the key isn't present.</summary>
+    /// <summary>First <c>key=</c> line's raw value, the key matched case-insensitively and EXACTLY, so "modid" never matches "1\modid"; null if the key is not present.</summary>
     static string? FindValue(string[] lines, string key)
     {
         foreach (var raw in lines)
@@ -124,7 +81,6 @@ public static class Mo2ModMeta
         return null;
     }
 
-    /// <summary>Read a QSettings value — quotes, the <c>@ByteArray(...)</c> wrapper, <c>@Invalid()</c>, and Qt's
-    /// escaping — through the one shared reader, so both MO2 ini readers behave the same.</summary>
+    /// <summary>Read a QSettings value through the one shared reader, so both MO2 ini readers behave the same.</summary>
     static string? Clean(string? raw) => QtIniEscapes.Clean(raw);
 }
