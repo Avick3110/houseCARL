@@ -5,103 +5,48 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
 
-// ======================================================================
-//  AssetRenameService — carry FormID-KEYED assets across a renumber (compact/merge).
-//
-//  A renumber moves every record to a new FormID, but the asset FILES the engine looks up BY that
-//  FormID — FaceGen head meshes/tints, voice .fuz/.lip — keep their old-FormID names, so a compacted
-//  NPC mod dark-faces and a voiced mod goes mute. Given the renumber's old→new FormKey map and the
-//  written P′, this carries those assets to their new-FormID paths under the P′ mod folder.
-//
-//  Facegen and voice ride ONE shared two-phase carry (CarryItems), so the in-place aliasing fix
-//  lives in exactly one place. SEQ is NOT a map-rename: a .seq lists each start-game-enabled quest's
-//  master-relative on-disk FormID, all of which a renumber shifts, so a .seq the source SHIPPED is
-//  rebuilt from P′ via SeqFile.Build. Refresh-only — if the source shipped none, compaction does not
-//  invent one (xEdit parity); the missing-.seq case is a named advisory, never a silent write.
-//  Strings stay out: plugin-name-keyed, so a renumber does not touch them.
-//
-//  Composes existing primitives — no new path logic: FaceGenPath.For / VoicePath (pure FormKey→path;
-//  the folder is the FormKey's defining master, so old and new keys give the correct old and new
-//  paths), AssetResolver (the load-order winning on-disk bytes, loose or BSA; EnumerateUnder lists
-//  what voice files exist), AtomicFile.WriteAllBytes / Commit.
-//
-//  NEVER throws and never fails the compact: the records are already written by the time this runs,
-//  so an asset it cannot carry is a named warning. An NPC with no own facegen is normal (vanilla or
-//  inherited head), not a failure — only FOUND-but-unwritable is. A BSA that failed to read sets
-//  ReadIncomplete, so "no facegen"/"no voice" is never silently trusted.
-//
-//  Voice DISCOVERY scans disk rather than re-deriving the dialogue graph: a voice filename embeds
-//  the parent quest/topic EditorIDs, voice type and response number, none of which a renumber
-//  changes — on a compact the plugin keeps its basename, so ONLY the '00<6hex>' id segment differs.
-//  Re-deriving the graph per INFO silently misses radiant and quest-alias lines that will not
-//  resolve, so CarryVoice enumerates the files present under Sound\Voice\<plugin>\ and rewrites the
-//  id segment of each whose embedded FormID was renumbered. Filename-only, no record readback.
-//
-//  NON-DESTRUCTIVE: writes only the new-FormID copies under the P′ mod folder (the fresh folder in
-//  the new-file lane; the target's own folder in the in-place lane). The old-FormID files are left
-//  untouched — harmless orphans the engine no longer looks up.
-// ======================================================================
+// AssetRenameService — carry FormID-KEYED assets (facegen, voice) across a renumber, plus the .seq rebuild that is
+// not a rename. The two-phase carry, the non-destructive rule, the disk-scan voice discovery and the refresh-only
+// .seq are contracts in docs/architecture/assets.md; pinned by facegen-carry-guard and voice-carry-guard.
 
-/// <summary>The accounting of one facegen rename pass. <see cref="NpcCount"/> = renumbered NPCs considered
-/// (the denominator). <see cref="FacegenNpcsCarried"/> = those for which ≥1 facegen file was carried; <see cref="FacegenFilesCarried"/>
-/// = total files written (mesh + tint). <see cref="Failures"/> = facegen that was FOUND but could not be written; an NPC
-/// simply WITHOUT facegen is not a failure. <see cref="ReadIncomplete"/> = a BSA failed to read this
-/// scan, so a "no facegen" answer may be incomplete (a facegen present only in an unreadable archive looks absent).</summary>
+/// <summary>The accounting of one facegen pass: renumbered NPCs considered, those with ≥1 file carried, files
+/// written, FOUND-but-unwritable failures, and whether a BSA failed to read (so "no facegen" may be incomplete).</summary>
 public sealed record AssetRenameOutcome(
     int NpcCount, int FacegenNpcsCarried, int FacegenFilesCarried,
     IReadOnlyList<string> Failures, bool ReadIncomplete)
 {
-    /// <summary>Nothing carried (no renumbered NPCs, or the carry was not run) — a clean zero, ReadIncomplete propagated.</summary>
     public static AssetRenameOutcome None(bool readIncomplete = false) =>
         new(0, 0, 0, Array.Empty<string>(), readIncomplete);
 }
 
-/// <summary>The accounting of the voice-carry pass. <see cref="FilesScanned"/> = voice files found under the
-/// plugin's <c>Sound\Voice\&lt;plugin&gt;\</c> prefix (the denominator). <see cref="FilesCarried"/> = those whose
-/// embedded FormID was renumbered and that were written to the new id; <see cref="LinesCarried"/> = the distinct
-/// dialogue lines (INFOs) those files belong to. <see cref="Failures"/> = a voice file FOUND but not writable;
-/// a file simply NOT keyed to a renumbered line is not a failure. <see cref="ReadIncomplete"/> = a BSA failed to
-/// read this scan, so a "no voice" answer may be incomplete (audio present only in an unreadable archive looks absent).</summary>
+/// <summary>The accounting of the voice pass: files found under the plugin's voice prefix, those whose embedded
+/// FormID was renumbered and written, the distinct lines they belong to, failures, and the read caveat.</summary>
 public sealed record VoiceCarryOutcome(
     int FilesScanned, int FilesCarried, int LinesCarried,
     IReadOnlyList<string> Failures, bool ReadIncomplete)
 {
-    /// <summary>Nothing carried (no renumbered records, or no voice files) — a clean zero, ReadIncomplete propagated.</summary>
     public static VoiceCarryOutcome None(bool readIncomplete = false) =>
         new(0, 0, 0, Array.Empty<string>(), readIncomplete);
 }
 
-/// <summary>The accounting of the SEQ-regeneration pass. A compact renumbers a plugin's start-game-enabled quests,
-/// so the master-relative on-disk FormIDs any pre-existing <c>.seq</c> lists go STALE and those quests would then never
-/// start (the silent-failure class <see cref="SeqFile"/> exists to prevent). Unlike facegen/voice this is NOT a map-rename
-/// — the <c>.seq</c> is REBUILT from the renumbered plugin — and it is REFRESH-ONLY: it rebuilds a <c>.seq</c> the source
-/// SHIPPED, never invents one the source lacked (xEdit-compaction parity). <see cref="SgeQuestCount"/> = start-game-enabled
-/// quests the plugin has (0 ⇒ none → a clean no-op, no file written). <see cref="Written"/> ⇒ a fresh, correct <c>.seq</c>
-/// was committed at <see cref="SeqPath"/> (the source shipped one, so it was refreshed). <see cref="Failures"/> = named
-/// warnings, never silent: EITHER the source shipped a <c>.seq</c> and the refresh could not be built/written, OR the
-/// source shipped NO <c>.seq</c> so none was written and the user is advised to run <c>housecarl_write_seq</c>.</summary>
+/// <summary>The accounting of the SEQ pass. Not a map-rename — the <c>.seq</c> is REBUILT from the renumbered
+/// plugin — and refresh-only: a source that shipped none gets a named advisory, never an invented file.</summary>
 public sealed record SeqRegenOutcome(
     int SgeQuestCount, bool Written, string? SeqPath, IReadOnlyList<string> Failures)
 {
-    /// <summary>No start-game-enabled quests — nothing to write (no <c>.seq</c> cut), a clean no-op.</summary>
     public static SeqRegenOutcome None() => new(0, false, null, Array.Empty<string>());
 }
 
 public static class AssetRenameService
 {
-    /// <summary>Carry the FaceGen assets (head mesh + face tint) of every RENUMBERED NPC in <paramref name="pPrimePath"/>
-    /// from their OLD-FormID path to their NEW-FormID path, writing the new copies under <paramref name="outDir"/> (the
-    /// P′ mod-folder root — pass <c>Path.GetDirectoryName(outPath)</c>, which is that root in BOTH the new-file and
-    /// in-place lanes). <paramref name="map"/> is the renumber's old→new FormKey map; only NPCs whose new key is a map
-    /// VALUE (i.e. were renumbered) are carried — override NPCs kept at a master key are left alone. <paramref name="assets"/>
-    /// is a pinned resolver view (its winner is the copy that currently displays in-game). Best-effort and reported:
-    /// records are already written, so this never throws and never fails the compact.</summary>
+    /// <summary>Carry the FaceGen assets of every RENUMBERED NPC in <paramref name="pPrimePath"/> to their new-FormID
+    /// path under <paramref name="outDir"/> (the output mod-folder root in both lanes). Only NPCs whose new key is a
+    /// <paramref name="map"/> VALUE are carried; best-effort, so this never throws and never fails the compact.</summary>
     public static AssetRenameOutcome CarryFaceGen(
         string pPrimePath, IReadOnlyDictionary<FormKey, FormKey> map, AssetResolver.AssetView assets, string outDir)
     {
-        // 1. Which renumbered records are NPCs? Read P′ back and intersect its NPCs with the map's NEW keys (the values).
-        //    Reverse the map ONCE (new→old) so each renumbered NPC yields its old key (for the old asset path). Reading the
-        //    just-written P′ is a transient overlay (disposed immediately — zero handle at rest, the codebase idiom).
+        // Which renumbered records are NPCs? Read P′ back and intersect its NPCs with the map's NEW keys, reversing
+        // the map once so each renumbered NPC yields its old key. The overlay is transient — zero handle at rest.
         List<(FormKey Old, FormKey New)> npcs;
         try
         {
@@ -114,8 +59,7 @@ public static class AssetRenameService
         }
         catch (Exception ex)
         {
-            // Can't read P′ back ⇒ can't find which NPCs to carry. The compact SUCCEEDED; this is a degraded asset pass,
-            // surfaced as a named warning rather than a silent skip.
+            // Can't read P′ back, so this is a degraded asset pass on a compact that SUCCEEDED: a named warning.
             return new AssetRenameOutcome(0, 0, 0,
                 new[] { $"could not read '{Path.GetFileName(pPrimePath)}' back to find its NPCs for facegen carry ({ex.Message}) — verify NPC faces in-game." },
                 assets.ReadIncomplete);
@@ -123,9 +67,7 @@ public static class AssetRenameService
 
         if (npcs.Count == 0) return AssetRenameOutcome.None(assets.ReadIncomplete);
 
-        // 2. Build the carry list — each renumbered NPC's mesh + tint, OLD path → NEW path — and run it through the shared
-        //    two-phase carry (CarryItems): all reads stage to temps before ANY commit, so the in-place lane can't read-after
-        //    -write alias one NPC's facegen over another's not-yet-read file. The dark-face pair is placed together.
+        // Each renumbered NPC's mesh + tint, old path to new, through the shared two-phase carry.
         var items = new List<CarryItem>();
         foreach (var (oldKey, newKey) in npcs)
             foreach (var (slot, oldPath) in FaceGenPath.Both(oldKey))      // (Mesh, …), (Tint, …) — the dark-face pair
@@ -136,18 +78,10 @@ public static class AssetRenameService
         return new AssetRenameOutcome(npcs.Count, carried.Count, files, failures, assets.ReadIncomplete);
     }
 
-    /// <summary>Carry the VOICE files (.fuz/.lip/…) of every RENUMBERED dialogue line (INFO) in <paramref name="pPrimePath"/>
-    /// from their OLD-FormID name to their NEW-FormID name, writing the new copies under <paramref name="outDir"/> (the P′
-    /// mod-folder root, as <see cref="CarryFaceGen"/>). DISCOVERS by SCANNING the plugin's voice prefix rather than re-deriving
-    /// the dialogue graph (see the file header): every file under <c>Sound\Voice\&lt;source&gt;\</c> whose embedded local
-    /// FormID is a renumbered key in <paramref name="map"/> gets its id segment rewritten to the new id. TWO LANES: on a
-    /// COMPACT the plugin keeps its basename (<paramref name="sourcePlugin"/> omitted), so the folder + voice-type +
-    /// quest/topic + response-number segments are unchanged — ONLY the id moves; on a MERGE the output plugin has a NEW
-    /// name, so the caller passes each DONOR's filename as <paramref name="sourcePlugin"/> (one call per donor) and the
-    /// <c>Sound\Voice\&lt;donor&gt;</c> folder segment is rewritten to the output's name ALONGSIDE the id — the engine
-    /// looks voice up under the DEFINING plugin's folder, which the merge changed for every donor line. Rides the same
-    /// two-phase <see cref="CarryItems"/> as facegen, so it gets the same in-place aliasing protection. Best-effort and
-    /// reported: records are already written, so this never throws and never fails the compact/merge.</summary>
+    /// <summary>Carry the VOICE files of every RENUMBERED dialogue line to their new-FormID name under
+    /// <paramref name="outDir"/>, DISCOVERING by scanning the plugin's voice prefix. Two lanes: on a compact only the
+    /// id segment moves; on a merge the caller passes each donor as <paramref name="sourcePlugin"/> and the folder
+    /// segment is rewritten alongside it. Rides the same two-phase carry; never throws.</summary>
     public static VoiceCarryOutcome CarryVoice(
         string pPrimePath, IReadOnlyDictionary<FormKey, FormKey> map, AssetResolver.AssetView assets, string outDir,
         string? sourcePlugin = null)
@@ -155,16 +89,14 @@ public static class AssetRenameService
         var targetBasename = Path.GetFileName(pPrimePath);                  // the OUTPUT plugin's filename → the NEW voice folder name
         var sourceBasename = sourcePlugin ?? targetBasename;                // compact: same name; merge: the donor's filename (OLD folder)
 
-        // local-id → new-local-id for the SOURCE plugin's renumbered records — the only ones whose voice lives under
-        // Sound\Voice\<source>\ (an override kept at a master key has its voice under the MASTER's folder, untouched).
+        // local id to new local id for the SOURCE plugin's renumbered records — the only ones whose voice lives here.
         var idMap = new Dictionary<uint, uint>();
         foreach (var kv in map)
             if (string.Equals(kv.Key.ModKey.FileName.ToString(), sourceBasename, StringComparison.OrdinalIgnoreCase))
                 idMap[kv.Key.ID] = kv.Value.ID;
         if (idMap.Count == 0) return VoiceCarryOutcome.None(assets.ReadIncomplete);
 
-        // The new INFO FormKeys need a ModKey for the distinct-line accounting; the target basename came from a real
-        // plugin path, so this is valid; a malformed name is surfaced rather than silently producing a zero pass.
+        // The new FormKeys need a ModKey for the distinct-line accounting; a malformed name is surfaced, not zeroed.
         ModKey modKey;
         try { modKey = ModKey.FromFileName(targetBasename); }
         catch (Exception ex)
@@ -186,9 +118,8 @@ public static class AssetRenameService
         }
         if (files.Count == 0) return VoiceCarryOutcome.None(assets.ReadIncomplete);
 
-        // Build the carry list: each voice file whose embedded id was renumbered → its new-id name (compact: ONLY the id
-        // segment changes; merge: the plugin folder segment swaps with it — see the header). A file with no
-        // '_<8hex>_<num>.<ext>' tail, or whose id wasn't renumbered, is left alone.
+        // Each voice file whose embedded id was renumbered, to its new-id name. A file with no '_<8hex>_<num>.<ext>'
+        // tail, or whose id was not renumbered, is left alone.
         var items = new List<CarryItem>();
         foreach (var oldRel in files)
         {
@@ -213,40 +144,27 @@ public static class AssetRenameService
         return new VoiceCarryOutcome(files.Count, carriedFiles, carriedLines.Count, failures, assets.ReadIncomplete);
     }
 
-    /// <summary>REFRESH the start-game-enabled-quest <c>.seq</c> of the RENUMBERED plugin <paramref name="pPrimePath"/> when
-    /// the source already SHIPPED one (<paramref name="sourceHadSeq"/>), writing it to <c>&lt;outDir&gt;\SEQ\&lt;basename&gt;.seq</c>
-    /// (<paramref name="outDir"/> = the P′ mod-folder root, as the carry methods take — <c>Path.GetDirectoryName(outPath)</c>,
-    /// that root in BOTH lanes). Unlike <see cref="CarryFaceGen"/>/<see cref="CarryVoice"/> this is NOT a map-rename and needs
-    /// no map/resolver/AssetView: a <c>.seq</c> lists each SGE quest's master-relative ON-DISK FormID, and a renumber shifts
-    /// every one, so the file is REBUILT from scratch off P′ via <see cref="SeqFile.Build"/> — the same regeneration
-    /// <c>housecarl_write_seq</c> runs — and the FormIDs come out correct because they're read from the already-renumbered
-    /// plugin. REFRESH-ONLY: if the source shipped NO <c>.seq</c> (<paramref name="sourceHadSeq"/>
-    /// false) but P′ has SGE quests, compaction does NOT invent one — it writes nothing and returns a NAMED advisory (run
-    /// write_seq) instead, so compaction never surprises a modder with a file other compaction tools don't create (xEdit
-    /// parity). A plugin with NO SGE quests is a clean no-op. Engine-correct placement: the game reads <c>Data\SEQ\</c>, so a
-    /// refreshed <c>.seq</c> lands in a <c>SEQ\</c> subfolder of the mod root. Best-effort and reported: the records are
-    /// already written, so a <c>.seq</c> it can't build/write — and the missing-source-.seq advisory — are NAMED warnings,
-    /// never a failure of the compact; never throws.</summary>
+    /// <summary>REFRESH the start-game-enabled-quest <c>.seq</c> of the renumbered plugin when the source SHIPPED
+    /// one, writing it to <c>&lt;outDir&gt;\SEQ\&lt;basename&gt;.seq</c> where the game reads it. Rebuilt from P′ via
+    /// <see cref="SeqFile.Build"/>, not renamed; no SGE quests is a clean no-op, and a source that shipped none gets
+    /// a named advisory rather than an invented file. Never throws.</summary>
     public static SeqRegenOutcome RegenerateSeq(string pPrimePath, string outDir, bool sourceHadSeq)
     {
         SeqFile.SeqBuild built;
         try { built = SeqFile.Build(pPrimePath); }
         catch (Exception ex)
         {
-            // Can't read P′ back ⇒ can't (re)build its .seq. The compact SUCCEEDED; this is a degraded SEQ pass, surfaced
-            // as a named warning rather than a silent stale/missing .seq.
+            // Can't read P′ back, so this is a degraded SEQ pass on a compact that SUCCEEDED: a named warning.
             return new SeqRegenOutcome(0, false, null,
                 new[] { $"could not read '{Path.GetFileName(pPrimePath)}' back to (re)build its .seq ({ex.Message}) — if it has start-game-enabled quests, run {ToolNames.WriteSeq} on the compacted plugin." });
         }
 
-        // No SGE quests → no .seq needed (the write_seq no-op). NOTE: returns BEFORE the sourceHadSeq gate, so a source that
-        // shipped a .seq for a quest whose SGE flag is since GONE would leave that stale .seq in place. Unreachable via compact
-        // (a renumber never clears SGE flags); a latent edge only if this spine is reused for merge, called out not fixed here.
+        // No SGE quests means no .seq. Returns BEFORE the sourceHadSeq gate, so a source that shipped one for a quest
+        // whose SGE flag is since gone would leave it stale — unreachable via compact, latent if reused for merge.
         if (built.Quests.Count == 0) return SeqRegenOutcome.None();
 
         if (!sourceHadSeq)
-            // REFRESH-ONLY: P′ has SGE quests but the source shipped no .seq — do NOT invent one (xEdit-compaction parity).
-            // Advise rather than silently write: the quests likely weren't starting even before compaction.
+            // Refresh-only: do NOT invent a .seq the source lacked; the quests likely weren't starting before either.
             return new SeqRegenOutcome(built.Quests.Count, false, null,
                 new[] { $"'{Path.GetFileName(pPrimePath)}' has {built.Quests.Count} start-game-enabled quest(s) but no .seq — they likely weren't starting even before compaction; run {ToolNames.WriteSeq} on the compacted plugin to add one." });
 
@@ -268,20 +186,12 @@ public static class AssetRenameService
         return new SeqRegenOutcome(built.Quests.Count, true, dest, Array.Empty<string>());
     }
 
-    /// <summary>One asset to carry: read <see cref="OldPath"/>'s winning on-disk copy and place its bytes at
-    /// <see cref="NewPath"/> under the output dir. <see cref="Owner"/> is the renumbered record the asset belongs to (the
-    /// distinct-owner count = NPCs-carried for facegen, lines-carried for voice); <see cref="Label"/> prefixes any failure.</summary>
+    /// <summary>One asset to carry: read <see cref="OldPath"/>'s winning copy and place its bytes at <see cref="NewPath"/> under the output dir.</summary>
     readonly record struct CarryItem(string OldPath, string NewPath, FormKey Owner, string Label);
 
-    /// <summary>The shared TWO-PHASE carry both facegen and voice ride. Phase 1: resolve each item's OLD path to
-    /// its WINNING on-disk bytes and stage them to a '.houseCARL-tmp' SIBLING of the final new path (a name that never
-    /// collides with an old '00&lt;hex&gt;.ext' read path). Phase 2: once EVERY read is done, commit the temps via
-    /// <see cref="AtomicFile.Commit"/>. Staging before committing is what prevents in-place aliasing: the renumber packs
-    /// the new ids into the same window the source used, so in the in-place lane (outDir == the donor's own folder) a direct
-    /// new-id write could clobber a DIFFERENT record's not-yet-read old-id file — handing it the wrong face or voice.
-    /// O(1) memory per file (staged to disk, not buffered). A resolve MISS is skipped silently (the caller
-    /// decides whether "absent" is normal); a FOUND-but-unwritable file is a NAMED failure. Returns (files committed, the set
-    /// of distinct owners that had ≥1 file committed). Never throws — the records are already written.</summary>
+    /// <summary>The shared TWO-PHASE carry both facegen and voice ride: every read stages to a '.houseCARL-tmp'
+    /// sibling, and only once EVERY read is done are the temps committed — the in-place aliasing contract in
+    /// docs/architecture/assets.md. A resolve miss is skipped; a FOUND-but-unwritable file is a named failure.</summary>
     static (int Files, HashSet<FormKey> Owners) CarryItems(
         IReadOnlyList<CarryItem> items, AssetResolver.AssetView assets, string outDir, List<string> failures)
     {
@@ -303,7 +213,6 @@ public static class AssetRenameService
                 Directory.CreateDirectory(Path.GetDirectoryName(final)!);
                 try { if (File.Exists(staged)) File.Delete(staged); } catch { /* a stuck temp surfaces on the write below */ }
                 File.WriteAllBytes(staged, bytes!);
-                // Truncation guard on the TEMP (the commit is an atomic rename, which can't truncate): a short stage is caught here.
                 long size; try { size = new FileInfo(staged).Length; } catch { size = -1; }
                 if (size != bytes!.Length)
                 {
@@ -335,13 +244,10 @@ public static class AssetRenameService
         return (files, owners);
     }
 
-    /// <summary>Matches a voice file's '_&lt;8hex&gt;_&lt;response&gt;.&lt;ext&gt;' tail (anchored to the end, so quest/topic
-    /// EditorID segments that themselves contain underscores or hex don't confuse it). Group 1 is the 8-hex FormID segment —
-    /// the only part a renumber moves. Compiled: CarryVoice runs it once per discovered file.</summary>
+    /// <summary>Matches a voice file's '_&lt;8hex&gt;_&lt;response&gt;.&lt;ext&gt;' tail, anchored to the end so an EditorID segment cannot confuse it. Group 1 is the FormID.</summary>
     static readonly System.Text.RegularExpressions.Regex VoiceIdRx =
         new(@"_([0-9A-Fa-f]{8})_\d+\.[A-Za-z0-9]+$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    /// <summary>Read the bytes of a resolved WINNING provider — delegates to the ONE shared loose-vs-BSA read,
-    /// <see cref="AssetResolver.ReadPlacementSource"/>.</summary>
+    /// <summary>Read the bytes of a resolved WINNING provider — the one shared loose-vs-BSA read.</summary>
     static (byte[]? bytes, string? error) ReadWinner(PlacementSource s) => AssetResolver.ReadPlacementSource(s);
 }
