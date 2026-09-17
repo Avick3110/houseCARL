@@ -7,28 +7,16 @@ using ModelContextProtocol.Server;
 namespace HousecarlMcp;
 
 /// <summary>Read-only view of the SKSE layer of the active load order: the .dll plugins under Data\SKSE\Plugins, the
-/// configs beneath them, and the native Papyrus functions the order's compiled scripts declare. One tool, one finding
-/// family per call — <c>findings=</c> picks inventory, pairing or config, and each family's render lives in its own
-/// wire class below.
-///
-/// <para>The declared-versus-runtime ceiling is written ONCE, in the tool description, because it is the same ceiling
-/// for all three families; per-family detail lives in the <c>findings=</c> parameter text. That is the whole reason
-/// the three tools folded into one (SPEC §6.3 S7).</para>
-///
-/// <para>No response merges two families: the families answer different questions over different populations, and a
-/// merged render would have no honest summary line. See <see cref="SksePluginReader"/>.</para></summary>
+/// configs beneath them, and the native Papyrus functions the order's compiled scripts declare. ONE finding family
+/// per call, each render in its own wire class below; contract in docs/architecture/skse-layer.md.</summary>
 [McpServerToolType]
 public static class SkseTools
 {
     /// <summary>The three finding families <c>findings=</c> selects between.</summary>
     internal enum SkseFamily { Inventory, Pairing, Config }
 
-    /// <summary>Parses <c>findings=</c> as it arrives OFF THE WIRE, where the schema declares it a string or an array.
-    /// The array shape is the <c>housecarl_check</c> habit and is a real JSON array, not a string starting with '[':
-    /// it binds so that the refusal below — which names the three families and the one-family rule — is what the caller
-    /// reads, instead of the shim's generic type-mismatch sentence. Any non-string shape is refused by its own JSON
-    /// text, so a one-element array is refused too: this tool runs one family per call, and taking <c>["inventory"]</c>
-    /// as the scalar would teach a shape the tool description says is refused.</summary>
+    /// <summary>Parses <c>findings=</c> off the wire, where the schema declares it a string or an array: the array shape
+    /// must BIND so this tool's own refusal answers it, and any non-string shape is refused, one-element arrays included.</summary>
     internal static bool TryParseFamily(System.Text.Json.JsonElement? findings, out SkseFamily family, out string? error)
         => TryParseFamily(findings switch
         {
@@ -37,8 +25,7 @@ public static class SkseTools
             { } el => el.GetRawText(),
         }, out family, out error);
 
-    /// <summary>Parses <c>findings=</c>. Omitted is the inventory family, which every response states; an unknown
-    /// value is refused naming the three, never quietly defaulted.</summary>
+    /// <summary>Parses <c>findings=</c>; omitted is the inventory family, and an unknown value is refused, never defaulted.</summary>
     internal static bool TryParseFamily(string? findings, out SkseFamily family, out string? error)
     {
         family = SkseFamily.Inventory;
@@ -51,8 +38,7 @@ public static class SkseTools
             case "pairing": family = SkseFamily.Pairing; return true;
             case "config": family = SkseFamily.Config; return true;
         }
-        // A list-shaped value is the housecarl_check habit, where findings= names several families. Naming the shape is
-        // what turns the refusal into a fix; "not a family" alone reads as the wrong word rather than the wrong shape.
+        // Naming the SHAPE is what turns the refusal into a fix; "not a family" reads as the wrong word.
         var shape = token.Contains(',') || token.Contains('[')
             ? " findings= here takes ONE value, not a list."
             : "";
@@ -62,16 +48,14 @@ public static class SkseTools
         return false;
     }
 
-    /// <summary>The <c>peek=</c> family check, or null when the call is valid. peek= reads one DLL's image, which only
-    /// the inventory family looks at, so it is refused on the other two rather than silently ignored.</summary>
+    /// <summary>The <c>peek=</c> family check, or null; peek= reads a DLL image, so the other two families refuse it.</summary>
     internal static string? PeekFamilyError(bool peek, SkseFamily family) =>
         peek && family != SkseFamily.Inventory
             ? $"error: peek= is the inventory family's — findings='{family.ToString().ToLowerInvariant()}' never reads a " +
               "DLL image. Drop peek=, or pass findings='inventory' with filter='<DLL/plugin/mod name>'."
             : null;
 
-    /// <summary>The line every response ends on: which family ran, and the exact spelling for the two that did not.
-    /// The default narrows only because the response says so.</summary>
+    /// <summary>The line every response ends on: which family ran, and the exact spelling for the two that did not.</summary>
     internal static string FamilyFooter(SkseFamily ran)
     {
         const string Inventory = "findings='inventory' (the DLL and config layer, with each plugin's static manifest)";
@@ -86,9 +70,7 @@ public static class SkseTools
         return $"\n\n(this call ran findings='{mine}'. NOT run: {a}; {b}.)";
     }
 
-    /// <summary>The three family renders, one method each. The dispatch below picks one and appends the footer; behind
-    /// this seam it can be driven without a live MO2 instance, so a test can pin which family a findings= value runs
-    /// and that the answer ends on the footer. <see cref="ServiceRenders"/> is the live implementation.</summary>
+    /// <summary>The three family renders, one method each — a seam a test can drive with no live MO2 instance.</summary>
     internal interface IFamilyRenders
     {
         string Inventory(FamilyCall c);
@@ -96,12 +78,8 @@ public static class SkseTools
         string Config(FamilyCall c);
     }
 
-    /// <summary>One call's shared render context: what to narrow to, the char budget, the TRANSPORT paging window,
-    /// and which format was asked for. A record so a new TRANSPORT axis lands here rather than as a fourth positional
-    /// argument on all three renders.</summary>
-    /// <summary><paramref name="Trailer"/> is what the dispatcher writes after the render — the family footer — held
-    /// back out of the render's BUDGET while <paramref name="Cap"/> stays the caller's own max_chars, the number every
-    /// notice quotes.</summary>
+    /// <summary>One call's shared render context, a record so a new TRANSPORT axis lands here rather than as a fourth
+    /// argument. <c>Trailer</c> is held out of the render's BUDGET while <c>Cap</c> stays the caller's own max_chars.</summary>
     internal readonly record struct FamilyCall(string? Filter, bool Peek, int Cap, RowWindow Window, bool Json, int Trailer = 0);
 
     /// <summary>The live renders: each family's data read from the service, handed to its own wire class.</summary>
@@ -129,17 +107,12 @@ public static class SkseTools
         }
     }
 
-    /// <summary>Runs the selected family and appends the footer. The footer rides down as the render's TRAILER — room
-    /// held back out of its budget — rather than off the cap, so every notice inside the render quotes the max_chars the
-    /// caller actually passed; the renders themselves charge their scope note, caveats and filter
-    /// hint before laying a row, measure the row they are about to write, and charge the cut notice each list may end
-    /// on, so max_chars bounds the whole response. The one arm left over — a cap too small for what the response
-    /// carries whatever the budget — is named by <see cref="RenderCap.Settle"/>.</summary>
+    /// <summary>Runs the selected family and appends the footer, which rides down as the render's TRAILER so every notice
+    /// quotes the max_chars the caller passed; the charging rule is in docs/architecture/skse-layer.md.</summary>
     internal static string Dispatch(IFamilyRenders renders, SkseFamily family, string? filter, bool peek, int max_chars,
                                     bool json = false, RowWindow window = default)
     {
-        // The json document states the family and the two that did not run in-band, so appending the text footer to
-        // it would only break the document.
+        // The json document states the family and the two that did not run in-band, so no text footer.
         var footer = json ? "" : FamilyFooter(family);
         int cap = max_chars > 0 ? max_chars : 80_000;
         var call = new FamilyCall(filter, peek, cap, window, json, footer.Length);
@@ -149,13 +122,11 @@ public static class SkseTools
             SkseFamily.Pairing => renders.Pairing(call),
             _ => renders.Config(call),
         };
-        // The one arm a bounded render may still exceed on — a cap too small for what the response carries whatever
-        // the budget — is named rather than left for the caller to discover by measuring.
+        // The one arm a bounded render may still exceed on is NAMED rather than left to be discovered.
         return RenderCap.Settle(body + footer, max_chars > 0 ? max_chars : 80_000);
     }
 
-    /// <summary>The two families this call did not run, in the spelling that would run them — the json twin of
-    /// <see cref="FamilyFooter"/>, so a json consumer learns the default narrowed exactly as a text one does.</summary>
+    /// <summary>The two families this call did not run, in the spelling that would — the json twin of <see cref="FamilyFooter"/>.</summary>
     internal static string[] NotRun(SkseFamily ran) =>
         new[] { SkseFamily.Inventory, SkseFamily.Pairing, SkseFamily.Config }
             .Where(f => f != ran).Select(f => f.ToString().ToLowerInvariant()).ToArray();
@@ -239,8 +210,7 @@ public static class SkseTools
             "never what it is FOR (per-framework skill territory). Extraction is a heuristic over token SHAPES, so a " +
             "token in a comment or a disabled block still surfaces; 'no references found' is the most common per-file " +
             "outcome and is accounted for, never a warning. Bare EditorID / name strings are NOT validated.")]
-            // JsonElement, not string: the array shape must BIND so the refusal above answers it. The published type
-            // is stamped string-or-array by ToolSchemas.ShapeUnionParams.
+            // JsonElement, not string: the array shape must BIND so the refusal above answers it.
             System.Text.Json.JsonElement? findings = null,
         [Description(
             "Optional. A case-insensitive substring narrowing whichever family ran; the match domain is that family's " +
@@ -270,11 +240,8 @@ public static class SkseTools
         [Description("TRANSPORT: character CEILING on the whole response — the row that would cross it is not written, and every list says what it held back. The scope note, the caveats, the filter hint and the family footer are charged before the rows render, so all four are inside the ceiling. A cap too small for what the family carries whatever the budget says so and names the cap that clears it. 0 = the server default (~80k).")]
             int max_chars = 0) => Guard.Tool(ToolNames.Skse, () =>
     {
-        // The argument checks run BEFORE the config prompt: findings= is wrong in the same way whether or not an
-        // instance is configured, and answering the prompt first would send the caller off to configure one only to
-        // meet the same refusal.
-        // format= is read first, because every refusal below has to be answered in the shape the caller asked for.
-        // Its OWN refusal is the one that cannot be: a value that did not parse named no shape.
+        // The argument checks run BEFORE the config prompt, and format= first of all, because every refusal
+        // below has to be answered in the shape the caller asked for.
         bool json = Wire.WantsJson(format, out var fmtErr);
         if (fmtErr is not null) return fmtErr;
         if (!TryParseFamily(findings, out var family, out var famErr)) return Wire.Refuse(json, famErr!);
@@ -288,29 +255,22 @@ public static class SkseTools
     });
 }
 
-/// <summary>Renders <see cref="SkseInventoryData"/>: summary and compat, the diagnostic subsets in full
-/// (version-locked, legacy, non-plugin, subfolder, contested), the terse top-level plugin roster, then the config
-/// folders grouped by count and provider. Everything is accounted for, bounded by max_chars with an explicit cut
-/// notice. filter= expands a group to its individual configs, or a plugin to full detail.</summary>
+/// <summary>Renders <see cref="SkseInventoryData"/>: summary and compat, the diagnostic subsets in full, the terse
+/// plugin roster, then the config folders grouped by count and provider; filter= expands a group or a plugin.</summary>
 static class SkseInventoryWire
 {
-    /// <summary>The <c>peek=</c> argument check, or null when the call is valid. A peek is per-DLL by design: peeking
-    /// every DLL in the layer would read every image and render a wall that invites misreading noise as signal. So a
-    /// bare <c>peek=true</c> fails rather than ignoring the flag or peeking one arbitrary DLL.</summary>
+    /// <summary>The <c>peek=</c> argument check, or null; a peek is per-DLL by design, so a bare peek=true fails.</summary>
     internal static string? PeekArgError(bool peek, string? filter) =>
         peek && string.IsNullOrWhiteSpace(filter)
             ? "error: peek=true needs filter= — a peek is per-DLL, not a whole-layer dump (it reads each matching DLL's whole " +
               "image). Pass filter='<DLL/plugin/mod name>' to name the DLL to peek, e.g. filter='SkyPatcher' peek=true."
             : null;
 
-    /// <summary>What this family's accounting counts: the DLL rows the whole-layer view lists. Configs are rendered
-    /// as folder groups there, so they are stated in the census rather than paged as rows; the filter= view, whose
-    /// population IS its matches, counts both and says so.</summary>
+    /// <summary>What this family's accounting counts: the DLL rows; configs are stated in the census, and filter= counts both.</summary>
     internal const string RowNoun = "DLL(s)";
     internal const string MatchNoun = "match(es)";
 
-    /// <summary>The DLL population split by loader scope and manifest kind. One function so the whole-layer census
-    /// and the windowed row sections are computed the same way and cannot drift.</summary>
+    /// <summary>The DLL population split by loader scope and manifest kind — one function, so census and rows cannot drift.</summary>
     readonly record struct DllSplit(List<SkseFileEntry> Loaded, List<SkseFileEntry> Subfolder, List<SkseFileEntry> Modern,
                                     List<SkseFileEntry> Legacy, List<SkseFileEntry> NotPlugin, List<SkseFileEntry> Unreadable,
                                     List<SkseFileEntry> BsaOnly, List<SkseFileEntry> Locked);
@@ -335,29 +295,23 @@ static class SkseInventoryWire
     {
         if (filter is { Length: > 0 }) return RenderFiltered(d, filter.Trim(), cap, window, trailer);
 
-        // The census states the WHOLE layer; limit=/offset= window only the rows listed below it. Room for the
-        // accounting block is held back out of the cap so it is paid for rather than appended past it.
+        // The census states the WHOLE layer; limit=/offset= window only the rows listed below it.
         var all = Split(d.Dlls);
         int notes = NoteCount(d);
         var rows = window.Apply(d.Dlls);
         int reserve = TransportAccounting.Reserve(d.Dlls.Count, rows.Count, window, notes, RowNoun);
-        // The scope note, the caveats and the filter hint are written after the rows, so they are charged before the
-        // rows are laid — the cap then bounds the whole response rather than everything above its own tail.
+        // The scope note, caveats and filter hint are written after the rows, so they are charged before them.
         var tail = "(scope: full depth of Data\\SKSE\\Plugins. DLLs are top-level = what SKSE loads; configs at any depth are " +
                    "grouped by folder above. Non-config content (animation/mesh/etc.) is counted in the 'other file(s)' total.)\n" +
                    Caveats(d) +
                    "\n→ filter='<plugin/mod/DLL name>' for a plugin's full detail, or filter='<folder>' (e.g. SkyPatcher, OStim) to list a config group.";
-        // The two sections this view always writes below its rows — the plugin roster and the config-folder table —
-        // are headings the budget owes whatever the rows cost, so they are charged here with the tail.
+        // The two sections written whatever the rows cost carry their headings here, with the tail.
         string rosterHead = "\nplugins with metadata (" + Split(rows).Modern.Count + ") — name · version · compat · winning mod:\n";
         int folderGroups = d.Configs.Select(e => e.Group).Distinct(StringComparer.OrdinalIgnoreCase).Count();
         string foldersHead = d.Configs.Count == 0 ? ""
             : "\nconfig folders (" + folderGroups + ") — folder: files ← provider(s):\n";
-        // cap stays the CALLER's max_chars — the number every notice quotes and the ceiling the response may not
-        // exceed. budget is the room content has once everything written after it is charged, and each list's own
-        // cut notice is charged too: the two sections written whatever the rows cost — the plugin roster and the
-        // config-folder table — hold theirs here beside their headings, and every subset holds its own before it
-        // starts. Those two then lay their rows in the room reserved for them, above the subsets' ceiling.
+        // cap stays the CALLER's max_chars; budget is the room content has once everything written after it is
+        // charged, each list's own cut notice included. See docs/architecture/skse-layer.md.
         int rosterCut = CutRoom(rows.Count, hint: FilterHint);
         int folderCut = CutRoom(folderGroups, "folders");
         int budget = Math.Max(1, cap - trailer - reserve - tail.Length - rosterHead.Length - rosterCut
@@ -393,9 +347,7 @@ static class SkseInventoryWire
 
         // ── Diagnostic subsets, first and in full. ──
 
-        // Debug-CRT offenders lead: the sharpest static verdict in the layer, deterministic breakage rather than a
-        // mismatch to verify. Surfaced without peek=, because the import walk it needs rides the PE open that every
-        // DLL's manifest read already pays for.
+        // Debug-CRT offenders lead: the sharpest static verdict, and surfaced without peek= because the import walk is free.
         var debugCrt = loaded.Where(x => x.Plugin is { Imports: not null } pl && pl.DebugCrtImports.Count > 0).ToList();
         if (debugCrt.Count > 0 && !Head(sb, budget - CutRoom(debugCrt.Count, hint: FilterHint), "\n[!] DEBUG-BUILD plugins (" + debugCrt.Count +
                 ") — they import the debug C runtime, which ships only with Visual Studio and is NOT redistributable:\n")) missed++;
@@ -409,13 +361,11 @@ static class SkseInventoryWire
             }, tally);
         }
 
-        // With the installed runtime resolved this is pass/fail per plugin; without it, the degrade is the
-        // "verify each" wording.
+        // With the installed runtime resolved this is pass/fail per plugin; without it, it degrades to "verify each".
         string lockedHead = locked.Count == 0 ? "" : "\n[!] version-LOCKED plugins (" + locked.Count +
             ") — load ONLY on their listed runtime(s)" +
             (d.InstalledRuntime is { } rt0 ? $"; installed game runtime is {rt0}:\n" : "; a mismatch with your game version = won't load:\n");
-        // The "different runtimes" line below the rows is written whatever they cost, so its room is charged with the
-        // heading rather than appended past the budget after the fact.
+        // The "different runtimes" line is written whatever the rows cost, so its room is charged with the heading.
         var distinctRuntimes = d.InstalledRuntime is not null ? new List<string>()
             : locked.SelectMany(e => e.Plugin!.Version!.CompatibleVersions).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         string runtimesNote = distinctRuntimes.Count > 1
@@ -497,9 +447,7 @@ static class SkseInventoryWire
                                            RowNoun, everySentence: false);
     }
 
-    /// <summary>filter=: full detail for every matching DLL, then every matching config, matched by folder, filename or
-    /// provider — so a folder name expands its group, a plugin name shows the manifest, and a mod name shows
-    /// everything it provides.</summary>
+    /// <summary>filter=: full detail for every matching DLL, then every matching config, matched by folder, filename or provider.</summary>
     static string RenderFiltered(SkseInventoryData d, string filter, int cap, RowWindow window = default, int trailer = 0)
     {
         bool In(string? s) => s is not null && s.Contains(filter, StringComparison.OrdinalIgnoreCase);
@@ -509,17 +457,14 @@ static class SkseInventoryWire
         var allDllHits = d.Dlls.Where(e => e.MatchesDll(filter)).OrderBy(e => e.FileName, StringComparer.OrdinalIgnoreCase).ToList();
         var allCfgHits = d.Configs.Where(MatchCfg).ToList();
 
-        // The filter's population is its matches, DLLs then configs, so the window walks the DLL matches first and
-        // continues into the config matches. The header states the whole match count; the rows are the window.
+        // The filter's population is its matches, DLLs then configs, and the header states the whole match count.
         int total = allDllHits.Count + allCfgHits.Count;
         int notes = NoteCount(d);
         var dllHits = window.Apply(allDllHits);
         var cfgHits = window.After(allDllHits.Count, dllHits.Count).Apply(allCfgHits);
         int windowed = dllHits.Count + cfgHits.Count;
         int reserve = TransportAccounting.Reserve(total, windowed, window, notes, MatchNoun);
-        // cap stays the caller's max_chars, the number the notices quote; budget is the room the blocks have once
-        // everything written after them — the accounting, this view's own two cut notices, the peek note and the
-        // matching-configs heading — is charged.
+        // cap stays the caller's max_chars; budget is the room the blocks have once the tail is charged.
         int budget = Math.Max(1, cap - trailer - reserve);
         var tally = new RowTally();
         string Accounting() => TransportAccounting.Compose(
@@ -552,8 +497,7 @@ static class SkseInventoryWire
             int mark = sb.Length;
             var added = new List<string>();
             AppendDetail(sb, e, d, shownCfg, added);
-            // The block AND the configs it marked as shown come back out together: half a rollback would hide a
-            // config from the list below and still count it as rendered.
+            // The block AND the configs it marked as shown come back out together; half a rollback would hide one.
             if (sb.Length > dllRoom)
             {
                 sb.Length = mark;
@@ -564,9 +508,7 @@ static class SkseInventoryWire
             tally.Mark(e.RelPath);
         }
 
-        // peek= honoured with nothing to show is still an unanswered question. A bare peek=true fails in PeekArgError
-        // and a matched-but-unpeekable DLL says so on its own entry, so this covers the last case: the filter matched
-        // no DLL at all, leaving no entry to carry the notice.
+        // peek= honoured with nothing to show is still an unanswered question; this covers the no-DLL-matched case.
         sb.Append(peekNote);
 
         // Remaining matching configs (not already shown as a DLL's paired config), grouped by folder.
@@ -596,9 +538,8 @@ static class SkseInventoryWire
         return sb.ToString().TrimEnd('\n') + Accounting();
     }
 
-    /// <summary>One DLL's full detail block. <paramref name="added"/> collects the paired configs this block newly
-    /// marked as shown, so a block the cap takes back out can un-mark them too: a config the reader never saw must
-    /// not be filtered out of the list below and must not count as a rendered row.</summary>
+    /// <summary>One DLL's full detail block; <paramref name="added"/> collects the paired configs it newly marked as
+    /// shown, so a block the cap takes back out can un-mark them and they do not count as rendered.</summary>
     static void AppendDetail(StringBuilder sb, SkseFileEntry e, SkseInventoryData d, HashSet<string> shownCfg,
                              List<string>? added = null)
     {
@@ -608,11 +549,9 @@ static class SkseInventoryWire
             sb.Append("  [!] contested by ").Append(e.ProviderCount).Append(" mods — full chain (winner first): ").Append(Chain(e)).Append('\n');
 
         var p = e.Plugin;
-        // Service-level note — subfolder-not-loader-scoped, no active provider, BSA-only — shown for any kind, since a
-        // bundled-dependency or unreadable DLL in a subfolder also needs the loader-path flag.
+        // The service-level note is shown for any kind, since a dependency or unreadable DLL also needs the loader-path flag.
         if (e.Note is { } enote) sb.Append("  [!] ").Append(enote).Append('\n');
-        // A null Plugin is the BSA-only or unprovided DLL, which is exactly the entry a peek cannot read, so the peek
-        // notice has to ride this branch too.
+        // A null Plugin is the BSA-only or unprovided DLL, the one entry a peek cannot read, so the notice rides here too.
         if (p is null) { if (e.Note is null) sb.Append("  no static metadata\n"); AppendPeek(sb, e, d); return; }
 
         switch (p.Kind)
@@ -621,12 +560,10 @@ static class SkseInventoryWire
             case SksePluginReader.SksePluginKind.NotSkse:
             case SksePluginReader.SksePluginKind.Unreadable:
                 sb.Append("  ").Append(p.Note).Append('\n');
-                // No manifest to declare a version, but the image's own file version is still readable and is what a
-                // "which build is this?" question is after.
+                // No manifest, but the image's own file version is still readable and answers "which build is this?".
                 if (VersionText(p, e.ModVersion) is { Length: > 0 } other) sb.Append("  version ").Append(other).Append('\n');
                 if (p.Is64Bit == false) sb.Append("  [!] NOT an x64 image — a 32-bit DLL cannot load in Skyrim SE/AE.\n");
-                // The import-table verdict rides every kind: a bundled dependency or an unreadable-manifest DLL still
-                // has an import table, and a debug-CRT build often shows up as a DLL nobody can classify.
+                // The import-table verdict rides every kind, and a debug-CRT build often shows up unclassifiable.
                 AppendPeek(sb, e, d);
                 return;   // Is64Bit == false is EXPLICITLY-determined non-x64; null (unknown) never triggers the claim (finding #1)
         }
@@ -672,16 +609,13 @@ static class SkseInventoryWire
         AppendPeek(sb, e, d);
     }
 
-    /// <summary>The peek block for one DLL: what the image statically contains — its imports with the derived flags,
-    /// the config paths and plugin names it embeds, and the scan accounting. Renders nothing unless a peek ran. Every
-    /// line is a fact about bytes in a file, and the framing line says so: it is not what the code does, and the
-    /// absence of a string proves nothing, since plenty of DLLs build their references at runtime.</summary>
+    /// <summary>The peek block for one DLL: what the image statically contains, with the framing line that says it is
+    /// not what the code does; renders nothing unless a peek ran.</summary>
     static void AppendPeek(StringBuilder sb, SkseFileEntry e, SkseInventoryData d)
     {
         if (e.Peek is not { } peek)
         {
-            // Per-entry, so a mixed match says it too: a filter hitting two loose DLLs and one BSA-only one must not
-            // render two peeks and nothing at all for the third, which reads as an empty peek.
+            // Per-entry, so a mixed match says it too rather than reading as an empty peek.
             if (d.PeekRequested)
                 sb.Append("  (not peeked: no loose winner — SKSE loads loose DLLs only, so there is no image the game would read)\n");
             return;
@@ -700,8 +634,7 @@ static class SkseInventoryWire
             sb.Append("  imports (").Append(imports.Count).Append("): ").Append(string.Join(", ", imports)).Append('\n');
             var hooks = imports.Where(i => HookImports.ContainsKey(i)).ToList();
             foreach (var h in hooks) sb.Append("    → ").Append(h).Append(": ").Append(HookImports[h]).Append('\n');
-            // Bundled-dependency attribution: an import satisfied by a sibling non-plugin DLL in the same layer, which
-            // names why that stray DLL is installed.
+            // Bundled-dependency attribution: an import satisfied by a sibling non-plugin DLL in the same layer.
             var siblings = d.Dlls.Where(x => x.Plugin is { Kind: SksePluginReader.SksePluginKind.NotSkse })
                 .Select(x => x.FileName).Where(f => imports.Contains(f, StringComparer.OrdinalIgnoreCase)).ToList();
             if (siblings.Count > 0)
@@ -742,12 +675,10 @@ static class SkseInventoryWire
                   "design. Absence proves nothing: many DLLs build their references at runtime or read them from configs.)\n");
     }
 
-    /// <summary>Max entries per peek list before an explicit cut: a peek is per-DLL and readability is the point,
-    /// since noise here is easily misread as signal.</summary>
+    /// <summary>Max entries per peek list before an explicit cut — a peek is per-DLL and readability is the point.</summary>
     const int PeekListCap = 40;
 
-    /// <summary>Imports whose presence names a capability the DLL reaches for: facts about the import table with a
-    /// plain gloss, never a behaviour claim. It hooks the API; what it does with it is not visible here.</summary>
+    /// <summary>Imports whose presence names a capability the DLL reaches for — facts about the import table, never behaviour.</summary>
     static readonly Dictionary<string, string> HookImports = new(StringComparer.OrdinalIgnoreCase)
     {
         ["d3d11.dll"] = "Direct3D 11 — touches graphics/rendering",
@@ -760,12 +691,8 @@ static class SkseInventoryWire
         ["wininet.dll"] = "WinINet — makes internet requests",
     };
 
-    /// <summary>The Debug-CRT verdict — the one peek line allowed "will not load" language, because it is a static,
-    /// deterministic loader fact. The debug CRT is not redistributable: it ships with Visual Studio and is absent from
-    /// a stock Windows, so a plugin importing it dies with error 126. That is only unconditionally true where the
-    /// runtime is absent, and this runs on the modder's own machine, so it checks rather than assumes: absent here
-    /// means it will not load, stated flatly; present here means it loads for you and is broken for everyone
-    /// else.</summary>
+    /// <summary>The Debug-CRT verdict — the one peek line allowed "will not load" language, because it is a static
+    /// loader fact checked against this machine; see docs/architecture/skse-layer.md.</summary>
     static void AppendDebugCrt(StringBuilder sb, SkseFileEntry e)
     {
         if (e.Plugin is not { Imports: not null } p) return;      // never walked ⇒ no claim either way
@@ -774,17 +701,13 @@ static class SkseInventoryWire
         sb.Append(DebugCrtVerdict(crt, SksePluginReader.IsSystemDllResolvable));
     }
 
-    /// <summary>The one-line Debug-CRT verdict for the whole-layer summary: the same machine-dependence as
-    /// <see cref="DebugCrtVerdict"/>, in the terse register the roster needs. The probe is injected rather than called
-    /// inline so both wordings are reachable regardless of the current machine.</summary>
+    /// <summary>The one-line Debug-CRT verdict for the whole-layer summary; the probe is injected so both wordings are reachable.</summary>
     internal static string DebugCrtLayerVerdict(IReadOnlyList<string> crt, Func<string, bool> resolvable) =>
         crt.All(resolvable)
             ? "  loads on THIS machine (you have the debug runtime) — but error 126 for anyone without Visual Studio"
             : "  ≠ this machine — will NOT load (error 126: the debug runtime isn't here)";
 
-    /// <summary>The Debug-CRT verdict text, pure with the machine probe injected so both wordings are reachable in one
-    /// run: called inline, a machine without Visual Studio could only ever produce the "will NOT load" wording and a
-    /// dev box only the other.</summary>
+    /// <summary>The Debug-CRT verdict text, pure with the machine probe injected so both wordings are reachable in one run.</summary>
     internal static string DebugCrtVerdict(IReadOnlyList<string> crt, Func<string, bool> resolvable)
     {
         var missing = crt.Where(c => !resolvable(c)).ToList();
@@ -809,8 +732,7 @@ static class SkseInventoryWire
         return "LOCKED→" + (v.CompatibleVersions.Count > 0 ? string.Join("/", v.CompatibleVersions) : "?");
     }
 
-    /// <summary>A section heading, laid whole. False means the budget had no room to start the section at all —
-    /// counted by the caller and said once at the end, rather than a requested section silently absent.</summary>
+    /// <summary>A section heading, laid whole; false means the budget had no room to start the section at all.</summary>
     internal static bool Head(StringBuilder sb, int cap, string head)
     {
         if (sb.Length + head.Length > cap) return false;
@@ -818,38 +740,29 @@ static class SkseInventoryWire
         return true;
     }
 
-    /// <summary>The line that says how many sections the budget could not start. Spelled once so its room can be
-    /// charged before the sections render. The max_chars it names is the one the CALLER passed — the number they
-    /// would raise — never the reduced budget the rows were measured against.</summary>
+    /// <summary>The line that says how many sections the budget could not start, naming the max_chars the CALLER passed.</summary>
     internal static string SectionsMissed(int missed, int cap) =>
         "  ... [" + missed + " section(s) omitted at max_chars=" + cap + "; raise max_chars to see them]\n";
 
     /// <summary>The advice a cut row list carries where narrowing the answer is the other way out.</summary>
     internal const string FilterHint = " or use filter= to see all";
 
-    /// <summary>The one cut notice a capped row list ends on, spelled once so its widest form — every row omitted —
-    /// can be charged before the first row is laid. <paramref name="noun"/> names the rows where the section heading
-    /// above does not; <paramref name="hint"/> adds the filter= advice where narrowing helps.</summary>
+    /// <summary>The one cut notice a capped row list ends on, spelled once so its widest form can be charged up front.</summary>
     internal static string Showing(int shown, int total, string noun = "", string hint = "") =>
         "  ... [showing " + shown + " of " + total + (noun.Length > 0 ? " " + noun : "") + "; raise max_chars" + hint + "]\n";
 
     /// <summary>The chars a capped row list must hold back for that notice.</summary>
     internal static int CutRoom(int total, string noun = "", string hint = "") => Showing(total, total, noun, hint).Length;
 
-    /// <summary>A plugin's version with the SOURCE it was read from, and every other version in sight that disagrees
-    /// with it. The number houseCARL reads is the SKSE manifest's own declaration — what the author typed into the
-    /// plugin declaration — which is routinely stale or coarse: SPID 7.3.3 declares 7.0.0, and 51 of the 313 DLLs on
-    /// the order this was measured against declare something other than their file version. So the DLL's build-stamped
-    /// file version and the mod's meta.ini version ride the same line wherever they differ, and an agreeing one stays
-    /// silent rather than tripling the width of every row. Everything after the leading number is parenthesised, so a
-    /// row that joins its own fields with " — " (the pairing audit's fate line) keeps one separator.</summary>
+    /// <summary>A plugin's version with the SOURCE it was read from, plus every other version in sight that disagrees;
+    /// everything after the leading number is parenthesised, so a row joining its fields with " — " keeps one separator.
+    /// The three version sources are in docs/architecture/skse-layer.md; pinned by SkseVersionSourceTests.</summary>
     internal static string VersionText(SksePluginReader.SksePluginInfo? p, string? modVersion)
     {
         string declared = p?.Version?.PluginVersion ?? "";
         string file = p?.FileVersion ?? "";
         string mod = modVersion ?? "";
-        // No manifest (a legacy, non-SKSE or unreadable DLL): whatever version WAS read is the answer, labelled for
-        // what it is — the file version, or meta.ini when that is the only number in sight.
+        // No manifest: whatever version WAS read is the answer, labelled for what it is.
         if (declared.Length == 0)
         {
             if (file.Length == 0) return mod.Length == 0 ? "" : $"{mod} (mod meta.ini)";
@@ -857,18 +770,15 @@ static class SkseInventoryWire
         }
         var others = new List<string>();
         if (Differs(declared, file)) others.Add($"DLL file version {file}");
-        // meta.ini is held back only when the file version already carries it — a DLL with NO file version must still
-        // show it, which is where the manifest is the only other number there is.
+        // meta.ini is held back only when the file version already carries it.
         if (Differs(declared, mod) && (file.Length == 0 || Differs(file, mod))) others.Add($"meta.ini {mod}");
         return others.Count == 0
             ? $"{declared} (SKSE manifest)"
             : $"{declared} (SKSE manifest; {string.Join(", ", others)})";
     }
 
-    /// <summary>Two version strings that are both present and NOT the same version. Compared on their numeric prefix,
-    /// because a version is routinely written with a tag a modder added: MO2's meta.ini carries "7.0.19.0-AIO",
-    /// "5.2SE", "v1.2" for what the DLL stamps as the plain number. A tag is UNKNOWN, not different, so it is not
-    /// reported as a disagreement; a pair with no numeric prefix to compare has nothing to disagree about either.</summary>
+    /// <summary>Two version strings both present and NOT the same version, compared on their numeric prefix: a modder's
+    /// tag is UNKNOWN, not different, so it is not reported as a disagreement.</summary>
     static bool Differs(string? a, string? b)
     {
         if (a is not { Length: > 0 } || b is not { Length: > 0 }) return false;   // an unread version says nothing about the one that was read
@@ -877,8 +787,7 @@ static class SkseInventoryWire
         return !SksePluginReader.VersionsEqual(na, nb);
     }
 
-    /// <summary>The dotted numeric head of a version string, with a leading "v" dropped and any trailing tag cut
-    /// ("v7.0.19.0-AIO" → "7.0.19.0"). Empty when the string does not start with a number at all.</summary>
+    /// <summary>The dotted numeric head of a version string, a leading "v" dropped and any trailing tag cut.</summary>
     static string NumericPrefix(string s)
     {
         var t = s.Trim();
@@ -891,8 +800,7 @@ static class SkseInventoryWire
     static string Provider(SkseFileEntry e) =>
         e.WinningProvider is null ? "  (no active provider)" : $"  ← {e.WinningProvider}";
 
-    /// <summary>The full VFS conflict chain: winner first, then losers in precedence order, each tagged loose or BSA —
-    /// which mod wins this file and who it overrides. "(no active provider)" when empty.</summary>
+    /// <summary>The full VFS conflict chain: winner first, then losers in precedence order, each tagged loose or BSA.</summary>
     static string Chain(SkseFileEntry e) =>
         e.Providers.Count == 0 ? "(no active provider)" : string.Join(" › ", e.Providers.Select(p => $"{p.Name} ({p.Kind})"));
 
@@ -900,8 +808,7 @@ static class SkseInventoryWire
                              RowTally? tally = null)
     {
         if (items.Count == 0) return true;
-        // The heading carries the subset's own count, so it goes in whole or the subset does not start — and it
-        // starts only where the cut notice its rows may end on fits too, so that notice lands inside the ceiling.
+        // The heading goes in whole or the subset does not start, and only where its rows' cut notice fits too.
         if (!Head(sb, cap - CutRoom(items.Count, hint: FilterHint), "\n" + label + " (" + items.Count + "):\n")) return false;
         AppendCapped(sb, items, cap, line, tally);
         return true;
@@ -910,31 +817,25 @@ static class SkseInventoryWire
     static void AppendCapped(StringBuilder sb, IReadOnlyList<SkseFileEntry> items, int cap, Func<SkseFileEntry, string> line,
                              RowTally? tally = null)
     {
-        // The cut notice is charged like every other notice this render writes: its widest spelling is held back
-        // before the first row, so a list that cuts says so inside max_chars rather than past it.
+        // The cut notice's widest spelling is held back before the first row.
         int room = cap - CutRoom(items.Count, hint: FilterHint);
         int shown = 0;
         foreach (var e in items)
         {
             var row = line(e) + "\n";
-            // Measured against the row about to be written, not against what the buffer already holds: the old test
-            // let the row that crossed the budget through whole, which is what put a filled render past max_chars.
+            // Measured against the row about to be written, not against what the buffer already holds.
             if (sb.Length + row.Length > room) { sb.Append(Showing(shown, items.Count, hint: FilterHint)); break; }
             sb.Append(row); shown++; tally?.Mark(e.RelPath);
         }
     }
 
-    /// <summary>How many build-level caveat notes this answer carries — the accounting's <c>notes</c> count, and the
-    /// same three the caveat block renders.</summary>
+    /// <summary>How many build-level caveat notes this answer carries — the accounting's <c>notes</c> count.</summary>
     internal static int NoteCount(SkseInventoryData d) => (d.ReadIncomplete ? 1 : 0) + d.Warnings.Count + d.BsaFailures.Count;
 
-    /// <summary>The json twin of the text render's "peek=true matched no DLL" notice — one spelling, so the reserve
-    /// measures the string the document actually writes.</summary>
+    /// <summary>The json twin of the text render's "peek=true matched no DLL" notice — one spelling, so the reserve measures it.</summary>
     const string PeekNoDllNote = "peek=true matched no DLL at all — nothing was peeked.";
 
-    /// <summary>The json twin of <see cref="Render"/>: the same census, the same windowed rows, the same accounting,
-    /// in named fields. Rows are dropped from the tail when the document reaches max_chars — never a cut of the
-    /// serialized string, which would emit malformed json — and the accounting says how many that was.</summary>
+    /// <summary>The json twin of <see cref="Render"/>; rows are dropped from the tail at max_chars, never the serialized string.</summary>
     public static string RenderJson(SkseInventoryData d, string? filter, int cap, RowWindow window = default)
     {
         bool filtered = filter is { Length: > 0 };
@@ -949,17 +850,13 @@ static class SkseInventoryWire
         var dlls = window.Apply(allDlls);
         var cfgs = window.After(allDlls.Count, dlls.Count).Apply(allCfgs);
         int windowed = dlls.Count + cfgs.Count;
-        // The census states the population THIS document answers over — the filter's matches when there is a filter,
-        // the whole layer when there is not — so no number in it describes a wider set than the rows beside it. The
-        // text lane's filtered view publishes no census at all, and a filtered twin restating the layer's counts under
-        // the same names is the lane difference §2.1 exists to remove.
+        // The census states the population THIS document answers over, so no number describes a wider set than its rows.
         var all = Split(allDlls);
         var censusCfgs = filtered ? allCfgs : d.Configs;
         int notes = NoteCount(d);
         int rendered = 0;
         int folderCount = d.Configs.Select(e => e.Group).Distinct(StringComparer.OrdinalIgnoreCase).Count();
-        // The tail — peek note, the folder cut marker, caveats, accounting — is paid for inside max_chars, not
-        // appended past it, exactly as the text render's own reserve does.
+        // The tail is paid for inside max_chars, exactly as the text render's own reserve does.
         cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures,
             TransportAccounting.Widest(total, windowed, window, notes),
             tw => { tw.WriteString("peek_note", PeekNoDllNote); tw.WriteNumber("config_folders_truncated", folderCount); }));
@@ -972,8 +869,7 @@ static class SkseInventoryWire
             w.WriteNumber("subfolder_dlls", all.Subfolder.Count);
             w.WriteNumber("configs", censusCfgs.Count);
             w.WriteNumber("config_folders", censusCfgs.Select(e => e.Group).Distinct(StringComparer.OrdinalIgnoreCase).Count());
-            // Uncategorized files are counted, never listed, so a filter has nothing to match them on: the number is
-            // the whole layer's, and a filtered document does not state it rather than stating it out of scope.
+            // Uncategorized files are counted, never listed, so a filtered document does not state that number.
             if (!filtered) w.WriteNumber("other_files", d.OtherFileCount);
             w.WriteNumber("modern", all.Modern.Count);
             w.WriteNumber("legacy_query", all.Legacy.Count);
@@ -1003,9 +899,7 @@ static class SkseInventoryWire
             }
             w.WriteEndArray();
 
-            // The whole-layer view groups configs by folder rather than listing them; the twin states the same table.
-            // A filtered document lists its matching configs individually above, so it omits the table rather than
-            // writing an empty one — [] would read as "this layer has no config folders".
+            // A filtered document lists its matching configs individually, so it omits this table rather than writing an empty one.
             if (!filtered)
             {
                 w.WriteStartArray("config_folders");
@@ -1026,8 +920,7 @@ static class SkseInventoryWire
                     folders++;
                 }
                 w.WriteEndArray();
-                // These are not row-list rows, so the accounting does not count them — the cut says so here instead,
-                // the way the text render's "showing N of M folders" notice does.
+                // Not row-list rows, so the accounting does not count them — the cut says so here instead.
                 if (folders < folderCount) w.WriteNumber("config_folders_truncated", folderCount - folders);
             }
 
@@ -1107,8 +1000,7 @@ static class SkseInventoryWire
 
     static void AppendCaveats(StringBuilder sb, SkseInventoryData d) => sb.Append(Caveats(d));
 
-    /// <summary>The build-level caveats as one string, so a render can charge them against max_chars before its rows
-    /// are laid rather than append them past the ceiling.</summary>
+    /// <summary>The build-level caveats as one string, so a render can charge them before its rows are laid.</summary>
     static string Caveats(SkseInventoryData d)
     {
         var sb = new StringBuilder();
@@ -1120,11 +1012,9 @@ static class SkseInventoryWire
     }
 }
 
-/// <summary>Renders <see cref="SkseConfigAuditData"/>. The health summary separates broken references — DANGLING and
-/// UNPARSEABLE, which should resolve and do not — from inert ones, PLUGIN MISSING, where the named plugin simply is
-/// not installed. Then the diagnostics in full, each with file:line provenance and its winning provider, then the
-/// accounted-for remainder: healthy files counted, and no-reference files grouped by folder. Bounded by max_chars with
-/// an explicit cut notice. filter= audits one group and lists every reference with its verdict, OKs included.</summary>
+/// <summary>Renders <see cref="SkseConfigAuditData"/>: the health summary keeping BROKEN apart from INERT, then the
+/// diagnostics in full with file:line provenance and winning provider, then the accounted-for remainder. filter=
+/// lists every reference with its verdict, the OKs included; see docs/architecture/skse-layer.md.</summary>
 static class SkseConfigAuditWire
 {
     // A dead reference and the file it was declared in.
@@ -1140,13 +1030,11 @@ static class SkseConfigAuditWire
     {
         if (filter is { Length: > 0 }) return RenderFiltered(d, filter.Trim(), cap, window, trailer);
 
-        // Every count below states the WHOLE audit; limit=/offset= window only the files the sections LIST. Room for
-        // the accounting block is held back out of the cap so it is paid for rather than appended past it.
+        // Every count below states the WHOLE audit; limit=/offset= window only the files the sections LIST.
         int notes = NoteCount(d);
         var rows = window.Apply(d.Files);
         int reserve = TransportAccounting.Reserve(d.Files.Count, rows.Count, window, notes, RowNoun);
-        // The scope note, the caveats and the filter hint come after the sections, so they are charged before the
-        // sections render rather than appended past the cap.
+        // The scope note, caveats and filter hint come after the sections, so they are charged before them.
         var tail = "\n(scope: form-shaped references only — a hex FormID + plugin filename, or a plugin-named folder gate. Bare " +
                    "EditorID/name strings are not validated (Wave 2). Extraction is heuristic over token shapes: a token in a comment " +
                    "or disabled block still counts — 'references this file declares', not 'the DLL will use'. A folder that SHOULD carry " +
@@ -1155,10 +1043,8 @@ static class SkseConfigAuditWire
         var healthyFiles0 = d.Files.Where(f => f.ReadError is null && f.Refs.Count > 0 && f.Refs.All(r => r.Verdict == SkseRefVerdict.Ok)).ToList();
         var noRefFiles0 = d.Files.Where(f => f.ReadError is null && f.Refs.Count == 0).ToList();
         int noRefGroups = noRefFiles0.Select(f => f.Group).Distinct(StringComparer.OrdinalIgnoreCase).Count();
-        // The accounted-for line and its folder heading are written whatever the sections cost, so their room is
-        // charged with the tail rather than taken out of the sections' budget after the fact.
-        // The folder list under that heading is written whatever the sections cost too, so its own cut notice is
-        // charged here beside them rather than appended past the budget.
+        // The accounted-for line, its folder heading and that list's own cut notice are written whatever the
+        // sections cost, so their room is charged with the tail.
         string NoRefCut(int shown) => "    ... [" + shown + " of " + noRefGroups + " folders; raise max_chars]\n";
         int noRefCut = noRefFiles0.Count == 0 ? 0 : NoRefCut(noRefGroups).Length;
         int alwaysWritten =
@@ -1188,11 +1074,7 @@ static class SkseConfigAuditWire
         int inertAll       = Count(h => h.Audited.Verdict == SkseRefVerdict.PluginMissing);
 
         int refsChecked = flatAll.Count;
-        // Two distinct signals, kept apart in the headline. BROKEN is a reference that should resolve and does not —
-        // DANGLING (plugin present, record absent) or UNPARSEABLE (an unreadable token) — and is the actionable one.
-        // INERT is PLUGIN MISSING, gate or token: the named plugin is not installed, so the entry does nothing. For a
-        // config shipping optional support for a mod you do not have that is expected, not a fault, and counting it as
-        // dead would make a healthy order read as thousands of dead references.
+        // BROKEN and INERT are kept apart in the headline; see docs/architecture/skse-layer.md.
         int broken = danglingAll + unparseableAll;
         int inert  = inertAll;
         int notOk  = broken + inert;                       // every non-OK ref (kept for the accounted-for reconciliation below)
@@ -1219,9 +1101,7 @@ static class SkseConfigAuditWire
         // ── Diagnostics first, in full. ──
         if (!AppendHits(sb, "PLUGIN MISSING — folder gates (the plugin isn't installed, so the WHOLE file is inert)", missingGates, budget,
             h => $"  - {h.File.RelPath}: folder '{h.Ref.Plugin}' not in the load order{Prov(h.File)}", tally)) missed++;
-        // Token-level plugin-missing is grouped by the target plugin: a whole-layer scan yields tens of thousands of
-        // individual inert refs, so a per-ref list is an unreadable wall and the count-per-plugin table is the
-        // actionable shape. filter= a plugin to see its individual refs.
+        // Token-level plugin-missing is grouped by target plugin: a per-ref list is an unreadable wall.
         if (missingToks.Count > 0)
         {
             var byPlugin = missingToks.GroupBy(h => h.Ref.Plugin, StringComparer.OrdinalIgnoreCase)
@@ -1302,8 +1182,7 @@ static class SkseConfigAuditWire
                                            RowNoun, everySentence: false);
     }
 
-    /// <summary>filter=: audit just the matching configs — by folder, provider, filename, or a referenced plugin — and
-    /// list every reference with its verdict, OKs included, so the view also serves as positive confirmation.</summary>
+    /// <summary>filter=: audit just the matching configs and list every reference with its verdict, OKs included.</summary>
     static string RenderFiltered(SkseConfigAuditData d, string filter, int cap, RowWindow window = default, int trailer = 0)
     {
         bool In(string? s) => s is not null && s.Contains(filter, StringComparison.OrdinalIgnoreCase);
@@ -1316,8 +1195,7 @@ static class SkseConfigAuditWire
         int notes = NoteCount(d);
         var hits = window.Apply(allHits);
         int reserve = TransportAccounting.Reserve(allHits.Count, hits.Count, window, notes, RowNoun);
-        // cap stays the caller's max_chars; budget is the room the file blocks have once the accounting and this
-        // view's own cut notice are charged.
+        // cap stays the caller's max_chars; budget is the room the file blocks have once the tail is charged.
         string FilesCut(int shown) => "\n  ... [showing " + shown + " of " + hits.Count + " files; raise max_chars]\n";
         int budget = Math.Max(1, cap - trailer - reserve - FilesCut(hits.Count).Length);
         var tally = new RowTally();
@@ -1329,9 +1207,7 @@ static class SkseConfigAuditWire
           .Append(allHits.Count).Append(" config(s) match [profile '").Append(d.ProfileName).Append("']\n");
         if (allHits.Count == 0)
         {
-            // The suggestion pool must span every axis Match filters on, or a mistyped plugin or provider filter gets
-            // only folder and filename suggestions. Match keys on filename, group, provider, relpath and
-            // referenced-plugin, so the pool carries all five. PluginNameSuggest dedups and skips empties.
+            // The suggestion pool spans every axis Match filters on; PluginNameSuggest dedups and skips empties.
             var suggestPool = d.Files.Select(f => f.FileName)
                 .Concat(d.Files.Select(f => f.Group).Where(g => g.Length > 0))
                 .Concat(d.Files.Select(f => f.WinningProvider).Where(p => !string.IsNullOrEmpty(p)).Select(p => p!))
@@ -1344,9 +1220,7 @@ static class SkseConfigAuditWire
         int shownFiles = 0;
         foreach (var f in hits)
         {
-            // The whole file block — its path line, the contested chain, every reference — is written, MEASURED, and
-            // taken back out entire when it crossed, the same shape the other renders use. Testing the budget before
-            // the block let one block plus its reference lines through past the ceiling.
+            // The whole file block is written, MEASURED, and taken back out entire when it crossed.
             int mark = sb.Length;
             sb.Append('\n').Append(f.RelPath).Append("  ← ").Append(f.WinningProvider ?? "(no active provider)").Append('\n');
             if (f.ProviderCount > 1)
@@ -1382,8 +1256,7 @@ static class SkseConfigAuditWire
                            RowTally? tally = null)
     {
         if (items.Count == 0) return true;
-        // The heading and the rows both leave room for the cut notice this list may end on, so it lands inside the
-        // ceiling like every other notice.
+        // Heading and rows both leave room for the cut notice this list may end on.
         int room = cap - SkseInventoryWire.CutRoom(items.Count, hint: " or use filter=");
         if (!SkseInventoryWire.Head(sb, room, "\n" + label + " (" + items.Count + "):\n")) return false;
         int shown = 0;
@@ -1399,8 +1272,7 @@ static class SkseConfigAuditWire
     /// <summary>How many build-level caveat notes this answer carries — the accounting's <c>notes</c> count.</summary>
     internal static int NoteCount(SkseConfigAuditData d) => (d.ReadIncomplete ? 1 : 0) + d.Warnings.Count + d.BsaFailures.Count;
 
-    /// <summary>The json twin of <see cref="Render"/>: the same census, the same windowed files with every reference
-    /// and its verdict, and the same accounting, in named fields.</summary>
+    /// <summary>The json twin of <see cref="Render"/>: the same census, files, verdicts and accounting, in named fields.</summary>
     public static string RenderJson(SkseConfigAuditData d, string? filter, int cap, RowWindow window = default)
     {
         bool filtered = filter is { Length: > 0 };
@@ -1412,9 +1284,7 @@ static class SkseConfigAuditWire
                      .OrderBy(x => x.Group, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.RelPath, StringComparer.OrdinalIgnoreCase).ToList()
             : d.Files.ToList();
         var files = window.Apply(allFiles);
-        // Every census number below is measured over the population this document answers over — the filter's matches
-        // when there is a filter. A verdict tally taken over the whole audit under filter= tells a caller scoping to
-        // one folder how many broken references the WHOLE layer carries, under a name that reads as the folder's.
+        // Every census number is measured over the population this document answers over, never a wider one.
         var flatAll = allFiles.SelectMany(x => x.Refs).ToList();
         int notes = NoteCount(d);
         int rendered = 0;
@@ -1455,8 +1325,7 @@ static class SkseConfigAuditWire
                 int refs = 0;
                 foreach (var r in file.Refs)
                 {
-                    // One config can carry tens of thousands of form tokens, so the cap bounds the inner loop too —
-                    // otherwise a single file writes its whole reference array past max_chars in one pass.
+                    // One config can carry tens of thousands of form tokens, so the cap bounds the inner loop too.
                     if (SkseJsonDoc.Over(w, ms, cap)) break;
                     w.WriteStartObject();
                     w.WriteString("raw", r.Ref.Raw);
@@ -1470,8 +1339,7 @@ static class SkseConfigAuditWire
                     refs++;
                 }
                 w.WriteEndArray();
-                // The file's own row is on the page; how many of its references the cap cut is said here, because the
-                // accounting counts files, not references.
+                // How many of the file's references the cap cut is said here, because the accounting counts files.
                 if (refs < file.Refs.Count) w.WriteNumber("references_truncated", file.Refs.Count - refs);
                 w.WriteEndObject();
                 rendered++;
@@ -1512,32 +1380,23 @@ static class SkseConfigAuditWire
     }
 }
 
-/// <summary>Renders <see cref="NativePairingAuditData"/>: a health summary, then the diagnostics in full —
-/// paired-but-dead (every candidate DLL statically will not load, version-locked mismatches included where the
-/// installed runtime is known), locked-but-unverifiable pairings where the runtime is unknown, unpaired classes as a
-/// verify flag, debug builds that load on this machine alone, and unreadable-.pex notes — then the accounted-for
-/// baseline of engine and skse-core counts and
-/// paired-healthy classes grouped by implementing mod. Bounded by max_chars with explicit cut notices. filter= shows a
-/// class in full: native function names, pairing evidence, per-DLL manifests and load verdicts, conflict
-/// chains.</summary>
+/// <summary>Renders <see cref="NativePairingAuditData"/>: a health summary, then the diagnostics in full, then the
+/// accounted-for baseline and the paired-healthy classes grouped by implementing mod. filter= shows a class in full;
+/// see docs/architecture/skse-layer.md.</summary>
 static class NativePairingWire
 {
-    /// <summary>One candidate DLL's static load verdict: LOADS, VERIFY (locked, runtime unknown), or DEAD (a named
-    /// static blocker or a locked-runtime mismatch).</summary>
+    /// <summary>One candidate DLL's static load verdict: LOADS, VERIFY (locked, runtime unknown), or DEAD.</summary>
     enum DllFate { Loads, Verify, Dead }
 
-    /// <summary>The verdict a DLL line carries, with the debug-build note appended when it applies. Reaching a LOADS or
-    /// VERIFY fate with debug-CRT imports means the debug runtime resolved on THIS machine — the DLL loads for its
-    /// author and for nobody else, which the fate alone does not say (#417). A DEAD verdict already names the debug
-    /// build in its blocker. The verdict itself is untouched by the note.</summary>
+    /// <summary>The verdict a DLL line carries, with the debug-build note appended when it applies (#417); the verdict
+    /// itself is untouched by the note.</summary>
     static (DllFate Fate, string Detail) Judge(NativePairedDll d, string? runtime)
     {
         var (fate, detail) = Verdict(d, runtime);
         if (fate != DllFate.Dead && d.Info is { } info && info.DebugCrtImports.Count > 0)
         {
             var crt = string.Join(", ", info.DebugCrtImports);
-            // VERIFY is a version question, so the clause is additive there rather than a 'but': the version lock is
-            // still unresolved, AND the debug runtime is a second, independent reason it will not load elsewhere.
+            // VERIFY is a version question, so the clause is additive there rather than a 'but'.
             detail += fate == DllFate.Loads
                 ? $" — but it imports the debug CRT ({crt}), so it loads HERE and fails with error 126 for anyone " +
                   "without the debug runtime"
@@ -1554,8 +1413,7 @@ static class NativePairingWire
         if (d.Info is not { } info) return (DllFate.Verify, "no static manifest read");   // defensive: blocker-less entries carry Info by construction
         if (info.Kind == SksePluginReader.SksePluginKind.LegacyQuery)
         {
-            // The AE loader loads only version-data plugins, so a query-only SE/VR-era plugin will not load on a 1.6+
-            // runtime — the abandoned SE-era mod on an AE game, which is this tool's headline breakage class.
+            // The query-only-on-AE arm of the load rule — this tool's headline breakage class.
             if (runtime is { } rt2 && SksePluginReader.IsAeRuntime(rt2))
                 return (DllFate.Dead, $"query-only SE/VR-era plugin — the AE loader (installed game is {rt2}) loads only version-data plugins, so it will NOT load");
             if (runtime is not null)
@@ -1573,8 +1431,7 @@ static class NativePairingWire
             : (DllFate.Dead, $"version-LOCKED → {locked} ≠ installed {runtime} — will NOT load on this game version");
     }
 
-    /// <summary>A paired class's verdict is the best fate among its candidate DLLs: which DLL actually implements the
-    /// class is not statically knowable, so one loadable candidate keeps the pairing plausible.</summary>
+    /// <summary>A paired class's verdict is the BEST fate among its candidates, since which DLL implements it is not statically knowable.</summary>
     static DllFate BestFate(NativeClassEntry c, string? runtime)
     {
         var best = DllFate.Dead;
@@ -1587,13 +1444,8 @@ static class NativePairingWire
         return best;
     }
 
-    /// <summary>True when every candidate DLL that could implement the class is a debug build, and at least one of them
-    /// loads here — the class whose implementation exists on the author's machine alone (#417). A class with one clean
-    /// candidate is healthy however many debug siblings sit beside it; those siblings still carry the note on their own
-    /// line. A clean VERIFY candidate disqualifies exactly as a clean LOADS one does: it is a version question, not a
-    /// dead DLL, and it implements the class for everyone on a matching runtime — so "loads here and nowhere else"
-    /// would be a claim the data does not support. Only a DEAD candidate is passed over, because it implements the
-    /// class nowhere.</summary>
+    /// <summary>True when every candidate DLL that could implement the class is a debug build and at least one loads
+    /// here (#417); a clean LOADS or VERIFY candidate disqualifies, and only a DEAD one is passed over.</summary>
     static bool IsDebugOnly(NativeClassEntry c, string? runtime)
     {
         bool any = false;
@@ -1613,8 +1465,7 @@ static class NativePairingWire
     /// <summary>How many build-level caveat notes this answer carries — the accounting's <c>notes</c> count.</summary>
     internal static int NoteCount(NativePairingAuditData d) => (d.ReadIncomplete ? 1 : 0) + d.Warnings.Count + d.BsaFailures.Count;
 
-    /// <summary>The class population split into the five disjoint buckets the view reports. One function so the
-    /// whole-audit summary and the windowed row sections are classified the same way and cannot drift.</summary>
+    /// <summary>The class population split into the buckets the view reports — one function, so summary and rows cannot drift.</summary>
     readonly record struct ClassSplit(List<NativeClassEntry> Engine, List<NativeClassEntry> SkseCore,
                                       List<NativeClassEntry> Unpaired, List<NativeClassEntry> Dead,
                                       List<NativeClassEntry> Verify, List<NativeClassEntry> DebugBuilds,
@@ -1623,15 +1474,10 @@ static class NativePairingWire
     static ClassSplit Classify(IReadOnlyList<NativeClassEntry> classes, string? runtime)
     {
         var third = classes.Where(c => c.Provenance == NativeProvenance.ThirdParty).ToList();
-        // One fate pass per paired class: the section split and the per-DLL tags come from the same Judge, so they
-        // cannot disagree.
+        // One fate pass per paired class, so the section split and the per-DLL tags cannot disagree.
         var byFate = third.Where(c => c.Rung != NativePairingRung.Unpaired).ToLookup(c => BestFate(c, runtime));
         var loads = byFate[DllFate.Loads].ToList();
-        // #417: a class whose only loadable candidate is a DEBUG build loads on THIS machine and nowhere else, so it is
-        // a finding in its own right rather than a line of the healthy roster — which prints class names, not DLLs, and
-        // would have carried the clean checkmark over exactly the file the author needs to hear about. EVERY loading
-        // candidate must be debug-built: one clean DLL that loads keeps the class healthy, because that DLL implements
-        // the class for everyone.
+        // #417: a class whose only loadable candidate is a DEBUG build is a finding of its own, not a healthy-roster line.
         var debugBuilds = loads.Where(c => IsDebugOnly(c, runtime)).ToList();
         return new ClassSplit(
             classes.Where(c => c.Provenance == NativeProvenance.Engine).ToList(),
@@ -1647,8 +1493,7 @@ static class NativePairingWire
     {
         if (filter is { Length: > 0 }) return RenderFiltered(d, filter.Trim(), cap, window, trailer);
 
-        // The summary states the WHOLE audit; limit=/offset= window only the classes the sections LIST. Room for the
-        // accounting block is held back out of the cap so it is paid for rather than appended past it.
+        // The summary states the WHOLE audit; limit=/offset= window only the classes the sections LIST.
         int notes = NoteCount(d);
         var rows = window.Apply(d.Classes);
         int reserve = TransportAccounting.Reserve(d.Classes.Count, rows.Count, window, notes, RowNoun);
@@ -1662,25 +1507,21 @@ static class NativePairingWire
 
         var all = Classify(d.Classes, d.InstalledRuntime);
         var w = Classify(rows, d.InstalledRuntime);
-        // The accounted-for line, the loader alarm and the healthy-roster heading are written whatever the sections
-        // cost, so their room is charged with the tail before any section renders.
+        // The accounted-for line, the loader alarm and the healthy-roster heading are charged with the tail.
         int alwaysWritten =
             ("\naccounted for: " + w.Engine.Count + " engine class(es) (carried by an official archive — implemented by the game executable) · " +
              w.SkseCore.Count + " SKSE-core class(es) (skse64's script additions — implemented by the game-root loader)").Length +
             ("\n  [!] SKSE-core classes are present but no skse64 loader is visible (game root or enabled mods' Root\\ folders) — if SKSE isn't actually installed, every one of these is dead").Length +
             ("\npaired healthy (" + w.Healthy.Count + " class(es)) — implementing mod ← its classes:\n").Length +
             HealthyCut.Length;
-        // cap stays the caller's max_chars — the number the notices quote; budget is the room the sections have once
-        // the tail, the always-written block and its own cut notice are charged.
+        // cap stays the caller's max_chars; budget is the room the sections have once the tail is charged.
         int budget = Math.Max(1, cap - trailer - reserve - tail.Length - alwaysWritten - SkseInventoryWire.SectionsMissed(9, cap).Length);
         // The always-written healthy roster lays its rows in the room reserved for it, above the sections' ceiling.
         int healthyCeil = budget + alwaysWritten;
         // A section starts only where the cut notice its rows may end on fits too.
         int Room(int n) => budget - SkseInventoryWire.CutRoom(n, hint: SkseInventoryWire.FilterHint);
         int missed = 0;
-        // Every section below the summary states the WINDOW, the accounted-for baseline included: it reconciles this
-        // page's rows against its findings, so a layer-wide engine count beside a windowed healthy count would put two
-        // different populations on adjacent lines. The whole-audit numbers are the summary's, above.
+        // Every section below the summary states the WINDOW, the accounted-for baseline included.
         var engine = w.Engine; var skseCore = w.SkseCore;
         var unpaired = w.Unpaired; var dead = w.Dead; var verify = w.Verify;
         var debugBuilds = w.DebugBuilds; var healthy = w.Healthy;
@@ -1698,8 +1539,7 @@ static class NativePairingWire
         if (all.Dead.Count == 0 && all.Unpaired.Count == 0 && all.Verify.Count == 0 && all.DebugBuilds.Count == 0)
         {
             sb.Append("✓ every third-party native class pairs to a mod whose DLL statically loads — nothing dead, nothing unpaired");
-            // The checkmark must not claim a universal the scan did not verify: unreadable .pex files were never
-            // examined, and they are where an unpaired class could hide.
+            // The checkmark must not claim a universal the scan did not verify: unreadable .pex were never examined.
             sb.Append(d.Unreadable.Count > 0 ? $" ({d.Unreadable.Count} unreadable .pex NOT examined — see below).\n" : ".\n");
         }
         else
@@ -1748,10 +1588,8 @@ static class NativePairingWire
         // ── Accounted-for baseline: every row of THIS page that is not a finding, so nothing on it is dropped. ──
         sb.Append("\naccounted for: ").Append(engine.Count).Append(" engine class(es) (carried by an official archive — implemented by the game executable) · ")
           .Append(skseCore.Count).Append(" SKSE-core class(es) (skse64's script additions — implemented by the game-root loader)");
-        // Tri-state: false means checked and genuinely absent, so the definite note; null means the check itself
-        // failed, which must not render as a checked-and-absent verdict.
-        // The alarm is a build-level fact, not a row of the page, so it rides the whole audit's SKSE-core count — a
-        // window that happens to hold none of those classes must not silence it.
+        // Tri-state: null is "the check itself failed", never a checked-and-absent verdict. The alarm is a
+        // build-level fact, so it rides the whole audit's count rather than the window's.
         if (all.SkseCore.Count > 0 && d.SkseLoaderSeen == false)
             sb.Append("\n  [!] SKSE-core classes are present but no skse64 loader is visible (game root or enabled mods' Root\\ folders) — if SKSE isn't actually installed, every one of these is dead");
         else if (all.SkseCore.Count > 0 && d.SkseLoaderSeen is null)
@@ -1788,8 +1626,7 @@ static class NativePairingWire
         return sb.ToString();
     }
 
-    /// <summary>The per-DLL fate line, shared by the default and filter= views so the two cannot drift:
-    /// "[FATE] group\file ("name" vX)? — detail".</summary>
+    /// <summary>The per-DLL fate line, shared by the default and filter= views so the two cannot drift.</summary>
     static string DllLine(NativePairedDll dll, string? runtime, bool withVersion)
     {
         var (fate, detail) = Judge(dll, runtime);
@@ -1801,9 +1638,8 @@ static class NativePairingWire
         return sb.ToString();
     }
 
-    /// <summary>filter=: full detail for every matching class — by class name, path, provider, paired mod, or a
-    /// candidate DLL's filename — giving the declared native functions, the pairing evidence, each candidate DLL's
-    /// manifest and load verdict, and the conflict chain.</summary>
+    /// <summary>filter=: full detail for every matching class — the declared native functions, the pairing evidence,
+    /// each candidate DLL's manifest and load verdict, and the conflict chain.</summary>
     static string RenderFiltered(NativePairingAuditData d, string filter, int cap, RowWindow window = default, int trailer = 0)
     {
         bool In(string? s) => s is not null && s.Contains(filter, StringComparison.OrdinalIgnoreCase);
@@ -1816,8 +1652,7 @@ static class NativePairingWire
         int reserve = TransportAccounting.Reserve(allHits.Count, hits.Count, window, notes, RowNoun);
         // The caveats close this view too, so they are charged with the accounting rather than appended past the cap.
         var tail = "\n" + Caveats(d);
-        // cap stays the caller's max_chars; budget is the room the class blocks have once the caveats, the accounting
-        // and this view's own cut notice are charged.
+        // cap stays the caller's max_chars; budget is the room the class blocks have once the tail is charged.
         string ClassesCut(int shown) => "\n  ... [showing " + shown + " of " + hits.Count + " classes; raise max_chars]\n";
         int budget = Math.Max(1, cap - trailer - reserve - tail.Length - ClassesCut(hits.Count).Length);
         var tally = new RowTally();
@@ -1829,8 +1664,7 @@ static class NativePairingWire
           .Append(allHits.Count).Append(" class(es) match [profile '").Append(d.ProfileName).Append("']\n");
         if (allHits.Count == 0)
         {
-            // The suggestion pool spans every axis Match filters on: class names, providers, paired mods, and DLL
-            // filenames. PluginNameSuggest dedups and skips empties.
+            // The suggestion pool spans every axis Match filters on; PluginNameSuggest dedups and skips empties.
             var pool = d.Classes.Select(c => c.ClassName)
                 .Concat(d.Classes.Select(c => c.WinningProvider).Where(p => !string.IsNullOrEmpty(p)).Select(p => p!))
                 .Concat(d.Classes.Select(c => c.PairedMod).Where(p => !string.IsNullOrEmpty(p)).Select(p => p!))
@@ -1872,8 +1706,7 @@ static class NativePairingWire
             if (sb.Length > budget) { sb.Length = mark; sb.Append(ClassesCut(shown)); break; }
             shown++; tally.Mark(c.ClassName);
         }
-        // The caveats ride the filtered view too: "no match", or a partial hit over a build whose BSA failed to read,
-        // must not read as a clean answer.
+        // The caveats ride the filtered view too, so a partial hit never reads as a clean answer.
         sb.Append(tail);
         return sb.ToString().TrimEnd('\n') + Accounting();
     }
@@ -1886,8 +1719,7 @@ static class NativePairingWire
         int shown = 0;
         foreach (var e in items)
         {
-            // Composed once: this row's line walks the entry's paired DLLs, and measuring it apart from writing it
-            // did that walk twice for every row rendered.
+            // Composed once: measuring this row apart from writing it walked the paired DLLs twice per row.
             var row = line(e) + "\n";
             if (sb.Length + row.Length > room) { sb.Append(SkseInventoryWire.Showing(shown, items.Count, hint: SkseInventoryWire.FilterHint)); break; }
             sb.Append(row); shown++;
@@ -1895,8 +1727,7 @@ static class NativePairingWire
         }
     }
 
-    /// <summary>The json twin of <see cref="Render"/>: the same census, the same windowed classes, and the same
-    /// per-DLL fates — from the same <see cref="Judge"/>, so the two renders cannot disagree about what loads.</summary>
+    /// <summary>The json twin of <see cref="Render"/>, with the per-DLL fates from the same <see cref="Judge"/>.</summary>
     public static string RenderJson(NativePairingAuditData d, string? filter, int cap, RowWindow window = default)
     {
         bool filtered = filter is { Length: > 0 };
@@ -1909,8 +1740,7 @@ static class NativePairingWire
                        .OrderBy(c => c.ClassName, StringComparer.OrdinalIgnoreCase).ToList()
             : d.Classes.ToList();
         var classes = window.Apply(allClasses);
-        // Classified over the population this document answers over, so a caller scoping to one mod is not told about
-        // dead pairings that belong to other mods under a name that reads as its own.
+        // Classified over the population this document answers over, never a wider one.
         var all = Classify(allClasses, d.InstalledRuntime);
         int notes = NoteCount(d);
         int rendered = 0;
@@ -1926,10 +1756,8 @@ static class NativePairingWire
             if (d.SkseLoaderSeen is { } seen) w.WriteBoolean("skse_loader_seen", seen); else w.WriteNull("skse_loader_seen");
             w.WriteStartObject("totals");
             w.WriteNumber("classes", allClasses.Count);
-            // The .pex scan and the unparseable-.pex list are the SCAN, not the selection: an unreadable .pex has no
-            // class name, provider or paired mod for a filter to match on. A filtered document does not state them
-            // rather than stating them out of scope; the array below stays whole, since dropping it would hide the
-            // one caveat saying those files were NOT counted as native-free.
+            // The .pex scan and the unparseable list are the SCAN, not the selection, so a filtered document omits
+            // the counts; the array stays whole, since it carries the "NOT counted as native-free" caveat.
             if (!filtered) w.WriteNumber("pex_scanned", d.PexScanned);
             w.WriteNumber("engine", all.Engine.Count);
             w.WriteNumber("skse_core", all.SkseCore.Count);
@@ -2005,8 +1833,7 @@ static class NativePairingWire
                 unreadable++;
             }
             w.WriteEndArray();
-            // Not row-list rows, so the accounting does not count them — the cut is named here instead, the way the
-            // text render's own cut notice does.
+            // Not row-list rows, so the accounting does not count them — the cut is named here instead.
             if (unreadable < d.Unreadable.Count) w.WriteNumber("unreadable_pex_truncated", d.Unreadable.Count - unreadable);
 
             SkseJsonDoc.Caveats(w, d.ReadIncomplete, d.Warnings, d.BsaFailures);
@@ -2014,8 +1841,7 @@ static class NativePairingWire
         });
     }
 
-    /// <summary>Which section of the text render this class lands in, as one word — from the same Judge, so the two
-    /// renders classify identically.</summary>
+    /// <summary>Which section of the text render this class lands in, as one word — from the same Judge.</summary>
     static string VerdictName(NativeClassEntry c, string? runtime)
     {
         if (c.Provenance != NativeProvenance.ThirdParty) return "baseline";
