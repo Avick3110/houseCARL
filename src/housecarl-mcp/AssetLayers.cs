@@ -135,8 +135,8 @@ public sealed partial class LoadOrderService
 
     /// <summary>Inventory the SKSE-plugin layer as the active order resolves it: every .dll and every config at any
     /// depth under Data\SKSE\Plugins, with the mod that wins each and every DLL's declared manifest. Every file is
-    /// accounted for, the subfolder group is derived rather than a hardcoded framework list, and a subfolder DLL is
-    /// listed but flagged, because SKSE scans the top level only.</summary>
+    /// accounted for and the subfolder group is derived, never a hardcoded framework list; what stops a DLL loading
+    /// is the static-load rule in docs/architecture/skse-layer.md.</summary>
     /// <param name="peekFilter">When non-null, a matching DLL entry is also string-scanned; per-DLL, because the scan reads the whole image.</param>
     public SkseInventoryData SkseInventory(string? peekFilter = null)
     {
@@ -201,7 +201,7 @@ public sealed partial class LoadOrderService
                 if (group.Length > 0 && note is null)
                     note = $"in subfolder '{group}' — NOT on SKSE's loader path (scans SKSE\\Plugins\\*.dll top-level only); a bundled/parent-loaded DLL, not a plugin SKSE loads";
                 var entry = new SkseFileEntry(rel, Path.GetFileName(rel), group, providers, info, note, ModVersion: modVersion);
-                // String peek only for a loose winner — the copy SKSE would load. A BSA-only DLL never loads.
+                // String peek only for a loose winner — the copy SKSE would load (docs/architecture/skse-layer.md).
                 if (peekFilter is { Length: > 0 } && entry.MatchesDll(peekFilter)
                     && winner is { Kind: AssetKind.Loose, LooseFilePath: { } peekPath })
                     entry = entry with { Peek = SksePeek.Scan(peekPath) };
@@ -214,8 +214,7 @@ public sealed partial class LoadOrderService
             warnings, profileName, activePlugins, peekFilter is { Length: > 0 });
     }
 
-    /// <summary>Why a loose, loader-scoped SKSE plugin DLL statically cannot load, or null. The debug-build check
-    /// matters because such a DLL passes every other check while the loader refuses it with error 126.</summary>
+    /// <summary>Why a loose, loader-scoped SKSE plugin DLL statically cannot load, or null; the rule and its blocker chain are in docs/architecture/skse-layer.md.</summary>
     internal static string? LooseDllBlocker(SksePluginReader.SksePluginInfo info, Func<string, bool> resolvable)
     {
         if (info.Kind == SksePluginReader.SksePluginKind.Unreadable) return $"not a readable SKSE plugin ({info.Note})";
@@ -569,9 +568,8 @@ public sealed partial class LoadOrderService
         src.Kind == AssetKind.Bsa && archiveShipper.TryGetValue(src.ProviderName, out var mod) ? mod : src.ProviderName;
 
     /// <summary>The pairing-evidence ladder for one third-party class, over the chain's identities winner first: the
-    /// winning identity ships a candidate DLL, one deeper does, or nobody does (UNPAIRED). An identity whose
-    /// candidates all carry a static LoadBlocker does not stop the descent, so a bundler's one dead helper cannot mask
-    /// the real framework. The evidence is structural, never semantic.</summary>
+    /// winning identity ships a candidate DLL, one deeper does, or nobody does (UNPAIRED). The descent past a dead
+    /// candidate rides the static-load rule in docs/architecture/skse-layer.md. Structural, never semantic.</summary>
     internal static (NativePairingRung Rung, string? PairedMod, IReadOnlyList<NativePairedDll> Dlls) Ladder(
         IReadOnlyList<string> identities, IReadOnlyDictionary<string, List<NativePairedDll>> modDlls)
     {
