@@ -2,31 +2,13 @@ using System.Text.Json;
 
 namespace HousecarlCore;
 
-/// <summary>
-/// The SkyPatcher op → Mutagen field MAP. Where the catalog answers "this key is an operation of
-/// shape X / tractability Y", the field map answers "and it lands on THIS record field, applied with
-/// THIS semantic" — the data the overlay engine (<see cref="SkyPatcherOverlay"/>) executes.
-///
-/// <para><b>Coverage contract.</b> Every CLEAN and COLLECTION operation in the catalog has exactly
-/// one entry here: either a mapping, or an explicit <see cref="OpMap.Unmapped"/> with a named
-/// reason. A genuinely un-modelable op (weapon <c>bashDamage</c>, which no static WEAP field
-/// carries) fails LOUD in the overlay, never silently absent. HARD ops have NO entry and the overlay
-/// renders them as unresolved directives; mapping one would claim a fidelity the layer does not
-/// have, so CI rejects it.</para>
-///
-/// <para>The map itself is hand-modeled, but CI walks every <see cref="OpMap.Path"/> with the real
-/// write engine (<c>WriteEngine.ResolveProperty</c> over the actual Mutagen types) and parses every
-/// <see cref="OpMap.ValueMap"/> target against the real leaf enum, so a typo'd path or enum member
-/// cannot survive. Only a semantically-wrong-but-existing field can.</para>
-/// </summary>
+/// <summary>The SkyPatcher op to Mutagen-field map — which record field an operation lands on and with which semantic; the coverage contract is in docs/architecture/skypatcher-layer.md.</summary>
 public sealed class SkyPatcherFieldMap
 {
-    /// <summary>Neither key is unique alone — <c>leveledList</c> serves BOTH LVLI and LVLN, and a RACE
-    /// record is patched from BOTH <c>race/</c> and <c>raceHook/</c> — so maps are grouped both ways.</summary>
+    /// <summary>Neither key is unique alone (<c>leveledList</c> serves LVLI and LVLN; RACE is patched from <c>race/</c> and <c>raceHook/</c>), so maps are grouped both ways.</summary>
     readonly Dictionary<string, List<RecordMap>> _bySubfolder;
     readonly Dictionary<string, List<RecordMap>> _byRecordType;
 
-    /// <summary>Every record map, in file order.</summary>
     public IReadOnlyList<RecordMap> Records { get; }
 
     SkyPatcherFieldMap(IReadOnlyList<RecordMap> records)
@@ -43,29 +25,23 @@ public sealed class SkyPatcherFieldMap
 
     static readonly IReadOnlyList<RecordMap> None = Array.Empty<RecordMap>();
 
-    /// <summary>The map(s) fed from an INI subfolder (1 for most; 2 for <c>leveledList</c>). Empty when
-    /// the type has no field map yet (surfaced loud by the overlay — never a silent no-op).</summary>
+    /// <summary>The map(s) fed from an INI subfolder; empty when the type has no field map yet, which the overlay surfaces loud.</summary>
     public IReadOnlyList<RecordMap> ForSubfolder(string subfolder)
         => subfolder is not null && _bySubfolder.TryGetValue(subfolder, out var r) ? r : None;
 
-    /// <summary>The map(s) that patch one Mutagen record type (1 for most; 2 for Race — <c>race/</c> +
-    /// <c>raceHook/</c>). The service's routing key: record type → which INI folders can touch it.</summary>
+    /// <summary>The map(s) that patch one Mutagen record type — the service's routing key from record type to the INI folders that can touch it.</summary>
     public IReadOnlyList<RecordMap> ForRecordType(string mutagenType)
         => mutagenType is not null && _byRecordType.TryGetValue(mutagenType, out var r) ? r : None;
 
-    /// <summary>The one map for (subfolder, Mutagen type), or null.</summary>
     public RecordMap? For(string subfolder, string mutagenType)
         => ForSubfolder(subfolder).FirstOrDefault(r => r.RecordType.Equals(mutagenType, StringComparison.OrdinalIgnoreCase));
 
-    // ---- loading -----------------------------------------------------------------------------------
 
     static SkyPatcherFieldMap? _cached;
 
-    /// <summary>Load the embedded field map (memoized). Throws loudly on a missing or malformed resource —
-    /// a map that silently loaded empty would flag every op unmapped.</summary>
+    /// <summary>Load the embedded field map (memoized); throws loudly on a missing or malformed resource.</summary>
     public static SkyPatcherFieldMap Load() => _cached ??= LoadFrom(EmbeddedJson.Read("skypatcher-fieldmap.json", "SkyPatcher field map"));
 
-    /// <summary>Parse a field map from JSON text (also the entry point for a test fixture).</summary>
     public static SkyPatcherFieldMap LoadFrom(string json)
     {
         using var doc = JsonDocument.Parse(json);
@@ -85,8 +61,7 @@ public sealed class SkyPatcherFieldMap
         foreach (var p in opsEl.EnumerateObject())
             ops[p.Name] = ParseOp(subfolder, p.Name, p.Value);
 
-        // The per-record FILTER evaluation specs (base filter name → how the overlay evaluates it
-        // against the record). Same wrong-kind-throws-loud contract as 'ops'.
+        // The per-record filter evaluation specs, under the same wrong-kind-throws-loud contract as 'ops'.
         var filters = new Dictionary<string, FilterSpec>(StringComparer.Ordinal);
         if (el.TryGetProperty("filters", out var fEl))
         {
@@ -109,8 +84,7 @@ public sealed class SkyPatcherFieldMap
 
         var eval = ParseFilterEval(Str(el, "eval"), $"{subfolder}.filters.{name}");
 
-        // 'path' (one) or 'paths' (several — a filter that matches ANY of a few leaves, e.g. a race's
-        // male+female voice). Exactly one of the two must be present.
+        // 'path' (one) or 'paths' (a filter matching any of several leaves); exactly one must be present.
         string[] paths;
         if (el.TryGetProperty("paths", out var ps))
         {
@@ -270,13 +244,10 @@ public sealed class SkyPatcherFieldMap
 /// <summary>How the overlay applies a mapped operation to its target field.</summary>
 public enum SkyPatcherOpSemantic
 {
-    /// <summary>Literal set of one leaf (scalar / enum / formlink / rename / null-clear mode).</summary>
     Set,
     /// <summary>Multiply the CURRENT leaf value (stateful — order-dependent).</summary>
     Mult,
-    /// <summary>Add to the CURRENT leaf value (stateful — order-dependent).</summary>
     AddNumeric,
-    /// <summary>Set the leaf from ANOTHER field of the SAME record (e.g. critDamageSetToBase) — self-copy, order-dependent.</summary>
     SetFromOwnField,
     /// <summary>Set one component (X/Y/Z) of a whole-value vector leaf (object bounds P3Int16).</summary>
     VecComponent,
@@ -284,17 +255,12 @@ public enum SkyPatcherOpSemantic
     ModelPath,
     /// <summary>OR the named flag token(s) into a [Flags] enum leaf.</summary>
     FlagsSet,
-    /// <summary>Clear the named flag token(s) from a [Flags] enum leaf.</summary>
     FlagsRemove,
     /// <summary>Set/clear ONE fixed flag (<see cref="OpMap.Flag"/>) from a true/false value (setEssential etc.).</summary>
     FlagBool,
-    /// <summary>Add a plain form to a formlink list (keywordsToAdd, formsToAdd).</summary>
     AddForm,
-    /// <summary>Remove a plain form from a formlink list.</summary>
     RemoveForm,
-    /// <summary>Replace formA with formB in a formlink list (formsToReplace).</summary>
     ReplaceForm,
-    /// <summary>Empty the collection (clear=true / clearInventory etc.).</summary>
     ClearList,
     /// <summary>Add a struct entry built from the packed sub-args (addToContainers, objectsToAdd, addToLLs…).</summary>
     AddEntry,
@@ -310,17 +276,13 @@ public enum SkyPatcherOpSemantic
     MultCount,
     /// <summary>Remove entries whose TARGET record carries a keyword (removeInventoryObjectsByKeywords…) — needs the resolver.</summary>
     RemoveByKeyword,
-    /// <summary>Set one entry of a numeric-valued dict (<see cref="OpMap.Key"/> — race startingHealth on
-    /// Race.Starting[Health]); rides the engine's dict Set.</summary>
+    /// <summary>Set one entry of a numeric-valued dict (<see cref="OpMap.Key"/>), riding the engine's dict Set.</summary>
     DictSet,
-    /// <summary>Multiply one entry of a numeric-valued dict (stateful — order-dependent).</summary>
     DictMult,
-    /// <summary>Set ONE channel (<see cref="OpMap.Component"/>: 0=R 1=G 2=B) of a whole-value Color leaf —
-    /// the token splice the P3 vector components use, alpha preserved.</summary>
+    /// <summary>Set ONE channel (<see cref="OpMap.Component"/>: 0=R 1=G 2=B) of a whole-value Color leaf, alpha preserved.</summary>
     ColorChannel,
     /// <summary>OR biped-slot INDEX bits (0–31; slot number − 30) into a BipedObjectFlag leaf.</summary>
     BipedSlotsSet,
-    /// <summary>Clear biped-slot INDEX bits from a BipedObjectFlag leaf.</summary>
     BipedSlotsRemove,
     /// <summary>Set Book.Teaches to the BookSpell arm holding the given spell (compose-Set through the engine).</summary>
     TeachSpell,
@@ -330,58 +292,42 @@ public enum SkyPatcherOpSemantic
     SetEntryCount,
 }
 
-/// <summary>One record type's op → field mappings (keyed by the exact catalog op name) and filter →
-/// evaluation specs (keyed by the exact catalog BASE filter name; connectives are the overlay's job).
-/// A filter absent from <see cref="Filters"/> is either evaluated built-in by the overlay (the
-/// name-keyed families that need no per-record path — primary, keywords, editorid/name contains,
-/// hasPlugins, modNames, the skip/override tokens, alternate textures, attached mgefs) or is a
-/// COVERAGE GAP that fails CI — never a silent skip.</summary>
+/// <summary>One record type's op to field mappings and filter to evaluation specs, keyed by the exact catalog names; a filter absent from <see cref="Filters"/> is either evaluated built-in by the overlay or is a coverage gap that fails CI.</summary>
 public sealed record RecordMap(string Subfolder, string RecordType, IReadOnlyDictionary<string, OpMap> Ops,
     IReadOnlyDictionary<string, FilterSpec> Filters);
 
 /// <summary>How the overlay evaluates a per-record mapped filter against the running copy.</summary>
 public enum SkyPatcherFilterEval
 {
-    /// <summary>A single formlink leaf equals ANY listed form. (A single-valued field can't AND a
-    /// multi-value list — any-of is the only satisfiable reading; declared assumption, noted loud.)</summary>
+    /// <summary>A single formlink leaf equals ANY listed form — declared assumption: an AND over one slot is unsatisfiable for several distinct values.</summary>
     FormEquals,
-    /// <summary>A formlink list (or struct list via <see cref="FilterSpec.KeyPath"/>) contains the listed
-    /// forms — bare = ALL present, Or = any, Excluded = none (the keyword-filter connective semantics).</summary>
+    /// <summary>A formlink list (or struct list via <see cref="FilterSpec.KeyPath"/>) contains the listed forms — bare = all present, Or = any, Excluded = none.</summary>
     FormInList,
     /// <summary>An enum leaf equals ANY listed token (valueMap first, then ignore-case member match).</summary>
     EnumEquals,
-    /// <summary>ONE fixed flag (<see cref="FilterSpec.Flag"/>) tested against a true/false value;
-    /// <see cref="FilterSpec.Invert"/> flips the sense (restrictToBolts=true ⇒ NonBolt NOT set).</summary>
+    /// <summary>ONE fixed flag (<see cref="FilterSpec.Flag"/>) tested against a true/false value, with <see cref="FilterSpec.Invert"/> flipping the sense.</summary>
     FlagBool,
-    /// <summary>Listed flag tokens tested against a [Flags] enum leaf — bare = all set, Or = any,
-    /// Excluded = none.</summary>
+    /// <summary>Listed flag tokens tested against a [Flags] enum leaf — bare = all set, Or = any, Excluded = none.</summary>
     FlagAnyOf,
     /// <summary>NPC gender: token 'female' ⇒ the Female configuration flag set, 'male' ⇒ clear.</summary>
     Gender,
-    /// <summary>NPC filterByPCLevelMult: whether the polymorphic Configuration.Level is the
-    /// PcLevelMult arm (true) or a static NpcLevel (false).</summary>
+    /// <summary>NPC filterByPCLevelMult: whether the polymorphic Configuration.Level is the PcLevelMult arm or a static NpcLevel.</summary>
     PcLevelMult,
     /// <summary>A string leaf contains the listed substring(s) — the Contains-family connectives.</summary>
     SubstringLeaf,
-    /// <summary>Follow <see cref="FilterSpec.LinkPath"/> to a donor record's winner and substring-match
-    /// a leaf THERE (an NPC's skeleton path lives on its race).</summary>
+    /// <summary>Follow <see cref="FilterSpec.LinkPath"/> to a donor record's winner and substring-match a leaf THERE.</summary>
     DonorSubstring,
-    /// <summary>Follow <see cref="FilterSpec.LinkPath"/> to a donor record's winner and match the
-    /// keyword list THERE (a recipe's filterByKeywords matches the CREATED OBJECT's keywords).</summary>
+    /// <summary>Follow <see cref="FilterSpec.LinkPath"/> to a donor record's winner and match the keyword list THERE.</summary>
     DonorKeywords,
     /// <summary>A numeric leaf is strictly less than the listed number (filterByWeightLessThan).</summary>
     NumericLess,
     /// <summary>Biped-slot INDICES (0–31; slot number − 30) tested as bits of a BipedObjectFlag leaf.</summary>
     BipedSlots,
-    /// <summary>The ORIGIN plugin (FormKey master) of the record a formlink leaf points at, tested
-    /// against the listed plugin names (skipRecordByLightingTemplateFromMod — skip semantics ride
-    /// <see cref="FilterSpec.Invert"/>). DECLARED ASSUMPTION: "comes from mod X" = the linked form's
-    /// defining master, not the plugin that last overrode the link.</summary>
+    /// <summary>The origin plugin of the record a formlink leaf points at, tested against the listed plugin names. DECLARED ASSUMPTION: "comes from mod X" is the linked form's defining master, not the plugin that last overrode the link.</summary>
     LinkedOriginPlugin,
 }
 
-/// <summary>One filter's evaluation spec. <see cref="Unmapped"/> non-null ⇒ the filter is EXPLICITLY
-/// not statically evaluable, with the reason the overlay surfaces loud (line skips filter-unresolved).</summary>
+/// <summary>One filter's evaluation spec; <see cref="Unmapped"/> non-null means the filter is explicitly not statically evaluable, with the reason the overlay surfaces loud.</summary>
 public sealed record FilterSpec(
     SkyPatcherFilterEval Eval,
     IReadOnlyList<string> Paths,
@@ -397,18 +343,10 @@ public sealed record FilterSpec(
 {
     internal static FilterSpec MakeUnmapped(string reason)
         => new(SkyPatcherFilterEval.FormEquals, Array.Empty<string>(), null, null, null, false, null, false, null, null, reason);
-    /// <summary>True when this filter is explicitly declared un-evaluable (loud in the overlay).</summary>
     public bool IsUnmapped => Unmapped is not null;
 }
 
-/// <summary>One operation's mapping. <see cref="Unmapped"/> non-null ⇒ the op is EXPLICITLY not
-/// modelable, with the reason the overlay surfaces loud (all other members are then unset).
-/// <para><see cref="DonorType"/> (optional) names a SECOND record kind the op's value may legitimately be
-/// — the runtime "copy from a donor of type X" reading of an otherwise form-valued op. NPC <c>skin</c> is
-/// the case: <c>skin=&lt;Armor&gt;</c> sets WornArmor directly, but the NPC-Replacer-Converter shape
-/// <c>skin=&lt;donor NPC&gt;</c> copies that NPC's worn armor at load. When the value fails to resolve as
-/// <see cref="FormType"/> but DOES resolve as DonorType, the overlay names it an unmodeled donor-copy
-/// (like copyVisualStyle) instead of throwing a malformed-FormKey.</para></summary>
+/// <summary>One operation's mapping; <see cref="Unmapped"/> non-null means the op is explicitly not modelable, with the reason the overlay surfaces loud. <see cref="DonorType"/> names a second record kind the value may be, which the overlay reports as an unmodeled donor-copy rather than a malformed FormKey.</summary>
 public sealed record OpMap(
     SkyPatcherOpSemantic Semantic,
     string Path,
@@ -426,16 +364,11 @@ public sealed record OpMap(
 {
     internal static OpMap MakeUnmapped(string reason)
         => new(SkyPatcherOpSemantic.Set, "", null, null, null, null, null, false, null, null, null, null, reason);
-    /// <summary>True when this op is explicitly declared un-modelable (loud in the overlay).</summary>
     public bool IsUnmapped => Unmapped is not null;
 }
 
-/// <summary>How a struct-entry collection op builds/matches its elements: the Mutagen element type
-/// (corpus catalog name, e.g. "ContainerEntry"), the packed-sub-arg → element-sub-field wiring, the
-/// key path (the form sub-field remove/replace/match operate on), and the count path (the numeric
-/// sub-field by-count removal / objectMultCount operate on).</summary>
+/// <summary>How a struct-entry collection op builds and matches its elements: the Mutagen element type, the packed-sub-arg wiring, the key path, and the count path.</summary>
 public sealed record ElementMap(string Type, IReadOnlyList<ElementField> Fields, string? KeyPath, string? CountPath);
 
-/// <summary>One element sub-field fed from packed sub-arg <see cref="Arg"/> (0-based; after '='-unpacking
-/// when the op is eq-packed), with an optional default when the sub-arg is absent.</summary>
+/// <summary>One element sub-field fed from packed sub-arg <see cref="Arg"/> (0-based, after '='-unpacking), with an optional default when the sub-arg is absent.</summary>
 public sealed record ElementField(string Path, int Arg, string? Default);
