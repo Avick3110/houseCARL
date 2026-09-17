@@ -520,6 +520,28 @@ public class DecompileNoneResultTests
         Assert.Contains("::temp1", Assert.Single(res.Failures));
     }
 
+    [Fact]
+    public void AShortCircuitNeverDrainsACallProducedAfterItsLeftOperand()
+    {
+        // `Bar` runs after `Poke` and its result is discarded, so draining it before the `&&` statement that
+        // carries `Poke` puts the later call first — the reorder the plain condition path already refuses.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "Bool", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "Bool", "x");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.JMPF, Id("::temp0"), Int(2));                   // 2 -> 4, the join
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Baz"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.ASSIGN, Id("x"), Id("::temp0"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("ShortCircuit", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+    }
+
     /// <summary>No emitted line carries <paramref name="stranded"/> after a `return` in the same block.</summary>
     static void AssertNoStatementAfterReturn(string source, string stranded)
     {

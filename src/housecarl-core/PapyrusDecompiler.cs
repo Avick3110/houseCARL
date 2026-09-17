@@ -639,7 +639,10 @@ public sealed class PapyrusDecompiler
                             var (left, leftStart, leftLastCall) = Consume(condName, i);
                             // Pre-if discarded-result calls may still pend here (their temps can be
                             // reused INSIDE the arm — reuse would misemit them as arm statements).
-                            // They are statements that precede the if: drain them now, in order.
+                            // They are statements that precede the if: drain them now, in order. One
+                            // produced AFTER the left operand is not one of them — draining it here puts a
+                            // later call ahead of the one this statement carries.
+                            RefuseDrainingPast("condition", leftStart);
                             FlushPendingCalls(stmts);
                             // Evaluate the right side (cur+1 .. target) — must produce only pending values.
                             var sub = Structure(i + 1, target, flushAtEnd: false, exits: new HashSet<int>(), cont: target);
