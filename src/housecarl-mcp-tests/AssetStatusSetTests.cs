@@ -572,7 +572,9 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
     /// window, and the matches outside it are in NO file. Re-resolving the rest would pay the scan a second time,
     /// which is the cost the auto-spill exists to avoid.
     /// <para>Driven from BOTH knobs, because either makes a window: under offset= alone the missing matches are the
-    /// ones BEFORE the window, so a sentence naming limit= would send the caller at the wrong one.</para></summary>
+    /// ones BEFORE the window, so a sentence naming limit= would send the caller at the wrong one.</para>
+    /// <para>The manifest names WHICH rows it holds. row_count and total alone say two of six without saying which
+    /// two, and the file is what a reader has months later.</para></summary>
     [Theory]
     [InlineData(2, 0)]
     [InlineData(0, 2)]
@@ -588,11 +590,29 @@ public sealed class AssetStatusSetTests : IClassFixture<AssetSelectWorld>
             Assert.Contains("outside the returned window are in NO file", text);
             var manifest = JsonDocument.Parse(
                 File.ReadAllLines(Assert.Single(Directory.GetFiles(results.Dir, "*.jsonl")))[0]).RootElement;
-            Assert.Equal(limit > 0 ? limit : AssetSelectWorld.FaceGeomFiles - offset,
-                         manifest.GetProperty("row_count").GetInt32());
+            int rows = limit > 0 ? limit : AssetSelectWorld.FaceGeomFiles - offset;
+            Assert.Equal(rows, manifest.GetProperty("row_count").GetInt32());
             Assert.Equal(AssetSelectWorld.FaceGeomFiles, manifest.GetProperty("total").GetInt32());
+            Assert.Equal($"window: rows {offset + 1}–{offset + rows} of {AssetSelectWorld.FaceGeomFiles} (limit={limit}, offset={offset})",
+                         manifest.GetProperty("query").GetProperty("window").GetString());
         }
         finally { try { Directory.Delete(results.Dir, true); } catch { } }
+    }
+
+    /// <summary>The window echo is a WINDOW's alone: a to_file= artifact covers the whole selection, so an entry
+    /// saying which rows it holds would misdescribe it.</summary>
+    [Fact]
+    public void AToFileArtifactCarriesNoWindowEcho()
+    {
+        var file = Temp("whole.jsonl");
+        try
+        {
+            AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir }, limit: 2, to_file: file);
+
+            var query = JsonDocument.Parse(File.ReadAllLines(file)[0]).RootElement.GetProperty("query");
+            Assert.False(query.TryGetProperty("window", out _));
+        }
+        finally { File.Delete(file); }
     }
 
     /// <summary>The stamped arm of the auto-spill, which is what §2.1.1's manifest clause actually asks for: on a
