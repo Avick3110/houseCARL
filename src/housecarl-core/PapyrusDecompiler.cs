@@ -155,9 +155,14 @@ public sealed class PapyrusDecompiler
             foreach (var nf in st.Functions)
                 if (nf.FunctionName is not null && nf.Function is not null) own.TryAdd(nf.FunctionName, nf.Function);
 
-        foreach (var st in obj.States)
-            foreach (var nf in st.Functions)
-                foreach (var ins in nf.Function?.Instructions ?? [])
+        // Every body this object carries, property Get and Set handlers included: their calls go through the
+        // same re-omission, so a default evidenced only from inside a handler counts the same.
+        var bodies = obj.States.SelectMany(st => st.Functions).Select(nf => nf.Function)
+            .Concat(obj.Properties.SelectMany(pr => new[] { pr.ReadHandler, pr.WriteHandler }));
+
+        foreach (var body in bodies)
+            if (body is not null)
+                foreach (var ins in body.Instructions)
                 {
                     // CALLPARENT is left out: it runs the parent's function, whose own source declares it.
                     int nameIdx = ins.OpCode switch
