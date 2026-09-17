@@ -5,63 +5,46 @@ using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcp;
 
-/// <summary>What the response says when its full result lives in an artifact file: the path, its parsed-back
-/// manifest, and why it was written — <c>to_file</c> (the caller asked) or <c>ceiling</c> (the inline render hit
-/// max_chars). Threaded into the renders so the <c>spilled</c> marker rides in-band in both formats; appending it
-/// outside the json document would make it invisible to a json consumer.</summary>
+/// <summary>What the response says when its full result lives in an artifact file: the path, its parsed-back manifest, and why it was written — <c>to_file</c> or <c>ceiling</c> — carried in-band in both formats.</summary>
 internal sealed record SpillInfo(string Path, ResultArtifact.Manifest Manifest, string Reason)
 {
     public bool ToFile => Reason == "to_file";
 
-    /// <summary>What writing this artifact's DETAIL rows cost, in milliseconds — the same per-row body read the
-    /// inline renders clock, measured where a to_file= call actually pays it. Null when the artifact's rows read no
-    /// body (a summary or group_by artifact), so a render states a cost only where one was incurred (#582).</summary>
+    /// <summary>What writing this artifact's DETAIL rows cost, in milliseconds; null when its rows read no body, so a render states a cost only where one was incurred (#582).</summary>
     public long? RenderMs { get; init; }
 
-    /// <summary>Why this artifact carries NO epoch fingerprint, when it carries none — the one sentence the spilled
-    /// marker states beside an empty <c>epoch=</c>. Null on every artifact written off a build that resolved, which
-    /// is every lane but the asset one: <c>asset_status</c> answers off the VFS and is allowed to answer where the
-    /// record index cannot be built at all.</summary>
+    /// <summary>Why this artifact carries NO epoch fingerprint, when it carries none; null on every lane but the asset one, which answers off the VFS.</summary>
     public string? EpochUnavailable { get; init; }
 }
 
-/// <summary>How a render learns its call's artifact disposition as one value: a successful spill (with whether the
-/// rows are omitted, the to_file manifest-only render), or a failed one, where the response must say its
-/// truncation has no complete artifact behind it. Null means an ordinary inline response.</summary>
+/// <summary>A call's artifact disposition as one value: a successful spill, with whether the rows are omitted, or a failed one. Null means an ordinary inline response.</summary>
 internal sealed record SpillState(SpillInfo? Spill, string? Failure, bool ManifestOnly)
 {
     public static SpillState Spilled(SpillInfo s, bool manifestOnly) => new(s, null, manifestOnly);
 
-    /// <summary>The spill write failed: the artifact was promised and could not be produced. The emitters render
-    /// this text verbatim, so it carries the recovery moves itself.</summary>
+    /// <summary>The spill write failed: the artifact was promised and could not be produced. Rendered verbatim, so it carries the recovery moves itself.</summary>
     public static SpillState WriteFailed(string error) => new(null,
         "the response is truncated and the auto-spill artifact could NOT be written — " + error +
         " The complete result exists NOWHERE; re-run with a narrower filter, a higher max_chars, or to_file= at a writable path.", false);
 
-    /// <summary>The result has no spillable row form, the same reason to_file= refuses it, so no artifact was
-    /// attempted: writing thinner rows under a completeness claim would misrepresent the file.</summary>
+    /// <summary>The result has no spillable row form, so no artifact was attempted: thinner rows under a completeness claim would misrepresent the file.</summary>
     public static SpillState NoRowForm() => new(null,
         "the response is truncated and was NOT auto-spilled: conflict_tree=true has no JSONL row form (the same reason " +
         "to_file= refuses it), and spilling thinner tree-less rows under a completeness claim would misrepresent the file. " +
         "The complete trees exist only inline — raise max_chars, narrow the set, or drop conflict_tree (plain rows spill fine).", false);
 }
 
-/// <summary>The artifact layer for the bulk read lanes: per-lane builders, each writing the rows its json render
-/// emits through the same row writers so file and wire can differ only in formatting, plus the shared in-band
-/// emitter for the <c>spilled</c> marker (one wording for text, one shape for json, used by every lane).</summary>
+/// <summary>The artifact layer for the bulk read lanes: per-lane builders writing the rows their json renders emit through the same row writers, plus the shared in-band emitter for the <c>spilled</c> marker.</summary>
 internal static class Artifacts
 {
     // ---- the shared spilled-marker emitter (text) ---------------------------------------------------
 
-    /// <summary>Append the <c>spilled</c> block to a text response. The marker must name the artifact path, or a
-    /// caller can only refuse, re-pay the scan, or fabricate one. It also carries the manifest facts needed to
-    /// pick the next move without opening the file: row count, schema, identity column, epoch.</summary>
+    /// <summary>Append the <c>spilled</c> block to a text response: the artifact path, plus the manifest facts needed to pick the next move without opening the file.</summary>
     public static void AppendSpillText(StringBuilder sb, SpillInfo s)
     {
         var m = s.Manifest;
-        // "complete result" may be claimed only when the file holds every match: a spilled window is complete as a
-        // window, and the matches outside it are in no file at all. The sentence names the WINDOW rather than
-        // limit=, because offset= alone makes one too and there the missing matches are the ones before it.
+        // "complete result" is claimed only when the file holds every match; the sentence names the WINDOW, since
+        // offset= alone makes one too and there the missing matches are the ones before it.
         bool whole = m.Total == m.RowCount;
         sb.Append('\n')
           .Append(whole ? "spilled: complete result (" : "spilled: the returned WINDOW (")
@@ -77,9 +60,7 @@ internal static class Artifacts
           .Append(whole ? "" : $" of total={m.Total}")
           .Append("  identity=").Append(m.Identity ?? "<none>")
           .Append("  epoch=").Append(m.Epoch.Length > 0 ? m.Epoch : "<none>").Append('\n');
-        // The stamp's own caveats, beside it rather than only inside the file: an empty or partial fingerprint with
-        // no sentence next to it is the unstamped state §2.1.1 exists to make impossible, and this block is the only
-        // thing a to_file= caller sees.
+        // The stamp's caveats beside it, not only inside the file: this block is all a to_file= caller sees (§2.1.1).
         if (s.EpochUnavailable is { Length: > 0 } why)
             sb.Append("  epoch: NONE — the load order could not be read for a fingerprint right now. ").Append(why)
               .Append(" The rows are unaffected — they are read off the VFS, not off the record index — but nothing ")
@@ -87,9 +68,7 @@ internal static class Artifacts
         if (m.EpochCoversAllInputs is false && m.EpochUncovered is { Count: > 0 } unc)
             sb.Append("  epoch_covers_all_inputs=false — the fingerprint does not describe: ")
               .Append(string.Join("; ", unc)).Append('\n');
-        // Through the shared sentence, which caps the roster: this is a manifest-only response with no rows to cut,
-        // and thirty names joined whole would push it over max_chars and answer with "raise max_chars" on a render
-        // that has nothing in it. The FILE keeps every name — a manifest a consumer greps wants the roster.
+        // Through the shared sentence, which caps the roster; the FILE's manifest keeps every name.
         if (m.OrderDegraded)
             sb.Append("  order_degraded=true — ").Append(OrderDegraded.Sentence(m.ExcludedPlugins!))
               .Append(" The file's manifest lists them all.\n");
@@ -102,12 +81,9 @@ internal static class Artifacts
         sb.Append("  the file is JSONL (line 1 = this manifest, one row per line) — grep/read it with your own file tools, ")
           .Append(m.Identity is null
               ? "or re-run the producing query for fresh values.\n"
-              // The re-entry spelling follows the IDENTITY column: naming formids= over an artifact of paths would
-              // send the caller into the refusal that says the file carries no FormIDs.
+              // The re-entry spelling follows the IDENTITY column, and only a formid lane is epoch-checked.
               : m.Identity.Equals("formid", StringComparison.OrdinalIgnoreCase)
                   ? $"or re-enter it server-side via formids=@{s.Path} / where=[\"formid in @{s.Path}\"] (epoch-checked against the current build).\n"
-                  // Not epoch-checked, and the sentence must not say it is: an identity that is not a FormID names no
-                  // record, so there is no record build for it to have gone stale against.
                   : $"or re-enter it server-side wherever a '{m.Identity}' list is taken, as @{s.Path} (not epoch-checked — a '{m.Identity}' names no record, so every value is re-read live).\n");
     }
 
@@ -123,8 +99,7 @@ internal static class Artifacts
         w.WriteString("reason", s.ToFile ? "to_file" : "over_inline_ceiling");
         w.WriteNumber("row_count", m.RowCount);
         w.WriteNumber("total", m.Total);
-        // Stated explicitly rather than left derivable: false means the file is a window and the matches beyond
-        // limit= are in no file.
+        // Stated, not left derivable: false means the file is a window and the matches beyond it are in no file.
         w.WriteBoolean("complete", m.Total == m.RowCount);
         if (m.Identity is null) w.WriteNull("identity"); else w.WriteString("identity", m.Identity);
         w.WriteStartArray("row_schema");
@@ -139,8 +114,7 @@ internal static class Artifacts
             w.WriteEndObject();
         }
         w.WriteString("epoch", m.Epoch);
-        // Same caveats as the text twin, as data: the flag and the roster a consumer branches on, plus the sentence
-        // for the one case where there is no fingerprint at all.
+        // The text twin's caveats as data: the flag and roster a consumer branches on, plus the no-fingerprint sentence.
         if (s.EpochUnavailable is { Length: > 0 } why) w.WriteString("epoch_unavailable", why);
         if (m.EpochCoversAllInputs is { } covers)
         {
@@ -164,11 +138,7 @@ internal static class Artifacts
 
     // ---- per-lane artifact builders -----------------------------------------------------------------
 
-    /// <summary>Build and save the artifact for a scan result: group_by count rows, detail rows, or summary rows —
-    /// the same row shapes the json render emits, filled off the same pinned view the response's epoch names, so a
-    /// spill can never mix builds the header did not claim. Returns the SpillInfo, or a named error the caller
-    /// renders. <paramref name="rowCap"/> is the per-row field budget; production writes rows uncapped, and it
-    /// exists so the row writer's truncation seam can be driven by a test.</summary>
+    /// <summary>Build and save the artifact for a scan result — group_by count, detail or summary rows, off the same pinned view the response's epoch names. <paramref name="rowCap"/> is the per-row field budget, uncapped in production.</summary>
     public static (SpillInfo? Spill, string? Error) WriteCrossQuery(
         LoadOrderService svc, CrossQueryOutcome q, IReadOnlyList<string>? fields,
         bool resolveNames, bool winnerFields, int depth,
@@ -198,9 +168,7 @@ internal static class Artifacts
             schema = new[] { "formid", "runtime_formid", "type", "editorid", "winner", "override_depth", "source", "matches?", "fields" };
             sort = "load-order scan order (deterministic within one epoch)";
             var foldDepths = fold?.Read().Depths;   // the quantified paths' depth, and the caller's own for the rest
-            // The artifact reads through the SAME reader the inline renders do: one session, one chunked body
-            // prefetch, and the per-row cancellation check. A cancel here throws before Save, so no half artifact
-            // reaches disk — the rows only exist in the writer's buffer until then.
+            // The same reader the inline renders use; a cancel throws before Save, so no half artifact reaches disk.
             using var reader = new ScanDetailReader(svc, q, fields, depth, resolveNames, winnerFields,
                                                     (levers ?? LeverNames.Legacy).ContainerHint, foldDepths, ct);
             for (int i = 0; i < q.Keys.Count; i++)
@@ -221,8 +189,7 @@ internal static class Artifacts
                         w.WriteEndObject();
                     });
                 else
-                    // The row writer composes its own field-truncation note, so it needs the caller's vocabulary:
-                    // an artifact row must not name a parameter the calling tool does not have.
+                    // The row writer's own truncation note needs the caller's vocabulary, never a parameter that tool lacks.
                     writer.WriteRow((w, ms) => JsonWire.WriteReadRecord(w, o, ms, rowCap, matches, levers: levers), o.Record!.Type);
             }
         }
@@ -241,7 +208,7 @@ internal static class Artifacts
         }
 
         renderClock?.Stop();
-        // The manifest stamps which tool wrote the artifact; see WriteResolve for why it names records.
+        // The manifest stamps which tool wrote the artifact; see WriteResolve.
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, identity, schema, sort,
                                           q.Groups is not null ? q.Groups.Count : q.Total, q.Epoch ?? "",
                                           CrossQueryNotes(q, fields, winnerFields, annotated, levers));
@@ -250,21 +217,12 @@ internal static class Artifacts
             : (new SpillInfo(target.Path, manifest!, reason) { RenderMs = renderClock?.ElapsedMilliseconds }, null);
     }
 
-    /// <summary>The response-level statement that an artifact's annotated rows depend on. An artifact is re-entered
-    /// with no conversation attached, so a row's union or "not read" label must travel with the sentence explaining
-    /// it. The manifest is line 1 and the rows are lines 2..N, so this names the annotated fields rather than
-    /// pointing at a position. One clause per TIER the rows actually stated, since a union clause over a row
-    /// annotated from the index alone would claim a union the file does not carry. The precise tier's note is
-    /// <see cref="PreciseChildNotes"/>.</summary>
+    /// <summary>The response-level statement an artifact's annotated rows depend on, naming the annotated fields, one clause per TIER the rows actually stated. The precise tier's note is <see cref="PreciseChildNotes"/>.</summary>
     static IReadOnlyList<string>? OwnedChildNotes(IReadOnlyDictionary<string, bool> annotatedFields) =>
         annotatedFields.Count == 0 ? null
             : ReadSentences.OwnedChildClauses(ReadSentences.Tier(annotatedFields, true), ReadSentences.Tier(annotatedFields, false));
 
-    /// <summary>The manifest notes a scan artifact carries: the scoped-vs-winner field-source note the three inline
-    /// transports state, then the owned-child clause. The artifact holds the same values the inline render would have
-    /// shown and is read later with no conversation attached, so the sentence saying WHOSE body those values came
-    /// from has to travel with them. The scoped test is <see cref="JsonWire.AnyScopedFieldRow"/> — the very function
-    /// the inline renders call, not a copy of it — so the two cannot disagree about when the note is owed.</summary>
+    /// <summary>The manifest notes a scan artifact carries: the scoped-vs-winner field-source note, then the owned-child clause. The scoped test is <see cref="JsonWire.AnyScopedFieldRow"/> itself, never a copy, so the two cannot disagree.</summary>
     static IReadOnlyList<string>? CrossQueryNotes(CrossQueryOutcome q, IReadOnlyList<string>? fields, bool winnerFields,
                                                   IReadOnlyDictionary<string, bool> annotatedFields,
                                                   LeverNames? levers)
@@ -281,8 +239,7 @@ internal static class Artifacts
     static IReadOnlyList<string>? PreciseChildNotes(IReadOnlyList<LoadOrderService.TreeRow> rows) =>
         rows.Any(r => r.Error is null && r.ChildDeclarers.Count > 0) ? new[] { ReadSentences.DeclarersLead } : null;
 
-    /// <summary>The annotated field paths an artifact's rows actually carry. The set is collected from the rows
-    /// themselves so the manifest can never state a clause over an annotation no row wrote.</summary>
+    /// <summary>The annotated field paths an artifact's rows actually carry, collected from the rows themselves so the manifest cannot state a clause over an annotation no row wrote.</summary>
     static SortedDictionary<string, bool> AnnotatedFields(IEnumerable<ReadOutcome> outcomes)
     {
         var s = new SortedDictionary<string, bool>(StringComparer.Ordinal);
@@ -292,12 +249,7 @@ internal static class Artifacts
         return s;
     }
 
-    /// <summary>Build and save the artifact for a batch read — one row per input, in input order, exactly the rows
-    /// the json render emits. Per-item errors are included: dropping them would make the file claim a cleaner
-    /// batch than the call returned. <paramref name="levers"/> and <paramref name="rowCap"/> carry the same
-    /// contract as on <see cref="WriteCrossQuery"/>. <paramref name="matches"/> is parallel to
-    /// <paramref name="outcomes"/> and carries the multi-target references= un-merge, so a spilled body-lane row says
-    /// which target it hit exactly as the inline render does (#576).</summary>
+    /// <summary>Build and save the artifact for a batch read — one row per input, in input order, per-item errors included. <paramref name="matches"/> is parallel to <paramref name="outcomes"/> and carries the references= un-merge (#576).</summary>
     public static (SpillInfo? Spill, string? Error) WriteBatch(
         IReadOnlyList<ReadOutcome> outcomes, ArtifactTarget target, string reason, IReadOnlyList<KeyValuePair<string, string>> query,
         LeverNames? levers = null, int rowCap = int.MaxValue, IReadOnlyList<string?>? matches = null)
@@ -317,8 +269,7 @@ internal static class Artifacts
             else
                 writer.WriteRow((w, ms) => JsonWire.WriteReadRecord(w, o, ms, rowCap, hit, levers: levers), o.Record!.Type);
         }
-        // The batch's one build, from the first row that consulted one. A batch of pure parse failures carries "",
-        // and such an artifact refuses epoch-checked re-entry against any build.
+        // The batch's one build; a batch of pure parse failures carries "", which refuses re-entry against any build.
         var epoch = outcomes.FirstOrDefault(o => o.Epoch is not null)?.Epoch ?? "";
         // The manifest's tool stamp; see WriteResolve.
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
@@ -327,25 +278,21 @@ internal static class Artifacts
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
-    /// <summary>Build and save the artifact for an identity result — one row per input, in input order, the json
-    /// render's exact rows, per-item errors included.</summary>
+    /// <summary>Build and save the artifact for an identity result — one row per input, in input order, per-item errors included.</summary>
     public static (SpillInfo? Spill, string? Error) WriteResolve(
         IReadOnlyList<ResolvedRef> rows, string epoch, ArtifactTarget target, string reason, IReadOnlyList<KeyValuePair<string, string>> query)
     {
         using var writer = new ResultArtifact.Writer();
         foreach (var r in rows)
             writer.WriteRow((w, _) => JsonWire.WriteResolvedRow(w, r), r.Resolved ? r.Type : null);
-        // The manifest records which tool wrote the artifact, and a re-entry refusal reads it back and prints it.
-        // It must name a tool the surface still has, or the refusal quotes a dead name.
+        // The manifest's tool stamp must name a tool the surface still has: a re-entry refusal prints it back.
         var (manifest, err) = writer.Save(target, ToolNames.Records, query, "formid",
                                           new[] { "formid", "type", "editorid", "name", "winner" },
                                           "input order", rows.Count, epoch);
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
-    /// <summary>Build and save the artifact for a delta result — one row per input, in input order, exactly the
-    /// rows the json render emits. Per-item refusals are included: dropping one would make the file claim a
-    /// cleaner comparison than the call returned.</summary>
+    /// <summary>Build and save the artifact for a delta result — one row per input, in input order, per-item refusals included.</summary>
     public static (SpillInfo? Spill, string? Error) WriteDelta(
         IReadOnlyList<LoadOrderService.DeltaRow> rows, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
@@ -360,8 +307,7 @@ internal static class Artifacts
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
-    /// <summary>Build and save the artifact for a tree result — the row form that makes trees spillable: one row
-    /// per record, the provider stack with per-node deltas, exactly the json render's rows.</summary>
+    /// <summary>Build and save the artifact for a tree result — one row per record, the provider stack with per-node deltas.</summary>
     public static (SpillInfo? Spill, string? Error) WriteTree(
         IReadOnlyList<LoadOrderService.TreeRow> rows, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
@@ -376,8 +322,7 @@ internal static class Artifacts
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
-    /// <summary>Build and save the artifact for a chain result — one row per seed, in input order, exactly the
-    /// json render's rows: nodes with provenance, cycles, truncation notes, the template report.</summary>
+    /// <summary>Build and save the artifact for a chain result — one row per seed, in input order: nodes with provenance, cycles, truncation notes, the template report.</summary>
     public static (SpillInfo? Spill, string? Error) WriteChain(
         IReadOnlyList<LoadOrderService.WalkSeedResult> rows, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
@@ -434,8 +379,7 @@ internal static class Artifacts
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
-    /// <summary>Build and save the artifact for an info_order result — one row per topic, in input order, exactly
-    /// the json render's rows, with the confidence gates carried as data and per-item errors included.</summary>
+    /// <summary>Build and save the artifact for an info_order result — one row per topic, in input order, the confidence gates as data and per-item errors included.</summary>
     public static (SpillInfo? Spill, string? Error) WriteInfoOrder(
         IReadOnlyList<LoadOrderService.InfoOrderRow> rows, string? epoch, ArtifactTarget target, string reason,
         IReadOnlyList<KeyValuePair<string, string>> query)
@@ -450,8 +394,7 @@ internal static class Artifacts
         return err is not null ? (null, err) : (new SpillInfo(target.Path, manifest!, reason), null);
     }
 
-    /// <summary>Append the whole SpillState to a text response: the spilled block, or the failed-spill warning. A
-    /// truncated response whose promised artifact could not be written must say so.</summary>
+    /// <summary>Append the whole SpillState to a text response: the spilled block, or the failed-spill warning.</summary>
     public static void AppendSpillStateText(StringBuilder sb, SpillState s)
     {
         if (s.Spill is not null) AppendSpillText(sb, s.Spill);
@@ -466,16 +409,8 @@ internal static class Artifacts
         else if (s.Failure is not null) w.WriteString("spill_error", s.Failure);
     }
 
-    /// <summary>Split a plain list file's content into tokens, the same grammar the where-grammar's @file uses:
-    /// commas and newlines separate — never bare spaces, since plugin filenames contain them — and brackets and
-    /// quotes are stripped per token, so a pasted JSON array parses as-is ON THE FORMID LANE.
-    /// <para><paramref name="commaSeparates"/> is false for a list of PATHS: a comma is legal in a Windows file name
-    /// and mod authors use them, so splitting on it would turn one line into two tokens and answer ABSENT twice for
-    /// a file that exists. A FormID cannot contain a comma, so that lane keeps both separators.</para>
-    /// <para>That leaves the path lane a pasted JSON array on ONE line, which line splitting would join into one
-    /// bogus token that is still a legal relative path — a wrong join in place of the wrong split. So content that
-    /// opens with '[' is PARSED as a JSON array first, and only content that is not one falls through to line
-    /// splitting.</para></summary>
+    /// <summary>Split a plain list file's content into tokens, the same grammar the where-grammar's @file uses: commas and newlines separate, never bare spaces, and brackets and quotes are stripped per token.
+    /// <para><paramref name="commaSeparates"/> is false for a list of PATHS, where a comma is a legal filename character; that lane instead parses content opening with '[' as a JSON array before falling through to line splitting.</para></summary>
     public static IEnumerable<string> SplitListTokens(string content, bool commaSeparates = true)
     {
         if (!commaSeparates && JsonArrayOrNull(content) is { } parsed)
@@ -490,8 +425,7 @@ internal static class Artifacts
         }
     }
 
-    /// <summary>The file's content read as a JSON array of strings, or null when it does not open with '[' or does
-    /// not parse as one — in which case the caller splits it as lines, exactly as before.</summary>
+    /// <summary>The file's content read as a JSON array of strings, or null when it does not open with '[' or does not parse as one.</summary>
     static IReadOnlyList<string>? JsonArrayOrNull(string content)
     {
         var trimmed = content.TrimStart('﻿', ' ', '\t', '\r', '\n');
@@ -507,20 +441,12 @@ internal static class Artifacts
     static readonly char[] ListSeparators = { ',', '\r', '\n' };
     static readonly char[] LineSeparators = { '\r', '\n' };
 
-    /// <summary>Expand a list-valued tool input under the <c>@file</c> convention: a single
-    /// <c>"@&lt;absolute path&gt;"</c> element standing in place of the inline list reads the file. An artifact
-    /// yields its identity column plus the epoch demand the consuming call must check; a plain file yields its
-    /// tokens and claims no epoch. Mixing an @ element with inline entries is a named refusal — it is one
-    /// spelling for the whole list, not a splice grammar. Non-@ input passes through untouched.
-    /// <c>EchoSource</c> is what the query echo and manifest should say the list was.
-    /// <para><paramref name="identity"/> is the identity column this parameter's list is made of — "formid" on every
-    /// record lane, "path" on the asset lane. An artifact carrying a different one is refused by name rather than
-    /// having its rows read as the wrong kind of token.</para></summary>
+    /// <summary>Expand a list-valued tool input under the <c>@file</c> convention: one <c>"@&lt;absolute path&gt;"</c> element stands in place of the whole list, never splicing, and an artifact also yields the epoch demand the consuming call must check.
+    /// <para><paramref name="identity"/> is the column this parameter's list is made of — "formid" on every record lane, "path" on the asset lane; re-entry contract in docs/architecture/output-and-artifacts.md.</para></summary>
     public static (string[]? Tokens, ArtifactDemand? Demand, string? EchoSource, string? Error) ExpandListInput(
         string[] items, string paramName, string identity = "formid")
     {
-        // The null/length guards matter: a whitespace-only element must fall through to the per-item "not a
-        // FormID" path rather than index [0] and surface as an internal failure.
+        // The null/length guards keep a whitespace-only element on the per-item "not a FormID" path.
         int atCount = items.Count(i => i is not null && i.TrimStart() is { Length: > 0 } t && t[0] == '@');
         if (atCount == 0) return (items, null, null, null);
         if (items.Length > 1)
@@ -556,14 +482,11 @@ internal static class Artifacts
 
     // ---- to_file validation -------------------------------------------------------------------------
 
-    /// <summary>The one refusal for <c>counts_only=</c> beside <c>to_file=</c>, spelled once for every surface that
-    /// takes both: the two ask for opposite dispositions of the same result.</summary>
+    /// <summary>The one refusal for <c>counts_only=</c> beside <c>to_file=</c>, spelled once for every surface that takes both.</summary>
     public const string CountsOnlyWithToFile =
         "error: counts_only= returns the census with no rows, and to_file= writes the rows — the two contradict; drop one.";
 
-    /// <summary>Validate a caller-named <c>to_file=</c> target: absolute, .jsonl-suffixed (the artifact is jsonl,
-    /// and another extension would promise a format the file does not have), and not inside the auto-spill
-    /// results directory, which the server prunes by age. Null means fine; else the named refusal.</summary>
+    /// <summary>Validate a caller-named <c>to_file=</c> target: absolute, .jsonl-suffixed, and not inside the auto-spill results directory the server prunes by age. Null means fine; else the named refusal.</summary>
     public static string? ValidateToFile(string toFile)
     {
         var p = toFile.Trim();
