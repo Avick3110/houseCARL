@@ -53,6 +53,11 @@ public sealed partial class LoadOrderService : IDisposable
     FileStamp[] _profileStamps = new FileStamp[ProfileFileNames.Length];   // per ProfileFileNames, recorded at each order build
     FileStamp _iniStamp;                                                   // ModOrganizer.ini (instance-mode profile-switch baseline)
     IReadOnlyList<string> _resolvedPaths = Array.Empty<string>();   // ordered paths the current snapshot was built from (the cheap "did the order actually change?" check)
+    // Set when a refresh found the profile changed but could not re-read it (something holds a profile file open), so
+    // what every lane is serving is the build from BEFORE that change. Cleared the moment a refresh gets through, or
+    // when the profile matches its baseline again. The asset lane says it in one sentence and keeps answering; the
+    // record lane refuses on it, because its answer IS the order.
+    ProfileUnreadableException? _profileHeld;
 
     static readonly string[] ProfileFileNames = { "loadorder.txt", "modlist.txt", "plugins.txt" };
 
@@ -152,6 +157,11 @@ public sealed partial class LoadOrderService : IDisposable
                     try
                     {
                         RefreshOnProfileChange();     // lazy profile-membership refresh on this call (cheap check first)
+                        // The record index is the one answer that IS the load order, and this lane has no channel to
+                        // say a refresh is pending, so a profile it could not re-read is refused rather than answered
+                        // off a superseded index. The asset lane keeps serving and says so in its warnings: its answer
+                        // is the VFS, which the record index has no part in.
+                        if (_profileHeld is { } held) throw new ProfileUnreadableException(held.ProfilePath, held);
                         _resolver.RefreshIfStale();   // plugin-CONTENT freshness: cheap stat sweep; rebuilds if a plugin's bytes changed
                     }
                     finally { Monitor.Exit(_writeGate); }
@@ -295,6 +305,25 @@ public sealed partial class LoadOrderService : IDisposable
         _enabledModsAtBuild = comp.EnabledMods; // same build: the mod set behind this resolver (native-pairing loader scan)
         return AssetResolver.Build(_overwriteDir, _modsDir, _dataDir, comp.EnabledMods, discovery.Archives);
     }
+
+    /// <summary>The asset build's own discovery warnings, plus — when a profile change could not be re-read and this
+    /// answer therefore comes off the build from before it — the one sentence saying so. Every asset lane reads its
+    /// warnings through here, so no asset answer can be served off a kept build without stating it. Caller holds
+    /// <see cref="_gate"/>.</summary>
+    IReadOnlyList<string> AssetWarningsLocked()
+    {
+        if (_profileHeld is null) return _assetWarnings;
+        var said = new List<string>(_assetWarnings.Count + 1) { ProfileHeldNote(_profileHeld) };
+        said.AddRange(_assetWarnings);
+        return said;
+    }
+
+    /// <summary>The sentence an answer served off a kept build carries: what changed, why it was not re-read, and that
+    /// houseCARL re-reads on the next call by itself.</summary>
+    static string ProfileHeldNote(ProfileUnreadableException held) =>
+        $"the load order changed on disk and could not be re-read — '{Path.GetFileName(held.ProfilePath)}' is held " +
+        "open by another process (MO2 holds these while it re-sorts), so this answer is off the build from BEFORE " +
+        "that change. houseCARL re-reads on the next call; run this again once the file is free.";
 
     /// <summary>Drop the asset resolver so the next asset query rebuilds it — the active-mod/archive SET changed
     /// (AssetResolver.RefreshIfStale only catches a BSA's bytes / a warmed subtree, not a membership change). No-op when
@@ -551,7 +580,7 @@ public sealed partial class LoadOrderService : IDisposable
     void RefreshOnProfileChange()
     {
         if (RederiveIfIniChanged()) return;                      // instance mode: a profile switch already re-derived and re-resolved
-        if (!ProfileFilesChanged()) return;                      // nothing touched the active profile → nothing to do
+        if (!ProfileFilesChanged()) { _profileHeld = null; return; }   // matches its baseline again → nothing pending, nothing to say
         ReResolve();
     }
 
@@ -588,10 +617,12 @@ public sealed partial class LoadOrderService : IDisposable
         Mo2OrderResult order;
         // MO2 holds the profile files while it rewrites them on a re-sort. A refresh that lands in that window keeps
         // the snapshot already built — the same answer the last call gave — and does NOT advance the baseline, so the
-        // next call re-checks and follows the new profile. The cold builds have nothing to keep and report the
-        // transient instead.
+        // next call re-checks and follows the new profile. What is kept is REMEMBERED: every asset answer then carries
+        // the sentence saying the order changed and could not be re-read, and the record lane refuses on it. The cold
+        // builds have nothing to keep and report the transient instead.
         try { order = Mo2LoadOrder.Build(_profileDir, _modsDir, _dataDir, _overwriteDir); }
-        catch (ProfileUnreadableException) { return; }
+        catch (ProfileUnreadableException ex) { _profileHeld = ex; return; }
+        _profileHeld = null;                                     // the re-read got through — nothing is pending any more
         var paths = order.OrderedPaths;
         if (_maxPlugins > 0 && paths.Count > _maxPlugins) paths = paths.Take(_maxPlugins).ToList();
 
