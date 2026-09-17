@@ -3133,9 +3133,10 @@ static class JsonWire
     {
         int cap = Cap(maxChars);
         var c = AssetCensus.Tally(d);
-        // The trailing members are a fixed shape, so their room comes out of max_chars before anything is written —
-        // the same reserve RenderAssetStatus takes for its tail, and the reason the cap means the whole document.
-        int budget = Math.Max(cap - AssetCensusTailReserve(), 1);
+        // Everything this document writes whatever the budget says — the six counters, the axis's own frame and the
+        // trailing flag — comes out of max_chars before the caveats, which are the only cuttable thing above them.
+        // Uncharged, the caveats take that room and the document lands over the cap on a cut that would have fitted.
+        int budget = Math.Max(cap - AssetCensusFixedReserve(d, c), 1);
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
@@ -3148,12 +3149,7 @@ static class JsonWire
             if (d.SelectorNotes is null) { w.WriteNull("selector_notes"); w.WriteNumber("selector_notes_omitted", 0); }
             else omitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, budget);
 
-            w.WriteNumber("counted", c.Selected);
-            w.WriteNumber("present", c.Present);
-            w.WriteNumber("absent", c.Absent);
-            w.WriteNumber("errors", c.Errors);
-            w.WriteNumber("loose", c.Loose);
-            w.WriteNumber("bsa", c.Bsa);
+            WriteCensusCounters(w, c);
             // The layer table through the shared axis: the frame is reserved out of the budget before its rows are
             // offered to it, exactly as the text twin reserves its closing line.
             var body = new BoundedBody(acct: null, budget: budget, () => Size(w, ms));
@@ -3164,20 +3160,41 @@ static class JsonWire
         return Finish(ms);
     }
 
-    /// <summary>What the census document writes after its axis — the <c>truncated</c> flag and the close. Measured
-    /// under the response's own writer options, since measuring unindented what is written indented under-reserves
-    /// by the whole indentation.</summary>
-    static int AssetCensusTailReserve()
+    /// <summary>The census's six counters, in one place so the reserve measures what the render writes.</summary>
+    static void WriteCensusCounters(Utf8JsonWriter w, AssetCensus.Counts c)
     {
+        w.WriteNumber("counted", c.Selected);
+        w.WriteNumber("present", c.Present);
+        w.WriteNumber("absent", c.Absent);
+        w.WriteNumber("errors", c.Errors);
+        w.WriteNumber("loose", c.Loose);
+        w.WriteNumber("bsa", c.Bsa);
+    }
+
+    /// <summary>What the census document carries whatever the budget says: the counters, the axis's own object
+    /// frame, and the trailing <c>truncated</c> flag with the close. Measured by composing them under the response's
+    /// own writer options and at the depth they are written, since measuring unindented what is written indented
+    /// under-reserves by the whole indentation.</summary>
+    static int AssetCensusFixedReserve(AssetStatusData d, AssetCensus.Counts c)
+    {
+        int frame;
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, Opts))
         {
             w.WriteStartObject();
             w.WriteString("before", "");   // the tail is never a document's first member, so it pays the separator it owes
+            // The three caveat counters, which are written AFTER their array has already spent the budget. Each can
+            // omit at most its own entries, so its own count is the widest number it writes.
+            w.WriteNumber("bsa_failures_omitted", d.BsaFailures.Count);
+            w.WriteNumber("warnings_omitted", d.Warnings.Count);
+            w.WriteNumber("selector_notes_omitted", d.SelectorNotes?.Count ?? 0);
+            WriteCensusCounters(w, c);
+            // Read at the same depth the render writes the axis at, so the two measure one object.
+            frame = HistogramFrameCostFor(AssetCensus.Axis(c), new JsonUnitDepths(w.CurrentDepth).AxisFrame);
             w.WriteBoolean("truncated", true);
             w.WriteEndObject();
         }
-        return Chars(ms);
+        return Chars(ms) + frame;
     }
 
     /// <summary>The <c>to_file=</c> twin of <see cref="RenderAssetStatus"/>: the build-level caveats an ABSENT row in

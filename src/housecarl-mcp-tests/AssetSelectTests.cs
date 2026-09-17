@@ -463,13 +463,35 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         Assert.False(root.TryGetProperty("results", out _));
     }
 
+    /// <summary>Under ALARM pressure the census still fits its cap on both transports. The alarm blocks are the
+    /// only cuttable thing above the counters, so if the counters, the axis note and the axis head are not charged
+    /// before the alarms render, the alarms take that room and the response lands over the cap on a cut that would
+    /// have fitted. A selection whose selectors mostly match nothing is what puts that pressure on.</summary>
+    [Fact]
+    public void ACensusUnderAlarmPressureStillFitsItsCapOnBothTransports()
+    {
+        var many = new[] { AssetSelectWorld.FaceGeomDir }
+            .Concat(Enumerable.Range(0, 40).Select(i => @"meshes\hcnothing" + i)).ToArray();
+
+        var text = AssetTools.AssetStatus(_w.Svc, under: many, counts_only: true, max_chars: 1_200);
+        var json = AssetTools.AssetStatus(_w.Svc, under: many, counts_only: true, format: "json", max_chars: 1_000);
+
+        Assert.True(text.Length <= 1_200, $"the text census is {text.Length} chars on max_chars=1200");
+        Assert.True(json.Length <= 1_000, $"the json census is {json.Length} chars on max_chars=1000");
+        // The counters and the alarm counts survive the pressure: what gives is the cuttable selector list.
+        Assert.Contains("census: counted=5 present=5 absent=0 errors=0", text);
+        Assert.Contains("[!] under (40):", text);
+        Assert.Contains("more selector(s) omitted", text);
+        Assert.Equal(5, System.Text.Json.JsonDocument.Parse(json).RootElement.GetProperty("counted").GetInt32());
+    }
+
     /// <summary>The json document's tail is reserved out of max_chars before anything is written, as the path
     /// render's is — a census that overran by its own closing members would make max_chars mean two things on one
     /// tool.</summary>
     [Fact]
     public void TheJsonCensusFitsTheMaxCharsItWasGiven()
     {
-        const int Cap = 1_000;
+        const int Cap = 1_300;
         var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
                                           counts_only: true, format: "json", max_chars: Cap);
 
@@ -503,14 +525,14 @@ public sealed class AssetSelectTests : IClassFixture<AssetSelectWorld>
         // A cap that admits SOME rows and refuses the rest — the partial cut this is about. A cap small enough to
         // admit none proves only that the counters survive a collapse.
         var text = AssetTools.AssetStatus(_w.Svc, under: new[] { AssetSelectWorld.FaceGeomDir },
-                                          counts_only: true, max_chars: 800);
+                                          counts_only: true, max_chars: 550);
 
         Assert.Contains("census: counted=5 present=5", text);       // the counters are exact whatever the cut
         Assert.Contains("winning layers (3 distinct):", text);      // and so is the distinct count
-        Assert.Equal(1, Rows(text));
+        Assert.Equal(2, Rows(text));
         // The knob named is the one that stopped the axis: these rows were refused room, not capped by limit=.
-        Assert.Contains("2 more row(s) — raise max_chars= to see them", text);
-        Assert.True(text.Length <= 800, $"the census is {text.Length} chars on max_chars=800");
+        Assert.Contains("1 more row(s) — raise max_chars= to see them", text);
+        Assert.True(text.Length <= 550, $"the census is {text.Length} chars on max_chars=550");
     }
 
     /// <summary>limit= pages the census TABLE, which is the thing here that needs paging — the census itself covers
