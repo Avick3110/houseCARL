@@ -62,6 +62,34 @@ the `Traits` flag inherits its appearance and has no bake of its own — recompu
 FormID if you need it. An NPC whose race lacks the `FaceGenHead` flag (a horse, a dragon, a draugr shell) has no
 baked head at all.
 
+## What the sweep covers, and what it will not claim
+
+**The population is a union.** Every `NPC_` in scope that needs a bake, plus every facegen file on disk whose key
+resolves to nothing. Enumerating from the records alone misses an orphaned folder; enumerating from the files alone
+misses an NPC that has no facegen at all. Neither half is the answer on its own.
+
+**The file half is reported only on an unscoped sweep.** Under `plugins=`, `exclude=` or a record scope
+(`formids=`, `editorid_contains=`), a file for an NPC outside the narrowing is not inert — it is out of scope, and
+calling it inert would be a claim about records the call never read. The response says so rather than leaving the
+absence to silence.
+
+**`stale_bake` compares against the bake's own plugin, not the runner-up.** The pole is a plugin that both ships in
+the winning half's MO2 layer and actually touches the record, because the bake was made from it; the plugin one step
+below the winner is a different question and was ~25% false on the measured order. Two deltas are excluded from the
+verdict: `HairColor`, which is applied at runtime and is not in the baked files, and a list whose items are the same
+in a different order, because the Creation Kit bakes from the values rather than the order a plugin wrote them in.
+
+**A clean pair whose record test could not run is counted apart, never counted clean.** When the facegen owner's mod
+ships no plugin that defines the NPC — a texture-only mod, overwrite, Data — there is no pole, and the header states
+the count. A test that did not run must not read as a test that passed.
+
+**`family_split` is a name-based inference, not a verdict.** Two layers are called one product when one name is a
+boundary prefix of the other (at least six characters, and the next character is not alphanumeric), which is all the
+data layer has: an update folder beside its base folder is structurally identical to a genuine cross-bake. It is
+counted in the header and listed only when the caller names the class — on the measured order 268 of 408 pair
+mismatches were one product's two halves, and listing them by default buries the 126 that are real. Withheld, not
+dropped: a `to_file=` artifact carries every class.
+
 ## The causes behind the classes
 
 **Record winner versus file winner.** The dominant cause. Load order picks record B while the VFS picks mod A's
