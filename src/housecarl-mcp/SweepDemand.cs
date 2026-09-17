@@ -2,27 +2,10 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// What each subject of a merged <c>check</c> response wants, measured before the render so
-/// <see cref="BodyAllocation"/> can water-fill over it.
-///
-/// <para>Max-min fairness gives every child <c>min(its demand, λ)</c>, and both halves need the demand up front: a
-/// child wanting less than an equal share must take only what it wants, or the rest is stranded. Discovering that
-/// at render time and handing the leftover to whoever came next is what makes an allocation order-dependent and
-/// non-monotone.</para>
-///
-/// <para><b>Measured, never estimated.</b> A demand is the cumulative width of a subject's actual units, composed
-/// by the same helper that will write them, in the transport's own unit. Nothing here multiplies a row count by a
-/// mean width; the composers are shared so that what was measured and what is written cannot be two different
-/// strings.</para>
-///
-/// <para><b>Bounded, so the pass costs O(budget) rather than O(all rows).</b> A subject whose units exceed the room
-/// its parent could possibly give it is <see cref="BodyAllocation.Unconstrained"/> and measuring stops there. That
-/// is exact, not an approximation: such a subject will be cut whatever λ turns out to be.</para>
-///
-/// <para>The reserves are computed here too. That room is outside allocation entirely, and reserving it during the
-/// render, one family at a time, would leave the allocation dividing room later families had not yet claimed.</para>
-/// </summary>
+/// <summary>What each subject of a merged <c>check</c> response wants, measured before the render so
+/// <see cref="BodyAllocation"/> can water-fill over it. Measured never estimated, and bounded so the pass
+/// costs O(budget) rather than O(all rows); the reserves are computed here too because that room is outside
+/// allocation entirely. Contract in docs/architecture/render-budget.md.</summary>
 internal static class SweepDemand
 {
     /// <summary>A subject's measured demand, and what the response will hold back for fixed parts.</summary>
@@ -43,8 +26,8 @@ internal static class SweepDemand
             _d[s] = next > _room ? BodyAllocation.Unconstrained : (int)next;
         }
 
-        /// <summary>Declare a subject that exists but has measured nothing yet, so a planned subject with no units
-        /// is a measured zero rather than a missing key, which the allocation reads as unconstrained.</summary>
+        /// <summary>Declare a subject that exists but has measured nothing yet, so a planned subject with no units is
+        /// a measured zero rather than a missing key.</summary>
         internal void Declare(SweepSubject s) { if (!_d.ContainsKey(s)) _d[s] = 0; }
 
         internal bool Done(SweepSubject s) => _d.TryGetValue(s, out var n) && n == BodyAllocation.Unconstrained;
@@ -170,8 +153,7 @@ internal static class SweepDemand
         return new Result(t.Take(), reserved);
     }
 
-    /// <summary>One axis's rows, in the row order the render will use — the first row carries the axis head, so it
-    /// must be measured as the first row rather than as any row.</summary>
+    /// <summary>One axis's rows, in the row order the render will use — the first row carries the axis head.</summary>
     static void Rows(Tally t, HistogramAxis a, int rowLimit)
     {
         t.Declare(a.Subject);
@@ -183,11 +165,8 @@ internal static class SweepDemand
         }
     }
 
-    /// <summary>The excluded-plugin roster's demand, measured row by row through the same composer the render
-    /// writes. A demand and not a reserve: the roster is a response-level participant in the allocation
-    /// (<c>CheckOutcome.ResponseSubjects</c>), so the fill gives it <c>min(demand, lambda)</c> as it does a family's
-    /// subjects. Reserved instead, its rows would answer to no plan and could spend the whole body budget before the
-    /// first family head was written.</summary>
+    /// <summary>The excluded-plugin roster's demand, measured through the same composer the render writes. A demand
+    /// and not a reserve: the roster is a response-level participant in the allocation.</summary>
     static void Roster(Tally t, CheckOutcome o, Func<int, int> costOf)
     {
         if (o.ExcludedPlugins.Count == 0) return;
@@ -201,11 +180,10 @@ internal static class SweepDemand
 
     // ---- json ---------------------------------------------------------------------------------------
 
-    /// <summary>The same question in the other transport. Its units are measured by the same cost helpers the
-    /// render's <c>Emit</c> calls declare, at the same depth and sibling position, so demand and the emission test
-    /// read one number.</summary>
-    /// <param name="depths">where each unit sits in the document (<see cref="JsonWire.JsonUnitDepths"/>). The render
-    /// reads its anchor off the live writer; this pass must be handed the same anchor.</param>
+    /// <summary>The same question in the other transport, measured by the same cost helpers the render's
+    /// <c>Emit</c> calls declare, at the same depth and sibling position.</summary>
+    /// <param name="depths">where each unit sits in the document; the render reads its anchor off the live writer,
+    /// and this pass must be handed the same anchor.</param>
     internal static Result ForJson(CheckOutcome o, int room, int histogramLimit, JsonWire.JsonUnitDepths depths)
     {
         var s = o.Sweep;
@@ -217,9 +195,7 @@ internal static class SweepDemand
         {
             if (e.CountsOnly)
             {
-                // Gated the way the render gates it: `JsonWire.WriteHistograms` reserves a frame only where
-                // `a.Rows is not null`, so an unconditional frame cost here holds back room for an object the
-                // response never opens. The text lane needs no gate — `a.TextFixed` is 0 for a null-rows axis.
+                // Gated the way the render gates it: a frame only where `a.Rows is not null`.
                 foreach (var a in Wire.ErrorsAxes(e))
                 {
                     if (a.Rows is not null) reserved += JsonWire.HistogramFrameCostFor(a, depths.AxisFrame);
@@ -276,9 +252,7 @@ internal static class SweepDemand
                 {
                     if (rec.ScanError is null) continue;
                     if (t.Done(SweepSubject.ScriptScanRows)) break;
-                    // HistogramRows, not ScriptRecords: the counts_only honesty layer is wrapped
-                    // ({total, rows, rendered, truncated}), so its rows land two levels under the family object
-                    // exactly as `unread.rows` does.
+                    // HistogramRows, not ScriptRecords: the wrapped honesty layer lands two levels down.
                     t.Add(SweepSubject.ScriptScanRows,
                           JsonWire.ScanErrorRowCostFor(rec, depths.HistogramRows, rows > 0));
                     rows++;
