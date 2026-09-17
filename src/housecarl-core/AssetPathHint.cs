@@ -1,34 +1,15 @@
 namespace HousecarlCore;
 
-/// <summary>
-/// The "you probably dropped the root folder" suggestion for an asset path that resolved to nothing.
-///
-/// A model path read straight off a record — <c>Model.File</c> on an NPC / ARMA / STAT — is stored relative to
-/// <c>meshes\</c>, but every asset tool wants it Data-relative, so passing the record's own value verbatim returns a
-/// flat ABSENT that is true for the string as given.
-///
-/// VERIFIED, NEVER GUESSED (the same posture as <see cref="PluginNameSuggest"/>: a wrong "did you mean" is worse than
-/// none). This does not pattern-match the path; it RE-RESOLVES the prefixed candidate through the same asset view and
-/// returns it only if a real active mod or BSA provides it, so a suggestion always names a file that exists.
-///
-/// Cost: one extra snapshot lookup per already-failed path, which is by definition not in the hot loop.
-/// </summary>
+/// <summary>The "you probably dropped the root folder" suggestion for a path that resolved to nothing. VERIFIED,
+/// never guessed: the prefixed candidate is re-resolved through the same view (docs/architecture/assets.md).</summary>
 public static class AssetPathHint
 {
-    /// <summary>The root a record's model path is relative to — the whole reason this helper exists.</summary>
     public static readonly string[] MeshRoot = { @"meshes\" };
 
-    /// <summary>Both asset roots a bare record-relative path could belong under, for the generic asset lane where the
-    /// path's kind isn't known from the tool (a mesh path and a texture path arrive through the same door).</summary>
+    /// <summary>Both asset roots a bare record-relative path could belong under, for the lane that cannot know the path's kind.</summary>
     public static readonly string[] AssetRoots = { @"meshes\", @"textures\" };
 
-    /// <summary>Every <paramref name="prefixes"/> candidate that a real provider supplies for <paramref name="rel"/>
-    /// — i.e. the paths the caller probably meant. EMPTY when there is nothing honest to suggest, which is the common
-    /// case and the safe default:
-    ///   • <paramref name="rel"/> already starts with one of the roots → the missing prefix is not the problem here.
-    ///   • no prefixed candidate resolves → the file genuinely isn't there under any of them.
-    ///   • the path is empty, or so malformed that even the prefixed form is rejected (drive-rooted, '..'-escaping).
-    /// Never throws: a rejected candidate is simply not a suggestion.</summary>
+    /// <summary>Every <paramref name="prefixes"/> candidate a real provider supplies for <paramref name="rel"/>; empty when there is nothing honest to suggest.</summary>
     public static IReadOnlyList<string> VerifiedPrefixes(AssetResolver.AssetView view, string rel, IReadOnlyList<string> prefixes)
     {
         var norm = (rel ?? "").Trim().Replace('/', '\\').TrimStart('\\');
@@ -50,19 +31,14 @@ public static class AssetPathHint
         return (IReadOnlyList<string>?)hits ?? Array.Empty<string>();
     }
 
-    /// <summary>The sentence to append to an ABSENT message for a MESH tool, or null when there is nothing to add.
-    /// Two strengths, and the difference between them is load-bearing: a VERIFIED hit names the file and says
-    /// "did you mean"; a miss names only the CONVENTION and the form the path would take, explicitly stating that
-    /// form isn't provided either — so the weaker note can never be read as "the file is over there".</summary>
+    /// <summary>The sentence to append to an ABSENT message for a MESH tool, or null. A verified hit names the file; a miss names only the convention.</summary>
     public static string? MeshHint(AssetResolver.AssetView view, string rel)
     {
         var norm = (rel ?? "").Trim().Replace('/', '\\').TrimStart('\\');
         if (norm.Length == 0) return null;
         if (norm.StartsWith(@"meshes\", StringComparison.OrdinalIgnoreCase)) return null;   // already Data-relative — the prefix isn't what's wrong
 
-        // BACKTICK-delimited, not single-quoted (as in PluginNameSuggest.DidYouMean): the quoted text is
-        // author-controlled and routinely carries an apostrophe (a "Sanguine's Trade" folder, a "Dragon's Reach"
-        // mesh subtree), which would collide with a wrapping ' and read as a broken quote.
+        // BACKTICK-delimited: the quoted text is author-controlled and routinely carries an apostrophe.
         var hits = VerifiedPrefixes(view, norm, MeshRoot);
         if (hits.Count > 0)
             return $"Did you mean `{hits[0]}`? A record's Model.File is stored relative to meshes\\, so it needs the meshes\\ prefix to be Data-relative.";
@@ -70,13 +46,7 @@ public static class AssetPathHint
              + $"so the Data-relative form would be `meshes\\{norm}` (not provided by any active mod or BSA either).";
     }
 
-    /// <summary>The sentence to append for the GENERIC asset lane — a tool that can't know the path's kind, so it tries
-    /// both roots. Null when there is nothing to add, which is the common case: VERIFIED-ONLY, with no weaker convention
-    /// note. That asymmetry with <see cref="MeshHint"/> is deliberate and matches asset_status — a mesh tool knows every
-    /// path it is handed is a mesh path, so naming the convention is always relevant; this lane legitimately answers for
-    /// <c>sound\</c>, <c>scripts\</c>, <c>interface\</c> and the rest, where a <c>meshes\</c> lecture would be noise.
-    /// Wording (backticks, the "or" join) matches the rendered asset_status line so the same mistake reads the same way
-    /// whichever door the caller came through.</summary>
+    /// <summary>The sentence for the GENERIC asset lane, which tries both roots. VERIFIED-ONLY, with no weaker convention note.</summary>
     public static string? AssetRootHint(AssetResolver.AssetView view, string rel)
     {
         var hits = VerifiedPrefixes(view, rel, AssetRoots);
