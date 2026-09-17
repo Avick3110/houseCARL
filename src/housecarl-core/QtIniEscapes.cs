@@ -2,49 +2,12 @@ using System.Text;
 
 namespace HousecarlCore;
 
-// ======================================================================
-//  QtIniEscapes — read one value out of a Qt/QSettings INI the way Qt
-//  wrote it, for the two MO2 files we read (ModOrganizer.ini and a mod's
-//  meta.ini).
-//
-//  Qt writes any byte outside printable ASCII as \xHH, so a profile named
-//  大肥鱼整合 lands on disk as
-//      selected_profile=@ByteArray(\xe5\xa4\xa7\xe8\x82\xa5\xe9\xb1\xbc...)
-//  and reading that literally gives a folder name that does not exist.
-//
-//  One value is read in four steps, in Qt's own order (Clean does all four):
-//    1. the raw line is trimmed;
-//    2. a surrounding pair of double quotes comes off FIRST — Qt quotes the
-//       whole serialized string, @ByteArray( prefix included, when the value
-//       holds ';' ',' '=' or a leading/trailing space:
-//           selected_profile="@ByteArray(Requiem, AE)";
-//    3. the @ByteArray(...) wrapper comes off (a plain QString value has none),
-//       and @Invalid() means unset;
-//    4. the escaping is undone.
-//
-//  The escape grammar, as QSettingsPrivate::iniEscapedString writes it:
-//    • \xHH... — hex, read GREEDILY (Qt emits no digit count). That is safe
-//      because Qt escapes a hex digit that FOLLOWS a \xHH too, so a run never
-//      runs into ordinary text. A run of byte-sized values is UTF-8 bytes and
-//      decodes as one string; a value above 0xFF is a single UTF-16 code unit
-//      (the old Qt5 form).
-//    • the named escapes \\ \" \; \, \= \0 \a \b \f \n \r \t \v.
-//
-//  Qt doubles EVERY backslash, so a Qt-written value never carries a lone one.
-//  A value that does carry one was not written by Qt (hand-edited, or an
-//  installer that writes the file itself), and its backslashes are literal
-//  path separators: the whole value is then left exactly as it stands rather
-//  than half-decoded. That is decided once per value, on whether every
-//  backslash in it begins a known escape — never per escape, so 'D:\newgame'
-//  cannot lose its 'n' to a value that is plainly not Qt's.
-// ======================================================================
+// Read one value out of a Qt/QSettings INI the way Qt wrote it; the four read steps and the escape grammar are in docs/architecture/mo2-instance.md.
 
 /// <summary>Read one Qt/QSettings INI value: quotes, the <c>@ByteArray(...)</c> wrapper, and Qt's escaping.</summary>
 internal static class QtIniEscapes
 {
-    /// <summary>The whole read for one raw <c>key=</c> value: trim the line, drop a surrounding quote pair, unwrap
-    /// <c>@ByteArray(...)</c>, treat <c>@Invalid()</c> as unset, and unescape. Null when the value is unset or empty.
-    /// The trim is on the RAW line only — a leading space Qt preserved inside quotes survives.</summary>
+    /// <summary>The whole read for one raw <c>key=</c> value: trim, drop a surrounding quote pair, unwrap <c>@ByteArray(...)</c>, treat <c>@Invalid()</c> as unset, and unescape; null when the value is unset or empty.</summary>
     public static string? Clean(string? raw)
     {
         if (raw is null) return null;
@@ -59,9 +22,7 @@ internal static class QtIniEscapes
         return v.Length == 0 ? null : v;
     }
 
-    /// <summary>Undo Qt's escaping on an already-unwrapped value: <c>\xHH</c> runs (UTF-8 bytes; a value above 0xFF is
-    /// a UTF-16 code unit) and the named escapes <c>\\ \" \; \, \= \0 \a \b \f \n \r \t \v</c>. A value holding a
-    /// backslash that does not begin one of those was not written by Qt, and comes back unchanged.</summary>
+    /// <summary>Undo Qt's escaping on an already-unwrapped value; a value holding a backslash that begins none of Qt's escapes was not written by Qt and comes back unchanged.</summary>
     public static string Unescape(string value)
     {
         if (!IsQtEscaped(value)) return value;
@@ -104,8 +65,7 @@ internal static class QtIniEscapes
         }
     }
 
-    /// <summary>True when every backslash in the value begins an escape Qt writes — i.e. the value could have come out
-    /// of Qt's writer. False for a lone backslash (a literal path separator someone typed).</summary>
+    /// <summary>True when every backslash in the value begins an escape Qt writes — i.e. the value could have come out of Qt's writer.</summary>
     static bool IsQtEscaped(string value)
     {
         int i = value.IndexOf('\\');
@@ -138,8 +98,7 @@ internal static class QtIniEscapes
         _ => null,
     };
 
-    /// <summary>Parse a greedy hex run into a code point, or false when it is wider than a UTF-16 code unit (then the
-    /// value is not Qt's and is left alone rather than silently decoding to something else).</summary>
+    /// <summary>Parse a greedy hex run into a code point, or false when it is wider than a UTF-16 code unit and the value is therefore not Qt's.</summary>
     static bool TryHex(ReadOnlySpan<char> digits, out uint code)
     {
         code = 0;

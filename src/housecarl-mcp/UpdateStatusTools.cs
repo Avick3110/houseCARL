@@ -4,9 +4,7 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>The local mod-update reader: reads the modid / version / newestVersion fields MO2 writes into each mod's
-/// meta.ini and reports which installed mods MO2 already believes have a newer version. Offline and read-only — it
-/// never contacts Nexus.</summary>
+/// <summary>The local mod-update reader: reads the modid / version / newestVersion fields MO2 writes into each mod's meta.ini and reports which mods MO2 already believes have a newer version. Offline and read-only.</summary>
 [McpServerToolType]
 public static class UpdateStatusTools
 {
@@ -32,9 +30,7 @@ public static class UpdateStatusTools
     });
 }
 
-/// <summary>Renders <see cref="UpdateCacheData"/>: a summary line, the mods MO2 has a newer version cached for, then
-/// the ignored set. Current and never-checked mods are counted, not listed. Every render ends with the note that this
-/// is MO2's cached view, not a live Nexus check.</summary>
+/// <summary>Renders <see cref="UpdateCacheData"/>: a summary line, the mods MO2 has a newer version cached for, then the ignored set; every render ends with the note that this is MO2's cached view.</summary>
 static class UpdateStatusWire
 {
     public static string Render(UpdateCacheData d, int cap)
@@ -92,8 +88,7 @@ static class UpdateStatusWire
             if (e.Enabled == false) sb.Append("  [disabled]");
             sb.Append("  [id ").Append(e.ModId).Append("]  installed v").Append(e.Installed ?? "?")
               .Append(" · MO2 cached v").Append(e.Newest ?? "?");
-            // The installed file ids are the join key for a file-level live check ('id#fileid'), which is what clears
-            // the multi-file-page false positive. A FOMOD or manual mod has none, and that is stated rather than implied.
+            // The installed file ids are the join key for a file-level live check, which is what clears the multi-file-page false positive; a FOMOD or manual mod has none, and that is stated.
             if (e.InstalledFileIds.Count > 0)
                 sb.Append("  · verify: ").Append(e.ModId).Append('#')
                   .Append(string.Join("#", e.InstalledFileIds));   // '#' joins fileids — ',' separates ENTRIES in the check grammar
