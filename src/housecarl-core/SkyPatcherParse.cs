@@ -2,83 +2,28 @@ using System.Globalization;
 
 namespace HousecarlCore;
 
-/// <summary>
-/// Structural parser for a SkyPatcher patch line — the catalog-FREE tokenizer spine of the
-/// SkyPatcher distributor subsystem. It turns one line of a
-/// <c>Data/SKSE/Plugins/SkyPatcher/&lt;type&gt;/&lt;file&gt;.ini</c>
-/// into a typed model WITHOUT knowing what any key MEANS. That semantic layer — filter vs operation,
-/// operation shape, field mapping, CLEAN/COLLECTION/HARD tractability — is the <b>catalog</b>, built
-/// on top of this. Keeping the two apart is deliberate: the tokenizer is pure, universal
-/// grammar mechanics and can't drift when the (hand-modeled) catalog changes.
-///
-/// <para><b>Grammar</b> (from the skypatcher-authoring reference):</para>
-/// <code>
-///   line         := ';' comment | blank | patch
-///   patch        := segment ( ':' segment )*
-///   segment      := key '=' value
-///   value        := item ( ',' item )*
-///   item         := address | name-literal | scalar | compound
-///   address      := plugin '|' formid            (FormID form — unambiguous grammar)
-///                 | editorid                      (deferred: see "Address" note below)
-///   name-literal := '~' text '~'                  (rename ops: fullName=~New Name~)
-///   compound     := part ( '~' part )*            (mgefsToAdd=Form~Mag~Dur~Area)
-/// </code>
-///
-/// <para><b>Address boundary.</b> Only the unambiguous <c>Plugin.esp|FormID</c> form is resolved
-/// here. A bare identifier is left un-addressed because an EditorID (<c>filterByWeapons=IronSword</c>)
-/// and an enum scalar (<c>armorType=heavy</c>) are lexically identical — telling them apart needs the
-/// catalog's knowledge of whether the key is form-valued. EditorID resolution therefore belongs to the
-/// overlay engine; the catalog classifies keys, it does not resolve values.</para>
-///
-/// <para><b>No silent failure.</b> A malformed segment (no <c>=</c>, empty key) is captured as a
-/// loud <see cref="SkyPatcherLine.Note"/> and the segment is still surfaced — never dropped silently.</para>
-///
-/// <para><b>KNOWN LIMITATION.</b> Line splitting on <c>:</c> is naive, matching
-/// the documented "<c>:</c> separates every segment" — a rename literal that itself contains a colon
-/// (<c>fullName=~Sword: Reforged~</c>) would be over-split. The same applies to the <c>,</c> item split:
-/// a name-literal containing a comma (<c>fullName=~Amulet of Mara, Blessed~</c>) is over-split into two
-/// broken items, because comma-splitting runs before literal detection. Likewise the compound <c>~</c>
-/// split: a plugin filename that itself contains <c>~</c> (legal on Windows, unaddressable by the
-/// distributor grammars' own <c>~</c>-reserved syntax) over-splits and loses its address. SkyPatcher's
-/// real delimiter precedence must be verified against the running DLL before any of this is hardened —
-/// do not assume it here.</para>
-/// </summary>
+/// <summary>Structural tokenizer for one SkyPatcher patch line — grammar only, no key semantics; contract in docs/architecture/skypatcher-layer.md.</summary>
 public static class SkyPatcherParse
 {
     /// <summary>Parse one physical line. Never throws — a malformed line returns a Patch line carrying a Note.</summary>
     public static SkyPatcherLine ParseLine(string raw)
     {
         raw ??= "";
-        // A stray U+FEFF (BOM) is treated as whitespace ANYWHERE in the line, including mid-line when a
-        // concatenated fragment lacks a trailing newline: real shipped INIs carry one not only at the file
-        // start but MID-FILE at a line start (a BOM'd file concatenated onto another), and it would
-        // otherwise ride into the key. U+FEFF is never a legal key/value character, so replacing it with a
-        // space is lossless — the edge and segment trims absorb it.
+        // A stray U+FEFF is whitespace anywhere in the line; it is never a legal key/value character.
         var trimmed = raw.Replace('\uFEFF', ' ').Trim();
 
         if (trimmed.Length == 0)
             return new SkyPatcherLine(raw, SkyPatcherLineKind.Blank, Array.Empty<SkyPatcherSegment>(), null);
 
-        // Documented behavior: a comment line begins with ';'. (Trailing inline comments are NOT stripped
-        // here — SkyPatcher value tokens don't contain ';', but stripping mid-line risks eating a value, so
-        // it stays unverified rather than a silent guess.)
         if (trimmed[0] == ';')
             return new SkyPatcherLine(raw, SkyPatcherLineKind.Comment, Array.Empty<SkyPatcherSegment>(), null);
 
-        // An INI-style section/label line — a trimmed line wrapped in '[' … ']' (e.g. a converter's
-        // '[Vernaccus]' human label above the real lines). It carries no key=value segment and cannot
-        // target or mutate a record, so it is INERT — no segments, no note. Without this it parsed as a
-        // malformed no-'=' Patch, and the overlay then warned it as a possible unresolved filter AND
-        // counted it. A real patch line always leads with a key, never '[', so the whole-line
-        // bracket wrap is an unambiguous label. Every downstream consumer keys off Patch, so a Label line
-        // is skipped and uncounted everywhere, and its physical position is preserved for later real lines.
         if (trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[^1] == ']')
             return new SkyPatcherLine(raw, SkyPatcherLineKind.Label, Array.Empty<SkyPatcherSegment>(), null);
 
         var segments = new List<SkyPatcherSegment>();
         string? note = null;
 
-        // Segments are ':'-separated. Split the trimmed line; each segment is edge-trimmed again below.
         foreach (var rawSeg in trimmed.Split(':'))
         {
             var seg = rawSeg.Trim();
@@ -116,20 +61,15 @@ public static class SkyPatcherParse
     {
         var lines = new List<SkyPatcherLine>();
         if (string.IsNullOrEmpty(text)) return lines;
-        // A UTF-8 BOM decoded into the text otherwise rides into the FIRST line's first key and makes it
-        // classify Unknown — real shipped INIs carry one — so it is stripped exactly at position 0,
-        // nowhere else.
+        // A UTF-8 BOM decoded into the text is stripped at position 0 only.
         if (text[0] == '\uFEFF') text = text[1..];
-        // Split on any newline flavor; keep empties so line indices track the source file.
+        // Empties are kept so line indices track the source file.
         foreach (var raw in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
             lines.Add(ParseLine(raw));
         return lines;
     }
 
-    /// <summary>Comma-split a segment's raw value into items, parsing each. Empty value ⇒ no items.
-    /// An empty comma-item (doubled/trailing ',') is skipped WITH a loud note — the same never-drop-
-    /// silently treatment the empty ':'-segment gets (a form deleted between commas is a realistic
-    /// hand-edit slip the reader must surface, not absorb).</summary>
+    /// <summary>Comma-split a segment's raw value into items; an empty item is skipped with a loud note.</summary>
     static IReadOnlyList<SkyPatcherValue> ParseValueList(string rawValue, ref string? note)
     {
         if (rawValue.Length == 0) return Array.Empty<SkyPatcherValue>();
@@ -147,15 +87,9 @@ public static class SkyPatcherParse
         return items;
     }
 
-    /// <summary>
-    /// Parse one comma-item. A <c>~…~</c>-wrapped item is a rename name-literal; otherwise the item is
-    /// treated as a <c>~</c>-packed compound (single-element when there's no <c>~</c>), and the first
-    /// sub-arg is address-parsed (FormID form only — see class note).
-    /// </summary>
+    /// <summary>Parse one comma-item: a <c>~…~</c> rename name-literal, or a <c>~</c>-packed compound whose first sub-arg is address-parsed.</summary>
     static SkyPatcherValue ParseValue(string item)
     {
-        // Name literal: starts AND ends with '~' (e.g. fullName=~New Name~). This is lexically distinct
-        // from a compound a~b~c, which does not start with '~'. Internal text is preserved verbatim.
         if (item.Length >= 2 && item[0] == '~' && item[^1] == '~')
         {
             var name = item[1..^1];
@@ -168,11 +102,7 @@ public static class SkyPatcherParse
         return new SkyPatcherValue(item, IsNameLiteral: false, NameText: null, SubArgs: subArgs, Address: address);
     }
 
-    /// <summary>
-    /// Resolve the unambiguous <c>Plugin.esp|FormID</c> address form. Returns null for anything else
-    /// (a scalar, an enum value, or a bare EditorID — EditorID vs scalar can't be told apart without
-    /// knowing whether the key is form-valued, so it's deferred to the overlay engine).
-    /// </summary>
+    /// <summary>Resolve the unambiguous <c>Plugin.esp|FormID</c> address form; null for anything else, including a bare EditorID.</summary>
     public static FormAddress? TryParseAddress(string token)
     {
         if (string.IsNullOrEmpty(token)) return null;
@@ -183,8 +113,7 @@ public static class SkyPatcherParse
         var hex = token[(bar + 1)..].Trim();
         if (plugin.Length == 0 || hex.Length == 0) return null;
 
-        // FormID is hex, leading zeros trimmable (myMod.esp|08000223 ≡ myMod.esp|223). If the right side
-        // isn't clean hex it isn't this address form (e.g. objectsToAdd's "form=count" packs an '=').
+        // FormID is hex with trimmable leading zeros; a right side that is not clean hex is not this form.
         if (!uint.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var formId))
             return null;
 
@@ -203,10 +132,7 @@ public enum SkyPatcherLineKind
     Comment,
     /// <summary>A patch line (one or more key=value segments).</summary>
     Patch,
-    /// <summary>An INI-style section/label line — a trimmed line wrapped in '[' … ']' (e.g. a converter's
-    /// '[NpcName]' human label). INERT: it carries no key=value operation, so it holds no segments and no
-    /// note, and every consumer (which all key off <see cref="Patch"/>) skips it — it is neither a patch
-    /// line nor a malformed one. Appended last so the earlier members keep their ordinals.</summary>
+    /// <summary>A whole-line '[' … ']' label — inert: no segments, no note, skipped by every consumer.</summary>
     Label,
 }
 
@@ -217,21 +143,13 @@ public sealed record SkyPatcherLine(
     IReadOnlyList<SkyPatcherSegment> Segments,
     string? Note);
 
-/// <summary>
-/// One <c>key=value</c> segment. Whether this is a filter or an operation — and, for operations, its
-/// shape and field mapping — is the catalog's job; the tokenizer only carries key + values.
-/// <see cref="RawValue"/> is null only for a malformed no-'=' segment.
-/// </summary>
+/// <summary>One <c>key=value</c> segment; <see cref="RawValue"/> is null only for a malformed no-'=' segment.</summary>
 public sealed record SkyPatcherSegment(
     string Key,
     string? RawValue,
     IReadOnlyList<SkyPatcherValue> Values);
 
-/// <summary>
-/// One comma-item of a segment's value. Either a rename name-literal (<see cref="IsNameLiteral"/>,
-/// <see cref="NameText"/>) or a <c>~</c>-packed compound (<see cref="SubArgs"/>, single-element when
-/// there's no <c>~</c>). <see cref="Address"/> is the FormID address of the first sub-arg when present.
-/// </summary>
+/// <summary>One comma-item of a segment's value: a rename name-literal or a <c>~</c>-packed compound, with the first sub-arg's FormID address when it has one.</summary>
 public sealed record SkyPatcherValue(
     string Raw,
     bool IsNameLiteral,
@@ -239,10 +157,7 @@ public sealed record SkyPatcherValue(
     IReadOnlyList<string> SubArgs,
     FormAddress? Address);
 
-/// <summary>
-/// A resolved form address. The tokenizer only produces the FormID form (<see cref="Plugin"/> + <see cref="FormId"/>);
-/// <see cref="EditorId"/> is reserved for the overlay engine, which knows which keys are form-valued.
-/// </summary>
+/// <summary>A resolved form address; the tokenizer produces only the FormID form, and <see cref="EditorId"/> is the overlay engine's to fill.</summary>
 public sealed record FormAddress(string? Plugin, uint? FormId, string? EditorId)
 {
     /// <summary>True when this is the <c>Plugin.esp|FormID</c> form.</summary>

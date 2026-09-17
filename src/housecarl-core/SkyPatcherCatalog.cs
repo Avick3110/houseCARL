@@ -3,29 +3,10 @@ using System.Text.Json;
 
 namespace HousecarlCore;
 
-/// <summary>
-/// The SkyPatcher grammar CATALOG — the semantic layer over <see cref="SkyPatcherParse"/>. Where the
-/// tokenizer says "here is a <c>key=value</c> segment", the catalog answers "that key is a FILTER of this
-/// kind / an OPERATION of this shape and CLEAN/COLLECTION/HARD tractability — or it is NOT in the
-/// SkyPatcher reference at all."
-///
-/// <para><b>Closed set, warn on unknown.</b> The catalog is the full enumeration of every documented
-/// filter and operation per record type, transcribed from the bundled <c>skypatcher-authoring</c>
-/// reference and never invented. A key that resolves to no entry is reported as
-/// <see cref="SkyPatcherKeyRole.Unknown"/>, never silently assumed.</para>
-///
-/// <para>Loaded once from the embedded <c>skypatcher-catalog.json</c>; the record dimension (name / sig /
-/// subfolder / primaryFilter) is cross-checked in CI against the router table in the
-/// <c>skypatcher-authoring</c> skill's <c>SKILL.md</c>. Field-path
-/// mapping onto Mutagen records belongs to the overlay engine: the catalog classifies keys, it does not
-/// resolve values.</para>
-/// </summary>
+/// <summary>The SkyPatcher grammar catalog — classifies one segment key as a filter, an operation, or Unknown; contract in docs/architecture/skypatcher-layer.md.</summary>
 public sealed class SkyPatcherCatalog
 {
-    /// <summary>The connective vocabulary, DERIVED from the loaded catalog (union of every filter's
-    /// non-empty connectives) so it can't drift from the JSON — a re-transcribed new connective is
-    /// stripped without touching this class. Longest-first so 'Excluded' is tried before 'Exclude'
-    /// before 'Or'; ties broken ordinally for determinism.</summary>
+    /// <summary>The connective vocabulary derived from the loaded catalog, longest-first with ordinal tie-breaks.</summary>
     readonly string[] _connectiveSuffixes;
 
     /// <summary>Every record type's catalog, in load order.</summary>
@@ -45,10 +26,7 @@ public sealed class SkyPatcherCatalog
         _lookup = new(StringComparer.OrdinalIgnoreCase);
         foreach (var r in records)
         {
-            // Deliberate case asymmetry: subfolders match case-INSENSITIVELY (Windows paths), but filter/op
-            // key names match case-SENSITIVELY as the reference documents them. Whether the real SkyPatcher
-            // DLL accepts e.g. 'attackdamage' is unverified, so a wrong-cased key classifies as Unknown —
-            // a loud warn, never a silent guess.
+            // Subfolders match case-insensitively; filter/op key names match case-sensitively as documented.
             _bySubfolder[r.Subfolder] = r;
             _lookup[r.Subfolder] = new RecordLookup(
                 r.Filters.ToDictionary(f => f.Name, f => f, StringComparer.Ordinal),
@@ -63,15 +41,7 @@ public sealed class SkyPatcherCatalog
     public SkyPatcherRecordCatalog? ForSubfolder(string subfolder)
         => subfolder is not null && _bySubfolder.TryGetValue(subfolder, out var r) ? r : null;
 
-    /// <summary>
-    /// Classify a raw segment key against a record type's catalog. Order: exact operation (ops take no
-    /// connective) → bare filter → filter + a documented connective suffix → Unknown. Both filter paths
-    /// enforce the documented connective set: the bare form is only valid when the filter documents ""
-    /// among its connectives (six filters exist ONLY in suffixed form — e.g. filterByFirstPersonModelOr —
-    /// and their bare spelling is an undocumented token that must warn, not pass), and a suffix is only
-    /// stripped when the remaining base is a real filter that documents that connective, so an operation
-    /// that merely ends in "Or" isn't mis-split.
-    /// </summary>
+    /// <summary>Classify a segment key: exact operation, then bare filter, then filter + a documented connective suffix, then Unknown.</summary>
     public SkyPatcherKeyClass Classify(SkyPatcherRecordCatalog record, string key)
     {
         var lk = _lookup[record.Subfolder];
@@ -97,8 +67,7 @@ public sealed class SkyPatcherCatalog
 
     static SkyPatcherCatalog? _cached;
 
-    /// <summary>Load the embedded catalog (memoized). Throws loudly on a missing/malformed resource — a
-    /// catalog that silently loaded empty would make every op read as Unknown.</summary>
+    /// <summary>Load the embedded catalog (memoized); throws loudly on a missing or malformed resource.</summary>
     public static SkyPatcherCatalog Load() => _cached ??= LoadFrom(EmbeddedJson.Read("skypatcher-catalog.json", "SkyPatcher catalog"));
 
     /// <summary>Parse a catalog from JSON text; also the entry point tests use for a fixture.</summary>
@@ -117,9 +86,7 @@ public sealed class SkyPatcherCatalog
         var filters = new List<SkyPatcherFilterDef>();
         var ops = new List<SkyPatcherOpDef>();
 
-        // A present-but-wrong-kind node throws loudly like every other malformed field: a mistyped
-        // 'filters'/'operations'/'connectives' parsed as empty would make every key read Unknown with
-        // no load error at all.
+        // A present-but-wrong-kind node throws loudly, like every other malformed field.
         if (el.TryGetProperty("filters", out var fs) && RequireArray(fs, "filters", recordType))
             foreach (var f in fs.EnumerateArray())
                 filters.Add(new SkyPatcherFilterDef(
@@ -220,12 +187,7 @@ public sealed record SkyPatcherRecordCatalog(
     IReadOnlyList<SkyPatcherOpDef> Operations,
     string? Note);
 
-/// <summary>
-/// The classification of one segment key against a record type. For a filter, <see cref="Connective"/>
-/// is "" (bare) / "Or" / "Excluded" / "Exclude" and <see cref="BaseKey"/> is the connective-stripped
-/// name. For an operation, <see cref="Operation"/> is set. <see cref="SkyPatcherKeyRole.Unknown"/> means
-/// the key is in no reference entry for this type — surface it, don't assume.
-/// </summary>
+/// <summary>One segment key's classification: a filter with its connective-stripped <see cref="BaseKey"/>, an <see cref="Operation"/>, or Unknown.</summary>
 public sealed record SkyPatcherKeyClass(
     SkyPatcherKeyRole Role,
     string BaseKey,
