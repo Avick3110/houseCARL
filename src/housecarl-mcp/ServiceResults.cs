@@ -304,7 +304,7 @@ public enum NativePairingRung
     Unpaired,
 }
 
-/// <summary>One candidate DLL a paired mod ships: its VFS identity, the loose winning copy's manifest, and <see cref="LoadBlocker"/>, the static reason it will NOT load. version-LOCKED-vs-runtime is adjudicated at render time against <see cref="NativePairingAuditData.InstalledRuntime"/>.</summary>
+/// <summary>One candidate DLL a paired mod ships: its VFS identity, the loose winning copy's manifest, and <see cref="LoadBlocker"/>; static-load rule in docs/architecture/skse-layer.md.</summary>
 public sealed record NativePairedDll(
     string RelPath,
     string FileName,
