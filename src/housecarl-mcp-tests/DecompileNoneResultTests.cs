@@ -607,6 +607,27 @@ public class DecompileNoneResultTests
         Assert.Contains("::temp1", Assert.Single(res.Failures));
     }
 
+    [Fact]
+    public void APureValueHeldBackPastAStoreIsNotRefused()
+    {
+        // The held-back value is arithmetic on locals: it runs no call and reads nothing through an object,
+        // so it cannot see the property set and the set cannot see it. Emitting it after is the stream.
+        var f = Fn(("HC_NoneTarget", "f"), ("Int", "a"), ("Int", "b"));
+        Local(f, "Int", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "Int", "y");
+        Ins(f, InstructionOpcode.IADD, Id("::temp0"), Id("a"), Int(1));
+        Ins(f, InstructionOpcode.IADD, Id("::temp1"), Id("b"), Int(2));
+        Ins(f, InstructionOpcode.PROPSET, Str("Prop"), Id("f"), Id("::temp0"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("y"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("PureHeldBack", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        AssertOrder(res.Source, "f.Prop = a + 1", "y = b + 2");
+    }
+
     /// <summary>No emitted line carries <paramref name="stranded"/> after a `return` in the same block.</summary>
     static void AssertNoStatementAfterReturn(string source, string stranded)
     {
