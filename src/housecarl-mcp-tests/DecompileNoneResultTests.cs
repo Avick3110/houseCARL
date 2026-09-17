@@ -974,6 +974,27 @@ public class DecompileNoneResultTests
         AssertOrder(res.Source, "f.Poke() + 1", "f.Bar()");
     }
 
+    [Fact]
+    public void ADiscardedPropertyReadHeldBackPastACallIsRefused()
+    {
+        // The shape this change would otherwise open: a discarded property read now comes back as a
+        // statement, so without the ordering refusal it would be emitted after the call it ran before.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "HC_NoneTarget", "::temp0");
+        Local(f, "Float", "::temp1");
+        Local(f, "None", "::NoneVar");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.PROPGET, Id("Prop"), Id("self"), Id("::temp1"));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Eat"), Id("f"), Id("::NoneVar"), Int(1), Id("::temp0"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("HeldBackPropGet", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+        Assert.DoesNotContain("f.Eat(f.Poke())", res.Source);
+    }
+
     /// <summary>No emitted line carries <paramref name="stranded"/> after a `return` in the same block.</summary>
     static void AssertNoStatementAfterReturn(string source, string stranded)
     {
