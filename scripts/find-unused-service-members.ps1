@@ -28,6 +28,10 @@ param(
     [switch]$All
 )
 
+# Absolute, once: the paths below are sliced by $Root.Length against an absolute FullName,
+# so a relative -Root would cut the wrong number of characters off every one of them.
+$Root = (Resolve-Path -LiteralPath $Root).Path
+
 $scopePath = Join-Path $Root $Scope
 if (-not (Test-Path -LiteralPath $scopePath)) { throw "not found: $scopePath" }
 $files = @(Get-ChildItem -LiteralPath $scopePath -Recurse -Filter *.cs)
