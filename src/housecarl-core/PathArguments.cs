@@ -1,16 +1,9 @@
 namespace HousecarlCore;
 
-/// <summary>The one absolute-path rule for every path a CALLER names — an out_path folder, a to_file artifact, an
-/// '@file' list, a draft INI. The server's working directory is not the caller's, so a path that is not absolute
-/// resolves somewhere neither of them meant while the response names the path that was typed. It lives in core
-/// because the predicate and draft readers are here: one definition for the whole surface, not one per assembly.</summary>
+/// <summary>The one absolute-path rule for every path a CALLER names; contract in docs/architecture/output-and-artifacts.md.</summary>
 public static class PathArguments
 {
-    /// <summary>The refusal for a path that is not absolute, or null when it is fine. FULLY-QUALIFIED, not merely
-    /// rooted: 'C:work' and '\work' are rooted and still resolve against the server's own directory.
-    /// <paramref name="label"/> opens the sentence (the parameter, as that lane spells it), <paramref name="what"/>
-    /// names what to pass, and <paramref name="example"/> shows one for that lane. Carries no "error:" prefix, so a
-    /// caller that throws and a caller that returns a string can both use it.</summary>
+    /// <summary>The refusal for a path that is not FULLY QUALIFIED, or null when it is fine, worded from the calling lane's own label, target and example.</summary>
     public static string? NotAbsolute(string given, string label, string what, string example)
         => Path.IsPathFullyQualified(given)
             ? null

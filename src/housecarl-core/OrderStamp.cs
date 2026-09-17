@@ -1,24 +1,9 @@
 namespace HousecarlCore;
 
-/// <summary>One index build's fingerprint AND the plugins that build lost to a load failure, as a single value.
-///
-/// <para>A plugin that becomes unopenable or unparseable mid-session drops out of the next index build, and every
-/// read after it answers normally off the narrowed order — shallower override depth, fewer touchers, sometimes a
-/// different winner. The epoch changes, but a legitimate reorder changes it too, so within one response a
-/// failure-degraded order and a legitimately reordered one look the same (#353). The marker says which.</para>
-///
-/// <para>The two facts travel together rather than being re-derived from the epoch through a side table: a response
-/// stamped with a build is holding the build's excluded set already, and a table lookup can MISS — which renders as
-/// a clean bill of health, the silence this marker exists to end. Carrying them as one value also means an outcome
-/// cannot hold an epoch without holding its health: there is no second field for a lane to forget.</para>
-///
-/// <para>The health is a SIBLING of the epoch, never inside it: the epoch is opaque and compared only for equality,
-/// so folding health into the string would leave two builds that differ only in health comparing as merely
-/// "different" — today's ambiguity re-spelled.</para></summary>
+/// <summary>One index build's fingerprint AND the plugins that build lost to a load failure, as a single value; contract in docs/architecture/output-and-artifacts.md.</summary>
 public sealed record OrderStamp(string Epoch, IReadOnlyList<string> ExcludedPlugins)
 {
-    /// <summary>Did this build LOSE plugins to a load failure? False for a healthy order, and every lane stays
-    /// silent on one.</summary>
+    /// <summary>Did this build LOSE plugins to a load failure? Every lane stays silent on a healthy order.</summary>
     public bool Degraded => ExcludedPlugins.Count > 0;
 
     /// <summary>The one sentence the json lanes carry, or null on a healthy build.</summary>
@@ -27,26 +12,18 @@ public sealed record OrderStamp(string Epoch, IReadOnlyList<string> ExcludedPlug
     /// <summary>The short clause a TEXT head line appends beside <c>epoch=</c>, or "" on a healthy build.</summary>
     public string Clause => OrderDegraded.Clause(ExcludedPlugins.Count);
 
-    /// <summary>The stamp for a build, with its excluded roster sorted once so every response spells it the same.
-    /// </summary>
+    /// <summary>The stamp for a build, with its excluded roster sorted once so every response spells it the same.</summary>
     public static OrderStamp For(string epoch, IEnumerable<string> excludedPlugins) =>
         new(epoch, excludedPlugins.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToArray());
 }
 
-/// <summary>The two spellings of the degraded-order marker, so the json note and the text clause cannot drift.
-/// Both take the excluded set the answer is holding — never a lookup that can come back empty.</summary>
+/// <summary>The two spellings of the degraded-order marker, so the json note and the text clause cannot drift.</summary>
 public static class OrderDegraded
 {
-    /// <summary>How many plugin names the sentence lists before it counts the rest — the note stays one readable
-    /// sentence, and the COUNT is always exact even when the names are not all there.</summary>
+    /// <summary>How many plugin names the sentence lists before it counts the rest; the count stays exact either way.</summary>
     const int NamesShown = 10;
 
-    /// <summary>What the caller needs to know in one sentence: how many plugins are missing, which ones, that the
-    /// order is short of them because a LOAD FAILED rather than because the order was rearranged, and where the
-    /// reason is. It does not say whether the caller caused the failure: a plugin is excluded either because
-    /// Mutagen cannot parse a record in it (nothing the caller did) or because it could not be opened, which is
-    /// most often exactly what the caller did — disabled or removed the mod while plugins.txt still lists it.
-    /// Which of the two applies is per-plugin, and <c>housecarl_load_order_status</c> says it per plugin.</summary>
+    /// <summary>The one sentence: how many plugins are missing, which ones, that a LOAD FAILED rather than the order being rearranged, and where the per-plugin reason is.</summary>
     public static string Sentence(IReadOnlyCollection<string> excludedPlugins)
     {
         var names = excludedPlugins.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
@@ -57,8 +34,6 @@ public static class OrderDegraded
                "housecarl_load_order_status gives the reason for each.";
     }
 
-    /// <summary>The text head line's clause for a build that lost <paramref name="count"/> plugins, or "" for a
-    /// healthy one. Says the count, so a reader scanning the head sees the order is short of plugins without the
-    /// sentence taking over the line.</summary>
+    /// <summary>The text head line's clause for a build that lost <paramref name="count"/> plugins, or "" for a healthy one.</summary>
     public static string Clause(int count) => count > 0 ? $" · {count} plugin(s) excluded (load failure)" : "";
 }
