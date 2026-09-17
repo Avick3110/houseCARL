@@ -311,7 +311,7 @@ static class AssetWire
     /// Above the per-path list, with the other alarms, so a truncated sweep cannot cut it away. Capped like its two
     /// sibling alarm blocks: one note per selector is bounded by the call's own input, but that input can be thousands
     /// of selectors, which would write megabytes before the per-path loop ever checks the budget.</summary>
-    static void AppendSelectorNotes(StringBuilder sb, IReadOnlyList<string>? notes, RenderCap cap)
+    internal static void AppendSelectorNotes(StringBuilder sb, IReadOnlyList<string>? notes, RenderCap cap)
     {
         if (notes is not { Count: > 0 }) return;
         // The heading carries the count and is written whatever the budget — a selector that matched nothing must not
@@ -488,26 +488,30 @@ static class AssetCensus
     /// defaults to on this tool.</summary>
     internal static int RowLimit(int limit) => limit > 0 ? limit : int.MaxValue;
 
+    /// <summary>The two counter lines — the census's whole answer, written whatever the budget says. Composed
+    /// rather than appended so the reserve and the render read one spelling.</summary>
+    static string Counters(Counts c) =>
+        $"\ncensus: counted={c.Selected} present={c.Present} absent={c.Absent} errors={c.Errors}\n"
+        + $"winners: loose={c.Loose} BSA={c.Bsa}\n";
+
     /// <summary>The text census: the alarms an ABSENT count depends on, the counters, then the layer axis. The
     /// counters are exact whatever the axis's cut, so a cut table never makes a total wrong.</summary>
     public static string Render(AssetStatusData d, int cap, int limit)
     {
         var c = Tally(d);
         var sb = new StringBuilder(AssetWire.Header(d)).Append('\n');
+        // What this response writes whatever the budget says, held back BEFORE the alarms — the counters, and the
+        // axis's note, head and cut line. The alarms are the only cuttable thing above the axis, so uncharged they
+        // take the room the census's own answer needs and the response lands over the cap on a cut that would have
+        // fitted. The path render holds its accounting back the same way.
+        var room = RenderCap.For(cap, Counters(c).Length + Axis(c).TextFixed);
         // The alarms first, for the reason the path render puts them first: an ABSENT count is authoritative only
         // where an archive read failed nowhere, and a long table must not be able to cut that away.
-        var room = RenderCap.For(cap, 0);
         BatchRender.AppendReadFailures(sb, d.BsaFailures, "an asset", room);
         BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, room);
-        if (d.SelectorNotes is { Count: > 0 } notes)
-        {
-            sb.Append("\n[!] under (").Append(notes.Count).Append("):\n");
-            BatchRender.AppendLines(sb, notes, "selector(s)", room);
-        }
+        AssetWire.AppendSelectorNotes(sb, d.SelectorNotes, room);
 
-        sb.Append("\ncensus: counted=").Append(c.Selected).Append(" present=").Append(c.Present)
-          .Append(" absent=").Append(c.Absent).Append(" errors=").Append(c.Errors).Append('\n');
-        sb.Append("winners: loose=").Append(c.Loose).Append(" BSA=").Append(c.Bsa).Append('\n');
+        sb.Append(Counters(c));
 
         // The one bounded emission path, as the sweep lanes use it: the budget is the whole cap, because
         // Outstanding reads the live builder and so already charges everything written above.
