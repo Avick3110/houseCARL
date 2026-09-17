@@ -529,15 +529,26 @@ public sealed class PapyrusDecompiler
         bool CanObserveAnEffect(string name)
             => _pendingLastCall[name] != int.MinValue || ReadsThroughAnObject(_pending[name]);
 
-        static bool ReadsThroughAnObject(Expr e) => e switch
+        bool ReadsThroughAnObject(Expr e) => e switch
         {
             EProp or EIndex or ELen or EFind or ECall or EStatic or EParent => true,
+            // A bare identifier is a member read unless it names something in function scope: the store this
+            // value is being moved past may be to that very member, and a call may write it.
+            EIdent id => !IsFunctionScopedRendered(id.Name),
             EBin b => ReadsThroughAnObject(b.L) || ReadsThroughAnObject(b.R),
             EUn u => ReadsThroughAnObject(u.E),
             ECast c => ReadsThroughAnObject(c.E),
             ENew n => ReadsThroughAnObject(n.Size),
             _ => false,
         };
+
+        /// <summary>Is this RENDERED name a function local or parameter? An expression carries rendered names
+        /// (`::temp0` as `temp0`, an auto property's `::Count_var` as `Count`) while the tables carry raw ones,
+        /// so both sides go through <see cref="LhsName"/>. `Self` is scoped: it is not a member read.</summary>
+        bool IsFunctionScopedRendered(string rendered)
+            => rendered.Equals("Self", StringComparison.OrdinalIgnoreCase)
+               || _f.Locals.Any(l => rendered.Equals(LhsName(l.Name), StringComparison.OrdinalIgnoreCase))
+               || _f.Parameters.Any(pm => rendered.Equals(LhsName(pm.Name), StringComparison.OrdinalIgnoreCase));
 
         /// <summary>A statement that drains everything pending before it — a return, a branch condition —
         /// takes the same refusal from the other side: a value produced after the one this statement carries

@@ -628,6 +628,75 @@ public class DecompileNoneResultTests
         AssertOrder(res.Source, "f.Prop = a + 1", "y = b + 2");
     }
 
+    [Theory]
+    [InlineData("Count")]
+    [InlineData("::Count_var")]
+    public void AHeldBackMemberReadNeverCrossesAStoreToThatMember(string member)
+    {
+        // The held-back value reads a script member — a bare name, or an auto property's backing var, which
+        // renders as the bare property name. The stream read the old value and the source would read the new
+        // one, so this is the store rule of round one seen from the other side.
+        var f = Fn(("Int", "a"));
+        Local(f, "Int", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "Int", "y");
+        Ins(f, InstructionOpcode.IADD, Id("::temp0"), Id("a"), Int(1));
+        Ins(f, InstructionOpcode.IADD, Id("::temp1"), Id(member), Int(1));
+        Ins(f, InstructionOpcode.ASSIGN, Id("Count"), Id("::temp0"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("y"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("MemberRead", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+    }
+
+    [Theory]
+    [InlineData("call")]
+    [InlineData("propset")]
+    public void AHeldBackMemberReadNeverCrossesAStatementThatCouldWriteIt(string shape)
+    {
+        // Held back past a call, and past a property set with a real setter: either can write `Count`, so a
+        // value that reads it cannot be moved to the far side of them.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "HC_NoneTarget", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "Int", "n");
+        Local(f, "Int", "y");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.IADD, Id("::temp1"), Id("Count"), Int(1));
+        if (shape == "call") Ins(f, InstructionOpcode.CALLMETHOD, Id("Eat"), Id("f"), Id("n"), Int(1), Id("::temp0"));
+        else Ins(f, InstructionOpcode.PROPSET, Str("Prop"), Id("f"), Id("::temp0"));
+        Ins(f, InstructionOpcode.ASSIGN, Id("y"), Id("::temp1"));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("MemberAcross", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+    }
+
+    [Fact]
+    public void AMemberReadIsNeverDrainedAheadOfACallThatRanFirst()
+    {
+        // The draining side: `Count + 1` emitted before `if f.Poke()` although `Poke` ran first, and `Poke`
+        // can write `Count`.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "Bool", "::temp0");
+        Local(f, "Int", "::temp1");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.IADD, Id("::temp1"), Id("Count"), Int(1));
+        Ins(f, InstructionOpcode.JMPF, Id("::temp0"), Int(2));                   // 2 -> 4
+        Ins(f, InstructionOpcode.ASSIGN, Id("Flag"), Int(1));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("MemberDrain", f)));
+
+        Assert.Equal(1, res.FunctionsFailed);
+        Assert.Contains("::temp1", Assert.Single(res.Failures));
+    }
+
     /// <summary>No emitted line carries <paramref name="stranded"/> after a `return` in the same block.</summary>
     static void AssertNoStatementAfterReturn(string source, string stranded)
     {
