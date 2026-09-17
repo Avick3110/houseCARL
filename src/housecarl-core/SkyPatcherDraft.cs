@@ -136,8 +136,9 @@ public static class SkyPatcherDraft
         var path = (iniPath ?? "").Trim();
         if (path.Length == 0)
             return "the draft INI path is empty — give the absolute path to the .ini file the draft would be placed as.";
-        if (!Path.IsPathRooted(path))
-            return $"the draft INI path '{path}' is relative, and there is no directory to resolve it against — give the absolute path to the file.";
+        if (PathArguments.NotAbsolute(path, "the draft INI path", "the .ini file the draft would be placed as",
+                                      "C:\\MO2\\mods\\MyPatch\\SkyPatcher\\weapon\\MyPatch.ini") is { } notAbsolute)
+            return notAbsolute;
         try { path = Path.GetFullPath(path); }
         catch (Exception ex) { return $"the draft INI path '{path}' is not a usable path: {ex.Message}"; }
         if (!path.EndsWith(".ini", StringComparison.OrdinalIgnoreCase))

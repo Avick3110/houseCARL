@@ -36,8 +36,8 @@ made the change.
 - **`housecarl_asset_status` takes `counts_only=`, which answers a sweep as a census: which layers win how many
   paths, the loose-versus-BSA split, and how many are absent.** Run a FaceGen sweep with `counts_only=true` and
   read the layer table.
-- **Every path you name — `out_path=`, `to_file=`, an `@file` list — has to be absolute, and one that is not is
-  refused by name.** Call a tool with a folder name and no drive letter, and read the refusal.
+- **Every path you name — `out_path=`, `to_file=`, an `@file` list, a `where=` list file, a SkyPatcher draft INI —
+  has to be absolute, and one that is not is refused by name.** Pass one with no drive letter and read the refusal.
 
 ## 2.0.2 — 2026-09-15
 
