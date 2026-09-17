@@ -542,6 +542,26 @@ public class DecompileNoneResultTests
         Assert.Contains("::temp1", Assert.Single(res.Failures));
     }
 
+    [Fact]
+    public void AWideDrainEmitsInTheOrderTheValuesWereProduced()
+    {
+        // The add is created after `Bar` but starts where `Poke` does, because that is the value it folded
+        // in. It is pure, so it needs no refusal — but it has to come out before `Bar`, not after it.
+        var f = Fn(("HC_NoneTarget", "f"));
+        Local(f, "Int", "::temp0");
+        Local(f, "Int", "::temp1");
+        Local(f, "Int", "::temp2");
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Poke"), Id("f"), Id("::temp0"), Int(0));
+        Ins(f, InstructionOpcode.CALLMETHOD, Id("Bar"), Id("f"), Id("::temp1"), Int(0));
+        Ins(f, InstructionOpcode.IADD, Id("::temp2"), Id("::temp0"), Int(1));
+        Ins(f, InstructionOpcode.RETURN, Null());
+
+        var res = PapyrusDecompiler.DecompileFile(File("HC_NoneProbe", ("WideOrder", f)));
+
+        Assert.Equal(0, res.FunctionsFailed);
+        AssertOrder(res.Source, "f.Poke() + 1", "f.Bar()");
+    }
+
     /// <summary>No emitted line carries <paramref name="stranded"/> after a `return` in the same block.</summary>
     static void AssertNoStatementAfterReturn(string source, string stranded)
     {
