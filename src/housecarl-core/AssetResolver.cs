@@ -180,7 +180,9 @@ public sealed class AssetResolver : IDisposable
         finally { (reader as IDisposable)?.Dispose(); }           // disposes nothing in 0.53.1 — see ReadArchiveTable
     }
 
-    /// <summary>Read many entries out of ONE archive in a single table walk, where the single-entry call costs an open and a full table scan each.</summary>
+    /// <summary>Read many entries out of ONE archive in a single table walk, where the single-entry call costs an
+    /// open and a full table scan each. A wanted key missing from the result means the entry is not in the archive;
+    /// an archive that cannot be opened THROWS, never a silent empty map.</summary>
     public static Dictionary<string, byte[]> TryReadArchiveEntries(string archivePath, IReadOnlyCollection<string> entryPaths)
     {
         var wanted = new Dictionary<string, string>(entryPaths.Count, StringComparer.OrdinalIgnoreCase);

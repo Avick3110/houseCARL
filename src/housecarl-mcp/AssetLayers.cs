@@ -10,8 +10,9 @@ public sealed partial class LoadOrderService
     /// <summary>Resolve a batch of Data-relative asset paths through the MO2 VFS (housecarl_asset_status): which source
     /// provides each, and which copy wins. ONE <see cref="AssetResolver.Capture"/> for the batch, so every path and the
     /// build-level caveats describe a single build; a bad path is a per-path error, never a batch failure.
-    /// <paramref name="under"/> is the directory/glob SELECT, <paramref name="seeds"/> the FaceGen <c>formids=</c> one,
-    /// and <paramref name="wholeSelection"/> the <c>to_file=</c> disposition (docs/architecture/assets.md).</summary>
+    /// <paramref name="under"/> is the directory/glob SELECT (<see cref="AssetGlob"/>), <paramref name="seeds"/> the
+    /// FaceGen <c>formids=</c> one, and <paramref name="wholeSelection"/> the <c>to_file=</c> disposition, whose
+    /// never-a-window rule is <see cref="AssetArtifact"/>'s.</summary>
     public AssetStatusData AssetStatus(
         IReadOnlyList<string> relPaths,
         IReadOnlyList<string>? under = null,
@@ -477,6 +478,10 @@ public sealed partial class LoadOrderService
             .ToList();
 
         // Pass 1: the SKSE-CORE rescue pool — every non-official pairing identity shipping a copy of an ENGINE class.
+        // Residual edge: an INI-injected third-party BSA reads official, so its classes read ENGINE.
+        // Residual edge: a paid-CC archive is not BaseMaster-owned, so its engine natives read third-party and flag.
+        // Residual edge: a provider co-shipping a vanilla override AND an orphan declaration copy has that copy
+        // rescued into the unflagged baseline — which for the game Data folder covers everything installed there.
         var engineProviders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var s in native)
             if (HasOfficialSource(s.Sources, officialArchives))
@@ -789,7 +794,7 @@ public sealed partial class LoadOrderService
         /// <summary>Plugins an EditorID sweep could not open, so a miss here is not proof the name does not exist.</summary>
         public IReadOnlyList<PluginUnreadableException> Unreadable => _unreadable;
 
-                /// <summary>Whether a lookup since the last <see cref="WatchLookups"/> was answered from a table a plugin is missing from — the flag that tells a caller its OWN answer is affected.</summary>
+        /// <summary>Whether a lookup since the last <see cref="WatchLookups"/> was answered from a table a plugin is missing from — the flag that tells a caller its OWN answer is affected.</summary>
         public bool ConsumedIncompleteTable => _consumedIncomplete;
 
         public void WatchLookups() => _consumedIncomplete = false;

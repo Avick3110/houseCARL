@@ -36,8 +36,9 @@ public delegate (int exit, string stdout, string stderr, string? runError) BsaPa
     string bsarchExe, string srcFolder, string tmpArchive, string formatFlag, bool compress, int timeoutMs);
 
 /// <summary>The engine behind the housecarl_bsa_* tools: READS go through Mutagen's own in-process reader, and only
-/// repack drives BSArch, which is the only half Mutagen 0.53.1 cannot do. Why reads do not shell BSArch, and the
-/// header cross-check, traversal guard and pack provenance, are in docs/architecture/assets.md.</summary>
+/// repack drives BSArch, which is the only half Mutagen 0.53.1 cannot do. The reader matches BSArch byte-for-byte on
+/// a conformant archive and reads the archives BSArch's unpacker rejects — pinned by the opt-in <c>bsa-probe</c>.
+/// The header cross-check, traversal guard and pack provenance are in docs/architecture/assets.md.</summary>
 public static class BsaArchive
 {
     static readonly IFileSystem Fs = new FileSystem();

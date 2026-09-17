@@ -246,7 +246,7 @@ static class AssetWire
 
     public static string Render(AssetStatusData d, int cap) => Render(d, cap, null, out _);
 
-        /// <summary><paramref name="spill"/> is this call's artifact disposition, charged before the first path; <paramref name="truncated"/> is what the caller auto-spills on.</summary>
+    /// <summary><paramref name="spill"/> is this call's artifact disposition, charged before the first path; <paramref name="truncated"/> is what the caller auto-spills on.</summary>
     public static string Render(AssetStatusData d, int cap, SpillState? spill, out bool truncated)
     {
         var header = Header(d);
@@ -263,7 +263,7 @@ static class AssetWire
             },
             (sb, r, _) => AppendPath(sb, r, d.ReadIncomplete, d.Warnings.Count > 0),
             out int rendered,
-                        // The accounting block is priced INSIDE max_chars, the way the check sweep's footer is, so max_chars means the same on this tool as on every other.
+            // The accounting block is priced INSIDE max_chars, the way the check sweep's footer is, so max_chars means the same on this tool as on every other.
             reserve: AccountingReserve(d) + spillText.Length);
 
         var counts = Tally(d, rendered);
@@ -274,17 +274,17 @@ static class AssetWire
     /// <summary>What this family's accounting counts.</summary>
     const string RowNoun = "path(s)";
 
-        /// <summary>What each under= selector had to say for itself, above the per-path list so a truncated sweep
-        /// cannot cut it away. Capped like its sibling alarm blocks, because the input can be thousands of selectors.</summary>
+    /// <summary>What each under= selector had to say for itself, above the per-path list so a truncated sweep
+    /// cannot cut it away. Capped like its sibling alarm blocks, because the input can be thousands of selectors.</summary>
     internal static void AppendSelectorNotes(StringBuilder sb, IReadOnlyList<string>? notes, RenderCap cap)
     {
         if (notes is not { Count: > 0 }) return;
-                // The heading carries the count and is written whatever the budget: a selector that matched nothing must not vanish into a render that then reads as complete.
+        // The heading carries the count and is written whatever the budget: a selector that matched nothing must not vanish into a render that then reads as complete.
         sb.Append("\n[!] under (").Append(notes.Count).Append("):\n");
         BatchRender.AppendLines(sb, notes, "selector(s)", cap);
     }
 
-        /// <summary>What this response actually did, in the shared TRANSPORT vocabulary: the selection total, the window rendered, and the four distinct omissions.</summary>
+    /// <summary>What this response actually did, in the shared TRANSPORT vocabulary: the selection total, the window rendered, and the four distinct omissions.</summary>
     internal static TransportCounts Tally(AssetStatusData d, int rendered) =>
         TransportAccounting.Tally(d.Selected, d.Results.Count, rendered, new RowWindow(d.Offset, d.Limit),
                                   d.SelectorNotes?.Count ?? 0);
@@ -321,11 +321,11 @@ static class AssetWire
         if (!hit.Exists)
         {
             sb.Append("  ABSENT — no active mod or BSA provides this path\n");
-                        // Each suggestion was verified by re-resolving the prefixed form. Backticks, not single quotes — an asset path can carry the author's own apostrophes.
+            // Each suggestion was verified by re-resolving the prefixed form. Backticks, not single quotes — an asset path can carry the author's own apostrophes.
             if (r.PrefixSuggestions is { Count: > 0 } sug)
                 sb.Append("  did you mean ").Append(string.Join(" or ", sug.Select(s => "`" + s + "`")))
                   .Append("?  (a path read off a record is relative to its root folder, not to Data)\n");
-                        // Both incomplete-scan conditions hedge an ABSENT at the point of use, not only in the top-of-output note: the asset could exist where we did not look.
+            // Both incomplete-scan conditions hedge an ABSENT at the point of use, not only in the top-of-output note: the asset could exist where we did not look.
             if (readIncomplete)
                 sb.Append("  [!] but an archive failed to read this build (see the read-failure note above), so " +
                           "\"absent\" may be incomplete — the asset could live in the unreadable archive.\n");
@@ -336,8 +336,8 @@ static class AssetWire
             return;
         }
 
-                // The provider token is spelled by the one formatter the asset surface uses, so the name printed here is
-                // the name a source selector accepts. The owning mod rides the WINS: line only on a formids= row.
+        // The provider token is spelled by the one formatter the asset surface uses, so the name printed here is
+        // the name a source selector accepts. The owning mod rides the WINS: line only on a formids= row.
         sb.Append("  WINS: ").Append(Provider(hit.Winner!))
           .Append(r.FormId is not null ? Mod(hit.Winner!) : "").Append('\n');
         sb.Append("  providers (").Append(hit.Providers.Count).Append("): ");
@@ -353,7 +353,7 @@ static class AssetWire
         AppendPair(sb, r);
     }
 
-        /// <summary>The OTHER half of the FaceGen pair, beside this one: its path and its own winner, written on a present and an ABSENT row alike. Nothing on a row no FormID derived.</summary>
+    /// <summary>The OTHER half of the FaceGen pair, beside this one: its path and its own winner, written on a present and an ABSENT row alike. Nothing on a row no FormID derived.</summary>
     static void AppendPair(StringBuilder sb, AssetPathResult r)
     {
         if (r.PairPath is null) return;
@@ -368,14 +368,14 @@ static class AssetWire
                       "different products, which is the dark-face split.\n");
     }
 
-        /// <summary>The mod folder behind a BSA provider, whose token is the archive's filename. Nothing for a loose provider, whose token IS the mod.</summary>
+    /// <summary>The mod folder behind a BSA provider, whose token is the archive's filename. Nothing for a loose provider, whose token IS the mod.</summary>
     static string Mod(HousecarlCore.AssetProvider p)
         => p.OwningMod is { Length: > 0 } m && !string.Equals(m, p.Source, StringComparison.OrdinalIgnoreCase)
             ? $"  [mod: {m}]" : "";
 
     static string Kind(HousecarlCore.AssetKind k) => k == HousecarlCore.AssetKind.Bsa ? "BSA" : "loose";
 
-        /// <summary>One provider, spelled by the shared formatter: the name inside double quotes with the kind outside them, so the printed token is the token a selector accepts.</summary>
+    /// <summary>One provider, spelled by the shared formatter: the name inside double quotes with the kind outside them, so the printed token is the token a selector accepts.</summary>
     static string Provider(HousecarlCore.AssetProvider p)
         => HousecarlCore.AssetSourceSelection.Describe(p.Source, Kind(p.Kind));
 }
@@ -386,12 +386,12 @@ static class AssetWire
 /// <see cref="HistogramAxis"/>, so only the counters above it are this lane's own.</summary>
 static class AssetCensus
 {
-        /// <summary>The census over one resolution. <see cref="ByLayer"/> is the winning MO2 LAYERS, count descending
-        /// then name ascending — the same value the artifact's <c>winner_mod</c> column carries.</summary>
+    /// <summary>The census over one resolution. <see cref="ByLayer"/> is the winning MO2 LAYERS, count descending
+    /// then name ascending — the same value the artifact's <c>winner_mod</c> column carries.</summary>
     internal readonly record struct Counts(int Selected, int Present, int Absent, int Errors,
                                            int Loose, int Bsa, IReadOnlyList<SweepCount> ByLayer);
 
-        /// <summary>What the axis is titled, and the note that keeps its two non-mod values honest. The note rides the axis, so it is written whatever the budget says.</summary>
+    /// <summary>What the axis is titled, and the note that keeps its two non-mod values honest. The note rides the axis, so it is written whatever the budget says.</summary>
     const string AxisTitle = "winning layers";
     const string AxisNote = "a winning LAYER is a mod folder, the game's own Data folder, or overwrite — the last "
                           + "two are layers rather than mods, so they cannot be sorted or disabled.";
@@ -415,34 +415,34 @@ static class AssetCensus
         return new Counts(d.Selected, present, absent, errors, loose, bsa, rows);
     }
 
-        /// <summary>The axis this census renders, in one place so the two transports cannot title or note it differently.</summary>
+    /// <summary>The axis this census renders, in one place so the two transports cannot title or note it differently.</summary>
     internal static HistogramAxis Axis(Counts c) =>
         new(SweepSubject.AssetWinnerRows, c.ByLayer, AxisTitle, Note: AxisNote);
 
-        /// <summary>The rows one call may render, from its <c>limit=</c>: 0 is no limit.</summary>
+    /// <summary>The rows one call may render, from its <c>limit=</c>: 0 is no limit.</summary>
     internal static int RowLimit(int limit) => limit > 0 ? limit : int.MaxValue;
 
-        /// <summary>The two counter lines — the census's whole answer, written whatever the budget says.</summary>
+    /// <summary>The two counter lines — the census's whole answer, written whatever the budget says.</summary>
     static string Counters(Counts c) =>
         $"\ncensus: counted={c.Selected} present={c.Present} absent={c.Absent} errors={c.Errors}\n"
         + $"winners: loose={c.Loose} BSA={c.Bsa}\n";
 
-        /// <summary>The text census: the alarms an ABSENT count depends on, the counters, then the layer axis. The counters are exact whatever the axis's cut.</summary>
+    /// <summary>The text census: the alarms an ABSENT count depends on, the counters, then the layer axis. The counters are exact whatever the axis's cut.</summary>
     public static string Render(AssetStatusData d, int cap, int limit)
     {
         var c = Tally(d);
         var sb = new StringBuilder(AssetWire.Header(d)).Append('\n');
-                // What this response writes whatever the budget says, held back BEFORE the alarms: uncharged, they take
-                // the room the census's own answer needs and the response lands over the cap on a cut that would have fitted.
+        // What this response writes whatever the budget says, held back BEFORE the alarms: uncharged, they take
+        // the room the census's own answer needs and the response lands over the cap on a cut that would have fitted.
         var room = RenderCap.For(cap, Counters(c).Length + Axis(c).TextFixed);
-                // The alarms first, for the reason the path render puts them first: an ABSENT count is authoritative only where no archive read failed.
+        // The alarms first, for the reason the path render puts them first: an ABSENT count is authoritative only where no archive read failed.
         BatchRender.AppendReadFailures(sb, d.BsaFailures, "an asset", room);
         BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, room);
         AssetWire.AppendSelectorNotes(sb, d.SelectorNotes, room);
 
         sb.Append(Counters(c));
 
-                // The one bounded emission path: the budget is the whole cap, because Outstanding reads the live builder.
+        // The one bounded emission path: the budget is the whole cap, because Outstanding reads the live builder.
         var body = new BoundedBody(acct: null, budget: cap, () => sb.Length);
         Wire.AppendHistogramAxes(sb, body, RowLimit(limit), Axis(c));
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
