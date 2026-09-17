@@ -63,10 +63,19 @@ public sealed class ProfileRewriteTests
         }
 
         /// <summary>Rewrite modlist.txt with <paramref name="first"/> at the top — MO2's own priority order, so the
-        /// first-listed mod wins the contested file.</summary>
-        public void WriteModlist(string first, string second) =>
-            File.WriteAllText(Path.Combine(ProfileDir, "modlist.txt"),
-                              $"# header\r\n+{PluginMod}\r\n+{first}\r\n+{second}\r\n");
+        /// first-listed mod wins the contested file. The flip keeps the byte count identical, so the mtime carries the
+        /// whole signal the service's FileStamp gate reads; two writes landing inside one filesystem timestamp tick
+        /// would leave it unmoved and the profile change invisible (#812). So the mtime is SET here, from a counter,
+        /// rather than taken from the clock: the change is staged synchronously, before the call under test.</summary>
+        public void WriteModlist(string first, string second)
+        {
+            var path = Path.Combine(ProfileDir, "modlist.txt");
+            File.WriteAllText(path, $"# header\r\n+{PluginMod}\r\n+{first}\r\n+{second}\r\n");
+            File.SetLastWriteTimeUtc(path, ModlistEpoch.AddSeconds(++_modlistWrites));
+        }
+
+        static readonly DateTime ModlistEpoch = new(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        int _modlistWrites;
 
         public string LoadOrderPath => Path.Combine(ProfileDir, "loadorder.txt");
 
