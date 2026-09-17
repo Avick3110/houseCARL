@@ -886,12 +886,15 @@ public sealed class PapyrusDecompiler
                         // call, and otherwise the last call folded in from the values it consumed — the
                         // instruction itself only reads and writes.
                         var (dest, expr) = Produce(ins);
-                        // A property get can be a real `Function Get()`, so it runs where the instruction
-                        // is, like a call — the same reason a PROPSET is an effect below. Only at the fold: a
-                        // higher effect index would change nothing a later statement decides, because a pending
-                        // it would newly catch was already pending when this instruction ran, and the fold
-                        // refuses there first.
-                        bool runsHere = IsCallOpcode(op) || op == InstructionOpcode.PROPGET;
+                        // A property get can be a real `Function Get()` and an array element read can see a
+                        // write, so both are decided where the instruction is, like a call — the same reason a
+                        // PROPSET is an effect below. An array's LENGTH is left out: it cannot change under a
+                        // call. Only at the fold: a higher effect index would change nothing a later statement
+                        // decides, because a pending it would newly catch was already pending when this
+                        // instruction ran, and the fold refuses there first.
+                        bool runsHere = IsCallOpcode(op)
+                            || op is InstructionOpcode.PROPGET or InstructionOpcode.ARRAY_GETELEMENT
+                                  or InstructionOpcode.ARRAY_FINDELEMENT or InstructionOpcode.ARRAY_RFINDELEMENT;
                         int effect = IsCallOpcode(op) ? i : _consumedLastCall;
                         if (dest == "")
                         {
@@ -918,7 +921,7 @@ public sealed class PapyrusDecompiler
                             // It runs here even though its result only goes pending, so the crossing is
                             // settled at the fold rather than at whatever later statement consumes the temp —
                             // a discarded result or a region-end flush never reaches one.
-                            if (runsHere) RefuseCrossing(IsCallOpcode(op) ? "call" : "property read", i);
+                            if (runsHere) RefuseCrossing(IsCallOpcode(op) ? "call" : "read", i);
                             SetPending(dest, expr, stmts, Math.Min(_consumedStart, i), effect);
                             i++; break;
                         }
