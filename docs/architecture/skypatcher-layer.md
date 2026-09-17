@@ -15,6 +15,38 @@ plugin read alone does not say what the game sees. houseCARL reads that layer in
 of which only knows its own job — tokenizer, catalog, field map, overlay. The tokenizer is pure
 grammar and cannot drift when the hand-modeled catalog changes.
 
+**The catalog is transcribed, never invented.** It is the full enumeration of every documented
+filter and operation per record type, taken from the bundled `skypatcher-authoring` reference, and
+a key resolving to no entry is reported as Unknown rather than assumed. Its record dimension (name,
+sig, subfolder, primaryFilter) is cross-checked in CI against the router table in that skill's
+`SKILL.md` — `SkyPatcherCatalogProbe.CrossCheckRouterTable` requires the row count to equal the
+loaded record count and matches recordType and signature per subfolder. That is the one contract
+here the code cannot express at all: it couples `src/housecarl-core/` to a file in
+`.claude/skills/`, so adding a record type on one side without the other fails
+`skypatcher-catalog-guard`.
+
+**How far to trust the field map.** It is hand-modeled, but `skypatcher-fieldmap-guard` walks every
+`OpMap.Path` with the real write engine (`WriteEngine.ResolveProperty` over the actual Mutagen
+types) and parses every `ValueMap` target against the real leaf enum, and rejects a stateful numeric
+op on a non-numeric leaf, a flags op on a non-enum, and a dict op on a non-dict. A typo'd path or
+enum member cannot survive CI; only a semantically-wrong-but-existing field can.
+
+## The grammar
+
+```
+line         := ';' comment | blank | patch | '[' label ']'
+patch        := segment ( ':' segment )*
+segment      := key '=' value
+value        := item ( ',' item )*
+item         := address | name-literal | scalar | compound
+address      := plugin '|' formid | editorid
+name-literal := '~' text '~'                  (rename ops: fullName=~New Name~)
+compound     := part ( '~' part )*            (mgefsToAdd=Form~Mag~Dur~Area)
+```
+
+Nothing fails silently: a malformed segment — no `=`, or an empty key — and an empty `:`-segment or
+`,`-item are each captured as a loud `Note`, and the segment is still surfaced rather than dropped.
+
 ## Addressing: `Plugin.esp|FormID`
 
 The tokenizer resolves only the unambiguous `Plugin.esp|FormID` form. A bare identifier is left

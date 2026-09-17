@@ -104,7 +104,7 @@ public static class Mo2Instance
         return new Mo2InstancePaths(instanceDir, profile!, profileDir, modsDir, dataDir, gamePath!, Path.Combine(basePath, "overwrite"));
     }
 
-    /// <summary>First <c>key=</c> line's raw value, the key matched case-insensitively and ignoring section headers; null if the key is not present.</summary>
+    /// <summary>First <c>key=</c> line's raw value, the key matched case-insensitively and ignoring section headers, which is safe only because the keys read here are unique across the file; null if the key is not present.</summary>
     static string? FindValue(string[] lines, string key)
     {
         foreach (var raw in lines)
