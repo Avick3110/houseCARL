@@ -15,8 +15,10 @@ public static class SkseTools
     /// <summary>The three finding families <c>findings=</c> selects between.</summary>
     internal enum SkseFamily { Inventory, Pairing, Config }
 
-    /// <summary>Parses <c>findings=</c> off the wire, where the schema declares it a string or an array: the array shape
-    /// must BIND so this tool's own refusal answers it, and any non-string shape is refused, one-element arrays included.</summary>
+    /// <summary>Parses <c>findings=</c> off the wire, where the schema declares it string-or-array: the array shape must
+    /// BIND so this tool's own one-family refusal answers it rather than the shim's type-mismatch sentence, and every
+    /// non-string shape is refused by its raw JSON — a one-element array too, never unwrapped to the scalar. Pinned by
+    /// SkseFindingsWireShapeTests.</summary>
     internal static bool TryParseFamily(System.Text.Json.JsonElement? findings, out SkseFamily family, out string? error)
         => TryParseFamily(findings switch
         {
