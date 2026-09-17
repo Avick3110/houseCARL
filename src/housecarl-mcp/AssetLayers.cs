@@ -99,7 +99,7 @@ public sealed partial class LoadOrderService
             }
             if (overBound)
                 return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.ReadIncomplete,
-                                           _assetWarnings, _profileName, notes, selected.Count, Math.Max(offset, 0),
+                                           AssetWarningsLocked(), _profileName, notes, selected.Count, Math.Max(offset, 0),
                                            Math.Max(limit, 0),
                                            // Dedup against paths already named can leave the running count at the
                                            // bound rather than past it; the walk stopping is the proof it is over.
@@ -124,7 +124,7 @@ public sealed partial class LoadOrderService
                              ? 1 : 0);
             if (RenderBudget.RefuseAssetPaths(toResolve, wholeSelection) is { } tooBig)
                 return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.ReadIncomplete,
-                                           _assetWarnings, _profileName, notes, total, Math.Max(offset, 0),
+                                           AssetWarningsLocked(), _profileName, notes, total, Math.Max(offset, 0),
                                            Math.Max(limit, 0), tooBig);
 
             // A TWO-ENTRY lookaside, not a call-scoped memo. A pair's halves are pushed adjacently above, so the tint
@@ -164,7 +164,7 @@ public sealed partial class LoadOrderService
                 }
                 catch (ArgumentException ex) { results.Add(new AssetPathResult(p, null, ex.Message, null, sel.FormId)); }   // bad path → per-path note, never a batch failure
             }
-            return new AssetStatusData(results, view.BsaFailures, view.ReadIncomplete, _assetWarnings, _profileName,
+            return new AssetStatusData(results, view.BsaFailures, view.ReadIncomplete, AssetWarningsLocked(), _profileName,
                                        notes, total, Math.Max(offset, 0),    // the offset ASKED for, so a past-the-end page can say so
                                        Math.Max(limit, 0));                  // the limit ASKED for, so the next-page advice repeats it
         }
@@ -202,7 +202,7 @@ public sealed partial class LoadOrderService
         {
             EnsurePathsDerived();
             view = Assets.Capture();                              // build/refresh the asset resolver under the gate, ONCE
-            warnings = _assetWarnings;
+            warnings = AssetWarningsLocked();
             profileName = _profileName;
             profileDir = _profileDir;
         }
@@ -348,7 +348,7 @@ public sealed partial class LoadOrderService
         {
             view = Assets.Capture();
             index = Resolver.Capture();   // pure snapshot: ContainsPlugin / ResolveWinner read only this build
-            warnings = _assetWarnings;
+            warnings = AssetWarningsLocked();
             profileName = _profileName;
         }
 
@@ -459,7 +459,7 @@ public sealed partial class LoadOrderService
             view = Assets.Capture();
             archives = _activeArchives;         // the same build as the view (both swapped under _gate)
             enabledMods = _enabledModsAtBuild;  // ditto — the loader scan below walks the mod set the view describes, never a second unpinned profile read
-            warnings = _assetWarnings;
+            warnings = AssetWarningsLocked();
             profileName = _profileName;
             dataDir = _dataDir;
             modsDir = _modsDir;
@@ -869,7 +869,7 @@ public sealed partial class LoadOrderService
         lock (_gate)
         {
             assets = Assets.Capture();
-            assetWarnings = _assetWarnings;
+            assetWarnings = AssetWarningsLocked();
             profileName = _profileName;
         }
 
@@ -1053,7 +1053,7 @@ public sealed partial class LoadOrderService
         lock (_gate)
         {
             view = Assets.Capture();                              // build/refresh the asset resolver under the gate, once per batch
-            warnings = _assetWarnings;
+            warnings = AssetWarningsLocked();
             profileName = _profileName;
         }
 
@@ -1195,7 +1195,7 @@ public sealed partial class LoadOrderService
         lock (_writeGate)
         {
             AssetResolver.AssetView view; IReadOnlyList<string> warnings; string profileName;
-            try { lock (_gate) { view = Assets.Capture(); warnings = _assetWarnings; profileName = _profileName; } }
+            try { lock (_gate) { view = Assets.Capture(); warnings = AssetWarningsLocked(); profileName = _profileName; } }
             catch (Exception ex) { return NifSetResult.Fail($"could not resolve the asset layer (the MO2 instance may not be readable): {ex.Message}"); }
 
             PlacementResolution place;
@@ -1367,7 +1367,7 @@ public sealed partial class LoadOrderService
             // request in the batch — and the missing-root suggestion's re-resolve — answers from the same snapshot and
             // a refresh landing mid-batch cannot make two placements describe two builds.
             AssetResolver.AssetView view; IReadOnlyList<string> warnings;
-            try { lock (_gate) { view = Assets.Capture(); warnings = _assetWarnings; } }
+            try { lock (_gate) { view = Assets.Capture(); warnings = AssetWarningsLocked(); } }
             catch (Exception ex)
             {
                 var residue = RemoveOrNameRiderResidue(rf);              // nothing placed yet → a fresh folder is an orphan
