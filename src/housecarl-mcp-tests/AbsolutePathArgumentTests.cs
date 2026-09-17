@@ -1,13 +1,15 @@
+using HousecarlCore;
 using HousecarlMcp;
 using Xunit;
 
 namespace HousecarlMcpTests;
 
-/// <summary>Every path a caller names — <c>out_path=</c>, <c>to_file=</c>, an <c>@file</c> list — is absolute or is
-/// refused (#782). Anything else resolves against the SERVER's working directory, so the file lands somewhere the
-/// caller cannot predict while the response names the path they typed. Each refusal test here refuses before
-/// anything is written; the two vacuity tests write only into a temp root of their own. Some need no world at all;
-/// the ones that do take the shared <see cref="ScriptsWorld"/> or build their own.</summary>
+/// <summary>Every path a caller names — <c>out_path=</c>, <c>to_file=</c>, an <c>@file</c> list on a parameter or
+/// inside a <c>where=</c> predicate, a SkyPatcher draft INI — is absolute or is refused (#782). Anything else
+/// resolves against the SERVER's working directory, so the file is read or written somewhere the caller cannot
+/// predict while the response names the path they typed. Each refusal test here refuses before anything is written;
+/// the vacuity tests write only into a temp root of their own. Some need no world at all; the ones that do take the
+/// shared <see cref="ScriptsWorld"/> or build their own.</summary>
 [Collection("scripts")]
 [Trait("tier", "integration")]
 public sealed class AbsolutePathArgumentTests
@@ -102,6 +104,33 @@ public sealed class AbsolutePathArgumentTests
 
         Assert.Null(text);
         Assert.Contains("absolute", error);
+    }
+
+    /// <summary>`where=`'s own list readers hold the same rule: both live in core, which is why the helper does too
+    /// rather than the surface carrying two definitions of absolute.</summary>
+    [Fact]
+    public void AWhereListFileRefusesADriveRootedPathThatIsNotFullyQualified()
+    {
+        var relative = Relative() + ".txt";
+
+        var values = FieldPredicateSet.Parse(new[] { $"editorid in @C:{relative}" });
+        var formids = FieldPredicateSet.Parse(new[] { $"formid in @C:{relative}" });
+
+        Assert.Contains("is not an absolute path", values.Error);
+        Assert.Contains("is not an absolute path", formids.Error);
+        // Vacuity: the same paths made fully qualified get past the shape gate and fail on the read instead.
+        Assert.Contains("could not read",
+                        FieldPredicateSet.Parse(new[] { $"editorid in @{Path.Combine(Path.GetTempPath(), relative)}" }).Error);
+    }
+
+    /// <summary>The SkyPatcher draft path reads a file off disk, so it holds the rule too.</summary>
+    [Fact]
+    public void TheSkyPatcherDraftPathRefusesADriveRootedPathThatIsNotFullyQualified()
+    {
+        var error = SkyPatcherDraft.Prepare("C:" + Relative() + ".ini", null, SkyPatcherCatalog.Load(), out var plan);
+
+        Assert.Contains("is not an absolute path", error);
+        Assert.Null(plan);
     }
 
     /// <summary>The vacuity check: an absolute out_path still resolves, so the refusals above are about the path

@@ -624,8 +624,8 @@ public sealed class FieldPredicateSet
             var path = operand.Substring(1).Trim().Trim('"', '\'');
             if (path.Length == 0)
                 return (null, null, null, null, $"predicate '{raw}': '@' names a value-list file but no path follows it.");
-            if (!Path.IsPathRooted(path))
-                return (null, null, null, null, $"predicate '{raw}': value-list file '{path}' must be an ABSOLUTE path — the server resolves relative paths against its OWN working directory, not yours.");
+            if (PathArguments.NotAbsolute(path, $"predicate '{raw}': value-list file", "the file the values are in", "C:\\work\\values.txt") is { } notAbsolute)
+                return (null, null, null, null, notAbsolute);
             try { content = File.ReadAllText(path); }
             catch (Exception ex) { return (null, null, null, null, $"predicate '{raw}': could not read value-list file '{path}' — {ex.GetType().Name}: {ex.Message}"); }
             if (ResultArtifact.LooksLikeArtifact(content))
@@ -700,8 +700,8 @@ public sealed class FieldPredicateSet
             var path = operand.Substring(1).Trim().Trim('"', '\'');   // both quote kinds, matching the inline token trim
             if (path.Length == 0)
                 return (null, null, $"predicate '{raw}': '@' names a formid-list file but no path follows it.");
-            if (!Path.IsPathRooted(path))
-                return (null, null, $"predicate '{raw}': formid-list file '{path}' must be an ABSOLUTE path — the server resolves relative paths against its OWN working directory, not yours.");
+            if (PathArguments.NotAbsolute(path, $"predicate '{raw}': formid-list file", "the file the FormIDs are in", "C:\\work\\formids.txt") is { } notAbsolute)
+                return (null, null, notAbsolute);
             try { content = File.ReadAllText(path); }
             catch (Exception ex) { return (null, null, $"predicate '{raw}': could not read formid-list file '{path}' — {ex.GetType().Name}: {ex.Message}"); }
 
