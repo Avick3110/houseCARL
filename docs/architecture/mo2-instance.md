@@ -5,9 +5,10 @@
 QSettings value grammar both ini readers share), `Mo2ModMeta.cs` (a mod's Nexus update cache), and
 `UserConfig.cs` (the settings houseCARL persists for itself), surfaced by
 `src/housecarl-mcp/SetupTools.cs`, `StatusTools.cs` and `UpdateStatusTools.cs`. Pinned by the
-generator probe `overwrite-resolve-guard` and by `Mo2IniEscapeTests`,
-`MasterSplitInstallLocationsTests`, `ProfileRewriteTests`, `FreshnessKeyTests`,
-`RawModsPathRefusalTests` and `StatusLocalizedLookupTests` in `src/housecarl-mcp-tests`.
+generator probes `mo2instance-probe` (the root derivation), `overwrite-resolve-guard` (the priority
+model), `mo2-modmeta-guard` (the `meta.ini` read), `tool-bridge` (the config file) and
+`atomic-commit-guard` (its commit), and by `Mo2IniEscapeTests`, `ProfileRewriteTests` and
+`MasterSplitInstallLocationsTests` in `src/housecarl-mcp-tests`.
 
 houseCARL reads a live MO2 portable instance off disk — never through the USVFS or a live
 `IOrganizer`. A subprocess-spawned server does not inherit MO2's VFS (only MO2's own Executables
@@ -102,3 +103,11 @@ plugin and the desktop app can share the file; it commits through a temp file an
 and an unparseable file is copied to `.corrupt.bak` and REPORTED, never treated as blank, since
 treating it as blank wipes every saved setting on the next write. A write failure is returned
 rather than thrown, so a tool can say the choice works this session but will not survive a restart.
+
+All four are pinned. `tool-bridge` writes a corrupt file and asserts the load comes back blank with
+a note naming the backup, that the backup is byte-identical, and that two `UserConfigStore`
+instances on one file — each with its own process-local gate, the way the two hosts share it —
+hammering different fields for 200 rounds each leave BOTH concerns' last values intact. The commit
+itself is `AtomicFile.Commit`, pinned by `atomic-commit-guard`, which names `UserConfig.Update` as
+one of its three call sites; that guard is explicit that it proves the `File.Replace` path is taken,
+not crash-atomicity across a power cut, which is not demonstrable in-process and is not claimed.

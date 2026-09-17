@@ -3,6 +3,7 @@ using System.Text.Json;
 namespace HousecarlCore;
 
 /// <summary>The SkyPatcher op to Mutagen-field map — which record field an operation lands on and with which semantic; the coverage contract is in docs/architecture/skypatcher-layer.md.</summary>
+/// <remarks>skypatcher-fieldmap-guard walks every path with the real write engine and every valueMap against the real leaf enum, so only a semantically-wrong-but-existing field survives CI.</remarks>
 public sealed class SkyPatcherFieldMap
 {
     /// <summary>Neither key is unique alone (<c>leveledList</c> serves LVLI and LVLN; RACE is patched from <c>race/</c> and <c>raceHook/</c>), so maps are grouped both ways.</summary>
