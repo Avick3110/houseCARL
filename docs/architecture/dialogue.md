@@ -158,10 +158,12 @@ semantic and only the game evaluates them, and lip-sync and audio content are ou
 
 Two ownership gates keep the noisy findings off content the modder neither wrote nor can act on. The SNAM Problem
 escalation fires only where the winner IS the FormKey's defining master — a blank-SNAM override ships in working
-mods, so an override is a Warning. The subtype-disagreement and unmodeled-marker warnings fire only on a record a mod
-actually authored the pair on: a force-loaded plugin's own topic, or an override that copies the base pair forward
-verbatim, is Bethesda's statement and stays quiet. The verdict still rides the ungated `subtype_stale` and
-`subtype_from_marker` fields.
+mods, so an override is a Warning. The subtype-disagreement and unmodeled-marker warnings fire only on a record a
+force-loaded plugin does not own, since a base master, a Creation Club plugin or `_ResourcePack.esl` carries
+Bethesda's stale number and is not something the modder can act on. The subtype-disagreement warning carries a
+second exemption the unmodeled-marker warning does not: an override that copies the base record's (Subtype, SNAM)
+pair forward verbatim changed neither field, so it stays quiet, while an override of an unmodeled marker still
+warns. The verdict rides the ungated `subtype_stale` and `subtype_from_marker` fields either way.
 
 The condition lints are the data-layer-decidable subset and every one is a structural true positive; all emit
 Warning. The load-bearing gate is the FLOI mode gate: a condition form parameter is a `FormLinkOrIndex`, a form only
