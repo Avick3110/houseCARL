@@ -5,9 +5,10 @@ using ModelContextProtocol.Server;
 namespace HousecarlMcp;
 
 /// <summary><c>housecarl_check</c> — the merged derived-findings sweep, with <c>findings=</c> selecting the taxonomy.
-/// This file holds the merged tool and its orchestration; the per-family sweeps are the existing service calls and
-/// each family's render lives with the helpers it is assembled out of. The families do not share one scope:
-/// <c>plugins=</c> and friends narrow the sweep families, the dialogue family takes seeds.</summary>
+/// This file holds the merged tool and its orchestration; each family's render lives with the helpers it is assembled
+/// out of. The families do not share one scope: <c>plugins=</c> and friends narrow the sweep families, the dialogue
+/// family takes seeds. No response carries deprecation prose, here or on the single-family tools registered alongside
+/// this one — see docs/decisions/0005-the-1x-tools-are-deleted-not-deprecated.md.</summary>
 [McpServerToolType]
 public static class CheckTools
 {

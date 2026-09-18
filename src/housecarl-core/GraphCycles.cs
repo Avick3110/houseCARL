@@ -10,8 +10,8 @@ public static class GraphCycles
 {
     /// <summary>One loop per BACK EDGE in the recorded edge set, keys in order, closing from the last key back to the
     /// first; one cycle per (from, to) pair, and only nodes with recorded edges can be on one. NONE means acyclic; a
-    /// count is a LOWER BOUND on the distinct loops, because enumerating every simple cycle is exponential.</summary>
-    /// <param name="limit">Stop collecting after this many loops and say so through <paramref name="capped"/>.</param>
+    /// count is a LOWER BOUND on the distinct loops, and the loops returned are not a complete list of the records
+    /// LYING on one — an edge into an already finished node is skipped.</summary>
     /// <param name="capped">True when <paramref name="limit"/> stopped the search rather than the search finishing.</param>
     public static List<IReadOnlyList<FormKey>> Find(IReadOnlyDictionary<FormKey, List<FormKey>> edges,
                                                     int limit, out bool capped)
