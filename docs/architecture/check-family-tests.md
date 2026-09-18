@@ -144,7 +144,10 @@ What each plugin FINDS is unchanged — the totals, the histograms and the missi
 `limit=` — and the reports are re-sorted back into load order before they are returned, because which section comes
 first is a load-order fact.
 
-**Pinned by** `CheckErrorsFamilyTests.Fact14_PhaseOrderSentence_OnlyOnTheCappedSweepWithBaselineFindings`.
+**Pinned by** `CheckErrorsFamilyTests.Fact14_PhaseOrderSentence_OnlyOnTheCappedSweepWithBaselineFindings` — which
+pins the SENTENCE and its gating: the phase-order line renders on a capped sweep with baseline findings and is
+absent at a wide `limit=`. The phase order itself, the limit-independence of the totals, and the re-sort into load
+order are **not separately pinned**; a refactor that inverted the phases would leave that test green.
 
 ### The baseline split, and "swept" means examined
 
@@ -158,8 +161,16 @@ at once: an off-order base master swept as a FILE counts, and a base master whos
 filtered out does NOT — the sweep opened it and examined nothing in it. A swept baseline that came back CLEAN is
 therefore a different fact from a sweep that never looked at one, and the two stay distinguishable.
 
-**Pinned by** `CheckErrorsFamilyTests.Fact14_BaselineLinePrintsOnlyWhereABaseMasterWasSwept_AndNamesThatSubset` and
-`Fact28_ExcludeNarrowingIsStated_AndAFullyExcludedBaseMasterLeavesNoBaselineLine`.
+**Pinned by** `RecordsTypeArmTests.AnArmTypeFilterOnTheOffOrderSweepExaminesThatArmAlone`, which is the arm that
+makes this a contract: the file IS located and opened (it is in `OffOrderScanned`) and `BaseMastersSwept` is
+nonetheless empty, because a type-arm scope filtered every record out. Its control,
+`TheArmTheOffOrderFileHoldsIsExamined`, asserts the off-order base master DOES land in the set when the scope
+admits a record — the other half of "covers both lanes at once".
+
+`CheckErrorsFamilyTests.Fact14_BaselineLinePrintsOnlyWhereABaseMasterWasSwept_AndNamesThatSubset` and
+`Fact28_ExcludeNarrowingIsStated_AndAFullyExcludedBaseMasterLeavesNoBaselineLine` pin the rendered baseline line and
+its absence, but reach their negative arm by EXCLUDING the base master, so neither distinguishes
+opened-but-not-examined.
 
 ### Null is "not computed", never "empty"
 
@@ -265,8 +276,9 @@ narrowed silently would answer a question the caller did not ask without saying 
 `NotRun` and the render states every registered family it did not run together with the exact spelling that adds it.
 
 **Pinned by** `CheckMergeProbe`'s `REGISTERED-IS-THE-MEMBERSHIP` (every registered family is askable) and
-`CLASS-TOKEN-ROUND-TRIP` (every class set the merged parser produces spells tokens the family parsers read back as
-the same set — the trip the merged tool hands each family its classes through).
+`CLASS-TOKEN-ROUND-TRIP` (each class set the probe DRIVES — three errors sets, six of the eight scripts flag
+combinations — spells tokens the family parsers read back as the same set, which is the trip the merged tool hands
+each family its classes through; the probe's own label says "every class set", which is wider than what it walks).
 
 ## Selection is not outcome
 
