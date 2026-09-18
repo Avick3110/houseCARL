@@ -2641,6 +2641,7 @@ static class JsonWire
             // The caveats lead, as in the text render: an ABSENT below is authoritative only when both are empty.
             w.WriteBoolean("read_incomplete", d.ReadIncomplete);
             int caveatsOmitted = WriteCappedStringArray(w, ms, "bsa_failures", d.BsaFailures, budget)
+                               + RootFailuresJson(w, ms, d, budget)
                                + WriteCappedStringArray(w, ms, "warnings", d.Warnings, budget);
             if (d.SelectorNotes is null) { w.WriteNull("selector_notes"); w.WriteNumber("selector_notes_omitted", 0); }
             else caveatsOmitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, budget);
@@ -2651,7 +2652,7 @@ static class JsonWire
             {
                 // rendered > 0: the FIRST row always renders its core answer, as BatchRender does on the text lane.
                 if (rendered > 0 && Over(w, ms, budget)) break;
-                WriteAssetRow(w, r, d.ReadIncomplete, d.Warnings.Count > 0);
+                WriteAssetRow(w, r, d.BsaFailures.Count > 0, d.Warnings.Count > 0, d.UnwalkedRoots.Count > 0);
                 rendered++;
             }
             w.WriteEndArray();
@@ -2684,6 +2685,7 @@ static class JsonWire
             // The caveats lead here too: an absent= count is authoritative only where both are empty.
             w.WriteBoolean("read_incomplete", d.ReadIncomplete);
             int omitted = WriteCappedStringArray(w, ms, "bsa_failures", d.BsaFailures, budget)
+                        + RootFailuresJson(w, ms, d, budget)
                         + WriteCappedStringArray(w, ms, "warnings", d.Warnings, budget);
             if (d.SelectorNotes is null) { w.WriteNull("selector_notes"); w.WriteNumber("selector_notes_omitted", 0); }
             else omitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, budget);
@@ -2721,6 +2723,7 @@ static class JsonWire
             w.WriteString("before", "");   // the tail is never a document's first member, so it pays the separator it owes
             // The three caveat counters, written AFTER their array has spent the budget; each omits at most its own.
             w.WriteNumber("bsa_failures_omitted", d.BsaFailures.Count);
+            if (d.UnwalkedRoots.Count > 0) w.WriteNumber("root_failures_omitted", d.UnwalkedRoots.Count);
             w.WriteNumber("warnings_omitted", d.Warnings.Count);
             w.WriteNumber("selector_notes_omitted", d.SelectorNotes?.Count ?? 0);
             WriteCensusCounters(w, c);
@@ -2744,6 +2747,7 @@ static class JsonWire
             w.WriteString("profile", d.ProfileName.Length > 0 ? d.ProfileName : "(unconfigured)");
             w.WriteBoolean("read_incomplete", d.ReadIncomplete);
             int omitted = WriteCappedStringArray(w, ms, "bsa_failures", d.BsaFailures, cap)
+                        + RootFailuresJson(w, ms, d, cap)
                         + WriteCappedStringArray(w, ms, "warnings", d.Warnings, cap);
             if (d.SelectorNotes is null) { w.WriteNull("selector_notes"); w.WriteNumber("selector_notes_omitted", 0); }
             else omitted += WriteCappedStringArray(w, ms, "selector_notes", d.SelectorNotes, cap);
@@ -2785,6 +2789,7 @@ static class JsonWire
             w.WriteString("before", "");   // the tail is never a document's first member, so it pays the separator one owes
             // Each block can omit at most its own entries, so its own count is the widest number it can write.
             w.WriteNumber("bsa_failures_omitted", d.BsaFailures.Count);
+            if (d.UnwalkedRoots.Count > 0) w.WriteNumber("root_failures_omitted", d.UnwalkedRoots.Count);
             w.WriteNumber("warnings_omitted", d.Warnings.Count);
             w.WriteNumber("selector_notes_omitted", d.SelectorNotes?.Count ?? 0);
             TransportAccounting.WriteJson(w, widest);
@@ -2797,7 +2802,13 @@ static class JsonWire
         return Chars(ms);
     }
 
-    static void WriteAssetRow(Utf8JsonWriter w, AssetPathResult r, bool readIncomplete, bool discoveryIncomplete)
+    /// <summary>The loose roots that could not be walked, written ONLY when there are some: a build where every
+    /// root walked is the document it always was, and the array's own room is charged nowhere it is not written.</summary>
+    static int RootFailuresJson(Utf8JsonWriter w, CharCountedStream ms, AssetStatusData d, int budget) =>
+        d.UnwalkedRoots.Count == 0 ? 0 : WriteCappedStringArray(w, ms, "root_failures", d.UnwalkedRoots, budget);
+
+    static void WriteAssetRow(Utf8JsonWriter w, AssetPathResult r, bool readIncomplete, bool discoveryIncomplete,
+                              bool rootIncomplete)
     {
         w.WriteStartObject();
         w.WriteString("path", r.RelPath);
@@ -2829,6 +2840,8 @@ static class JsonWire
             // Pinned by AssetStatusJsonHedgeTests.TheTwoAbsentHedgesAreStatedApart.
             w.WriteBoolean("absent_may_be_incomplete_read_failure", readIncomplete);
             w.WriteBoolean("absent_may_be_incomplete_undiscovered_archives", discoveryIncomplete);
+            // The third hedge, with its own remedy: a loose root that would not walk (the asset could be inside it).
+            if (rootIncomplete) w.WriteBoolean("absent_may_be_incomplete_unwalked_root", true);
         }
         // The other half of the FaceGen pair, resolved beside this one; absent on a plain path row.
         if (r.PairPath is not null)

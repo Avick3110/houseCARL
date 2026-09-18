@@ -258,10 +258,11 @@ static class AssetWire
             (sb, room) =>
             {
                 BatchRender.AppendReadFailures(sb, d.BsaFailures, "an asset", room);
+                BatchRender.AppendRootFailures(sb, d.UnwalkedRoots, "an asset", room);
                 BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, room);
                 AppendSelectorNotes(sb, d.SelectorNotes, room);
             },
-            (sb, r, _) => AppendPath(sb, r, d.ReadIncomplete, d.Warnings.Count > 0),
+            (sb, r, _) => AppendPath(sb, r, d.BsaFailures.Count > 0, d.Warnings.Count > 0, d.UnwalkedRoots.Count > 0),
             out int rendered,
             // The accounting block is priced INSIDE max_chars, the way the check sweep's footer is, so max_chars means the same on this tool as on every other.
             reserve: AccountingReserve(d) + spillText.Length);
@@ -299,7 +300,8 @@ static class AssetWire
         TransportAccounting.Reserve(d.Selected, d.Results.Count, new RowWindow(d.Offset, d.Limit),
                                     d.SelectorNotes?.Count ?? 0, RowNoun);
 
-    static void AppendPath(StringBuilder sb, AssetPathResult r, bool readIncomplete, bool discoveryIncomplete)
+    static void AppendPath(StringBuilder sb, AssetPathResult r, bool readIncomplete, bool discoveryIncomplete,
+                           bool rootIncomplete)
     {
         sb.Append('\n').Append(r.RelPath);
         // Only on a row the formids= SELECT derived, so a plain path block is byte-for-byte the block it always was.
@@ -332,6 +334,9 @@ static class AssetWire
             if (discoveryIncomplete)
                 sb.Append("  [!] some archives were not scanned this build (see the discovery note above), so " +
                           "\"absent\" may be incomplete — base-game assets live in BSAs that weren't enumerated.\n");
+            if (rootIncomplete)
+                sb.Append("  [!] but a loose root failed to walk this build (see the root note above), so " +
+                          "\"absent\" may be incomplete — the asset could live in the root that was not walked.\n");
             AppendPair(sb, r);
             return;
         }
@@ -437,6 +442,7 @@ static class AssetCensus
         var room = RenderCap.For(cap, Counters(c).Length + Axis(c).TextFixed);
         // The alarms first, for the reason the path render puts them first: an ABSENT count is authoritative only where no archive read failed.
         BatchRender.AppendReadFailures(sb, d.BsaFailures, "an asset", room);
+        BatchRender.AppendRootFailures(sb, d.UnwalkedRoots, "an asset", room);
         BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, room);
         AssetWire.AppendSelectorNotes(sb, d.SelectorNotes, room);
 

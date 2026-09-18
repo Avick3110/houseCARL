@@ -275,7 +275,7 @@ static class SkyPatcherWire
     static void AppendCaveats(StringBuilder sb, bool readIncomplete, IReadOnlyList<string> assetWarnings)
     {
         if (readIncomplete)
-            sb.Append("[!] a BSA failed to read this build, so an INI present only in it may be missing from this scan (Q3).\n");
+            sb.Append("[!] a BSA or a loose mod folder failed to read this build, so an INI present only in it may be missing from this scan (Q3).\n");
         foreach (var w in assetWarnings) sb.Append("[!] ").Append(w).Append('\n');
     }
 }

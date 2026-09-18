@@ -76,7 +76,8 @@ public sealed partial class LoadOrderService
                                            Math.Max(limit, 0),
                                            // Dedup can leave the running count at the bound rather than past it; the walk stopping is the proof.
                                            RenderBudget.RefuseAssetPaths(Math.Max(selected.Count, RenderBudget.MaxAssetPaths + 1),
-                                                                         wholeSelection, atLeast: true)!);
+                                                                         wholeSelection, atLeast: true)!,
+                                           view.RootFailures);
 
             var total = selected.Count;
             var start = wholeSelection ? 0 : Math.Min(Math.Max(offset, 0), total);
@@ -92,7 +93,7 @@ public sealed partial class LoadOrderService
             if (RenderBudget.RefuseAssetPaths(toResolve, wholeSelection) is { } tooBig)
                 return new AssetStatusData(Array.Empty<AssetPathResult>(), view.BsaFailures, view.ReadIncomplete,
                                            AssetWarningsLocked(), _profileName, notes, total, Math.Max(offset, 0),
-                                           Math.Max(limit, 0), tooBig);
+                                           Math.Max(limit, 0), tooBig, view.RootFailures);
 
             // A TWO-ENTRY lookaside, not a call-scoped memo: a pair's halves are adjacent, so one row of history gives the identical dedup at O(1) retention.
             string? seenA = null, seenB = null;
@@ -124,7 +125,9 @@ public sealed partial class LoadOrderService
             }
             return new AssetStatusData(results, view.BsaFailures, view.ReadIncomplete, AssetWarningsLocked(), _profileName,
                                        notes, total, Math.Max(offset, 0),    // the offset ASKED for, so a past-the-end page can say so
-                                       Math.Max(limit, 0));                  // the limit ASKED for, so the next-page advice repeats it
+                                       Math.Max(limit, 0),                   // the limit ASKED for, so the next-page advice repeats it
+                                       // Read AFTER the walks, which are what fill it: a root that would not enumerate is named here.
+                                       BoundRefusal: null, RootFailures: view.RootFailures);
         }
     }
 

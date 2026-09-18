@@ -1056,7 +1056,7 @@ static class Wire
         if (r.UnverifiableCollapsed > 0)
             sb.Append(string.Format(ReadSentences.SweepScriptUnverifiableCollapsed, r.UnverifiableCollapsed)).Append('\n');
         if (r.ReadIncomplete)
-            sb.Append("note: a BSA failed to read this build — a '.pex not on disk' below may merely be unscanned, not truly absent (Q3).\n");
+            sb.Append("note: a BSA or a loose mod folder failed to read this build — a '.pex not on disk' below may merely be unscanned, not truly absent (Q3).\n");
     }
 
     /// <summary>The scripts family's body — everything a cap can refuse. Like the errors family's, it writes no

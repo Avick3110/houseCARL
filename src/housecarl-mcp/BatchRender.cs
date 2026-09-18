@@ -121,6 +121,17 @@ static class BatchRender
         AppendLines(sb, failures, "archive(s)", cap);
     }
 
+    /// <summary>The loose roots that could not be walked this build, each named with the reason — the loose twin of
+    /// <see cref="AppendReadFailures"/>, and the same rule: an "ABSENT" below is authoritative only where it is empty.</summary>
+    public static void AppendRootFailures(StringBuilder sb, IReadOnlyList<string> failures, string subjectPhrase, RenderCap cap)
+    {
+        if (failures.Count == 0) return;
+        // The heading carries the count, and the count IS the alarm, so it is written whatever the budget.
+        sb.Append("\n[!] ").Append(failures.Count).Append(" loose root(s) could NOT be walked this build — ")
+          .Append(subjectPhrase).Append(" present only in these may read as ABSENT below:\n");
+        AppendLines(sb, failures, "root(s)", cap);
+    }
+
     /// <summary>Archive-discovery warnings, e.g. a Skyrim.ini whose [Archive] base-archive list could not be found,
     /// so the vanilla base BSAs are not in the scan.</summary>
     public static void AppendDiscoveryWarnings(StringBuilder sb, IReadOnlyList<string> warnings, RenderCap cap)

@@ -49,7 +49,7 @@ internal static class FaceGenSweepRender
         if (r.ScanError is not null)
             sb.Append("[SCAN ERROR] ").Append(r.ScanError).Append('\n');
         if (r.ReadIncomplete)
-            sb.Append("note: a BSA failed to read this build — an 'absent' half below may merely be unscanned.\n");
+            sb.Append("note: a BSA or a loose mod folder failed to read this build — an 'absent' half below may merely be unscanned.\n");
     }
 
     /// <summary>The family's body — everything a cap can refuse.</summary>

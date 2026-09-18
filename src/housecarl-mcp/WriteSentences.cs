@@ -595,7 +595,7 @@ internal static class WriteSentences
     /// lane's own unreadable outcome: both can be true at once, so they stay different clauses.</summary>
     [MustState("may merely be unscanned")]
     internal const string PlaceSourceScanIncomplete =
-        "NOTE: a BSA failed to read this build, so it may merely be unscanned (see the warnings).";
+        "NOTE: a BSA or a loose mod folder failed to read this build, so it may merely be unscanned (see the warnings).";
 
     /// <summary>The folder was looked for and is not there. Distinct from finding it empty of this path, because the
     /// caller's next move differs: a name with no folder is a name to check, a folder without the file is a file to

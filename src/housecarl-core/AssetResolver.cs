@@ -46,9 +46,14 @@ public sealed class AssetResolver : IDisposable
         public readonly Dictionary<string, HashSet<string>> Tables;   // archive path → its file paths (normalized)
         public readonly Dictionary<string, FileStamp> Stamps;         // archive path → freshness stamp at this build
         public readonly List<string> Failures;                        // archives that couldn't be read, with the reason
+        public readonly ConcurrentDictionary<string, string> RootFailures;   // "root|prefix" → a loose root that couldn't be walked, with the reason
         public readonly ConcurrentDictionary<string, LooseSubtree> LooseCache;
         public Snapshot(Dictionary<string, HashSet<string>> tables, Dictionary<string, FileStamp> stamps, List<string> failures)
-        { Tables = tables; Stamps = stamps; Failures = failures; LooseCache = new(StringComparer.OrdinalIgnoreCase); }
+        {
+            Tables = tables; Stamps = stamps; Failures = failures;
+            RootFailures = new(StringComparer.OrdinalIgnoreCase);
+            LooseCache = new(StringComparer.OrdinalIgnoreCase);
+        }
     }
 
     /// <summary>One subtree directory's loose resolution: the filename sets of the roots that have it, in precedence
@@ -68,7 +73,17 @@ public sealed class AssetResolver : IDisposable
 
     public IReadOnlyList<string> BsaFailures => _snap.Failures;
 
-    public bool ReadIncomplete => _snap.Failures.Count > 0;
+    /// <summary>The loose roots a walk this build could not enumerate, each named with the reason — the loose twin of
+    /// <see cref="BsaFailures"/>, and filled lazily, because the walk that hits the failure is the enumeration itself.</summary>
+    public IReadOnlyList<string> RootFailures => SortedRootFailures(_snap);
+
+    public bool ReadIncomplete => _snap.Failures.Count > 0 || !_snap.RootFailures.IsEmpty;
+
+    /// <summary>The root failures in a stable order, so two renders of one build read the same.</summary>
+    static IReadOnlyList<string> SortedRootFailures(Snapshot snap) =>
+        snap.RootFailures.IsEmpty
+            ? Array.Empty<string>()
+            : snap.RootFailures.Values.OrderBy(v => v, StringComparer.OrdinalIgnoreCase).ToList();
 
     AssetResolver(string overwriteDir, string modsDir, string dataDir,
                   IReadOnlyList<string> enabledMods, IReadOnlyList<ActiveArchive> archives)
@@ -271,7 +286,7 @@ public sealed class AssetResolver : IDisposable
     {
         var rel = NormalizeQueryPath(relPath);
         var sources = ResolveProviders(rel, snap);
-        return new PlacementResolution(rel, sources, sources.Count > 1, snap.Failures.Count > 0);
+        return new PlacementResolution(rel, sources, sources.Count > 1, snap.Failures.Count > 0 || !snap.RootFailures.IsEmpty);
     }
 
     public const string OverwriteLayerName = "overwrite";
@@ -321,7 +336,8 @@ public sealed class AssetResolver : IDisposable
 
     /// <summary>Every distinct Data-relative path that exists anywhere under <paramref name="prefix"/>, across all
     /// loose roots and all active BSAs. Every returned path is re-rooted on the NORMALIZED prefix, so one answer
-    /// never carries two spellings of one folder; a loose root that will not enumerate contributes nothing.</summary>
+    /// never carries two spellings of one folder; a loose root that will not enumerate contributes nothing and is
+    /// named in <see cref="RootFailures"/>, which sets <see cref="ReadIncomplete"/>.</summary>
     public IReadOnlyCollection<string> EnumerateUnder(string prefix) => EnumerateUnder(prefix, _snap);
 
     /// <summary>As <see cref="EnumerateUnder(string)"/>, with the walk BOUNDED: <paramref name="keep"/> filters
@@ -344,7 +360,7 @@ public sealed class AssetResolver : IDisposable
         void Take(string rel) { if (keep is null || keep(rel)) found.Add(rel); }
 
         // loose: recurse each root's copy of the prefix dir (set-UNION across roots — the per-path winner is decided later).
-        foreach (var (_, rootDir) in _looseRoots)
+        foreach (var (rootName, rootDir) in _looseRoots)
         {
             var baseDir = Path.Combine(rootDir, pre);
             if (!Directory.Exists(baseDir)) continue;
@@ -357,7 +373,13 @@ public sealed class AssetResolver : IDisposable
                     if (Full()) { stopped = true; return found; }
                 }
             }
-            catch { /* a root that won't enumerate contributes nothing */ }
+            catch (Exception ex)
+            {
+                // A root that won't enumerate contributes nothing, so it is NAMED on the build: it sets ReadIncomplete
+                // and the answer says which root was not walked, never a silent half-answer.
+                snap.RootFailures[$"{rootName}|{pre}"] =
+                    $"{rootName}: could not walk '{(pre.Length == 0 ? "\\" : pre)}' — {Concise(ex)}";
+            }
             if (Full()) { stopped = true; return found; }
         }
 
@@ -386,7 +408,10 @@ public sealed class AssetResolver : IDisposable
 
         public IReadOnlyList<string> BsaFailures => _s.Failures;
 
-        public bool ReadIncomplete => _s.Failures.Count > 0;
+        /// <summary>The loose roots this view's walks could not enumerate — see <see cref="AssetResolver.RootFailures"/>.</summary>
+        public IReadOnlyList<string> RootFailures => SortedRootFailures(_s);
+
+        public bool ReadIncomplete => _s.Failures.Count > 0 || !_s.RootFailures.IsEmpty;
 
         public AssetHit Resolve(string relPath) => _r.Resolve(relPath, _s);
 
