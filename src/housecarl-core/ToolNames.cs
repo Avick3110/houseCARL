@@ -1,18 +1,8 @@
 namespace HousecarlCore;
 
-/// <summary>
-/// Every tool name the shipped surface uses, as compile-time constants.
-///
-/// <para>One constant per DECLARED <c>[McpServerTool].Name</c> -- declared, not registered: a tool
-/// the SDK does not scan still has its name spelled here. Retired spellings have no constant.</para>
-///
-/// <para><c>const</c>, not <c>static readonly</c>: these are spliced into attribute arguments, which
-/// must be constant expressions.</para>
-///
-/// <para>A new tool's constant is added BY HAND, one line; the completeness test holds this set
-/// against the declared tools and fails until it is.
-/// Rationale: <c>docs/decisions/0004-tool-names-are-compile-time-constants.md</c>.</para>
-/// </summary>
+/// <summary>Every tool name the shipped surface uses, one constant per declared <c>[McpServerTool].Name</c>; added by
+/// hand and held against the declared tools by the completeness test. Why:
+/// <c>docs/decisions/0004-tool-names-are-compile-time-constants.md</c>.</summary>
 public static class ToolNames
 {
     public const string Apply = "housecarl_apply";
