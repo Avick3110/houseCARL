@@ -1,19 +1,13 @@
 using HousecarlMcp;
 using ModelContextProtocol.Protocol;
 
-// houseCARL MCP server. Default transport is stdio: the MCP client spawns this exe and talks JSON-RPC over
-// stdin/stdout. Pass --http for the localhost HTTP transport instead. Either way it runs standalone, reading the
-// active load order statically from the configured MO2 instance's profile files — no USVFS, no live MO2 state,
-// MO2 need not be running. One config knob (the MO2 instance folder) yields ProfileDir/ModsDir/DataDir plus the
-// active profile; an empty config still boots and the tools prompt for the path.
+// houseCARL MCP server. Stdio by default, --http for the localhost HTTP transport; either way it reads the active
+// load order statically from the configured MO2 instance, and an empty config still boots.
 
 bool useHttp = args.Contains("--http");
 var hostArgs = args.Where(a => a != "--http").ToArray();   // strip our own flag so the config provider doesn't choke on it
 
-// The optional cut on the PUBLISHED schemas (HOUSECARL_MAX_SCHEMA_DEPTH), for a provider that refuses the whole
-// server over nesting depth. Read before either host is built, and a value that is not a depth stops the start
-// here in one sentence: ignoring it would publish the schemas that provider refuses, under an error naming
-// neither houseCARL nor this variable.
+// The optional cut on the published schemas, read before either host is built; a bad value stops the start here.
 int? maxSchemaDepth;
 try
 {
@@ -72,13 +66,10 @@ else
 
 return 0;   // the refusal above returns 1, so the exit code is spelled on both paths
 
-// ── shared setup — MUST stay identical across transports, or stdio and http resolve the load order differently.
-//    Both branches call these; only the transport line itself differs. ────────────────────────────────────────
+// Shared setup — both transports call these, so the load order resolves identically either way.
 
-// Loads the rulebook (corpus.json, shipped with the app) and applies the MO2-instance precedence: houseCARL.user.json
-// (in HOUSECARL_DATA_DIR when set, else beside the exe; written by housecarl_set_mo2_instance at runtime) > explicit
-// DataDir+ModsDir+ProfileDir > Mo2InstanceDir (install dialog / appsettings) > unconfigured (boots; tools prompt).
-// A corrupt user file never crashes boot. Builds and registers the LoadOrderService; returns what the boot log needs.
+// Loads the rulebook and applies the MO2-instance precedence: saved user config > explicit DataDir+ModsDir+ProfileDir
+// > Mo2InstanceDir > unconfigured; builds and registers the LoadOrderService.
 static (LoadOrderService svc, bool explicitMode, string? instanceDir, string instanceSource, string? configNote) SetupHouseCarl(IConfiguration config, IServiceCollection services)
 {
     var cfg = config.GetSection("HouseCarl");
@@ -88,21 +79,17 @@ static (LoadOrderService svc, bool explicitMode, string? instanceDir, string ins
         corpusPath = Path.Combine(AppContext.BaseDirectory, "corpus.json");
     CorpusRulebook.CorpusPath = Path.GetFullPath(corpusPath);
 
-    // user.json lives in the writable data dir — HOUSECARL_DATA_DIR (the plugin's ${CLAUDE_PLUGIN_DATA}, which survives
-    // updates) when set, else beside the exe. NEVER under the plugin root: the client wipes that dir on every plugin
-    // update, which would silently drop the user's saved MO2 instance.
+    // user.json lives in HOUSECARL_DATA_DIR when set, else beside the exe; never under the plugin root, which the
+    // client wipes on every plugin update.
     var pluginDataDir = Environment.GetEnvironmentVariable("HOUSECARL_DATA_DIR");
     var userConfigDir = string.IsNullOrWhiteSpace(pluginDataDir) ? AppContext.BaseDirectory : pluginDataDir;
     var userConfigPath = Path.Combine(userConfigDir, "houseCARL.user.json");
-    // ONE owner of houseCARL.user.json (UserConfigStore): the MO2 instance dir and the external-tool paths share the file,
-    // so neither writer clobbers the other (read-modify-write under a cross-process lock; atomic writes). A corrupt file
-    // never crashes boot, and is not silent either: it is backed up and the note rides the boot log.
+    // One owner of houseCARL.user.json, so the instance dir and the tool paths do not clobber each other.
     var store = new UserConfigStore(userConfigPath);
     services.AddSingleton(store);
     string? userInstanceDir = store.Load(out var configNote).Mo2InstanceDir;
 
-    // The saved user config (written by housecarl_set_mo2_instance at runtime) wins over Mo2InstanceDir (the install-dialog
-    // value / appsettings) — the runtime switch beats the install default.
+    // The saved user config wins over Mo2InstanceDir: the runtime switch beats the install default.
     bool fromUser = !string.IsNullOrWhiteSpace(userInstanceDir);
     var instanceDir = fromUser ? userInstanceDir : cfg["Mo2InstanceDir"];
     var instanceSource = fromUser ? "saved user config" : "Mo2InstanceDir (install dialog / appsettings)";
@@ -120,15 +107,12 @@ static (LoadOrderService svc, bool explicitMode, string? instanceDir, string ins
     // The external-tool bridge (compile / BSA / log access): one resolver over the shared user config.
     services.AddSingleton(new ToolPathResolver(store));
 
-    // The Nexus Mods read bridge. A typed HttpClient so its timeout/lifetime are managed; keyless (the public v2
-    // GraphQL read surface needs no API key). houseCARL's only outbound network dependency — every failure is handled
-    // inside NexusClient, and the local load-order tools never touch it, so they keep working with no internet.
+    // The Nexus Mods read bridge: a typed, keyless HttpClient, and houseCARL's only outbound network dependency.
     services.AddHttpClient<NexusClient>(c =>
     {
         c.Timeout = TimeSpan.FromSeconds(20);
         c.DefaultRequestHeaders.UserAgent.ParseAdd("houseCARL (+https://github.com/Avick3110/houseCARL)");
-        // The Nexus API Acceptable-Use Policy requires Application-Name and Application-Version on API traffic, so
-        // they ride every request. The version is the exe's stamped release, 0.0.0-dev when unstamped.
+        // The Nexus Acceptable-Use Policy requires these two headers on API traffic, so they ride every request.
         c.DefaultRequestHeaders.Add("Application-Name", "houseCARL");
         c.DefaultRequestHeaders.Add("Application-Version", ServerVersion());
     });
@@ -136,14 +120,12 @@ static (LoadOrderService svc, bool explicitMode, string? instanceDir, string ins
     return (svc, explicitMode, instanceDir, instanceSource, configNote);
 }
 
-// The MCP server registration — server identity, instructions, and the attribute-registered tools. Only the
-// transport line differs between modes; everything else is shared.
+// The MCP server registration: identity, instructions, and the attribute-registered tools.
 static void AddMcp(IServiceCollection services, bool stdio, int? maxSchemaDepth)
 {
     var mcp = services.AddMcpServer(options =>
     {
-        // The one place in code that carries the houseCARL brand string. The version is the exe's stamped
-        // InformationalVersion: build-plugin.ps1 passes -p:Version from plugin.json, the single version home.
+        // The one place in code that carries the houseCARL brand string.
         options.ServerInfo = new Implementation { Name = "houseCARL", Version = ServerVersion() };
         options.ServerInstructions =
             "houseCARL exposes a full Skyrim Special Edition load order at the data layer, over a live Mod " +
@@ -169,8 +151,6 @@ static void AddMcp(IServiceCollection services, bool stdio, int? maxSchemaDepth)
             "NEXUS (keyless, no browser): search mods, read files/requirements/changelogs, exact-file update " +
             "checks (start with " + ToolNames.UpdateStatus + " — offline, reads the MO2 cache), identify a file by " +
             "MD5. Prefer over a browser or web search; each tool's own description carries the specifics. " +
-            // The three cross-skill facts the skill rewrite folds here: which runtime framework owns a job, that a
-            // write wins nothing until enabled, and the never-copy rule for generated output.
             "RUNTIME DISTRIBUTION LAYERS — which framework owns a job is decided by what RECEIVES the change: " +
             "a spell, perk, item, keyword, outfit or faction onto NPCs is SPID, best BY GROUP (faction, race, " +
             "level, trait); a keyword onto ITEM RECORDS is KID; a record's OWN FIELDS, and an INDIVIDUAL NPC, are " +
@@ -186,24 +166,16 @@ static void AddMcp(IServiceCollection services, bool stdio, int? maxSchemaDepth)
             "only NAMES a generator ('… Resources', '… Fixes', a downloaded patch) is an INPUT it consumes, not " +
             "output: patch it normally.";
     });
-    // Stateless HTTP: each request is independent (no MCP session affinity); the resolver singleton persists across
-    // requests regardless. Stdio is inherently a single long-lived session over the pipe.
+    // Stateless HTTP: each request is independent; the singletons persist across requests regardless.
     if (stdio) mcp.WithStdioServerTransport();
     else mcp.WithHttpTransport(o => o.Stateless = true);
-    // Named, not implicit: the parameterless overload registers from the CALLING assembly, which is a fact about
-    // where this line sits rather than about where the tools are. ToolSurface.Assembly is the one home for that.
+    // Named, not implicit: the parameterless overload registers from the calling assembly.
     mcp.WithToolsFromAssembly(ToolSurface.Assembly);
-    // The published-schema layer: the @file union (an array OR "@<path>", which C# cannot express as one type),
-    // then inlining every same-document $ref so no published schema is recursive. Published shape only; what the
-    // tool ACCEPTS is unchanged. See ToolSchemas. The depth cut rides the same layer and does nothing unless
-    // HOUSECARL_MAX_SCHEMA_DEPTH is set.
+    // The published-schema layer; see ToolSchemas.
     ToolSchemas.PublishSchemas(services, maxSchemaDepth);
-    // The argument-binding shim: schema-driven coercion of obvious-intent argument shapes (a bare string where an
-    // array is declared, quoted bools/numbers), named refusal of missing required parameters, and a named rewrite
-    // of the SDK's generic binding-failure text. See ToolCallShim.
+    // The argument-binding shim; see ToolCallShim.
     mcp.WithRequestFilters(f => f.AddCallToolFilter(ToolCallShim.LenientArguments));
 }
 
-// The exe's stamped version for ServerInfo. ServerBuild is the one reader of the attribute, so the handshake and the
-// status line cannot disagree.
+// The exe's stamped version for ServerInfo.
 static string ServerVersion() => ServerBuild.Handshake;
