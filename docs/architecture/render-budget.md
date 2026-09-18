@@ -119,8 +119,70 @@ sections, per-record sections, dialogue topic blocks, facegen finding rows and h
 
 ## Spilling to a file
 
-The spill dispositions — `to_file=` and the `ceiling` auto-spill — are documented where they live:
-`src/housecarl-mcp/Artifacts.cs` (`SpillInfo`, `SpillState`) and `src/housecarl-mcp/CheckArtifact.cs`.
+The spill dispositions themselves — `to_file=` and the `ceiling` auto-spill — are documented where they live:
+`src/housecarl-mcp/Artifacts.cs` (`SpillInfo`, `SpillState`). What a spilled `check` artifact contains is here.
+
+**One artifact, one row shape, a `family` column.** A merged call runs several families and they find different
+things. A file per family would leave the caller joining them, and a row shape per family would leave the manifest's
+`row_schema` describing none of them — so every family's finding is flattened onto one wide row, and the columns a
+family does not use are null, which is what a jsonl consumer greps on anyway.
+
+**Rows are the SWEEP's own findings, not the render's.** The artifact is written from the results, so a row is never
+missing because the inline body ran out of characters. What `limit=` already cut before the results were built is
+cut here too, and the manifest says so by carrying `total` above `row_count`. The facegen family's own listing
+budget is added back into `total` for the same reason.
+
+The benign facegen class the RESPONSE withholds IS written to the file — "the complete findings" means every class
+the sweep found, and the `class` column tells the two apart.
+
+**The manifest-only render** states the scope sentence, each family's refusal or boundary, and the manifest; the
+rows ARE the file. A family that refused states its ground there, because the scope sentence says a family refused
+but never why. It is stated beside that family's boundary rather than refusing the whole call, since `exclude=` is
+validated against each family's own scope and one family's refusal must not discard rows another family already
+wrote. A FOLDED dialogue call carries its frame in both the manifest notes and this render: those rows hold verdicts
+read against a plugin the order does not load, a manifest-only render is the ONLY render such a call gets, and a
+projection without its frame reads as the live answer.
+
+## What a merged response's accounting may claim
+
+`CheckAccounting` is the one accounting of what a sweep response left out, shared by both transports so the text and
+json answers cannot disagree. Its rules:
+
+- **Every omission is a subtraction against the sweep's own totals, taken after emission stops**, so the separate
+  causes sum to the total exactly rather than by two counters happening to agree. The accounting line and the
+  boundary footer are reserved out of the caller's `max_chars` before the body renders, never appended past it.
+- **A lane declares the SUBJECTS it actually has** (`SweepSubject`), and every sentence, json field, remedy and
+  reserve derives from that set — so a lane without sections cannot claim about them and a lane with them cannot
+  fail to. Subjects are lane facts, never a findings taxonomy. A json field named for a subject is present exactly
+  where that subject is, never a zero standing in for "this lane has no such thing".
+- **A refused family declares nothing.** A family-local refusal renders as its own section, so the writer is
+  reachable with a failed result, and declaring subjects anyway would assert completeness over a sweep that never
+  ran.
+- **Registration happens where a unit LANDED**, from `BoundedBody.Emit`, never where a section is entered: a section
+  total would claim entries for a section the cut left half-written. A subject the lane did not declare is ignored
+  rather than counted, which lets the histogram rows share the one bounded-emission path without acquiring an
+  accounting sentence of their own.
+- **Exactly one accounting declares the excluded-plugin roster.** The roster is a scope fact emitted once per
+  response however many families ran, so a second declarer would state the same cut twice.
+- **The worst case is measured, not estimated.** The reserve is composed from the same predicate and the same
+  composer the real line uses, with every count at the total's digit width and every optional clause present. The
+  roster holds the LONGEST source names rather than the largest, because a partly-listed response can promote a
+  long-named small source into it — "largest" is not a bound and "longest" is. The json lane measures by serializing
+  at the depth the object actually lands at, because the document is indented and the two encodings differ.
+
+The two transports need different slack over that worst case. The text lane composes each unit and tests
+`length + cost` before appending, so it needs only the newlines its blocks are wrapped in; a `Utf8JsonWriter` cannot
+measure an object without writing it, so the json lane's per-entry test is taken before the write, the last entry
+lands over, and its slack has to cover one whole entry plus `BoundedBody`'s post-check.
+
+**The overrun notice** names which of the two overruns happened — a `max_chars` too small to hold the response's
+fixed part, or a body unit that ran past what the budget had left after that fixed part fit. One sentence cannot
+cover both, because the fixed-part explanation is false of the second. It is asked of the FINISHED response's
+length and answers only about that; predicted from a header length plus the reserve it would be a statement about
+the worst case instead. Its remedy is not simply that length: raising the cap widens every `max_chars` this response
+prints back, so the growth is added from two measured terms — how many places print it, counted in the finished
+response rather than derived from the number of accountings, and how many digits the number gains. The notice's own
+length is excluded, because it disappears the moment the response fits.
 
 ## The render bound is a time budget, not a width one
 
