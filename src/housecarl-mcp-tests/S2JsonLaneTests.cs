@@ -232,6 +232,7 @@ public class AssetStatusJsonHedgeTests
     static AssetStatusData Absent(bool readIncomplete, bool discoveryIncomplete) => new(
         new[] { new AssetPathResult("meshes/gone.nif", new AssetHit("meshes/gone.nif", false, null, Array.Empty<AssetProvider>(), false), null) },
         readIncomplete ? new[] { "HcArch.bsa — unreadable" } : Array.Empty<string>(),
+        Array.Empty<string>(),   // no unwalkable loose root in this fixture
         readIncomplete,
         discoveryIncomplete ? new[] { "no Skyrim.ini found; base archives were not scanned" } : Array.Empty<string>(),
         "Default");

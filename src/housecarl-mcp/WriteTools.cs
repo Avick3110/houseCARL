@@ -713,7 +713,7 @@ public static class WriteTools
         foreach (var f in ar.Failures.Take(25)) sb.Append("  facegen WARN: ").Append(f).Append('\n');
         if (ar.Failures.Count > 25) sb.Append("  facegen WARN: … (+").Append(ar.Failures.Count - 25).Append(" more)\n");
         if (ar.ReadIncomplete)
-            sb.Append("  note: a BSA failed to read this scan, so a 'no facegen' result may be incomplete — verify NPC faces in-game.\n");
+            sb.Append("  note: a BSA or a loose mod folder failed to read this scan, so a 'no facegen' result may be incomplete — verify NPC faces in-game.\n");
     }
 
     static void AppendVoiceCarry(StringBuilder sb, VoiceCarryOutcome? outcome, bool inPlace)
@@ -729,7 +729,7 @@ public static class WriteTools
         foreach (var f in vr.Failures.Take(25)) sb.Append("  voice WARN: ").Append(f).Append('\n');
         if (vr.Failures.Count > 25) sb.Append("  voice WARN: … (+").Append(vr.Failures.Count - 25).Append(" more)\n");
         if (vr.ReadIncomplete)
-            sb.Append("  note: a BSA failed to read this scan, so a 'no voice' result may be incomplete — verify voiced lines in-game.\n");
+            sb.Append("  note: a BSA or a loose mod folder failed to read this scan, so a 'no voice' result may be incomplete — verify voiced lines in-game.\n");
     }
 
     static void AppendSeqRegen(StringBuilder sb, SeqRegenOutcome? outcome, bool inPlace)

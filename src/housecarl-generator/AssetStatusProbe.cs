@@ -240,8 +240,8 @@ internal static class AssetStatusProbe
 
                 // (1) a read failure → the alarm renders BEFORE the per-path block, and the ABSENT carries the read caveat.
                 var readFail = new AssetStatusData(new[] { Absent(@"meshes\x.nif") },
-                    new[] { "Bad.bsa (loaded by P.esp): could not read the archive table — truncated" }, true,
-                    Array.Empty<string>(), "Default");
+                    new[] { "Bad.bsa (loaded by P.esp): could not read the archive table — truncated" },
+                    Array.Empty<string>(), true, Array.Empty<string>(), "Default");
                 var r1 = AssetWire.Render(readFail, 80_000);
                 Check(r1.Contains("could NOT be read")
                       && r1.IndexOf("could NOT be read", StringComparison.Ordinal) < r1.IndexOf(@"meshes\x.nif", StringComparison.Ordinal),
@@ -249,7 +249,7 @@ internal static class AssetStatusProbe
                 Check(r1.Contains("\"absent\" may be incomplete"), "an ABSENT carries the read-incomplete caveat at the point of use");
 
                 // (2) the missing-Skyrim.ini DISCOVERY gap also hedges an ABSENT per-path (symmetric honesty — the review fix).
-                var discGap = new AssetStatusData(new[] { Absent(@"meshes\y.nif") }, Array.Empty<string>(), false,
+                var discGap = new AssetStatusData(new[] { Absent(@"meshes\y.nif") }, Array.Empty<string>(), Array.Empty<string>(), false,
                     new[] { "could not read the [Archive] sResourceArchiveList from a Skyrim.ini ..." }, "Default");
                 var r2 = AssetWire.Render(discGap, 80_000);
                 Check(r2.Contains("not scanned this build") && r2.Contains("\"absent\" may be incomplete"),
@@ -257,14 +257,14 @@ internal static class AssetStatusProbe
 
                 // (3) a tiny max_chars over many paths → an explicit cut notice (Q3, never silent truncation).
                 var many = Enumerable.Range(0, 60).Select(i => Absent($@"meshes\m{i}.nif")).ToArray();
-                var rCut = AssetWire.Render(new AssetStatusData(many, Array.Empty<string>(), false, Array.Empty<string>(), "Default"), 300);
+                var rCut = AssetWire.Render(new AssetStatusData(many, Array.Empty<string>(), Array.Empty<string>(), false, Array.Empty<string>(), "Default"), 300);
                 Check(rCut.Contains("omitted at max_chars="), "the per-path list is cut with an explicit notice at max_chars");
 
                 // (4) contention is rendered NEUTRALLY (a verify signal, not a problem).
                 var amb = new AssetStatusData(new[] { new AssetPathResult(@"meshes\z.nif",
                         new AssetHit(@"meshes\z.nif", true, new AssetProvider("ModA", AssetKind.Loose),
                             new[] { new AssetProvider("ModA", AssetKind.Loose), new AssetProvider("X.bsa", AssetKind.Bsa) }, true), null) },
-                    Array.Empty<string>(), false, Array.Empty<string>(), "Default");
+                    Array.Empty<string>(), Array.Empty<string>(), false, Array.Empty<string>(), "Default");
                 Check(AssetWire.Render(amb, 80_000).Contains("Verify only if"), "ambiguity is rendered NEUTRALLY (a 'verify' signal, not a 'problem')");
             }
 

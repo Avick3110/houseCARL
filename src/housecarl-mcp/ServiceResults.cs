@@ -175,6 +175,8 @@ public sealed record FaceGenSeed(string Token, FormKey? Key, string? Error);
 public sealed record AssetStatusData(
     IReadOnlyList<AssetPathResult> Results,
     IReadOnlyList<string> BsaFailures,
+    /// <summary>The loose roots this build could not walk or list, each named with the reason; empty when every root read.</summary>
+    IReadOnlyList<string> RootFailures,
     bool ReadIncomplete,
     IReadOnlyList<string> Warnings,
     string ProfileName,
@@ -182,14 +184,10 @@ public sealed record AssetStatusData(
     int Total = -1,
     int Offset = 0,
     int Limit = 0,
-    string? BoundRefusal = null,
-    IReadOnlyList<string>? RootFailures = null)
+    string? BoundRefusal = null)
 {
     /// <summary>How many paths the selection named — <see cref="Results"/>'s own count when nothing paged.</summary>
     public int Selected => Total < 0 ? Results.Count : Total;
-
-    /// <summary>The loose roots a walk could not enumerate this build, each named with the reason; empty when every root walked.</summary>
-    public IReadOnlyList<string> UnwalkedRoots => RootFailures ?? Array.Empty<string>();
 }
 
 /// <summary>One provider of an SKSE-layer file: the mod, "overwrite", "Data" or BSA filename, and whether it is a "loose" file or a "BSA" entry.</summary>
