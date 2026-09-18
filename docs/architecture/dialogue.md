@@ -103,9 +103,8 @@ Three tiers:
 | in-game behaviour | DLBR DNAM (Flags) | an absent DNAM reads as `TopLevel`, so a branch the author never marked top-level is published to the player's menu |
 
 The in-game tier is the sharpest, not the mildest: the output is byte-valid and passes validation, so nothing catches
-it before the game does. There is no honest default for DLBR `Flags` — vanilla carries both shapes deliberately — and
-each wrong guess is its own defect (#693 for `0` on a menu branch, #212 for `TopLevel` on a scripted `Say()` topic),
-so the create path REFUSES a branch whose `Flags` no op set.
+it before the game does. There is no honest default for DLBR `Flags`, so the create path REFUSES a branch whose
+`Flags` no op set; why neither value is honest, and what to pass, is on [`docs/dialogue.md`](../dialogue.md).
 
 Two exceptions to the is-null signal:
 
@@ -115,8 +114,9 @@ Two exceptions to the is-null signal:
 - Alias VTCK is scoped to REFERENCE aliases; a Location alias resolves to a place, not an actor, and the same gate
   guards the fill and the gap.
 
-A `0`-fill materialises the subrecord only. The `Goodbye` conversation-ender lives inside the INFO `Flags` struct and
-stays an explicit authoring choice; so do `OrWithPrevious` on an objective and the named alias flags.
+A `0`-fill materialises the subrecord only, so every named flag inside it — `OrWithPrevious` on an objective, the
+alias flags, and the INFO `Flags` struct's `Goodbye`, which [`docs/dialogue.md`](../dialogue.md) covers — stays an
+explicit authoring choice.
 
 ## The SNAM subtype marker
 
