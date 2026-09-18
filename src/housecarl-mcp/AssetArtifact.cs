@@ -83,7 +83,7 @@ internal static class AssetArtifact
         // The alarms an ABSENT row in the FILE depends on, rendered whatever the budget: the file carries no place to state them.
         var room = RenderCap.For(cap, 0);
         BatchRender.AppendReadFailures(sb, d.BsaFailures, "an asset", room);
-        BatchRender.AppendRootFailures(sb, d.UnwalkedRoots, "an asset", room);
+        BatchRender.AppendRootFailures(sb, d.RootFailures, "an asset", room);
         BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, room);
         if (d.SelectorNotes is { Count: > 0 } notes)
         {

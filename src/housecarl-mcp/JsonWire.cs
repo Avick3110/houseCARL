@@ -2652,7 +2652,7 @@ static class JsonWire
             {
                 // rendered > 0: the FIRST row always renders its core answer, as BatchRender does on the text lane.
                 if (rendered > 0 && Over(w, ms, budget)) break;
-                WriteAssetRow(w, r, d.BsaFailures.Count > 0, d.Warnings.Count > 0, d.UnwalkedRoots.Count > 0);
+                WriteAssetRow(w, r, d.BsaFailures.Count > 0, d.Warnings.Count > 0, d.RootFailures.Count > 0);
                 rendered++;
             }
             w.WriteEndArray();
@@ -2723,7 +2723,7 @@ static class JsonWire
             w.WriteString("before", "");   // the tail is never a document's first member, so it pays the separator it owes
             // The three caveat counters, written AFTER their array has spent the budget; each omits at most its own.
             w.WriteNumber("bsa_failures_omitted", d.BsaFailures.Count);
-            if (d.UnwalkedRoots.Count > 0) w.WriteNumber("root_failures_omitted", d.UnwalkedRoots.Count);
+            if (d.RootFailures.Count > 0) w.WriteNumber("root_failures_omitted", d.RootFailures.Count);
             w.WriteNumber("warnings_omitted", d.Warnings.Count);
             w.WriteNumber("selector_notes_omitted", d.SelectorNotes?.Count ?? 0);
             WriteCensusCounters(w, c);
@@ -2789,7 +2789,7 @@ static class JsonWire
             w.WriteString("before", "");   // the tail is never a document's first member, so it pays the separator one owes
             // Each block can omit at most its own entries, so its own count is the widest number it can write.
             w.WriteNumber("bsa_failures_omitted", d.BsaFailures.Count);
-            if (d.UnwalkedRoots.Count > 0) w.WriteNumber("root_failures_omitted", d.UnwalkedRoots.Count);
+            if (d.RootFailures.Count > 0) w.WriteNumber("root_failures_omitted", d.RootFailures.Count);
             w.WriteNumber("warnings_omitted", d.Warnings.Count);
             w.WriteNumber("selector_notes_omitted", d.SelectorNotes?.Count ?? 0);
             TransportAccounting.WriteJson(w, widest);
@@ -2805,7 +2805,7 @@ static class JsonWire
     /// <summary>The loose roots that could not be walked, written ONLY when there are some: a build where every
     /// root walked is the document it always was, and the array's own room is charged nowhere it is not written.</summary>
     static int RootFailuresJson(Utf8JsonWriter w, CharCountedStream ms, AssetStatusData d, int budget) =>
-        d.UnwalkedRoots.Count == 0 ? 0 : WriteCappedStringArray(w, ms, "root_failures", d.UnwalkedRoots, budget);
+        d.RootFailures.Count == 0 ? 0 : WriteCappedStringArray(w, ms, "root_failures", d.RootFailures, budget);
 
     static void WriteAssetRow(Utf8JsonWriter w, AssetPathResult r, bool readIncomplete, bool discoveryIncomplete,
                               bool rootIncomplete)

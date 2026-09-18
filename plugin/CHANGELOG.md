@@ -49,7 +49,7 @@ made the change.
 - **`housecarl_decompile_script` brings back an expression whose result the script throws away, instead of failing
   the function it sits in.** Decompile vanilla `WEBountyCollectorScript` and read `OnStoryScript`.
 - **`housecarl_asset_status` names a mod folder it could not read instead of quietly leaving it out of the
-  answer.** A sweep over a folder one mod blocks now says which root was not walked above the rows.
+  answer.** Ask about a path or a folder a mod blocks: the answer names that mod above the rows.
 
 ## 2.0.2 — 2026-09-15
 

@@ -531,7 +531,7 @@ internal static class WriteSentences
     /// is a different claim from "looked for and not found". <paramref name="absentThing"/> is what the block's own
     /// rows call the missing item.</summary>
     internal static string ScanIncomplete(string absentThing) =>
-        $"  note: a BSA failed to read this scan, so {absentThing} above may merely be unscanned — verify in MO2.\n";
+        $"  note: a BSA or a loose mod folder failed to read this scan, so {absentThing} above may merely be unscanned — verify in MO2.\n";
 
     /// <summary>What a CUT cell-shell block costs beyond the generic "rows were dropped": each cell row carries its
     /// own <c>must_provide</c> work list, so the dropped rows are exactly the Creation-Kit work this response existed

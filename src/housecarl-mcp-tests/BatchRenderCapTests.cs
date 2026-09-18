@@ -18,6 +18,7 @@ public class BatchRenderCapTests
     static AssetStatusData Paths(int n, int providers = 3) => new(
         Enumerable.Range(0, n).Select(i => Contested($"meshes/batch/render/cap/path{i:D4}.nif", providers)).ToList(),
         new[] { "Broken - Textures.bsa (header refused)" },
+        Array.Empty<string>(),   // no unwalkable loose root in this fixture
         true,
         Array.Empty<string>(),
         "TestProfile");
@@ -30,6 +31,7 @@ public class BatchRenderCapTests
             Absent("meshes/c/third.nif"),
         },
         new[] { "Broken - Textures.bsa (header refused)" },
+        Array.Empty<string>(),   // no unwalkable loose root in this fixture
         true,
         Array.Empty<string>(),
         "TestProfile");
@@ -42,6 +44,7 @@ public class BatchRenderCapTests
             "Broken - Meshes.bsa (header refused)",
             "Broken - Sounds.bsa (header refused)",
         },
+        Array.Empty<string>(),   // no unwalkable loose root in this fixture
         true,
         Array.Empty<string>(),
         "TestProfile");
@@ -50,6 +53,7 @@ public class BatchRenderCapTests
     static AssetStatusData ManyReadFailures(int failures, int paths) => new(
         Enumerable.Range(0, paths).Select(i => Absent($"meshes/alarm/path{i:D4}.nif")).ToList(),
         Enumerable.Range(0, failures).Select(i => $"A Mod With A Long Folder Name {i:D3} - Textures.bsa (header refused)").ToList(),
+        Array.Empty<string>(),   // no unwalkable loose root in this fixture
         true,
         Array.Empty<string>(),
         "TestProfile");
@@ -59,6 +63,7 @@ public class BatchRenderCapTests
         Enumerable.Range(0, narrow).Select(i => Absent($"meshes/narrow/path{i:D4}.nif"))
             .Append(Contested("meshes/wide/path.nif", providers)).ToList(),
         Array.Empty<string>(),
+        Array.Empty<string>(),   // no unwalkable loose root in this fixture
         true,
         Array.Empty<string>(),
         "TestProfile");
@@ -68,6 +73,7 @@ public class BatchRenderCapTests
     static AssetStatusData WideItemUnderManyAlarms(int failures, int providers) => new(
         new[] { Contested("meshes/wide/path.nif", providers) },
         Enumerable.Range(0, failures).Select(i => $"A Mod With A Long Folder Name {i:D3} - Textures.bsa (header refused)").ToList(),
+        Array.Empty<string>(),   // no unwalkable loose root in this fixture
         true,
         Array.Empty<string>(),
         "TestProfile");

@@ -25,11 +25,25 @@ public sealed class AssetRootWalkFailureTests : IDisposable
         var d = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { UnwalkableRootWorld.SweepDir });
 
         Assert.True(d.ReadIncomplete);
-        var named = Assert.Single(d.UnwalkedRoots);
+        var named = Assert.Single(d.RootFailures);
         Assert.Contains(UnwalkableRootWorld.BlockedMod, named);
         // The render is where the modder reads it: the root is named above the rows the walk did return.
         Assert.Contains("could NOT be walked this build", AssetWire.Render(d, 80_000));
         Assert.Contains(UnwalkableRootWorld.BlockedMod, AssetWire.Render(d, 80_000));
+    }
+
+    /// <summary>The single-path lane rides a different read — the per-subtree listing, not the recursive walk — and
+    /// names the root the same way, so an ABSENT on a blocked root is hedged rather than stated flat.</summary>
+    [Fact]
+    public void AnExplicitPathUnderAnUnreadableRootIsNamedInTheAnswer()
+    {
+        Assert.True(_w.Denied, "the deny ACE did not bite on this host, so the unreadable root was never staged");
+
+        var d = _w.Svc.AssetStatus(new[] { UnwalkableRootWorld.BlockedPath });
+
+        Assert.True(d.ReadIncomplete);
+        Assert.Contains(UnwalkableRootWorld.BlockedMod, Assert.Single(d.RootFailures));
+        Assert.Contains("could NOT be walked this build", AssetWire.Render(d, 80_000));
     }
 }
 
@@ -44,8 +58,11 @@ sealed class UnwalkableRootWorld : IDisposable
     /// <summary>The mod whose copy of <see cref="SweepDir"/> cannot be walked.</summary>
     public const string BlockedMod = "BlockedMod";
 
+    /// <summary>A file that IS on disk inside the unreadable subtree — what the single-path lane asks about.</summary>
+    public const string BlockedPath = SweepDir + @"\locked\hidden.nif";
+
     public string Root { get; }
-    public LoadOrderService Svc { get; }
+    public LoadOrderService Svc { get; }   // set once, inside the constructor's try
 
     /// <summary>Whether the deny ACE actually took on this host — a fixture that did not build is a failure, never a pass.</summary>
     public bool Denied { get; }
@@ -85,6 +102,22 @@ sealed class UnwalkableRootWorld : IDisposable
         File.WriteAllText(Path.Combine(_lockedDir, "hidden.nif"), "x");
         Denied = TryDenyAll(_lockedDir);
 
+        // Past the deny, anything that throws leaves the object unbuilt and Dispose unrun, so the ACE would outlive
+        // the fixture and block the temp tree's own cleanup. Take it off before the failure leaves here.
+        try
+        {
+            Svc = Stage(instance, profile);
+        }
+        catch
+        {
+            UndenyAll(_lockedDir);
+            throw;
+        }
+    }
+
+    /// <summary>The profile files and the service, in one place so the constructor can undo the deny if this throws.</summary>
+    LoadOrderService Stage(string instance, string profile)
+    {
         File.WriteAllText(Path.Combine(instance, "ModOrganizer.ini"),
             "[General]\r\ngameName=Skyrim Special Edition\r\nselected_profile=@ByteArray(Default)\r\ngamePath=@ByteArray("
             + Path.Combine(Root, "game").Replace(@"\", @"\\") + ")\r\n");
@@ -93,7 +126,7 @@ sealed class UnwalkableRootWorld : IDisposable
         File.WriteAllText(Path.Combine(profile, "modlist.txt"), "# header\r\n+" + BlockedMod + "\r\n+AssetMod\r\n+PluginMod\r\n");
         File.WriteAllText(Path.Combine(profile, "Skyrim.ini"), "[Archive]\r\nsResourceArchiveList=\r\n");
 
-        Svc = LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
+        return LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
     }
 
     /// <summary>Deny the current user everything on one directory, and verify the deny bites rather than trusting the call.</summary>

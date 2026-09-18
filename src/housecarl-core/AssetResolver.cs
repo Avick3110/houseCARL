@@ -46,7 +46,7 @@ public sealed class AssetResolver : IDisposable
         public readonly Dictionary<string, HashSet<string>> Tables;   // archive path → its file paths (normalized)
         public readonly Dictionary<string, FileStamp> Stamps;         // archive path → freshness stamp at this build
         public readonly List<string> Failures;                        // archives that couldn't be read, with the reason
-        public readonly ConcurrentDictionary<string, string> RootFailures;   // "root|prefix" → a loose root that couldn't be walked, with the reason
+        public readonly ConcurrentDictionary<string, string> RootFailures;   // "root|dir" → a loose root that could not be walked or listed, with the reason
         public readonly ConcurrentDictionary<string, LooseSubtree> LooseCache;
         public Snapshot(Dictionary<string, HashSet<string>> tables, Dictionary<string, FileStamp> stamps, List<string> failures)
         {
@@ -73,8 +73,9 @@ public sealed class AssetResolver : IDisposable
 
     public IReadOnlyList<string> BsaFailures => _snap.Failures;
 
-    /// <summary>The loose roots a walk this build could not enumerate, each named with the reason — the loose twin of
-    /// <see cref="BsaFailures"/>, and filled lazily, because the walk that hits the failure is the enumeration itself.</summary>
+    /// <summary>The loose roots this build could not walk or list, each named with the reason — the loose twin of
+    /// <see cref="BsaFailures"/>. Filled lazily, because the read that hits the failure is the enumeration itself, and
+    /// kept for the life of the build: a root that would not read stays named until the next rebuild proves otherwise.</summary>
     public IReadOnlyList<string> RootFailures => SortedRootFailures(_snap);
 
     public bool ReadIncomplete => _snap.Failures.Count > 0 || !_snap.RootFailures.IsEmpty;
@@ -256,7 +257,7 @@ public sealed class AssetResolver : IDisposable
         // ---- loose, in MO2 precedence order — via the per-subtree cache (warmed on first touch) ----
         var subtreeDir = Normalize(Path.GetDirectoryName(rel) ?? "");
         var fname = Path.GetFileName(rel);
-        var st = snap.LooseCache.GetOrAdd(subtreeDir, WarmSubtree);
+        var st = snap.LooseCache.GetOrAdd(subtreeDir, d => WarmSubtree(d, snap));
         var loose = new List<PlacementSource>();
         foreach (var (rootIndex, files) in st.Present)               // Present is already in precedence order
             if (files.Contains(fname))
@@ -377,8 +378,7 @@ public sealed class AssetResolver : IDisposable
             {
                 // A root that won't enumerate contributes nothing, so it is NAMED on the build: it sets ReadIncomplete
                 // and the answer says which root was not walked, never a silent half-answer.
-                snap.RootFailures[$"{rootName}|{pre}"] =
-                    $"{rootName}: could not walk '{(pre.Length == 0 ? "\\" : pre)}' — {Concise(ex)}";
+                snap.RootFailures[RootFailureKey(rootName, pre)] = RootFailureLine(rootName, pre, "walk", ex);
             }
             if (Full()) { stopped = true; return found; }
         }
@@ -461,7 +461,9 @@ public sealed class AssetResolver : IDisposable
         return false;
     }
 
-    LooseSubtree WarmSubtree(string subtreeDir)
+    /// <summary>Warm one subtree against the build that asked for it, so a root that will not list is named on that
+    /// build the way a root that will not walk is.</summary>
+    LooseSubtree WarmSubtree(string subtreeDir, Snapshot snap)
     {
         var roots = _looseRoots;
         var stamps = new FileStamp[roots.Count];
@@ -470,13 +472,15 @@ public sealed class AssetResolver : IDisposable
         {
             var dir = subtreeDir.Length == 0 ? roots[i].Dir : Path.Combine(roots[i].Dir, subtreeDir);
             stamps[i] = FileStamp.OfDirectory(dir);                  // Absent if it isn't there — baseline for an appear/disappear
-            var files = SafeListFilenames(dir);
+            var files = SafeListFilenames(dir, roots[i].Name, subtreeDir, snap);
             if (files is { Count: > 0 }) present.Add((i, files));
         }
         return new LooseSubtree(stamps, present.ToArray());
     }
 
-    static HashSet<string>? SafeListFilenames(string dir)
+    /// <summary>One root's filenames in one directory. A dir that is not there is simply absent; a dir that THROWS is
+    /// named on the build, so the single-path lanes hedge an "absent" the same way a sweep does.</summary>
+    static HashSet<string>? SafeListFilenames(string dir, string rootName, string subtreeDir, Snapshot snap)
     {
         try
         {
@@ -485,8 +489,18 @@ public sealed class AssetResolver : IDisposable
             foreach (var f in Directory.EnumerateFiles(dir)) set.Add(Path.GetFileName(f));
             return set;
         }
-        catch { return null; }
+        catch (Exception ex)
+        {
+            snap.RootFailures[RootFailureKey(rootName, subtreeDir)] = RootFailureLine(rootName, subtreeDir, "read", ex);
+            return null;
+        }
     }
+
+    /// <summary>One entry per root per directory, so a root blocked everywhere is named once for each place it was asked about.</summary>
+    static string RootFailureKey(string rootName, string dir) => rootName + "|" + dir;
+
+    static string RootFailureLine(string rootName, string dir, string verb, Exception ex) =>
+        $"{rootName}: could not {verb} '{(dir.Length == 0 ? "\\" : dir)}' — {Concise(ex)}";
 
     /// <summary>Normalize an asset path for matching: forward slashes to backslashes, drop a leading separator. Lenient — never throws.</summary>
     static string Normalize(string p) => (p ?? "").Replace('/', '\\').TrimStart('\\');
