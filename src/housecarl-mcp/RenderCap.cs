@@ -21,7 +21,7 @@ internal readonly record struct RenderCap(int Cap, int Budget)
     public RenderCap Less(int trailer) => new(Cap, Math.Max(Budget - trailer, 0));
 
     /// <summary>The one arm a bounded render may exceed its cap on, and it says so — the notice settles to a fixed
-    /// point because it is part of the response whose length it states (#537).</summary>
+    /// point because it is part of the response whose length it states (#361).</summary>
     public static string Settle(string response, int cap)
     {
         if (response.Length <= cap) return response;

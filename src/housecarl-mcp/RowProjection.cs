@@ -5,7 +5,7 @@ namespace HousecarlMcp;
 /// <summary>The 'rows' project form: fold a depth-expanded read of a LIST field into ONE line per element —
 /// the element's own summary followed by every sub-field the read FOUND, with only an ABSENT optional omitted.
 /// A row is carried structurally as well as as text (<see cref="FieldValue.Cells"/>), so the json render emits
-/// one object per element; row-shape contract in docs/architecture/render-budget.md.</summary>
+/// one object per element rather than a sentence a consumer would have to parse.</summary>
 static class RowProjection
 {
     /// <summary>The depth a 'rows' read runs at when the caller names none: the element plus two levels of its

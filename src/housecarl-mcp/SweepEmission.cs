@@ -171,11 +171,11 @@ internal sealed class BoundedBody
     /// <summary>The row budget: the room the allocation divided, and the room the units may spend together.</summary>
     internal int RowBudget => Math.Max(0, _budget - _reservedForRows);
 
-    /// <summary>The high-water mark of what was owed outside the units, held to <see cref="ReservedForRows"/> by
-    /// CheckShapeMatrix's one-budget arm.</summary>
+    /// <summary>The high-water mark of what was owed outside the units; CheckShapeMatrix's one-budget arm bounds
+    /// it by <see cref="ReservedForRows"/>.</summary>
     internal int OutstandingHigh { get; private set; }
 
-    /// <summary>What one subject spent, held to <see cref="AllocationOf"/> by ALLOCATION-EQUALS-SPEND.</summary>
+    /// <summary>What one subject spent; with nothing cut, equal to <see cref="AllocationOf"/> (ALLOCATION-EQUALS-SPEND).</summary>
     internal int SpentOn(SweepSubject s) => Allocation.SpentOn(s);
 
     /// <summary>What of the response is charged against the BODY's budget: all of it, less what the reserve paid.</summary>

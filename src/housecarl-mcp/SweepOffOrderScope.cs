@@ -7,6 +7,7 @@ namespace HousecarlMcp;
 /// because both swept families take the lane; the MO2 composition is read lazily.</summary>
 internal static class SweepOffOrderScope
 {
+    /// <summary>Why the split refused; <c>Stamped</c> when the refusal consulted the caller's build (a blank name did not).</summary>
     internal readonly record struct Refusal(string Message, bool Stamped);
 
     /// <summary>Split <paramref name="plugins"/> against <paramref name="view"/>: the refusal, or null with
