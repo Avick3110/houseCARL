@@ -53,9 +53,10 @@ fixed part comes out of the budget the findings are listed from.
 `epoch_covers_all_inputs` is false when off-order files were swept beside the index, or when the family reports
 verdicts read off another substrate, which `epoch_uncovered` names.
 
-**Pinned by** `DegradedOrderMarkerTests` — the marker rides on both transports on the read, scan and write lanes;
+**Pinned by** `DegradedOrderMarkerTests` — the marker rides on both transports on the read, scan and write lanes, and
 `TheCheckDocumentCarriesTheMarkerAtItsRootAndOnTheErrorsFamily` pins the root sentence against the per-family flag and
-count; `AHealthyBuildCarriesNoMarkerOnEitherLane` pins the silence.
+count. The silence on a healthy order is `HealthyOrderMarkerTests.AHealthyBuildCarriesNoMarkerOnEitherLane`, its own
+class because the healthy world is a different collection.
 
 ## A capped list is an array plus a sibling count
 
@@ -63,9 +64,9 @@ Where a list is bounded, what did not fit is a sibling `<name>_omitted` number, 
 array. A marker element would be handed to a consumer iterating the array as if it were an entry, and the array length
 would stop matching the count the accounting states.
 
-**Pinned by** `S2JsonLaneTests.TheCaveatBlocksAreCappedByMaxCharsToo` — the array and the omitted count add up to the
-whole, and no entry carries a prose marker; and `ADocumentWhoseCaveatsWereCutSaysItWasTruncated` — a document that lost
-only caveat entries still reports `truncated`.
+**Pinned by** `AssetStatusJsonLaneTests.TheCaveatBlocksAreCappedByMaxCharsToo` — the array and the omitted count add up
+to the whole, and no entry carries a prose marker; and `ADocumentWhoseCaveatsWereCutSaysItWasTruncated` in the same
+class — a document that lost only caveat entries still reports `truncated`.
 
 ## Envelope keys must stay disjoint
 
@@ -108,6 +109,21 @@ The per-op read-back names WHERE its clause came from, as a word rather than a v
 It is deliberately NOT a judgement about whether the write "landed": a real difference cannot be told reliably from a
 representational one (a byte-quantised Percent, an overlay's type name), and the attempt tells callers to re-issue
 writes that did land. Both readings are in the document; the caller decides.
+
+The created-record `verified` flag gates it: `verified:false` says the walk threw before reaching that record, so
+nothing below it was checked, and **no op under a `verified:false` record may carry `landed_source:"written_file"`**.
+`verified:true` says the walk reached the record OR completed, which reaches every record it did not find — so
+`verified:true` beside `absent_from_file:true` is the ordinary miss, not a contradiction.
+
+## The read-back block
+
+`readback_source` names the WRITTEN FILE's content, or a dry run's in-memory would-be content — **never load-order
+truth**. `readback_full` describes THIS DOCUMENT: the json renders emit every field of every row, so a present
+read-back is always the full one, and it must not be made to carry the caller's ask, which the in-place lanes
+override. `readback_requested` is where the ask lives.
+
+**Pinned by** `src/housecarl-generator/WriteSurfaceGuardProbe.cs` — "json: an in-place lane that FORCED the read-back
+reports readback_full:true, ask kept separately".
 
 The truncation remedy on a write document is lane-aware for the same reason. "Raise `max_chars` to see the rest" is
 safe on `into=`, `in_place=` and a dry run, but on the default lane a re-issue auto-suffixes a second patch, a repeated

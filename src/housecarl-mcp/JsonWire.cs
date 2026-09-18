@@ -168,7 +168,10 @@ static class JsonWire
     }
 
     /// <summary>The post-write read-back block, one construction for apply / create / forward: <c>readback_source</c>
-    /// names the written file or a dry run's would-be content, <c>readback_requested</c> the caller's ask.</summary>
+    /// names the WRITTEN FILE's content or a dry run's in-memory would-be content, never load-order truth, and
+    /// <c>readback_requested</c> carries the caller's ask; <c>readback_full</c> describes this document and must not
+    /// be made to carry that ask, pinned by <c>WriteSurfaceGuardProbe</c> ("an in-place lane that FORCED the
+    /// read-back reports readback_full:true, ask kept separately").</summary>
     static void WriteReadbackBlock(Utf8JsonWriter w, CharCountedStream ms, int cap,
         IReadOnlyList<WritePatchBuilder.FullReadback> rb, bool dryRun, bool requested, ref bool truncated)
     {
@@ -219,7 +222,8 @@ static class JsonWire
     }
 
     /// <summary>The json twin of <see cref="BatchRender.AppendLines"/>: a caveat list bounded by the SAME budget the row
-    /// loop is, cut as a sibling <c>_omitted</c> count. Pinned by <c>S2JsonLaneTests.TheCaveatBlocksAreCappedByMaxCharsToo</c>.</summary>
+    /// loop is, cut as a sibling <c>_omitted</c> count. Pinned by
+    /// <c>AssetStatusJsonLaneTests.TheCaveatBlocksAreCappedByMaxCharsToo</c>.</summary>
     static int WriteCappedStringArray(Utf8JsonWriter w, CharCountedStream ms, string name, IReadOnlyList<string> items,
                                       int budget)
     {
@@ -1424,8 +1428,7 @@ static class JsonWire
         WriteStringArray(w, "base_masters", HousecarlCore.ErrorCheck.BaseMasters);
     }
 
-    /// <summary>The errors family's BODY — everything a cap can refuse; the roster, accounting and boundary are the
-    /// RESPONSE's.</summary>
+    /// <summary>The errors family's BODY — everything a cap can refuse; the roster, accounting and boundary are the RESPONSE's.</summary>
     static void WriteErrorsSection(Utf8JsonWriter w, ErrorCheckResult r, BoundedBody body, int histogramLimit)
     {
         // The depths every unit in this section is measured at, read off the writer rather than passed in.
@@ -1521,8 +1524,7 @@ static class JsonWire
     /// <summary>The three costs <see cref="MeasureFraming"/> reads off the writer, in characters.</summary>
     readonly record struct WriterFraming(int Open, int RootClose, int Separator);
 
-    /// <summary>Write two BYTE-IDENTICAL properties into a root object and take the deltas: one property, then that
-    /// property plus the separator, and what is left at the end is the root close.</summary>
+    /// <summary>Two BYTE-IDENTICAL properties into a root object, and the deltas: one property, that property plus the separator, the root close.</summary>
     static WriterFraming MeasureFraming()
     {
         using var ms = new CharCountedStream();
@@ -1541,8 +1543,7 @@ static class JsonWire
                                  Separator: (second - first) - (first - opened));
     }
 
-    /// <summary>What the overrun notice costs, encoded as the response will encode it: the scratch document less its
-    /// own wrapper, plus the separator the notice owes.</summary>
+    /// <summary>What the overrun notice costs, encoded as the response will encode it: the scratch document less its own wrapper, plus the separator it owes.</summary>
     static int OverrunNoticeCost(string notice)
     {
         using var ms = new CharCountedStream();
@@ -1555,8 +1556,7 @@ static class JsonWire
         return Chars(ms) - (Framing.Open + Framing.RootClose) + Framing.Separator;
     }
 
-    /// <summary>The document's size so far, in CHARACTERS. It FLUSHES first: a character count cannot be taken of
-    /// bytes the writer has not handed over.</summary>
+    /// <summary>The document's size so far, in CHARACTERS. It FLUSHES first: no count can be taken of bytes the writer still holds.</summary>
     static int Size(Utf8JsonWriter w, CharCountedStream ms)
     {
         w.Flush();
@@ -1574,8 +1574,7 @@ static class JsonWire
     /// <summary>What the <c>truncated</c> boolean costs, measured against <c>false</c>, the wider spelling.</summary>
     static readonly int TruncatedPropertyReserve = MeasureRootProperty(w => w.WriteBoolean("truncated", false));
 
-    /// <summary>One property's cost in the root object, from the writer itself; written after a property, so it pays
-    /// the same separator the real writes do.</summary>
+    /// <summary>One property's cost in the root object, from the writer itself, written after a property so it pays the same separator.</summary>
     static int MeasureRootProperty(Action<Utf8JsonWriter> write)
     {
         using var ms = new CharCountedStream();
@@ -1623,7 +1622,8 @@ static class JsonWire
     }
 
     /// <summary>What ONE UNIT costs the finished document, written into a throwaway document under the same
-    /// <see cref="Opts"/>, depth and sibling position, returning the DELTA it appended.</summary>
+    /// <see cref="Opts"/>, depth and sibling position, returning the DELTA it appended; why measuring means writing
+    /// is in docs/architecture/json-wire.md.</summary>
     /// <param name="subsequent">is something already in that array? A later element pays a separator.</param>
     /// <param name="measure">writes the unit and returns its cost, so a unit written in TWO spans measures both.</param>
     internal static int MeasureUnit(int depth, bool subsequent, Func<Utf8JsonWriter, Func<int>, int> measure)
@@ -2343,7 +2343,9 @@ static class JsonWire
                 WriteNullable(w, "parent_host", c.ParentHost);
                 w.WriteBoolean("parent_contested", c.ParentContested);
                 // The file's verdict as flags: `absent_from_file` says the create is not in the file, `verified` says
-                // the walk REACHED this record — not a claim about the ops one by one.
+                // the walk REACHED this record or completed, which reaches every record it did not find — not a
+                // claim about the ops one by one; the gate it puts on `landed_source` is in
+                // docs/architecture/json-wire.md.
                 w.WriteBoolean("verified", c.VerifyAttempted);
                 w.WriteBoolean("absent_from_file", c.AbsentFromFile);
                 if (c.ParentKey is { } pk) w.WriteString("parent_formid", FormIdToken.Of(pk));
@@ -2619,8 +2621,8 @@ static class JsonWire
     // ---- housecarl_asset_status (S2 read) -----------------------------------------------------------
     /// <summary>The machine-readable twin of <see cref="AssetWire"/>'s render: the build-level caveats, one row per
     /// queried path with its winner and provider chain, and the §2.1 accounting in-band. A provider is
-    /// <c>{name, kind}</c>, so a consumer reads the NAME rather than parsing the display token apart. Pinned by
-    /// <c>S2JsonLaneTests.TheJsonLaneCarriesTheSameAccountingTheTextLaneStates</c>.</summary>
+    /// <c>{name, kind}</c> — the NAME, never the display token. Pinned in <c>AssetStatusJsonLaneTests</c> by
+    /// <c>TheJsonLaneCarriesTheWinnerAndProviderChainAsData</c> and <c>TheJsonLaneCarriesTheSameAccountingTheTextLaneStates</c>.</summary>
     public static string RenderAssetStatus(AssetStatusData d, int maxChars)
         => RenderAssetStatus(d, maxChars, null, out _);
 
@@ -2667,8 +2669,7 @@ static class JsonWire
         return Finish(ms);
     }
 
-    /// <summary>The <c>counts_only=</c> twin of <see cref="RenderAssetStatus"/>: no path rows, and the layer table is
-    /// the shared histogram axis.</summary>
+    /// <summary>The <c>counts_only=</c> twin of <see cref="RenderAssetStatus"/>: no path rows, and the layer table is the shared axis.</summary>
     public static string RenderAssetCensus(AssetStatusData d, int maxChars, int limit)
     {
         int cap = Cap(maxChars);
@@ -2825,7 +2826,7 @@ static class JsonWire
         {
             WriteNullableStringArray(w, "prefix_suggestions", r.PrefixSuggestions);
             // The two ways an ABSENT can be wrong, per row: a failed archive read against archives never discovered.
-            // Pinned by S2JsonLaneTests.TheTwoAbsentHedgesAreStatedApart.
+            // Pinned by AssetStatusJsonHedgeTests.TheTwoAbsentHedgesAreStatedApart.
             w.WriteBoolean("absent_may_be_incomplete_read_failure", readIncomplete);
             w.WriteBoolean("absent_may_be_incomplete_undiscovered_archives", discoveryIncomplete);
         }
@@ -2943,8 +2944,7 @@ static class JsonWire
         w.WriteEndObject();
     }
 
-    /// <summary>The voice-coverage report as data: the text render's "[!] WILL BE SILENT" becomes
-    /// <c>fuz_present:false</c> plus the path to put the audio at.</summary>
+    /// <summary>The voice-coverage report as data: the text render's "[!] WILL BE SILENT" becomes <c>fuz_present:false</c> and a path.</summary>
     static void WriteVoiceReport(Utf8JsonWriter w, VoiceReport? report, CharCountedStream ms, int cap, ref bool truncated)
     {
         if (report is null || report.IsEmpty) return;
