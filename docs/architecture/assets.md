@@ -37,7 +37,8 @@ resolver reads no profile.
   `ReadIncomplete`, which is the caveat an `Exists=false` depends on.
 - **A loose root that will not read is named the same way.** A walk or a subtree listing that throws lands in
   `RootFailures` and sets `ReadIncomplete` too, so a root neither lane could read is said rather than silently
-  omitted. It is filled lazily and kept for the life of the build, so a later call names a root an earlier one
+  omitted. A directory that will not even stat counts: `Directory.Exists` answers "not there" for one this account
+  cannot reach, so an absence is trusted only where a readable ancestor lists the name as missing. It is filled lazily and kept for the life of the build, so a later call names a root an earlier one
   found unreadable until the next rebuild proves otherwise — the flag is the build's, not the call's.
 - **A bad path fails loud.** `NormalizeQueryPath` refuses a drive-rooted or `..`-escaping path naming the input, and
   collapses `.` and empty segments so the loose walk and the archive-table match answer for one set of files.
