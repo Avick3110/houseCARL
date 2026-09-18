@@ -335,8 +335,8 @@ static class AssetWire
                 sb.Append("  [!] some archives were not scanned this build (see the discovery note above), so " +
                           "\"absent\" may be incomplete — base-game assets live in BSAs that weren't enumerated.\n");
             if (rootIncomplete)
-                sb.Append("  [!] but a loose root failed to walk this build (see the root note above), so " +
-                          "\"absent\" may be incomplete — the asset could live in the root that was not walked.\n");
+                sb.Append("  [!] but a loose root failed to read this build (see the root note above), so " +
+                          "\"absent\" may be incomplete — the asset could live in the root that was not read.\n");
             AppendPair(sb, r);
             return;
         }

@@ -38,8 +38,12 @@ resolver reads no profile.
 - **A loose root that will not read is named the same way.** A walk or a subtree listing that throws lands in
   `RootFailures` and sets `ReadIncomplete` too, so a root neither lane could read is said rather than silently
   omitted. A directory that will not even stat counts: `Directory.Exists` answers "not there" for one this account
-  cannot reach, so an absence is trusted only where a readable ancestor lists the name as missing. It is filled lazily and kept for the life of the build, so a later call names a root an earlier one
-  found unreadable until the next rebuild proves otherwise — the flag is the build's, not the call's.
+  cannot reach, so an absence is trusted only where a readable ancestor lists the name as missing; the ancestor stats
+  and their listings are memoized for the build. It is filled lazily and kept for the life of the build, so a later
+  call names a root an earlier one found unreadable — the flag is the build's, not the call's. **What clears it is a
+  new build**, which `RefreshIfStale` makes when an archive or a warmed subtree changes and the service makes when
+  the mod set or profile changes. Granting permission moves no mtime, so it clears nothing on its own: the modder
+  toggles something in MO2, or restarts the server, and the next call reads the folder again.
 - **A bad path fails loud.** `NormalizeQueryPath` refuses a drive-rooted or `..`-escaping path naming the input, and
   collapses `.` and empty segments so the loose walk and the archive-table match answer for one set of files.
   `ValidateRelPath` exposes that one validator to the place lane, whose destination is `Path.Combine(modRoot, rel)`.

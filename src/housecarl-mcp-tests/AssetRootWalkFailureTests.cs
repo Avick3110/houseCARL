@@ -31,7 +31,7 @@ public sealed class AssetRootWalkFailureTests : IDisposable
         Assert.True(d.ReadIncomplete);
         Assert.Contains(UnreadableRootWorld.SubBlockedMod, Named(d));
         // The render is where the modder reads it: the root is named above the rows the walk did return.
-        Assert.Contains("could NOT be walked this build", AssetWire.Render(d, 80_000));
+        Assert.Contains("could NOT be read this build", AssetWire.Render(d, 80_000));
         Assert.Contains(UnreadableRootWorld.SubBlockedMod, AssetWire.Render(d, 80_000));
     }
 
@@ -46,24 +46,39 @@ public sealed class AssetRootWalkFailureTests : IDisposable
 
         Assert.True(d.ReadIncomplete);
         Assert.Contains(UnreadableRootWorld.SubBlockedMod, Named(d));
-        Assert.Contains("could NOT be walked this build", AssetWire.Render(d, 80_000));
+        Assert.Contains("could NOT be read this build", AssetWire.Render(d, 80_000));
     }
 
-    /// <summary>A mod folder blocked at its TOP never throws: its subtrees do not stat, so `Directory.Exists` answers
-    /// "not there" and the read never starts. Both lanes must still name it — the common permissions shape, where a
+    /// <summary>A mod folder blocked at its TOP never throws: its subtrees do not stat, so Directory.Exists answers
+    /// "not there" and the walk never starts. The sweep must still name it — the common permissions shape, where a
     /// whole folder belongs to another account.</summary>
     [Fact]
-    public void AModFolderBlockedAtItsTopIsNamedByBothLanes()
+    public void TheSweepNamesAModFolderBlockedAtItsTop()
     {
         Assert.True(_w.TopDenied, UnreadableRootWorld.NotStaged);
+        // The precondition the redesign turns on: nothing throws here, the directory simply does not stat.
+        Assert.False(Directory.Exists(_w.TopSweepDir), UnreadableRootWorld.NotStaged);
 
-        var swept = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { UnreadableRootWorld.SweepDir });
-        var one = _w.Svc.AssetStatus(new[] { UnreadableRootWorld.TopBlockedPath });
+        var d = _w.Svc.AssetStatus(Array.Empty<string>(), new[] { UnreadableRootWorld.SweepDir });
 
-        Assert.True(swept.ReadIncomplete);
-        Assert.Contains(UnreadableRootWorld.TopBlockedMod, Named(swept));
-        Assert.True(one.ReadIncomplete);
-        Assert.Contains(UnreadableRootWorld.TopBlockedMod, Named(one));
+        Assert.True(d.ReadIncomplete);
+        Assert.Contains(UnreadableRootWorld.TopBlockedMod, Named(d));
+    }
+
+    /// <summary>The single-path lane names it too, over a subtree no sweep in this class touches, so the assert
+    /// stands on its own entry rather than one a sweep left on the build.</summary>
+    [Fact]
+    public void TheSinglePathLaneNamesAModFolderBlockedAtItsTop()
+    {
+        Assert.True(_w.TopDenied, UnreadableRootWorld.NotStaged);
+        Assert.False(Directory.Exists(_w.TopTextureDir), UnreadableRootWorld.NotStaged);
+
+        var d = _w.Svc.AssetStatus(new[] { UnreadableRootWorld.TopBlockedTexture });
+
+        Assert.True(d.ReadIncomplete);
+        var named = Assert.Single(d.RootFailures);              // ONE entry, and it is this lane's own
+        Assert.Contains(UnreadableRootWorld.TopBlockedMod, named);
+        Assert.Contains(UnreadableRootWorld.TextureDir, named);
     }
 }
 
@@ -84,8 +99,15 @@ sealed class UnreadableRootWorld : IDisposable
     /// <summary>A file that IS on disk inside the unreadable subtree — what the single-path lane asks about.</summary>
     public const string SubBlockedPath = SweepDir + @"\locked\hidden.nif";
 
-    /// <summary>A file that IS on disk inside the blocked mod folder.</summary>
+    /// <summary>A file that IS on disk inside the blocked mod folder, under the folder the sweep covers.</summary>
     public const string TopBlockedPath = SweepDir + @"\top.nif";
+
+    /// <summary>A second subtree inside the blocked mod folder that no sweep here touches, so the single-path lane
+    /// asserts on an entry only it can have written.</summary>
+    public const string TextureDir = @"textures\hcwalk";
+
+    /// <summary>The file the single-path lane asks about, inside that second subtree.</summary>
+    public const string TopBlockedTexture = TextureDir + @"\top.dds";
 
     /// <summary>What a test says when the host would not let the fixture be built — never a quiet pass.</summary>
     public const string NotStaged = "the deny ACE did not bite on this host, so the unreadable root was never staged";
@@ -96,6 +118,12 @@ sealed class UnreadableRootWorld : IDisposable
     /// <summary>Whether each deny ACE actually took on this host — a fixture that did not build is a failure, never a pass.</summary>
     public bool Denied { get; }
     public bool TopDenied { get; }
+
+    /// <summary>The blocked mod's copy of the sweep folder — the stat that must fail for the redesign to be exercised.</summary>
+    public string TopSweepDir { get; }
+
+    /// <summary>The blocked mod's copy of the single-path subtree, same precondition.</summary>
+    public string TopTextureDir { get; }
 
     readonly string _lockedDir;
     readonly string _topDir;
@@ -126,22 +154,26 @@ sealed class UnreadableRootWorld : IDisposable
         Directory.CreateDirectory(readable);
         File.WriteAllText(Path.Combine(readable, "ok.nif"), "x");
 
+        // The blocked mod's two subtrees are written BEFORE any deny, so no failure below can leave an ACE behind.
+        TopSweepDir = Path.Combine(_topDir, SweepDir);
+        TopTextureDir = Path.Combine(_topDir, TextureDir);
+        Directory.CreateDirectory(TopSweepDir);
+        Directory.CreateDirectory(TopTextureDir);
+        File.WriteAllText(Path.Combine(TopSweepDir, "top.nif"), "x");
+        File.WriteAllText(Path.Combine(TopTextureDir, "top.dds"), "x");
+
         // One mod blocks a subdirectory of its own copy: the recursive walk starts and throws part way through.
         _lockedDir = Path.Combine(mods, SubBlockedMod, SweepDir, "locked");
         Directory.CreateDirectory(_lockedDir);
         File.WriteAllText(Path.Combine(_lockedDir, "hidden.nif"), "x");
-        Denied = TryDenyAll(_lockedDir);
 
-        // The other blocks its whole mod folder: nothing under it stats, so no read ever starts.
-        var topSweep = Path.Combine(_topDir, SweepDir);
-        Directory.CreateDirectory(topSweep);
-        File.WriteAllText(Path.Combine(topSweep, "top.nif"), "x");
-        TopDenied = TryDenyAll(_topDir);
-
-        // Past the denies, anything that throws leaves the object unbuilt and Dispose unrun, so the ACEs would
+        // From the FIRST deny on, anything that throws leaves the object unbuilt and Dispose unrun, so an ACE would
         // outlive the fixture and block the temp tree's own cleanup. Take them off before the failure leaves here.
         try
         {
+            Denied = TryDenyAll(_lockedDir);
+            // The other mod blocks its whole folder: nothing under it stats, so no read ever starts.
+            TopDenied = TryDenyAll(_topDir);
             Svc = Stage(instance, profile);
         }
         catch
