@@ -81,7 +81,8 @@ internal static class DialogueWire
         // An empty order says nothing, unless it is empty because nothing could be read — never render that as silence.
         if (view is not { } io || (io.Order.Count == 0 && io.Complete)) return true;
 
-        // "Nothing merges here" holds only if every touching plugin's list was read — hence the gate on Complete.
+        // "Nothing merges here" holds only if every touching plugin's list was read — hence the gate on Complete,
+        // which is also what keeps this arm's ContributingPlugins[0] off a view built from nothing.
         if (!io.Contested && io.Complete)
         {
             sb.Append(pad).Append("  INFO order: ").Append(io.Order.Count)

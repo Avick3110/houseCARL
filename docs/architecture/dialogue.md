@@ -30,8 +30,9 @@ Consequences the render depends on:
   model treating the winner's child list as authoritative wholesale is wrong.
 - "PNAM absent" and "PNAM present but zero" place at OPPOSITE ends, and `PnamZeroIsDistinguishable` says the reader
   does tell them apart. That is the fidelity ceiling of the whole merge. Re-verifying it needs a zero PNAM
-  constructed ON DISK: Mutagen's writer emits no subrecord for a null link, so a round-trip fixture measures the
-  writer, not the reader. `DialogueInfoOrderProbe`'s `PNAM-ZERO-AXIS` and `WRITER-DROPS-NULL` cases pin both halves.
+  constructed ON DISK, because of the writer limit [`docs/dialogue.md`](../dialogue.md) states, so a round-trip
+  fixture measures the writer rather than the reader. Pinned by `DialogueInfoOrderProbe`'s `PNAM-ZERO-AXIS` and
+  `WRITER-DROPS-NULL`.
 - `Moved` is not "the index changed" — moving one line to the bottom shifts every line after it. It flags only lines
   that changed RELATIVE order, the minimal set outside a longest common subsequence against the defining plugin's
   own list (`NO-FALSE-MOVE`, `REORDER-TO-TAIL`).
@@ -40,7 +41,8 @@ Consequences the render depends on:
 - Pure, no I/O, never throws. Malformed input — a self-referencing PNAM, a cycle, a chain past the depth ceiling —
   degrades to a stated placement and is reported on the view's `Note`, never as an exception or a silent guess.
   Cycles are counted over the final placed set rather than off the recursion, because a cycle both of whose members
-  an earlier plugin already placed never trips the placement-time guard (`PNAM-CYCLE`).
+  an earlier plugin already placed never trips the placement-time guard (`CYCLE-PREPLACED`; `PNAM-CYCLE` pins that
+  the recursion terminates).
 
 A view's negative claims are gated: `Complete` (every touching plugin's list read) gates "nothing merges here",
 `BaselineTrusted` gates every origin-derived claim including "added by a later plugin", and `MovesComputed` gates
@@ -102,9 +104,8 @@ Three tiers:
 | byte parity | DLBR TNAM (Category); DIAL PNAM (Priority); QUST ANAM, objective FNAM, alias FNAM, reference-alias VTCK | a byte mismatch against a CK-authored record, no confirmed crash |
 | in-game behaviour | DLBR DNAM (Flags) | an absent DNAM reads as `TopLevel`, so a branch the author never marked top-level is published to the player's menu |
 
-The in-game tier is the sharpest, not the mildest: the output is byte-valid and passes validation, so nothing catches
-it before the game does. There is no honest default for DLBR `Flags`, so the create path REFUSES a branch whose
-`Flags` no op set; why neither value is honest, and what to pass, is on [`docs/dialogue.md`](../dialogue.md).
+There is no honest default for DLBR `Flags`, so the create path REFUSES a branch whose `Flags` no op set; why
+neither value is honest, and what to pass, is on [`docs/dialogue.md`](../dialogue.md).
 
 Two exceptions to the is-null signal:
 
