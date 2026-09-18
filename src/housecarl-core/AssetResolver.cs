@@ -524,10 +524,23 @@ public sealed class AssetResolver : IDisposable
             if (names is null) break;                      // the readable-looking ancestor would not list
             // A parent that lists its children and does not hold this name settles it: the directory is not on disk.
             if (!names.Contains(Path.GetFileName(child))) return true;
-            break;                                         // listed, yet it would not stat — it is there and unreadable
+            if (File.Exists(child)) return true;           // a FILE where a directory was asked for — the directory is absent
+            // Listed, yet it would not stat. Before calling a root unreadable on a memoized listing, look again:
+            // the name may have gone since it was cached, and a phantom failure would stick for the whole build.
+            if (GoneOnASecondLook(up, child)) return true;
+            break;
         }
         RecordRootFailure(rootName, subtreeDir, snap);
         return false;
+    }
+
+    /// <summary>The rare verdict pays for a fresh syscall: is the name still in its parent, uncached? Gone means the
+    /// directory really is absent; still there (or a parent that now refuses) means the read failure is real.</summary>
+    static bool GoneOnASecondLook(string parent, string child)
+    {
+        try { return !Directory.EnumerateFileSystemEntries(parent, Path.GetFileName(child)).Any(); }
+        catch (DirectoryNotFoundException) { return true; }   // the parent went too, so the child is gone with it
+        catch { return false; }                               // the parent refuses to list now: a real read failure
     }
 
     /// <summary>Directory.Exists, remembered for this build: the ancestor walk asks about the same few directories
