@@ -3,179 +3,81 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
 
-// ======================================================================
-//  DialogueInfoOrder — the EFFECTIVE, MERGED INFO order of a dialogue topic
-//  (xEdit INOM/INOA parity: the sequence the game walks top-to-bottom when picking which line plays.)
-//
-//  WHY THIS EXISTS. A topic's lines are ordered, and the game plays the FIRST INFO whose conditions pass. When two
-//  lines both pass, POSITION decides the outcome — so a pure reorder is a behaviour change with no field delta
-//  anywhere. No single record holds that order: each plugin's DIAL carries only ITS OWN child list, and the
-//  effective sequence is the MERGE of every touching plugin's list in load order.
-//
-//  THE MODEL (xEdit's TwbGroupRecord.Sort/ProcessDIAL is the reference implementation of the engine behaviour;
-//  confirmed empirically against a live load order):
-//
-//    for each touching plugin, in LOAD ORDER:
-//      for each INFO in THAT plugin's child list, in ITS order:
-//        1. EVICT every copy of that INFO already placed (xEdit's InsertEntry* all call RemoveEntry first, and
-//           RemoveEntry drops the master copy AND every override copy) — so exactly one entry per FormKey
-//           survives, and THE LAST PLUGIN TO LIST AN INFO OWNS ITS POSITION.
-//        2. place it:  PNAM absent               -> TAIL (append)
-//                      PNAM present, unresolvable -> HEAD
-//                      PNAM resolves to T         -> immediately AFTER T (T placed first if absent, cycle-guarded)
-//
-//  NON-RELISTING DROPS NOTHING, IT REORDERS. The winning topic's Responses is NOT the in-game INFO set: a topic
-//  whose winner lists ONE INFO can play eight, including lines that appear in no override's list at all. Any model
-//  in which the winner's child list is authoritative wholesale is wrong.
-//
-//  THE PNAM-ZERO AXIS. "PNAM absent" and "PNAM present but zero" place at OPPOSITE ENDS (tail vs head), and the
-//  reader DOES tell them apart — see PnamZeroIsDistinguishable, which is the fidelity ceiling of the whole merge.
-//  A present-zero PNAM is the "I am first" marker and is the common real-world shape, not an edge case.
-//
-//  INPUT IS PLAIN DATA (InfoLine), not record getters — deliberately. The caller projects each plugin's child list
-//  while it still holds the body (overlay bodies are consume-before-advance), so this merge can run after every
-//  overlay is gone, and a batched loader can pull many topics from ONE typed scan per plugin instead of an
-//  unindexed whole-overlay lookup per (topic, plugin). It also makes the merge testable without a load order.
-//
-//  PURE AND NEVER THROWS: a deterministic in-memory merge with no I/O. Malformed input (a self-referencing PNAM, a
-//  PNAM cycle, a chain past the depth ceiling) DEGRADES to a stated placement and is reported on the view's Note —
-//  never an exception, never a silent guess.
-// ======================================================================
+// DialogueInfoOrder — the EFFECTIVE, MERGED INFO order of a dialogue topic (xEdit INOM/INOA parity). The model,
+// the PNAM-zero axis, why the input is plain data and why the merge never throws are contracts in
+// docs/architecture/dialogue.md; xEdit's TwbGroupRecord.Sort/ProcessDIAL is the reference implementation.
 
-/// <summary>One INFO as the merge needs it: its identity, the PNAM (previous-line) link it carries — null when the
-/// subrecord is absent, which is the common case — and whether its placing copy is flagged deleted. A projection of
-/// <c>IDialogResponsesGetter</c> taken while the body is live (see <see cref="DialogueInfoOrder.LinesOf"/>).</summary>
+/// <summary>One INFO as the merge needs it: identity, PNAM link, and whether its placing copy is deleted.</summary>
 public sealed record InfoLine(FormKey Info, FormKey? PreviousDialog, bool Deleted);
 
-/// <summary>Which PNAM arm decided this line's position AT THE MOMENT IT WAS PLACED. Surfaced so a reader can see
-/// WHY a line sits where it does, not just that it does — the merge is explainable, never a bare list.
-///
-/// It is a record of the placement DECISION, not a standing claim about the final list: a later plugin can evict and
-/// re-place other lines around this one, so an <see cref="AfterTarget"/> line need not still sit immediately after
-/// its target once the merge finishes. That is faithful to the model — the engine places in the same order — but do
-/// not read the label as a post-merge invariant.</summary>
+/// <summary>Which PNAM arm decided this line's position when it was placed — a decision, not an invariant.</summary>
 public enum InfoPlacement
 {
-    /// <summary>No PNAM — appended at the end of the list as it stood. The overwhelmingly common arm, and the one
-    /// that moves a re-listed line to the BOTTOM of a topic.</summary>
+    /// <summary>No PNAM — appended at the end; the common arm, and the one that moves a re-list to the BOTTOM.</summary>
     Tail,
 
-    /// <summary>A PNAM present with value ZERO — the "I am first" marker xEdit's PNAM fill writes. Placed at the
-    /// head, and that is CORRECT, DELIBERATE authoring, not a fault: it is how a vanilla line is held ahead of the
-    /// lines it guards. Kept distinct from <see cref="HeadUnresolvable"/> so the render can say so — reporting the
-    /// intended case in the vocabulary of the broken one invites a modder to "fix" a correct line.</summary>
+    /// <summary>A PNAM present with value ZERO — the "I am first" marker, placed at the head. Not a fault.</summary>
     HeadFirstMarker,
 
-    /// <summary>A PNAM present but naming no reachable INFO — a target no active plugin defines, a self-reference,
-    /// or a chain past the depth ceiling. Placed at the head because that is what the model does with an unusable
-    /// link, and unlike <see cref="HeadFirstMarker"/> this one IS worth a second look.
-    ///
-    /// NOT cycle members, despite the obvious guess. A cycle's inner frame does take the head arm, but the OUTER
-    /// frame for that same FormKey overwrites the placement with <see cref="AfterTarget"/> when it returns, because
-    /// the recursion did place the target. So no cycle member survives as HeadUnresolvable and none is annotated —
-    /// cycles surface through the view's Note, which names the members for that reason.</summary>
+    /// <summary>A PNAM naming no reachable INFO, placed at the head and worth a second look. NOT cycle members,
+    /// whose outer frame overwrites the arm — cycles surface through the view's Note instead.</summary>
     HeadUnresolvable,
 
     /// <summary>PNAM resolved — placed immediately after its target.</summary>
     AfterTarget,
 }
 
-/// <summary>One INFO's place in the effective order: its <see cref="Index"/> (0-based) in the merged sequence, the
-/// <see cref="PlacedBy"/> plugin whose child list LAST carried it (the plugin that owns its position), the
-/// <see cref="Placement"/> arm that decided it, and <see cref="OriginIndex"/> — its 0-based index in the DEFINING
-/// plugin's own list, or null when a later plugin introduced it. <see cref="Deleted"/> marks an INFO whose placing
-/// copy is flagged deleted: it still occupies a slot in the merge (the engine walks it), so it is shown, never
-/// silently dropped.
-///
-/// <see cref="Moved"/> is deliberately NOT "the index changed". Moving one line to the bottom shifts every line
-/// after it up by one, so an index comparison marks the whole topic as moved and buries the one line that actually
-/// went somewhere. This flags only lines that changed RELATIVE order — the minimal set whose displacement explains
-/// the difference (see <see cref="DialogueInfoOrder"/>'s LCS pass).</summary>
+/// <summary>One INFO's place in the effective order, and how it got there. A deleted placing copy still occupies
+/// a slot. <see cref="Moved"/> is RELATIVE order, not index; contract in docs/architecture/dialogue.md.</summary>
 public sealed record InfoOrderEntry(
     FormKey Info, int Index, string PlacedBy, InfoPlacement Placement, int? OriginIndex, bool Deleted, bool Moved);
 
-/// <summary>The effective merged INFO order for one topic: the <see cref="Order"/> the game walks top-to-bottom,
-/// the <see cref="ContributingPlugins"/> whose child lists fed the merge (load order), the <see cref="Moved"/> lines
-/// (worst displacement first), and <see cref="Note"/> — a caveat when part of the merge DEGRADED on malformed or
-/// oversized input (null when it ran clean).
-/// <see cref="Contested"/> is the whole point of the view: with one contributing plugin the effective order IS
-/// that plugin's list and there is nothing to reconcile.</summary>
+/// <summary>The effective merged INFO order for one topic, its contributors, its moved lines, its note.</summary>
 public sealed record InfoOrderView(
     IReadOnlyList<InfoOrderEntry> Order,
     IReadOnlyList<string> ContributingPlugins,
     IReadOnlyList<InfoOrderEntry> Moved,
     string? Note)
 {
-    /// <summary>More than one plugin contributed a child list — the case where the merged order can differ from
-    /// any single plugin's own list. Only meaningful when <see cref="Complete"/>: with a contributor missing, a
-    /// contested topic can look uncontested.</summary>
+    /// <summary>More than one plugin contributed a child list. Only meaningful when <see cref="Complete"/>.</summary>
     public bool Contested => ContributingPlugins.Count > 1;
 
-    /// <summary>Plugins the load-order index says TOUCH this topic whose child list could not be read, so their
-    /// lines are absent from <see cref="Order"/>. Empty in the normal case.</summary>
+    /// <summary>Touching plugins whose child list could not be read, so their lines are absent from the order.</summary>
     public IReadOnlyList<string> UnreadContributors { get; init; } = Array.Empty<string>();
 
-    /// <summary>Whether the move analysis actually RAN. When false, an empty <see cref="Moved"/> means "not
-    /// computed", NOT "nothing moved" — so no caller may read absence of moves as evidence of none. Skipped when
-    /// the baseline is untrustworthy or the topic is past the analysis ceiling.</summary>
+    /// <summary>Whether the move analysis RAN; when false, an empty <see cref="Moved"/> means "not computed".</summary>
     public bool MovesComputed { get; init; } = true;
 
-    /// <summary>Whether <see cref="InfoOrderEntry.OriginIndex"/> really is the DEFINING plugin's list. False when
-    /// an unread plugin precedes the first contributing one, which silently makes a later plugin's list the
-    /// baseline. EVERY origin-derived claim must be gated on this — not just <see cref="Moved"/>: with a shifted
-    /// baseline the definer's own lines carry a null OriginIndex and would render as "added by a later plugin",
-    /// stated as fact directly under a banner saying the baseline is suspect.</summary>
+    /// <summary>Whether OriginIndex really is the DEFINING plugin's list; EVERY origin claim is gated on it.</summary>
     public bool BaselineTrusted { get; init; } = true;
 
-    /// <summary>Every touching plugin's list made it into the merge. When false the order is built from FEWER
-    /// lists than the load order has, so neither it nor a "nothing merges here" reading of it is authoritative —
-    /// the render must not state either as fact.</summary>
+    /// <summary>Every touching plugin's list made it in; when false, nothing read off the order is authoritative.</summary>
     public bool Complete => UnreadContributors.Count == 0;
 
-    /// <summary>The OFF-ORDER plugin folded into this merge as the last contributor — the order as it WOULD be
-    /// with that file enabled, not the order the game is loading now. Null when nothing was folded. Every render
-    /// of a view carrying one must say so, and must mark the lines the folded file placed: a projected order read
-    /// as the live one is the silently wrong answer this whole form exists to prevent.</summary>
+    /// <summary>The OFF-ORDER plugin folded in; every render carrying one must say so and mark its lines.</summary>
     public string? FoldedPlugin { get; init; }
 
-    /// <summary>Where that file was placed and why — "folded in LAST, where MO2 puts a newly enabled regular
-    /// plugin", or the master-block sentence for a file whose header says it loads ahead of every regular one.
-    /// Stated per topic, because it is what decides which lines the fold evicted and which evicted it.</summary>
+    /// <summary>Where that file was placed and why, stated per topic — it decides which lines the fold evicted.</summary>
     public string? FoldedPlacement { get; init; }
 
-    /// <summary>Did the folded file actually place a line in this topic? False when a fold was in effect and the
-    /// file lists nothing here — a fact worth stating, since it is the answer to "does my patch move this topic".</summary>
+    /// <summary>Did the folded file actually place a line in this topic — "does my patch move this one".</summary>
     public bool FoldContributed => FoldedPlugin is { } p
         && ContributingPlugins.Any(c => c.Equals(p, StringComparison.OrdinalIgnoreCase));
 }
 
 public static class DialogueInfoOrder
 {
-    /// <summary>Whether Mutagen's read surface distinguishes a PNAM subrecord that is ABSENT from one that is
-    /// PRESENT-but-zero. The two place at OPPOSITE ENDS (tail vs head), so this is the fidelity ceiling of the whole
-    /// merge. TRUE: a PNAM subrecord PRESENT with value zero reads back distinctly from an ABSENT one, so the
-    /// "I am first" marker is visible and such a line is correctly placed at the HEAD.
-    ///
-    /// Anything re-verifying this must construct the zero PNAM ON DISK — by byte-patching a fixture into the shape
-    /// real CK / xEdit-filled plugins carry. A Mutagen round trip cannot measure it: the WRITER emits no subrecord
-    /// for a null link, so the fixture never contains a zero PNAM and the test measures the writer, not the reader.
-    /// A Mutagen bump that loses the distinction must fail CI rather than silently change every computed order.</summary>
+    /// <summary>Whether an ABSENT PNAM subrecord reads back distinctly from a PRESENT-but-zero one — TRUE, and the
+    /// merge's fidelity ceiling; pinned by DialogueInfoOrderProbe's PNAM-ZERO-AXIS and WRITER-DROPS-NULL.</summary>
     public static bool PnamZeroIsDistinguishable => true;
 
-    /// <summary>Move analysis is O(n·m) over a topic's line count; past this many lines it is skipped and said to be
-    /// skipped (a pathological topic must not turn an on-demand validate into a stall). Real topics are far under.</summary>
+    /// <summary>Move analysis is O(n·m); past this many lines it is skipped, and said to be skipped.</summary>
     const int MaxMoveAnalysisLines = 400;
 
-    /// <summary>Ceiling on PNAM-chain recursion depth. Placing a line whose PNAM target is not yet placed recurses
-    /// one frame per hop, so an adversarial or bulk-generated topic of thousands of FORWARD-linked lines could
-    /// otherwise exhaust the thread stack — and a StackOverflowException cannot be caught, so it would take the whole
-    /// server down, not just this call (the one failure mode the never-throws contract cannot absorb). Past this
-    /// depth the line takes the unresolvable arm and the view says the chain was truncated. Real topics carry tens
-    /// of lines; this is a backstop, not a working limit.</summary>
+    /// <summary>Ceiling on PNAM-chain recursion depth — one frame per hop, and a stack overflow cannot be caught.</summary>
     const int MaxChainDepth = 400;
 
-    /// <summary>Project a live topic body's child list into the plain data the merge consumes. Call this while the
-    /// body is still valid (overlay bodies are consume-before-advance); the result outlives the overlay.</summary>
+    /// <summary>Project a live topic body's child list into the merge's data; call it while the body is valid.</summary>
     public static IReadOnlyList<InfoLine> LinesOf(IDialogTopicGetter topic)
     {
         if (topic.Responses is not { Count: > 0 } responses) return Array.Empty<InfoLine>();
@@ -184,26 +86,15 @@ public static class DialogueInfoOrder
         return lines;
     }
 
-    /// <summary>Project ONE live INFO body into the merge's data. The single home for that projection — the fallback
-    /// resolver builds lines too, and a field added here must reach both sites or the two silently disagree.</summary>
+    /// <summary>Project ONE live INFO body into the merge's data — the single home for that projection.</summary>
     public static InfoLine LineOf(IDialogResponsesGetter info) =>
         new(info.FormKey, info.PreviousDialog.FormKeyNullable, info.IsDeleted);
 
-    /// <summary>Merge every touching plugin's child list into the effective INFO order for one topic.
-    /// <paramref name="groups"/> is the per-plugin (name, projected lines) sequence in LOAD ORDER, winner last — a
-    /// plugin whose child list is empty contributes nothing and is not counted as contributing.
-    /// <paramref name="resolveInfo"/> is the FALLBACK for a PNAM target that appears in none of the groups (it
-    /// resolves the target to its winning line + the plugin it came from, so a recursively-placed target is credited
-    /// to ITS OWN plugin, never to the one that pulled it in); it may return null, which is the unresolvable arm
-    /// (HEAD), never a throw. Targets that DO appear in the groups are served from those, so the fallback — whose
-    /// implementation is typically an expensive per-record lookup — is reached only for a genuinely foreign target.
-    /// Deterministic and pure — the same inputs always give the same order.</summary>
-    /// <param name="projectedPlugin">a group that is a PROJECTION rather than a plugin the order carries — an
-    /// off-order file folded in — AND is not this topic's definer. It merges like any other contributor, but it
-    /// does not set the move baseline: the baseline is the DEFINING plugin's own list, and a folded master can sit
-    /// ahead of the definer, which would turn the definer's own lines into "added by a later plugin" and half the
-    /// topic into MOVED. Where the folded file IS the definer — a topic only it has, or a shadowed copy of the
-    /// plugin that defines the topic — its list is the baseline and the caller passes null.</param>
+    /// <summary>Merge every touching plugin's child list into the effective INFO order for one topic, from the
+    /// per-plugin (name, lines) sequence in LOAD ORDER. <paramref name="resolveInfo"/> is the FALLBACK for a PNAM
+    /// target in none of the groups; it may return null, the unresolvable arm, never a throw.</summary>
+    /// <param name="projectedPlugin">a group that is a PROJECTION and not this topic's definer, so it merges like
+    /// any contributor but sets no move baseline; null where the folded file IS the definer.</param>
     public static InfoOrderView Compute(
         IReadOnlyList<(string Plugin, IReadOnlyList<InfoLine> Lines)> groups,
         Func<FormKey, (InfoLine Line, string Plugin)?> resolveInfo,
@@ -214,8 +105,7 @@ public static class DialogueInfoOrder
         var state = new MergeState { Fallback = resolveInfo };
         var contributing = new List<string>();
 
-        // The DEFINING plugin's own list is the baseline a "moved" verdict is measured against — the order the
-        // topic's author laid down. First contributing plugin = the one that defines the topic (load order).
+        // The DEFINING plugin's own list is the baseline a "moved" verdict is measured against.
         IReadOnlyDictionary<FormKey, int>? originIdx = null;
 
         // Every line any group carries, so a PNAM target within the topic never pays the fallback resolver.
@@ -228,8 +118,7 @@ public static class DialogueInfoOrder
             if (lines.Count == 0) continue;                       // an override carrying no child list places nothing
             contributing.Add(plugin);
 
-            // The projection never sets the baseline — see projectedPlugin. Everything else about it merges
-            // exactly as a plugin at that position would.
+            // The projection never sets the baseline; everything else merges as a plugin there would.
             if (!plugin.Equals(projectedPlugin, StringComparison.OrdinalIgnoreCase))
                 originIdx ??= lines
                     .Select((l, i) => (l.Info, i))
@@ -242,11 +131,7 @@ public static class DialogueInfoOrder
 
         var order = state.Order;
 
-        // Which lines actually changed RELATIVE order (not merely index — see InfoOrderEntry.Moved).
-        // Skipped when the baseline itself is untrustworthy: originIdx is the FIRST CONTRIBUTING group, so if the
-        // DEFINING plugin is one that could not be read, the baseline silently becomes a later plugin's list and
-        // every "moved" verdict is measured against the wrong thing. A spurious moved set is worse than none —
-        // the render states it as fact and names the defining plugin.
+        // Skipped where the baseline is untrustworthy: a spurious moved set is stated as fact by the render.
         var movedKeys = originIdx is null || order.Count > MaxMoveAnalysisLines || !originIsDefiningPlugin
             ? new HashSet<FormKey>()
             : RelativeOrderChanges(order, originIdx);
@@ -272,9 +157,7 @@ public static class DialogueInfoOrder
               MovesComputed = originIdx is not null && order.Count <= MaxMoveAnalysisLines && originIsDefiningPlugin };
     }
 
-    /// <summary>The DEGRADATION note: what part of this merge did not run cleanly, and on what input. Null when the
-    /// merge was fully determined. Each clause names a concrete malformation so the reader can act on it — these are
-    /// data problems in the plugins, not tool limits.</summary>
+    /// <summary>The DEGRADATION note: what did not run cleanly, and on what input. Data problems, not tool limits.</summary>
     static string? BuildNote(MergeState state, int lineCount, bool haveOrigin,
                              IReadOnlyList<string>? unreadContributors, bool originIsDefiningPlugin)
     {
@@ -283,9 +166,7 @@ public static class DialogueInfoOrder
             parts.Add("the plugin that DEFINES this topic is among those that could not be read, so the baseline " +
                       "for \"which lines moved\" would be a later plugin's list — move analysis was SKIPPED rather " +
                       "than measured against the wrong order");
-        // A plugin the index says TOUCHES this topic whose child list could not be read: the merge below is built
-        // from FEWER lists than the load order actually has, so the order — and any "single plugin, nothing merges"
-        // reading of it — is NOT authoritative. Never silently absorbed into a clean-looking result.
+        // A touching plugin whose list could not be read: the order is built from FEWER lists than the order has.
         if (unreadContributors is { Count: > 0 })
             parts.Add($"{unreadContributors.Count} plugin(s) that TOUCH this topic could not be read " +
                       $"({string.Join(", ", unreadContributors)}) — their lines are MISSING from the order below, " +
@@ -312,16 +193,8 @@ public static class DialogueInfoOrder
         return parts.Count == 0 ? null : string.Join("; ", parts);
     }
 
-    /// <summary>Place ONE INFO per the model: evict every prior copy, then tail / head / after-target. A PNAM target
-    /// not yet placed is placed FIRST (recursively, from the topic's own lines where possible) exactly as xEdit does,
-    /// so a chain of PNAM-linked lines lands in chain order regardless of the order the file lists them.
-    ///
-    /// Malformed shapes degrade rather than throwing: a PNAM naming its own record and a chain past
-    /// <see cref="MaxChainDepth"/> both take the HeadUnresolvable arm. A CYCLE does not, despite taking that arm in
-    /// its inner frame — the outer frame for the same FormKey overwrites the placement with AfterTarget on return,
-    /// so cycles are reported on the Note (with their members named) rather than annotated per line. The final
-    /// insert index MUST stay clamped: the recursion can mutate the list under this frame, and a self-reference
-    /// otherwise reaches a negative insert index.</summary>
+    /// <summary>Place ONE INFO per the model: evict every prior copy, then tail / head / after-target, placing an
+    /// unplaced PNAM target first. The final insert index MUST stay clamped — the recursion mutates the list.</summary>
     static void Place(MergeState state, InfoLine line, string plugin, int depth)
     {
         var order = state.Order;
@@ -343,9 +216,7 @@ public static class DialogueInfoOrder
             return;
         }
 
-        // PNAM present with value ZERO — the "I am first" marker. LOAD-BEARING, not dead: the reader does see this
-        // (PnamZeroIsDistinguishable) and it is the common real-world shape. Deleting this branch would silently
-        // move every marked line from the head to the tail.
+        // PNAM present with value ZERO — the "I am first" marker. LOAD-BEARING: see PnamZeroIsDistinguishable.
         if (prev.Value.IsNull)
         {
             Head(InfoPlacement.HeadFirstMarker);
@@ -367,9 +238,7 @@ public static class DialogueInfoOrder
             state.Stack.Remove(fk);
             at = order.IndexOf(prev.Value);
 
-            // Under a PNAM CYCLE the recursion above walks back around and places THIS record — so the eviction
-            // at the top of this call is stale and inserting now would list the line twice. Evict again; the
-            // insert below is the one that stands.
+            // Under a cycle the recursion above already placed THIS record, so evict again before inserting.
             int dup = order.IndexOf(fk);
             if (dup >= 0)
             {
@@ -392,19 +261,11 @@ public static class DialogueInfoOrder
         state.Placed[fk] = new Placed(plugin, InfoPlacement.AfterTarget, line.Deleted, line.PreviousDialog);
     }
 
-    /// <summary>The lines that changed RELATIVE order between the defining plugin's list and the effective one:
-    /// everything outside a longest common subsequence of the two. That is the MINIMAL set whose displacement
-    /// explains the difference — move one line to the bottom and this names that one line, where comparing indices
-    /// would name every line it shifted past.
-    ///
-    /// Sibling detector: <c>FieldsDiff</c>'s ORDER-DIFFERS check answers the coarser "did this list get reordered at
-    /// all" for an arbitrary two-sided field diff (conflict_tree / diff_record). This one answers "which lines moved"
-    /// for an N-plugin merge against its origin. Different granularity and different call sites, deliberately kept
-    /// separate — but a change to reorder semantics should consider both.</summary>
+    /// <summary>The lines that changed RELATIVE order — everything outside a longest common subsequence of the
+    /// defining plugin's list and the effective one. Coarser sibling, kept separate: <c>FieldsDiff</c>.</summary>
     static HashSet<FormKey> RelativeOrderChanges(List<FormKey> effective, IReadOnlyDictionary<FormKey, int> originIdx)
     {
-        // Both sequences restricted to the lines they SHARE — a line added by a later plugin never "moved", and a
-        // line the defining plugin listed but nothing carries forward isn't in the effective order to move.
+        // Both sequences restricted to the lines they SHARE: neither side's extras can have moved.
         var live = new HashSet<FormKey>(effective);
         var a = originIdx.Where(kv => live.Contains(kv.Key)).OrderBy(kv => kv.Value).Select(kv => kv.Key).ToList();
         var b = effective.Where(originIdx.ContainsKey).ToList();
@@ -428,13 +289,8 @@ public static class DialogueInfoOrder
         return moved;
     }
 
-    /// <summary>Count PNAM cycles as a property of the DATA, over the final placed line set — not as a by-product
-    /// of the recursion. The placement-time signal (the cycle guard tripping) only fires when a target is not yet
-    /// placed, so a cycle whose members were BOTH already placed by an earlier plugin — e.g. plugin A lists a and b
-    /// unlinked, then plugin B re-lists both pointing at each other — goes entirely undetected there and the report
-    /// reads clean on unsatisfiable input. Each line has at most ONE PNAM edge, so this is a walk over a functional
-    /// graph: follow each unvisited chain and count a cycle when it re-enters the current walk.
-    /// Self-edges are excluded — those are reported as self-references, and would otherwise be counted twice.</summary>
+    /// <summary>Count PNAM cycles over the final placed set — the placement-time guard misses a cycle whose
+    /// members an earlier plugin already placed. Self-edges are excluded and reported as self-references.</summary>
     static (int Count, List<FormKey> Members) CountPnamCycles(
         IReadOnlyList<FormKey> order, IReadOnlyDictionary<FormKey, Placed> placed)
     {
@@ -455,8 +311,7 @@ public static class DialogueInfoOrder
                     if (st == OnThisWalk)
                     {
                         cycles++;                                // re-entered this walk — a genuine loop
-                        // Name the loop so the reader can find it: no cycle member carries an annotation
-                        // (see InfoPlacement.HeadUnresolvable), so the Note is the only handle they get.
+                        // Name the loop: no cycle member carries an annotation, so the Note is the only handle.
                         members.AddRange(walk.SkipWhile(k => k != cur));
                     }
                     break;
@@ -473,13 +328,10 @@ public static class DialogueInfoOrder
         return (cycles, members);
     }
 
-    /// <summary>One line's placement outcome — bundled so every exit path of <see cref="Place"/> writes the whole
-    /// tuple at once. (Three parallel dictionaries let a new code path update two of three and produce a
-    /// silently-wrong entry behind the defaults; this makes that a compile error instead.)</summary>
+    /// <summary>One line's placement outcome, bundled so every exit path of <see cref="Place"/> writes it whole.</summary>
     readonly record struct Placed(string PlacedBy, InfoPlacement Placement, bool Deleted, FormKey? Pnam);
 
-    /// <summary>The merge's working state, threaded through the recursion as one object rather than as a growing
-    /// parameter list.</summary>
+    /// <summary>The merge's working state, threaded through the recursion as one object.</summary>
     sealed class MergeState
     {
         public readonly List<FormKey> Order = new();
