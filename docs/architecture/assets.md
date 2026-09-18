@@ -153,8 +153,8 @@ byte parity with BSArch, and its reading of archives BSArch rejects, are pinned 
 ## Writing into the VFS
 
 `housecarl_place` and `housecarl_nif_set`'s default lane write into a houseCARL-owned MO2 mod folder; originals are
-never touched, and in-place is a consent-gated opt-in keyed on the resolved file path, declined for an off-order
-copy. The write is crash-atomic and the on-disk size is checked against the bytes.
+never touched. `housecarl_nif_set` alone has an in-place lane: a consent-gated opt-in keyed on the resolved file
+path, declined for an off-order copy. The write is crash-atomic and the on-disk size is checked against the bytes.
 
 **"Wrote it" is not "it wins".** The response states the current winner and what the caller must still do, in five
 arms, because collapsing them makes four of them wrong: nothing else provides the path; the destination folder
