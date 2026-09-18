@@ -4,40 +4,26 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
 
-/// <summary>
-/// The RECORD-level narrowing the sweep families (housecarl_check findings=["errors"] and ["scripts"]) share.
-/// A plugin-wide sweep of a script-heavy plugin renders past the tool-result token cap, so record-level scoping is
-/// what makes "did the unbound count for THESE few records change?" askable. The knobs deliberately reuse the sibling
-/// read tools' vocabulary: <see cref="Types"/> (the records surface's set-valued <c>types=</c>), <see cref="Formids"/>
-/// (<c>formids=</c>), and <see cref="EditorIdContains"/> (<c>editorid_contains=</c>).
-///
-/// <para><b>Narrowing narrows the NUMBERS.</b> A scoped sweep's totals are the totals FOR THE SCOPE, exactly as
-/// <c>plugins=</c> already behaves. The render therefore carries <see cref="Label"/> on its own line whenever
-/// anything is applied, so a count can never be read as a wider claim than it is.</para>
-///
-/// <para><see cref="Types"/> is handed to the record STREAM (<c>RecordsIn</c>'s getter-type filter), so a type scope
-/// costs nothing per skipped record; <see cref="Formids"/> and <see cref="EditorIdContains"/> are per-record tests
-/// applied before any expensive work (the link walk / the .pex chain read).</para>
-/// </summary>
+/// <summary>The record-level narrowing the sweep families (errors and scripts) share, reusing the read tools'
+/// vocabulary. Narrowing narrows the numbers; contracts in docs/architecture/check-family-tests.md.</summary>
 public sealed class SweepScope
 {
-    /// <summary>The exact records to sweep, or null for "any". Set ⇒ every other record is skipped.</summary>
+    /// <summary>The exact records to sweep, or null for "any".</summary>
     public IReadOnlySet<FormKey>? Formids { get; }
 
-    /// <summary>A case-insensitive substring the record's EditorID must contain, or null for "any". A record with NO
-    /// EditorID never matches a non-null filter (an absent id cannot contain a substring — the honest answer, not a
-    /// free pass).</summary>
+    /// <summary>A case-insensitive substring the record's EditorID must contain, or null for "any"; a record with no
+    /// EditorID never matches a non-null filter.</summary>
     public string? EditorIdContains { get; }
 
-    /// <summary>The getter Type(s) to stream, or null for every record type. Resolved by the caller as the UNION of
-    /// the user's <c>types=</c> set (the shared TypeLookup), so an unknown type fails loud before the sweep starts.</summary>
+    /// <summary>The getter Type(s) to stream, or null for every record type — the union the caller resolved from
+    /// <c>types=</c>.</summary>
     public IReadOnlyList<Type>? Types { get; }
 
     /// <summary>The user-facing spelling of <see cref="Types"/> (the raw <c>types=</c> entries), for <see cref="Label"/>.</summary>
     public string? TypeLabel { get; }
 
-    // The same entries with every one that EXPANDED spelling its arms ("GMST → GameSettingInt, ..."), for
-    // TypeScopeLabel. Null where the caller built no such spelling, and TypeLabel then stands in.
+    // The same entries with every one that EXPANDED spelling its arms, for TypeScopeLabel; null where the caller
+    // built no such spelling, and TypeLabel then stands in.
     readonly string? _armLabel;
 
     public SweepScope(IReadOnlySet<FormKey>? formids, string? editorIdContains,
@@ -50,23 +36,16 @@ public sealed class SweepScope
         _armLabel = Types is null ? null : armLabel;
     }
 
-    /// <summary>The scope's types spelled for the short-listing rule, but ONLY where the scope covers more than one
-    /// — there is one listing for the whole scope, so with several types in it any one of them can come out short.
-    /// Null where a single type is in force and that cannot happen.
-    /// <para>More than one TYPE, not more than one entry: one entry can expand to several arms (<c>GMST</c> to its
-    /// int/float/string/bool arms), and the listing is shared across those arms too. Which is why this spells the
-    /// arms an entry expanded to: a rule about "any of those types" has to name types the reader can act on, and
-    /// <c>types=[GMST]</c> alone names none.</para></summary>
+    /// <summary>The scope's types spelled for the short-listing rule, but only where the scope covers more than one
+    /// TYPE (one entry can expand to several arms, and the listing is shared across them). Null otherwise.</summary>
     public string? TypeScopeLabel => Types is { Count: > 1 } ? (_armLabel ?? TypeLabel) : null;
 
-    /// <summary>One <c>types=</c> entry spelled with the arms it resolved to, where it resolved to more than one —
-    /// the polymorphic bases (<c>GMST</c>, <c>GLOB</c>) and the many-to-one signatures. A concrete entry is spelled
-    /// as itself.</summary>
+    /// <summary>One <c>types=</c> entry spelled with the arms it resolved to, where it resolved to more than one; a
+    /// concrete entry is spelled as itself.</summary>
     public static string SpellTypeEntry(string entry, IReadOnlyList<Type> arms)
         => arms.Count > 1 ? $"{entry} → {string.Join(", ", arms.Select(GetterName))}" : entry;
 
-    /// <summary>A getter interface's user-facing type name: <c>IGameSettingIntGetter</c> to <c>GameSettingInt</c>,
-    /// the catalog spelling <c>types=</c> itself takes.</summary>
+    /// <summary>A getter interface's user-facing type name — the catalog spelling <c>types=</c> itself takes.</summary>
     static string GetterName(Type t)
     {
         var n = t.Name;
@@ -75,13 +54,12 @@ public sealed class SweepScope
         return n;
     }
 
-    /// <summary>True when nothing is actually narrowed (every knob absent) — the caller can then pass null and keep the
-    /// unscoped path byte-identical.</summary>
+    /// <summary>True when nothing is actually narrowed, so the caller can pass null and keep the unscoped path
+    /// byte-identical.</summary>
     public bool IsEmpty => Formids is null && EditorIdContains is null && Types is null;
 
-    /// <summary>Does this record fall inside the scope? <see cref="Types"/> is NOT re-tested here — it is applied at the
-    /// stream, and every stream a sweep reads (<c>RecordsIn</c> and the off-order overlay alike) narrows through
-    /// <see cref="RecordArms"/>, which re-checks the arm. So a body reaching this call is already of a scoped type.</summary>
+    /// <summary>Does this record fall inside the scope? <see cref="Types"/> is not re-tested here — it is applied at
+    /// the stream, through <see cref="RecordArms"/>, on every lane a sweep reads.</summary>
     public bool Matches(FormKey fk, IMajorRecordGetter body)
     {
         if (Formids is not null && !Formids.Contains(fk)) return false;
@@ -107,26 +85,19 @@ public sealed class SweepScope
         }
     }
 
-    /// <summary>An OFF-ORDER file's record stream, type-scoped when the caller asked for one — the overlay
-    /// counterpart of <c>RecordsIn</c>'s getter-type filter, so a <c>types=</c> scope costs nothing per skipped
-    /// record on that lane either. One home, because both sweep families walk an off-order file the same way.
-    /// Through <see cref="RecordArms"/>, the same arm re-check the in-order lanes go through: without it an arm scope
-    /// (<c>types=['GlobalShort']</c>) would sweep and count the whole GRUP here.</summary>
+    /// <summary>An OFF-ORDER file's record stream, type-scoped when the caller asked for one — the one home both
+    /// sweep families take, through the same <see cref="RecordArms"/> re-check the in-order lanes use.</summary>
     public static IEnumerable<IMajorRecordGetter> RecordsFrom(ISkyrimModGetter ov, SweepScope? scope)
         => scope?.Types is { Count: > 0 } types
             ? RecordArms.OfTypes(ov, types)
             : ov.EnumerateMajorRecords();
 }
 
-/// <summary>One row of a <c>counts_only=true</c> histogram: a key (a property name, a target plugin) and how many
-/// findings in the swept scope carry it.</summary>
+/// <summary>One row of a <c>counts_only=true</c> histogram: a key and how many findings in the swept scope carry it.</summary>
 public sealed record SweepCount(string Key, int Count);
 
-/// <summary>The error classes the errors family can be filtered to (<c>findings=</c>). Excluding a class SKIPS the
-/// work that finds it — <see cref="Dangling"/> off skips the per-record link walk entirely, which is what turns "is any
-/// master missing anywhere in my order" from a full sweep into a master-table read. Parse failures are deliberately NOT
-/// a member: "houseCARL could not read this" is the honesty layer, not a finding class, and must never be filterable
-/// away.</summary>
+/// <summary>The error classes the errors family can be filtered to (<c>findings=</c>); excluding a class skips the work
+/// that finds it. Parse failures are deliberately not a member.</summary>
 [Flags]
 public enum ErrorFindingClass
 {
@@ -138,11 +109,8 @@ public enum ErrorFindingClass
     All = Dangling | MissingMasters,
 }
 
-/// <summary>The finding classes the scripts family can be filtered to (<c>findings=</c>), in severity order:
-/// an unbound OBJECT property is the silent-<c>None</c> footgun (HIGH), an unbound uninitialized SCALAR silently
-/// defaults (MEDIUM), a bound-but-null object property is advisory. Unverifiable attachments are deliberately NOT a
-/// member — same reason as the parse class above: an attachment houseCARL could not read must stay visible under every
-/// filter, or the filter manufactures a false clean.</summary>
+/// <summary>The finding classes the scripts family can be filtered to (<c>findings=</c>), in severity order.
+/// Unverifiable attachments are deliberately not a member.</summary>
 [Flags]
 public enum ScriptFindingClass
 {
@@ -156,9 +124,8 @@ public enum ScriptFindingClass
     All = UnboundObject | UnboundScalar | BoundNull,
 }
 
-/// <summary>Parsers for the sweep tools' <c>findings=</c> vocabularies. A name outside the vocabulary is a NAMED
-/// refusal listing every legal value — never a silent drop to "all", which would answer a different question than the
-/// one asked. An empty/omitted list means "every class", the unfiltered default.</summary>
+/// <summary>Parsers for the sweep tools' <c>findings=</c> vocabularies. A name outside the vocabulary is a named
+/// refusal listing every legal value; an empty or omitted list means every class.</summary>
 public static class SweepFindings
 {
     /// <summary>The errors family's <c>findings=</c>: <c>dangling</c> / <c>missing_masters</c>.</summary>
@@ -221,10 +188,8 @@ public static class SweepFindings
     public static string? Describe(ScriptFindingClass c)
         => c == ScriptFindingClass.All ? null : $"findings=[{string.Join(", ", Names(c))}]";
 
-    /// <summary>The class tokens a flag set spells, for a caller that has already PARSED a selection and has to
-    /// hand one family's classes to that family's own sweep. Round-tripping through the same parser the ancestor
-    /// tools use is what keeps there being ONE vocabulary rather than a second path that can drift; the round trip
-    /// must hold for every flag combination.</summary>
+    /// <summary>The class tokens a flag set spells, for a caller handing one family's classes to that family's own
+    /// sweep; the round trip through the family parsers is pinned by CLASS-TOKEN-ROUND-TRIP in CheckMergeProbe.</summary>
     public static IReadOnlyList<string> Tokens(ErrorFindingClass c) => Names(c).ToList();
 
     /// <summary>The same, for the scripts family's classes.</summary>
@@ -250,17 +215,8 @@ public static class SweepFindings
         "every count below is for THIS narrowed scope, not the whole plugin(s).";
 
     /// <summary>Join the applied-narrowing clauses into the ONE render line, optionally followed by
-    /// <paramref name="claim"/> — the sentence saying the counts above are a SUBSET of what their labels name. Null when
-    /// nothing was narrowed at all.
-    ///
-    /// <para>The claim is the caller's call, not automatic, because narrowing a sweep and narrowing its COUNTS are
-    /// different things. A <c>findings=</c> class filter narrows which findings are
-    /// counted but leaves every reported number COMPLETE for what it names — an excluded class already renders
-    /// "NOT CHECKED" — so <c>check_errors findings=["dangling"]</c> with no record scope reports the true whole-order
-    /// dangling total, and appending "not the whole plugin(s)" to it would be false. A record scope, or
-    /// <c>property_contains=</c>, genuinely does make each count a subset of its own label, and there the claim belongs.
-    /// Pass <see cref="ScopedCountsClaim"/> for the default wording, a bespoke string where some count is exempt
-    /// (check_errors' plugin-level master count), or null for no claim.</para></summary>
+    /// <paramref name="claim"/>; null when nothing was narrowed at all. Which narrowings carry a claim is the caller's
+    /// call — contract in docs/architecture/check-family-tests.md.</summary>
     public static string? FilterNote(string? claim, params string?[] clauses)
     {
         var kept = clauses.Where(c => !string.IsNullOrEmpty(c)).ToList();
@@ -271,9 +227,8 @@ public static class SweepFindings
 
     static string Normalize(string? s) => (s ?? "").Trim().Replace('-', '_').ToLowerInvariant();
 
-    /// <summary>Order a <c>counts_only=true</c> histogram for display: commonest first, ties broken by key so the output
-    /// is stable across runs (a before/after diff of two histograms is the motivating use — an unstable order would
-    /// make every run diff).</summary>
+    /// <summary>Order a <c>counts_only=true</c> histogram for display: commonest first, ties broken by key so the
+    /// output is stable across runs.</summary>
     public static List<SweepCount> Histogram(Dictionary<string, int> acc)
         => acc.Select(kv => new SweepCount(kv.Key, kv.Value))
               .OrderByDescending(c => c.Count)
