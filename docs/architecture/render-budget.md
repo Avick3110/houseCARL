@@ -16,8 +16,9 @@ count and is not the number the caller capped; `CharCountedStream` converts as t
 one place that lane takes its length from, so no site can measure one unit and state the other.
 
 `JsonTextEncoder` is the ONE encoder behind every json the server writes, inline response and spilled artifact
-alike, so the same row cannot spell the same name two ways depending on where it landed. It widens escaping to
-the Basic Multilingual Plane (#754), and two constraints hold that bound:
+alike, so the same row cannot spell the same name two ways depending on where it landed. `Utf8JsonWriter`'s
+default escapes every character above ASCII; `UnicodeRanges.All` widens the set left UNESCAPED to the Basic
+Multilingual Plane (#754), and two constraints hold that bound:
 
 - the HTML-sensitive set (`<`, `>`, `&`, `'`, `+`) is still escaped exactly as before;
 - .NET offers no encoder that widens past the BMP without also unescaping that set
@@ -38,7 +39,7 @@ so nothing is cut mid-token, and what did not fit is counted in a notice.
 One arm may exceed the cap, and says so: where `max_chars` is smaller than what the response must carry
 whatever the budget, the answer ships and `RenderCap.Settle` appends an overrun notice naming the number that
 clears it in one step. The notice is part of the response whose length it states, so it settles to a fixed
-point. The merged sweep's `max_chars_overrun` has the same shape (#537).
+point. The merged sweep's `max_chars_overrun` has the same shape (#361).
 
 ## A merged response water-fills its body budget over measured demand
 
@@ -73,14 +74,15 @@ In `src/housecarl-generator/CheckMergeProbe.cs` (`ci-all`):
 |---|---|
 | `ALLOCATION-MONOTONE-IN-MAX-CHARS` | over every integer cap in a wide band, no subject spends fewer characters at a wider cap — what makes the response's own "raise `max_chars=`" remedy true |
 | `ALLOCATION-NO-STRANDING` | a call whose whole demand fits its budget renders every unit and claims no cut, in both transports |
-| `ALLOCATION-EQUALS-SPEND` | what a subject was allocated is what it spent |
+| `ALLOCATION-EQUALS-SPEND` | on a response with **nothing cut**, what a subject was allocated is what it spent, to the byte. At a biting cap a subject spends the largest whole-unit prefix under λ, so it spends less — the #398 granularity term |
 | `ALLOCATION-SECOND-FAMILY-DOES-NOT-WAIT-ITS-TURN` | a later family is not starved by an earlier one spending first (#394) |
 | `RESERVE-DECLARED-IS-RESERVE-DEMANDED` | the demand pass's reserve and the render's reserve are one number |
 | `RESERVE-COVERS-WHAT-IT-RESERVES-FOR` | a reserve is wide enough for the sentence it was held back for |
 
 `CheckShapeMatrix.cs` drives the same properties over a shape matrix
-(`MATRIX-MONOTONE-IN-MAX-CHARS`, `MATRIX-JSON-PARSES-AT-EVERY-CAP`), and its one-budget arm holds
-`OutstandingHigh` to `ReservedForRows` — equal exactly when the up-front measurement was not exceeded.
+(`MATRIX-MONOTONE-IN-MAX-CHARS`, `MATRIX-JSON-PARSES-AT-EVERY-CAP`), and its one-budget arm **bounds**
+`OutstandingHigh` by `ReservedForRows` — it fails only on `>`. Equality is the diagnostic reading, that the
+up-front measurement was not exceeded, and not the asserted property.
 
 ### Known under-fills — open gaps, not design
 
@@ -101,9 +103,12 @@ Everything the caller may be refused is a **unit**, and a unit is emitted whole 
 sections, per-record sections, dialogue topic blocks, facegen finding rows and histogram rows alike.
 
 - **A declared cost is an upper bound for the test; the charge is what was measured.** A site declaring 0
-  overshoots by one unit and no more, because the response's length only ever grows.
-- **A unit's width is computable before it is written, in both transports.** Composing blocks independently
-  and concatenating them is identical to a one-pass render. The allocation depends on that holding.
+  overshoots by one unit and no more, because the response's length only ever grows. `BatchRender` writes an
+  item and retracts it (`sb.Length = mark`) rather than pre-measuring at all.
+- **An allocated subject's units are measured before the render**, in both transports, by the demand pass
+  composing them with the same helper that will write them. For the dialogue topic blocks that measurement is
+  exact: composing the blocks independently and concatenating them is byte-identical to a one-pass render, and
+  the allocation depends on that holding.
 - **Every cut is named.** `HistogramCut` is computed once from the emitting loop's own facts, consumed by both
   transports, and names the knob that stopped the axis. `BatchRender` names its cut, and names an oversize
   item separately with the `max_chars` that clears it. `TransportAccounting`'s block counts each of its four
@@ -111,9 +116,6 @@ sections, per-record sections, dialogue topic blocks, facegen finding rows and h
   page measured off what was RENDERED rather than off the window.
 - **A closing disclosure is never refusable**, out of room `BoundedBody.Reserve` held back before the body
   renders, because the pressure that cut the rows would cut the line reporting the cut.
-- **`project.form='rows'`** folds a depth-expanded list read to one line per element: the element's own
-  summary followed by every sub-field the read FOUND, with only an ABSENT optional dropped. A row is carried
-  structurally too (`FieldValue.Cells`).
 
 ## Spilling to a file
 
