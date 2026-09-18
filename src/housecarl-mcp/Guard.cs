@@ -1,16 +1,10 @@
 namespace HousecarlMcp;
 
-/// <summary>
-/// The last-line tool-body guard: every MCP tool body runs inside <see cref="Tool(string,System.Func{string})"/>
-/// so an unconverted exception returns a named error instead of escaping to the SDK, whose own catch genericizes
-/// it to "An error occurred invoking '…'." Every body must stay wrapped — that is what keeps this guard's "the
-/// arguments bound fine" wording true and leaves only pre-body binding failures for <see cref="ToolCallShim"/>.
-/// </summary>
+/// <summary>The last-line tool-body guard: every MCP tool body runs inside
+/// <see cref="Tool(string,System.Func{string})"/> so an unconverted exception returns a named error.</summary>
 internal static class Guard
 {
-    /// <summary>Rethrow only a real request cancellation (the SDK's to finish). An OperationCanceledException
-    /// whose request token is still live — e.g. an HttpClient timeout — is a body failure and must be named,
-    /// or it lands in the SDK's generic message.</summary>
+    /// <summary>Rethrow only a real request cancellation; a cancel with a live request token is named as a body failure.</summary>
     public static string Tool(string tool, Func<string> body, CancellationToken ct = default)
     {
         try { return body(); }
@@ -28,8 +22,7 @@ internal static class Guard
         catch (Exception ex) { return Named(tool, ex); }
     }
 
-    /// <summary>A profile file locked by MO2 mid-re-sort is a named transient, not an internal failure: the call
-    /// reached a load order that cannot be read at this instant, and the fix is to run it again.</summary>
+    /// <summary>A profile file locked by MO2 mid-re-sort is a named transient, not an internal failure.</summary>
     static string Transient(ProfileUnreadableException ex) => "error: " + ex.Message;
 
     static string Named(string tool, Exception ex)
@@ -40,8 +33,7 @@ internal static class Guard
                "mid-refresh hiccup self-heals on the next call; if it persists, capture this exact message in a bug report.";
     }
 
-    /// <summary>Collapse an exception message to one bounded line for the wire (System.Text.Json and IO messages
-    /// span lines); the full exception, stack included, already went to stderr.</summary>
+    /// <summary>Collapse an exception message to one bounded line for the wire.</summary>
     internal static string Flatten(string message)
     {
         var s = message.Replace("\r", "").Replace("\n", " | ").Trim();
