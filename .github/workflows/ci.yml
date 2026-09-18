@@ -135,6 +135,9 @@ jobs:
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: claude plugin validate ./dist/housecarl --strict
 
+      # The three coverage steps run on push to main only: the numbers are for W5 planning, not
+      # per-PR gating, and skipping them finishes a PR about four minutes sooner.
+      #
       # The three coverage steps are LAST in the job, deliberately. This is visibility only — no
       # threshold, no gate, and `continue-on-error` on each so nothing they do can turn the job red
       # — but the collect is a SECOND full run of the suite under a CLR profiler that spawns
@@ -155,7 +158,7 @@ jobs:
       # it writes no trx, and the gate's own zero-test check reads the gating run's trx above. If
       # that filter changes, change this one too or the summary describes a different set of tests.
       - name: Coverage — collect (visibility only)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event_name == 'push' }}
         continue-on-error: true
         run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --filter "tier!=bridge" --collect "Code Coverage;Format=cobertura" --results-directory coverage
 
@@ -165,14 +168,14 @@ jobs:
       # summary the step exists to publish. `!cancelled()` runs it whatever the collect did, and the
       # script says in one sentence when there is no report to read.
       - name: Coverage — summary for this run (visibility only)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event_name == 'push' }}
         continue-on-error: true
         shell: pwsh
         run: ./scripts/coverage-summary.ps1 -Path coverage
 
       # The raw report, so the numbers in the summary can be re-derived without a signed-in session.
       - name: Coverage — upload the report
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event_name == 'push' }}
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
