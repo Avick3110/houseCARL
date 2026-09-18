@@ -4,60 +4,37 @@ using Mutagen.Bethesda.Skyrim;
 namespace HousecarlCore;
 
 // DialogueScriptCheck — the per-create result-script binding check for created dialogue lines; sibling of
-// VoiceCheck. An INFO can carry a result script, a Papyrus fragment that runs when the line plays, on its
-// VirtualMachineAdapter: a ScriptFragments Begin/End box keyed by a FileName script class, and/or attached
-// Scripts. A byte-valid INFO whose binding is half-built or points at an uncompiled script runs nothing, so a
-// create is followed by this read-only diagnostic over every created INFO that carries a VMAD: the binding must
-// be structurally usable (a real fragment, or a named attached script) and each bound class must have a compiled
-// `Scripts\<class>.pex` on disk (loose + BSA). It adds no write logic; the create path itself is untouched.
-//
-// Unlike VoiceCheck it resolves no graph: the binding lives entirely on the INFO, and the only external fact is
-// the on-disk `.pex` — so it needs the written patch and the AssetResolver only, no LoadOrderResolver or session.
-//
-// Keyed on VMAD-present: a created line with no VirtualMachineAdapter intends no script and is never nagged. On a
-// freshly-created record the adapter is non-null only because the create spec set it, so VMAD-present and
-// "a result script was requested" coincide here.
+// VoiceCheck. Every created INFO carrying a VMAD must bind something usable, and each bound class must have a
+// compiled `Scripts\<class>.pex` on disk (loose + BSA). It resolves no graph, so it needs the written patch and
+// the AssetResolver only.
 
 /// <summary>The result-script binding verdict for one created dialogue line (INFO) that carries a VMAD.</summary>
 public enum ScriptBindingStatus
 {
-    /// <summary>A fragment or attached script is bound AND every bound class has a compiled `.pex` on disk — it will fire.</summary>
+    /// <summary>Bound, and every bound class has a compiled `.pex` on disk — it will fire.</summary>
     BoundAndCompiled,
-    /// <summary>A VMAD is present but binds no usable fragment/script (no real Begin/End fragment, no named attached
-    /// script) — byte-valid, runs NOTHING.</summary>
+    /// <summary>A VMAD is present but binds nothing usable — byte-valid, runs NOTHING.</summary>
     BindingIncomplete,
-    /// <summary>A script class is bound but its compiled `Scripts\&lt;class&gt;.pex` is absent on disk — runs NOTHING
-    /// until compiled.</summary>
+    /// <summary>A class is bound but its `Scripts\&lt;class&gt;.pex` is absent — runs NOTHING until compiled.</summary>
     ScriptNotCompiled,
     /// <summary>The created INFO couldn't be located in the written patch to check — surfaced, never silently skipped.</summary>
     Undetermined,
 }
 
-/// <summary>One created INFO's result-script verdict: the <see cref="Status"/>, the bound script class name(s)
-/// (<see cref="Scripts"/>), the `Scripts\&lt;class&gt;.pex` path(s) found missing on disk (<see cref="MissingPex"/>,
-/// for <see cref="ScriptBindingStatus.ScriptNotCompiled"/>), the <see cref="ReadIncomplete"/> caveat (a BSA failed to
-/// read, so a "missing" may merely be unscanned), and a human-readable <see cref="Detail"/>.</summary>
+/// <summary>One created INFO's result-script verdict, with the bound class names and any missing `.pex`.</summary>
 public sealed record ScriptBindingFinding(
     FormKey Info, string TopicEditorId, ScriptBindingStatus Status,
     IReadOnlyList<string> Scripts, IReadOnlyList<string> MissingPex,
     bool ReadIncomplete, string Detail)
 {
-    /// <summary>True if this INFO carries a REAL result-script FRAGMENT (a ScriptFragments Begin/End box) — a
-    /// result-script kind that runs Papyrus code which CAN surface in Papyrus.log (on an error or an explicit
-    /// trace), where a plain voiced line has no code path that ever can. DISTINCT from "has a bound script": an
-    /// attached Scripts[] class is also code, but it is not a fragment and this flag does not count it. Feeds the
-    /// per-topic <c>FragmentInfoCount</c> and the render's "could a Papyrus.log entry exist?" note. Default
-    /// false (an attached-script-only, binding-incomplete, or undetermined finding).</summary>
+    /// <summary>A REAL result-script FRAGMENT — distinct from "has a bound script"; an attached class is not one.</summary>
     public bool HasFragment { get; init; }
 }
 
-/// <summary>The result-script-coverage report for one create call: a per-INFO binding verdict for each created
-/// dialogue line that carries a VMAD. <see cref="IsEmpty"/> when the call created no scripted dialogue lines.</summary>
+/// <summary>The result-script-coverage report for one create call, one verdict per created VMAD-carrying INFO.</summary>
 public sealed record ScriptBindingReport(IReadOnlyList<ScriptBindingFinding> Findings)
 {
-    /// <summary>The check itself could not run (the patch wouldn't re-open, the walk threw) — surfaced, never a silent
-    /// skip. The create ALREADY SUCCEEDED when this is set; it means "the script binding is unverified", not
-    /// "the write failed". Null on a clean run.</summary>
+    /// <summary>The check could not run; the create ALREADY SUCCEEDED, so the binding is merely unverified.</summary>
     public string? CheckError { get; init; }
 
     public bool IsEmpty => Findings.Count == 0 && CheckError is null;
@@ -66,17 +43,12 @@ public sealed record ScriptBindingReport(IReadOnlyList<ScriptBindingFinding> Fin
 
 public static class DialogueScriptCheck
 {
-    /// <summary>Run the result-script binding check over the INFOs created by ONE create call. <paramref name="patchPath"/>
-    /// is the just-written patch file (re-opened read-only here, then disposed — the overlay lifetime lives in core, so
-    /// the service needs no Mutagen.Skyrim dependency); <paramref name="created"/> is the call's CreatedRecord list
-    /// (filtered here to INFOs); <paramref name="assets"/> answers on-disk `.pex` presence (loose + BSA). Returns
-    /// <see cref="ScriptBindingReport.Empty"/> when the call created no INFOs. A created INFO not located in the patch is
-    /// a NAMED undetermined; a whole-check failure (the patch won't re-open, the walk throws) is surfaced on
-    /// <see cref="ScriptBindingReport.CheckError"/> — NEVER thrown (the create already succeeded; this is a verify step).</summary>
+    /// <summary>Run the binding check over the INFOs created by ONE create call; the patch is re-opened read-only
+    /// here and disposed. An INFO not located is a NAMED undetermined, a whole-check failure rides CheckError.</summary>
     public static ScriptBindingReport Run(string patchPath, IReadOnlyList<WritePatchBuilder.CreatedRecord> created,
                                           AssetResolver assets)
     {
-        // Which created records are dialogue lines (INFOs) — only these get a script-binding check.
+        // Which created records are dialogue lines (INFOs) — only these get a binding check.
         var infoKeys = new HashSet<FormKey>();
         foreach (var c in created)
             if (string.Equals(c.RecordType, VoiceCheck.InfoCatalogName, StringComparison.Ordinal))
@@ -96,10 +68,7 @@ public static class DialogueScriptCheck
         finally { (patch as IDisposable)?.Dispose(); }
     }
 
-    /// <summary>The walk over the re-opened patch (split out so <see cref="Run"/> can wrap the overlay open + any
-    /// walk-level throw into <see cref="ScriptBindingReport.CheckError"/>, while a per-INFO not-found stays a NAMED
-    /// undetermined). Mirrors <see cref="VoiceCheck"/>'s topic walk: each created INFO lives in exactly one topic's
-    /// Responses (its structural parent), which also yields the topic EditorID for a friendly label.</summary>
+    /// <summary>The walk over the re-opened patch, split out so <see cref="Run"/> can wrap any throw.</summary>
     static ScriptBindingReport RunOver(ISkyrimModGetter writtenPatch, HashSet<FormKey> infoKeys, AssetResolver assets)
     {
         var findings = new List<ScriptBindingFinding>();
@@ -116,7 +85,7 @@ public static class DialogueScriptCheck
             }
         }
 
-        // A created INFO not found under any topic is a real inconsistency — surfaced, never silently dropped.
+        // A created INFO under no topic is a real inconsistency — surfaced, never dropped.
         foreach (var fk in infoKeys)
             if (!found.Contains(fk))
                 findings.Add(new ScriptBindingFinding(fk, "", ScriptBindingStatus.Undetermined,
@@ -126,22 +95,15 @@ public static class DialogueScriptCheck
         return new ScriptBindingReport(findings);
     }
 
-    /// <summary>Verdict one created INFO. A line with NO VirtualMachineAdapter intends no script and yields nothing
-    /// (correct — never nag a script-free line). An adapter that IS present is validated: collect every bound script
-    /// CLASS that must have a compiled `.pex` to run (a ScriptFragments fragment's FileName, counted only when a real
-    /// Begin/End fragment is wired; each attached Scripts[] entry's class name), then either flag the hollow binding,
-    /// or check each class's `Scripts\&lt;class&gt;.pex` on disk.</summary>
-    // internal, not private: DialogueValidate reuses this exact per-INFO binding check over every INFO in a topic,
-    // so the per-create check and the on-demand validator cannot drift.
+    /// <summary>Verdict one created INFO; a line with no VirtualMachineAdapter yields nothing.</summary>
+    // internal, not private: DialogueValidate reuses this over every INFO in a topic, so the two cannot drift.
     internal static void CheckInfo(IDialogResponsesGetter info, string topicEdid, AssetResolver.AssetView av,
                           List<ScriptBindingFinding> findings)
     {
         var vmad = info.VirtualMachineAdapter;
         if (vmad is null) return;   // no result script intended — nothing to check
 
-        // Does this line carry a REAL result-script FRAGMENT (a code path that can surface in Papyrus.log)? Computed via
-        // the single fragment-presence home so the per-finding HasFragment and the validator's per-topic tally
-        // (DialogueValidate.FragmentInfoCount) cannot drift.
+        // Via the single fragment-presence home, so HasFragment and the validator's per-topic tally cannot drift.
         bool hasFragment = HasResultFragment(info);
 
         // The bound script CLASS names that must each have a compiled .pex to actually fire.
@@ -151,8 +113,7 @@ public static class DialogueScriptCheck
         foreach (var entry in vmad.Scripts)
             if (!string.IsNullOrWhiteSpace(entry.Name)) names.Add(entry.Name.Trim());
 
-        // A VMAD that binds nothing usable (no real fragment, no named attached script) is byte-valid but inert — a
-        // FileName WITHOUT a Begin/End fragment is a hollow declaration, not a binding, and is caught here.
+        // A VMAD that binds nothing usable is byte-valid but inert: a FileName with no Begin/End is hollow.
         if (names.Count == 0)
         {
             findings.Add(new ScriptBindingFinding(info.FormKey, topicEdid, ScriptBindingStatus.BindingIncomplete,
@@ -163,16 +124,12 @@ public static class DialogueScriptCheck
             return;
         }
 
-        // Each bound class needs Scripts\<class>.pex on disk to fire. Distinct (case-insensitive) so two contributors
-        // naming the same class don't double-report.
+        // Each bound class needs Scripts\<class>.pex to fire; distinct so two contributors do not double-report.
         var distinct = names.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var missing = new List<string>();
         foreach (var name in distinct)
         {
-            // A NAMESPACED Papyrus class (Namespace:Script) compiles to Scripts\Namespace\Script.pex — the ':' is a
-            // folder separator on disk (and not a legal filename char), so map it before probing the VFS. Without this a
-            // valid namespaced script reads as a false "not compiled". CK-generated fragments (TIF__/QF_) are always
-            // flat, so this only bites namespaced attached Scripts[].
+            // A NAMESPACED class compiles to Scripts\Namespace\Script.pex, so map ':' before probing the VFS.
             var relPex = $@"Scripts\{name.Replace(':', '\\')}.pex";
             if (!av.Resolve(relPex).Exists) missing.Add(relPex);
         }
@@ -188,20 +145,14 @@ public static class DialogueScriptCheck
                 "it runs NOTHING until compiled (" + ToolNames.CompileScript + ").") { HasFragment = hasFragment });
     }
 
-    /// <summary>True if <paramref name="info"/> carries a REAL result-script FRAGMENT — a ScriptFragments Begin/End
-    /// box (with a FileName) that runs when the line plays, a code path that CAN surface in Papyrus.log (on an error
-    /// or an explicit trace) where a plain voiced line has none. An attached Scripts[] entry or a hollow FileName-only
-    /// declaration does NOT count. The single fragment-presence home, reused by <see cref="CheckInfo"/> (the
-    /// per-finding HasFragment) and DialogueValidate's per-topic FragmentInfoCount tally so they cannot
-    /// drift.</summary>
+    /// <summary>A REAL result-script FRAGMENT: the single presence home, reused by the validator.</summary>
     internal static bool HasResultFragment(IDialogResponsesGetter info)
     {
         var frag = info.VirtualMachineAdapter?.ScriptFragments;
         return frag is not null && !string.IsNullOrWhiteSpace(frag.FileName) && HasRealFragment(frag);
     }
 
-    /// <summary>A ScriptFragments carries a REAL fragment when its Begin or End fragment names a script/fragment — a
-    /// FileName alone (no Begin/End) is a hollow declaration that binds nothing.</summary>
+    /// <summary>A REAL fragment: its Begin or End names a script; a FileName alone binds nothing.</summary>
     static bool HasRealFragment(IScriptFragmentsGetter frag)
         => IsReal(frag.OnBegin) || IsReal(frag.OnEnd);
 
