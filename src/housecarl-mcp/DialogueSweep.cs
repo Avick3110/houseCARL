@@ -4,22 +4,13 @@ using Mutagen.Bethesda.Plugins;
 namespace HousecarlMcp;
 
 /// <summary>The dialogue family's orchestration on the merged <c>check</c> surface: expand a seed list into
-/// per-seed validations (core's <see cref="DialogueValidate"/>) and tally what they found. Selection is by record,
-/// not by plugin — a quest expands into every topic it owns and each topic's contributing plugins — so
-/// <c>plugins=</c> and <c>exclude=</c> do not scope this family, and the response says so.</summary>
+/// per-seed validations (core's <see cref="DialogueValidate"/>) and tally what they found. Seeded, not swept;
+/// contract in docs/architecture/dialogue.md.</summary>
 internal static class DialogueSweep
 {
-    /// <summary>What this sweep needs off the load order, pinned to one build: the per-seed validation, the seed
-    /// parse and the stamp that names that build. Taken together so the three cannot come off different builds.
-    /// </summary>
-    /// <param name="Validate">the per-seed validation — the service's own dialogue validation, passed in so this
-    /// class needs nothing of the service but the one call it makes.</param>
-    /// <param name="ParseFormId">the seed parse, pinned to the same build.</param>
-    /// <param name="Epoch">that build's stamp.</param>
-    /// <param name="Fold">the off-order plugin folded in at the END of the order for this sweep, or null. Owned by
-    /// the sweep, which closes it: its record bodies live only while the file is open.</param>
-    /// <param name="FoldError">why the fold could not be read, when it could not. The sweep refuses on it rather
-    /// than validating every seed against the active order alone under a response that promises a fold.</param>
+    /// <summary>What this sweep needs off the load order, pinned to one build.</summary>
+    /// <param name="Fold">the off-order plugin folded in, or null. Owned by the sweep, which closes it.</param>
+    /// <param name="FoldError">why the fold could not be read; the sweep refuses on it.</param>
     internal readonly record struct Binding(Func<FormKey, DialogueValidationReport> Validate,
                                             Func<string?, FormKey> ParseFormId,
                                             string Epoch,
@@ -27,14 +18,9 @@ internal static class DialogueSweep
                                             string? FoldError = null);
 
     /// <summary>Validate each seed and tally the result.</summary>
-    /// <param name="bind">pins the build and hands back what this sweep reads it through. Called only once the seed
-    /// list has been found non-empty, so a call refused on its arguments alone never builds the index — the rule
-    /// <see cref="SweepSharedInput"/> states, and the reason the no-seeds refusal names no build. Every refusal
-    /// reached after this ran carries the stamp, as the sibling families' post-capture refusals do.</param>
-    /// <param name="seeds">the FormIDs the caller named. Null or empty refuses, never widens: an empty scope read as
-    /// "the whole order" would run a whole-order dialogue sweep.</param>
-    /// <param name="limit">how many seeds this call may expand. Over it, the extra seeds are not validated and the
-    /// response states how many and which knob moves them.</param>
+    /// <param name="bind">pins the build; called only once the seed list is non-empty, per <see cref="SweepSharedInput"/>.</param>
+    /// <param name="seeds">the FormIDs the caller named. Null or empty refuses, never widens.</param>
+    /// <param name="limit">how many seeds this call may expand; the response states the cut.</param>
     /// <param name="countsOnly">carry the totals and the unreachable-seed roster, and no topic blocks.</param>
     internal static DialogueCheckResult Run(Func<Binding> bind,
                                             IReadOnlyList<string>? seeds, int limit, bool countsOnly = false)
@@ -59,8 +45,7 @@ internal static class DialogueSweep
             try { fk = parseFormId(seed); }
             catch (Exception ex)
             {
-                // A malformed seed is named and carried, never dropped: the scope is the seed list, so a discarded
-                // seed silently narrows it and the caller reads the result as a clean answer.
+                // A malformed seed is named and carried, never dropped — a discarded seed narrows the scope.
                 results.Add(new DialogueSeedResult(seed, null, $"not a FormID ({ex.Message}) — expected 'XXXXXX:Plugin.esp'"));
                 continue;
             }
@@ -83,21 +68,16 @@ internal static class DialogueSweep
             readIncomplete |= report.ReadIncomplete;
         }
 
-        // The placement is the FOLD's own spelling, shared with the info_order form: one sentence for where a
-        // file lands, so the two surfaces cannot describe the same projection differently.
+        // The placement is the FOLD's own spelling, shared with the info_order form.
         string? folded = fold is null ? null
                        : string.Format(ReadSentences.DialogueFolded, fold.Plugin, fold.Where, fold.Placement)
                          + (fold.PlacementKind == DialogueFold.Where3.ActiveSlot
                                 ? ReadSentences.DialogueFoldedShadowBound : "");
 
-        // Every seed named was malformed or unresolvable: there is nothing to render and nothing to claim, so the
-        // family answers with one refusal rather than a section of nothing. It still carries the frame — a seed
-        // that did not resolve was looked for in the projection, and the refusal is about that world.
+        // Every seed was malformed or unresolvable: one refusal rather than a section of nothing.
         if (results.Count > 0 && results.All(r => r.Report is null))
             return DialogueCheckResult.Fail(string.Format(ReadSentences.DialogueNoSeedResolved, results.Count,
                 string.Join(" ", results.Select(r => $"{r.Seed}: {r.Refusal}.")),
-                // The closing clause has to match the world the seeds were looked for in: with a fold, "only a
-                // disabled plugin defines it" is not why they were missed.
                 fold is null ? ReadSentences.DialogueNoSeedResolvedPlain : ReadSentences.DialogueNoSeedResolvedFolded),
                 epoch) with { Folded = folded };
 
@@ -106,12 +86,10 @@ internal static class DialogueSweep
             { Folded = folded };
     }
 
-    /// <summary>Every finding one report carries, at both levels. Counted off the report rather than off what
-    /// rendered, because the accounting subtracts from these totals.</summary>
+    /// <summary>Every finding one report carries, counted off the report rather than off what rendered.</summary>
     static int Problems(DialogueValidationReport r)
     {
-        // The coverage gaps count too: they are not parity findings, but a response headlining "0 findings" over a
-        // report that lost a plugin reads as a clean pass.
+        // The coverage gaps count too: "0 findings" over a report that lost a plugin reads as a clean pass.
         int n = r.InputIssues.Count + r.ScanGaps.Count;
         if (r.SeqLint is { QuestIsSge: true } s && !(s.SeqExists && s.SeqContainsQuest == true && s.SeqNewerThanPlugin == true))
             n++;
