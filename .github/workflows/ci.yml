@@ -135,12 +135,13 @@ jobs:
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: claude plugin validate ./dist/housecarl --strict
 
-      # LAST in the job, deliberately. This is visibility only — no threshold, no gate, and
-      # `continue-on-error` so nothing it does can turn the job red — but it is a SECOND full run of
-      # the suite under a CLR profiler that spawns housecarl-mcp.exe, and it takes about four
-      # minutes. Anywhere earlier and every gating step after it waits on a step that is not
-      # allowed to matter, and a stray server process or a locked temp file it left behind would go
-      # red on a step that is. Nothing runs after it, so its worst case is spent minutes.
+      # The three coverage steps are LAST in the job, deliberately. This is visibility only — no
+      # threshold, no gate, and `continue-on-error` on each so nothing they do can turn the job red
+      # — but the collect is a SECOND full run of the suite under a CLR profiler that spawns
+      # housecarl-mcp.exe, and it takes about four minutes. Anywhere earlier and every gating step
+      # after it waits on a step that is not allowed to matter, and a stray server process or a
+      # locked temp file it left behind would go red on a step that is. Nothing runs after them, so
+      # the worst case is spent minutes.
       #
       # The collector is "Code Coverage", which ships with Microsoft.NET.Test.Sdk (no new package),
       # and it is here instead of coverlet for a measured reason: these tests drive the BUILT
@@ -153,13 +154,21 @@ jobs:
       # The filter repeats the gating step's `tier!=bridge` and this run is deliberately unguarded:
       # it writes no trx, and the gate's own zero-test check reads the gating run's trx above. If
       # that filter changes, change this one too or the summary describes a different set of tests.
+      - name: Coverage — collect (visibility only)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: dotnet test src/housecarl-mcp-tests --configuration Release --no-build --filter "tier!=bridge" --collect "Code Coverage;Format=cobertura" --results-directory coverage
+
+      # Its own step, because the collect above is a separate command: GitHub's pwsh shell sets
+      # $ErrorActionPreference = 'stop', and on pwsh 7.4 a native command exiting non-zero ends the
+      # script — so one test flaking under the profiler would write the report and then skip the
+      # summary the step exists to publish. `!cancelled()` runs it whatever the collect did, and the
+      # script says in one sentence when there is no report to read.
       - name: Coverage — summary for this run (visibility only)
         if: ${{ !cancelled() }}
         continue-on-error: true
         shell: pwsh
-        run: |
-          dotnet test src/housecarl-mcp-tests --configuration Release --no-build --filter "tier!=bridge" --collect "Code Coverage;Format=cobertura" --results-directory coverage
-          ./scripts/coverage-summary.ps1 -Path coverage
+        run: ./scripts/coverage-summary.ps1 -Path coverage
 
       # The raw report, so the numbers in the summary can be re-derived without a signed-in session.
       - name: Coverage — upload the report
