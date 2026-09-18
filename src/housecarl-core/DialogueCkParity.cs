@@ -3,84 +3,19 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
 
-// ======================================================================
-//  DialogueCkParity — the CK-parity default-populate authority for the DIAL/INFO/DLVW family.
-//
-//  THE ONE ASYMMETRY THIS EXISTS FOR: Mutagen OMITS a null/unset optional subrecord on write; the Creation Kit
-//  writes it UNCONDITIONALLY, nulls included. So a record authored through houseCARL that sets only the fields the
-//  author cared about differs STRUCTURALLY from a CK-authored one of the same content — and for several members of
-//  this family that difference is a hard failure (a CK-editor access violation the moment the topic/view is opened).
-//  The whole class closes by default-populating the nullable fields the CK always emits, at record CREATE time,
-//  inside the Mutagen model: no byte-injection, no xEdit — every field here is fully modeled.
-//
-//  Three invariants hold for every default (the DialogTopic SNAM marker in DialogueSubtype is the same pattern):
-//    1. NON-OVERRIDE — fill ONLY when the author left the field null/unset; NEVER clobber an explicit value.
-//    2. NEVER SILENT — every fill is returned as a CkParityFill the create path surfaces as an OpResult (label +
-//       reason), visible in the write read-back. Nothing is populated behind the author's back.
-//    3. BY CONSTRUCTION — the defaults are the values a CK-authored record of the same content carries,
-//       byte-verified against vanilla reference plugins, never invented.
-//
-//  CONFIRMED-CRASH TIER. Each is a nullable Mutagen field the CK writes unconditionally, with a confirmed editor
-//  crash when omitted:
-//    • INFO (DialogResponses) FavorLevel (CNAM)   → None
-//    • INFO (DialogResponses) Flags    (ENAM)     → empty DialogResponseFlags (Flags=0, ResetHours=0)
-//    • DLVW (DialogView)      DNAM                → 0x00
-//    • DLVW (DialogView)      ENAM                → 0x00000000
-//
-//  BYTE-PARITY TIER. Same asymmetry, no confirmed crash — a byte mismatch vs a CK-authored record. Every default
-//  VALUE below was byte-verified against CK-authored vanilla records in a live load order, never guessed:
-//    • DLBR (DialogBranch)   Category   (TNAM)     → Player  (the enum's zero-value AND 3059/3061 vanilla branches,
-//                                                    across all Flags; the rare Command branch is author-set → non-override)
-//    • DIAL (DialogTopic)    Priority   (PNAM)     → 50      (the CK seed for an untouched topic; the dominant value
-//                                                    on vanilla Custom topics — NON-NULLABLE float, see below)
-//    • QUST (Quest)          NextAliasID (ANAM)    → next-alias-ID counter: max(existing alias ID)+1, else 0
-//    • QUST QuestObjective   Flags      (FNAM)     → 0 (no flags), materialised per objective
-//    • QUST QuestAlias       Flags      (FNAM)     → 0 (no flags), materialised per alias
-//    • QUST QuestAlias       VoiceTypes (VTCK)     → null-link (0x00000000), materialised per REFERENCE alias only
-//
-//  IN-GAME-BEHAVIOUR TIER. The same omitted-subrecord asymmetry, but the consequence is neither a CK-editor crash
-//  nor a byte-only mismatch the game shrugs off: the RUNNING GAME behaves wrong.
-//    • DLBR (DialogBranch)   Flags      (DNAM)     → TopLevel on a Category=Player branch, 0 (no flags) otherwise
-//  An ABSENT DNAM is read by the engine as TopLevel, so a branch the author never marked top-level is published to
-//  the player's dialogue menu anyway — a nameless Say()-only topic surfaces as a selectable "..." that fires its
-//  lines on click. The output is byte-valid and passes validate_dialogue, so nothing catches it before the game
-//  does; that combination (valid-looking, silently wrong) is what makes this the sharpest tier, not the mildest.
-//  The fill VALUE follows Category for the same reason: a Player branch that is not TopLevel never reaches the
-//  player's menu, so filling 0 there is the same defect with the opposite sign (#693).
-//
-//  ONE FIELD IS NOT NULLABLE — DIAL Priority is a plain float that defaults to 0, so "the author left it unset"
-//  can't be read off is-null the way every other field here is. The create path detects it from the AUTHOR'S OP LIST
-//  (did any edit touch the Priority path?) and passes that in; a fill happens only when Priority was never mentioned,
-//  and an explicit value — INCLUDING 0 — always wins. That's why ApplyTopicPriorityDefault takes an authorSetPriority
-//  flag while the nullable-field methods don't.
-//
-//  Any further default belongs here too — do not fork a parallel path.
-//
-//  A SEMANTIC NON-DEFAULT worth stating: the `Goodbye` conversation-ender flag lives INSIDE the INFO Flags
-//  struct this fills. Materialising Flags to all-zero does NOT set Goodbye — a conversation-ending line still
-//  needs Flags.Flags = Goodbye set explicitly (that's an authoring choice, not a CK-parity default).
-//  docs/dialogue.md carries that semantic.
-// ======================================================================
+// DialogueCkParity — the CK-parity default-populate authority for the DIAL/INFO/DLVW family: the nullable fields
+// the Creation Kit always emits and Mutagen omits, filled at create time inside the Mutagen model. The invariants,
+// the three tiers and the two exceptions are contracts in docs/architecture/dialogue.md. Any further default
+// belongs here too — do not fork a parallel path.
 
-/// <summary>One CK-parity field that was default-populated on create: a human-readable <see cref="Label"/> (the
-/// OpResult summary, e.g. "FavorLevel (CNAM subrecord) auto-set to None") and a <see cref="Reason"/> (why — the
-/// CK-parity rationale). The create path renders every fill as an <c>OpResult</c> so an auto-fill is never silent.
-/// A record that already carried the field produces NO fill (non-override).</summary>
+/// <summary>One CK-parity field default-populated on create; a record that carried it produces NO fill.</summary>
 public readonly record struct CkParityFill(string Label, string Reason);
 
-/// <summary>One CK-parity subrecord a record is MISSING — the read-only counterpart of a <see cref="CkParityFill"/>.
-/// <see cref="Subrecord"/> names the omitted field ("CNAM (FavorLevel)"); <see cref="Detail"/> is why it matters +
-/// the fix. The on-demand dialogue validator surfaces each as a Warning (a CK-editor-crash shape the game itself
-/// tolerates — the same severity class as the BNAM-absent lint). Produced by the SAME null test the fill path uses,
-/// so a create that FILLS the field and a validate that FLAGS its absence can never disagree.</summary>
+/// <summary>One CK-parity subrecord a record is MISSING, off the same null test the fill path uses.</summary>
 public readonly record struct CkParityGap(string Subrecord, string Detail);
 
-/// <summary>The authority for the CK-parity default-populate fields of the DIAL/INFO/DLVW family — the nullable
-/// subrecords the Creation Kit always writes but Mutagen omits when unset. The create path calls the per-type
-/// <c>Apply…Defaults</c> method after the author's edits, fills only the fields left null (NEVER overriding an
-/// explicit value), and surfaces each fill as an OpResult. Values are what a CK-authored record of the same content
-/// carries. The DialogTopic SNAM marker is its OWN authority (DialogueSubtype) because its value is DERIVED from
-/// Subtype via a non-obvious table; these fields are flat constants.</summary>
+/// <summary>The authority for the CK-parity default-populate fields; the create path calls the per-type
+/// <c>Apply…Defaults</c> after the author's edits. The SNAM marker is DialogueSubtype's, not this one's.</summary>
 public static class DialogueCkParity
 {
     // --- The byte-field defaults, as hex, so there is ONE source of truth (the arrays derive from these). ---
@@ -89,18 +24,12 @@ public static class DialogueCkParity
     /// <summary>DLVW ENAM default — four zero bytes, as a CK-authored DialogView carries it.</summary>
     public const string ViewEnamHex = "00000000";
 
-    /// <summary>INFO (DialogResponses) CK-parity defaults — FavorLevel (CNAM) and the Flags (ENAM) response-data
-    /// struct. Both are omitted by Mutagen when unset; a CK-authored INFO always carries both, and an INFO missing
-    /// either crashes the Creation Kit the moment its owning topic is opened in the dialogue editor — a CK-editor
-    /// crash, not a load CTD; the game itself tolerates it. Non-override: fills only what the author left null.
-    /// Returns the fills applied (empty when the author supplied both).</summary>
+    /// <summary>INFO CK-parity defaults — FavorLevel (CNAM) and the Flags (ENAM) struct, both CK-crash tier.</summary>
     public static IReadOnlyList<CkParityFill> ApplyInfoDefaults(IDialogResponses info)
     {
         var fills = new List<CkParityFill>(2);
 
-        // FavorLevel (CNAM): nullable enum (FavorLevel?); None is the CK default, as reference INFOs carry it. Only
-        // fill when the author set no favor level. The absence test is the shared HasFavorLevel below — the SAME one
-        // MissingInfoDefaults flags on, so fill and check can't drift.
+        // FavorLevel (CNAM): None is the CK default; the absence test is the shared HasFavorLevel below.
         if (!HasFavorLevel(info))
         {
             info.FavorLevel = FavorLevel.None;
@@ -111,12 +40,7 @@ public static class DialogueCkParity
                 + "it). CK-parity default-populate, in-model (#131 pattern)."));
         }
 
-        // Flags (ENAM): the DialogResponseFlags response-data struct — a NULLABLE reference type (the schema doesn't
-        // mark it null because it's not a Nullable<T>, but IDialogResponses.Flags is DialogResponseFlags? and reads
-        // null when unset — confirmed empirically: setting a sub-field "materialises" it). A fresh struct is Flags=0,
-        // ResetHours=0 — exactly the CK's empty ENAM. Only fill when the author materialised no Flags. NOTE: the
-        // Goodbye conversation-ender lives in Flags.Flags; an all-zero fill does NOT set it — that stays explicit.
-        // Absence test is the shared HasResponseFlags — the SAME one MissingInfoDefaults flags on, so no drift.
+        // Flags (ENAM): reads null when unset, and a fresh struct is the CK's empty ENAM. Goodbye stays explicit.
         if (!HasResponseFlags(info))
         {
             info.Flags = new DialogResponseFlags();
@@ -131,19 +55,11 @@ public static class DialogueCkParity
         return fills;
     }
 
-    // --- Presence predicates: the SINGLE home for "does this INFO carry the CK-parity subrecord?", consulted by
-    //     BOTH the fill path (ApplyInfoDefaults — fills when absent) and the check path (MissingInfoDefaults — flags
-    //     when absent) so the two can never drift. The null read is reliable on the binary overlay the validator
-    //     uses: an absent optional subrecord reads null, a materialised one reads non-null. The getter interface is
-    //     enough — the fill path passes its mutable record, which is one. ---
+    // --- Presence predicates: the SINGLE home, read by both the fill path and the check path. ---
     static bool HasFavorLevel(IDialogResponsesGetter info) => info.FavorLevel is not null;   // CNAM
     static bool HasResponseFlags(IDialogResponsesGetter info) => info.Flags is not null;      // ENAM
 
-    /// <summary>The CK-parity subrecords an INFO (DialogResponses) is MISSING — the read-only counterpart of
-    /// <see cref="ApplyInfoDefaults"/>, for the on-demand dialogue validator. Shares the exact presence predicates the
-    /// fill path uses, so "the create tool populates it" and "the validator flags its absence" can never disagree.
-    /// Empty when the INFO already carries both subrecords (the well-formed case, which every CK-/xEdit-authored INFO
-    /// is — this only ever fires on a bare-authored record). Reads only the getter; NEVER mutates.</summary>
+    /// <summary>The CK-parity subrecords an INFO is MISSING, off the same predicates; never mutates.</summary>
     public static IReadOnlyList<CkParityGap> MissingInfoDefaults(IDialogResponsesGetter info)
     {
         var gaps = new List<CkParityGap>(2);
@@ -163,11 +79,7 @@ public static class DialogueCkParity
         return gaps;
     }
 
-    /// <summary>DLVW (DialogView) CK-parity defaults — the DNAM and ENAM byte subrecords. Both are nullable
-    /// (MemorySlice&lt;byte&gt;?) and omitted by Mutagen when unset; a CK-authored DialogView always carries
-    /// DNAM = 0x00 and ENAM = 0x00000000, and a bare DLVW (together with BNAM-less topics) crashes the CK's Dialogue
-    /// Views editor (a FlowchartX64 null-deref). Non-override: fills only the byte fields the author left null.
-    /// Returns the fills applied.</summary>
+    /// <summary>DLVW CK-parity defaults — DNAM and ENAM, whose absence crashes the CK's Dialogue Views editor.</summary>
     public static IReadOnlyList<CkParityFill> ApplyViewDefaults(IDialogView view)
     {
         var fills = new List<CkParityFill>(2);
@@ -193,23 +105,16 @@ public static class DialogueCkParity
         return fills;
     }
 
-    // --- DLVW presence predicates: the single home for "does this DialogView carry the byte subrecord?",
-    //     consulted by BOTH ApplyViewDefaults (fills when absent) and MissingViewDefaults (flags when absent), so
-    //     they cannot drift — the same single-source rule as the INFO predicates above. ---
+    // --- DLVW presence predicates: the single home, read by both the fill path and the check path. ---
     static bool HasDnam(IDialogViewGetter view) => view.DNAM is not null;   // DNAM
     static bool HasEnam(IDialogViewGetter view) => view.ENAM is not null;   // ENAM
 
-    /// <summary>The CK-parity subrecords a DLVW (DialogView) is MISSING — the read-only counterpart of
-    /// <see cref="ApplyViewDefaults"/>, for the on-demand dialogue validator's DialogView input. Shares the exact
-    /// presence predicates the fill path uses, so fill and check can never disagree. Empty when the view carries
-    /// both byte subrecords (every CK-authored view does). Reads only the getter; NEVER mutates.</summary>
+    /// <summary>The CK-parity subrecords a DLVW is MISSING, off the same predicates; never mutates.</summary>
     public static IReadOnlyList<CkParityGap> MissingViewDefaults(IDialogViewGetter view)
     {
         var gaps = new List<CkParityGap>(2);
 
-        // The remedy renders a WHOLE op element, so it must carry every member the op REQUIRES — formid included,
-        // and the formid of the view actually being reported rather than a placeholder. An ops= literal missing a
-        // member gives a caller who pastes it "ops[0]: formid is required." instead of the fix.
+        // The remedy renders a WHOLE op element, so it carries the reported view's own formid, not a placeholder.
         if (!HasDnam(view))
             gaps.Add(new CkParityGap("DNAM",
                 $"every CK-authored DialogView carries the DNAM byte subrecord (0x{ViewDnamHex}); a bare DLVW (with "
@@ -227,37 +132,16 @@ public static class DialogueCkParity
         return gaps;
     }
 
-    // ==================================================================================================
-    //  The byte-parity tier: no confirmed crash, a byte mismatch vs a CK-authored record. Same asymmetry and
-    //  the same three invariants (non-override, never silent, by-construction). Values byte-verified against
-    //  CK-authored vanilla records — see the header.
-    // ==================================================================================================
+    // ---- The byte-parity tier: no confirmed crash, a byte mismatch vs a CK-authored record ----
 
-    /// <summary>DIAL Priority (PNAM) CK seed value — 50. The dominant value on vanilla Custom topics; the CK's seed
-    /// for an untouched topic (authors raise/lower it to order competing lines).</summary>
+    /// <summary>DIAL Priority (PNAM) CK seed value — 50, the CK's seed for an untouched topic.</summary>
     public const float TopicPrioritySeed = 50f;
 
-    /// <summary>DLBR Category (TNAM) CK-parity default — Player. Both the enum's zero-value (a fresh CK branch's
-    /// default) and the value 3059 of the 3061 vanilla DialogBranches carry, across every Flags combination;
-    /// Command appears on just 2 vanilla branches, both deliberately authored.</summary>
+    /// <summary>DLBR Category (TNAM) CK-parity default — Player, the enum's zero-value and ~all of vanilla.</summary>
     public const DialogBranch.CategoryType BranchCategoryDefault = DialogBranch.CategoryType.Player;
 
-    /// <summary>DLBR (DialogBranch) CK-parity default — the Category (TNAM) enum, nullable and omitted by Mutagen when
-    /// unset; a CK-authored DialogBranch always carries it. Fill Player (the near-universal value + the enum's
-    /// zero-value) UNCONDITIONALLY when the author left it null. A Command branch (a bribe/intimidate speech-challenge
-    /// — the only 2 vanilla cases) is a deliberate authored choice that sets Category=Command explicitly, so
-    /// non-override leaves it untouched. The fill is deliberately NOT gated on TopLevel: TopLevel doesn't
-    /// distinguish Player from Command (both Command cases are TopLevel), and non-TopLevel branches are reliably
-    /// Player.
-    ///
-    /// Does NOT touch the Flags (DNAM) enum. Vanilla carries both shapes on purpose — 2117 of Skyrim.esm's 3061
-    /// branches are TopLevel (the player's dialogue menu) and 203 are exactly 0 (every one a Player branch an author
-    /// deliberately kept out of that menu) — so no default is honest, and either wrong guess is an in-game defect the
-    /// byte-valid record hides: 0 on a menu branch kills it and every topic under it (#693), TopLevel on a scripted
-    /// Say() topic shows it as a selectable "..." (#212). The create path REFUSES a branch whose Flags no op set —
-    /// see <see cref="BranchFlagsRefusal"/>.
-    ///
-    /// Returns the fills applied (empty when the author set Category).</summary>
+    /// <summary>DLBR CK-parity default — Category (TNAM) filled with Player, deliberately not gated on TopLevel.
+    /// Does NOT touch Flags (DNAM), which has no honest default — see <see cref="BranchFlagsRefusal"/>.</summary>
     public static IReadOnlyList<CkParityFill> ApplyBranchDefaults(IDialogBranch branch)
     {
         var fills = new List<CkParityFill>(1);
@@ -277,46 +161,24 @@ public static class DialogueCkParity
         return fills;
     }
 
-    /// <summary>The create path's DLBR Flags (DNAM) pre-flight: the one-sentence refusal for a branch whose Flags no
-    /// op set, or null when the author set it. There is no fill and no default — vanilla carries both shapes
-    /// deliberately (2117 TopLevel menu branches, 203 Player branches at exactly 0), and each wrong guess is its own
-    /// in-game defect: 0 on a menu branch kills it and every topic under it (#693), TopLevel on a scripted Say() topic
-    /// publishes it to the player's menu as a selectable "..." (#212). A passed value always wins, an explicit 0
-    /// included.
-    ///
-    /// <para>Called from CreateRecords' Phase-1 pre-flight, before anything is allocated, so a flagless branch is
-    /// reported alongside every other create refusal in ONE round trip. There <paramref name="authorSetFlags"/> is
-    /// read off the spec's edits (an op on the Flags path) — the same author-set test the DIAL Priority seed uses,
-    /// because no record exists yet to read.</para></summary>
+    /// <summary>The create path's DLBR Flags (DNAM) pre-flight refusal, or null when the author set it: there is
+    /// no honest default, and a passed value always wins, an explicit 0 included. Called from CreateRecords'
+    /// Phase-1, where <paramref name="authorSetFlags"/> is read off the spec's edits.</summary>
     public static string? BranchFlagsRefusal(bool authorSetFlags, string editorId) =>
         authorSetFlags ? null
             : $"DialogBranch '{editorId}' needs Flags: pass TopLevel for a menu entry the player can pick, or 0 for a "
               + "scripted Say() topic that must stay hidden.";
 
-    /// <summary>The same refusal asked of a BUILT branch — one home for the sentence, so the record-shaped question
-    /// (the guard probe's, on a branch in hand) and the spec-shaped one cannot drift. Flags is nullable, so a set 0
-    /// reads non-null and is not this case.</summary>
+    /// <summary>The same refusal asked of a BUILT branch; an explicitly set 0 reads non-null and is not it.</summary>
     public static string? BranchFlagsRefusal(IDialogBranchGetter branch, string editorId) =>
         BranchFlagsRefusal(HasFlags(branch), editorId);
 
-    // --- DLBR presence predicates: the single home for "does this DialogBranch carry the CK-parity subrecord?",
-    //     consulted by ApplyBranchDefaults (fills Category when absent), BranchFlagsRefusal (refuses a create when Flags
-    //     is absent) and MissingBranchDefaults (flags either when absent), so they cannot drift. Flags is an enum-typed
-    //     nullable (DialogBranch.Flag?), so the null read distinguishes "author set no flags" (null → refuse the create)
-    //     from "author set 0 explicitly" (non-null → keep) — the same is-null signal every field here uses EXCEPT the
-    //     non-nullable DIAL Priority (see ApplyTopicPriorityDefault). ---
+    // --- DLBR presence predicates: the single home; the null read separates no flags from an explicit 0. ---
     static bool HasCategory(IDialogBranchGetter branch) => branch.Category is not null;   // TNAM
     static bool HasFlags(IDialogBranchGetter branch) => branch.Flags is not null;         // DNAM
 
-    /// <summary>The CK-parity subrecord a DLBR (DialogBranch) is MISSING — the read-only counterpart of
-    /// <see cref="ApplyBranchDefaults"/> and <see cref="BranchFlagsRefusal"/>, for the on-demand dialogue validator's
-    /// DialogBranch input. Shares the exact presence predicates the write paths use, so they can never disagree. This
-    /// runs on an EXISTING branch read off disk, which no create call can refuse after the fact — so a missing DNAM is
-    /// still reported here; only the create path refuses. The two gaps sit in DIFFERENT
-    /// tiers: a missing TNAM is byte-parity only — a structural mismatch vs a CK-authored branch, not a known
-    /// failure — while a missing DNAM is an in-game defect the byte-valid output hides: the engine reads it as
-    /// TopLevel and publishes the branch to the player's dialogue menu. Empty when the branch carries both.
-    /// Reads only the getter; NEVER mutates.</summary>
+    /// <summary>The CK-parity subrecords a DLBR is MISSING, off the same predicates. It runs on an EXISTING branch
+    /// no create call can refuse, so a missing DNAM is reported here; the two gaps sit in different tiers.</summary>
     public static IReadOnlyList<CkParityGap> MissingBranchDefaults(IDialogBranchGetter branch)
     {
         var gaps = new List<CkParityGap>(2);
@@ -340,11 +202,8 @@ public static class DialogueCkParity
         return gaps;
     }
 
-    /// <summary>DIAL (DialogTopic) Priority (PNAM) CK seed. UNLIKE every other field here, Priority is a NON-NULLABLE
-    /// float (defaults to 0), so there is no is-null signal for "the author left it unset" — the create path decides
-    /// that from the author's OP LIST and passes it in as <paramref name="authorSetPriority"/>. Fill the CK seed
-    /// (50) ONLY when the author never touched Priority; an explicit value — including 0 — always wins (non-override).
-    /// Returns the single fill applied, or null when Priority was author-set (nothing to report).</summary>
+    /// <summary>DIAL Priority (PNAM) CK seed. Priority is NON-NULLABLE, so the create path passes
+    /// <paramref name="authorSetPriority"/> off its op list instead; an explicit value, 0 included, always wins.</summary>
     public static CkParityFill? ApplyTopicPriorityDefault(IDialogTopic topic, bool authorSetPriority)
     {
         if (authorSetPriority) return null;                 // author set Priority (even to 0) — non-override, no fill
@@ -357,32 +216,10 @@ public static class DialogueCkParity
             + "Priority at all — an explicit value, including 0, always wins. CK-parity seed.");
     }
 
-    /// <summary>QUST (Quest) CK-parity defaults — the NextAliasID (ANAM) counter, each objective's Flags (FNAM), and
-    /// each alias's Flags (FNAM) + each REFERENCE alias's VoiceTypes (VTCK), all nullable and omitted by Mutagen when unset; a CK-authored
-    /// Quest carries every one. NON-OVERRIDE throughout.
-    ///
-    /// NextAliasID (ANAM): the next alias ID the CK would hand out. For a FRESHLY-created quest (no deletion history)
-    /// that is max(existing alias ID)+1, or 0 for an alias-less quest (160 vanilla alias-less quests read 0). NOTE the
-    /// value is create-lane-correct only: on an EDITED quest the CK keeps ANAM as a monotonic high-water mark that can
-    /// exceed max+1 (a deleted high-ID alias strands it — e.g. vanilla CRTwinsPostQuest has aliases {0,1} but ANAM=3),
-    /// but no alias can be deleted inside a single create call, so max+1 is exact here. This does NOT reconstruct a
-    /// general quest's ANAM — it seeds a new one.
-    ///
-    /// QuestObjective.Flags (FNAM): materialise 0 (no flags) on each objective the author left null — the value every
-    /// vanilla objective carries. The sole flag (OrWithPrevious) stays an explicit authoring choice a 0-fill does NOT
-    /// set (like Goodbye on the INFO Flags struct).
-    ///
-    /// QuestAlias.Flags (FNAM) + VoiceTypes (VTCK): the CK writes both on a REFERENCE alias, even zero/null — a
-    /// CK-authored reference alias is the block ALST/ALID/FNAM/ALFR/VTCK/ALED. Mutagen omits each when unset, so a
-    /// composed QuestAlias that sets neither writes ALST/ALID/ALFR/ALED instead. Materialise Flags→0 (no
-    /// flags — named alias flags like Optional/Essential stay an explicit authoring choice a 0-fill does NOT set) on
-    /// EVERY alias (FNAM is carried by both reference and location aliases), and VoiceTypes→the null link (0x00000000,
-    /// a present-but-empty VTCK) only on a REFERENCE alias (voice types are an actor/reference concept — a Location
-    /// alias resolves to a place, not an actor; scoping VTCK to reference aliases covers the report without over-adding
-    /// a subrecord CK may omit on location aliases, which would also make MissingQuestDefaults false-warn on real
-    /// CK-authored location aliases). Same asymmetry as the objective FNAM right above, and byte-parity only — the
-    /// omitted shape was never launch-tested, so this closes a CK divergence, not a proven CTD.
-    /// Returns every fill applied (ANAM + one per materialised objective + up to two per materialised alias).</summary>
+    /// <summary>QUST CK-parity defaults — NextAliasID (ANAM), each objective's and alias's Flags (FNAM), and each
+    /// REFERENCE alias's VoiceTypes (VTCK). The ANAM value is create-lane-correct only: max(alias ID)+1 is exact
+    /// because no alias can be deleted inside one create call, but an EDITED quest's is a CK high-water mark. A
+    /// 0-fill materialises the subrecord only, and VTCK is scoped to REFERENCE aliases.</summary>
     public static IReadOnlyList<CkParityFill> ApplyQuestDefaults(IQuest quest)
     {
         var fills = new List<CkParityFill>();
@@ -414,11 +251,7 @@ public static class DialogueCkParity
             idx++;
         }
 
-        // QuestAlias FNAM (Flags) + VTCK (VoiceTypes): the CK writes both on a reference alias.
-        // Materialise each the author left null — Flags→0 on EVERY alias (both alias types carry FNAM); VoiceTypes→the
-        // null link only on a REFERENCE alias (VTCK is an actor/reference concept — a Location alias resolves to a
-        // place, and CK may omit VTCK there; scoping avoids over-adding + a MissingQuestDefaults false-warn on real
-        // CK-authored location aliases). Non-override throughout.
+        // Flags→0 on EVERY alias (both types carry FNAM); VoiceTypes→the null link on a REFERENCE alias only.
         int aidx = 0;
         foreach (var alias in quest.Aliases)
         {
@@ -447,26 +280,16 @@ public static class DialogueCkParity
         return fills;
     }
 
-    // --- QUST presence predicates: the single home for "does this Quest carry the CK-parity subrecord?", consulted
-    //     by BOTH ApplyQuestDefaults (fills when absent) and MissingQuestDefaults (flags when absent), so they cannot
-    //     drift. The alias VTCK test reads FormKeyNullable, not the rendered value (the render tells the two apart too
-    //     since #697 — NullLinkNote vs PresentNullLinkNote — but it is a display string, not this decision's input). It
-    //     separates "author set no voice types" (null → fill) from "author set the null link / a real list" (non-null → keep). ---
+    // --- QUST presence predicates: the single home; the VTCK test reads FormKeyNullable, not the render. ---
     static bool HasNextAliasID(IQuestGetter quest) => quest.NextAliasID is not null;                 // ANAM
     static bool HasObjectiveFlags(IQuestObjectiveGetter objective) => objective.Flags is not null;   // FNAM
     static bool HasAliasFlags(IQuestAliasGetter alias) => alias.Flags is not null;                    // FNAM (alias)
     static bool HasAliasVoiceTypes(IQuestAliasGetter alias) => alias.VoiceTypes.FormKeyNullable is not null;  // VTCK
-    // VTCK is scoped to reference aliases: a Location alias resolves to a place, not an actor, so voice types don't
-    // apply and CK may omit VTCK there — the same gate guards both the fill and the gap so they can't drift.
+    // VTCK is scoped to reference aliases; the same gate guards both the fill and the gap.
     static bool IsReferenceAlias(IQuestAliasGetter alias) => alias.Type == QuestAlias.TypeEnum.Reference;
 
-    /// <summary>The CK-parity subrecords a QUST (Quest) is MISSING — the read-only counterpart of
-    /// <see cref="ApplyQuestDefaults"/>, for the on-demand dialogue validator's QUEST input (checked ONCE per quest,
-    /// never per topic). Shares the exact presence predicates the fill path uses, so fill and check can never
-    /// disagree. Byte-parity only — no confirmed crash. PRESENCE only: the fill's max-alias-id+1 derivation is
-    /// create-lane-correct (an edited quest's ANAM is a CK high-water mark that can legitimately exceed max+1), so
-    /// this checks "is ANAM absent?", never judges its VALUE. Empty when ANAM is present and every objective carries
-    /// FNAM and every alias carries FNAM + VTCK. Reads only the getter; NEVER mutates.</summary>
+    /// <summary>The CK-parity subrecords a QUST is MISSING, checked ONCE per quest input. PRESENCE only: it asks
+    /// whether ANAM is absent and never judges its value.</summary>
     public static IReadOnlyList<CkParityGap> MissingQuestDefaults(IQuestGetter quest)
     {
         var gaps = new List<CkParityGap>();
