@@ -35,6 +35,8 @@ resolver reads no profile.
   contention to verify, never a verdict.
 - **An archive that will not read is named, never treated as empty.** It lands in `BsaFailures` and sets
   `ReadIncomplete`, which is the caveat an `Exists=false` depends on.
+- **A loose root that will not walk is named the same way.** An enumeration that throws lands in `RootFailures` and
+  sets `ReadIncomplete` too, so a root the walk could not read is said rather than silently omitted.
 - **A bad path fails loud.** `NormalizeQueryPath` refuses a drive-rooted or `..`-escaping path naming the input, and
   collapses `.` and empty segments so the loose walk and the archive-table match answer for one set of files.
   `ValidateRelPath` exposes that one validator to the place lane, whose destination is `Path.Combine(modRoot, rel)`.

@@ -212,7 +212,7 @@ public sealed class SkyPatcherLayerFilterTests
 
         var text = SkyPatcherWire.RenderLayer(withNotes, "weapon", 2_000);
 
-        Assert.Contains("a BSA failed to read", text);        // a cut must never swallow the incomplete-read warning
+        Assert.Contains("failed to read this build", text);   // a cut must never swallow the incomplete-read warning
     }
 
     [Fact]

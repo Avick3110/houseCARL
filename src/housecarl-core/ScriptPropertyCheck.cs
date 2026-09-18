@@ -388,7 +388,7 @@ public static class ScriptPropertyCheck
         var res = av.ResolveForPlacement(rel);
         if (res.Sources.Count == 0)
         {
-            reason = $"'{rel}' is not on disk (the script is not compiled, or not in the load order){(av.ReadIncomplete ? " — and a BSA failed to read this build, so it may merely be unscanned" : "")}.";
+            reason = $"'{rel}' is not on disk (the script is not compiled, or not in the load order){(av.ReadIncomplete ? " — and a BSA or a loose mod folder failed to read this build, so it may merely be unscanned" : "")}.";
             return false;
         }
         var src = res.Sources[0];   // winner first
@@ -449,7 +449,7 @@ public sealed record RecordScriptFindings(
 }
 
 /// <summary>The result of <see cref="ScriptPropertyCheck.Run"/>: the per-record findings (only records WITH findings),
-/// the sweep totals, whether the finding list was capped, whether a BSA failed to read this build, the plugins the
+/// the sweep totals, whether the finding list was capped, whether a BSA or a loose mod folder failed to read this build, the plugins the
 /// index build excluded, and — on a scope error — a recoverable <see cref="Error"/> with no reports. Which counts each
 /// narrowing does and does not narrow is in docs/architecture/check-family-tests.md.</summary>
 public sealed record ScriptCheckResult(

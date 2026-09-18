@@ -1007,7 +1007,7 @@ static class SkseInventoryWire
     {
         var sb = new StringBuilder();
         if (d.ReadIncomplete)
-            sb.Append("[!] a BSA failed to read this build, so a file present only in it may be missing from this inventory (Q3).\n");
+            sb.Append("[!] a BSA or a loose mod folder failed to read this build, so a file present only in it may be missing from this inventory (Q3).\n");
         foreach (var w in d.Warnings) sb.Append("[!] ").Append(w).Append('\n');
         foreach (var f in d.BsaFailures) sb.Append("[!] archive read failure: ").Append(f).Append('\n');
         return sb.ToString();
@@ -1376,7 +1376,7 @@ static class SkseConfigAuditWire
     static void AppendCaveatsTo(StringBuilder sb, SkseConfigAuditData d)
     {
         if (d.ReadIncomplete)
-            sb.Append("[!] a BSA failed to read this build, so a config present only in it may be missing from this audit (Q3).\n");
+            sb.Append("[!] a BSA or a loose mod folder failed to read this build, so a config present only in it may be missing from this audit (Q3).\n");
         foreach (var w in d.Warnings) sb.Append("[!] ").Append(w).Append('\n');
         foreach (var f in d.BsaFailures) sb.Append("[!] archive read failure: ").Append(f).Append('\n');
     }
@@ -1869,7 +1869,7 @@ static class NativePairingWire
     static void AppendCaveatsTo(StringBuilder sb, NativePairingAuditData d)
     {
         if (d.ReadIncomplete)
-            sb.Append("[!] a BSA failed to read this build, so a script present only in it may be missing from this audit (Q3).\n");
+            sb.Append("[!] a BSA or a loose mod folder failed to read this build, so a script present only in it may be missing from this audit (Q3).\n");
         foreach (var w in d.Warnings) sb.Append("[!] ").Append(w).Append('\n');
         foreach (var f in d.BsaFailures) sb.Append("[!] archive read failure: ").Append(f).Append('\n');
     }

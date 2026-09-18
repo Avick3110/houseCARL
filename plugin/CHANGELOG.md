@@ -48,6 +48,8 @@ made the change.
   argument, so the source it writes still compiles.** Decompile a script with such a call and read the signature.
 - **`housecarl_decompile_script` brings back an expression whose result the script throws away, instead of failing
   the function it sits in.** Decompile vanilla `WEBountyCollectorScript` and read `OnStoryScript`.
+- **`housecarl_asset_status` names a mod folder it could not read instead of quietly leaving it out of the
+  answer.** A sweep over a folder one mod blocks now says which root was not walked above the rows.
 
 ## 2.0.2 — 2026-09-15
 
