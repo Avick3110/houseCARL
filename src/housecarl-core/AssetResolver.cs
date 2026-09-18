@@ -47,11 +47,17 @@ public sealed class AssetResolver : IDisposable
         public readonly Dictionary<string, FileStamp> Stamps;         // archive path → freshness stamp at this build
         public readonly List<string> Failures;                        // archives that couldn't be read, with the reason
         public readonly ConcurrentDictionary<string, string> RootFailures;   // "root|dir" → a loose root that could not be walked or listed, with the reason
+        public readonly ConcurrentDictionary<string, bool> Absences;         // full dir path → its "not there" was proved (true) or is a read failure (false)
+        public readonly ConcurrentDictionary<string, bool> Dirs;             // full dir path → Directory.Exists, asked once per build
+        public readonly ConcurrentDictionary<string, HashSet<string>?> Children;   // full dir path → its child names; null = would not list
         public readonly ConcurrentDictionary<string, LooseSubtree> LooseCache;
         public Snapshot(Dictionary<string, HashSet<string>> tables, Dictionary<string, FileStamp> stamps, List<string> failures)
         {
             Tables = tables; Stamps = stamps; Failures = failures;
             RootFailures = new(StringComparer.OrdinalIgnoreCase);
+            Absences = new(StringComparer.OrdinalIgnoreCase);
+            Dirs = new(StringComparer.OrdinalIgnoreCase);
+            Children = new(StringComparer.OrdinalIgnoreCase);
             LooseCache = new(StringComparer.OrdinalIgnoreCase);
         }
     }
@@ -364,7 +370,8 @@ public sealed class AssetResolver : IDisposable
         foreach (var (rootName, rootDir) in _looseRoots)
         {
             var baseDir = Path.Combine(rootDir, pre);
-            if (!Directory.Exists(baseDir)) continue;
+            // A "not there" is only an absence when it can be proved one; unreadable is named inside.
+            if (!Directory.Exists(baseDir)) { AbsenceIsReal(rootName, rootDir, pre, baseDir, snap); continue; }
             try
             {
                 foreach (var f in Directory.EnumerateFiles(baseDir, "*", SearchOption.AllDirectories))
@@ -378,7 +385,7 @@ public sealed class AssetResolver : IDisposable
             {
                 // A root that won't enumerate contributes nothing, so it is NAMED on the build: it sets ReadIncomplete
                 // and the answer says which root was not walked, never a silent half-answer.
-                snap.RootFailures[RootFailureKey(rootName, pre)] = RootFailureLine(rootName, pre, "walk", ex);
+                RecordRootFailure(rootName, pre, "walk", ex, snap);
             }
             if (Full()) { stopped = true; return found; }
         }
@@ -472,7 +479,7 @@ public sealed class AssetResolver : IDisposable
         {
             var dir = subtreeDir.Length == 0 ? roots[i].Dir : Path.Combine(roots[i].Dir, subtreeDir);
             stamps[i] = FileStamp.OfDirectory(dir);                  // Absent if it isn't there — baseline for an appear/disappear
-            var files = SafeListFilenames(dir, roots[i].Name, subtreeDir, snap);
+            var files = SafeListFilenames(dir, roots[i].Name, roots[i].Dir, subtreeDir, snap);
             if (files is { Count: > 0 }) present.Add((i, files));
         }
         return new LooseSubtree(stamps, present.ToArray());
@@ -480,21 +487,75 @@ public sealed class AssetResolver : IDisposable
 
     /// <summary>One root's filenames in one directory. A dir that is not there is simply absent; a dir that THROWS is
     /// named on the build, so the single-path lanes hedge an "absent" the same way a sweep does.</summary>
-    static HashSet<string>? SafeListFilenames(string dir, string rootName, string subtreeDir, Snapshot snap)
+    HashSet<string>? SafeListFilenames(string dir, string rootName, string rootDir, string subtreeDir, Snapshot snap)
     {
         try
         {
-            if (!Directory.Exists(dir)) return null;
+            // The same rule the walk makes: a "not there" this account cannot prove is a read failure, not an absence.
+            if (!Directory.Exists(dir)) { AbsenceIsReal(rootName, rootDir, subtreeDir, dir, snap); return null; }
             var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var f in Directory.EnumerateFiles(dir)) set.Add(Path.GetFileName(f));
             return set;
         }
         catch (Exception ex)
         {
-            snap.RootFailures[RootFailureKey(rootName, subtreeDir)] = RootFailureLine(rootName, subtreeDir, "read", ex);
+            RecordRootFailure(rootName, subtreeDir, "read", ex, snap);
             return null;
         }
     }
+
+    /// <summary>Is a directory Directory.Exists calls absent really absent? On Windows it answers "not there" for a
+    /// directory the account cannot stat through — a mod folder denied at its top, or a denial inherited down from
+    /// meshes\ — so the deepest ancestor that does answer is asked whether the name is present. Really absent is the
+    /// common case, and it stays cheap: the ancestor stats and that ancestor's own child names are read once per
+    /// build, so a sweep over many missing subtrees pays syscalls per DIRECTORY, not per root per subtree.</summary>
+    bool AbsenceIsReal(string rootName, string rootDir, string subtreeDir, string dir, Snapshot snap) =>
+        snap.Absences.GetOrAdd(dir, _ =>
+        {
+            // One level above the root, because the root's own folder can be the unreadable one.
+            var floor = (Path.GetDirectoryName(rootDir.TrimEnd('\\')) ?? "").Length;
+            var child = dir;
+            for (var up = Path.GetDirectoryName(child); up is not null; child = up, up = Path.GetDirectoryName(up))
+            {
+                if (!DirExists(up, snap))
+                {
+                    if (up.Length <= floor) break;             // walked past the root with nothing readable on the way
+                    continue;
+                }
+                var names = ChildNames(up, snap);
+                if (names is null) break;                      // the readable-looking ancestor would not list
+                // A parent that lists its children and does not hold this name settles it: the directory is not on disk.
+                if (!names.Contains(Path.GetFileName(child))) return true;
+                break;                                         // listed, yet it would not stat — it is there and unreadable
+            }
+            RecordRootFailure(rootName, subtreeDir, snap);
+            return false;
+        });
+
+    /// <summary>Directory.Exists, remembered for this build: the ancestor walk asks about the same few directories
+    /// for every root and every prefix.</summary>
+    static bool DirExists(string dir, Snapshot snap) => snap.Dirs.GetOrAdd(dir, Directory.Exists);
+
+    /// <summary>One directory's child names, remembered for this build; null when it would not list.</summary>
+    static HashSet<string>? ChildNames(string dir, Snapshot snap) =>
+        snap.Children.GetOrAdd(dir, d =>
+        {
+            try
+            {
+                var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var e in Directory.EnumerateFileSystemEntries(d)) set.Add(Path.GetFileName(e));
+                return set;
+            }
+            catch { return null; }
+        });
+
+    static void RecordRootFailure(string rootName, string dir, string verb, Exception ex, Snapshot snap) =>
+        snap.RootFailures[RootFailureKey(rootName, dir)] = RootFailureLine(rootName, dir, verb, ex);
+
+    /// <summary>The failure with no exception behind it: the directory would not answer at all.</summary>
+    static void RecordRootFailure(string rootName, string dir, Snapshot snap) =>
+        snap.RootFailures[RootFailureKey(rootName, dir)] =
+            $"{rootName}: could not read '{(dir.Length == 0 ? "\\" : dir)}' — this account cannot list the folder, so what it provides is unknown";
 
     /// <summary>One entry per root per directory, so a root blocked everywhere is named once for each place it was asked about.</summary>
     static string RootFailureKey(string rootName, string dir) => rootName + "|" + dir;
