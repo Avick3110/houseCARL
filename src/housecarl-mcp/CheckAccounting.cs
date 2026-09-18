@@ -38,8 +38,8 @@ internal sealed class CheckAccounting
     readonly int _faceGenFound;
 
     /// <summary>Build the accounting for one response, declaring the errors family's own subjects: dangling entries
-    /// where the walk that fills them ran, plugin sections in every listing lane, unread rows only under
-    /// <c>counts_only</c>, excluded rows wherever the index excluded something.</summary>
+    /// in the LISTING lane where the walk that fills them ran, plugin sections in every listing lane, unread rows
+    /// only under <c>counts_only</c>, excluded rows wherever the index excluded something.</summary>
     /// <param name="declareExcluded">whether this accounting owns the excluded-plugin roster; exactly one may.</param>
     /// <param name="jsonDepth">the depth this accounting's json lands at — 1 at a root, 3 inside a merged one.</param>
     internal CheckAccounting(ErrorCheckResult r, int cap, int jsonDepth = 1, bool declareExcluded = true)
