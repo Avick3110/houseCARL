@@ -3,19 +3,9 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// <c>check</c>'s <c>to_file=</c> artifact: every finding this call made, one JSONL row each, under the manifest
-/// convention <c>records</c> already uses (<see cref="ResultArtifact"/>).
-///
-/// <para><b>One artifact, one row shape, a <c>family</c> column.</b> A merged call runs several families and they
-/// find different things; a file per family would leave the caller joining them, and a row shape per family would
-/// leave the manifest's <c>row_schema</c> describing none of them. So every family's finding is flattened onto one
-/// wide row and the columns a family does not use are null — which is what a jsonl consumer greps on anyway.</para>
-///
-/// <para>Rows are the sweep's OWN findings, not the render's: the artifact is written from the results, so a row is
-/// never missing because the inline body ran out of characters. What <c>limit=</c> already cut before the results
-/// were built is cut here too, and the manifest says so by carrying <c>total</c> above <c>row_count</c>.</para>
-/// </summary>
+/// <summary><c>check</c>'s <c>to_file=</c> artifact: every finding this call made, one JSONL row each, under the
+/// manifest convention <c>records</c> already uses. One artifact, one row shape, a <c>family</c> column; contracts in
+/// docs/architecture/render-budget.md.</summary>
 internal static class CheckArtifact
 {
     /// <summary>The columns every row carries, in order. Written into the manifest, so a consumer reading the file
@@ -112,8 +102,7 @@ internal static class CheckArtifact
             }
         }
 
-        // The benign class the RESPONSE withholds is written here: the file carries every class the sweep found,
-        // which is what "the complete findings" means, and the class column tells the two apart.
+        // The benign class the RESPONSE withholds is written here; the class column tells the two apart.
         if (s.FaceGen is { Error: null } fg)
             foreach (var f in fg.Findings.Concat(fg.WithheldBenign ?? Array.Empty<FaceGenFinding>()))
             {
@@ -124,8 +113,7 @@ internal static class CheckArtifact
                                               owningMod: f.OwningMod, detail: f.Detail, fix: f.Fix));
             }
 
-        // The facegen family counts findings its listing budget cut, so the file's own total says so rather than
-        // letting row_count read as the whole answer.
+        // The facegen family counts findings its listing budget cut, so total says so rather than row_count.
         if (s.FaceGen is { Error: null } fgt)
             total += Math.Max(0, fgt.TotalFound - fgt.Findings.Count - (fgt.WithheldBenign?.Count ?? 0));
 
@@ -136,9 +124,8 @@ internal static class CheckArtifact
         return err is not null ? (null, err) : (new SpillInfo(path, manifest!, "to_file"), null);
     }
 
-    /// <summary>The manifest's own notes — what a reader opening the file months later needs in order to read a
-    /// row. A FOLDED dialogue call adds its frame here: those rows carry verdicts read against a plugin the order
-    /// does not load, and a file that does not say so reads as the live answer.</summary>
+    /// <summary>The manifest's own notes — what a reader needs in order to read a row. A FOLDED dialogue call adds
+    /// its frame here, because those rows carry verdicts read against a plugin the order does not load.</summary>
     static IReadOnlyList<string> Notes(CheckSweep s)
     {
         var notes = new List<string>
@@ -153,13 +140,8 @@ internal static class CheckArtifact
     }
 
     /// <summary>The response a <c>to_file=</c> call renders: the scope sentence, each family's refusal or boundary,
-    /// and the manifest — no rows, because the rows ARE the file. The same disposition <c>records</c> takes.
-    ///
-    /// <para>A family that refused states its ground here, as it does in the full render: the scope sentence says a
-    /// family refused but never why, so without it a typo'd <c>exclude=</c> reads as a clean sweep that happened to
-    /// find nothing. Stated beside the boundary rather than refusing the whole call, because <c>exclude=</c> is
-    /// validated against each family's own scope and one family's refusal must not discard the rows another family
-    /// already wrote to the file.</para></summary>
+    /// and the manifest — no rows, because the rows ARE the file. A family that refused states its ground beside its
+    /// boundary rather than refusing the whole call.</summary>
     internal static string RenderManifestOnly(CheckSweep s, SpillInfo spill, bool json)
     {
         var o = CheckOutcome.For(s);
@@ -170,9 +152,8 @@ internal static class CheckArtifact
             {
                 w.WriteStartObject();
                 w.WriteString("findings_scope", o.ScopeSentence());
-                // The fold frames every dialogue row in the file, so it rides this response too: a manifest-only
-                // render is the ONLY render a folded to_file= call gets, and a projection without its frame reads
-                // as the live answer.
+                // The fold frames every dialogue row in the file, and a manifest-only render is the only render a
+                // folded to_file= call gets, so it rides this response too.
                 if (s.Dialogue?.Folded is { } foldedJson) w.WriteString("folded", foldedJson.Trim());
                 if (o.Epoch is not null) w.WriteString("epoch", o.Epoch);
                 w.WriteStartObject("boundaries");
