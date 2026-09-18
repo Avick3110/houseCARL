@@ -44,8 +44,11 @@ name-literal := '~' text '~'                  (rename ops: fullName=~New Name~)
 compound     := part ( '~' part )*            (mgefsToAdd=Form~Mag~Dur~Area)
 ```
 
-Nothing fails silently: a malformed segment — no `=`, or an empty key — and an empty `:`-segment or
-`,`-item are each captured as a loud `Note`, and the segment is still surfaced rather than dropped.
+Nothing fails silently, but the two malformed shapes are not treated alike. A segment with no `=`,
+or with an empty key, is captured as a loud `Note` **and still surfaced** — it reaches the caller as
+a segment. An empty `:`-segment or `,`-item (a stray or doubled delimiter) is noted and then
+**skipped**, contributing nothing. So `filterByNpcs=X::level=5` yields a `Note` plus **two**
+segments, not three, and the segment count of a noted line cannot be used to count delimiters.
 
 ## Addressing: `Plugin.esp|FormID`
 

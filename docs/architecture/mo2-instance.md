@@ -100,9 +100,16 @@ paths, in-place write acknowledgements, and named Papyrus import sets. They MUST
 only writer is `UserConfigStore.Update`: a read-modify-write, never a whole-object overwrite. It
 runs under a process-local gate plus a named mutex derived from the file path, because the CLI
 plugin and the desktop app can share the file; it commits through a temp file and an atomic rename;
-and an unparseable file is copied to `.corrupt.bak` and REPORTED, never treated as blank, since
-treating it as blank wipes every saved setting on the next write. A write failure is returned
-rather than thrown, so a tool can say the choice works this session but will not survive a restart.
+and an unparseable file is copied to `.corrupt.bak` and REPORTED before the read proceeds as blank
+— a later write starts from that blank, so the backup is the only copy of the old settings. A write
+failure is returned rather than thrown, so a tool can say the choice works this session but will
+not survive a restart.
+
+That last point is a sharp edge, not a nicety: a corrupt config followed by one
+`housecarl_set_tool_path` leaves the live file holding that one field and nothing else, and every
+other saved setting is recoverable only from `.corrupt.bak`. The loudness is what makes it
+survivable — `Load` and `Update` both return the note naming the backup — so a caller that
+swallows the note turns a recoverable state into a silent loss.
 
 All four are pinned. `tool-bridge` writes a corrupt file and asserts the load comes back blank with
 a note naming the backup, that the backup is byte-identical, and that two `UserConfigStore`
