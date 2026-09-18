@@ -47,6 +47,20 @@ to *its own* root. Nesting it under `properties/<param>/anyOf/0` breaks all of t
 are rebased first, and its `$defs` must be hoisted to the tool schema's root for `#/$defs/…` to
 resolve at all.
 
+The hoist is **first-wins by name**, sound only while two distinct types cannot produce the same short
+name here. Today's rows share literal C# types (`StructInput`, `NestedSet`), so a duplicate name is a
+duplicate schema. Key the hoist by type if that stops holding.
+
+## Pass 1b — the shape union
+
+A parameter declared `JsonElement` so it can **bind** more than one wire shape publishes untyped, and
+`ToolCallShim` — which judges off the published type — then lets every shape through to the binder.
+`ToolSchemas.ShapeUnionParams` stamps such a parameter's published `type` with the JSON kinds it accepts,
+plus `null` (every one of them is optional), so a shape the tool means to refuse reaches the tool and is
+refused in the tool's own words rather than by the shim's generic type-mismatch sentence.
+`housecarl_skse`'s `findings` is the one row: the tool takes one family and says so, while the array shape
+is the `housecarl_check` habit, so it must bind and be answered by the tool rather than intercepted.
+
 ## Pass 2 — no `$ref` in a published schema
 
 The schema generator does not expand a recursive type. It inlines it once and terminates the
@@ -66,6 +80,16 @@ own description, and a clause saying nesting continues below that level. Nothing
 the open node accepts what the recursive form accepted, and the binder never consulted the
 schema in the first place. `$defs` is dropped once nothing refers to it, because an unreferenced
 definition still carries its cycle to a validator that walks definitions.
+
+`FlattenRefs` normalizes what **this** SDK's schema generator emits. It is not a general JSON
+Schema `$ref` implementation and must not be reused as one: it reads a `$ref` as a JSON pointer
+wherever one appears, which holds for generator output and not for JSON Schema at large. Plain-name
+`$anchor` fragments, percent-encoded and empty reference tokens, boolean schemas as a pointer
+target, a `$ref`-shaped value under `default`/`enum`, and 2020-12's rule that `$ref` siblings apply
+*in addition* to the target (this merge lets them override) are all outside what it handles. The
+emission grammar it depends on is asserted by `schema-flatten-guard`, so a generator that drifts on
+an SDK bump reddens there rather than at a user's server start. Widen the handling before widening
+the input.
 
 A `$ref` the pass does **not** handle is left exactly as it is — a pointer that resolves
 nowhere, and equally a form that is not a same-document pointer at all (a plain-name anchor, a
@@ -109,6 +133,14 @@ names, because JSON Schema applies `enum` to every instance and the server reads
 "none given" and defaults it to `Set`. Without that entry the published schema would refuse, a hop
 earlier, a call the tool answers. (A blank verb defaults the same way and is not in the enum: an
 enum cannot state "any whitespace-only string", and no description offers that spelling.)
+
+The one **narrowing** is a required member's own `type`, which loses its null arm: the generator types
+every `string?` member as `["string","null"]`, and a member the server refuses the call without is not
+one an explicit null satisfies. The drop reads the **document**, in both spellings the generator uses —
+a `type` array and an `anyOf` union whose arms carry their own types — so every marked member loses the
+arm without anything in the pass naming one. A shape that is null and nothing else is left alone, since
+narrowing it would publish a member no value can satisfy. It is ordered before the `enum` stamp so both
+read the same type.
 
 It runs **after** the flatten, so every expanded copy of a shape carries the same stamps its first
 occurrence does, and the walk is bounded by the schema rather than the type: it descends only where
