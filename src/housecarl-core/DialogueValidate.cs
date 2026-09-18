@@ -157,8 +157,10 @@ public static class DialogueValidate
                     unread.Add(p);                  // the index says it TOUCHES this topic — see below
             }
 
-            // Built UNCONDITIONALLY: gating on groups.Count would leave InfoOrder null on a total drop. The move
-            // baseline is the first contributing group with a NON-EMPTY list; the fold goes in by SlotIndex.
+            // Built UNCONDITIONALLY: gating on groups.Count would leave InfoOrder null on a total drop. Safe
+            // because no groups implies Complete is false, and the incomplete render branch reads only counts —
+            // it never indexes ContributingPlugins. The move baseline is the first contributing group with a
+            // NON-EMPTY list; the fold goes in by SlotIndex.
             if (fold?.Topic(tfk) is { } folded)
             {
                 // A shadowed copy REPLACES the active copy's contribution: one list at that slot, not two.
