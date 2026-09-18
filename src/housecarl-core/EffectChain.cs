@@ -4,34 +4,19 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
 
-/// <summary>
-/// The effect-chain resolver: given a MagicEffect (MGEF), find every record that APPLIES it and the
-/// magnitude/area/duration of the matching effect entry. It collapses the hand-trace
-/// "scan references=&lt;MGEF&gt; types=SPEL → read each hit's Effects[].Data → keep the entry whose
-/// BaseEffect is the MGEF, then repeat for ENCH/ALCH/SCRL/INGR" into one call. The inverse-by-magnitude of
-/// references=: that says WHICH carriers reference the effect; this says which entry, and at what strength.
-///
-/// Two seams, mirroring the where= predicate (<see cref="FieldPredicate"/>):
-///   • <see cref="Match"/> — PURE over an in-hand body (no resolver, no I/O), so a test can drive the real matcher
-///     directly against a known-magnitude fixture.
-///   • <see cref="Resolve"/> — the end-to-end service path (typed-match gate → winner-body scan → assemble),
-///     drivable from a <see cref="LoadOrderResolver"/> built over synthetic plugins, so the gate is covered too.
-///
-/// Scope is the five records the library models with an <c>Effects</c> list — Spell/ObjectEffect/Ingestible/
-/// Scroll/Ingredient (SPEL/ENCH/ALCH/SCRL/INGR). That is EVERY effect-bearing record by construction, not a chosen
-/// subset: the element type is the SAME <see cref="IEffectGetter"/> across all five, so once
-/// <see cref="EffectsOf"/> hands back the list, extraction is uniform and the only per-type code is the switch that
-/// reaches the list.
-/// </summary>
+/// <summary>The effect-chain resolver: given a MagicEffect (MGEF), find every record that APPLIES it and the
+/// magnitude/area/duration of the matching effect entry. Two seams, mirroring the where= predicate:
+/// <see cref="Match"/> is pure over an in-hand body, <see cref="Resolve"/> is the end-to-end service path. Scope is
+/// the five records the library models with an <c>Effects</c> list — every effect-bearing record by construction,
+/// since the element type is the same <see cref="IEffectGetter"/> across all five.</summary>
 public static class EffectChain
 {
-    /// <summary>One matching effect entry on a carrier: its index in the carrier's Effects list and the list size
-    /// (so a caller can render "[effect i/n]"), and the magnitude/area/duration of THAT entry — the trace's payload.</summary>
+    /// <summary>One matching effect entry on a carrier: its index in the carrier's Effects list, the list size, and
+    /// that entry's magnitude/area/duration.</summary>
     public readonly record struct EffectHit(int Index, int Count, float Magnitude, int Area, int Duration);
 
-    /// <summary>The effect-bearing getter Types — the scan scope. Every Skyrim record the library models with an
-    /// Effects list; a query type-narrow is validated against this exact set (a non-member is refused, never a
-    /// silent empty scan). Listed once here so both the scan default and the narrow-validation share one source.</summary>
+    /// <summary>The effect-bearing getter Types — the scan scope, listed once so the scan default and the
+    /// narrow-validation share one source. A non-member type-narrow is refused, never a silent empty scan.</summary>
     public static readonly IReadOnlyList<Type> CarrierTypes = new[]
     {
         typeof(ISpellGetter), typeof(IObjectEffectGetter), typeof(IIngestibleGetter),
@@ -39,9 +24,8 @@ public static class EffectChain
     };
 
     /// <summary>The carrier's Effects list if <paramref name="body"/> is one of the five effect-bearing records, else
-    /// null. An explicit switch over the known set — NOT reflection: type-safe, and a sixth effect-bearing record in a
-    /// future library version is then a deliberate, surfaced boundary a CI check catches, rather than a silent
-    /// reflective guess that might mis-read an unrelated "Effects" member.</summary>
+    /// null. An explicit switch over the known set, not reflection, so a sixth in a future library version is a
+    /// surfaced boundary rather than a silent guess.</summary>
     public static IReadOnlyList<IEffectGetter>? EffectsOf(IMajorRecordGetter body) => body switch
     {
         ISpellGetter s => s.Effects,
@@ -53,8 +37,7 @@ public static class EffectChain
     };
 
     /// <summary>The effect entries of <paramref name="body"/> whose BaseEffect is <paramref name="mgef"/>, each with
-    /// its magnitude/area/duration. Empty if the body carries no effects or none reference the MGEF. An effect with an
-    /// unset BaseEffect (FormKey.Null) is skipped — never matched, never throws. Pure.</summary>
+    /// its magnitude/area/duration. An effect with an unset BaseEffect is skipped. Pure.</summary>
     public static IReadOnlyList<EffectHit> Match(IMajorRecordGetter body, FormKey mgef)
     {
         var effects = EffectsOf(body);
@@ -64,9 +47,7 @@ public static class EffectChain
         {
             var eff = effects[i];
             if (eff.BaseEffect.FormKey != mgef) continue;   // FormKey.Null (an unset base) never equals a real MGEF
-            // Data (the EFIT magnitude/area/duration) is required in practice but modeled nullable; a matching effect
-            // with absent data is still a carrier — report it at zero (honest "no magnitude data"), never an NRE that
-            // the scan's fault-isolation would then mis-count as an unparseable record.
+            // Data is modeled nullable: a matching effect with absent data is reported at zero rather than throwing.
             var d = eff.Data;
             (hits ??= new List<EffectHit>()).Add(new EffectHit(i, effects.Count, d?.Magnitude ?? 0f, d?.Area ?? 0, d?.Duration ?? 0));
         }
@@ -74,19 +55,13 @@ public static class EffectChain
     }
 
     /// <summary>Resolve the effect chain for <paramref name="mgef"/> over the order <paramref name="resolver"/> holds,
-    /// scanning the winner bodies of <paramref name="scope"/> (a subset of <see cref="CarrierTypes"/>). One
-    /// <see cref="LoadOrderResolver.Capture"/>; per-record fault isolation (one Mutagen-unparseable body is excluded +
-    /// accounted, never aborts the call, never a silent skip); holds nothing.
-    ///
-    /// The typed-match gate runs FIRST, so a bad target never reads as a silent "0 carriers": the FormID must resolve
-    /// to a MagicEffect. An absent FormID or a non-MGEF (a WEAP, an NPC_, …) fails loud with the actual type named; a
-    /// VALID-but-unused MGEF returns a clean zero result (Error null) so the caller can tell "no carriers" from "bad
-    /// id" by the absence of an error and the resolved <see cref="EffectChainResult.MgefEditorId"/> in the header.</summary>
+    /// scanning the winner bodies of <paramref name="scope"/>. One capture, per-record fault isolation, holds nothing.
+    /// The typed-match gate runs first, so a bad target never reads as a silent "0 carriers"; a valid but unused MGEF
+    /// returns a clean zero result with no error.</summary>
     public static EffectChainResult Resolve(LoadOrderResolver resolver, FormKey mgef, IReadOnlyList<Type> scope, int limit)
     {
         var view = resolver.Capture();
-        // Post-capture refusals are STAMPED: "not in the load order" / "not an MGEF" are answers ABOUT this build,
-        // the same refusal contract read_record's stamped refusals follow. Only the service's pre-capture
+        // Post-capture refusals are STAMPED: they are answers about this build. Only the service's pre-capture
         // type-narrow gate refuses without an epoch.
         EffectChainResult FailStamped(string msg) => EffectChainResult.Fail(msg) with { Stamp = view.Stamp };
 
@@ -114,15 +89,13 @@ public static class EffectChain
         var rows = new List<EffectChainRow>();
         int total = 0, unscannable = 0;
         var samples = new List<string>();
-        // A plugin that cannot be opened now wins carriers this scan cannot see. Collected so the scan covers the
-        // rest of the order and the note names the gap, rather than the whole call ending at the bad plugin.
+        // A plugin that cannot be opened now wins carriers this scan cannot see; collected so the note names the gap.
         var unreadable = new List<PluginUnreadableException>();
         try
         {
             foreach (var (fk, _, body) in view.WinnerRecordsOfType(scope, unreadable))
             {
-                // PER-RECORD FAULT ISOLATION (twin of the records scan): Match lazily parses subrecord
-                // content, so ONE record Mutagen can't parse is excluded + accounted, not an opaque whole-call abort.
+                // Per-record fault isolation: one record Mutagen cannot parse is excluded and accounted.
                 try
                 {
                     var hits = Match(body, mgef);
@@ -143,8 +116,7 @@ public static class EffectChain
                 }
             }
         }
-        // Anything escaping the stream itself (a bad scope type, a build fault) gets a NAMED failure — never the
-        // MCP layer's generic "An error occurred invoking …" as the terminal diagnostic for a data failure.
+        // Anything escaping the stream itself gets a NAMED failure, never the MCP layer's generic message.
         catch (Exception ex) { return FailStamped($"scan aborted: {ex.GetType().Name}: {ex.Message}"); }
 
         string? scanNote = unscannable == 0 ? null
@@ -165,28 +137,26 @@ public static class EffectChain
     }
 }
 
-/// <summary>One carrier-row of an effect chain: the carrier record, its catalog type + editorid + load-order winner,
-/// and the matching effect entry's position (<paramref name="EffectIndex"/>/<paramref name="EffectCount"/>) and
-/// magnitude/area/duration. A carrier that applies the MGEF in more than one entry yields one row per entry.</summary>
+/// <summary>One carrier-row of an effect chain: the carrier record, its catalog type, editorid and load-order winner,
+/// and the matching effect entry's position and magnitude/area/duration. One row per matching entry.</summary>
 public sealed record EffectChainRow(
     FormKey Carrier, string Type, string? EditorId, string Winner,
     int EffectIndex, int EffectCount, float Magnitude, int Area, int Duration);
 
-/// <summary>The result of <see cref="EffectChain.Resolve"/>: the resolved MGEF (+ its editorid, the typed-match proof
-/// for the header), the carrier rows (capped at the caller's limit), the TRUE total, the capped flag, an optional
-/// scan note, and — on the typed-match gate — a recoverable <see cref="Error"/> with no rows.</summary>
+/// <summary>The result of <see cref="EffectChain.Resolve"/>: the resolved MGEF and its editorid, the carrier rows
+/// capped at the caller's limit, the true total, the capped flag, an optional scan note, and — on the typed-match gate
+/// — a recoverable <see cref="Error"/> with no rows.</summary>
 public sealed record EffectChainResult(
     FormKey Mgef, string MgefEditorId, IReadOnlyList<EffectChainRow> Rows,
     int Total, bool Capped, string? Error, string? ScanNote,
     OrderStamp? Stamp = null)   // the build this answered from: its fingerprint and the plugins it lost to a load failure — set on success and on every post-capture refusal; null only on the service's pre-capture type-narrow gate
 {
-    /// <summary>That build's fingerprint. Reads through the stamp, so the result cannot carry an epoch without the
+    /// <summary>That build's fingerprint, read through the stamp, so the result cannot carry an epoch without the
     /// health of the build it names.</summary>
     public string? Epoch => Stamp?.Epoch;
 
-    /// <summary>Plugins the carrier scan could not open, by filename. The scan covered the rest of the order, so a
-    /// zero here is a real "nothing carries it" and a non-empty one bounds the answer — the render may not state a
-    /// whole-order negative over it.</summary>
+    /// <summary>Plugins the carrier scan could not open, by filename. A non-empty one bounds the answer — the render
+    /// may not state a whole-order negative over it.</summary>
     public IReadOnlyList<string> UnreadPlugins { get; init; } = Array.Empty<string>();
 
     public bool Success => Error is null;
