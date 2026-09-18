@@ -39,7 +39,9 @@ resolver reads no profile.
   `RootFailures` and sets `ReadIncomplete` too, so a root neither lane could read is said rather than silently
   omitted. A directory that will not even stat counts: `Directory.Exists` answers "not there" for one this account
   cannot reach, so an absence is trusted only where a readable ancestor lists the name as missing; the ancestor stats
-  and their listings are memoized for the build. It is filled lazily and kept for the life of the build, so a later
+  and their listings are memoized for the build. **A memo never makes a failure.** Before a root is called unreadable
+  the disk is asked again, uncached, so a name that has gone since the listing was cached, and a name that is a file
+  rather than a directory, are absences like any other. It is filled lazily and kept for the life of the build, so a later
   call names a root an earlier one found unreadable — the flag is the build's, not the call's. **What clears it is a
   new build**, which `RefreshIfStale` makes when an archive or a warmed subtree changes and the service makes when
   the mod set or profile changes. Granting permission moves no mtime, so it clears nothing on its own: the modder

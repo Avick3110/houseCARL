@@ -82,6 +82,67 @@ public sealed class AssetRootWalkFailureTests : IDisposable
     }
 }
 
+/// <summary>The other half of the rule: an absence the resolver CAN prove stays silent. Two shapes look like an
+/// unreadable directory from a distance — a path that names a file, and a directory deleted after its parent's
+/// listing was cached for the build — and both must answer as plain absence, never as a root failure a modder has no
+/// way to clear. Driven straight at <see cref="AssetResolver"/>, because what is under test is the build's own memory.</summary>
+[Trait("tier", "integration")]
+public sealed class AssetProvedAbsenceTests : IDisposable
+{
+    readonly string _root = Path.Combine(Path.GetTempPath(), "hc-absence-" + Guid.NewGuid().ToString("N"));
+    readonly string _mods;
+    readonly string _mod;
+
+    public AssetProvedAbsenceTests()
+    {
+        _mods = Path.Combine(_root, "mods");
+        _mod = Path.Combine(_mods, "AssetMod");
+        Directory.CreateDirectory(_mod);
+    }
+
+    public void Dispose() { try { Directory.Delete(_root, true); } catch { /* temp cleanup best-effort */ } }
+
+    AssetResolver Build() =>
+        AssetResolver.Build(overwriteDir: "", _mods, dataDir: "", new[] { "AssetMod" }, Array.Empty<ActiveArchive>());
+
+    /// <summary>A selector that names a FILE is a supported shape (asset_status takes a pasted path under under=).
+    /// Every root that provides it lists the name and stats it as no directory, which is "no such directory here",
+    /// not "a root that would not read".</summary>
+    [Fact]
+    public void ASelectorThatNamesAFileRaisesNoRootFailure()
+    {
+        Directory.CreateDirectory(Path.Combine(_mod, "meshes"));
+        File.WriteAllText(Path.Combine(_mod, @"meshes\a.nif"), "x");
+
+        using var r = Build();
+        r.EnumerateUnder(@"meshes\a.nif");
+
+        Assert.Empty(r.RootFailures);
+        Assert.False(r.ReadIncomplete);
+    }
+
+    /// <summary>A directory holding no files is in no warmed subtree and carries no stamp, so deleting it moves
+    /// nothing the freshness check watches. Asked about afterwards it must read as absent: the parent listing the
+    /// build cached earlier is not evidence that it is still there.</summary>
+    [Fact]
+    public void ADirectoryDeletedAfterItsParentWasListedIsAbsent()
+    {
+        var meshes = Path.Combine(_mod, "meshes");
+        var empty = Path.Combine(meshes, "hcempty");
+        Directory.CreateDirectory(empty);
+
+        using var r = Build();
+        r.EnumerateUnder(@"meshes\hcnothere");        // matches nothing, and caches the meshes\ listing holding hcempty
+
+        Directory.Delete(empty, true);
+
+        r.EnumerateUnder(@"meshes\hcempty");
+
+        Assert.Empty(r.RootFailures);
+        Assert.False(r.ReadIncomplete);
+    }
+}
+
 /// <summary>Its own instance, not a shared fixture: it denies itself access to mod folders, which a world other
 /// tests read must never carry. One mod provides a readable file under the sweep folder; a second blocks a
 /// subdirectory of its copy; a third blocks its whole mod folder.</summary>
