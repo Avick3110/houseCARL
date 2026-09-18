@@ -12,8 +12,9 @@ houseCARL's MCP tools are discovered by an assembly scan, and the SDK generates 
 `inputSchema` from its C# method signature. Three things that generator cannot get right on its
 own are corrected once, at registration, before anything is served, and a fourth pass cuts the
 result to a configured nesting depth when one is set. All four change only what is
-**published**. The argument-binding shim does read a published schema, but only its top-level
-`properties` — never the nested part these passes rewrite — and the composed payloads are then
+**published**. The argument-binding shim does read a published schema, but only root members and each
+parameter's own `type` — never the nested part these passes rewrite (the full list is under the depth
+cut below, where it is the premise of the floor) — and the composed payloads are then
 read by `ListParams.Read<T>`, which consults no schema and is stricter than the SDK binder.
 
 ## Why the rewrite happens at registration
@@ -187,9 +188,12 @@ document, so the cut's says nesting continues and is accepted but is **not spell
 document**, naming the depth and the variable that cut it. A reader sent looking for a shape that is not
 there invents one. What the node claims is identical either way.
 
-**The floor is 4, and a value below it is refused.** `ToolCallShim` reads two members of a published
-schema and nothing else: the top-level `properties`, and each parameter's `type`. A schema's root is
-level 1, its `properties` dictionary level 2, a parameter level 3, and that parameter's `type` list
+**The floor is 4, and a value below it is refused.** `ToolCallShim` reads four things of a published
+schema and nothing else: the top-level `properties`, each parameter's `type`, the root's own `required`
+list, and the root's `additionalProperties` (the free-form opt-out that switches the alias and
+undeclared-key passes off). The three root members all sit at level 2, so the floor is set by the
+deepest of them: a schema's root is level 1, its `properties` dictionary level 2, a parameter level 3,
+and that parameter's `type` list
 (`["array","null"]`, the spelling most of them carry) level 4. So a cap of 1 or 2 closes the ROOT and
 takes `properties` with it, and a cap of 3 closes each PARAMETER with a node that has no room for the
 type list — either way argument coercion, the named missing-parameter refusal, the typed-mismatch

@@ -163,7 +163,7 @@ internal static class ToolCallShim
     }
 
     /// <summary>Schema-required parameters absent from the call get a named refusal; null to proceed. An explicit JSON
-    /// null counts as missing unless the schema declares null legal, and undeclared keys are named here too.</summary>
+    /// null counts as missing unless the schema declares null legal, and a refusal also names any undeclared keys.</summary>
     static CallToolResult? MissingRequired(CallToolRequestParams p, JsonElement schema)
     {
         if (schema.ValueKind != JsonValueKind.Object ||

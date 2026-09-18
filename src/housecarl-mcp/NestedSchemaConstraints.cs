@@ -175,6 +175,8 @@ internal static class NestedSchemaConstraints
                 _ => false,
             };
 
-    /// <summary>The element type of a published array shape, or null when the type is not one.</summary>
+    /// <summary>The element type of a published array shape, or null when the type is not one. Arrays only: every
+    /// list-valued wire shape on this surface is <c>T[]</c>, and a dictionary publishes <c>additionalProperties</c>
+    /// rather than <c>items</c>, so a member typed any other collection is silently never stamped.</summary>
     static Type? ElementType(Type type) => type.IsArray ? type.GetElementType() : null;
 }

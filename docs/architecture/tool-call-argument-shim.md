@@ -20,8 +20,10 @@ parameters are covered without per-tool wiring.
    onto the canonical spelling, on exactly one declared match. Only a key the schema does **not** declare
    is considered, and an explicitly supplied canonical is never clobbered, so a well-formed call is
    byte-identical. It is deliberately not kind-gated: it names the right parameter, so the rename
-   proceeds even for an unbindable value and the type pass names the real fault. It must run **before**
-   coercion, so the renamed value is still shape-coerced.
+   proceeds even for an unbindable value and the type pass names the real fault. Skipped when a schema
+   opts into free-form args, as pass 5 is: there an undeclared key may be intentional data, and
+   rewriting it would destroy it. It must run **before** coercion, so the renamed value is still
+   shape-coerced.
 3. **`CoerceObviousShapes`** rewrites a value whose JSON kind mismatches the declared type but whose
    intent is unambiguous — a bare string where an array is declared, a string-encoded JSON array, a
    quoted bool or number, a number where only a string is declared. It only ever replaces values for keys
@@ -55,9 +57,8 @@ would otherwise get the SDK's bare "Unknown tool" and no way forward.
 
 ## What the shim reads of a schema
 
-Two members and nothing else, plus the root's own `required` list. That fact is stated once, in
-`docs/architecture/tool-schema-publication.md`, where it is the premise of the depth cut's floor of 4 —
-read it there before changing what any pass here reads.
+Stated once, in `docs/architecture/tool-schema-publication.md`, where it is the premise of the depth
+cut's floor of 4 — read it there before changing what any pass here reads.
 
 ## Named failure, end to end
 
