@@ -75,7 +75,7 @@ public static class BsaTools
             var given = out_path!.Trim().Trim('"');
             if (PathArguments.NotAbsolute(given, "out_path", "the folder to unpack into", "C:\\work\\extracted") is { } notAbsolute)
                 return "error: " + notAbsolute;
-            // Extract names the folder it left behind on failure rather than deleting it, unlike repack below.
+            // An absolute path can still be unusable (an embedded NUL, or past the OS length limit); named here rather than thrown at the guard.
             try { target = Path.GetFullPath(given); }
             catch (Exception ex) { return $"error: out_path '{given}' is not a usable path ({ex.Message})."; }
         }

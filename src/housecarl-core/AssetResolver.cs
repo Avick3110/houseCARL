@@ -357,7 +357,7 @@ public sealed class AssetResolver : IDisposable
                     if (Full()) { stopped = true; return found; }
                 }
             }
-            catch { /* a root that won't enumerate contributes nothing; not silently trusted (see the summary) */ }
+            catch { /* a root that won't enumerate contributes nothing */ }
             if (Full()) { stopped = true; return found; }
         }
 
