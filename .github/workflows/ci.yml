@@ -135,7 +135,8 @@ jobs:
         if: ${{ !cancelled() && steps.assemble.outcome == 'success' }}
         run: claude plugin validate ./dist/housecarl --strict
 
-      # The three coverage steps run on push to main only: the numbers are for W5 planning, not
+      # The three coverage steps run on the push event only — which is push to main only because
+      # the trigger above scopes push to that branch — since the numbers are for W5 planning, not
       # per-PR gating, and skipping them finishes a PR about four minutes sooner.
       #
       # The three coverage steps are LAST in the job, deliberately. This is visibility only — no
@@ -165,8 +166,9 @@ jobs:
       # Its own step, because the collect above is a separate command: GitHub's pwsh shell sets
       # $ErrorActionPreference = 'stop', and on pwsh 7.4 a native command exiting non-zero ends the
       # script — so one test flaking under the profiler would write the report and then skip the
-      # summary the step exists to publish. `!cancelled()` runs it whatever the collect did, and the
-      # script says in one sentence when there is no report to read.
+      # summary the step exists to publish. `!cancelled()` runs it whatever the collect did (on a
+      # push, where the event arm lets both run), and the script says in one sentence when there is
+      # no report to read.
       - name: Coverage — summary for this run (visibility only)
         if: ${{ !cancelled() && github.event_name == 'push' }}
         continue-on-error: true
