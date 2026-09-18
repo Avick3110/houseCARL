@@ -4,32 +4,17 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// <c>housecarl_check</c> — the merged derived-findings sweep: the error, script-binding and dialogue findings in
-/// one call, with <c>findings=</c> selecting the taxonomy.
-///
-/// <para>The single-family tools stay registered alongside it; the retired-name rows for their names are in
-/// <see cref="AliasTable"/> and stay dormant while those names still resolve. No response carries deprecation
-/// prose.</para>
-///
-/// <para>This file holds the merged tool and the orchestration it needs — which families to run, and what scope
-/// each can take. The per-family sweeps are the existing service calls, and each family's render lives with the
-/// helpers it is assembled out of: the sweep families' in their transports, the dialogue family's in
-/// <see cref="DialogueSweepRender"/>.</para>
-///
-/// <para>The families do not share one scope. The two sweep families take plugins and records; the dialogue family
-/// takes seeds, so <c>plugins=</c> / <c>exclude=</c> and friends narrow the first two and not the third. The
-/// dialogue section says so rather than one parameter being given two meanings, and an unseeded dialogue call is
-/// refused on cost rather than widened to the whole order.</para>
-/// </summary>
+/// <summary><c>housecarl_check</c> — the merged derived-findings sweep, with <c>findings=</c> selecting the taxonomy.
+/// This file holds the merged tool and its orchestration; the per-family sweeps are the existing service calls and
+/// each family's render lives with the helpers it is assembled out of. The families do not share one scope:
+/// <c>plugins=</c> and friends narrow the sweep families, the dialogue family takes seeds.</summary>
 [McpServerToolType]
 public static class CheckTools
 {
     [McpServerTool(Name = ToolNames.Check, ReadOnly = true, Title = "Sweep the load order for derived findings"),
      Description(
-         // Only what belongs to no single parameter: the purpose, the family roster, one line per axis naming its
-         // parameters, and the cross-tool pointers. Each family's own grammar, cost and boundary lives on the
-         // parameter it is about — those arrive whole, this is cut at 2,048 characters.
+         // Only what belongs to no single parameter; each family's own grammar, cost and boundary lives on the
+         // parameter it is about, because this description is cut at 2,048 characters.
          "DERIVED-FINDINGS SWEEP over the load order — one call, several finding FAMILIES, selected by findings=. " +
          "Read-only; writes nothing. Resolves against the load-order WINNERS, like every other read. " +
          "ONE surface: which FAMILIES run (findings=) x what they are run over (the SCOPE) x how it reads back " +
@@ -240,10 +225,8 @@ public static class CheckTools
         if (!SweepFamilySelection.TryParse(findings, out var selection, out var famErr)) return Wire.Refuse(json, "error: " + famErr);
         int lim = limit <= 0 ? 1000 : limit;
 
-        // What every family agrees is malformed, checked before any of them is dispatched — the sweep families
-        // parse these in their own service entries, which a dialogue-only call never reaches. Rendered through the
-        // normal refusal path rather than returned as a bare string, so format='json' still gets a document.
-        // See SweepSharedInput for the split: syntax refuses here, scope matching stays family-local.
+        // What every family agrees is malformed, checked before any is dispatched and rendered through the normal
+        // refusal path so format='json' still gets a document. Syntax refuses here, scope matching stays family-local.
         if (SweepSharedInput.Error(svc, plugins, types, formids, editorid_contains, exclude) is { } inputErr)
         {
             var refusal = new CheckSweep(selection, SharedInputError: inputErr);
@@ -251,8 +234,7 @@ public static class CheckTools
         }
 
         // ---- the dialogue family's off-order fold ------------------------------------------------------
-        // Resolved through the same one-pole probe every off-order address on this surface goes through, before
-        // any family runs: a bad address refuses having swept nothing.
+        // Resolved through the same one-pole probe every off-order address takes, before any family runs.
         LoadOrderService.PoleInfo? dialogueFold = null;
         if (source is { } srcEl && srcEl.ValueKind is not (System.Text.Json.JsonValueKind.Null or System.Text.Json.JsonValueKind.Undefined))
         {
@@ -268,10 +250,8 @@ public static class CheckTools
             dialogueFold = probe;
         }
 
-        // Both swept families take the same plugins= list whole: each resolves a name the active order does not hold
-        // on disk and sweeps it off-order, so one list means the same scope in both sections. They share ONE memo of
-        // that split, so the default findings set does not read the MO2 composition and sweep every mod folder twice
-        // for an answer that is identical both times — and the two cannot disagree about which names resolved.
+        // Both swept families take the same plugins= list whole, sharing ONE memo of the off-order split, so the two
+        // cannot disagree about which names resolved.
         var offOrderMemo = new SweepOffOrderMemo();
         // The order every family below answers from, captured once so the response root can say whether it had lost
         // plugins once for the whole call, rather than leaving the fact to whichever families ran (#353).
@@ -291,25 +271,20 @@ public static class CheckTools
                                        FaceGenTokens(selection.FaceGenClasses), counts_only, exclude, offOrderMemo);
         DialogueCheckResult? dialogue = null;
         if (selection.Ran.Contains(SweepFamily.Dialogue))
-            // Its own scope, not the plugins= list: this family selects records, not plugins, so handing it
-            // `plugins` would give one parameter a second meaning. With no seeds it raises the cost refusal rather
-            // than widening to the whole order.
+            // Its own scope, not the plugins= list, since this family selects records. With no seeds it raises the
+            // cost refusal rather than widening to the whole order.
             dialogue = svc.CheckDialogue(seeds, lim, counts_only, dialogueFold);
 
-        // One call, one build. The root marker is a RESPONSE-level claim about the order every family answered
-        // from, and nothing holds the captures together: a freshness rebuild between them would state it from one
-        // build beside a family's epoch from another — naming plugins that build did not lose, or staying silent
-        // about ones it did, which is the ambiguity #353 exists to end. Compared here and refused loud, the way
-        // the records seams do, rather than answered from two builds.
+        // One call, one build: the root marker is a RESPONSE-level claim about the order every family answered from,
+        // so a freshness rebuild between the captures is compared here and refused loud (#353).
         string? Seam(string? familyEpoch, string family) =>
             familyEpoch is not null && familyEpoch != order.Epoch
                 ? $"the load order changed while this check was running (epoch={order.Epoch} when the call started, " +
                   $"epoch={familyEpoch} when the {family} family answered) — the response would describe two " +
                   "builds. Retry the call."
                 : null;
-        // The dialogue family is in the seam too, and a fold makes it the one that most needs to be: the file was
-        // probed OFF-ORDER against one build and folded into another, so a plugin ticked in between would be in
-        // the order AND folded in again under a head that says it is not active.
+        // The dialogue family is in the seam too, and a fold makes it the one that most needs to be: the file is
+        // probed against one build and folded into another.
         string? foldSeam = dialogueFold?.Epoch is { } foldEpoch && dialogue?.Epoch is { } dialogueEpoch
                         && foldEpoch != dialogueEpoch
             ? $"the load order changed between resolving '{dialogueFold.Plugin}' as off-order (epoch={foldEpoch}) and "
@@ -330,8 +305,7 @@ public static class CheckTools
         if (to_file?.Trim() is { Length: > 0 } path)
         {
             // The same validator the records surface runs: absolute, .jsonl, and outside the pruned results
-            // directory. Unvalidated, a relative path writes under the SERVER's working directory and the response
-            // names an artifact the caller cannot find.
+            // directory.
             if (Artifacts.ValidateToFile(path) is { } verr) return Wire.Refuse(json, verr);
             if (counts_only)
                 return Wire.Refuse(json, "error: counts_only= returns the histograms with no findings, and to_file= "
@@ -342,11 +316,8 @@ public static class CheckTools
                 new KeyValuePair<string, string>("plugins", plugins is { Length: > 0 } ? string.Join(",", plugins) : "<whole order>"),
                 new KeyValuePair<string, string>("limit", lim.ToString()),
             };
-            // No family answered, so there are no findings to write: the file would be empty and its manifest would
-            // read as a clean sweep. Nothing is written, and the sweep renders the way it would without to_file=,
-            // which is where every refusal's ground is already stated. Where SOME family answered, the refusal
-            // rides beside its family's boundary in the manifest render instead, so one family's refusal does not
-            // discard another family's rows.
+            // No family answered, so nothing is written and the sweep renders as it would without to_file=, which is
+            // where every refusal's ground is already stated.
             if (CheckOutcome.For(sweep).Ran.Count == 0)
                 return json ? JsonWire.RenderCheck(sweep, max_chars, lim) : Wire.RenderCheck(sweep, max_chars, lim);
             var (spill, artErr) = CheckArtifact.Write(sweep, path, query);
@@ -374,8 +345,7 @@ public static class CheckTools
             && el.TryGetProperty("file", out var f) && f.ValueKind == System.Text.Json.JsonValueKind.String)
         {
             plugin = f.GetString()!.Trim();
-            // The same guard the string form has: a blank name would reach the locate and come back as whatever it
-            // says about an empty filename, rather than as the one sentence that says what to pass.
+            // The same guard the string form has, so a blank name gets the one sentence saying what to pass.
             if (plugin.Length == 0)
                 return "error: source= names a blank file — name the off-order plugin to fold in (e.g. {\"file\": \"MyPatch.esp\", \"mod\": \"<mod folder>\"}).";
             mod = el.TryGetProperty("mod", out var m) && m.ValueKind == System.Text.Json.JsonValueKind.String
