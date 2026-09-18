@@ -65,8 +65,8 @@ foreach ($pkg in $xml.coverage.packages.package) {
     if (-not $name) { continue }
     # Absolute runner paths -> repo-relative, so the table reads the same locally and in CI.
     $name = ($name -replace '\\', '/')
-    if ($name -match '(src/.*)$') { $name = $Matches[1] }
-    elseif ($name -match '^(housecarl-[a-z]+/.*)$') { $name = 'src/' + $Matches[1] }
+    if ($name -match '(src/housecarl-[^/]+/.*)$') { $name = $Matches[1] }
+    elseif ($name -match '^(housecarl-[^/]+/.*)$') { $name = 'src/' + $Matches[1] }
     if (-not $files.ContainsKey($name)) { $files[$name] = @{} }
     foreach ($line in $cls.lines.line) {
       $n = [int]$line.number
