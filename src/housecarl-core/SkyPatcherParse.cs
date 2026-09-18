@@ -5,7 +5,7 @@ namespace HousecarlCore;
 /// <summary>Structural tokenizer for one SkyPatcher patch line — grammar only, no key semantics; the productions, the address boundary and the delimiter limitation are in docs/architecture/skypatcher-layer.md.</summary>
 public static class SkyPatcherParse
 {
-    /// <summary>Parse one physical line. Never throws — a malformed line, and each malformed segment, is still surfaced, carrying a loud Note.</summary>
+    /// <summary>Parse one physical line. Never throws — a no-'=' or empty-key segment is still surfaced carrying a loud Note, while an empty ':'-segment is noted and skipped.</summary>
     public static SkyPatcherLine ParseLine(string raw)
     {
         raw ??= "";
