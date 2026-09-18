@@ -1,38 +1,26 @@
 namespace HousecarlCore;
 
-/// <summary>The external tools houseCARL can drive once the user supplies a path — the bridge's dependency set. Each is an
-/// .exe houseCARL shells out to, or a log DIRECTORY it reads. Extensible: a new rider adds an arm here + a catalog row in
-/// <see cref="ToolBridge"/>. Mutagen cannot compile or decompile Papyrus and has no archive surface, so these are
-/// external exes, not engine work.</summary>
+/// <summary>The external tools houseCARL drives once the user supplies a path; a new rider adds an arm here plus a catalog row in <see cref="ToolBridge"/>.</summary>
 public enum ToolDependency
 {
-    /// <summary>The Creation Kit's PapyrusCompiler.exe — compiles .psc → .pex (housecarl_compile_script). NOT Mutagen.</summary>
+    /// <summary>The Creation Kit's PapyrusCompiler.exe, which compiles .psc to .pex.</summary>
     PapyrusCompiler,
-    /// <summary>BSArch.exe — list / extract / repack .bsa archives (the BSA riders). No canonical home; always prompts.</summary>
+    /// <summary>BSArch.exe — list, extract and repack .bsa archives; no canonical home, so it always prompts.</summary>
     Bsarch,
-    /// <summary>The Papyrus script-log DIRECTORY (…\My Games\Skyrim Special Edition\Logs\Script) — read for Papyrus triage.</summary>
     PapyrusLogs,
-    /// <summary>The SKSE crash-log DIRECTORY (Crash Logger SSE / .NET Script Framework) — read for crash diagnosis.</summary>
+    /// <summary>The SKSE crash-log directory (Crash Logger SSE or .NET Script Framework), read for crash diagnosis.</summary>
     CrashLogs,
 }
 
-/// <summary>How a tool path resolved for a status / diagnostic surface (<see cref="ToolBridge.Inspect"/>): the user SAVED it
-/// (and it still validates), houseCARL AUTO-DETECTED a canonical home, or it's UNSET — no save and no probe hit, so a rider
-/// would fire the trained missing-dependency prompt.</summary>
+/// <summary>How a tool path resolved for a status surface: saved and still validating, auto-detected, or unset.</summary>
 public enum ToolPathSource { Saved, AutoDetected, Unset }
 
-/// <summary>Per-dependency metadata: the wire key the user/tool names it by, a human display, whether the path is a
-/// DIRECTORY (a log root) or an .exe FILE, the expected exe stem (a sanity-check the path is the right tool), the one-line
-/// "what it's for", and where to get it (shown in the missing-dependency prompt).</summary>
+/// <summary>Per-dependency metadata: wire key, display name, directory-or-exe, expected exe stem, purpose, and source.</summary>
 public sealed record ToolInfo(
     ToolDependency Dep, string Key, string Display, bool IsDirectory, string? ExeStem, string Need, string WhereToGet);
 
-/// <summary>
-/// The external-tool catalog + the bridge's pure logic: parse a wire name, VALIDATE a candidate path (never silently
-/// accept a wrong one), render the missing-dependency prompt, and AUTO-DETECT canonical homes. All pure (no DI, no
-/// file mutation beyond existence checks), so the build-time probe can exercise it directly;
-/// the runtime wrapper (<see cref="ToolPathResolver"/>) adds saved-path lookup + persistence on top.
-/// </summary>
+/// <summary>The external-tool catalog and the bridge's pure logic: parse a wire name, validate a candidate path, render
+/// the missing-dependency prompt, auto-detect canonical homes; <see cref="ToolPathResolver"/> adds persistence.</summary>
 public static class ToolBridge
 {
     static readonly ToolInfo[] All =
@@ -56,22 +44,20 @@ public static class ToolBridge
     static readonly Dictionary<string, ToolDependency> ByKey =
         All.ToDictionary(i => i.Key, i => i.Dep, StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>The catalog entry for a dependency.</summary>
     public static ToolInfo Info(ToolDependency dep) => ByDep[dep];
 
     /// <summary>The comma-joined wire keys, for an error listing the valid tools.</summary>
     public static string WireKeys => string.Join(", ", All.Select(i => i.Key));
 
-    /// <summary>Parse a wire name (case-insensitive) to a dependency; false if it isn't one we know.</summary>
+    /// <summary>Parse a wire name, case-insensitively, to a dependency.</summary>
     public static bool TryParse(string? wire, out ToolDependency dep)
     {
         if (!string.IsNullOrWhiteSpace(wire) && ByKey.TryGetValue(wire.Trim(), out dep)) return true;
         dep = default; return false;
     }
 
-    /// <summary>Validate a candidate path for a dependency — never silently accept a wrong path: a directory tool
-    /// needs an existing folder; an exe tool needs an existing .exe whose name carries the expected stem (so a path to the
-    /// wrong program is caught). Returns (ok, error) — error names what's wrong, for the tool to surface to the user.</summary>
+    /// <summary>Validate a candidate path: an existing folder for a directory tool, an existing .exe carrying the
+    /// expected stem for an exe tool; returns (ok, error) with error naming what is wrong.</summary>
     public static (bool ok, string? error) Validate(ToolDependency dep, string path)
     {
         var info = Info(dep);
@@ -90,12 +76,8 @@ public static class ToolBridge
         return (true, null);
     }
 
-    /// <summary>The missing-dependency prompt — RETURNED by a rider tool when its path is unset, so the caller is handed
-    /// the exact resolving call. It must be a return value, never an exception: a returned string reaches the client,
-    /// whereas a thrown one is genericized to "An error occurred invoking…". When auto-detect had canonical candidates to
-    /// check (the compiler under each <paramref name="gameDirHints"/> dir, the log folders), the prompt names them, so a
-    /// miss says where houseCARL already looked — which tells a Wabbajack/Stock-Game user why every game-dir anchor
-    /// missed and that they must supply the real CK path.</summary>
+    /// <summary>The missing-dependency prompt, returned by a rider tool when its path is unset and never thrown; it
+    /// names the candidates auto-detect already checked.</summary>
     public static string RenderMissingPrompt(ToolDependency dep, IReadOnlyList<string>? gameDirHints = null)
     {
         var info = Info(dep);
@@ -112,16 +94,8 @@ public static class ToolBridge
             "is refused loud.";
     }
 
-    /// <summary>The canonical candidate paths houseCARL auto-detects for a dependency, in priority order — the SINGLE
-    /// source of truth shared by <see cref="Probe"/> (returns the first that EXISTS) and <see cref="RenderMissingPrompt"/>
-    /// (lists them, so a miss can say WHERE houseCARL looked). The Papyrus compiler is checked under EACH game dir in
-    /// <paramref name="gameDirHints"/>, in order — the CK installs its compiler at &lt;game&gt;\Papyrus
-    /// Compiler\PapyrusCompiler.exe. The caller supplies the hints (LoadOrderService.CompilerGameDirHints): [0] the load
-    /// order's own game dir (correct when MO2 points straight at a CK-equipped install), then the GameFinder-located real
-    /// Steam SE install — because the common MO2 "Stock Game" setup points the load order at a COPY with no CK (the
-    /// Creation Kit + sources live in the Steam install). Whichever has the compiler wins; a total miss falls through to
-    /// the forcing prompt, never a wrong guess. The log folders live under the user's Documents; BSArch is user-downloaded
-    /// with no canonical home — both yield zero compiler-style candidates (BSArch always prompts).</summary>
+    /// <summary>The canonical candidate paths auto-detect tries, in priority order, shared by <see cref="Probe"/> and
+    /// <see cref="RenderMissingPrompt"/>; the compiler is checked under each <paramref name="gameDirHints"/> dir in turn.</summary>
     static IEnumerable<string> Candidates(ToolDependency dep, IReadOnlyList<string>? gameDirHints)
     {
         switch (dep)
@@ -142,11 +116,7 @@ public static class ToolBridge
         }
     }
 
-    /// <summary>Auto-detect a canonical home for a dependency, so the user is only asked when houseCARL genuinely can't find
-    /// it. Returns the first EXISTING <see cref="Candidates"/> path, or null (→ the forcing prompt). A directory dep needs
-    /// an existing folder; an exe dep (the compiler) needs an existing file — its candidate is built as the literal
-    /// PapyrusCompiler.exe, so File.Exists is sufficient (the name carries the right stem by construction, and
-    /// <see cref="ToolPathResolver.Resolve"/> re-Validates before persisting it anyway).</summary>
+    /// <summary>Auto-detect a canonical home: the first existing <see cref="Candidates"/> path, or null.</summary>
     public static string? Probe(ToolDependency dep, IReadOnlyList<string>? gameDirHints = null)
     {
         bool isDir = Info(dep).IsDirectory;
@@ -155,15 +125,8 @@ public static class ToolBridge
         return null;
     }
 
-    /// <summary>For a status / "what's configured" surface: where a dependency RESOLVES right now, WITHOUT the persist
-    /// side-effect of the runtime resolver (<see cref="ToolPathResolver.Resolve"/>, which saves an auto-detected home so it
-    /// probes once). Given the user's <paramref name="savedPath"/> (or null), returns the path + HOW it resolved: a saved
-    /// path that still VALIDATES wins (Saved); else an auto-detect <see cref="Probe"/> of the canonical home (AutoDetected);
-    /// else none (Unset — a rider would fire the forcing prompt). PURE (no file write), so a ReadOnly status read never
-    /// mutates config, and it mirrors what a rider's resolve would find — so "where the logs are" in status is the truth a
-    /// Read would hit. A saved path that no longer validates falls through (tool moved / folder deleted), same as the
-    /// runtime resolver. The optional <paramref name="gameDirHints"/> feed the compiler's game-dir-anchored auto-detect
-    /// (the log deps that use this surface ignore them).</summary>
+    /// <summary>Where a dependency resolves right now and how, without the persist side-effect of
+    /// <see cref="ToolPathResolver.Resolve"/>: a saved path that still validates wins, else the probe, else unset.</summary>
     public static (string? path, ToolPathSource source) Inspect(ToolDependency dep, string? savedPath, IReadOnlyList<string>? gameDirHints = null)
     {
         if (savedPath is not null && Validate(dep, savedPath).ok) return (savedPath, ToolPathSource.Saved);

@@ -1,8 +1,6 @@
 namespace HousecarlCore;
 
-/// <summary>The ONE embedded-JSON resource reader — the SkyPatcher catalog and field map both ship as
-/// housecarl-core embedded resources. Throws loudly on a missing resource: a silently-empty load is
-/// the degrade both call sites' Load() contracts forbid.</summary>
+/// <summary>The one embedded-JSON resource reader; throws loudly on a missing resource rather than loading empty.</summary>
 internal static class EmbeddedJson
 {
     public static string Read(string fileName, string what)
