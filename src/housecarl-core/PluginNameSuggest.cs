@@ -1,26 +1,15 @@
 namespace HousecarlCore;
 
-/// <summary>
-/// Nearest-plugin-name suggestion for a MISSED plugin lookup — the "did you mean …?" the tool surface appends when a
-/// plugins= / filter= / FormID-plugin value matches no plugin in the load order. The common slips are a dropped
-/// apostrophe ("Sanguines Trade…" for "Sanguine's Trade…") and the MOD FOLDER name passed where the .esp FILENAME was
-/// wanted ("Sanguine's Trade - An Economy Mod" for "…Mod.esp").
-///
-/// PURE + ALLOCATION-LIGHT and run ONLY on the rare miss path (never hot), so a plain O(query·candidate) Levenshtein over
-/// the whole name list is fine. Ranking, best first:
-///   • EXTENSION-only difference  (query == candidate minus its .esp/.esm/.esl) — the bare mod-folder / missing-extension case
-///   • PREFIX                     (candidate starts with the query, or their extension-stripped stems do) — partial typed name
-///   • SUBSTRING                  (one contains the other) — a fragment of the real name
-///   • EDIT DISTANCE within a length-scaled threshold — typos / apostrophe slips
-/// Anything clearing none of these is NOT offered — a wrong "did you mean" is worse than none — and matches are
-/// de-duplicated + capped so the message stays short.
-/// </summary>
+/// <summary>Nearest-plugin-name suggestion for a MISSED plugin lookup — the "did you mean …?" the tool surface appends
+/// when a plugins= / filter= / FormID-plugin value matches no plugin in the load order. Ranked best first: an
+/// EXTENSION-only difference, then PREFIX, then SUBSTRING, then EDIT DISTANCE within a length-scaled threshold.
+/// Anything clearing none of these is not offered, and matches are de-duplicated and capped.</summary>
 public static class PluginNameSuggest
 {
     static readonly string[] PluginExts = PluginFile.Extensions;   // the one shared home (HousecarlCore.PluginFile) — no divergent copy
 
-    /// <summary>Up to <paramref name="max"/> nearest candidate names for a missed <paramref name="query"/>, best first.
-    /// Empty when nothing clears the relevance bar (no spurious suggestion). Case-insensitive throughout.</summary>
+    /// <summary>Up to <paramref name="max"/> nearest candidate names for a missed <paramref name="query"/>, best
+    /// first; empty when nothing clears the relevance bar. Case-insensitive throughout.</summary>
     public static IReadOnlyList<string> Nearest(string query, IEnumerable<string> candidates, int max = 3)
     {
         var q = (query ?? "").Trim();
@@ -48,30 +37,27 @@ public static class PluginNameSuggest
             .ToList();
     }
 
-    /// <summary>Case-insensitive edit distance between two names' extension-stripped stems, always answered. This is the
-    /// total order a caller falls back to for the names <see cref="Nearest"/> vouches for none of: it never refuses, so a
-    /// list ordered by it is nearest-first everywhere, where Nearest alone leaves the unranked tail in input order.</summary>
+    /// <summary>Case-insensitive edit distance between two names' extension-stripped stems, always answered — the
+    /// total order a caller falls back to for the names <see cref="Nearest"/> vouches for none of.</summary>
     public static int StemDistance(string a, string b)
         => Levenshtein(StripExt((a ?? "").Trim()), StripExt((b ?? "").Trim()), int.MaxValue);
 
-    /// <summary>The ready-to-append clause — e.g. " Did you mean 'Sanguine's Trade - An Economy Mod.esp'?" — or "" when
-    /// there is no near match. Leads with a space so callers can append it straight onto an existing message.</summary>
+    /// <summary>The ready-to-append clause, or "" when there is no near match. Leads with a space.</summary>
     public static string DidYouMean(string query, IEnumerable<string> candidates, int max = 3)
     {
         var hits = Nearest(query, candidates, max);
         if (hits.Count == 0) return "";
-        // Backtick-delimit (not single-quote): mod names routinely carry an apostrophe ("Sanguine's Trade…") that
-        // would collide with a wrapping ' and read as a broken quote. Backticks never collide with the name's own text.
+        // Backtick-delimit, not single-quote: mod names routinely carry an apostrophe that a wrapping ' collides with.
         var quoted = string.Join(", ", hits.Select(h => "`" + h + "`"));
         return hits.Count == 1 ? $" Did you mean {quoted}?" : $" Did you mean one of: {quoted}?";
     }
 
-    /// <summary>Relevance score (higher = closer; 0 = not a candidate) + the edit distance used as the tiebreak. The tiers
-    /// are gapped (1000/800/600/…) so a stronger match always outranks a weaker one regardless of its distance tiebreak.</summary>
+    /// <summary>Relevance score (higher = closer; 0 = not a candidate) plus the edit distance used as the tiebreak.
+    /// The tiers are gapped so a stronger match always outranks a weaker one.</summary>
     static (int score, int dist) ScoreOne(string q, string qb, string candidate)
     {
         var cb = StripExt(candidate);
-        // EXTENSION-only difference: the bare folder name / missing-extension case ("…Mod" → "…Mod.esp"). Strongest signal.
+        // EXTENSION-only difference: the bare folder name / missing-extension case. Strongest signal.
         if (string.Equals(qb, cb, StringComparison.OrdinalIgnoreCase)) return (1000, 0);
 
         // PREFIX: a partially typed name, on the full names or their stems.
@@ -79,18 +65,17 @@ public static class PluginNameSuggest
             cb.StartsWith(qb, StringComparison.OrdinalIgnoreCase))
             return (800, Math.Abs(cb.Length - qb.Length));
 
-        // SUBSTRING either way: a fragment of the real name (or the real name inside an over-long query).
+        // SUBSTRING either way: a fragment of the real name, or the real name inside an over-long query.
         if (candidate.Contains(q, StringComparison.OrdinalIgnoreCase) ||
             q.Contains(candidate, StringComparison.OrdinalIgnoreCase))
             return (600, Math.Abs(cb.Length - qb.Length));
 
-        // EDIT DISTANCE on the stems, within a length-scaled threshold — catches typos / apostrophe slips. Skip pairs whose
-        // lengths already differ by more than the threshold (they can't be within it) so most candidates cost nothing.
+        // EDIT DISTANCE on the stems, within a length-scaled threshold; pairs whose lengths already differ by more
+        // than the threshold are skipped.
         int threshold = Math.Max(2, Math.Min(qb.Length, cb.Length) / 4);
         if (Math.Abs(qb.Length - cb.Length) > threshold) return (0, 0);
         int d = Levenshtein(qb, cb, threshold);
-        // Floor at 1: keep a genuine edit-distance match POSITIVE so Nearest's `score > 0` never silently drops it. The
-        // raw 500 - d*10 only reaches 0 at d>=50 — unreachable for .esp filenames (needs ~200-char stems) but free to guard.
+        // Floor at 1, so a genuine edit-distance match stays positive and Nearest's `score > 0` never drops it.
         if (d >= 0 && d <= threshold) return (Math.Max(1, 500 - d * 10), d);
         return (0, 0);
     }
@@ -103,8 +88,8 @@ public static class PluginNameSuggest
         return name;
     }
 
-    /// <summary>Case-insensitive Levenshtein with an early-out: returns -1 the moment the best possible distance on a row
-    /// exceeds <paramref name="max"/>, so a far candidate is abandoned without finishing the matrix.</summary>
+    /// <summary>Case-insensitive Levenshtein with an early-out: returns -1 the moment the best possible distance on a
+    /// row exceeds <paramref name="max"/>.</summary>
     static int Levenshtein(string a, string b, int max)
     {
         a = a.ToLowerInvariant(); b = b.ToLowerInvariant();
