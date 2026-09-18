@@ -23,14 +23,16 @@ result artifact file. These are the contracts those three share, cited from the 
     `PatchStemShadowTests.AStemThatWouldShadowAnInactivePluginInAForeignModFolderIsRefused`, with
     `…AForeignEsmOfTheSameStemIsNoShadowForTheEspTheLaneWrites` for the boundary;
   - a lane whose artifact's exact basename is load-bearing (the `.bsa` the game auto-loads under its plugin's
-    basename, the merged plugin) refuses a TAKEN stem — `PatchArtifactCollisionTests.`
-    `Merge_folder_collision_refuses_by_name_and_writes_nothing` and
-    `…Repack_folder_collision_refuses_by_name_rather_than_renaming_the_archive`.
+    basename, the merged plugin) refuses a TAKEN stem **the caller named**; a defaulted stem is suffixed like any
+    other — `PatchArtifactCollisionTests.Merge_folder_collision_refuses_by_name_and_writes_nothing` and
+    `…Repack_folder_collision_refuses_by_name_rather_than_renaming_the_archive`, both of which name the stem.
 - **`out_path=` is the escape hatch:** the caller names a mod-folder ROOT and houseCARL appends the artifact's
   subfolder (`Scripts\`, `SEQ\`), never doubling a segment already there. The folder is the user's, so
   `CreatedFresh=false` and residue cleanup never touches it; `into=` stays ownership-gated on these lanes.
-- **Deployability is a shape rule**, shared by every `out_path=` lane: MO2 overlays a mod folder's CONTENTS onto the
-  Data root, so the served shapes are exactly `<mods>\<modFolder>\<sub>`, `<overwriteDir>\<sub>` and
+- **Deployability is a shape rule**, shared by every `out_path=` lane that emits a game-loaded file (`Scripts`,
+  `SEQ`); the decompile lane appends nothing and checks nothing, because a `.psc` is compiler input. MO2 overlays
+  a mod folder's CONTENTS onto the Data root, so the served shapes are exactly
+  `<mods>\<modFolder>\<sub>`, `<overwriteDir>\<sub>` and
   `<data>\<sub>`; anything else warns. The rule is shared, the sentence naming what a mis-placed artifact costs
   stays with each caller.
 - **A rider that failed after cutting a fresh folder** deletes it when it holds nothing but our own `meta.ini`, and
