@@ -35,7 +35,9 @@ internal static class ToolSchemas
     /// <summary>How many times one pointer may be inlined along a nesting chain before <see cref="Terminator"/> closes it.</summary>
     const int MaxSelfExpansions = 1;
 
-    /// <summary>Register the passes as a post-configure over <c>McpServerOptions</c>; rows are pinned by <c>PublishedSchemaShapeTests</c>.</summary>
+    /// <summary>Register the passes as a post-configure over <c>McpServerOptions</c>. A tool or parameter not found is
+    /// skipped; <c>PublishedSchemaShapeTests</c> names every <see cref="FileListParams"/> row and asserts the published
+    /// shape, so a stale one fails there rather than degrading quietly.</summary>
     /// <param name="maxSchemaDepth">The published nesting depth, or null to publish uncut; judged at startup, never here.</param>
     internal static void PublishSchemas(IServiceCollection services, int? maxSchemaDepth = null) =>
         services.PostConfigure<McpServerOptions>(options =>
@@ -165,7 +167,8 @@ internal static class ToolSchemas
     }
 
     /// <summary>Inline every same-document <c>$ref</c> that resolves, bounded at <see cref="MaxSelfExpansions"/>; one this
-    /// pass does not handle stays put and fails the no-<c>$ref</c> invariant in <c>PublishedSchemaShapeTests</c>.</summary>
+    /// pass does not handle stays put and fails the no-<c>$ref</c> invariant in <c>PublishedSchemaShapeTests</c>.
+    /// Internal so <c>schema-flatten-guard</c> can drive it over synthetic documents.</summary>
     internal static bool FlattenRefs(JsonObject root)
     {
         // Every pointer resolves against an immutable snapshot, not the tree being rewritten under it.
