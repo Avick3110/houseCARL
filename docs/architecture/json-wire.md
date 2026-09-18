@@ -20,8 +20,9 @@ The accounting and the notes ride inside the document rather than beside it.
 
 ## `ok` is a discriminant, and it is document-level only
 
-- A whole-call refusal writes `ok:false` and the message, through `WriteRefusal`, so the shape cannot be stated one
-  way in one renderer and another in the next.
+- A whole-call refusal **on the read surface** writes `ok:false` and the message through `WriteRefusal`, so the shape
+  cannot be stated one way in one renderer and another in the next. The write lanes write `ok` themselves, on both
+  outcomes (below), and must not also call `WriteRefusal` — that would put a second `ok` in the document.
 - A per-ROW `error` — a malformed FormID in a batch, a seed that did not resolve — is **not** a refusal. The call
   succeeded and rendered a row that failed. Those sites keep a bare `error` and must never gain `ok`.
 - On the **read** surface `ok` marks refusals ONLY: a served read document carries no `ok`, and its absence means the
@@ -58,11 +59,17 @@ verdicts read off another substrate, which `epoch_uncovered` names.
 count. The silence on a healthy order is `HealthyOrderMarkerTests.AHealthyBuildCarriesNoMarkerOnEitherLane`, its own
 class because the healthy world is a different collection.
 
-## A capped list is an array plus a sibling count
+## A capped STRING list is an array plus a sibling count
 
-Where a list is bounded, what did not fit is a sibling `<name>_omitted` number, never a prose marker element inside the
-array. A marker element would be handed to a consumer iterating the array as if it were an entry, and the array length
-would stop matching the count the accounting states.
+Where a list of plain strings is bounded — the build-level caveat blocks, and `Wire.ContestedHostsShown` on the text
+lane — what did not fit is a sibling `<name>_omitted` number, never a prose marker element inside the array. A marker
+element would be handed to a consumer iterating the array as if it were an entry, and the array length would stop
+matching the count the accounting states.
+
+An array of OBJECTS is cut the other way, and that is not a violation of this: `WriteFieldsArray` closes a
+field-truncated `fields` with a sentinel object (`{path:"…", note:"[truncated at max_chars: …]"}`), because a row
+there is already an object with a `note` member and the sentinel reads as one more of them. Consumers and tests read
+that row; do not replace it with a `fields_omitted` sibling.
 
 **Pinned by** `AssetStatusJsonLaneTests.TheCaveatBlocksAreCappedByMaxCharsToo` — the array and the omitted count add up
 to the whole, and no entry carries a prose marker; and `ADocumentWhoseCaveatsWereCutSaysItWasTruncated` in the same
@@ -88,8 +95,9 @@ misses what the writer still holds. Two consequences:
   the bigger the unit gets. `JsonUnitDepths` states the offsets once, from one anchor, and both the demand pass and
   the write read them from there.
 - The writer's own punctuation — the root open, the root close, the separator — is measured off the writer
-  (`MeasureFraming`), not kept by hand: an indented writer closes the root with a CR/LF pair and a brace, so that
-  close costs three characters and not two.
+  (`MeasureFraming`), not kept by hand: an indented writer closes the root with a platform newline and a brace, so
+  that close costs three characters on Windows, where the newline is a CR/LF pair, and two where it is not. The
+  number is never hand-written for that reason.
 
 A helper that returns from INSIDE the writer's `using` block must flush first, or the buffered document is still
 unwritten and the caller gets an empty string. The write lanes' refusal arms all do.
