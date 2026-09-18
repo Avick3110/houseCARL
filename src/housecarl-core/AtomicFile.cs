@@ -1,9 +1,9 @@
 namespace HousecarlCore;
 
-/// <summary>Crash-atomic file commit — the FINAL swap every houseCARL write funnels through; contract in docs/architecture/output-and-artifacts.md.</summary>
+/// <summary>Atomic file commit — the <c>File.Replace</c> swap every houseCARL write's FINAL step funnels through; contract in docs/architecture/output-and-artifacts.md.</summary>
 public static class AtomicFile
 {
-    /// <summary>Crash-atomically write <paramref name="bytes"/> to <paramref name="finalPath"/> via a sibling temp; throws on any failure, leaving the prior file byte-intact.</summary>
+    /// <summary>Atomically write <paramref name="bytes"/> to <paramref name="finalPath"/> via a sibling temp; throws on any failure, leaving the prior file byte-intact.</summary>
     public static void WriteAllBytes(string finalPath, byte[] bytes)
     {
         var staged = finalPath + ".houseCARL-tmp";                 // sibling of the target ⇒ same volume ⇒ Commit's invariant holds

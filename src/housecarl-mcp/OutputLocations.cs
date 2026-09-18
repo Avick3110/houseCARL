@@ -293,7 +293,7 @@ public sealed partial class LoadOrderService
             bool replaced = File.Exists(dest);
             bool replacedSameBytes = replaced && sameBytes;
 
-            // Crash-atomic write of <plugin>.seq under SEQ\.
+            // Atomic write of <plugin>.seq under SEQ\.
             try { AtomicFile.WriteAllBytes(dest, built.Bytes); }
             catch (Exception ex)
             {
@@ -441,7 +441,7 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>The given stem if it is free, else the first free "<c>&lt;stem&gt;_NNN</c>"; free means no mod folder of that name exists AND no active plugin is named "<c>&lt;stem&gt;.esp</c>". Auto-suffix rule and its two refusing lanes in docs/architecture/output-and-artifacts.md.
-    /// <para><paramref name="writes"/> is the calling lane's own statement of the file it emits and the parameter that names it, so a shadow refusal never sends a caller to a parameter their tool lacks; <paramref name="stemFromCaller"/> is what makes a shadow on the base stem refusable, and <paramref name="refuseTaken"/> what makes a TAKEN stem refuse instead of suffixing.</para></summary>
+    /// <para><paramref name="writes"/> is the calling lane's own statement of the file it emits and the parameter that names it, so a shadow refusal never sends a caller to a parameter their tool lacks. Both refusals need <paramref name="stemFromCaller"/>: a shadow, and a taken stem under <paramref name="refuseTaken"/>, refuse only the name the CALLER passed, while a defaulted stem is suffixed either way.</para></summary>
     string UniqueStem(string stem, bool stemFromCaller, PatchStemShadow.Target? writes, StemRefusal? refuseTaken = null)
     {
         var active = ActivePluginBasenames();
@@ -496,7 +496,7 @@ public sealed partial class LoadOrderService
                 ? $"a plugin named '{stem}.esp' is already active in your load order"
                 : null;
 
-    /// <summary>One lane's statement that its artifact's exact basename is load-bearing, so a taken stem refuses instead of auto-suffixing, naming the artifact and that lane's own remedy.</summary>
+    /// <summary>One lane's statement that its artifact's exact basename is load-bearing, so a taken stem the CALLER named refuses instead of auto-suffixing, naming the artifact and that lane's own remedy.</summary>
     public readonly record struct StemRefusal(string Artifact, string Remedy);
 
     /// <summary>The active load order's plugin filenames for the UniqueStem collision check, read from the built resolver if present else the cheap composition — deliberately not via the <see cref="Resolver"/> getter, which refuses a zero-plugin instance. Best-effort: an empty set leaves folder-only uniqueness.</summary>
