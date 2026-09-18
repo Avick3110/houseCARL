@@ -5,9 +5,7 @@ public sealed record DialogueSeedResult(string Seed, DialogueValidationReport? R
 
 /// <summary>The DIALOGUE family's result over a seed list; contract in docs/architecture/dialogue.md.</summary>
 /// <param name="Seeds">one entry per seed the caller named, in that order — reports and refusals together.</param>
-/// <param name="ProblemsFound">findings across every seed, uncapped: what the validation found.</param>
 /// <param name="ReadIncomplete">a BSA failed to read, so an "absent" voice file or .pex may merely be unscanned.</param>
-/// <param name="Error">the pre-sweep refusal — no seeds, or every seed malformed.</param>
 /// <param name="SeedsNamed">seeds the caller NAMED; the difference from <paramref name="Seeds"/> is the budget's cut.</param>
 /// <param name="Epoch">the RECORD build every seed was validated against; it covers no asset verdict.</param>
 public sealed record DialogueCheckResult(
