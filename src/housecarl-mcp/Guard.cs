@@ -1,7 +1,8 @@
 namespace HousecarlMcp;
 
 /// <summary>The last-line tool-body guard: every MCP tool body runs inside
-/// <see cref="Tool(string,System.Func{string})"/> so an unconverted exception returns a named error.</summary>
+/// <see cref="Tool(string,System.Func{string})"/> so an unconverted exception returns a named error; the
+/// stay-wrapped contract is in <c>docs/architecture/tool-call-argument-shim.md</c>.</summary>
 internal static class Guard
 {
     /// <summary>Rethrow only a real request cancellation; a cancel with a live request token is named as a body failure.</summary>

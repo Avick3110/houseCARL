@@ -55,10 +55,9 @@ would otherwise get the SDK's bare "Unknown tool" and no way forward.
 
 ## What the shim reads of a schema
 
-Only the top-level `properties` and, under each parameter, its `type`. It never descends into the
-`items`/`anyOf` the publication passes rewrite, and it consults no `required` beyond the root's own
-list. That bound is what lets `docs/architecture/tool-schema-publication.md` say its passes change what
-is *published* and never what is *accepted*, and it sets the depth cut's floor of 4.
+Two members and nothing else, plus the root's own `required` list. That fact is stated once, in
+`docs/architecture/tool-schema-publication.md`, where it is the premise of the depth cut's floor of 4 —
+read it there before changing what any pass here reads.
 
 ## Named failure, end to end
 

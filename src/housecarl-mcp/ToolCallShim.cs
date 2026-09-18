@@ -109,7 +109,8 @@ internal static class ToolCallShim
         if (rewritten is not null) p.Arguments = rewritten;
     }
 
-    /// <summary>One value against one property schema: the coerced element, or null to leave it alone.</summary>
+    /// <summary>One value against one property schema: the coerced element, or null to leave it alone. Internal so a
+    /// test can assert the coerced value directly — over the wire only "it bound" is observable.</summary>
     internal static JsonElement? Coerce(JsonElement value, JsonElement propSchema)
     {
         var declared = DeclaredTypes(propSchema);
@@ -285,7 +286,7 @@ internal static class ToolCallShim
     }
 
     /// <summary>Whether a JSON kind can bind to at least one of a property's declared schema types; null never reaches
-    /// here.</summary>
+    /// here, and a JSON number satisfies both "number" and "integer" — the integral check is the binder's, not ours.</summary>
     static bool KindSatisfies(JsonValueKind kind, HashSet<string> declared) => kind switch
     {
         JsonValueKind.String => declared.Contains("string"),

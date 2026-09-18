@@ -22,7 +22,7 @@ internal static class ListParams
         }
         else if (el.ValueKind is JsonValueKind.Array)
         {
-            // The one-element ["@path"] spelling; an @-string mixed with inline elements is refused by name.
+            // The one-element ["@path"] spelling; an @-string in an array of more than one element is refused by name.
             var atIndexes = new List<int>();
             int count = 0;
             foreach (var item in el.EnumerateArray())
