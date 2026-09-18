@@ -47,8 +47,9 @@ genuine empty, or `null` for a walk that never happened or failed. A null never 
 
 The rule is applied in three shapes, on purpose, and they must agree:
 
-- **the blocker string** — `SksePluginReader.DebugCrtBlocker` plus the BSA-only / subfolder arms in `AssetLayers.cs`,
-  composed into `NativePairedDll.LoadBlocker` / `SkseFileEntry.Note`, which the pairing verdict treats as dead;
+- **the blocker string** — `AssetLayers.LooseDllBlocker` (unreadable, 32-bit, then `SksePluginReader.DebugCrtBlocker`)
+  plus the no-provider / BSA-only / subfolder arms in `AssetLayers.cs`, composed into `NativePairedDll.LoadBlocker` /
+  `SkseFileEntry.Note`, which the pairing verdict treats as dead;
 - **the inventory render arms** — `SkseInventoryWire`'s diagnostic subsets and per-DLL detail block, which report each
   class as its own population with its own count;
 - **the pairing fate ladder** — `NativePairingWire.Verdict` / `Judge`, which adds the loader's era rules and the
