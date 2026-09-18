@@ -477,10 +477,7 @@ public sealed partial class LoadOrderService
             .ToList();
 
         // Pass 1: the SKSE-CORE rescue pool — every non-official pairing identity shipping a copy of an ENGINE class.
-        // Residual edge: an INI-injected third-party BSA reads official, so its classes read ENGINE.
-        // Residual edge: a paid-CC archive is not BaseMaster-owned, so its engine natives read third-party and flag.
-        // Residual edge: a provider co-shipping a vanilla override AND an orphan declaration copy has that copy
-        // rescued into the unflagged baseline — which for the game Data folder covers everything installed there.
+        // The rescue's residual edges are in docs/architecture/skse-layer.md.
         var engineProviders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var s in native)
             if (HasOfficialSource(s.Sources, officialArchives))

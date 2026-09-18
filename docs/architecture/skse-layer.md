@@ -132,6 +132,14 @@ flag, never "broken". A class whose only loading candidate is a debug build is i
 line of the healthy roster, which prints class names and would have carried a checkmark over the file that needs
 reporting.
 
+The SKSE-CORE rescue pool — every non-official pairing identity shipping a copy of an ENGINE class — has three known
+residual edges, all of them false-flag or missed-flag modes of the audit:
+
+- an INI-injected third-party BSA reads official, so its classes read ENGINE;
+- a paid Creation Club archive is not BaseMaster-owned, so its engine natives read third-party and flag;
+- a provider co-shipping a vanilla override AND an orphan declaration copy has that copy rescued into the unflagged
+  baseline — which for the game `Data` folder covers everything installed there.
+
 ## Config references
 
 `SkseConfigReferenceExtractor` is catalog-free and framework-agnostic: it finds the two things checkable against the
