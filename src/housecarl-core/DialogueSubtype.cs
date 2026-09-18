@@ -3,48 +3,27 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
 
-// DialogueSubtype — the authority for a DialogTopic's SNAM subtype marker.
-//
-// A DIAL carries its subtype twice: DATA\Subtype, a numeric enum (Mutagen's DialogTopic.SubtypeEnum,
-// e.g. Hello = 79), and SNAM, a 4-character text marker (e.g. "HELO"). The engine buckets topics by the
-// SNAM marker, and Mutagen writes SNAM verbatim from the field rather than deriving it from Subtype — so a
-// create that sets only Subtype leaves SNAM at 0000, a byte-valid plugin the engine can crash on at load.
-// A blank marker on a new/own topic is that load CTD; on an override it is often tolerated (the base
-// record's marker plausibly still applies) but still malformed, and the wording here says exactly that.
-//
-// The table below is sourced from xEdit's record definition, not derived: the name↔marker mapping is not a
-// blind echo (Custom→CUST but ShootBow→FIWE), Mutagen does not model it, and it cannot be scraped from
-// vanilla because Bethesda's own DATA\Subtype numbers are stale under the Dragonborn-era renumbering (many HELO
-// topics ship with DATA≠79 — see MarkerDisagreesWithSubtype), which is why xEdit ignores DATA\Subtype and treats
-// SNAM as the required master field. Rows are the join of
-// xEdit's DATA\Subtype index→name enum and its 4-char-signature→name enum, matched by subtype name.
-// Mutagen's SubtypeEnum integer values equal these indices, so the lookup key is (int)DialogTopic.Subtype.
+// DialogueSubtype — the authority for a DialogTopic's SNAM subtype marker; contract in
+// docs/architecture/dialogue.md. The table is the join of xEdit's DATA\Subtype index→name enum and its
+// 4-char-signature→name enum, matched by subtype name; the lookup key is (int)DialogTopic.Subtype.
 
-/// <summary>The outcome of <see cref="DialogueSubtype.NormalizeMarker"/>: whether it filled the marker, left an
-/// author's explicit marker alone, or could not model one for the subtype (the last is a defect the caller must
-/// surface loudly, never ship silently).</summary>
+/// <summary>The outcome of <see cref="DialogueSubtype.NormalizeMarker"/>.</summary>
 public enum MarkerFill
 {
     /// <summary>The marker was already non-blank — an explicit value is never overridden. Nothing changed.</summary>
     AlreadySet,
     /// <summary>The marker was blank and has been filled from the subtype (the marker is in the out param).</summary>
     Filled,
-    /// <summary>The marker was blank AND no marker is modeled for the subtype (an out-of-range enum value that got
-    /// past pre-flight). NOTHING was filled — the caller MUST warn/refuse, never leave this silent.</summary>
+    /// <summary>Blank AND no marker modeled for the subtype. NOTHING filled — the caller MUST warn or refuse.</summary>
     Unmodeled,
 }
 
 /// <summary>The authority for a DialogTopic's SNAM subtype marker — the 4-char tag the game buckets topics by.
-/// A blank marker is malformed (a load CTD on a new topic), so the create path auto-fills it from
-/// the topic's <c>Subtype</c> and the on-demand validator escalates a blank one to a Problem. Both read the marker
-/// through THIS type so the write side and the check side can never disagree.</summary>
+/// The create path and the validator both read it through THIS type, so they cannot disagree.</summary>
 public static class DialogueSubtype
 {
-    /// <summary>Subtype index (== <c>(int)DialogTopic.Subtype</c> == xEdit DATA\Subtype index) → (Mutagen enum name,
-    /// 4-char SNAM marker). Contiguous 0..102; every Marker is a real 4-char signature Bethesda uses
-    /// (<c>HIT_</c> keeps its trailing underscore). Name is Mutagen's own <see cref="DialogTopic.SubtypeEnum"/>
-    /// member name, empty ("") only for index 3 which Mutagen's enum omits. A CI check asserts
-    /// Enum.Parse(Name)==index for every named row, so a transposed row cannot pass silently.</summary>
+    /// <summary>Subtype index → (Mutagen enum name, 4-char SNAM marker). Contiguous 0..102; Name is empty only for
+    /// index 3, which Mutagen's enum omits. CI asserts Enum.Parse(Name)==index for every named row.</summary>
     static readonly (string Name, string Marker)[] Table =
     {
         ("Custom", "CUST"),                          //   0
@@ -155,81 +134,59 @@ public static class DialogueSubtype
     /// <summary>The number of subtype indices the table covers (0..<see cref="Count"/>-1).</summary>
     public static int Count => Table.Length;
 
-    /// <summary>Mutagen's SubtypeEnum name for a row, or "" for index 3 (which Mutagen's enum omits). Exists for the
-    /// name↔index machine-check: a transposed named row makes Enum.Parse(name)!=index and fails CI.</summary>
+    /// <summary>Mutagen's SubtypeEnum name for a row, or "" for index 3; the input to the name↔index CI check.</summary>
     public static string NameAt(int index) => index >= 0 && index < Table.Length ? Table[index].Name : "";
 
-    /// <summary>The 4-char SNAM marker for a subtype index (== <c>(int)DialogTopic.Subtype</c>), or null if the
-    /// index is outside the modeled range (never for a real Mutagen enum value — those are all 0..102).</summary>
+    /// <summary>The 4-char SNAM marker for a subtype index, or null outside the modeled range 0..102.</summary>
     public static string? MarkerFor(int subtypeIndex) =>
         subtypeIndex >= 0 && subtypeIndex < Table.Length ? Table[subtypeIndex].Marker : null;
 
     /// <summary>The 4-char SNAM marker for a <see cref="DialogTopic.SubtypeEnum"/>, or null if unmodeled.</summary>
     public static string? MarkerFor(DialogTopic.SubtypeEnum subtype) => MarkerFor((int)subtype);
 
-    /// <summary>Marker → subtype index, the reverse of the table. Ordinal (markers are fixed-case 4-char signatures).</summary>
+    /// <summary>Marker → subtype index, the reverse of the table; ordinal, as the markers are fixed-case.</summary>
     static readonly Dictionary<string, int> ByMarker =
         Table.Select((row, i) => (row.Marker, i)).ToDictionary(p => p.Marker, p => p.i, StringComparer.Ordinal);
 
-    /// <summary>The subtype index a 4-char SNAM marker names, or null when the marker is blank or not one this table
-    /// models. SNAM is the AUTHORITATIVE statement of a topic's subtype — the engine buckets by it — so this is the
-    /// lookup a reader should trust over <c>(int)DialogTopic.Subtype</c>.</summary>
+    /// <summary>The subtype index a SNAM marker names, or null when it is blank or unmodeled. SNAM is the
+    /// authoritative statement, so this is the lookup to trust over <c>(int)DialogTopic.Subtype</c>.</summary>
     public static int? IndexForMarker(RecordType marker) =>
         !IsBlankMarker(marker) && ByMarker.TryGetValue(marker.Type, out var i) ? i : null;
 
-    /// <summary>Mutagen's SubtypeEnum name for the subtype a SNAM marker names, or null when the marker is blank or
-    /// unmodeled (and "" for the one index Mutagen's enum omits). The honest label for a topic's subtype.</summary>
+    /// <summary>Mutagen's SubtypeEnum name for the subtype a SNAM marker names, or null when it cannot.</summary>
     public static string? NameForMarker(RecordType marker) => IndexForMarker(marker) is { } i ? NameAt(i) : null;
 
-    /// <summary>The best LABEL for the subtype a marker names, for a render or a message: Mutagen's enum name where
-    /// there is one, and the MARKER ITSELF for the one modeled row Mutagen's enum omits (index 3, FVDL) — never "",
-    /// which would hand a consumer nothing for a subtype this table can in fact name. null only when the marker is
-    /// blank or not one this table models, which is a different finding and says so in its own words.</summary>
+    /// <summary>The best LABEL for the subtype a marker names: Mutagen's enum name, or the MARKER ITSELF for the
+    /// one modeled row the enum omits (index 3, FVDL). Null only for a blank or unmodeled marker.</summary>
     public static string? LabelForMarker(RecordType marker) =>
         IndexForMarker(marker) is { } i ? (NameAt(i) is { Length: > 0 } n ? n : Table[i].Marker) : null;
 
-    /// <summary>True when a topic's numeric <c>Subtype</c> contradicts its SNAM marker — both modeled, and they name
-    /// different subtypes. Bethesda renumbered the DATA\Subtype enum when the Dragonborn-era CK inserted six
-    /// <c>FlyingMount*</c> values at index 20, so a topic authored before that stores a number six lower than the
-    /// modern table and Mutagen labels it six entries too early. Nothing on the record distinguishes the two
-    /// numberings (form version does not: Dragonborn.esm mixes both at FormVersion 43), so SNAM is the only reliable
-    /// statement. Blank or unmodeled markers are NOT a disagreement — a blank one is its own finding.</summary>
+    /// <summary>True when a topic's numeric <c>Subtype</c> contradicts its SNAM marker, both modeled; the
+    /// renumbering that causes it is in docs/architecture/dialogue.md. A blank or unmodeled marker is not this.</summary>
     public static bool MarkerDisagreesWithSubtype(IDialogTopicGetter topic) =>
         IndexForMarker(topic.SubtypeName) is { } fromMarker && fromMarker != (int)topic.Subtype;
 
-    /// <summary>How many values the Dragonborn-era Creation Kit inserted at index 20 (the six <c>FlyingMount*</c>
-    /// rows), which is exactly how far a pre-Dragonborn DATA\Subtype sits below the modern table.</summary>
+    /// <summary>How far a pre-Dragonborn DATA\Subtype sits below the modern table — the six inserted rows.</summary>
     public const int RenumberOffset = 6;
 
-    /// <summary>The first modern index that also existed under the OLD numbering (20 + <see cref="RenumberOffset"/>).
-    /// A marker below this one names a subtype that predates the insertion or is one of the inserted rows, so it
-    /// cannot have been shifted and a disagreement there is not vintage.</summary>
+    /// <summary>The first modern index that also existed under the OLD numbering; below it, nothing shifted.</summary>
     public const int RenumberFirstShifted = 26;
 
-    /// <summary>Does a disagreeing pair carry the RENUMBERING signature — the marker's modern index sitting exactly
-    /// <see cref="RenumberOffset"/> above the stored number, at or above <see cref="RenumberFirstShifted"/>? True
-    /// means "old file, stale number, record not necessarily broken". False means the two fields were edited apart:
-    /// the numbers line up with no vintage that explains them, so the Subtype edit is an in-game no-op and the fix is
-    /// to sync SNAM. Asserting the vintage for EVERY mismatch would frame an authoring error as benign.</summary>
+    /// <summary>Does a disagreeing pair carry the RENUMBERING signature? True means an old file with a stale
+    /// number; false means the two fields were edited apart and the Subtype edit is an in-game no-op.</summary>
     public static bool IsRenumberedVintage(int markerIndex, int subtypeValue) =>
         markerIndex >= RenumberFirstShifted && markerIndex - subtypeValue == RenumberOffset;
 
-    /// <summary>True when a topic's SNAM marker is empty/default (0000) OR whitespace-only — the malformed "no real
-    /// marker" state. The single home for this test so the create path and the validator agree on what "no marker"
-    /// means. Whitespace counts as blank: it renders invisibly and buckets to a tag no real topic uses.</summary>
+    /// <summary>True when a topic's SNAM marker is 0000 or whitespace-only — the single home for "no marker".</summary>
     public static bool IsBlankMarker(RecordType marker)
     {
         var s = marker.Type;
         return string.IsNullOrEmpty(s) || string.IsNullOrWhiteSpace(s) || s.All(c => c == '\0');
     }
 
-    /// <summary>Auto-fill a topic's SNAM marker from its <c>Subtype</c> when it is blank, on the create path.
-    /// Reports WHICH of three things happened so the caller can be honest: <see cref="MarkerFill.Filled"/>
-    /// (was blank, now set — <paramref name="marker"/> carries the tag, for the "report it" op),
-    /// <see cref="MarkerFill.AlreadySet"/> (a non-blank marker the author set — NEVER overridden, the escape hatch
-    /// stays theirs), or <see cref="MarkerFill.Unmodeled"/> (blank AND no marker modeled for the subtype — an
-    /// out-of-range enum value; NOTHING filled, the caller MUST surface it loudly rather than ship a silent blank).
-    /// Only ever completes a write the author under-specified; it does not touch <c>Subtype</c> itself.</summary>
+    /// <summary>Auto-fill a topic's SNAM marker from its <c>Subtype</c> when it is blank, on the create path, and
+    /// report which of the three <see cref="MarkerFill"/> arms happened. Never overrides, never touches
+    /// <c>Subtype</c>.</summary>
     public static MarkerFill NormalizeMarker(IDialogTopic topic, out string? marker)
     {
         marker = null;
@@ -240,15 +197,9 @@ public static class DialogueSubtype
         return MarkerFill.Filled;
     }
 
-    /// <summary>Edit-path intent-following: force a topic's SNAM marker to MATCH its current <c>Subtype</c>,
-    /// overwriting a stale one. Unlike <see cref="NormalizeMarker"/> (which only fills a BLANK marker, for create),
-    /// this is called by the edit lane ONLY after a call that SET <c>Subtype</c> and did NOT set <c>SubtypeName</c> —
-    /// so the change actually takes effect (the engine buckets by SNAM, so a stale marker makes a Subtype edit a
-    /// silent in-game no-op). Gating on "this call set Subtype" is the CALLER's job; that's what keeps it from
-    /// firing on the countless vanilla topics whose DATA\Subtype is legitimately noisy. Returns
-    /// <see cref="MarkerFill.Filled"/> (marker changed — carries the tag), <see cref="MarkerFill.AlreadySet"/>
-    /// (already the right marker, nothing changed), or <see cref="MarkerFill.Unmodeled"/> (Subtype out of the modeled
-    /// range — caller must fail loud, never leave a mismatched/blank marker silently).</summary>
+    /// <summary>Force a topic's SNAM marker to MATCH its current <c>Subtype</c>, overwriting a stale one, on the
+    /// edit path only after a call that set <c>Subtype</c> and not <c>SubtypeName</c> — the gate is the CALLER's
+    /// job. Returns the same three <see cref="MarkerFill"/> arms.</summary>
     public static MarkerFill SyncMarkerToSubtype(IDialogTopic topic, out string? marker)
     {
         marker = null;
