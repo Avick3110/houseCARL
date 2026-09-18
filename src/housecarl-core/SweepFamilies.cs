@@ -1,63 +1,32 @@
 namespace HousecarlCore;
 
-/// <summary>
-/// A FAMILY of derived findings on the merged <c>check</c> surface: one sweep, one taxonomy, one
-/// section of the response. The families are what <c>findings=</c> selects among; the CLASSES inside a family
-/// (<see cref="ErrorFindingClass"/>, <see cref="ScriptFindingClass"/>) are what it selects WITHIN one.
-/// </summary>
+/// <summary>A FAMILY of derived findings on the merged <c>check</c> surface: one sweep, one taxonomy, one section of
+/// the response. Families are what <c>findings=</c> selects among; classes are what it selects within one.</summary>
 public enum SweepFamily
 {
-    /// <summary>Load-order integrity: dangling references, missing masters, parse failures. Was
-    /// <c>housecarl_check_errors</c>.</summary>
+    /// <summary>Load-order integrity: dangling references, missing masters, parse failures.</summary>
     Errors,
 
     /// <summary>VMAD script-property binding: unbound properties, bound-but-null objects, unverifiable
-    /// attachments. Was <c>housecarl_validate_scripts</c>.</summary>
+    /// attachments.</summary>
     Scripts,
 
-    /// <summary>Dialogue graph integrity over SEEDED topics and quests: broken quest/branch/LinkTo wiring, dangling
-    /// previous-links, silent voiced lines, result scripts that will not fire, malformed conditions, missing
-    /// CK-parity subrecords, a stale or missing <c>.seq</c>. Was <c>housecarl_validate_dialogue</c>. The effective
-    /// merged INFO order is NOT a finding here: an ordered sequence over the touching-plugin stack is a different
-    /// result shape and lives on <c>records project=info_order</c>.
-    ///
-    /// <para><b>It is SEEDED, not swept.</b> Its selection is seed-expansion — a quest expands to every topic it
-    /// owns — so it takes its own <c>seeds=</c> rather than the other families' plugin scope, and a call that names
-    /// it without seeds is a declared cost-refusal, never a whole-order dialogue sweep.</para></summary>
+    /// <summary>Dialogue graph integrity over SEEDED topics and quests. Seeded, not swept: it takes its own
+    /// <c>seeds=</c>, and a call naming it without seeds is a declared cost-refusal.</summary>
     Dialogue,
 
     /// <summary>FACEGEN: which mod wins each NPC's head .nif, which wins its face .dds, and which plugin wins the
-    /// NPC_ record behind them, joined one row per NPC. The dark/grey-face desync — two independent precedences,
-    /// which is why xEdit shows nothing. Swept like the errors family, and NOT in the default set.</summary>
+    /// NPC_ record behind them, joined one row per NPC. Swept like the errors family, and not in the default set.</summary>
     Facegen,
 }
 
-/// <summary>
-/// The merged <c>findings=</c> vocabulary: which FAMILIES a call runs, and which CLASSES within each.
-///
-/// <para><b>Family tokens and class tokens are one vocabulary, not two parameters.</b> A family token means every
-/// class in that family; a class token means that family runs, narrowed to that class. This is the device
-/// <c>unbound</c> already was — a group name standing for two classes inside one vocabulary — applied one level
-/// up: a call naming several families runs each over its own declared selection and renders one section per
-/// family, so no second parameter and no guard clause is needed.</para>
-///
-/// <para><b>The default is ONE family, and the response says so.</b> Omitting <c>findings=</c> runs the errors
-/// family alone. It cannot be every family: an unscoped scripts sweep takes 468 seconds on a 3800-plugin order,
-/// and an unscoped dialogue sweep is refused on cost outright. A default that narrows silently would answer a
-/// question the caller did not ask without saying which — so the selection carries <see cref="NotRun"/>, and the
-/// render states every registered family it did not run together with the spelling that gets it
-/// (<see cref="Spelling"/>).</para>
-/// </summary>
+/// <summary>The merged <c>findings=</c> vocabulary: which families a call runs, and which classes within each. Family
+/// tokens and class tokens are one vocabulary; contracts in docs/architecture/check-family-tests.md.</summary>
 public sealed class SweepFamilySelection
 {
-    /// <summary>Every family the merged surface knows, in the order a response renders them. Membership is declared
-    /// HERE and nowhere else: what a call can ask for (<see cref="TryParse"/>), what the response reports as not run
-    /// (<see cref="NotRun"/>) and what the refusal offers (<see cref="Vocabulary"/>) all read this list.
-    ///
-    /// <para>Family tokens are matched against this list rather than a hand-written case per family, so a registered
-    /// family is askable by construction: <see cref="Vocabulary"/> cannot offer a spelling <see cref="TryParse"/>
-    /// rejects. What still needs writing per family is its own data (<see cref="Token"/>, <see cref="Title"/>,
-    /// <see cref="Describe"/>) and its class tokens.</para></summary>
+    /// <summary>Every family the merged surface knows, in the order a response renders them — the one place
+    /// membership is declared, read by <see cref="TryParse"/>, <see cref="NotRun"/> and <see cref="Vocabulary"/>
+    /// alike. Pinned by REGISTERED-IS-THE-MEMBERSHIP in CheckMergeProbe.</summary>
     public static readonly IReadOnlyList<SweepFamily> Registered =
         new[] { SweepFamily.Errors, SweepFamily.Scripts, SweepFamily.Dialogue, SweepFamily.Facegen };
 
@@ -73,28 +42,24 @@ public sealed class SweepFamilySelection
     }
 
     /// <summary>The families this call runs, in <see cref="Registered"/> order — never the order the caller named
-    /// them, so two calls selecting the same families render alike.</summary>
+    /// them.</summary>
     public IReadOnlyList<SweepFamily> Ran { get; }
 
-    /// <summary>The registered families this call does NOT run. The response states these by name; a caller
-    /// cannot otherwise tell a family that found nothing from one that never ran.</summary>
+    /// <summary>The registered families this call does NOT run; the response states these by name.</summary>
     public IReadOnlyList<SweepFamily> NotRun { get; }
 
-    /// <summary>Which error classes the errors family looks for. <see cref="ErrorFindingClass.All"/> when the
-    /// family was named without narrowing.</summary>
+    /// <summary>Which error classes the errors family looks for; <see cref="ErrorFindingClass.All"/> when the family
+    /// was named without narrowing.</summary>
     public ErrorFindingClass ErrorClasses { get; }
 
     /// <summary>Which script classes the scripts family reports.</summary>
     public ScriptFindingClass ScriptClasses { get; }
 
-    /// <summary>Which facegen classes the facegen family reports. <see cref="FaceGenFindingClass.All"/> when the
-    /// family was named without narrowing — under which the benign <c>family_split</c> class is COUNTED in the
-    /// header but not listed, so 268 benign rows cannot bury 126 real ones.</summary>
+    /// <summary>Which facegen classes the facegen family reports; under <see cref="FaceGenFindingClass.All"/> the
+    /// benign <c>family_split</c> class is counted in the header but not listed.</summary>
     public FaceGenFindingClass FaceGenClasses { get; }
 
-    /// <summary><c>findings=</c> was omitted, so <see cref="Ran"/> is the default rather than a caller's choice.
-    /// The render says which of the two it is: "you did not ask for these" and "you asked for these and not those"
-    /// are different sentences.</summary>
+    /// <summary><c>findings=</c> was omitted, so <see cref="Ran"/> is the default rather than a caller's choice.</summary>
     public bool Defaulted { get; }
 
     /// <summary>The family's token as a caller spells it in <c>findings=</c>.</summary>
@@ -117,8 +82,8 @@ public sealed class SweepFamilySelection
         _ => Token(f),
     };
 
-    /// <summary>What this family is, in the fewest words that still distinguish it — for the sentence naming a
-    /// family that did not run, where the token alone ("scripts") does not say what asking for it would buy.</summary>
+    /// <summary>What this family is, in the fewest words that still distinguish it — for the sentence naming a family
+    /// that did not run.</summary>
     public static string Describe(SweepFamily f) => f switch
     {
         SweepFamily.Errors => "dangling references, missing masters and parse failures",
@@ -128,21 +93,14 @@ public sealed class SweepFamilySelection
         _ => Token(f),
     };
 
-    /// <summary>The exact spelling that adds one family to a call. A remedy that names a knob without spelling it is
-    /// a remedy the caller has to guess at — and one that spells a call the tool would REFUSE is worse than none.
-    /// The dialogue family is seeded rather than swept, so <c>findings=["dialogue"]</c> on its own is the
-    /// cost-refusal; its spelling carries the <c>seeds=</c> that makes the call run.</summary>
+    /// <summary>The exact spelling that adds one family to a call; the dialogue family's carries the <c>seeds=</c>
+    /// that makes the call run rather than refuse.</summary>
     public static string Spelling(SweepFamily f) => f == SweepFamily.Dialogue
         ? "findings=[\"dialogue\"] seeds=[\"XXXXXX:Plugin.esp\"]"
         : "findings=[\"" + Token(f) + "\"]";
 
-    /// <summary>The whole legal vocabulary, for the refusal — every family token and every class token, so a
-    /// caller who misspelled one sees all of them.
-    ///
-    /// <para>The FAMILY half reads <see cref="Registered"/>, so it cannot offer a token <see cref="TryParse"/>
-    /// refuses. The CLASS half is written per family, because a family's classes are a fact about that family. The
-    /// dialogue family has none — it narrows by <c>seeds=</c>, and the sentence says so rather than leaving a
-    /// caller to wonder why their family lists no classes.</para></summary>
+    /// <summary>The whole legal vocabulary, for the refusal — every family token (read off <see cref="Registered"/>)
+    /// and every class token.</summary>
     public static string Vocabulary =>
         string.Join(", ", Registered.Select(f => "'" + Token(f) + "'"))
         + " (whole families), or the classes inside them: 'dangling', 'missing_masters' (errors); "
@@ -151,8 +109,7 @@ public sealed class SweepFamilySelection
         + "no class token — it narrows by seeds=, not by class";
 
     /// <summary>Parse the merged <c>findings=</c>. An empty or omitted list is the errors-family default; an
-    /// unrecognized token is a NAMED refusal listing the whole vocabulary, never a silent drop to "everything" —
-    /// that would answer a different question than the one asked.</summary>
+    /// unrecognized token is a named refusal listing the whole vocabulary.</summary>
     public static bool TryParse(IReadOnlyList<string>? names, out SweepFamilySelection selection, out string? error)
     {
         selection = null!;
@@ -173,8 +130,7 @@ public sealed class SweepFamilySelection
 
         foreach (var raw in names)
         {
-            // Family tokens resolve against Registered, the same list Vocabulary offers from, so the refusal can
-            // never name a spelling this parser rejects.
+            // Family tokens resolve against Registered, the same list Vocabulary offers from.
             string token = Normalize(raw);
             var named = FamilyFor(token);
             if (named is { } fam)
@@ -203,8 +159,7 @@ public sealed class SweepFamilySelection
                     Add(SweepFamily.Scripts); scriptClasses |= ScriptFindingClass.BoundNull; break;
 
                 default:
-                    // The facegen family's class tokens are its own data, resolved through the one lookup that
-                    // spells them, so the vocabulary a refusal offers cannot drift from what this accepts.
+                    // The facegen family's class tokens resolve through the one lookup that spells them.
                     if (FaceGenCheck.ClassFor(token) is { } fc)
                     {
                         Add(SweepFamily.Facegen); facegenClasses |= fc; break;
@@ -217,9 +172,7 @@ public sealed class SweepFamilySelection
             }
         }
 
-        // A family named as a WHOLE gets every class; a family reached only through class tokens gets exactly
-        // those. Naming both ('scripts' and 'bound_null') is the whole family — the wider of the two, which is
-        // what the caller asked for by naming the family at all.
+        // A family named as a WHOLE gets every class; a family reached only through class tokens gets exactly those.
         selection = new SweepFamilySelection(
             Registered.Where(ran.Contains).ToArray(),
             errorsWholeFamily || errorClasses == ErrorFindingClass.None ? ErrorFindingClass.All : errorClasses,
@@ -231,9 +184,8 @@ public sealed class SweepFamilySelection
         void Add(SweepFamily f) { if (!ran.Contains(f)) ran.Add(f); }
     }
 
-    /// <summary>The registered family a whole-family token names, or null where the token is not one. The single
-    /// resolution of a family token, so <see cref="Vocabulary"/> offering a token and <see cref="TryParse"/>
-    /// accepting it are the same fact.</summary>
+    /// <summary>The registered family a whole-family token names, or null where the token is not one — the single
+    /// resolution of a family token.</summary>
     static SweepFamily? FamilyFor(string token)
     {
         foreach (var f in Registered) if (Token(f) == token) return f;
