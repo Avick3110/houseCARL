@@ -5,8 +5,7 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>A closed value set the server validates a nested member against. One case per TABLE, never per member:
-/// the values come from the collection the gate itself reads, so a verb added there reaches the published schema.</summary>
+/// <summary>A closed value set the server validates a nested member against; one case per table, never per member.</summary>
 internal enum SchemaVocabulary
 {
     /// <summary>Every write verb the apply surface accepts (<see cref="WriteVerbs.All"/>).</summary>
@@ -17,10 +16,7 @@ internal enum SchemaVocabulary
     ComposeVerbs,
 }
 
-/// <summary>The member is one the server REFUSES a call without — published as a JSON Schema <c>required</c> entry on
-/// the object that carries it. Declared on the member because a shape is reached from several parameters
-/// (<c>compose</c> appears under four) and a path list would have to name each occurrence, including the ones the
-/// recursion bound expands.</summary>
+/// <summary>The member is one the server refuses a call without, published as a JSON Schema <c>required</c> entry.</summary>
 [AttributeUsage(AttributeTargets.Property)]
 internal sealed class SchemaRequiredAttribute : Attribute { }
 
@@ -31,24 +27,8 @@ internal sealed class SchemaValuesAttribute(SchemaVocabulary vocabulary) : Attri
     public SchemaVocabulary Vocabulary { get; } = vocabulary;
 }
 
-/// <summary>
-/// The third publication pass: <c>required</c> and <c>enum</c> INSIDE a parameter, where the SDK's generator emits
-/// neither. It derives both from the C# shapes the server binds and validates against — the marked members and the
-/// verb tables — so a client can check a nested call before sending it, and nothing here is a second copy of a fact.
-///
-/// <para>ADDITIVE on <c>required</c>: it unions with what the generator already published rather than replacing it,
-/// and an <c>enum</c> on a member the generator typed as nullable carries null, so nothing it stamps publishes
-/// narrower than the gate accepts. The one NARROWING is a required member's type, which loses its null arm — the
-/// generator types every <c>string?</c> member as <c>["string","null"]</c>, and a member the server refuses the call
-/// without is not one an explicit null satisfies.</para>
-///
-/// <para>Runs LAST, after the flatten, so every recursion-expanded copy of a shape is stamped as well as the first.
-/// The walk is TYPE-DIRECTED and the schema bounds it: it descends only where the published document still spells a
-/// shape out, so the open node that closes a recursive chain constrains nothing, exactly as before.</para>
-///
-/// <para>Changes only what is PUBLISHED. Neither reader of a call's arguments consults it: <see cref="ToolCallShim"/>
-/// reads a schema's top-level <c>properties</c> only, and <c>ListParams.Read&lt;T&gt;</c> reads no schema at all.</para>
-/// </summary>
+/// <summary>The third publication pass: <c>required</c> and <c>enum</c> inside a parameter, derived from the marked
+/// members and the verb tables; contract in <c>docs/architecture/tool-schema-publication.md</c>.</summary>
 internal static class NestedSchemaConstraints
 {
     /// <summary>The values behind a vocabulary — the table the gate reads, never a list written here.</summary>
@@ -60,10 +40,8 @@ internal static class NestedSchemaConstraints
         _ => throw new ArgumentOutOfRangeException(nameof(vocabulary), vocabulary, "No table backs this vocabulary."),
     };
 
-    /// <summary>Every tool parameter with the CLR type its published schema was generated from. Reflected off the
-    /// tool surface rather than listed, so a new parameter carrying a marked shape is stamped without an entry here.
-    /// A parameter declared <see cref="System.Text.Json.JsonElement"/> for the <c>@file</c> union carries its element
-    /// type nowhere but <see cref="ToolSchemas.FileListParams"/>, so that row supplies it.</summary>
+    /// <summary>Every tool parameter with the CLR type its published schema was generated from, reflected off the tool
+    /// surface; an <c>@file</c> parameter's element type comes from <see cref="ToolSchemas.FileListParams"/>.</summary>
     internal static IReadOnlyList<(string Tool, string Parameter, Type Type)> ParameterRoots()
     {
         var rows = new List<(string, string, Type)>();
@@ -88,8 +66,7 @@ internal static class NestedSchemaConstraints
         return rows;
     }
 
-    /// <summary>Stamp one tool's schema from the roots of its own parameters. Returns false — leaving the document
-    /// untouched — when it is not the shape this expects or no member under it is marked.</summary>
+    /// <summary>Stamp one tool's schema from the roots of its own parameters, or false and untouched.</summary>
     internal static bool Stamp(JsonObject root, IEnumerable<(string Parameter, Type Type)> parameters)
     {
         if (root["properties"] is not JsonObject props) return false;
@@ -99,13 +76,11 @@ internal static class NestedSchemaConstraints
         return changed;
     }
 
-    /// <summary>Walk one CLR type against the schema node published for it, stamping as it goes. The SCHEMA decides
-    /// how far it goes: a node that no longer spells out its members ends the branch, which is what keeps the walk
-    /// finite over the recursive write DTOs.</summary>
+    /// <summary>Walk one CLR type against the schema node published for it, stamping as it goes; a node that no longer
+    /// spells out its members ends the branch, which keeps the walk finite over the recursive write DTOs.</summary>
     static bool Walk(Type type, JsonObject node)
     {
-        // A union node's arms are alternative spellings of the SAME parameter, so each is walked against the same
-        // type; an arm that is not this shape (the "@<path>" string) simply carries nothing to stamp.
+        // A union node's arms are alternative spellings of the same parameter, so each is walked against the type.
         if (node["anyOf"] is JsonArray arms)
         {
             bool any = false;
@@ -129,18 +104,14 @@ internal static class NestedSchemaConstraints
             if (property.GetCustomAttribute<SchemaRequiredAttribute>() is not null)
             {
                 required.Add(wire);
-                // A member the server refuses the call without cannot be satisfied by an explicit null, so the type
-                // published for it does not offer one. Ordered BEFORE the enum stamp so both read the same type.
+                // Ordered before the enum stamp so both read the same type.
                 changed |= DropNull(member);
             }
             if (property.GetCustomAttribute<SchemaValuesAttribute>() is { } values)
             {
                 var legal = new JsonArray();
                 foreach (var v in Values(values.Vocabulary)) legal.Add(v);
-                // JSON Schema applies enum to EVERY instance, null included, so a member the generator published as
-                // nullable needs null in the list or the two constraints contradict each other — and this member is
-                // one the server defaults rather than refuses (an absent, null or blank verb is read as Set), so an
-                // enum without null would refuse, a hop earlier, a call the tool answers.
+                // JSON Schema applies enum to every instance, null included, so a nullable member keeps null.
                 if (AdmitsNull(member)) legal.Add((JsonNode?)null);
                 member["enum"] = legal;
                 changed = true;
@@ -148,8 +119,7 @@ internal static class NestedSchemaConstraints
             changed |= Walk(property.PropertyType, member);
         }
 
-        // UNION, never assignment: the generator emits its own nested `required` for a non-nullable member, and
-        // overwriting would silently stop publishing a requirement the binder still enforces.
+        // Union, never assignment: the generator emits its own nested `required` for a non-nullable member.
         if (required.Count > 0)
         {
             var names = new List<string>();
@@ -168,10 +138,8 @@ internal static class NestedSchemaConstraints
         return changed;
     }
 
-    /// <summary>Drop the null arm from a member's published type, in BOTH spellings the generator uses: a
-    /// <c>type</c> array, and an <c>anyOf</c> union whose arms carry their own types. Generic: it reads the
-    /// DOCUMENT, so every member marked required loses the arm without anything here naming one. A shape that is
-    /// null and nothing else is left alone — narrowing that publishes a member no value can satisfy.</summary>
+    /// <summary>Drop the null arm from a member's published type, in both spellings the generator uses; a shape that is
+    /// null and nothing else is left alone.</summary>
     static bool DropNull(JsonObject member)
     {
         if (member["anyOf"] is JsonArray arms)
@@ -196,8 +164,7 @@ internal static class NestedSchemaConstraints
     static bool IsNullOnly(JsonObject arm)
         => arm["type"] is JsonValue v && v.TryGetValue<string>(out var s) && s == "null";
 
-    /// <summary>Does the published type of this member accept a JSON null? Read off the DOCUMENT, so the answer is
-    /// whatever the generator actually emitted rather than a second reading of the CLR type's nullability.</summary>
+    /// <summary>Does the published type of this member accept a JSON null? Read off the document, not the CLR type.</summary>
     static bool AdmitsNull(JsonObject member) =>
         member["anyOf"] is JsonArray arms
             ? arms.Any(a => a is JsonObject o && AdmitsNull(o))
@@ -208,8 +175,6 @@ internal static class NestedSchemaConstraints
                 _ => false,
             };
 
-    /// <summary>The element type of a published ARRAY shape, or null when the type is not one. Arrays only: every
-    /// list-valued wire shape on this surface is <c>T[]</c>, and a dictionary publishes
-    /// <c>additionalProperties</c> rather than <c>items</c>.</summary>
+    /// <summary>The element type of a published array shape, or null when the type is not one.</summary>
     static Type? ElementType(Type type) => type.IsArray ? type.GetElementType() : null;
 }
