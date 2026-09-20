@@ -50,8 +50,9 @@ made the change.
   the function it sits in.** Decompile vanilla `WEBountyCollectorScript` and read `OnStoryScript`.
 - **`housecarl_asset_status` names a mod folder it could not read instead of quietly leaving it out of the
   answer.** Ask about a path or a folder a mod blocks: the answer names that mod above the rows.
-- **The four record tools are titled for what they do, with no internal spec naming.** Call
-  `housecarl_records` and read the "Used …" line: it now says "Read records".
+- **`housecarl_records`, `housecarl_apply`, `housecarl_create` and `housecarl_remove` are titled for what they
+  do, with no internal spec naming.** Call `housecarl_records` and read the "Used …" line: it now says
+  "Read records".
 
 ## 2.0.2 — 2026-09-15
 
