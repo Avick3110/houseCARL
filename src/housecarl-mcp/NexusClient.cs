@@ -5,34 +5,24 @@ using System.Text.RegularExpressions;
 
 namespace HousecarlMcp;
 
-/// <summary>Read-only bridge to the Nexus Mods public v2 GraphQL API — search the catalog and look up a mod's version,
-/// requirements and files. It never downloads, installs, endorses or mutates anything; a download stays the mod
-/// manager's job. Keyless: the v2 read surface is public and anonymous, so there is no API key to configure. Every
-/// failure mode — no connection, timeout, HTTP error, rate limit, malformed body, GraphQL error — is returned as a
-/// plain message and never thrown, so the local load-order tools keep working offline. This is the server's only
-/// outbound network dependency, and it stays out of housecarl-core, which is network-free.</summary>
+/// <summary>Keyless read-only client for the Nexus Mods public v2 GraphQL API; contract in docs/architecture/nexus.md.</summary>
 public sealed class NexusClient
 {
-    /// <summary>Skyrim Special Edition's Nexus game id (domainName 'skyrimspecialedition'). Every query is scoped to
-    /// this, so the user never types a game id.</summary>
+    /// <summary>Skyrim Special Edition's Nexus game id; every query is scoped to it.</summary>
     public const int SkyrimSeGameId = 1704;
 
     const string Endpoint = "https://api.nexusmods.com/v2/graphql";
 
     readonly HttpClient _http;
 
-    // PropertyNamingPolicy=null: GraphQL field and variable names are case-sensitive (gameId, modId, categoryName,
-    // direction), so a naming policy must not rewrite them.
+    // PropertyNamingPolicy=null: GraphQL field and variable names are case-sensitive.
     static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = null };
 
     public NexusClient(HttpClient http) => _http = http;
 
-    // ──────────────────────────────────────────────────────────────────────────────────────────────────────────
-    //  Public API — each returns (ok, error, payload). ok==false means error is a user-facing message, payload null.
-    // ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // Each public call returns (ok, error, payload); ok==false means error is a user-facing message and payload null.
 
-    /// <summary>Search Skyrim SE mods by a wildcard name term, sorted DESC by <paramref name="sortField"/> (a ModsSort
-    /// field name), optionally narrowed to a category name, capped at <paramref name="count"/>.</summary>
+    /// <summary>Search Skyrim SE mods by a wildcard name term, optionally narrowed to a category, capped at a count.</summary>
     public async Task<(bool ok, string? error, NexusSearchResult? result)> SearchAsync(
         string term, string? category, string sortField, int count, CancellationToken ct)
     {
@@ -44,16 +34,14 @@ public sealed class NexusClient
         if (!string.IsNullOrWhiteSpace(category))
             filter["categoryName"] = new[] { new { value = category!, op = "EQUALS" } };
 
-        // sort is [{ <field>: { direction } }] — a single-key object, hence the dictionary. Name sorts ascending
-        // (A-Z); every other field descending, so most endorsements, downloads or most recent come first.
+        // sort is [{ <field>: { direction } }], a single-key object; name sorts ascending, every other field descending.
         var direction = sortField == "name" ? "ASC" : "DESC";
         var sort = new[] { new Dictionary<string, object> { [sortField] = new { direction } } };
 
         var (ok, error, data) = await PostAsync(SearchQuery, new { filter, sort, count }, ct);
         if (!ok) return (false, error, null);
 
-        // Guard the root navigation: a 200 with an unexpected shape must still return cleanly rather than throw, and
-        // GetProperty would throw on a missing field.
+        // Guard the root navigation: a 200 with an unexpected shape returns cleanly rather than throwing.
         if (!data.TryGetProperty("mods", out var mods) || mods.ValueKind != JsonValueKind.Object
             || !mods.TryGetProperty("nodes", out var nodeList) || nodeList.ValueKind != JsonValueKind.Array)
             return (false, "Nexus Mods returned an unexpected response shape (no 'mods' results).", null);
@@ -67,9 +55,7 @@ public sealed class NexusClient
         return (true, null, new NexusSearchResult(Int(mods, "totalCount"), hits));
     }
 
-    /// <summary>Fetch one mod's full detail + its files, in a SINGLE request (mod + modFiles are separate root fields
-    /// queried together). A non-existent modId comes back as a GraphQL error (mod is non-null in the schema), surfaced
-    /// via ok==false.</summary>
+    /// <summary>Fetch one mod's detail and its files in a single request; a non-existent modId comes back as ok==false.</summary>
     public async Task<(bool ok, string? error, NexusModDetail? mod)> GetModAsync(int modId, CancellationToken ct)
     {
         var (ok, error, data) = await PostAsync(
@@ -98,8 +84,7 @@ public sealed class NexusClient
                     Int(f, "fileId"), Str(f, "name") ?? "", Str(f, "version"),
                     Str(f, "category") ?? "", Long(f, "date"), Str(f, "description"), StrList(f, "changelogText")));
 
-        // Page tags are author and community labels (Gameplay, Lore-Friendly, SKSE), returned as a list of { name }
-        // objects rather than plain strings, hence not StrList.
+        // Page tags come back as a list of { name } objects rather than plain strings, hence not StrList.
         var tags = new List<string>();
         if (m.TryGetProperty("tags", out var tg) && tg.ValueKind == JsonValueKind.Array)
             foreach (var t in tg.EnumerateArray())
@@ -112,11 +97,7 @@ public sealed class NexusClient
             Bool(m, "directDownloadEnabled"), reqs, files, tags));
     }
 
-    /// <summary>Run a raw keyless query against the Nexus v2 endpoint — the completeness backstop behind the curated
-    /// tools, exposing the whole public graph so a field they do not surface is still reachable. Read-only by
-    /// contract: <see cref="IsMutatingQuery"/> refuses mutation and subscription. Returns the raw GraphQL <c>data</c>
-    /// element; failures come back through <see cref="PostAsync"/> as messages. Variables ride the same variable
-    /// channel the typed queries use and are never concatenated into the query text.</summary>
+    /// <summary>Run a raw read-only query against the Nexus v2 endpoint and return its GraphQL <c>data</c> element.</summary>
     public async Task<(bool ok, string? error, JsonElement data)> RawQueryAsync(string query, JsonElement? variables, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(query)) return (false, "no GraphQL query given.", default);
@@ -127,26 +108,11 @@ public sealed class NexusClient
         return await PostAsync(query, vars, ct);
     }
 
-    /// <summary>True when a GraphQL document contains a mutation or subscription operation — the keyword at document
-    /// start or after a prior operation's closing '}'. Deliberately does not match a field that merely contains the
-    /// word, such as a selection named 'mutationCount', so a legitimate read is never refused.</summary>
+    /// <summary>True when a document has a mutation or subscription operation; `nexus-graphql-guard` pins the match.</summary>
     internal static bool IsMutatingQuery(string query) =>
         Regex.IsMatch(query, @"(^|\})\s*(mutation|subscription)\b", RegexOptions.IgnoreCase);
 
-    /// <summary>Batch file-level currency check: is the exact file each of these mods installed still current? Each
-    /// installed file id resolves to its live category in the mod's file list — a live category (MAIN, UPDATE,
-    /// OPTIONAL, MISCELLANEOUS) is Current; OLD_VERSION or ARCHIVED is Outdated and points at the newest same-name
-    /// LIVE file; REMOVED or DELETED is FileRemoved, the author having withdrawn the file rather than superseded it,
-    /// so a same-name live file is named as a lead and never as the replacement, and the row says to read the page;
-    /// absent from the page is FileGone. A mod with both a withdrawn and a retired file reads FileRemoved: taking the
-    /// newest same-name file answers the retirement and does not answer the withdrawal. This avoids the false
-    /// positive a mod-level "installed == newest MAIN"
-    /// compare hits, since a Nexus page hosts many independently-versioned files. With no file id available (a FOMOD
-    /// or manual install) it degrades to NoFileId rather than falling back to that compare. Entries are grouped by
-    /// modId, because one page split across several mod folders shares a modId and each folder may have installed a
-    /// different file. One combined query per chunk: an OR-batched <c>mods()</c> for names and headers plus one
-    /// aliased <c>modFiles()</c> per mod. modIds and fileIds are integers, so inlining them is injection-safe. A chunk
-    /// that fails marks only its own mods Error; the call fails outright only if every chunk failed.</summary>
+    /// <summary>Batch file-level currency check: is the exact file each mod installed still current? Contract in docs/architecture/nexus.md.</summary>
     public async Task<(bool ok, string? error, IReadOnlyList<NexusUpdateStatus> results)> CheckUpdatesAsync(
         IReadOnlyList<(int modId, string? installed, IReadOnlyList<int> fileIds)> mods, CancellationToken ct)
     {
@@ -166,8 +132,7 @@ public sealed class NexusClient
             // fileId and name are what join an installed file id to its live category and name.
             var aliases = string.Join(" ", chunk.Select(id =>
                 $"f{id}:modFiles(modId:\"{id}\",gameId:\"{g}\"){{ fileId name version category date }}"));
-            // count must be at least the chunk size: the mods field defaults to a 20-item page, so without it a chunk
-            // of 21 or more silently drops the overflow, and the verdict path reads an absent mod as NotFound.
+            // count must be at least the chunk size: the mods field otherwise returns a 20-item page and drops the overflow.
             var query = $"query{{ mods(count:{chunk.Count}, filter:{{op:OR, filter:[{branches}]}}){{ nodes{{ modId name version }} }} {aliases} }}";
 
             var (ok, error, data) = await PostAsync(query, new { }, ct);
@@ -202,11 +167,7 @@ public sealed class NexusClient
 
     static readonly IReadOnlyList<InstalledFileCurrency> NoFiles = Array.Empty<InstalledFileCurrency>();
 
-    /// <summary>Group the check-update requests by modId, merging rather than dropping duplicates: a Nexus page split
-    /// across several MO2 mod folders shares a modId, and each folder may have installed a different file, so keeping
-    /// only the first would un-check the rest. File ids merge order-preserving and deduped; the first non-empty
-    /// installed version is kept for the no-file-id fallback display. Returns the first-seen modId order and the
-    /// per-modId merged state.</summary>
+    /// <summary>Group the requests by modId, merging file ids rather than dropping duplicates; pinned by `nexus-file-check-guard`.</summary>
     internal static (List<int> order, Dictionary<int, (string? installed, List<int> fileIds)> map) GroupRequests(
         IReadOnlyList<(int modId, string? installed, IReadOnlyList<int> fileIds)> mods)
     {
@@ -224,38 +185,24 @@ public sealed class NexusClient
         return (order, map);
     }
 
-    /// <summary>Whether a file category is one of Nexus's two retirement buckets, OLD_VERSION or ARCHIVED — a closed
-    /// set. Every other category, including one Nexus adds later, counts as live, and the category string is always
-    /// carried into the output so an unfamiliar one is visible rather than mis-bucketed.</summary>
+    /// <summary>Whether a file category is one of Nexus's two retirement buckets.</summary>
     static bool IsSuperseded(string category) => category is "OLD_VERSION" or "ARCHIVED";
 
-    /// <summary>Whether a file category is one of Nexus's two withdrawal buckets, REMOVED or DELETED — a closed set,
-    /// separate from the retirement ones. A withdrawn file was pulled from the page rather than superseded by a
-    /// newer upload, so it is not an update the caller can simply take.</summary>
+    /// <summary>Whether a file category is one of Nexus's two withdrawal buckets.</summary>
     static bool IsRemoved(string category) => category is "REMOVED" or "DELETED";
 
-    /// <summary>Whether a category means the file is still offered — neither retired nor withdrawn. The one test a
-    /// replacement search uses, so a withdrawn file can never be offered as the answer to a retired one.</summary>
+    /// <summary>Whether a category means the file is still offered — neither retired nor withdrawn.</summary>
     static bool IsLive(string category) => !IsSuperseded(category) && !IsRemoved(category);
 
-    /// <summary>Resolve one mod's file-level currency from its installed file ids and its full file list; see
-    /// <see cref="CheckUpdatesAsync"/> for what each verdict means. A mod absent from the mods() search
-    /// (<paramref name="found"/> false) but whose direct modFiles lookup returned files — the manager-only (nxm) class
-    /// Nexus hides from its search collection — is resolved from those files rather than stamped NotFound.</summary>
+    /// <summary>Resolve one mod's file-level currency from its installed file ids and its full file list; verdicts in docs/architecture/nexus.md.</summary>
     internal static NexusUpdateStatus ComputeStatus(int modId, bool found, string? name, string? header, string? installed,
         IReadOnlyList<int> fileIds, List<(int fileId, string name, string? version, string category, long date)> files)
     {
-        // NotFound only when the mod is both absent from the mods() search and returned no files from the direct
-        // modFiles lookup: the search collection excludes manager-only (nxm) mods, whose modFiles lookup resolves
-        // fine, so gating on the search alone would stamp a real, checkable mod "not found". Files present means the
-        // mod exists — fall through and check them; the friendly name may be null, since the file rows carry names.
-        // This relies on a genuinely-absent mod (wrong id, LE-only, hidden) returning an empty modFiles list rather
-        // than an error or cross-game files. Even then an installed fileid that matches nothing yields FileGone.
+        // NotFound only when the mod is absent from the search AND returned no files; pinned by `nexus-file-check-guard`.
         if (!found && files.Count == 0)
             return new NexusUpdateStatus(modId, false, name, header, installed, UpdateVerdict.NotFound, NoFiles, null, 0, 0);
 
-        // Newest live MAIN and how many there are — context for LatestOnly and the no-file-id fallback. More than one
-        // means a multi-main page, which a version compare cannot safely resolve.
+        // Newest live MAIN and how many there are — context for LatestOnly and the no-file-id fallback.
         string? mainVer = null; long mainDate = 0; int mainCount = 0;
         foreach (var f in files)
             if (f.category == "MAIN") { mainCount++; if (mainVer is null || f.date > mainDate) { mainVer = f.version ?? "?"; mainDate = f.date; } }
@@ -271,20 +218,17 @@ public sealed class NexusClient
                 var hit = files[idx];
                 if (IsSuperseded(hit.category) || IsRemoved(hit.category))
                 {
-                    // Point to the newest live file with the same name — the variant line's replacement. Left null if
-                    // the author renamed or dropped the variant, rather than guessing the wrong file.
+                    // The newest live file with the same name, left null when the author renamed or dropped the variant.
                     string? rn = null, rv = null; long rd = 0;
                     foreach (var f in files)
                         if (IsLive(f.category) && string.Equals(f.name, hit.name, StringComparison.OrdinalIgnoreCase) && (rn is null || f.date > rd))
                             { rn = f.name; rv = f.version ?? "?"; rd = f.date; }
-                    // This branch serves both buckets: withdrawn by the author, or merely retired to OLD/ARCHIVED.
                     var fileVerdict = IsRemoved(hit.category) ? FileVerdict.Removed : FileVerdict.Superseded;
                     detail.Add(new InstalledFileCurrency(fid, hit.name, hit.version, hit.category, fileVerdict, rn, rv, rd));
                 }
                 else detail.Add(new InstalledFileCurrency(fid, hit.name, hit.version, hit.category, FileVerdict.Live, null, null, 0));
             }
-            // A withdrawn file outranks a retired one: taking the newest same-name file answers the retirement, and
-            // does NOT answer a file the author pulled — that one wants the page read before anything is installed.
+            // A withdrawn file outranks a retired one; pinned by `nexus-file-check-guard`.
             var verdict = detail.Any(d => d.Verdict == FileVerdict.Removed)     ? UpdateVerdict.FileRemoved
                         : detail.Any(d => d.Verdict == FileVerdict.Superseded)  ? UpdateVerdict.Outdated
                         : detail.Any(d => d.Verdict == FileVerdict.Missing)     ? UpdateVerdict.FileGone
@@ -292,13 +236,12 @@ public sealed class NexusClient
             return new NexusUpdateStatus(modId, true, name, header, installed, verdict, detail, mainVer, mainDate, mainCount);
         }
 
-        // No file id: degrade rather than fall back to a mod-level compare. A bare id with no version just lists the newest.
+        // No file id: degrade rather than fall back to a mod-level compare.
         var fallback = string.IsNullOrWhiteSpace(installed) ? UpdateVerdict.LatestOnly : UpdateVerdict.NoFileId;
         return new NexusUpdateStatus(modId, true, name, header, installed, fallback, NoFiles, mainVer, mainDate, mainCount);
     }
 
-    /// <summary>Parse an aliased <c>f&lt;modId&gt;</c> modFiles array from a batch response into (fileId, name, version,
-    /// category, date) tuples; empty when the alias is absent or not an array.</summary>
+    /// <summary>Parse an aliased <c>f&lt;modId&gt;</c> modFiles array from a batch response; empty when the alias is absent.</summary>
     static List<(int fileId, string name, string? version, string category, long date)> FilesFromAlias(JsonElement data, string alias)
     {
         var list = new List<(int, string, string?, string, long)>();
@@ -308,10 +251,7 @@ public sealed class NexusClient
         return list;
     }
 
-    /// <summary>Identify uploaded files by MD5 hash in bulk, via the keyless v2 <c>fileHashes(md5s: [String!]!)</c>.
-    /// Each match returns the mod, the file, and the game id, so a hash belonging to a non-Skyrim-SE file is flagged
-    /// rather than mis-attributed. Unmatched hashes simply do not appear in the response, and the caller maps them
-    /// back to an explicit "no match". md5s go through a query variable, never the query text.</summary>
+    /// <summary>Identify uploaded files by MD5 hash in bulk; match semantics in docs/architecture/nexus.md.</summary>
     public async Task<(bool ok, string? error, IReadOnlyList<NexusFileHash> results)> IdentifyByHashAsync(
         IReadOnlyList<string> md5s, CancellationToken ct)
     {
@@ -339,10 +279,7 @@ public sealed class NexusClient
         return (true, null, list);
     }
 
-    // ──────────────────────────────────────────────────────────────────────────────────────────────────────────
-    //  Core POST — the one place an exception can come from a Nexus call, so the one place every failure turns into a
-    //  returned message. Returns the GraphQL `data` element, cloned to outlive the JsonDocument, on success.
-    // ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // Core POST: the one place a Nexus call can throw, so the one place every failure turns into a returned message.
     async Task<(bool ok, string? error, JsonElement data)> PostAsync(string query, object variables, CancellationToken ct)
     {
         string body;
@@ -459,64 +396,38 @@ public sealed record NexusSearchHit(
 /// <summary>A search response: the true total match count plus the (capped) page of hits.</summary>
 public sealed record NexusSearchResult(int TotalCount, IReadOnlyList<NexusSearchHit> Hits);
 
-/// <summary>One Nexus requirement of a mod. With <paramref name="ExternalRequirement"/> set, the dependency is
-/// off-Nexus and ModId/Url point off-site; otherwise ModId is the required mod's numeric id on Nexus.</summary>
+/// <summary>One Nexus requirement of a mod; with ExternalRequirement set, ModId and Url point off-site.</summary>
 public sealed record NexusRequirement(string ModId, string ModName, string? Url, string? Notes, bool ExternalRequirement);
 
-/// <summary>One uploaded file of a mod. <paramref name="Category"/> is MAIN, OPTIONAL, OLD_VERSION, ARCHIVED and so
-/// on; <paramref name="Date"/> is a unix-seconds timestamp. <paramref name="ChangelogText"/> is empty when the author
-/// wrote none, which the caller reports as unknown rather than as "no changes".</summary>
+/// <summary>One uploaded file of a mod; Date is unix seconds and ChangelogText is empty when the author wrote none.</summary>
 public sealed record NexusFile(
     int FileId, string Name, string? Version, string Category, long Date, string? Description, IReadOnlyList<string> ChangelogText);
 
-/// <summary>Full detail for one mod plus its files. <paramref name="Version"/> is the mod's version header, which can
-/// lag the newest MAIN file — the accurate latest version is the most recent MAIN entry in
-/// <paramref name="Files"/>.</summary>
+/// <summary>Full detail for one mod plus its files; Version is the mod's header, which can lag the newest MAIN file.</summary>
 public sealed record NexusModDetail(
     int ModId, string Name, string? Version, string? Summary, string? Description, string? Author, string Category,
     int Endorsements, int Downloads, string? UpdatedAt, string? CreatedAt, bool AdultContent, string Status,
     bool DirectDownloadEnabled, IReadOnlyList<NexusRequirement> NexusRequirements, IReadOnlyList<NexusFile> Files,
     IReadOnlyList<string> Tags);
 
-/// <summary>Whether one installed file is still live on its mod's page, has been superseded (moved to OLD_VERSION or
-/// ARCHIVED), or is missing entirely (hidden or deleted, so undeterminable). Nexus itself retires a file, so its
-/// category answers "is my exact file current" where a mod-level version compare cannot.</summary>
+/// <summary>Whether one installed file is still live on its mod's page, retired, withdrawn, or missing from it.</summary>
 public enum FileVerdict { Live, Superseded, Missing, Removed }
 
-/// <summary>One installed file's currency: the file resolved from its id and its verdict, plus — when
-/// <see cref="Verdict"/> is <see cref="FileVerdict.Superseded"/> or <see cref="FileVerdict.Removed"/> — the newest
-/// live file with the same name, null when the author renamed or dropped that variant. For a removed file that name
-/// is a lead, not a replacement: the author pulled the file, and why is on the page. <see cref="Name"/>, <see cref="Version"/> and
-/// <see cref="Category"/> are null only for a <see cref="FileVerdict.Missing"/> file, which is not on the page to
-/// resolve.</summary>
+/// <summary>One installed file's currency, plus the newest same-name live file when it is retired or withdrawn.</summary>
 public sealed record InstalledFileCurrency(
     int FileId, string? Name, string? Version, string? Category, FileVerdict Verdict,
     string? NewestSameName, string? NewestSameVersion, long NewestSameDate);
 
-/// <summary>The verdict for one mod in a batch file-level update check. <see cref="Current"/>: every installed file is
-/// still live. <see cref="FileRemoved"/>: at least one was withdrawn by the author (REMOVED or DELETED) — read the
-/// page before installing anything in its place. <see cref="Outdated"/>: at least one was retired to OLD_VERSION or
-/// ARCHIVED, and the per-file detail points to its same-name replacement.
-/// <see cref="FileGone"/>: an installed file id is no longer on the page.
-/// <see cref="NoFileId"/>: no file id was available (a FOMOD or manual install), so a file-level check cannot run.
-/// <see cref="LatestOnly"/>: only a mod id was given, so the newest is listed with no verdict.
-/// <see cref="NotFound"/> and <see cref="Error"/> mean the check could not decide, and are never folded into
-/// Current.</summary>
+/// <summary>The verdict for one mod in a batch file-level update check; what each one means is in docs/architecture/nexus.md.</summary>
 public enum UpdateVerdict { Current, Outdated, FileGone, NoFileId, LatestOnly, NotFound, Error, FileRemoved }
 
-/// <summary>One mod's batch update-check result. <paramref name="Files"/> carries the per-installed-file currency
-/// detail for the file-level verdicts and is empty otherwise. <paramref name="LatestMainVersion"/>,
-/// <paramref name="LatestMainDate"/> and <paramref name="LiveMainCount"/> describe the newest live MAIN file — context
-/// for LatestOnly and the NoFileId fallback, where a count above one means a multi-main page a version compare cannot
-/// safely resolve. <paramref name="HeaderVersion"/> is the mod's version header, which can lag.
-/// <paramref name="Note"/> carries the failure reason when <paramref name="Verdict"/> is Error.</summary>
+/// <summary>One mod's batch update-check result: its verdict, its per-installed-file detail, and newest-live-MAIN context.</summary>
 public sealed record NexusUpdateStatus(
     int ModId, bool Found, string? Name, string? HeaderVersion, string? Installed, UpdateVerdict Verdict,
     IReadOnlyList<InstalledFileCurrency> Files, string? LatestMainVersion, long LatestMainDate, int LiveMainCount,
     string? Note = null);
 
-/// <summary>One MD5-hash match: the Nexus file, the mod it belongs to, the file's version and category, and the
-/// <paramref name="GameId"/>, so a match on a non-Skyrim-SE game is flagged rather than mis-attributed.</summary>
+/// <summary>One MD5-hash match: the Nexus file, its mod, its version and category, and the game id it belongs to.</summary>
 public sealed record NexusFileHash(
     string Md5, string FileName, string FileType, long FileSize, int GameId, int ModFileId,
     int ModId, string? ModName, string? FileVersion, string? FileCategory);
