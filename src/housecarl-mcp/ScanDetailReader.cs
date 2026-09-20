@@ -4,21 +4,10 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// The scan detail lane's row reader — the one path the four scan renders (text, json, dense, artifact) read a
-/// match's body through.
-///
-/// <para>It exists for two costs the per-row call carried (#582). One overlay SESSION covers the whole render, so a
-/// plugin is memory-mapped once for the call instead of once per row. And each row's body comes from
-/// <see cref="BodyPrefetch"/>, a chunk of rows at a time, one enumeration per source plugin however many of that
-/// chunk's rows want it, instead of the whole-overlay walk per record that
-/// <see cref="LoadOrderResolver.IndexView.GetRecord"/> costs. A plugin is walked on the first row that wants it, so
-/// a render max_chars cuts short pays for the plugins its rendered rows came from and not for the rest of the
-/// chunk.</para>
-///
-/// <para>Every row also checks the caller's cancellation token, so a client that aborts stops the render inside one
-/// row.</para>
-/// </summary>
+/// <summary>The scan detail lane's row reader — the one path the four scan renders (text, json, dense, artifact)
+/// read a match's body through. One overlay SESSION covers the whole render and each row's body comes from a
+/// <see cref="BodyPrefetch"/> chunk, so a plugin is walked on the first row that wants it; every row checks the
+/// caller's cancellation token. Contract in docs/architecture/read-engine.md.</summary>
 internal sealed class ScanDetailReader : IDisposable
 {
     readonly LoadOrderService _svc;
@@ -44,8 +33,7 @@ internal sealed class ScanDetailReader : IDisposable
         _resolveNames = resolveNames; _winnerFields = winnerFields;
         _containerHint = containerHint; _depths = depths; _ct = ct;
         _linkMemo = resolveNames ? new LoadOrderService.LinkMemo() : null;
-        // Only a pinned outcome can be read this way: the session and the prefetch have to come off the very build
-        // the scan matched on, and an unpinned outcome falls through to the plain per-row path unchanged.
+        // Only a pinned outcome can be read this way; an unpinned one falls through to the plain per-row path.
         _view = q.Pin?.View;
         _session = q.Pin?.Resolver.OpenSession();
     }
@@ -66,7 +54,7 @@ internal sealed class ScanDetailReader : IDisposable
     }
 
     /// <summary>The plugin whose body this row displays: the scan's own per-match source, or the winner when the
-    /// call retargeted display to it. The same reading every render made inline before this reader existed.</summary>
+    /// call retargeted display to it.</summary>
     string? SourceAt(int i)
         => _winnerFields ? null : (_q.Sources is { } src && i < src.Count ? src[i] : null);
 
@@ -76,8 +64,7 @@ internal sealed class ScanDetailReader : IDisposable
         int start = BodyPrefetch.ChunkStart(i);
         if (start == _chunkStart) return;
         _chunkStart = start;
-        // The scan's own resolved types narrow each plugin's walk to the GRUPs they live in, which is the whole
-        // point of the gather on a master whose placed references outnumber the records wanted.
+        // The scan's own resolved types narrow each plugin's walk to the GRUPs they live in.
         _chunk = BodyPrefetch.Gather(view, _session, _q.Keys, start,
                                      Math.Min(start + BodyPrefetch.ChunkRows, _q.Keys.Count),
                                      SourceAt, _q.GetterTypes, _ct);
