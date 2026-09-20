@@ -6,10 +6,7 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>The Nexus Mods read tools over <see cref="NexusClient"/>: search the catalog, look up one mod's detail,
-/// requirements and newest MAIN file, check installed files for updates, and identify a file by hash. None of them
-/// downloads or installs — that stays the mod manager's nxm handoff. They need an internet connection and fail
-/// cleanly without one, and they do not touch the MO2 instance, so they work with no load order configured.</summary>
+/// <summary>The five Nexus Mods read tools over <see cref="NexusClient"/>; contract in docs/architecture/nexus.md.</summary>
 [McpServerToolType]
 public static class NexusTools
 {
@@ -178,11 +175,7 @@ public static class NexusTools
         return Render.Updates(results, bad);
     }, ct);
 
-    /// <summary>Parse the check-updates input: entries separated by comma, newline or semicolon, in one of two forms —
-    /// file-level <c>&lt;modid&gt;#&lt;fileid&gt;[#&lt;fileid&gt;…]</c>, or <c>&lt;modid&gt;[=&lt;version&gt;]</c> for
-    /// the no-fileid FOMOD/manual fallback and the bare latest-only case. Returns
-    /// (modId, installedVersion or null, fileIds) triples plus the tokens it could not read, which are surfaced back
-    /// rather than dropped. The separator between fileids is '#', because ',' already splits entries.</summary>
+    /// <summary>Parse the check-updates input into (modId, installed version, fileIds) triples plus the unreadable tokens; pinned by `nexus-file-check-guard`.</summary>
     internal static (List<(int modId, string? installed, IReadOnlyList<int> fileIds)> pairs, List<string> bad) ParseUpdatePairs(string input)
     {
         var pairs = new List<(int, string?, IReadOnlyList<int>)>();
@@ -244,8 +237,7 @@ public static class NexusTools
         return Render.Identify(hashes, results, bad);
     }, ct);
 
-    /// <summary>Parse the identify input into normalized lowercase 32-hex MD5 hashes, de-duplicated, plus the tokens
-    /// that were not valid hashes, which are surfaced back rather than dropped.</summary>
+    /// <summary>Parse the identify input into deduped lowercase 32-hex MD5 hashes, plus the tokens that were not hashes.</summary>
     static (List<string> hashes, List<string> bad) ParseHashes(string input)
     {
         var hashes = new List<string>();
@@ -272,15 +264,13 @@ public static class NexusTools
         _ => null,
     };
 
-    /// <summary>Resolve the user's input to an SSE mod id from a bare numeric id or a Nexus mod URL. A URL for a
-    /// different game (fallout4, skyrim, starfield) is rejected rather than resolving to a same-numbered Skyrim SE
-    /// mod. Returns (modId, error), exactly one of which is set.</summary>
+    /// <summary>Resolve a bare numeric id or a Nexus mod URL to an SSE mod id; a URL for another game is rejected.</summary>
     static (int modId, string? error) ResolveModId(string s)
     {
         s = s.Trim();
         if (int.TryParse(s, out var id) && id > 0) return (id, null);
 
-        // A Nexus mod URL carries the game domain right before /mods/<n> (optionally behind a 'games/' segment).
+        // A Nexus mod URL carries the game domain right before /mods/<n>.
         var url = Regex.Match(s, @"nexusmods\.com/(?:games/)?([^/]+)/mods/(\d+)", RegexOptions.IgnoreCase);
         if (url.Success)
         {
@@ -302,20 +292,15 @@ public static class NexusTools
     }
 }
 
-/// <summary>Render the Nexus result records to readable text. Every mod ends with its page URL, so the user can click
-/// through to the manager-download button — the install handoff is left to MO2.</summary>
+/// <summary>Render the Nexus result records to readable text; every mod ends with its page URL.</summary>
 static class Render
 {
     const string ModUrlBase = "https://www.nexusmods.com/skyrimspecialedition/mods/";
 
-    /// <summary>Max characters of cleaned description text to emit — enough for a typical full description, bounded so
-    /// a giant page cannot dominate the response. An over-length body is cut at a word boundary with an explicit
-    /// marker.</summary>
+    /// <summary>Max characters of cleaned description text to emit, cut at a word boundary with an explicit marker.</summary>
     const int DescriptionCap = 6000;
 
-    /// <summary>Render a raw GraphQL <c>data</c> payload for the backstop tool: pretty-printed JSON, bounded with an
-    /// explicit marker. Deliberately unopinionated — the backstop exists to show exactly what the graph returned,
-    /// not a curated view of it.</summary>
+    /// <summary>Render a raw GraphQL <c>data</c> payload as pretty-printed JSON, bounded with an explicit marker.</summary>
     public static string Graphql(JsonElement data)
     {
         var json = JsonSerializer.Serialize(data, GraphqlJson);
@@ -325,9 +310,7 @@ static class Render
         return json;
     }
     const int GraphqlCap = 40000;
-    // UnsafeRelaxedJsonEscaping because the backstop must show exactly what the graph returned: the default encoder
-    // escapes '+', '&', '<', '>' and all non-ASCII to \uXXXX, mangling a version like '1.0+SE' or an accented author
-    // name. "Unsafe" here means HTML/JS injection sinks, and this output is read as terminal text, never re-parsed.
+    // UnsafeRelaxedJsonEscaping so '+', '&' and non-ASCII render literally; pinned by `nexus-graphql-guard`.
     static readonly JsonSerializerOptions GraphqlJson = new()
         { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
@@ -341,8 +324,7 @@ static class Render
         if (r.Hits.Count == 0)
         {
             sb.Append("\n(none)");
-            // category= is a server-side case-sensitive EQUALS, so zero hits with a category filter is as likely a
-            // casing or name miss as a real zero, and the response says so.
+            // category= is a server-side case-sensitive EQUALS, so zero hits may be a casing miss; the response says so.
             if (!string.IsNullOrWhiteSpace(category))
                 sb.Append("\nnote: category matching is EXACT and case-sensitive on Nexus's side ('Armour', not 'armour') — ")
                   .Append("0 matches with a category filter may mean the category name didn't match, not that no mods exist. ")
@@ -384,8 +366,7 @@ static class Render
             sb.Append("\nnote: the author disabled direct download — manager (nxm) download only.");
         if (!string.IsNullOrWhiteSpace(m.Summary)) sb.Append("\n\n").Append(m.Summary);
 
-        // The accurate latest version is the newest MAIN file, not the mod's version header, which can lag. A mod
-        // with no main file at all says so, or the possibly-lagging header would be left as the only signal.
+        // The accurate latest version is the newest MAIN file, not the mod's version header, which can lag.
         NexusFile? main = null;
         foreach (var f in m.Files)
             if (f.Category == "MAIN" && (main is null || f.Date > main.Date)) main = f;
@@ -408,16 +389,13 @@ static class Render
         }
         else sb.Append("\n\nno Nexus requirements listed.");
 
-        // The full file list is opt-in, since a big mod has dozens of archived files. It is what pins a specific
-        // variant's version on a modular or FOMOD mod, where the single newest-MAIN line cannot.
+        // The full file list is opt-in, since a big mod has dozens of archived files.
         if (includeFiles) AppendFiles(sb, m.Files);
 
-        // The per-version changelog is opt-in; since= limits it to releases newer than the installed version. Files
-        // with no changelog lines are reported unknown, because a missing changelog must not read as "nothing changed".
+        // The per-version changelog is opt-in; since= limits it to releases newer than the installed version.
         if (includeChangelog) AppendChangelog(sb, m.Files, since);
 
-        // The full description is opt-in, since it can run several KB of BBCode and HTML. A page with none says so
-        // rather than omitting the section, which would read as a failure to fetch it.
+        // The full description is opt-in, since it can run several KB; a page with none says so rather than omitting it.
         if (includeDescription)
         {
             var body = string.IsNullOrWhiteSpace(m.Description) ? null : StripMarkup(m.Description!, DescriptionCap);
@@ -429,17 +407,13 @@ static class Render
         return sb.ToString();
     }
 
-    /// <summary>List every uploaded file, grouped by category (MAIN, UPDATE, OPTIONAL, MISCELLANEOUS, other,
-    /// OLD_VERSION, ARCHIVED) and newest-first within each group. The section is bounded with an explicit cut, so a
-    /// mod with hundreds of archived files cannot dominate the response. This is the per-variant version detail the
-    /// newest-MAIN summary cannot give.</summary>
+    /// <summary>List every uploaded file, grouped by category and newest-first within each group, bounded with an explicit cut.</summary>
     static void AppendFiles(StringBuilder sb, IReadOnlyList<NexusFile> files)
     {
         sb.Append("\n\n── files (").Append(files.Count).Append(") ──");
         if (files.Count == 0) { sb.Append("\n(this mod has no uploaded files listed.)"); return; }
 
-        // Display order for the categories Nexus emits. An unrecognised category sorts between MISCELLANEOUS and
-        // OLD_VERSION rather than being dropped, so a category Nexus adds later is still shown.
+        // Display order; an unrecognised category sorts between MISCELLANEOUS and OLD_VERSION rather than being dropped.
         static int Order(string c) => c switch
         {
             "MAIN" => 0, "UPDATE" => 1, "OPTIONAL" => 2, "MISCELLANEOUS" => 3,
@@ -463,9 +437,7 @@ static class Render
         }
     }
 
-    /// <summary>Render MD5-identify results: one block per requested hash, so a no-match is shown explicitly rather
-    /// than merely absent, each listing the matched mod and file or saying no Nexus file matches. A match on a
-    /// non-Skyrim-SE game is flagged. Unreadable tokens are listed at the end.</summary>
+    /// <summary>Render MD5-identify results: one block per requested hash, so a no-match is shown explicitly.</summary>
     public static string Identify(IReadOnlyList<string> requested, IReadOnlyList<NexusFileHash> matches, IReadOnlyList<string> unreadable)
     {
         var byHash = matches.GroupBy(m => m.Md5, StringComparer.OrdinalIgnoreCase)
@@ -506,11 +478,7 @@ static class Render
         return bytes + " B";
     }
 
-    /// <summary>Render a batch file-level update check: a one-line summary, then the mods grouped by verdict with the
-    /// actionable ones first — file-removed, outdated, file-gone, no-fileid, current, latest-only, not-found, error.
-    /// Each row lists its installed files with the live, retired, withdrawn or missing verdict; a retired file names
-    /// its same-name replacement, and a withdrawn one says to read the page first. Unreadable input tokens are listed
-    /// back at the end.</summary>
+    /// <summary>Render a batch file-level update check: a summary line, then the mods grouped by verdict, actionable first.</summary>
     public static string Updates(IReadOnlyList<NexusUpdateStatus> results, IReadOnlyList<string> unreadable)
     {
         var sb = new StringBuilder();
@@ -523,7 +491,7 @@ static class Render
         int notFound = results.Count(r => r.Verdict == UpdateVerdict.NotFound);
         int errored = results.Count(r => r.Verdict == UpdateVerdict.Error);
 
-        // Same order as the groups below and the doc above: the most actionable verdict leads both.
+        // Same order as the groups below: the most actionable verdict leads both; pinned by `nexus-file-check-guard`.
         sb.Append("update check (file-level) — ").Append(results.Count).Append(" mod(s): ")
           .Append(removed).Append(" file-removed · ").Append(outdated).Append(" outdated · ")
           .Append(fileGone).Append(" file-gone · ").Append(noFileId).Append(" no-fileid · ")
@@ -587,9 +555,7 @@ static class Render
         }
     }
 
-    /// <summary>Render one installed file's currency line under its mod: its id, then — unless the file is gone — its
-    /// name, version, category and live-or-retired verdict. A retired file names the newest same-name replacement, or
-    /// says there is none. The category is always shown, so an unfamiliar Nexus category stays visible.</summary>
+    /// <summary>Render one installed file's currency line under its mod: its id, name, version, category and verdict.</summary>
     static void AppendFileCurrency(StringBuilder sb, InstalledFileCurrency f)
     {
         sb.Append("\n      · file #").Append(f.FileId);
@@ -602,9 +568,7 @@ static class Render
         if (f.Verdict == FileVerdict.Live) { sb.Append(" — current"); return; }
         if (f.Verdict == FileVerdict.Removed)
         {
-            // A withdrawn file is not a retired one: the author pulled it, and the reason — a broken build, a
-            // permissions dispute, a security issue — is on the page. Never call it current, and never hand over a
-            // same-name file as though taking it were the fix.
+            // A withdrawn file is never called current and its same-name file is never offered as the fix.
             sb.Append(" — REMOVED by the author; the file you have is no longer offered. Read the page (description, "
                     + "posts, changelog) for why before installing anything in its place");
             if (f.NewestSameName is not null)
@@ -623,11 +587,7 @@ static class Render
             sb.Append("; no current file with that exact name — open the page to pick the replacement");
     }
 
-    /// <summary>The per-version changelog, newest release first. A release's changelog can sit on any of its files — a
-    /// MAIN, an OLD_VERSION, an ARCHIVED copy — so the lines are gathered per version and ordered by the newest upload
-    /// date in the group. <paramref name="since"/> keeps releases after the installed version's upload date: dates are
-    /// monotonic where freeform version strings ('5.2SE', '6.9') are not comparable. A version with no changelog lines
-    /// is reported unknown rather than omitted, and the section is bounded with an explicit cut.</summary>
+    /// <summary>The per-version changelog, newest release first; a version with no lines is reported unknown, not omitted.</summary>
     static void AppendChangelog(StringBuilder sb, IReadOnlyList<NexusFile> files, string? since)
     {
         var byVersion = new Dictionary<string, (long date, List<string> lines)>(StringComparer.OrdinalIgnoreCase);
@@ -647,8 +607,7 @@ static class Render
 
         var versions = order.OrderByDescending(v => byVersion[v].date).ToList();
 
-        // since= keeps only releases uploaded after the installed version's file. If that version is not among the
-        // uploads, say so and show the whole changelog rather than guessing a cutoff.
+        // since= keeps releases uploaded after the installed version's file; an unknown version shows the whole changelog.
         if (!string.IsNullOrWhiteSpace(since))
         {
             var key = since.Trim();
@@ -679,9 +638,7 @@ static class Render
         }
     }
 
-    /// <summary>Substring(0, n) that never splits a surrogate pair: an astral character (emoji, CJK extension B and
-    /// beyond) is two UTF-16 chars, so a raw clamp can leave a lone high surrogate at the cut. If the char just before
-    /// the cut is a high surrogate, back up one so the orphaned half is dropped.</summary>
+    /// <summary>Substring(0, n) that never splits a surrogate pair; pinned by `render-clamp-guard`.</summary>
     static string ClampChars(string s, int n)
     {
         if (s.Length <= n) return s;
@@ -697,25 +654,18 @@ static class Render
         return s.Length <= n ? s : ClampChars(s, n).TrimEnd() + "…";
     }
 
-    /// <summary>Turn a Nexus description — BBCode interleaved with HTML, e.g. "[size=5][b]…[/b][/size]&lt;br /&gt;" —
-    /// into readable plain text: drop image and video embeds along with their inner text, which is a bare URL, unwrap
-    /// [url=…]label[/url] to its label, turn list markers and HTML block and break tags into newlines, strip every
-    /// remaining BBCode and HTML tag while keeping inner text, decode the HTML entities that actually appear, collapse
-    /// runaway whitespace, and cap the result with an explicit truncation marker.</summary>
+    /// <summary>Turn a Nexus description's BBCode and HTML into plain text, capped with an explicit truncation marker.</summary>
     internal static string StripMarkup(string raw, int cap)
     {
         const RegexOptions IC = RegexOptions.IgnoreCase;
-        // Bound the input before any regex: the embed and [url] cleaners use a lazy `.*?` that backtracks quadratically
-        // on many unclosed openers in author text, so a malformed page could hang the call for seconds. DescriptionCap
-        // is too late — it only trims the cleaned output. cap*4 leaves headroom for a real description.
+        // Bound the input before any regex: the lazy `.*?` cleaners below backtrack quadratically on unclosed openers.
         var s = ClampChars(raw, cap * 4);
 
-        // Embeds: remove the tag and its inner content, which is a bare URL or id. [img]…[/img], [youtube]…[/youtube].
+        // Embeds: remove the tag and its inner content, which is a bare URL or id.
         s = Regex.Replace(s, @"\[(img|youtube|video|media|embed)\b[^\]]*\].*?\[/\1\]", " ", IC | RegexOptions.Singleline);
-        // Links: keep the human label, drop the target. [url=…]label[/url] or [url]label[/url].
+        // Links: keep the human label, drop the target.
         s = Regex.Replace(s, @"\[url\b[^\]]*\](.*?)\[/url\]", "$1", IC | RegexOptions.Singleline);
-        // List items: [*] opens an item and becomes a bullet; some BBCode dialects also emit a [/*] close, which is
-        // dropped. Neither is letter-led, so the general tag strip below would not catch them.
+        // List items: [*] becomes a bullet and a [/*] close is dropped; neither is letter-led, so the tag strip misses them.
         s = Regex.Replace(s, @"\[\*\]", "\n• ", IC);
         s = Regex.Replace(s, @"\[/\*\]", "", IC);
         // Every remaining BBCode tag: [tag], [tag=value], [/tag] — keep inner text.
@@ -726,14 +676,12 @@ static class Render
         s = Regex.Replace(s, @"<\s*/?\s*(p|div|li|ul|ol|h[1-6]|tr|table)\b[^>]*>", "\n", IC);
         s = Regex.Replace(s, @"<[^>]+>", "", RegexOptions.Singleline);
 
-        // The entities that show up in Nexus descriptions. &amp; must be decoded LAST: it produces a literal '&', the
-        // entity-introducing character, so decoding it first would let "&amp;lt;" become "&lt;" and then "<" — a
-        // double-decode of text the author meant to show literally.
+        // &amp; is decoded LAST, or "&amp;lt;" would double-decode to "<"; pinned by `render-clamp-guard`.
         s = s.Replace("&lt;", "<").Replace("&gt;", ">").Replace("&quot;", "\"")
              .Replace("&#39;", "'").Replace("&apos;", "'").Replace("&nbsp;", " ")
              .Replace("&amp;", "&");
 
-        // Strip zero-width and BOM characters authors paste in, which render as stray glyphs; normalise no-break spaces.
+        // Strip zero-width and BOM characters and normalise no-break spaces.
         s = s.Replace("\uFEFF", "").Replace("\u200B", "").Replace("\u200C", "").Replace("\u200D", "").Replace('\u00A0', ' ');
 
         // Whitespace: normalise newlines, collapse space runs, trim line edges, cap blank-line runs.
@@ -743,7 +691,7 @@ static class Render
         s = Regex.Replace(s, @"\n{3,}", "\n\n");
         s = s.Trim();
 
-        // Cap with an explicit marker, backing up to a nearby word boundary so the text is not cut mid-word.
+        // Cap with an explicit marker, backing up to a nearby word boundary.
         if (s.Length > cap)
         {
             var cut = ClampChars(s, cap);
