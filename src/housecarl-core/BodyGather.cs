@@ -4,13 +4,11 @@ using Mutagen.Bethesda.Plugins.Records;
 namespace HousecarlCore;
 
 /// <summary>Many record bodies, ONE walk per plugin — the one primitive every lane that gathers in bulk reads
-/// through: declare every (plugin, record) the call will need, gather, then read them back. The lanes differ by
-/// constructor option, never by a second copy; contract in docs/architecture/read-engine.md.</summary>
+/// through; contract in docs/architecture/read-engine.md.</summary>
 public sealed class BodyGather
 {
     public enum Absent
     {
-        /// <summary>Fetch it one at a time — the answer and the exception are the one-at-a-time path's.</summary>
         Seek,
         Null,
     }
@@ -27,8 +25,7 @@ public sealed class BodyGather
     readonly HashSet<string> _walked = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<string, PluginUnreadableException> _faults = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>The plugins whose walk faulted, in declaration order, with the cause; a record declared for one of
-    /// them is answered by <see cref="Absent"/> instead.</summary>
+    /// <summary>The plugins whose walk faulted, in declaration order, with the cause.</summary>
     public IReadOnlyDictionary<string, PluginUnreadableException> Faults => _faults;
 
     public IReadOnlyCollection<string> Faulted => _faults.Keys;
@@ -43,8 +40,7 @@ public sealed class BodyGather
         _absent = absent; _onDemand = onDemand; _ct = ct;
     }
 
-    /// <summary>Declare a body this call will need, per (plugin, record): the same FormKey out of the winner and
-    /// out of the source plugin is two bodies.</summary>
+    /// <summary>Declare a body this call will need, per (plugin, record), not per record.</summary>
     public void Want(string pluginName, FormKey fk)
     {
         // A plugin already attempted is never walked again, so a key declared this late falls to Absent instead.
@@ -89,7 +85,7 @@ public sealed class BodyGather
     }
 
     /// <summary>One plugin's walk, guarded: every declared key into <paramref name="sink"/> in one enumeration,
-    /// answering the fault that stopped it or null; out-of-memory and cancellation are rethrown.</summary>
+    /// answering the fault that stopped it or null.</summary>
     public static PluginUnreadableException? WalkOnce(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, string plugin,
         IReadOnlyCollection<FormKey> keys, IReadOnlyList<Type>? getterTypes,
