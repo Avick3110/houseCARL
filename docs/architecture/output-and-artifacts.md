@@ -1,3 +1,7 @@
+---
+updated: 2026-09-18
+covers: [src/housecarl-mcp/OutputLocations.cs, src/housecarl-mcp/Artifacts.cs, src/housecarl-mcp/ResultsStore.cs, src/housecarl-core/ResultArtifact.cs, src/housecarl-core/AtomicFile.cs, src/housecarl-core/FileStamp.cs, src/housecarl-core/OrderStamp.cs, src/housecarl-core/PathArguments.cs]
+---
 # Output locations and result artifacts: where a write lands, and the contracts that hold it
 
 **Class:** LIVING. Subsystem: `src/housecarl-mcp/{OutputLocations, Artifacts, ResultsStore}.cs`,

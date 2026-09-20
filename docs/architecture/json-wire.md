@@ -1,3 +1,7 @@
+---
+updated: 2026-09-18
+covers: [src/housecarl-mcp/JsonWire.cs]
+---
 # The json wire: the shape a machine-readable response is allowed to take
 
 **Class:** LIVING. Subsystem: `src/housecarl-mcp/JsonWire.cs`, the `format="json"` twin of the text `Wire` renderer.

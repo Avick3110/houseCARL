@@ -1,3 +1,7 @@
+---
+updated: 2026-09-18
+covers: [src/housecarl-mcp-tests/CheckErrorsFamilyTests.cs, src/housecarl-mcp-tests/CheckErrorsFixtures.cs, src/housecarl-mcp-tests/CheckErrorsWorld.cs, src/housecarl-mcp-tests/CheckErrorsWorldTests.cs, src/housecarl-mcp-tests/ScriptsFamilyTests.cs, src/housecarl-mcp-tests/ScriptsFixtures.cs, src/housecarl-mcp-tests/EpochCheckSweepTests.cs, src/housecarl-mcp-tests/EpochWorld.cs, src/housecarl-mcp-tests/DialogueFamilyTests.cs, src/housecarl-mcp-tests/DialogueWorld.cs]
+---
 # The check families' tests: which lane a fact is driven from, and why
 
 **Class:** LIVING. Subsystem: `src/housecarl-mcp-tests/{CheckErrorsFamilyTests, CheckErrorsFixtures,

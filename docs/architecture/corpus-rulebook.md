@@ -1,3 +1,7 @@
+---
+updated: 2026-09-18
+covers: [src/housecarl-core/CorpusRulebook.cs, src/housecarl-core/WriteEngine.cs]
+---
 # The corpus rulebook: what pre-flight decides, and why it can never disagree with apply
 
 **Class:** LIVING. Subsystem: `src/housecarl-core/CorpusRulebook.cs`, against `src/housecarl-core/WriteEngine.cs`
