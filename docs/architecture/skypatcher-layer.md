@@ -1,3 +1,7 @@
+---
+updated: 2026-09-18
+covers: [src/housecarl-core/SkyPatcherParse.cs, src/housecarl-core/SkyPatcherCatalog.cs, src/housecarl-core/SkyPatcherFieldMap.cs, src/housecarl-core/SkyPatcherDiscovery.cs, src/housecarl-core/SkyPatcherOverlay.cs, src/housecarl-core/SkyPatcherConflicts.cs, src/housecarl-core/SkyPatcherDraft.cs, src/housecarl-mcp/SkyPatcherTools.cs]
+---
 # The SkyPatcher layer
 
 **Class:** LIVING. Subsystem: `src/housecarl-core/SkyPatcherParse.cs` (tokenizer),

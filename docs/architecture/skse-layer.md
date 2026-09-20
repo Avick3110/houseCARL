@@ -1,3 +1,7 @@
+---
+updated: 2026-09-18
+covers: [src/housecarl-core/SksePluginReader.cs, src/housecarl-core/SksePeek.cs, src/housecarl-core/SkseConfigReferenceExtractor.cs, src/housecarl-core/NativePairing.cs, src/housecarl-mcp/SkseTools.cs, src/housecarl-mcp/SkseJsonDoc.cs, src/housecarl-mcp/AssetLayers.cs]
+---
 # The SKSE layer: what a DLL declares, and the static-load rule
 
 **Class:** LIVING. Subsystem: `SksePluginReader`, `SksePeek`, `SkseConfigReferenceExtractor`, `NativePairing`

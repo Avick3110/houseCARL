@@ -1,3 +1,7 @@
+---
+updated: 2026-09-18
+covers: [src/housecarl-mcp/ToolCallShim.cs, src/housecarl-mcp/Program.cs, src/housecarl-mcp/Guard.cs]
+---
 # The tool-call argument shim
 
 **Class:** LIVING. Subsystem: `src/housecarl-mcp/ToolCallShim.cs`, registered from `Program.cs` via

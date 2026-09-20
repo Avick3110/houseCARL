@@ -1,3 +1,7 @@
+---
+updated: 2026-09-18
+covers: [src/housecarl-mcp/ToolSchemas.cs, src/housecarl-mcp/NestedSchemaConstraints.cs, src/housecarl-mcp/SchemaDepthCap.cs, src/housecarl-mcp/Program.cs]
+---
 # Tool schema publication
 
 **Class:** LIVING. Subsystem: `src/housecarl-mcp/ToolSchemas.cs`,

@@ -1,3 +1,7 @@
+---
+updated: 2026-09-17
+covers: [src/housecarl-core/NifService.cs, src/housecarl-mcp/NifTools.cs, src/housecarl-mcp/AssetLayers.cs]
+---
 # The NIF layer: reading mesh values, and the two write gates
 
 **Class:** LIVING. Subsystem: `NifService` and the NIF data model (`src/housecarl-core`); the `housecarl_nif_inspect` /

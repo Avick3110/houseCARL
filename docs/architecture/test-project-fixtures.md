@@ -1,3 +1,7 @@
+---
+updated: 2026-09-04
+covers: [src/housecarl-mcp-tests/PexWriter.cs, src/housecarl-mcp-tests/ScriptsWorld.cs, src/housecarl-mcp-tests/HeldOpen.cs]
+---
 # Test-project fixtures: the Papyrus world and the file-lock harness
 
 **Class:** LIVING. Subsystem: `src/housecarl-mcp-tests/{PexWriter,ScriptsWorld,HeldOpen}.cs`.
