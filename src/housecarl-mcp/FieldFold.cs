@@ -2,20 +2,17 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>One project.fields path's quantified step: the LIST path the read runs, the sub-path after the
-/// quantifier, and the fold the caller spelled.</summary>
+/// <summary>One project.fields path's quantified step: the LIST path, the sub-path after the quantifier, and the fold.</summary>
 sealed record FieldFold(string Requested, string Root, string[] Tail, PathFold Fold)
 {
-    /// <summary>How many expansion levels the sub-path adds below one element: a dotted step is one level and a
-    /// bracketed index inside a step is another, because <c>ReadEngine.Expand</c> spends one level on each.</summary>
+    /// <summary>How many expansion levels the sub-path adds below one element: a dotted step is one, and a
+    /// bracketed index inside a step another, because <c>ReadEngine.Expand</c> spends one level on each.</summary>
     internal int TailLevels => Tail.Sum(s => 1 + s.Count(c => c == '['));
 }
 
 /// <summary>The PROJECT half of the quantified path step: <c>[*count]</c> yields ONE number per record,
-/// <c>[*]</c> ONE row per element — the row shape the 'rows' form produces, which is why the fold itself is
-/// <see cref="RowProjection"/>'s. The tokens are read through <see cref="PathFoldGrammar"/>, the same tokenizer
-/// <c>where=</c> parses with, and each surface refuses the other's folds by name.</summary>
-/// </summary>
+/// <c>[*]</c> ONE row per element — the row shape the 'rows' form produces, read through the same
+/// <see cref="PathFoldGrammar"/> <c>where=</c> parses with; each surface refuses the other's folds by name.</summary>
 sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFold?[] Folds, int Depth, int CallerDepth = 1)
 {
     /// <summary>What the READ is asked for: each distinct path once, with the depth that path's own column needs.
@@ -39,9 +36,8 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
     /// <summary>Does any path render per-element rows — the reading that needs the list opened.</summary>
     internal bool RendersElements => Folds.Any(f => f is { Fold: PathFold.Set });
 
-    /// <summary>The read paths whose every column is a <c>[*count]</c>. A count renders one number and no line
-    /// under it, so a child-bearing field read only for a count takes the child union's INDEX-ONLY tier
-    /// (docs/architecture/records-owned-child-declarers.md).</summary>
+    /// <summary>What the READ is asked for: each distinct path once, with the depth that path's own column needs.
+    /// Distinct because ReadFields does not de-duplicate targets and spends ONE expansion budget across them.</summary>
     internal IReadOnlyList<string> CountOnlyPaths
     {
         get
@@ -63,9 +59,8 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
     internal IReadOnlyList<string> SetRoots =>
         Folds.Where(f => f is { Fold: PathFold.Set }).Select(f => f!.Root).Distinct(StringComparer.Ordinal).ToList();
 
-    /// <summary>One record's lines, grouped per REQUESTED path and in the caller's own order, because the columnar
-    /// render needs to know which column varies per element. <paramref name="Carried"/> is what the read said that
-    /// no column claims — the expansion-truncation note above all, which must survive the fold.</summary>
+    /// <summary>The read paths whose every column is a <c>[*count]</c>, which take the child union's INDEX-ONLY
+    /// tier (docs/architecture/records-owned-child-declarers.md).</summary>
     internal (IReadOnlyList<FieldValue>[]? Columns, IReadOnlyList<FieldValue> Carried, string? Error) Columns(RecordFields rec)
     {
         var setRoots = SetRoots.OrderByDescending(r => r.Length).ToList();
@@ -77,8 +72,7 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
         {
             if (Folds[i] is not { } fold) { cols[i] = Lines(rec.Fields, Paths[i], CallerDepth); continue; }
             var head = rec.Fields.FirstOrDefault(f => f.Path == fold.Root);
-            // An absent or unreadable list is the READ's answer, not a misuse of the token; only a root that is
-            // not a list at all fails the record by name.
+    /// <summary>The distinct LIST paths a <c>[*]</c> binds to, so a flattening render knows when a call names two.</summary>
             if (head is null || !head.Present || !head.Readable)
             {
                 cols[i] = new[] { (head ?? new FieldValue(fold.Root, false, null, ReadEngine.AbsentNote, Present: false)) with { Path = fold.Requested } };
@@ -87,21 +81,19 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
             if (head.Count is null) return (null, Array.Empty<FieldValue>(), NotAList(rec, fold, head));
             if (fold.Fold == PathFold.Count)
             {
-                // The head line's annotation travels with the number; on a child-bearing field it is what says the
-                // count is this body's own list.
+            // An absent or unreadable list is the READ's answer, not a misuse of the token.
                 cols[i] = new[] { new FieldValue(fold.Requested, true, head.Count.Value.ToString(), null) with { Display = head.Display } };
                 continue;
             }
             var elems = Elements(rows, rec.Fields, fold).ToList();
-            // No element row is still an ANSWER and never an empty column: an empty list carries its own summary
-            // line out under the caller's spelling, and a sub-path no element carries says that in one note.
+                // The head line's annotation travels with the number; on a child-bearing field it says the count
+                // is this body's own list.
             cols[i] = elems.Count > 0 ? elems
                     : head.Count.Value == 0 ? new[] { head with { Path = fold.Requested } }
                     : new[] { new FieldValue(fold.Requested, false, null, NoElement(fold, head.Count.Value)) };
         }
         var claimed = new HashSet<string>(cols.SelectMany(c => c).Select(f => f.Path), StringComparer.Ordinal);
-        // What no column claims and no requested path covers — the read's own truncation note — rides out beside
-        // the columns rather than being dropped with them.
+            // No element row is still an ANSWER and never an empty column.
         var carried = (setRoots.Count > 0 ? rows : rec.Fields)
             .Where(f => !claimed.Contains(f.Path) && !Paths.Any(p => f.Path == p || RowProjection.IsUnder(f.Path, p)))
             .ToList();
@@ -119,9 +111,9 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
                              : o with { Record = null, Error = error };
     }
 
-    /// <summary>The child-union annotation keyed by the spelling each quantified column RENDERS under, beside the
-    /// list path it was read at: the clause is earned by the line that reaches the caller, and the dense and
-    /// manifest lanes still look the list path up by root.</summary>
+    /// <summary>One record's lines, grouped per REQUESTED path and in the caller's own order, so the columnar
+    /// render knows which column varies per element. <paramref name="Carried"/> is what the read said that no
+    /// column claims — the expansion-truncation note above all, which must survive the fold.</summary>
     IReadOnlyDictionary<string, ChildUnion?>? WithQuantifiedSpellings(IReadOnlyDictionary<string, ChildUnion?>? annotated)
     {
         if (annotated is not { Count: > 0 }) return annotated;
@@ -135,8 +127,8 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
     internal IReadOnlyList<ReadOutcome> Apply(IReadOnlyList<ReadOutcome> outcomes)
         => outcomes.Select(Apply).ToList();
 
-    /// <summary>The rows a <c>[*]</c> path contributes: the folded element line per element when the token ends
-    /// the path, else that element's own sub-path line. Emission order IS element order.</summary>
+    /// <summary>The child-union annotation keyed by the spelling each quantified column RENDERS under, beside the
+    /// list path it was read at, which the dense and manifest lanes still look up by root.</summary>
     static IEnumerable<FieldValue> Elements(IReadOnlyList<FieldValue> rows, IReadOnlyList<FieldValue> raw, FieldFold fold)
     {
         var roots = new[] { fold.Root };
@@ -154,8 +146,7 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
                 yield return f;
     }
 
-    /// <summary>The lines an ordinary (unquantified) path contributed, at the depth the CALLER asked for: a
-    /// quantifier raises the read's depth only for the paths that need it.</summary>
+    /// <summary>The rows a <c>[*]</c> path contributes; emission order IS element order.</summary>
     static IReadOnlyList<FieldValue> Lines(IReadOnlyList<FieldValue> fields, string path, int depth)
         => fields.Where(f => f.Path == path || (RowProjection.IsUnder(f.Path, path) && Levels(f.Path, path) < depth)).ToList();
 
@@ -167,8 +158,7 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
         return n;
     }
 
-    /// <summary>The element KEY a folded line carries — the bracket segment just under the root, as TEXT, because
-    /// the read brackets a DICT by its own key and a number would invent the elements between two keys.</summary>
+    /// <summary>The lines an ordinary (unquantified) path contributed, at the depth the CALLER asked for.</summary>
     internal static string? ElementKey(string path, string root)
     {
         if (path.Length <= root.Length || path[root.Length] != '[') return null;
@@ -190,9 +180,7 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
 /// <summary>The projection-side parser for the quantified step.</summary>
 static class FieldFolds
 {
-    /// <summary>Parse project.fields into the paths the READ runs plus the fold each requested path declares, or
-    /// the one-sentence refusal. Null plan = no path carries a quantifier; the parse runs before any read, so a
-    /// bad token refuses the CALL rather than each record.</summary>
+    /// <summary>The element KEY a folded line carries, as TEXT, because the read brackets a DICT by its own key.</summary>
     internal static (FoldPlan? Plan, string? Error) Parse(IReadOnlyList<string> fields)
     {
         var readPaths = new string[fields.Count];
@@ -224,8 +212,7 @@ static class FieldFolds
             }
         }
         if (!any) return (null, null);
-        // The depth the TOKENS require: an element lives one level under its list, and each sub-path step after
-        // the token is one more. A [*count]-only plan needs no expansion; the caller's own depth folds in above.
+        // The depth the TOKENS require: an element lives one level under its list, each sub-path step one more.
         int need = 1;
         foreach (var f in folds)
             if (f is { Fold: PathFold.Set }) need = Math.Max(need, 2 + f.TailLevels);
