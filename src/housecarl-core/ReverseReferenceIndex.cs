@@ -6,36 +6,7 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
 
-/// <summary>
-/// The reverse edge, whole-order: a target FormKey → the records that carry a FormLink to it. It is what makes
-/// "who references X" answerable without a bounding <c>types=</c> / <c>plugins=</c> scope — the forward direction
-/// resolves one link, the reverse direction has to have been walked already.
-///
-/// <para><b>Lazy.</b> Nothing builds it at startup. The first call that needs it pays the whole-order link-walk —
-/// the same walk the dangling sweep already runs — and the cost is reported in that response's accounting rather
-/// than discovered.</para>
-///
-/// <para><b>Partitioned by plugin, keyed on (path, mtime).</b> This is the one place the resolver's existing
-/// freshness machinery does not fit: <c>RefreshIfStale</c> is all-or-nothing and <c>Epoch</c> is order-wide, so an
-/// index hung off the snapshot would die wholesale on every MO2 touch and pay the full walk again. The index is
-/// held BESIDE the snapshot and carried across a snapshot swap AND across a resolver swap; a refresh drops and
-/// rebuilds only the partitions whose own key changed. Stale-and-silent is what the partition key makes
-/// structurally impossible.</para>
-///
-/// <para><b>Generational, so a read is never torn.</b> A refresh builds whole new collections and publishes them
-/// with one field assignment; a reader takes the current generation once and works off it. No reader ever sees a
-/// half-rebuilt order, and no reader takes the build lock.</para>
-///
-/// <para><b>Plugin-atomic.</b> A plugin whose enumeration throws part-way contributes NO partition content and is
-/// named in the report, so a half-read plugin never leaves partial reverse edges behind and a caller can say the
-/// answer is short rather than call it complete.</para>
-///
-/// <para><b>Packed.</b> Entries are ulong ((interned mod index &lt;&lt; 32) | FormID), not FormKey: 8 bytes a pair
-/// instead of 24. Pure derived data — no bodies, no file handles at rest. It is resident until the resolver it
-/// hangs off is dropped: there is no eviction policy and no ceiling knob, which is the accepted ruling.</para>
-///
-/// <para><b>What it is not.</b> Not the position-seek index (a different question), and not reverse over the
-/// runtime layers (SkyPatcher, SPID): plugin FormLinks only, like the sweep it rides.</para></summary>
+/// <summary>The reverse edge, whole-order: a target FormKey to the records that carry a FormLink to it; contracts in docs/architecture/select-and-walk.md.</summary>
 public sealed class ReverseReferenceIndex
 {
     sealed class Partition
@@ -50,29 +21,23 @@ public sealed class ReverseReferenceIndex
         public string? Unreadable;                     // set ⇒ this plugin contributed nothing, and why
     }
 
-    /// <summary>One published, immutable state of the index. Everything a read touches lives here, so a read takes
-    /// the field once and is consistent for its whole run even while a refresh builds the next one.</summary>
+    /// <summary>One published, immutable state of the index; a read takes the field once and is consistent for its whole run.</summary>
     sealed class Generation
     {
-        // Keyed on the plugin PATH, not its filename: the resolver's order is addressed by position and tolerates
-        // two entries sharing a filename (last copy wins = priority), so a filename key would silently drop the
-        // lower-priority copy's edges and re-walk both plugins on every call.
+        // Keyed on the plugin PATH, not its filename: two entries can share a filename, and a filename key would drop the lower-priority copy's edges.
         public Dictionary<string, Partition> ByPath = new(StringComparer.OrdinalIgnoreCase);
         public List<string> Order = new();             // partition paths in priority order — what makes a candidate list deterministic
         public Dictionary<ModKey, int> ModToIdx = new();
         public List<ModKey> IdxToMod = new();
         public string Key = "";
 
-        // Built in the constructor, not on first ask: a `??=` on a shared field is a check-then-assign, so two
-        // concurrent sweeps could each construct one and each hold a ~1.6M-entry set at once.
+        // Built in the constructor, not on first ask: a '??=' on a shared field is a check-then-assign.
         readonly Lazy<HashSet<ulong>> _referenced;
 
         public Generation() =>
             _referenced = new Lazy<HashSet<ulong>>(BuildReferenced, LazyThreadSafetyMode.ExecutionAndPublication);
 
-        /// <summary>Every target something in the order links, as one set — the orphan question answered in a
-        /// lookup rather than a scan over every partition. Built on first ask and thrown away with the
-        /// generation.</summary>
+        /// <summary>Every target something in the order links, as one set; built on first ask and thrown away with the generation.</summary>
         public HashSet<ulong> Referenced => _referenced.Value;
 
         HashSet<ulong> BuildReferenced()
@@ -105,8 +70,7 @@ public sealed class ReverseReferenceIndex
     /// <summary>Distinct (target, referencing record) pairs held.</summary>
     public long PairCount => _gen.ByPath.Values.Sum(p => p.Pairs);
 
-    /// <summary>What the index holds, to the nearest useful order of magnitude: eight bytes a pair plus the
-    /// per-target slot overhead of the dictionaries. Reported, not enforced — there is no ceiling knob.</summary>
+    /// <summary>What the index holds, to the nearest useful order of magnitude. Reported, not enforced — there is no ceiling knob.</summary>
     public long ApproxBytes => PairCount * 8 + (long)TargetSlotCount * 40;
 
     /// <summary>Does anything in the order link to this record? The whole of the orphan question, in one lookup.</summary>
@@ -116,11 +80,7 @@ public sealed class ReverseReferenceIndex
         return g.TryPack(target, out var pt) && g.Referenced.Contains(pt);
     }
 
-    /// <summary>Which of these records nothing in the order links — the orphan sweep. The generation is taken ONCE
-    /// for the whole pass: asked key by key, a refresh landing mid-sweep would judge the early keys against the old
-    /// edges and the late ones against the new, and the freshness key the response cites would name neither
-    /// answer. It also keeps the memoised referenced-set for the whole run instead of rebuilding it at the
-    /// crossing.</summary>
+    /// <summary>Which of these records nothing in the order links — the orphan sweep; the generation is taken ONCE for the whole pass.</summary>
     public IReadOnlyList<FormKey> Orphans(IEnumerable<FormKey> candidates)
     {
         var g = _gen;
@@ -131,10 +91,7 @@ public sealed class ReverseReferenceIndex
         return outp;
     }
 
-    /// <summary>Every record that links to ANY of these targets, deduped, in load order then plugin-enumeration
-    /// order — deterministic for an unchanged order, which is what lets a caller's offset/limit windows tile. The
-    /// answer is a CANDIDATE set: the index says some plugin's copy of the record carries the link, and the caller
-    /// still decides on the body it means to judge (a later override may have dropped it).</summary>
+    /// <summary>Every record that links to ANY of these targets, deduped, in load order then plugin-enumeration order; the answer is a CANDIDATE set the caller still judges on the body it means.</summary>
     public IReadOnlyList<FormKey> ReferencersOf(IReadOnlyList<FormKey> targets)
     {
         var g = _gen;
@@ -153,23 +110,15 @@ public sealed class ReverseReferenceIndex
         return outp;
     }
 
-    /// <summary>What one refresh did, for the response's in-band accounting: the build cost when this call is the
-    /// one that paid it, the per-plugin freshness key, and every plugin the walk could not read.</summary>
+    /// <summary>What one refresh did, for the response's in-band accounting.</summary>
     public sealed record Refreshed(int Partitions, int Rebuilt, long ElapsedMs, int TargetSlots, long Pairs,
                                    long ApproxBytes, IReadOnlyList<string> Unreadable, int UnscannableRecords,
                                    string Key, int LenientRecords = 0)
     {
-        /// <summary>The one accounting line, for the question that asks who references a target. The BUILD clause
-        /// is only true of the call that paid it; the freshness key and the coverage disclosures are true of every
-        /// answer the index serves, so they are unconditional — a cached call that dropped them would read as
-        /// complete when it is short.</summary>
+        /// <summary>The one accounting line; the BUILD clause is true only of the call that paid it, the freshness key and the coverage disclosures of every answer.</summary>
         public string Note => NoteFor(orphanSweep: false);
 
-        /// <summary>The same line, told for the lane that asked. A missing plugin's edges cut BOTH ways and the
-        /// two readings are opposites: the positive question loses referencers, so its answer is short; the orphan
-        /// sweep loses the very edges that would disqualify an orphan, so its answer is over-inclusive — a record
-        /// only the unreadable plugin links is listed as referenced by nothing. Saying "short" there would tell a
-        /// caller the confirmed orphans are confirmed.</summary>
+        /// <summary>The same line, told for the lane that asked: a missing plugin's edges make the positive question short and the orphan sweep over-inclusive.</summary>
         public string NoteFor(bool orphanSweep)
         {
             var sb = new StringBuilder("reverse-reference index: ");
@@ -185,20 +134,14 @@ public sealed class ReverseReferenceIndex
                       : " — the answer is short by whatever they reference.");
             if (UnscannableRecords > 0)
                 sb.Append($" {UnscannableRecords} record(s) Mutagen could not parse were excluded from the walk.");
-            // Says WHICH records it counts: a reverse walk prints its own lenient line right after this one, over a
-            // different universe (the winner records that one walk judged), and two identically worded counts would
-            // read as one correcting the other.
+            // Says WHICH records it counts, because a reverse walk prints its own lenient line over a different universe.
             if (LenientRecords > 0)
                 sb.Append($" Of the plugin copies walked at build time, {LenientRecords} record(s) were read leniently — part of their content is encoded in a way Mutagen refuses, so their edges are the ones houseCARL could still decode.");
             return sb.ToString();
         }
     }
 
-    /// <summary>Bring every partition up to date against the files on disk: keep the ones whose (path, mtime) is
-    /// unchanged, rebuild the ones whose is not, drop the ones whose plugin left the order. The whole result is
-    /// staged in fresh collections and published in one assignment, so a concurrent read sees the old generation
-    /// or the new one and never a mixture. The opener is the resolver's, so one plugin is open at a time and none
-    /// is held at rest.</summary>
+    /// <summary>Bring every partition up to date against the files on disk, staged in fresh collections and published in one assignment; the opener is the resolver's, so none is held at rest.</summary>
     internal Refreshed Refresh(IReadOnlyList<string> names, IReadOnlyList<string> paths,
                                Func<int, ISkyrimModGetter> open, ICollection<int> excluded)
     {
@@ -206,8 +149,7 @@ public sealed class ReverseReferenceIndex
         var prev = _gen;
         var next = new Generation
         {
-            // The mod-key interning carries forward, so a partition retained from the previous generation keeps
-            // meaning what it meant: an index into this list, which only ever grows at the tail.
+            // The mod-key interning carries forward, so a partition retained from the previous generation keeps meaning what it meant.
             IdxToMod = new List<ModKey>(prev.IdxToMod),
             ModToIdx = new Dictionary<ModKey, int>(prev.ModToIdx),
         };
@@ -217,9 +159,7 @@ public sealed class ReverseReferenceIndex
         {
             if (excluded.Contains(i))
             {
-                // Excluded from the snapshot's own index because it could not be opened or parsed. The reverse
-                // walk cannot see it either, so the answer is short by whatever it references — said out loud on
-                // every answer, not only on the call that discovered it.
+                // Excluded from the snapshot's own index, so the answer is short by whatever it references — said on every answer.
                 unreadable.Add(names[i]);
                 continue;
             }
@@ -264,14 +204,10 @@ public sealed class ReverseReferenceIndex
             {
                 try
                 {
-                    // A deleted record's content is not live, so none of its links is a real reference — the same
-                    // exclusion the dangling sweep makes, before the walk that would throw on such a body.
+                    // A deleted record's content is not live, so none of its links is a real reference.
                     if (DeletedRecordRule.HasNoLiveBody(rec)) continue;
                     if (rec is not IFormLinkContainerGetter) continue;
-                    // The SAME link walk the scan lanes make, so a record whose links only read leniently is a key
-                    // here too — the index is what an unbounded references= builds its universe from, and a record
-                    // missing here is missing from every lane downstream (#301). The visitor is a struct holding the
-                    // per-record source key, so this walk allocates nothing per record.
+                    // The SAME link walk the scan lanes make, so a record missing here is missing from every lane downstream (#301).
                     edges.Source = Pack(into, rec.FormKey);
                     if (RecordLinks.Walk(rec, ref edges) is not null) lenient++;
                 }
@@ -294,9 +230,7 @@ public sealed class ReverseReferenceIndex
         return part;
     }
 
-    /// <summary>One record's reverse edges, staged into the partition's accumulator. A struct so the link walk
-    /// allocates neither a closure nor a delegate per record: <see cref="Source"/> is reassigned for each record and
-    /// the walk takes the visitor by reference.</summary>
+    /// <summary>One record's reverse edges, staged into the partition's accumulator; a struct so the link walk allocates neither a closure nor a delegate per record.</summary>
     struct EdgeVisitor : RecordLinks.IVisitor
     {
         readonly Dictionary<ulong, List<ulong>> _acc;
@@ -311,15 +245,13 @@ public sealed class ReverseReferenceIndex
             if (target.IsNull) return RecordLinks.Step.Continue;
             ulong pt = Pack(_gen, target);
             if (!_acc.TryGetValue(pt, out var list)) _acc[pt] = list = new List<ulong>(1);
-            // One record's links arrive together, so the same record linking a target twice is the tail of this
-            // list — deduped without a per-target set.
+            // One record's links arrive together, so a repeat is the tail of this list — deduped without a per-target set.
             if (list.Count == 0 || list[^1] != Source) list.Add(Source);
             return RecordLinks.Step.Continue;
         }
     }
 
-    /// <summary>The index's own freshness key: a digest over every partition's (plugin, mtime). Distinct from the
-    /// order-wide epoch by construction — it names which plugin BODIES the reverse edges were computed from.</summary>
+    /// <summary>The index's own freshness key: a digest over every partition's (plugin, mtime), distinct from the order-wide epoch by construction.</summary>
     static string FreshnessKey(Generation g)
     {
         var sb = new StringBuilder();
@@ -347,16 +279,10 @@ public sealed class ReverseReferenceIndex
     }
 }
 
-/// <summary>What an UNBOUNDED reverse selection scans. The index turns "who references X" from a refusal into a
-/// candidate set; the scan that follows is the existing one, so the verdict still comes from the body the caller
-/// means to judge and a later override that dropped the link is not counted.</summary>
+/// <summary>What an UNBOUNDED reverse selection scans: the index gives a candidate set, and the scan that follows is the existing one.</summary>
 public static class ReverseSelection
 {
-    /// <summary>The scan universe for an unbounded reverse selection. With positive targets it is every record
-    /// some plugin links to one of them. With none — the negated-only form — it is the ORPHAN sweep: every record
-    /// nothing in the order references, which is the unbounded question SPEC §2.2's and §3.2's 2026-09-05
-    /// amendments name for this spelling. The named negated targets still apply after it, as the AND term they are
-    /// everywhere else.</summary>
+    /// <summary>The scan universe for an unbounded reverse selection: the referencers of the positive targets, or — with none — the ORPHAN sweep.</summary>
     public static IReadOnlyList<FormKey> Universe(LoadOrderResolver.IndexView view, ReverseReferenceIndex index,
                                                   IReadOnlyList<FormKey>? references)
     {
@@ -364,39 +290,16 @@ public static class ReverseSelection
         return index.Orphans(view.RecordKeys());
     }
 
-    /// <summary>One hop of a transitive reverse walk: the records reached at this distance from the seeds, first
-    /// arrival wins. An EMPTY hop is a fact and is kept in the list, so a walk that ran out of referrers says so
-    /// rather than trailing off — unless <paramref name="Cut"/>, which says the node budget ended this hop and its
-    /// count is a prefix, not a finding.</summary>
+    /// <summary>One hop of a transitive reverse walk, first arrival wins; an EMPTY hop is kept as a fact, and <paramref name="Cut"/> says the node budget ended this hop.</summary>
     public sealed record Hop(int Depth, IReadOnlyList<FormKey> Reached, bool Cut);
 
-    /// <summary>The most candidates a <c>prepare</c> block covers, when the node budget leaves room for them: big
-    /// enough that a large master is walked a few times a hop rather than once a candidate, small enough that the
-    /// bodies it pins stay bounded.</summary>
+    /// <summary>The most candidates a <c>prepare</c> block covers when the budget leaves room for them.</summary>
     const int PrepareBlock = 2000;
 
-    /// <summary>The fewest a block covers however little budget is left. The budget shrinks the block so a small
-    /// <c>max_nodes</c> does not gather far past its own cut, but candidates the check DROPS never spend it — so
-    /// without a floor a drop-heavy tail under a nearly-spent budget would gather a handful of keys at a time and
-    /// fall back to the walk-per-candidate cost the gather exists to remove.</summary>
+    /// <summary>The fewest a block covers however little budget is left, so a drop-heavy tail cannot fall back to a gather per candidate.</summary>
     const int MinPrepareBlock = 256;
 
-    /// <summary>The transitive reverse walk: who references the seeds, then who references those, hop after hop.
-    /// The follow rule — every link — is the same at every hop, which is what <c>depth</c> means here and
-    /// everywhere. Records already reached are not re-reported and not re-expanded, so a reference cycle
-    /// terminates. The index answers in CANDIDATES, so <paramref name="verify"/> re-tests each one against the body
-    /// the caller means to judge — the same second step <c>references=</c> takes — and a candidate that fails it is
-    /// neither reported nor expanded, so a dropped link cannot seed a false subtree. <paramref name="maxNodes"/>
-    /// bounds the TOTAL reached across all hops; the budget is tested BEFORE the candidate is verified or
-    /// consumed, so a spent budget stops the body reads as well as the reach (a gathering verifier reads up to one
-    /// block ahead of the cut — see <paramref name="prepare"/>), a raised budget on a retry sees
-    /// the same graph, and the hop the cut landed on is marked
-    /// <see cref="Hop.Cut"/> rather than reading as a hop that reached nothing.
-    /// <para><paramref name="prepare"/> is handed each block of candidates just before they are verified, so a
-    /// verifier that reads bodies can gather a block at a time instead of one at a time. It is called only for
-    /// candidates the walk is about to verify, and the block follows the budget still left, between
-    /// <see cref="MinPrepareBlock"/> and <see cref="PrepareBlock"/> — so a spent budget stops the gather with the
-    /// reads, and a small one gathers at most that floor past its own cut rather than a whole block.</para></summary>
+    /// <summary>The transitive reverse walk: who references the seeds, then who references those, hop after hop; the budget, verify and prepare contracts are in docs/architecture/select-and-walk.md.</summary>
     public static IReadOnlyList<Hop> Transitive(ReverseReferenceIndex index, IReadOnlyList<FormKey> seeds,
                                                 int depth, int maxNodes,
                                                 Func<FormKey, IReadOnlySet<FormKey>, bool>? verify, out bool capped,
@@ -418,13 +321,11 @@ public static class ReverseSelection
             {
                 var k = candidates[i];
                 if (visited.Contains(k)) continue;
-                // The budget is spent before the candidate is verified, so a spent budget stops the body reads
-                // too — verification has no ordering effect, so a raised budget on a retry still sees this graph.
+                // The budget is spent before the candidate is verified, so a spent budget stops the body reads too.
                 if (reached >= maxNodes) { capped = true; cut = true; break; }
                 if (prepare is not null && i >= prepared)
                 {
-                    // The block follows the budget still left, floored so a drop-heavy tail cannot shrink it to a
-                    // gather per handful of candidates and capped so a large budget does not gather the hop ahead.
+                    // The block follows the budget still left, floored and capped.
                     int span = Math.Clamp(maxNodes - reached, MinPrepareBlock, PrepareBlock);
                     int end = Math.Min(candidates.Count, i + span);
                     var block = new List<FormKey>(end - i);
@@ -444,9 +345,7 @@ public static class ReverseSelection
         return hops;
     }
 
-    /// <summary>The sentence a caller gets for the negated-only unbounded form: its universe is the orphan set, not
-    /// the whole order and not the same question a bounded negated <c>references=</c> asks. Declared, never
-    /// discovered.</summary>
+    /// <summary>The sentence a caller gets for the negated-only unbounded form: its universe is the orphan set. Declared, never discovered.</summary>
     public static string? UniverseNote(IReadOnlyList<FormKey>? references, int universe)
         => references is { Count: > 0 } ? null
             : $"a negated references= with no types=/plugins= scope is the ORPHAN sweep: its universe is the "
