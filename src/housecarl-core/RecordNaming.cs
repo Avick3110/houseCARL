@@ -1,7 +1,6 @@
 namespace HousecarlCore;
 
-/// <summary>The shared runtime name-surgery primitives that map a reflection type back toward its corpus catalog
-/// name. Deliberately not unified with the emit-time <c>CorpusGenerator.CatalogName</c>.</summary>
+/// <summary>The shared runtime name-surgery primitives mapping a reflection type back toward its catalog name.</summary>
 public static class RecordNaming
 {
     public static string StripOverlay(string name) =>
@@ -18,7 +17,6 @@ public static class RecordNaming
             ? (name.EndsWith("Getter", StringComparison.Ordinal) ? name[1..^6] : name[1..])
             : name;
 
-    /// <summary>Getter interface → SETTER interface, keeping the leading <c>I</c>: <c>INpcGetter → INpc</c>.</summary>
     public static string GetterToSetterInterface(string getterInterfaceName) =>
         getterInterfaceName.EndsWith("Getter", StringComparison.Ordinal)
             ? getterInterfaceName[..^"Getter".Length] : getterInterfaceName;

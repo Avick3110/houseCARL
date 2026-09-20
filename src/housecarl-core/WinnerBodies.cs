@@ -3,14 +3,13 @@ using Mutagen.Bethesda.Plugins.Records;
 
 namespace HousecarlCore;
 
-/// <summary>The live winner's BODY for each of a known set of records — <see cref="BodyGather"/> with the winner
-/// resolution a scan does in front of it, gathered by PLUGIN rather than by record. The caller hands in one CHUNK
-/// at a time, and nothing is held past its session; contract in docs/architecture/read-engine.md.</summary>
+/// <summary>The live winner's BODY for each of a known set of records — <see cref="BodyGather"/> with a scan's
+/// winner resolution in front of it, gathered by PLUGIN and one CHUNK at a time; see
+/// docs/architecture/read-engine.md.</summary>
 public static class WinnerBodies
 {
-    /// <summary>The winner body of each candidate, keyed by FormKey; a candidate whose winner cannot be resolved or
-    /// fetched is ABSENT, and an unreadable winner plugin is named once in <paramref name="unreadable"/> with its
-    /// cause. <paramref name="ct"/> is checked between plugin walks.</summary>
+    /// <summary>The winner body of each candidate, keyed by FormKey; one whose winner cannot be resolved or fetched
+    /// is ABSENT, and an unreadable winner plugin is named once in <paramref name="unreadable"/> with its cause.</summary>
     public static Dictionary<FormKey, IMajorRecordGetter> For(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
         IReadOnlyCollection<FormKey> candidates, IReadOnlyList<Type>? getterTypes,

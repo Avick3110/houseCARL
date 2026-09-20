@@ -7,7 +7,6 @@ namespace HousecarlCore;
 /// all of them or in none; contract in docs/architecture/read-engine.md.</summary>
 public static class RecordLinks
 {
-    /// <summary>What one link does to the walk: keep going, or stop here.</summary>
     public enum Step { Continue, Stop }
 
     /// <summary>A visitor over a record's links. A STRUCT implementation is passed by reference, so the walk
@@ -18,8 +17,7 @@ public static class RecordLinks
     }
 
     /// <summary>Hand every FormKey this record links to <paramref name="visitor"/>. Answers null when Mutagen's own
-    /// walk finished, else the sentence naming what a LENIENT re-read could not reach; RETHROWS when nothing can be
-    /// recovered. Links the plain walk yielded before it threw are kept, so a visitor can see a key twice.</summary>
+    /// walk finished, else what a LENIENT re-read could not reach; RETHROWS when nothing can be recovered.</summary>
     public static string? Walk<TVisitor>(IMajorRecordGetter record, ref TVisitor visitor)
         where TVisitor : struct, IVisitor
     {
@@ -39,7 +37,6 @@ public static class RecordLinks
         }
     }
 
-    /// <summary>The collecting visitor every caller that just wants the keys uses.</summary>
     public struct Collector : IVisitor
     {
         public HashSet<FormKey> Keys;
