@@ -89,7 +89,7 @@ public static class RecordsTools
         public string? severity { get; set; }
     }
 
-    [McpServerTool(Name = ToolNames.Records, ReadOnly = true, Title = "Read records (the 2.0 read surface)"),
+    [McpServerTool(Name = ToolNames.Records, ReadOnly = true, Title = "Read records"),
      Description(
          "Read Bethesda records from the load order — ONE read surface: which records (SELECT) x whose version " +
          "(SOURCE) x what shape of answer (PROJECT) compose in a single call.\n\n" +
