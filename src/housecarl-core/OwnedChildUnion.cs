@@ -3,22 +3,10 @@ using Mutagen.Bethesda.Plugins.Records;
 
 namespace HousecarlCore;
 
-/// <summary>One plugin's contribution to a field's additive union: how many child records ITS body declares there.
-/// A child two plugins both declare is counted by both — the counts are contributions, not a partition, which is
-/// why <see cref="ChildUnion.Total"/> is carried rather than summed from these.</summary>
+/// <summary>One plugin's contribution to a field's additive union; the counts are contributions, not a partition.</summary>
 public sealed record ChildUnionDeclarer(string Plugin, int Count);
 
-/// <summary>What the game assembles for ONE child-bearing field of ONE record, across every plugin that touches it.
-///
-/// <para>For a <see cref="OwnedChildShape.Collection"/> field the answer is a UNION keyed by FormID:
-/// <see cref="Members"/> is every distinct child the order declares, in load order of first declaration, each
-/// counted once however many plugins declare it. For a <see cref="OwnedChildShape.Singular"/> field there is no
-/// union — the declarers override one record — so <see cref="Members"/> is the one live child and
-/// <see cref="LivePlugin"/> is the highest plugin declaring it.</para>
-///
-/// <para><b>What it claims is DECLARATION, not liveness.</b> A child in this set is one some plugin declares for
-/// this parent. Whether that child's own winner is deleted or initially disabled is a fact about the child record,
-/// readable by reading it, and asserting it here would cost one fetch per member.</para></summary>
+/// <summary>What the game assembles for ONE child-bearing field of ONE record, across every plugin that touches it; it claims DECLARATION, not liveness (docs/architecture/records-owned-child-declarers.md).</summary>
 public sealed record ChildUnion(
     string Field,
     OwnedChildShape Shape,
@@ -32,34 +20,15 @@ public sealed record ChildUnion(
     /// <summary>Distinct child records the order declares for this field.</summary>
     public int Total => Members.Count;
 
-    /// <summary>Do <see cref="OwnCount"/> and the field's RENDERED value count the same unit? False on a nested
-    /// field (<c>Worldspace.SubCells</c>), where the value counts the blocks and these counts count the cells
-    /// under them — the one place a note may not put the two numbers side by side unsaid.</summary>
+    /// <summary>Do <see cref="OwnCount"/> and the field's rendered value count the same unit? False on a nested field, where the value counts blocks and these count the cells under them.</summary>
     public bool CountsTheRenderedUnit => !Nested;
 
 }
 
-/// <summary>
-/// The additive union a child-bearing field really holds (#342 / #487).
-///
-/// <para>An owned child record is declared PER PLUGIN, and for a collection field the game assembles the parent's
-/// children from every plugin that declares any. A cell override that exists to add occlusion data carries no
-/// placed references and deletes none, so reading its <c>Temporary</c> reports an empty cell the game fills with
-/// hundreds — the read model's one silent wrong answer. This computes what the engine assembles instead: the
-/// FormID-keyed union over every touching plugin's own body, so a child two overrides both declare is counted
-/// once rather than twice.</para>
-///
-/// <para><b>Cost.</b> One body per touching plugin, seeked by the record's own type
-/// (<see cref="LoadOrderResolver.IndexView.GetRecord"/> takes it, #354) so finding a cell in a worldspace plugin
-/// does not step over the placed references that outnumber it. Nothing is held: the bodies are read through the
-/// caller's open session and only FormKeys and counts survive the call.</para>
-/// </summary>
+/// <summary>The additive union a child-bearing field really holds (#342 / #487): the FormID-keyed union over every touching plugin's own body, read through the caller's session and holding nothing after the call.</summary>
 public static class OwnedChildUnion
 {
-    /// <summary>The additive union of each named child-bearing field of <paramref name="fk"/>, or NULL when the
-    /// record has one toucher — its own body is then the whole story and there is nothing to assemble.
-    /// <paramref name="subjectBody"/> is the body the read was taken from (the winner, or a <c>plugin=</c>-scoped
-    /// copy); it is reused rather than re-fetched, and it is what <see cref="ChildUnion.OwnCount"/> is about.</summary>
+    /// <summary>The additive union of each named child-bearing field of <paramref name="fk"/>, or NULL when the record has one toucher; <paramref name="subjectBody"/> is reused rather than re-fetched.</summary>
     public static IReadOnlyDictionary<string, ChildUnion>? Compute(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, FormKey fk,
         string subjectPlugin, IMajorRecordGetter subjectBody, IReadOnlyDictionary<string, OwnedChildShape> fields)
@@ -83,14 +52,10 @@ public static class OwnedChildUnion
             live[f] = null; liveKeys[f] = Array.Empty<FormKey>(); own[f] = 0;
         }
 
-        // Priority order, low to high: the union's member order is first-declaration order, and the SINGULAR
-        // shape's live copy is simply the last declarer standing.
+        // Priority order, low to high: member order is first-declaration order, and a singular field's live copy is the last declarer standing.
         foreach (var plugin in touching)
         {
-            // A sibling plugin that will not OPEN must not fault the read. The subject's own body is already in
-            // hand, so the answer the caller asked for survives; this plugin becomes an unreadable the note names.
-            // The transient case is the common one — xEdit or MO2 holding an exclusive handle, an AV scan — and
-            // before the union the default read opened only the source, so nothing here could ever throw.
+            // A sibling plugin that will not OPEN must not fault the read; it becomes an unreadable the note names.
             IMajorRecordGetter? body;
             if (string.Equals(plugin, subjectPlugin, StringComparison.OrdinalIgnoreCase)) body = subjectBody;
             else
@@ -98,8 +63,7 @@ public static class OwnedChildUnion
                 catch { body = null; }
             foreach (var f in fields.Keys)
             {
-                // Null is "could not look", never "declares nothing" — a provider counted into the negative would
-                // turn an unreadable body into evidence the field is empty (#308's rule, one level down).
+                // Null is "could not look", never "declares nothing" (#308's rule, one level down).
                 var keys = body is null ? null : ChildKeys(body, f);
                 if (keys is null) { unreadable[f].Add(plugin); continue; }
                 if (keys.Count == 0) continue;
@@ -112,8 +76,7 @@ public static class OwnedChildUnion
             }
         }
 
-        // The unit the counts are in, against the unit the field's value renders in — a fact about the property,
-        // asked once off the subject's type.
+        // The unit the counts are in, against the unit the field's value renders in — asked once off the subject's type.
         var nested = OwnedChildContent.NestedFields(subjectBody);
         var result = new Dictionary<string, ChildUnion>(fields.Count, StringComparer.Ordinal);
         foreach (var (f, shape) in fields)
@@ -123,11 +86,7 @@ public static class OwnedChildUnion
         return result;
     }
 
-    /// <summary>The child records ONE body declares in ONE field, or NULL when the field could not be read.
-    /// <para>It collects the FIRST record level and stops there: a child's own children belong to the child's own
-    /// fields. That matters for <c>Worldspace.SubCells</c>, whose cells sit two container levels down and hold
-    /// placed references of their own — Mutagen's untyped containment enumeration would sweep those in and report
-    /// a worldspace as declaring every reference in the game.</para></summary>
+    /// <summary>The child records ONE body declares in ONE field, or NULL when the field could not be read; it collects the FIRST record level and stops there.</summary>
     public static IReadOnlyList<FormKey>? ChildKeys(IMajorRecordGetter body, string field)
     {
         try
@@ -140,8 +99,7 @@ public static class OwnedChildUnion
         catch { return null; }
     }
 
-    /// <summary>The deepest container nesting the value walk will follow before answering "I could not look" —
-    /// the same tripwire constant, for the same reason, as <see cref="OwnedChildContent"/>'s.</summary>
+    /// <summary>The deepest container nesting the value walk follows before answering "I could not look".</summary>
     const int MaxDepth = 6;
 
     static bool Collect(object? val, Type? childType, List<FormKey> sink, int depth)
@@ -151,17 +109,12 @@ public static class OwnedChildUnion
         if (val is IFormLinkGetter) return true;                 // a reference, not a child (the type walk's own cut)
         if (val is IMajorRecordGetter rec) { sink.Add(rec.FormKey); return true; }
         if (val is string) return true;
-        // A non-record container that knows its own containment (a worldspace block): ask Mutagen for the child
-        // TYPE this field owns, so the walk stops at the cells rather than descending into their contents.
+        // A non-record container that knows its own containment: ask Mutagen for the child TYPE this field owns, so the walk stops at the cells.
         if (val is IMajorRecordGetterEnumerable en && childType is not null)
         {
             int before = sink.Count;
             foreach (var child in en.EnumerateMajorRecords(childType, throwIfUnknown: false)) sink.Add(child.FormKey);
-            // A typed enumeration Mutagen does not route yields an EMPTY sequence rather than throwing, which would
-            // turn "I could not look" into "it declares nothing" — the #308 rule inverted. So an empty typed walk
-            // over a container that holds records at all is a miss, not a negative: fail closed and let the caller
-            // say the body could not be read. The untyped check runs only on that empty branch and stops at the
-            // first record it finds, so the walk this arm exists to avoid is never paid on the normal path.
+            // An unroutable typed enumeration yields an EMPTY sequence rather than throwing, so an empty typed walk over a container that holds records at all is a miss, not a negative.
             if (sink.Count == before && en.EnumerateMajorRecords().Any()) return false;
             return true;
         }
