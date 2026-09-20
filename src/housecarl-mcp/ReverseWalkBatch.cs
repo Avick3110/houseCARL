@@ -5,22 +5,20 @@ using Mutagen.Bethesda.Plugins.Records;
 namespace HousecarlMcp;
 
 /// <summary>The transitive reverse walk — what points at the seeds, and what points at that — served off the
-/// reverse-reference index, so a hop is a lookup rather than a scan of scans. The follow rule is every link at
-/// every hop; contract in docs/architecture/read-engine.md.</summary>
-/// </summary>
+/// reverse-reference index, so a hop is a lookup rather than a scan of scans; the follow rule is every link at
+/// every hop. Contract in docs/architecture/read-engine.md.</summary>
 public static class ReverseWalkBatch
 {
     /// <summary>Why the body check dropped index candidates, one count per cause; an unreadable winner is a
-    /// coverage gap, not a verdict, so it is never rendered as one.</summary>
+    /// coverage gap, not a verdict.</summary>
     public sealed record DropCensus(int NoLink, int Unreadable, int NoLiveBody, int NoWinner)
     {
         public static readonly DropCensus Empty = new(0, 0, 0, 0);
         public int Total => NoLink + Unreadable + NoLiveBody + NoWinner;
     }
 
-    /// <summary>What one reverse walk produced: the per-hop reached sets, the selection the reading forms consume,
-    /// the dropped index candidates and why, the winner plugins that could not be read, the records read leniently,
-    /// the index's accounting line, and the build the answer was read from.</summary>
+    /// <summary>What one reverse walk produced: the per-hop reached sets, the selection, the dropped candidates and
+    /// why, the unreadable winner plugins, the leniently read records, the index note, and the build behind it.</summary>
     public sealed record Result(IReadOnlyList<ReverseSelection.Hop> Hops, IReadOnlyList<string> Selection,
                                 int Seeds, bool Capped, DropCensus Dropped, string? IndexNote, OrderStamp? Stamp,
                                 string? Refusal, IReadOnlyList<string>? UnreadableWinners = null,
@@ -30,8 +28,8 @@ public static class ReverseWalkBatch
         public string? Epoch => Stamp?.Epoch;
     }
 
-    /// <summary>Run the walk from these seeds; a bad FormID is a refusal naming it rather than a seed that
-    /// silently reaches nothing. <paramref name="ct"/> stops the body gather between plugin walks.</summary>
+    /// <summary>Run the walk from these seeds; a bad FormID is a refusal naming it. <paramref name="ct"/> stops
+    /// the body gather between plugin walks.</summary>
     public static Result Run(LoadOrderService svc, IReadOnlyList<string> seeds, int depth, int maxNodes,
                              ArtifactDemand? demand, CancellationToken ct = default)
     {
@@ -59,20 +57,16 @@ public static class ReverseWalkBatch
 
         var built = view.EnsureReverseIndex();
         int unreadable = 0, noLiveBody = 0, noWinner = 0;
-        // Every candidate is judged once, however many frontiers name it — the winner's links are remembered, so
-        // each cause counts records rather than checks. Whether the winner carries a link is frontier-relative, so
-        // it is asked again per hop off the remembered set.
+        // Every candidate is judged once, however many frontiers name it. Whether the winner carries a link is
+        // frontier-relative, so it is asked again per hop off the remembered set.
         var linksOf = new Dictionary<FormKey, IReadOnlySet<FormKey>?>();
         var noLink = new HashSet<FormKey>();
         using var session = pin.Resolver.OpenSession();
-        // The bodies the check reads are gathered a block of candidates at a time, one enumeration per winner
-        // plugin in the block; only the block about to be judged is gathered, so a spent node budget stops it.
+        // The winner plugins the gather could not read, named once each, so a caller can act on the coverage gap.
         Dictionary<FormKey, IMajorRecordGetter> gathered = new();
         var gatheredKeys = new HashSet<FormKey>();
-        // The winner plugins the gather could not read, named once each: a caller can only act on a coverage gap
-        // if the drop count says which file.
-        var unreadableWinners = new List<string>();
         // Candidates the body check could only read leniently: verified, but with a named gap.
+        var unreadableWinners = new List<string>();
         var lenientRecords = new List<string>();
         var lenientSeen = new HashSet<FormKey>();
         var unreadableSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -86,9 +80,8 @@ public static class ReverseWalkBatch
             foreach (var plugin in faults.Keys)
                 if (unreadableSeen.Add(plugin)) unreadableWinners.Add(plugin);
         }
-        // The index answers in CANDIDATES. references= re-tests each against the body it judges, and so does this:
-        // a record whose winner dropped the link is neither listed nor expanded, so a false hop-1 node cannot seed
-        // a false subtree.
+        // The index answers in CANDIDATES; references= re-tests each against the body it judges, and so does this,
+        // so a false hop-1 node cannot seed a false subtree.
         bool Verify(FormKey candidate, IReadOnlySet<FormKey> frontier)
         {
             if (!linksOf.TryGetValue(candidate, out var links))
@@ -101,7 +94,7 @@ public static class ReverseWalkBatch
                     IMajorRecordGetter? body = null;
                     bool threw = false;
                     // Any throw out of the lazy overlay seek is a coverage gap on that one record, counted and
-                    // skipped, never the end of the whole walk — the same rule references= keeps.
+                    // skipped, never the end of the walk.
                     if (gatheredKeys.Contains(candidate)) gathered.TryGetValue(candidate, out body);
                     else
                         try { body = view.GetRecord(session, w.Value.WinnerPlugin, candidate); }
@@ -110,8 +103,8 @@ public static class ReverseWalkBatch
                     else if (DeletedRecordRule.HasNoLiveBody(body) || body is not IFormLinkContainerGetter) noLiveBody++;
                     else
                     {
-                        // The SAME link walk references= makes (RecordLinks), so the two spellings of the reverse
-                        // question cannot disagree about a record whose links only read leniently.
+                        // The SAME link walk references= makes, so the two spellings cannot disagree about a
+                        // record whose links only read leniently.
                         var set = new HashSet<FormKey>();
                         try
                         {

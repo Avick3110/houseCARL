@@ -3,30 +3,26 @@ using Mutagen.Bethesda.Plugins.Records;
 
 namespace HousecarlMcp;
 
-/// <summary>The conflict-tree fill for a CHUNK of rows, gathered a plugin at a time: ONE PLUGIN PASS over the
-/// chunk, highest priority first, so each provider plugin is walked exactly once and answers its whole share —
-/// the rows it wins and the rows it merely overrides together.
-/// <para>Plugin-major is what keeps the gather cheap in memory: the bodies alive at any moment are ONE plugin's
-/// share of the chunk, and the caller releases each provider's fields before the next plugin is walked. Contract
-/// and pins in docs/architecture/read-engine.md.</para></summary>
+/// <summary>The conflict-tree fill for a CHUNK of rows: ONE PLUGIN PASS over the chunk, highest priority first,
+/// so each provider plugin is walked exactly once and answers its whole share. Plugin-major is what keeps it
+/// cheap in memory — the caller releases each provider's fields before the next plugin is walked. Contract and
+/// pins in docs/architecture/read-engine.md.</summary>
 public sealed partial class LoadOrderService
 {
-    /// <summary>Rows whose bodies one comparison-form chunk gathers together — ONE number over both lanes, because
-    /// both hold one materialised thing per row: the tree's reference fields, the delta's two pole bodies. The
-    /// gather's win and that retention both rise with the chunk, so this is the trade.</summary>
+    /// <summary>Rows whose bodies one comparison-form chunk gathers together — ONE number over both lanes, since
+    /// both hold one materialised thing per row of the chunk.</summary>
     internal const int ComparisonChunkRows = 32;
 
-    /// <summary>How many provider bodies the tree fold has READ in this process — pinned by
+    /// <summary>How many provider bodies the tree fold has READ — pinned by
     /// <c>RecordsRenderCostTests.ATreeGathersItsProviderBodiesPerPluginNotPerRow</c>.</summary>
     internal static long TreeBodiesRead;
 
-    /// <summary>One provider's fields as the fold reaches them. <paramref name="node"/> is the provider's position
-    /// WINNER FIRST, the reverse of the render's own order. Return false to stop this row.</summary>
+    /// <summary>One provider's fields as the fold reaches them, <paramref name="node"/> WINNER FIRST; return false
+    /// to stop this row.</summary>
     internal delegate bool TreeNodeVisitor(int row, int node, string plugin, RecordFields read, bool isWinner);
 
-    /// <summary>Fill the conflict tree of every key in <paramref name="keys"/> off one pinned build, handing each
-    /// provider's fields to <paramref name="onNode"/> as it is read. Null per row when the key is not in the order
-    /// or no provider yielded a body.</summary>
+    /// <summary>Fill the conflict tree of every key off one pinned build, handing each provider's fields to
+    /// <paramref name="onNode"/> as it is read; null per row when no provider yielded a body.</summary>
     internal TreeFill?[] FoldTreeChunkPinned(ViewPin p, LoadOrderResolver.OverlaySession session,
                                              IReadOnlyList<FormKey> keys, IReadOnlyList<string>? fields,
                                              TreeNodeVisitor onNode)
@@ -48,8 +44,7 @@ public sealed partial class LoadOrderService
             providers[r] = a;
         }
 
-        // Per-row state. The child-bearing fields are the record TYPE's, so the winner body settles them for the
-        // whole row; `declares` is one answer per wanted field per provider, placed by node.
+        // Who provides each row, winner first. Index only: no body is read to learn this.
         var owning = new IReadOnlyDictionary<string, OwnedChildShape>?[n];
         var wanted = new List<string>[n];
         var declares = new bool?[n][][];
@@ -82,10 +77,8 @@ public sealed partial class LoadOrderService
         }
         return fills;
 
-        // Every provider plugin of the chunk ONCE, with its whole share, in DESCENDING load order. A row's
-        // providers are a subsequence of it and the winner is the highest-priority of them, so every row's winner
-        // arrives before any other provider of that row and the rest arrive in node order — the same order the
-        // streamed walk yielded, which the reference pole being read first depends on.
+        // Every provider plugin of the chunk ONCE, with its whole share, in DESCENDING load order — so every
+        // row's winner arrives before any other provider of that row and the rest arrive in node order.
         List<(string Plugin, List<(int Row, int Node)> Hits)> Groups()
         {
             var at = new Dictionary<string, List<(int, int)>>(StringComparer.OrdinalIgnoreCase);
@@ -111,8 +104,7 @@ public sealed partial class LoadOrderService
                 foreach (var (r, _) in hits) if (!stopped[r]) want.Add(keys[r]);
                 if (want.Count == 0) continue;
                 // A row's type narrows its plugin's walk to the GRUPs that type lives in — the union over the rows
-                // this plugin serves, and only when EVERY one is known, since a missing type would have its records
-                // declared absent by a typed walk that routed the others.
+                // this plugin serves, and only when EVERY one is known.
                 List<Type>? seek = new List<Type>();
                 foreach (var (r, _) in hits)
                 {
@@ -123,10 +115,8 @@ public sealed partial class LoadOrderService
                 if (seek is { Count: 0 }) seek = null;
                 var sink = new Dictionary<FormKey, IMajorRecordGetter>(want.Count);
                 // The one gather rule, shared with BodyGather: the walk is guarded, and out-of-memory and
-                // cancellation are rethrown. This lane keeps its own loop because its wanted set and type scope
-                // are settled AT walk time. A fault reading the PLUGIN leaves the sink empty and every row falls
-                // back to the per-record fetch, which raises the same fault in the same words. Which ROW the fault
-                // names can differ from the streamed walk's, since the passes are plugin-major.
+                // cancellation are rethrown. A fault reading the PLUGIN leaves the sink empty and every row falls
+                // back to the per-record fetch, which raises the same fault in the same words.
                 if (BodyGather.WalkOnce(view, session, plugin, want, seek, sink) is not null) sink.Clear();
 
                 foreach (var (r, node) in hits)
