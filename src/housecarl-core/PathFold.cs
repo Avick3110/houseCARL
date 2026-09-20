@@ -1,18 +1,13 @@
 namespace HousecarlCore;
 
-/// <summary>The quantifier a path step declares — the multiplicity and the fold spelled IN the step, where it
-/// binds. One vocabulary, shared by <c>where=</c>'s predicates and <c>project.fields</c>' projection, so the two
-/// surfaces can never drift on what a token means.</summary>
+/// <summary>The quantifier a path step declares, shared by <c>where=</c> and <c>project.fields</c>.</summary>
 public enum PathFold { None, Set, Any, All, NoneOf, Count }
 
-/// <summary>The quantified step's tokenizer. The word list lives here ONCE: every surface that reads a quantifier
-/// reads it through this, so a token added on one side is a token on the other by construction.</summary>
+/// <summary>The quantified step's tokenizer — the word list, once, for every surface that reads a quantifier.</summary>
 public static class PathFoldGrammar
 {
-    /// <summary>Split one path segment into its bare field name, the fold its bracket key spells, and that key as
-    /// the caller wrote it. <see cref="PathFold.None"/> with a null key = no quantifier at all;
-    /// <see cref="PathFold.None"/> with a non-null key = a bracket key that begins '*' but is not a quantifier
-    /// word, which each surface names in its own voice.</summary>
+    /// <summary>Split one path segment into its bare field name, the fold its bracket key spells, and that key.
+    /// <see cref="PathFold.None"/> with a non-null key = a bracket key beginning '*' that is not a quantifier word.</summary>
     public static (string Bare, PathFold Fold, string? Key) Read(string seg)
     {
         int open = seg.IndexOf('[');

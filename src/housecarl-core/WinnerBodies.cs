@@ -3,32 +3,14 @@ using Mutagen.Bethesda.Plugins.Records;
 
 namespace HousecarlCore;
 
-/// <summary>
-/// The live winner's BODY for each of a known set of records (#251) — <see cref="BodyGather"/> with the winner
-/// resolution a scan does in front of it.
-///
-/// <para>A scan that decides its match on the winner has the candidate FormKeys in hand before it needs any winner
-/// body, and a plugin's winners are a contiguous fact about that plugin's overlay. So the bodies are gathered by
-/// PLUGIN — one enumeration per distinct winner plugin, however many of its records are wanted — rather than by
-/// record, which is one whole-overlay walk EACH and turns a broad audit into O(candidates x overlay).</para>
-///
-/// <para>The caller hands in ONE CHUNK of its candidates at a time, so the map it gets back — and the getters that
-/// map pins — is bounded by the chunk, not by how many records the scan considers. Nothing is held past the
-/// caller's session: the bodies are backed by the overlays that session has open, exactly as
-/// <see cref="LoadOrderResolver.IndexView.GetRecord"/>'s are.</para>
-/// </summary>
+/// <summary>The live winner's BODY for each of a known set of records — <see cref="BodyGather"/> with the winner
+/// resolution a scan does in front of it, gathered by PLUGIN rather than by record. The caller hands in one CHUNK
+/// at a time, and nothing is held past its session; contract in docs/architecture/read-engine.md.</summary>
 public static class WinnerBodies
 {
-    /// <summary>The winner body of each candidate, keyed by FormKey. A candidate whose winner cannot be resolved,
-    /// or whose winner plugin does not yield it, is simply ABSENT — the caller decides what an unfetchable winner
-    /// means, because "the index named a winner that did not re-resolve" is a fact it has to report, not one this
-    /// helper may swallow. Reading is by the returned map alone, never through the gather, so an unreadable winner
-    /// plugin is never re-fetched per record: it is named in <paramref name="unreadable"/> with the underlying
-    /// cause, so the caller reports the held-open file — or the plugin that changed under the index — rather than
-    /// guessing at index staleness.
-    /// <paramref name="getterTypes"/> is the caller's own type scope when it has one, which narrows each plugin's
-    /// walk to the GRUPs those types live in. <paramref name="ct"/> is checked between plugin walks, so a client
-    /// that aborted stops the gather one walk later rather than at the end of the chunk.</summary>
+    /// <summary>The winner body of each candidate, keyed by FormKey; a candidate whose winner cannot be resolved or
+    /// fetched is ABSENT, and an unreadable winner plugin is named once in <paramref name="unreadable"/> with its
+    /// cause. <paramref name="ct"/> is checked between plugin walks.</summary>
     public static Dictionary<FormKey, IMajorRecordGetter> For(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
         IReadOnlyCollection<FormKey> candidates, IReadOnlyList<Type>? getterTypes,
