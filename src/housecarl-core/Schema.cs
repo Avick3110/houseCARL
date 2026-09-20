@@ -2,14 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace HousecarlCore;
 
-/// <summary>
-/// One entry per Mutagen-modeled type in the corpus. The catalog is <b>flat</b>: a
-/// field that targets another modeled type references it by name
-/// (<see cref="FieldSchema.TypeRef"/> / <see cref="FieldSchema.ElementTypeRef"/> /
-/// <see cref="FieldSchema.Arms"/>), never inlined. That is what makes full-depth
-/// coverage tractable — a cycle (Quest -> Alias -> Quest) is just a name reference,
-/// and there is no depth limit because the schema is flat rather than nested.
-/// </summary>
+/// <summary>One entry per Mutagen-modeled type in the corpus; the catalog is FLAT — a field references another modeled type by name, never inlined, so there is no depth limit.</summary>
 public sealed class TypeSchema
 {
     /// <summary>Catalog key, e.g. "Armor", "BodyTemplate", "LightEffectArchetype".</summary>
@@ -32,13 +25,10 @@ public sealed class TypeSchema
     /// <summary>For a polymorphic-base: the catalog names of its permitted arms.</summary>
     public List<string>? Arms { get; set; }
 
-    /// <summary>For a record: its xEdit 4-char signature (Armor -> "ARMO"), read from the registration's
-    /// TriggeringRecordType. The sig is one-to-many onto catalog names (GMST -> 4 GameSetting* variants),
-    /// so the index carries one row per name and disambiguation happens at lookup, not here.</summary>
+    /// <summary>For a record: its xEdit 4-char signature, read from the registration's TriggeringRecordType; one signature maps onto many catalog names, and disambiguation happens at lookup.</summary>
     public string? Signature { get; set; }
 
-    /// <summary>For an enum-kind entry: the legal value names, listed once here and referenced by name from
-    /// every field of this enum type, rather than inlining e.g. ActorValue's 156 values per field.</summary>
+    /// <summary>For an enum-kind entry: the legal value names, listed once here and referenced by name from every field of this enum type.</summary>
     public List<string>? EnumValues { get; set; }
 
     public int FieldCount { get; set; }
@@ -73,9 +63,7 @@ public sealed class FieldSchema
     /// <summary>For a list whose element is itself a modeled struct: the catalog entry the element points to.</summary>
     public string? ElementTypeRef { get; set; }
 
-    /// <summary>For a list/dict whose element is a polymorphic union: the catalog names of the permitted arms.
-    /// The element's catalog entry is also a polymorphic-base carrying the same arms — this is a convenience
-    /// echo at the field level so a consumer doesn't have to follow the ref to learn the element is polymorphic.</summary>
+    /// <summary>For a list/dict whose element is a polymorphic union: the catalog names of the permitted arms — a field-level echo of the element's own entry.</summary>
     public List<string>? ElementArms { get; set; }
 
     /// <summary>For a dict-cardinality field: the key type's display name (the value lives in ElementType/ElementTypeRef).</summary>

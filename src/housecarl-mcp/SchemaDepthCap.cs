@@ -3,17 +3,13 @@ using System.Text.Json.Nodes;
 
 namespace HousecarlMcp;
 
-/// <summary>The optional fourth publication pass: cut every published schema at a configured nesting depth and
-/// close the cut with the terminator node the recursion bound already emits. Unset — the default — it does
-/// nothing. What it changes, the depth measure, the floor and the refusals: docs/architecture/tool-schema-publication.md.
-/// </summary>
+/// <summary>The optional fourth publication pass: cut every published schema at a configured nesting depth and close the cut with the terminator node the recursion bound already emits. Unset it does nothing; the depth measure, the floor and the refusals are in docs/architecture/tool-schema-publication.md.</summary>
 internal static class SchemaDepthCap
 {
     /// <summary>The environment variable, spelled the way houseCARL's others are.</summary>
     internal const string Variable = "HOUSECARL_MAX_SCHEMA_DEPTH";
 
-    /// <summary>The shallowest cap that leaves the call path exactly as it was: at 4 every parameter keeps its
-    /// <c>type</c> and only the shapes below a parameter are cut.</summary>
+    /// <summary>The shallowest cap that leaves the call path exactly as it was: at 4 every parameter keeps its <c>type</c> and only the shapes below a parameter are cut.</summary>
     internal const int Minimum = 4;
 
     /// <summary>Members whose value is a NAME-TO-SCHEMA DICTIONARY; the container is never replaced.</summary>
@@ -36,8 +32,7 @@ internal static class SchemaDepthCap
     /// <summary>What one cut is for: the configured cap, and the tool whose schema is being cut.</summary>
     readonly record struct Cutting(int Cap, string Tool);
 
-    /// <summary>The configured cap, or null when the variable is unset or blank; a value that is not a whole
-    /// number of <see cref="Minimum"/> or more is refused rather than ignored.</summary>
+    /// <summary>The configured cap, or null when the variable is unset or blank; a value below <see cref="Minimum"/> is refused rather than ignored.</summary>
     internal static int? Configured() => Read(Environment.GetEnvironmentVariable(Variable));
 
     /// <summary>Parse one value of the variable. Separate from <see cref="Configured"/> so a test can drive it.</summary>
@@ -52,8 +47,7 @@ internal static class SchemaDepthCap
             "call is checked against), or leave it unset to publish them in full.");
     }
 
-    /// <summary>Cut one tool schema to <paramref name="maxDepth"/>; false leaves the document untouched, and a cut
-    /// that could not reach the cap throws rather than publishing.</summary>
+    /// <summary>Cut one tool schema to <paramref name="maxDepth"/>; false leaves the document untouched, and a cut that could not reach the cap throws rather than publishing.</summary>
     internal static bool Cut(JsonObject root, int? maxDepth, string tool)
     {
         if (maxDepth is not { } cap || Depth(root) <= cap) return false;
@@ -75,8 +69,7 @@ internal static class SchemaDepthCap
         return true;
     }
 
-    /// <summary>Cut one schema node to fit in <paramref name="budget"/> levels counted from the node itself, in
-    /// place: the node, or a terminator to put in its place when it cannot be spelled out that shallow.</summary>
+    /// <summary>Cut one schema node to fit in <paramref name="budget"/> levels counted from the node itself, in place: the node, or a terminator to put in its place.</summary>
     static JsonObject Shrink(JsonObject node, int budget, Cutting cut)
     {
         if (Depth(node) <= budget) return node;
