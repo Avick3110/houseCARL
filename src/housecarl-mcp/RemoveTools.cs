@@ -10,7 +10,7 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class RemoveTools
 {
-    [McpServerTool(Name = ToolNames.Remove, Title = "Remove whole records (the 2.0 removal surface)"),
+    [McpServerTool(Name = ToolNames.Remove, Title = "Remove whole records"),
      Description(
          "Remove WHOLE records — a literal drop-from-plugin, NOT a flag-as-deleted stub. The counterpart to " +
          ToolNames.Apply + ": where apply ADDS an override into a patch, this drops one OUT of it. ONE surface: what to " +

@@ -18,7 +18,7 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class ApplyTools
 {
-    [McpServerTool(Name = ToolNames.Apply, Title = "Edit record fields (the 2.0 write surface)"),
+    [McpServerTool(Name = ToolNames.Apply, Title = "Edit record fields"),
      Description(
          "Edit fields on one or many records and write the result to a NEW patch plugin (originals untouched by " +
          "default). ONE surface: what to change (ops=, or the bundle=/assignments= copy zip) x WHERE it lands (the " +

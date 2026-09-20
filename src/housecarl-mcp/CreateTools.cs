@@ -13,7 +13,7 @@ namespace HousecarlMcp;
 [McpServerToolType]
 public static class CreateTools
 {
-    [McpServerTool(Name = ToolNames.Create, Title = "Create brand-new records (the 2.0 authoring surface)"),
+    [McpServerTool(Name = ToolNames.Create, Title = "Create brand-new records"),
      Description(
          "Create BRAND-NEW records (new FormIDs) and write them to a NEW patch plugin (originals untouched by " +
          "default) — the net-new authoring tool, the companion to " + ToolNames.Apply + " (which edits EXISTING records). " +
