@@ -14,8 +14,11 @@ flowchart LR
   R --> A[assets / SKSE / NIF]
   R --> C[checks]
   A --> RD
+  W --> RD
   RD --> D[dialogue]
   C --> D
+  C --> A
+  D --> A
   RD --> O[output / render / wire]
   W --> O
   A --> O
@@ -25,7 +28,7 @@ flowchart LR
 
 ## The architecture notes
 
-Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so the code map and the doc map are the same map. A new note starts from [`architecture/TEMPLATE.md`](architecture/TEMPLATE.md) and adds its line here.
+Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so the code map and the doc map are the same map: a note is grouped by the code its `covers:` list names, not by its subject. A new note starts from [`architecture/TEMPLATE.md`](architecture/TEMPLATE.md) and adds its line here.
 
 ### Assets, SKSE, NIF, SkyPatcher, MO2
 
@@ -52,7 +55,6 @@ Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so 
 | Note | What it covers |
 |---|---|
 | [`architecture/corpus-rulebook.md`](architecture/corpus-rulebook.md) | The write surface's pre-flight: every write is validated against the generated schema before any Mutagen mutation, and the gate can never disagree with apply. |
-| [`architecture/check-family-tests.md`](architecture/check-family-tests.md) | The errors, scripts and dialogue families of `housecarl_check` are asserted from two driving lanes, and which lane a fact uses is a decision, not a convenience. |
 
 ### Dialogue
 
@@ -70,6 +72,7 @@ Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so 
 
 | Note | What it covers |
 |---|---|
+| [`architecture/check-family-tests.md`](architecture/check-family-tests.md) | The errors, scripts and dialogue families of `housecarl_check` are asserted from two driving lanes, and which lane a fact uses is a decision, not a convenience. |
 | [`architecture/test-project-fixtures.md`](architecture/test-project-fixtures.md) | Two pieces of test machinery, the Papyrus `.pex` world and the file-lock harness, plus the tests that prove each is what it claims to be. |
 
 ## Older notes outside `architecture/`
