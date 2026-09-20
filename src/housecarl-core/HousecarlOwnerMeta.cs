@@ -1,33 +1,12 @@
 namespace HousecarlCore;
 
-/// <summary>
-/// The houseCARL ownership marker written into a generated mod folder's <c>meta.ini</c> — the ONE structural signal
-/// that houseCARL authored a mod folder (and may therefore modify it in place; a missing marker FAIL-SAFES to
-/// not-owned, so houseCARL refuses to touch a folder it can't prove it made). The marker lives in meta.ini, the
-/// one mod-root file MO2 does NOT deploy into the game Data folder, so it never pollutes Data.
-///
-/// Single-sourced here so the writer (<c>LoadOrderService.WriteOwnerMeta</c>), the owner-detection reader
-/// (<c>LoadOrderService.IsHouseCarlOwned</c>), the in-place edit audit stamp, and the fixtures that seed an owned
-/// folder all reference ONE literal and can't drift — the same "one shared home" discipline
-/// <see cref="FormIdRange"/> applies to numeric ranges. (The <c>[houseCARL]</c> stderr LOG prefixes in the MCP layer
-/// are a different literal for a different job and deliberately stay separate.)
-/// </summary>
+/// <summary>The houseCARL ownership marker written into a generated mod folder's <c>meta.ini</c> — the one structural signal that houseCARL authored a folder, single-sourced here.</summary>
 public static class HousecarlOwnerMeta
 {
-    /// <summary>The custom <c>meta.ini</c> section header that flags a houseCARL-generated folder (MO2 ignores sections
-    /// it doesn't know). Matched case-insensitively against a trimmed line; paired with <c>generated=true</c> under it,
-    /// which is what owner-detection actually keys on.</summary>
+    /// <summary>The custom <c>meta.ini</c> section header that flags a houseCARL-generated folder; paired with <c>generated=true</c> under it, which owner-detection keys on.</summary>
     public const string Section = "[houseCARL]";
 
-    /// <summary>Does this mod folder carry the marker — is it a folder houseCARL made, and therefore one
-    /// <c>into=</c> can extend? Fail-safe on ABSENCE: a folder with no meta.ini, or one whose meta.ini does not carry
-    /// the marker, reads as NOT owned.
-    /// <para>A meta.ini that exists and cannot be READ THROWS rather than reading as not-owned: on the extend gate
-    /// that difference is the whole answer — an unreadable folder silently dropped mid-scan turns "several patches
-    /// carry this name" into a refusal that names one spelling as unambiguous. A caller for whom the answer is only
-    /// advisory (<c>ForkWarning</c>) catches it there, where the fault costs a sentence rather than a write.</para>
-    /// <para>The one implementation, so the extend lane's ownership gate and any other reader of the same fact
-    /// cannot drift.</para></summary>
+    /// <summary>Does this mod folder carry the marker? Fail-safe on ABSENCE; a meta.ini that exists and cannot be READ throws rather than reading as not-owned.</summary>
     public static bool MarksOwned(string? folder)
     {
         if (string.IsNullOrEmpty(folder)) return false;
