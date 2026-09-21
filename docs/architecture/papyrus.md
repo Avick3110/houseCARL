@@ -30,14 +30,12 @@ are [`mo2-instance.md`](mo2-instance.md), and the declaration side of a native P
   blank data dir splits nothing.
 
 ### The reference walk that narrows it
-- A large order carries hundreds of source folders whose joined `-i=` value exceeds the Windows
-  command-line cap, and a folder providing only names this script never mentions contributes
-  nothing, so the path is narrowed to the folders the target script reaches.
+- The path is narrowed to the folders the target script reaches: a folder providing only names this
+  script never mentions contributes nothing to this compile.
 - The walk mirrors the compiler: a name indexes to exactly ONE folder, its first (highest-precedence)
   provider, and the closure is transitive. Seed folders — the script's own folder and the caller's
   `import_dirs=` — are indexed but never returned, because the caller adds them unconditionally.
-- It is deliberately over-inclusive: every identifier-shaped token is a candidate name. A token that
-  names nothing costs a dictionary miss; a folder wrongly dropped costs a compile that used to work.
+- It is deliberately over-inclusive: every identifier-shaped token is a candidate name.
 - Vanilla is held out of the candidates: it is appended last unconditionally, so indexing it would
   only walk the base game.
 - Both degraded outcomes are FLAGGED, never left to look like a clean empty answer — a walk
@@ -55,9 +53,8 @@ are [`mo2-instance.md`](mo2-instance.md), and the declaration side of a native P
   compile that ran and produced nothing. Both output streams are read asynchronously, with a bounded
   post-exit drain so a grandchild holding the pipe cannot hang the call.
 - Import-path ORDER is semantics: the script's own folder, then the caller's extras, then the
-  discovered mod folders in MO2 priority order, then the vanilla sources LAST. Vanilla last is
-  load-bearing — mods ship extended copies of vanilla scripts, and ranked earlier the vanilla copy
-  wins and every call to an extended function fails as undefined.
+  discovered mod folders in MO2 priority order, then the vanilla sources LAST. Vanilla stays last
+  even when the caller re-passes it or the modlist scan reaches it.
 - Provenance labels are read off the FINAL assembled list, not the inputs, and where a dir belongs to
   two origins the caller outranks the scan. The assembled path is refused up front when it is too
   long for one command line.
@@ -88,9 +85,7 @@ are [`mo2-instance.md`](mo2-instance.md), and the declaration side of a native P
   correct, but the CK compiler will not reproduce the original bytes. Detection is best-effort, so
   its absence proves nothing.
 - Casts that are implicit in every Papyrus context — to Bool or String, Int to Float, an identity
-  cast, an upcast — are emitted as the bare operand, because re-emitting them explicitly changes
-  codegen: implicit argument conversions batch after all argument evaluation, explicit casts compile
-  inline per argument.
+  cast, an upcast — are emitted as the bare operand; re-emitting one explicitly changes codegen.
 - A statement carrying a pending value refuses rather than pick an order the source cannot express,
   in either direction (#792). A held-back value that cannot observe the statement's effect is not
   refused.

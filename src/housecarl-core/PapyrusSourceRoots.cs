@@ -49,7 +49,7 @@ public static class PapyrusSourceRoots
         return (mods, gameData);
     }
 
-    /// <summary>True iff <paramref name="dir"/> holds a top-level <c>.psc</c>; an I/O failure reads as none. Pinned by <c>compile-ergonomics-guard</c> part G.</summary>
+    /// <summary>True iff <paramref name="dir"/> holds a top-level <c>.psc</c> (pinned by <c>compile-ergonomics-guard</c> part G); any I/O failure reads as none.</summary>
     public static bool HasSources(string dir)
     {
         try
