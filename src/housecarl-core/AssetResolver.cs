@@ -50,7 +50,7 @@ public sealed class AssetResolver : IDisposable
         public readonly ConcurrentDictionary<string, bool> Dirs;             // full dir path → Directory.Exists, asked once per build
         public readonly ConcurrentDictionary<string, HashSet<string>?> Children;   // full dir path → its child names; null = would not list
         public readonly ConcurrentDictionary<string, LooseSubtree> LooseCache;
-        public readonly ConcurrentDictionary<string, FileStamp> DirWatch;   // watched dir → its stamp when first watched; the whole loose freshness check
+        public readonly ConcurrentDictionary<string, WatchedDir> DirWatch;   // watched dir → what must not change about it; the whole loose freshness check
         public Snapshot(Dictionary<string, HashSet<string>> tables, Dictionary<string, FileStamp> stamps, List<string> failures)
         {
             Tables = tables; Stamps = stamps; Failures = failures;
@@ -62,9 +62,26 @@ public sealed class AssetResolver : IDisposable
         }
     }
 
+    /// <summary>What one watched directory must keep looking like for this build to stay fresh, in NAMES and not in a
+    /// timestamp: a directory's last-write comes off a clock coarser than a write and a delete next to each other, so
+    /// a stamp cannot always tell two different listings apart.</summary>
+    internal sealed class WatchedDir
+    {
+        /// <summary>Did the directory list when it was first watched; one that starts or stops answering has changed.</summary>
+        public volatile bool Answered;
+
+        /// <summary>The whole listing, compared name by name — set only for a directory a warmed subtree resolves FROM.</summary>
+        public volatile HashSet<string>? Entries;
+
+        /// <summary>Names whose APPEARANCE here is a change and nothing else: the first missing component of a subtree
+        /// a root does not have. A byte value because the set is the point; a concurrent dictionary because two
+        /// threads can warm two subtrees answered by the same ancestor.</summary>
+        public readonly ConcurrentDictionary<string, byte> Forbidden = new(StringComparer.OrdinalIgnoreCase);
+    }
+
     /// <summary>One subtree directory's loose resolution: the filename sets of the roots that have it, in precedence
     /// order. Its freshness is not held here — warming puts one directory per root under the build's shared
-    /// <see cref="Snapshot.DirWatch"/>, so two subtrees that watch the same directory are stat-ted once.</summary>
+    /// <see cref="Snapshot.DirWatch"/>, so two subtrees answered by the same directory are read once.</summary>
     internal sealed class LooseSubtree
     {
         public readonly (int RootIndex, HashSet<string> Files)[] Present;   // roots that have the dir + ≥1 file, precedence order
@@ -86,7 +103,7 @@ public sealed class AssetResolver : IDisposable
 
     public bool ReadIncomplete => _snap.Failures.Count > 0 || !_snap.RootFailures.IsEmpty;
 
-    /// <summary>How many directories this build's loose freshness check stats — the cost <see cref="RefreshIfStale"/>
+    /// <summary>How many directories this build's loose freshness check reads — the cost <see cref="RefreshIfStale"/>
     /// pays per call, exposed so a test can assert it does not grow with the subtrees a session has warmed.</summary>
     internal int WatchedDirectoryCount => _snap.DirWatch.Count;
 
@@ -445,10 +462,10 @@ public sealed class AssetResolver : IDisposable
             => _r.EnumerateUnder(prefix, _s, keep, max, out stopped);
     }
 
-    /// <summary>Re-stat the inputs — the active archives and every directory the warmed loose subtrees put under
+    /// <summary>Re-read the inputs — the active archives and every directory the warmed loose subtrees put under
     /// watch — and rebuild in one reference swap if any changed. A changed archive or mod SET is an order change
     /// instead. The watch set holds each directory ONCE however many subtrees answer from it, so the check costs one
-    /// stat per watched directory rather than one per root per warmed subtree.</summary>
+    /// listing per watched directory rather than one per root per warmed subtree.</summary>
     public bool RefreshIfStale()
     {
         var snap = _snap;
@@ -456,11 +473,40 @@ public sealed class AssetResolver : IDisposable
         foreach (var a in _archives)
             if (!snap.Stamps.TryGetValue(a.Path, out var s) || FileStamp.Of(a.Path) != s) { stale = true; break; }
         if (!stale)
-            foreach (var kv in snap.DirWatch)                          // one stat per watched directory
-                if (FileStamp.OfDirectory(kv.Key) != kv.Value) { stale = true; break; }
+            foreach (var kv in snap.DirWatch)                          // one listing per watched directory
+                if (WatchedDirStale(kv.Key, kv.Value)) { stale = true; break; }
         if (!stale) return false;
         _snap = BuildTables();                                        // BSA tables re-read; loose cache starts empty, re-warms lazily
         return true;
+    }
+
+    /// <summary>Has one watched directory changed? Names, never a timestamp: a directory's last-write comes off a
+    /// clock coarser than a write and a delete next to each other, so a stamped check reads two different listings as
+    /// no change at all. One fresh listing answers for every subtree that watches this directory.</summary>
+    static bool WatchedDirStale(string dir, WatchedDir w)
+    {
+        var now = FreshNames(dir);
+        if ((now is not null) != w.Answered) return true;              // it started, or stopped, answering at all
+        if (now is null) return false;                                 // still will not answer: nothing to compare
+        // A directory a subtree resolves FROM: any name coming or going changes what that subtree provides.
+        if (w.Entries is { } baseline && !now.SetEquals(baseline)) return true;
+        // A directory watched only as an ancestor: ONLY the missing name appearing is a change, so an unrelated file
+        // landing in a mod folder does not throw the build away.
+        foreach (var name in w.Forbidden.Keys) if (now.Contains(name)) return true;
+        return false;
+    }
+
+    /// <summary>One directory's entry names, read fresh and uncached — the build's memo IS the baseline, so the
+    /// freshness check cannot be answered from it. Null when the directory is not there or will not list.</summary>
+    static HashSet<string>? FreshNames(string dir)
+    {
+        try
+        {
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var e in Directory.EnumerateFileSystemEntries(dir)) set.Add(Path.GetFileName(e));
+            return set;
+        }
+        catch { return null; }
     }
 
     /// <summary>Warm one subtree against the build that asked for it, so a root that will not list is named on that
@@ -479,22 +525,40 @@ public sealed class AssetResolver : IDisposable
         return new LooseSubtree(present.ToArray());
     }
 
-    /// <summary>Put the one directory whose last-write answers for this root's copy of a subtree under the build's
-    /// freshness watch: the subtree dir itself when it is on disk, else the deepest ancestor that is, because the
-    /// missing name can only appear by a write to THAT directory. A root with nothing there lands on its own root dir,
-    /// which every subtree shares, so the watch set grows with directories touched and not with roots times subtrees.</summary>
+    /// <summary>Put this root's copy of a subtree under the build's freshness watch. A copy that IS on disk is watched
+    /// by its own listing. A root that has nothing there is answered by the deepest ancestor that lists and does not
+    /// hold the next name: that ONE name appearing is the only change to look for, and one listing of the ancestor
+    /// answers for every subtree watching it, so the watch set grows with directories touched and not with roots times
+    /// subtrees. A name that IS listed yet will not stat is a root failure this build already named, and no name or
+    /// stamp moves when the permission is given back, so there is nothing to watch for it.</summary>
     static void Watch(string dir, string rootDir, Snapshot snap)
     {
-        var floor = rootDir.TrimEnd('\\');
-        // The subtree dir is stat-ted rather than memoized: every root has its own copy of it, so remembering them all
-        // would grow the build with roots times subtrees, which is the cost this watch set exists to avoid.
-        var st = FileStamp.OfDirectory(dir);
-        if (st != FileStamp.Absent) { snap.DirWatch.TryAdd(dir, st); return; }
-        // The ancestors ARE shared, so the memoized Directory.Exists answers most roots with no syscall at all.
-        for (var at = Path.GetDirectoryName(dir); at is not null && at.Length > floor.Length; at = Path.GetDirectoryName(at))
-            if (DirExists(at, snap)) { snap.DirWatch.GetOrAdd(at, FileStamp.OfDirectory); return; }
-        // Nothing from the subtree dir down to the root is on disk: watch the root, so the chain appearing is still seen.
-        snap.DirWatch.GetOrAdd(floor, FileStamp.OfDirectory);
+        if (DirExists(dir, snap) && ChildNames(dir, snap) is { } entries)
+        {
+            var own = snap.DirWatch.GetOrAdd(dir, _ => new WatchedDir());
+            own.Answered = true;
+            own.Entries = entries;
+            return;
+        }
+        // One level above the root, because the root's own folder can be the missing one.
+        var floor = (Path.GetDirectoryName(rootDir.TrimEnd('\\')) ?? "").Length;
+        var child = dir;
+        for (var up = Path.GetDirectoryName(child); up is not null; child = up, up = Path.GetDirectoryName(up))
+        {
+            if (!DirExists(up, snap))
+            {
+                if (up.Length <= floor) break;                         // walked past the root with nothing there
+                continue;
+            }
+            if (ChildNames(up, snap) is not { } names) break;           // the ancestor itself would not list
+            if (!names.Contains(Path.GetFileName(child)))
+            {
+                var at = snap.DirWatch.GetOrAdd(up, _ => new WatchedDir());
+                at.Answered = true;
+                at.Forbidden[Path.GetFileName(child)] = 0;
+            }
+            break;
+        }
     }
 
     /// <summary>One root's filenames in one directory. A dir that is not there is simply absent; a dir that THROWS is

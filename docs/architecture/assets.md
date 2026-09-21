@@ -8,7 +8,7 @@ covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/AssetSourceSele
 `snapshot-view-guard`, `place-asset-guard`, `nif-source-lane-guard`, `source-chain-guard`, `asset-prefix-hint-guard`,
 `bsa-contract-guard`, `bsa-extract-guard`, `bsa-probe`, `facegen-carry-guard` and `voice-carry-guard` probes
 (`src/housecarl-generator`) and by `AssetSelectTests`, `AssetProviderTokenTests`, `AssetStatusSetTests`,
-`BsaPackCountTests`, `BsaPackReadBackTests`, `RawModsPathRefusalTests`, `UnreadableRootNamedTests`
+`BsaPackCountTests`, `BsaPackReadBackTests`, `RawModsPathRefusalTests`, `UnreadableRootNamedTests`, `AssetLooseFreshnessTests`
 (`src/housecarl-mcp-tests`).
 
 FaceGen's own contracts — the FormID→path transform, the check's classes, what a dark face is — are in
@@ -61,12 +61,18 @@ resolver reads no profile.
 - A build holds **string sets only** — each archive's table copied out and the reader dropped — plus a lazily warmed
   per-subtree set of loose filenames. **Zero archive handles at rest:** pinned by `asset-resolver-guard`'s at-rest
   arm (rename *and* delete while the resolver lives) and, for single-entry extraction, `place-asset-guard` arm B.
-- `RefreshIfStale` re-stats the active archives and the build's **watched directories**, and swaps one reference. A
-  changed archive or mod *set* is an order change, and the service rebuilds the resolver. Warming a subtree puts one
-  directory per root under watch: the root's copy of the subtree when it is on disk, else the deepest ancestor that
-  is, since the missing name can only appear by a write to that directory. Roots with nothing there land on their own
-  root dir, which every subtree shares, so the check costs one stat per watched DIRECTORY and not one per root per
-  warmed subtree — what keeps a long session's asset calls as fast as its first.
+- `RefreshIfStale` re-stats the active archives and re-lists the build's **watched directories**, and swaps one
+  reference. A changed archive or mod *set* is an order change, and the service rebuilds the resolver. Warming a
+  subtree puts one directory per root under watch, and the watch is made of **names**, never of a directory's
+  last-write: that timestamp comes off a clock coarser than a write next to a delete, so two different listings inside
+  one tick would read as no change. A root whose copy of the subtree IS on disk is watched by that directory's whole
+  listing, so any file coming or going is seen. A root that has nothing there is answered by the deepest ancestor that
+  lists and does not hold the next name, and only THAT name appearing counts — so a root with nothing lands on its own
+  mod folder, which every subtree shares, and an unrelated file written beside it does not throw the build away. One
+  listing per watched DIRECTORY, not one read per root per warmed subtree, is what keeps a long session's asset calls
+  as fast as its first. Two things this cannot see, both by the same rule the failure lanes already state: a name that
+  is listed yet will not stat is a root failure named on the build, and giving the permission back moves no name, so
+  only a rebuild clears it; and a loose file's BYTES are never cached, so a rewrite needs no invalidation at all.
 - `Capture()` pins one build as an `AssetView`, so a batch's hits and its `BsaFailures` cannot describe two builds.
   The view is immutable and handle-free, which is what lets the service enumerate, read and parse outside `_gate`.
 
