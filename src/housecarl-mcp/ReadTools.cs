@@ -18,7 +18,7 @@ static class Wire
     /// <summary>Server default char budget for one tool response (~20k tokens). A caller raises it per-call via max_chars.</summary>
     public const int DefaultMaxChars = 80_000;
 
-    /// <summary>Default char budget for any write-tool read-back dump, below <see cref="DefaultMaxChars"/> because the host's per-result ceiling is lower.</summary>
+    /// <summary>Default char budget for any write-tool read-back dump, held below <see cref="DefaultMaxChars"/> by the host's per-result ceiling; pinned by <c>CompactReadbackProbe</c>'s 80k-spill guard.</summary>
     public const int ReadbackMaxChars = 24_000;
 
     /// <summary>How many distinct contested parent hosts a create render names before it says "and N further"; shared with the json twin, which publishes the full count beside the capped list.</summary>
