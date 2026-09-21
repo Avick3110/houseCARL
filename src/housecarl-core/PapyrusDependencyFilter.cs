@@ -2,14 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace HousecarlCore;
 
-/// <summary>What <see cref="PapyrusDependencyFilter.Relevant"/> concluded: the candidate folders this script actually
-/// reaches (in the order they were offered), plus the numbers the render discloses — how many scripts were indexed,
-/// how many source files were read chasing transitive references, and whether a bound cut the walk short.
-/// <para>BOTH degraded outcomes are FLAGGED, never left to look like a clean empty answer.
-/// <see cref="BudgetExhausted"/> means the walk was truncated; <see cref="TargetUnreadable"/> means the target's own
-/// source could not be read at all, so an empty <see cref="Folders"/> says nothing about what the script references —
-/// without it the render would state "0 of 501 … referenced by this script", a positive claim about contents that were
-/// never examined. A degraded answer must not be indistinguishable from a confident one.</para></summary>
+/// <summary>What <see cref="PapyrusDependencyFilter.Relevant"/> concluded: the folders reached, the numbers the render discloses, and the two degraded outcomes it flags; contracts in docs/architecture/papyrus.md.</summary>
 public sealed record PapyrusDependencyScan(
     IReadOnlyList<string> Folders,
     int Indexed,
@@ -17,47 +10,16 @@ public sealed record PapyrusDependencyScan(
     bool BudgetExhausted,
     bool TargetUnreadable = false);
 
-/// <summary>
-/// Narrows a modlist's Papyrus source folders to the ones a specific script can actually reach (issue #200).
-///
-/// A large order carries hundreds of source folders — on a 3600-mod list, around 501, whose joined <c>-i=</c> value
-/// runs to ~40,200 characters. Windows caps a process command line near 32,767, so handing the compiler every folder
-/// cannot be executed at all. Size is the symptom: nearly all of those folders belong to quest and follower mods
-/// shipping their own scripts, which no other script references. A folder that provides only names this script never
-/// mentions contributes nothing to this compile, so filtering to the reachable set is the CORRECT semantics, not a
-/// size workaround.
-///
-/// The walk mirrors what the compiler itself does. The compiler resolves a referenced script by NAME against the
-/// import path and takes the FIRST match, so a name is indexed to exactly one folder — the highest-precedence provider
-/// — and that is the only folder that name can ever justify. From the target's own text, every identifier-shaped token
-/// is looked up; each that resolves pulls in its folder AND is followed into that script's text, until nothing new
-/// appears. Following matters: type-checking loads a dependency's own dependencies, so the closure is transitive, not
-/// one level.
-///
-/// DELIBERATELY OVER-INCLUSIVE. Every <c>[A-Za-z_][A-Za-z0-9_]*</c> token is treated as a possible script name —
-/// keywords, locals, comment and string text included. A token that names nothing costs one dictionary miss; the
-/// failure that matters is the other direction, a folder wrongly dropped, which costs a compile that used to work.
-/// The vanilla sources are deliberately NOT indexed by the caller: they are always on the import path anyway, so
-/// excluding them both keeps the closure from walking the whole base game and cannot lose a folder.
-/// </summary>
+/// <summary>Narrows a modlist's Papyrus source folders to the ones a script reaches; docs/architecture/papyrus.md.</summary>
 public static class PapyrusDependencyFilter
 {
-    /// <summary>Ceiling on source files READ while chasing transitive references. A bound this generous is a runaway
-    /// stop, not a policy — the real closure of a framework-heavy script is orders of magnitude smaller than the
-    /// ~13,000 scripts a large order indexes. Hitting it is REPORTED, never absorbed.</summary>
+    /// <summary>Ceiling on source files READ while chasing transitive references; hitting it is reported.</summary>
     public const int MaxFilesRead = 5000;
 
     static readonly Regex Identifier = new(@"[A-Za-z_][A-Za-z0-9_]*", RegexOptions.Compiled);
 
-    /// <summary>The subset of <paramref name="candidateFolders"/> that <paramref name="targetScript"/> reaches.
-    /// <para><paramref name="seedFolders"/> — the script's own folder and the caller's explicit import_dirs= — are
-    /// INDEXED but never returned: the caller adds them unconditionally (an explicitly passed folder is not something
-    /// to second-guess), and indexing them is what lets the walk hop THROUGH a local script into the framework it
-    /// uses. Precedence runs seeds first, then candidates in the given order, which is the same order the compiler
-    /// will search, so each name indexes to the provider that would actually win.</para>
-    /// <para>Returns candidates in their GIVEN order (MO2 precedence). An unreadable script is skipped rather than
-    /// thrown on — one missed hop degrades to a folder the user can pass by hand, whereas a throw would cost the
-    /// compile outright.</para></summary>
+    /// <summary>The subset of <paramref name="candidateFolders"/> that <paramref name="targetScript"/> reaches, in the
+    /// given order; <paramref name="seedFolders"/> is indexed but never returned.</summary>
     public static PapyrusDependencyScan Relevant(
         string targetScript, IReadOnlyList<string> seedFolders, IReadOnlyList<string> candidateFolders)
     {
@@ -90,11 +52,7 @@ public static class PapyrusDependencyFilter
 
         int filesRead = 0;
         bool exhausted = false;
-        // The target is re-read here, after CompileScript's own File.Exists — it can be locked by an editor mid-save
-        // or moved in between. Returning empty is right (a throw would cost the compile, and the compiler's own error
-        // is the better one), but it must be DISTINGUISHABLE from a walk that ran and reached nothing: the render turns
-        // an empty result into "your script references none of these", which here would be asserting the contents of a
-        // file that was never opened.
+        // A target that cannot be read returns empty and FLAGGED, never as a walk that ran and reached nothing.
         try { foreach (var id in Names(File.ReadAllText(targetScript))) queue.Enqueue(id); filesRead++; }
         catch { return new PapyrusDependencyScan(Array.Empty<string>(), folderOf.Count, 0, false, TargetUnreadable: true); }
 
@@ -105,8 +63,7 @@ public static class PapyrusDependencyFilter
             if (!folderOf.TryGetValue(name, out var folder)) continue;   // names nothing on the path — a free miss
             if (candidateSet.Contains(folder)) reached.Add(folder);
 
-            // Past the budget, keep RESOLVING (a dictionary hit still earns its folder) but stop READING, so a runaway
-            // closure degrades to a shorter path that is reported rather than to a hung compile.
+            // Past the budget, keep RESOLVING but stop READING, and report it.
             if (filesRead >= MaxFilesRead) { exhausted = true; continue; }
             string text;
             try { text = File.ReadAllText(fileOf[name]); filesRead++; }
@@ -119,9 +76,7 @@ public static class PapyrusDependencyFilter
         return new PapyrusDependencyScan(kept, folderOf.Count, filesRead, exhausted);
     }
 
-    /// <summary>Every identifier-shaped token in a Papyrus source. No attempt is made to tell a type reference from a
-    /// local, a keyword, or a word inside a comment — see the class summary: an extra token is a dictionary miss, a
-    /// missing one is a failed compile.</summary>
+    /// <summary>Every identifier-shaped token in a Papyrus source — a local, a keyword and a word in a comment too.</summary>
     static IEnumerable<string> Names(string text)
     {
         foreach (Match m in Identifier.Matches(text)) yield return m.Value;
