@@ -14,7 +14,7 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
 ## Contracts
 - A write's default destination is a NEW plugin; editing an existing plugin is the `in_place=true` opt-in.
 - `in_place=true` requires `target=`, is mutually exclusive with `into=` / `patch=`, and `target=` without
-  `in_place` is refused by name rather than ignored — the same contract on apply, create, remove and forward.
+  `in_place` is refused by name rather than ignored, on apply, create, remove and forward alike.
 - An in-place `target=` is resolved to an on-disk path by plugin filename through the load order, and a name that
   is not an active plugin is refused; a coincidentally-named folder is never a target.
 - Consent is a persistent first-touch handshake keyed off the resolved path, shared by the edit, create, remove and
@@ -37,8 +37,7 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
   prompt alike. An outcome that consulted no build carries none.
 - A write response states only what it re-read from the written FILE: the file's value, `not-checked` where the file
   could not answer, and a did-not-land verdict only off a walk that succeeded. Never the applied in-memory value.
-  (The W0 rule, 2026-09-15; PRs #743, #744, #746.) An opaque `bytes` leaf re-reads as a byte count with its
-  structure NOT checked.
+  An opaque `bytes` leaf re-reads as a byte count with its structure NOT checked.
 - A read-back proves what is in the file, never what wins in the ORDER.
 - A walk's source universe is the caller's pole list in order, resolved first-hit-wins, with no separate single-pole
   path: a length-1 list is the same loop running once.
@@ -49,6 +48,11 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
   anything keys on it, so one rewrite reaches the arm decision, the winner comparison and every rendered sentence.
 - A refused write removes a mod folder it created this call, gated on that folder holding nothing but our own
   `meta.ini` and an empty staging directory.
+- Every folder allocation is serialized on one gate, because the check-then-create of a unique stem is race-free
+  only then.
+- The fresh-patch remedy arguments pass through to the extend refusals, so the calling operation states how, or
+  whether, its own fresh-write path works. Both default to claiming nothing, so a lane added later cannot inherit a
+  sentence that is false for it.
 - The sentence catalogue: every user-facing write sentence has ONE source in `WriteSentences`, because each outcome
   renders twice (text and json). `Twins` holds what BOTH transports must state; a sentence that is prose on one
   transport by design stays on the outer class.
@@ -57,7 +61,8 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
 
 ## Pinned by
 - `inplace-guard` arms E / L / U — the `in_place`⇔`target=` contract and the `into=` / `patch=` exclusion, on the
-  edit, create and remove lanes.
+  edit, create and remove lanes; `forward-from-plugin-guard`'s INPLACE-CONTRACT arm for the forward lane's three
+  halves.
 - `inplace-guard` arms F / V — a target that is not an active plugin is refused.
 - `inplace-guard` arms G / K / W — the handshake refuses, then writes under `acknowledge=true`, does not re-prompt,
   persists, and one acknowledgement covers the edit, create and remove lanes.
@@ -67,7 +72,9 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
   still refused.
 - `inplace-guard` arms LOC-A–LOC-J — the localized pre-flight answers before consent in each lane's own words, file
   untouched and no consent spent, on the real call and the dry run alike.
-- `apply-guard` arm 5 — every write render carries the epoch, on both transports.
+- `apply-guard` arm 5 — a write render carries the epoch on both transports, on success, on a json refusal and on
+  the consent prompt; `DegradedOrderMarkerTests.TheWriteLaneCarriesTheClauseBesideItsStamp` renders a DRY RUN and
+  asserts the degraded clause that rides beside the stamp, which is that reading of the same bullet.
 - `WriteEditLineSourceTests.ThePerEditLinePrintsTheFileValueNotTheAppliedOne`,
   `…AnOpTheFileCouldNotAnswerForIsNotCheckedRatherThanTheAppliedValue`,
   `…ARecordMissingFromTheWrittenFileIsSaidOutright` and `…AFailedWalkIsNotCheckedRatherThanAVerdict` — the W0 rule's
