@@ -4,22 +4,9 @@ using Mutagen.Bethesda.Pex;
 
 namespace HousecarlCore;
 
-/// <summary>
-/// PEX -> Papyrus source reconstruction over Mutagen's PexFile model.
-/// The codegen patterns this relies on, each confirmed against compiler output:
-///   - jump offsets relative to the jump instruction itself
-///   - while  = cond; JMPF -> E; body; JMP (backward); E:
-///   - if     = cond; JMPF -> L; then; JMP -> M; L: else; M:   (JMP -> L means no else)
-///   - and/or = short-circuit JMPF/JMPT whose arm rewrites the same temp, read again at the join —
-///     usually landing ON the consumer, further on when later call arguments evaluate in between
-///   - a call returning None puts its result in the ::NoneVar discard slot, and a read of that slot
-///     is that call's value (`x = obj.VoidCall()`, `return obj.VoidCall()`)
-///   - auto-prop backing var ::Name_var; AutoReadOnly = GET returning a literal
-///   - compiler-generated GotoState/GetState in the '' state (skipped on emit)
-///   - FunctionFlags raw bits: bit0 = Global, bit1 = Native (Mutagen's enum names sit one off)
-/// Any function whose flow doesn't match a verified pattern FAILS LOUD and is counted — never
-/// silently emitted wrong.
-/// </summary>
+/// <summary>PEX -> Papyrus source reconstruction over Mutagen's PexFile model, from codegen patterns each confirmed
+/// against compiler output; a function whose flow matches no verified pattern FAILS LOUD and is counted. The patterns
+/// and the contracts are in docs/architecture/papyrus.md.</summary>
 public sealed class PapyrusDecompiler
 {
     public sealed class Result
@@ -29,11 +16,8 @@ public sealed class PapyrusDecompiler
         public int FunctionsFailed;
         public List<string> Failures = new();
 
-        /// <summary>Count of flow patterns the canonical CK compiler never emits (threaded shared-join
-        /// trailing JMPs, jump-to-end early returns, value-reused temps):
-        /// &gt;0 means the pex came from an OPTIMIZING compiler (Caprica class). The decompiled source
-        /// is still correct, but recompiling it with the CK compiler will not reproduce the original
-        /// bytes — the optimizer's output is not the CK compiler's canonical form.</summary>
+        /// <summary>Count of flow patterns the canonical CK compiler never emits; what a non-zero count means is in
+        /// docs/architecture/papyrus.md.</summary>
         public int OptimizerHints;
     }
 
@@ -80,16 +64,12 @@ public sealed class PapyrusDecompiler
         EIdent i => i.Name,
         EBin b => $"{Wrap(b.L, Prec(b))}{(true ? " " : "")}{b.Op} {Wrap(b.R, Prec(b) + 1)}",
         EUn u => u.Op + Wrap(u.E, 7),
-        // `as` binds tighter than binary operators — a binop operand must keep its own parens or
-        // `(a || b as float)` regroups to `a || (b as float)`.
+        // `as` binds tighter than a binary operator, so a binop operand keeps its own parens.
         ECast c => $"({(c.E is EBin ? "(" + Render(c.E) + ")" : Render(c.E))} as {c.Type})",
         ECall c => (c.Target is null ? "" : Postfix(c.Target) + ".") + c.Name + "(" + string.Join(", ", c.Args.Select(Render)) + ")",
         EStatic s => $"{s.Cls}.{s.Name}(" + string.Join(", ", s.Args.Select(Render)) + ")",
         EParent p => $"Parent.{p.Name}(" + string.Join(", ", p.Args.Select(Render)) + ")",
-        // Self-property access renders with the explicit Self. prefix: inside the defining script a
-        // BARE auto-property name compiles directly to the backing var (no PROPGET) while Self.Name
-        // forces the PROPGET — the bytecode we decompiled showed a PROPGET, so Self. reproduces it.
-        // (For full/inherited properties both forms compile to PROPGET — Self. is always faithful.)
+        // Self-property access keeps the explicit Self. prefix: a bare auto-property name compiles to the backing var.
         EProp p => p.Obj is null ? $"Self.{p.Name}" : $"{Postfix(p.Obj)}.{p.Name}",
         EIndex x => $"{Postfix(x.Arr)}[{Render(x.Idx)}]",
         ELen l => $"{Postfix(l.Arr)}.Length",
@@ -115,39 +95,25 @@ public sealed class PapyrusDecompiler
     Dictionary<string, string> _localTypes = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<string, string> _objVarTypes = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Optional child→parent class map (from `ScriptName X extends Y` headers across the
-    /// load order + vanilla sources). Enables implicit-UPCAST detection: a CAST to an ancestor type
-    /// is implicit in every Papyrus context, and re-emitting it explicitly changes codegen: implicit
-    /// arg conversions compile as a batched eval-all-then-convert-all pass, while explicit casts
-    /// compile inline per-arg. Injected per call rather than held in a static, so parallel use is
-    /// safe. Null means no map, and unknown hierarchies keep their explicit casts — conservative and
-    /// still correct, only cosmetically different.</summary>
+    /// <summary>Optional child→parent class map, injected per call, enabling implicit-upcast suppression; null keeps
+    /// every explicit cast. Contract in docs/architecture/papyrus.md.</summary>
     readonly IReadOnlyDictionary<string, string>? _classParents;
 
-    /// <summary>Index of the first parameter a `= None` default is emitted on, by function name — every
-    /// parameter from there to the end takes one, because Papyrus only allows defaults as a suffix. A .pex
-    /// stores no defaults at all, so the only evidence is a call in this same object that omitted the
-    /// arguments: the compiler bakes an omitted `None` default as a RAW null argument slot, while an
-    /// explicitly written `None` compiles to a typed null-CAST passed by ident. This is the same trailing
-    /// run of raw nulls the call site re-omits, so the two agree — and since the pex carries no defaults,
-    /// declaring one costs nothing in what the source recompiles to.</summary>
+    /// <summary>Index of the first parameter a `= None` default is emitted on, by function name; the evidence a .pex
+    /// carries for a default is in docs/architecture/papyrus.md.</summary>
     readonly Dictionary<string, int> _defaultedParams = new(StringComparer.OrdinalIgnoreCase);
 
     public PapyrusDecompiler(PexFile pex, PexObject obj, IReadOnlyDictionary<string, string>? classParents = null)
     {
         _pex = pex; _obj = obj; _classParents = classParents;
-        // Object variables (incl. auto-prop backing vars) — TypeOf needs them for implicit-cast
-        // detection on casts whose source is a script variable, not a function local.
+        // Object variables, backing vars included: TypeOf needs them for implicit-cast detection.
         foreach (var v in obj.Variables)
             if (v.Name is not null && v.TypeName is not null) _objVarTypes.TryAdd(v.Name, v.TypeName);
         HarvestBakedDefaults(obj);
     }
 
-    /// <summary>Read every call this object makes to ITSELF and note the trailing run of arguments the
-    /// compiler baked as a raw null — the run the call site re-omits. Whose function it is comes off the
-    /// call's target: `self` for a CALLMETHOD, this object's own name for a CALLSTATIC. A call to another
-    /// script's same-named function carries that script's defaults, not this one's, and says nothing here.
-    /// The longest run any call shows is the one declared: a shorter one still compiles against it.</summary>
+    /// <summary>Read every call this object makes to ITSELF and note the trailing run of raw-null arguments; the
+    /// longest run any call shows is the one declared.</summary>
     void HarvestBakedDefaults(PexObject obj)
     {
         var own = new Dictionary<string, PexObjectFunction>(StringComparer.OrdinalIgnoreCase);
@@ -155,8 +121,7 @@ public sealed class PapyrusDecompiler
             foreach (var nf in st.Functions)
                 if (nf.FunctionName is not null && nf.Function is not null) own.TryAdd(nf.FunctionName, nf.Function);
 
-        // Every body this object carries, property Get and Set handlers included: their calls go through the
-        // same re-omission, so a default evidenced only from inside a handler counts the same.
+        // Every body this object carries, property Get and Set handlers included.
         var bodies = obj.States.SelectMany(st => st.Functions).Select(nf => nf.Function)
             .Concat(obj.Properties.SelectMany(pr => new[] { pr.ReadHandler, pr.WriteHandler }));
 
@@ -175,8 +140,7 @@ public sealed class PapyrusDecompiler
                     var a = ins.Arguments;
                     const int argcIdx = 3;
                     if (a.Count <= argcIdx) continue;
-                    // Whose function this call runs. A CALLMETHOD on anything but `self`, or a CALLSTATIC
-                    // naming another script, is that script's function and its defaults, not this one's.
+                    // Whose function this call runs: another script's carries that script's defaults, not this one's.
                     bool toSelf = ins.OpCode == InstructionOpcode.CALLMETHOD
                         ? RunsThisObject(obj, body, a[1])
                         : string.Equals(a[0].StringValue, obj.Name, StringComparison.OrdinalIgnoreCase);
@@ -186,9 +150,7 @@ public sealed class PapyrusDecompiler
                     if (callee is null || !own.TryGetValue(callee, out var target)) continue;
                     if (a[argcIdx].VariableType != VariableType.Integer) continue;
                     int n = a[argcIdx].IntValue ?? 0;
-                    // The argument run only lines up with the parameter list when the counts match. A call to
-                    // itself always matches; a pex where it does not is malformed, and skipping it is what
-                    // keeps the walk below inside both lists.
+                    // The argument run lines up with the parameter list only when the counts match.
                     if (n != target.Parameters.Count || a.Count != argcIdx + 1 + n) continue;
 
                     int keep = n;
@@ -202,8 +164,7 @@ public sealed class PapyrusDecompiler
     }
 
     /// <summary>Does a CALLMETHOD on this target run THIS object's function? `self` does, and so does anything
-    /// declared as this object's own class — a parameter, a local (a temp holding a property read included), or
-    /// a script variable. Anything else is another script's function and carries that script's defaults.</summary>
+    /// declared as this object's own class.</summary>
     bool RunsThisObject(PexObject obj, PexObjectFunction body, IPexObjectVariableDataGetter target)
     {
         if (target.VariableType != VariableType.Identifier || target.StringValue is null) return false;
@@ -215,9 +176,7 @@ public sealed class PapyrusDecompiler
         return type is not null && string.Equals(type, obj.Name, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Is `None` a legal value for this declared type? The four scalars are the ones it is not. The
-    /// CK compiler bakes a scalar default as its own literal and never as a raw null — measured — so this only
-    /// bites on a pex some other compiler wrote, where it keeps `int n = None` out of the source.</summary>
+    /// <summary>Is `None` a legal value for this declared type? The four scalars are the ones it is not.</summary>
     static bool CanBeNone(string? type)
         => type is not null
            && !(type.Equals("int", StringComparison.OrdinalIgnoreCase)
@@ -336,8 +295,7 @@ public sealed class PapyrusDecompiler
         {
             var backing = _obj.Variables.FirstOrDefault(v => string.Equals(v.Name, p.AutoVarName, StringComparison.OrdinalIgnoreCase));
             var init = backing is not null ? InitText(backing.VariableData) : null;
-            // Conditional on an auto property lands on the BACKING VARIABLE's user flags, not the
-            // property's — merge both so `Auto Conditional` survives the round trip.
+            // Conditional on an auto property lands on the BACKING VARIABLE's user flags: merge both.
             var autoFlagsTxt = ObjFlags(p.RawUserFlags | (backing?.RawUserFlags ?? 0));
             var autoSuffix = autoFlagsTxt.Length > 0 ? " " + autoFlagsTxt : "";
             _sb.AppendLine($"{t} Property {p.Name}{(init is not null ? $" = {init}" : "")} Auto{autoSuffix}");
@@ -374,8 +332,7 @@ public sealed class PapyrusDecompiler
             ? null : TypeName(f.ReturnTypeName);
         bool asEvent = !propertyHandler && ret is null && !isGlobal && name.StartsWith("On", StringComparison.OrdinalIgnoreCase);
 
-        // A property handler is emitted under the fixed name Get or Set, so a default harvested for a script
-        // function of that name is not this one's.
+        // A property handler is emitted as Get or Set, so a same-named function's default is not this one's.
         int firstDefaulted = !propertyHandler && _defaultedParams.TryGetValue(name, out var dp) ? dp : int.MaxValue;
         var ps = string.Join(", ", f.Parameters.Select((p, k) =>
             $"{TypeName(p.TypeName)} {p.Name}" + (k >= firstDefaulted ? " = None" : "")));
@@ -391,21 +348,15 @@ public sealed class PapyrusDecompiler
         Doc(f.DocString, ind + "    ");
         if (isNative) return;   // native: declaration only
 
-        // Structure FIRST: materialized temps (optimizer value-reuse promoted to named locals)
-        // are only known after the walk, and their declarations belong with the other locals.
+        // Structure FIRST: materialized temps are only known after the walk, and they are declared as locals.
         List<string>? stmts = null;
         StructureException? fail = null;
         var body = new Body(this, f);
         try { stmts = body.Structure(0, f.Instructions.Count); }
         catch (StructureException ex) { fail = ex; }
 
-        // Locals: declare at the first assignment when scope-safe (`int i = 0` form). PCompiler
-        // allocates the locals-table slot where it SEES the declaration, and the table order drives
-        // its same-type temp-slot reuse picks — hoisting everything to the top reorders the table
-        // versus idiomatically-authored sources and shows up as temp-slot reallocations on recompile.
-        // A local stays hoisted when inline placement is NOT provably safe: first reference isn't a
-        // write, the initializer references the local itself, or a reference escapes the block the
-        // first write sits in (Papyrus locals are block-scoped).
+        // Locals: declared at the first assignment when that is provably scope-safe, hoisted otherwise, because the
+        // locals-table order the compiler allocates from follows where it sees the declaration.
         var declarables = f.Locals
             .Where(l => !IsTemp(l.Name!) && !l.TypeName!.Equals("None", StringComparison.OrdinalIgnoreCase))
             .Concat(f.Locals.Where(l => body.Materialized.Contains(l.Name!)))
@@ -443,9 +394,8 @@ public sealed class PapyrusDecompiler
         _ => $"?{d.VariableType}",
     };
 
-    /// <summary>Rewrite each local's first-assignment line to a declaration-with-initializer when
-    /// every other reference stays inside the block that assignment sits in. Returns the set of
-    /// local names (table names, e.g. "::temp140") that were placed inline.</summary>
+    /// <summary>Rewrite each local's first-assignment line to a declaration-with-initializer when every other
+    /// reference stays inside that assignment's block; returns the table names placed inline.</summary>
     HashSet<string> PlaceDeclsAtFirstAssign(List<string> stmts, List<PexObjectFunctionVariable> declarables)
     {
         var placed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -468,8 +418,7 @@ public sealed class PapyrusDecompiler
             if (!body.StartsWith(name + " = ", StringComparison.OrdinalIgnoreCase)) continue;
             var rhs = body[(name.Length + 3)..];
             if (word.IsMatch(rhs)) continue;
-            // Block containment: the write's block runs until the first line that dedents below it
-            // (else/elseif/endif/endwhile of the enclosing construct dedent by one level).
+            // Block containment: the write's block runs until the first line that dedents below it.
             int blockEnd = stmts.Count;
             for (int k = first + 1; k < stmts.Count; k++)
             {
@@ -493,26 +442,20 @@ public sealed class PapyrusDecompiler
         readonly Dictionary<string, Expr> _pending = new(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, int> _pendingStart = new(StringComparer.OrdinalIgnoreCase);
         // Highest instruction index at which a pending value runs a call, int.MinValue when it runs none.
-        // A value's start index is not that index: `::temp2 = Inner(Poke())` starts where Poke does and
-        // calls Inner later, and it is the later one a statement folding it in has to be ordered against.
         readonly Dictionary<string, int> _pendingLastCall = new(StringComparer.OrdinalIgnoreCase);
         readonly List<string> _pendingOrder = new();
         int _consumedStart;      // min start-index of pending values consumed while decoding the current instruction
         int _consumedLastCall;   // max last-call index of those same values
         int _cur;                // index of the instruction currently being decoded (diagnostics)
 
-        /// <summary>Temps promoted to named locals: an optimizing compiler can condition on a temp
-        /// and then RE-READ its value inside the guarded block — PCompiler temps
-        /// are strictly single-use, so re-use forces the temp to become a real local in the source.
-        /// Declared at function top (function scope is always valid); reads/writes emit by name.</summary>
+        /// <summary>Temps promoted to named locals, because a re-read temp cannot be single-use; declared at function
+        /// top, and read and written by name.</summary>
         public readonly HashSet<string> Materialized = new(StringComparer.OrdinalIgnoreCase);
 
         void SetPending(string name, Expr e, List<string> stmts, int startIdx, int lastCallIdx)
         {
-            // Overwriting an unconsumed pending means the earlier value was discarded — a statement in
-            // the original source, which comes back as a bare expression statement. It is emitted here, at
-            // its own position, so anything produced BEFORE it has to come out first: those are still
-            // pending only because nothing has consumed them yet, and they ran earlier.
+            // Overwriting an unconsumed pending discarded the earlier value: it is emitted here, at its own
+            // position, so anything produced before it comes out first.
             if (_pending.TryGetValue(name, out var old))
             {
                 FlushPending(stmts, _cur + 1, _pendingStart[name]);
@@ -534,32 +477,17 @@ public sealed class PapyrusDecompiler
             _pendingOrder.Remove(name);
         }
 
-        /// <summary>Unconsumed values pending at a statement boundary. A pending temp whose value is
-        /// READ downstream (before being rewritten) is an optimizer-eliminated named local crossing a
-        /// region boundary (value flows into an if arm, or out of an arm to the join — a phi):
-        /// materialize it as a named-local assignment, never discard it. The rest are discarded
-        /// results from earlier statements — emit in evaluation order as bare expression statements, which
-        /// PCompiler accepts and compiles back to the one instruction each came from — a bare call, a bare
-        /// `x + y`, a bare explicit `x as int`, a bare property read, a bare `arr[0]`. A bare identifier or
-        /// literal is the exception: PCompiler emits nothing at all for it, so emitting one would drop the
-        /// instruction the value came from, and it stays a loud failure. That takes in a CAST the decoder
-        /// strips as implicit — to Bool or String, Int to Float, an identity cast, an upcast — because what
-        /// is left pending for it is the bare source.
-        /// A statement that CARRIES a pending value only drains what was produced before that value:
-        /// anything newer was evaluated after it, and emitting it here would put it ahead of the
-        /// statement the older value belongs to, swapping two calls. Those stay pending for the next
-        /// boundary, which is past this statement. `startBound` is that cut — int.MaxValue when the
-        /// statement carries nothing, which drains everything, as at a region end. The cut only settles a
-        /// statement whose own effect ran before everything it holds back; anything else refuses first, in
-        /// <see cref="RefuseCrossing"/>.</summary>
+        /// <summary>Unconsumed values pending at a statement boundary: a temp read downstream is materialized as a
+        /// named local, and the rest are discarded results emitted in evaluation order as bare statements (the
+        /// contract and its two exceptions are in docs/architecture/papyrus.md). `startBound` is the cut a statement
+        /// carrying a pending value drains up to, int.MaxValue draining everything as at a region end.</summary>
         void FlushPending(List<string> stmts) => FlushPending(stmts, _cur + 1, _consumedStart);
 
         void FlushPending(List<string> stmts, int scanFrom) => FlushPending(stmts, scanFrom, int.MaxValue);
 
         void FlushPending(List<string> stmts, int scanFrom, int startBound)
         {
-            // Production order, not creation order: a pure fold is created after the call it folds in and
-            // starts where that call does, so walking the creation list would emit it after a newer call.
+            // Production order, not creation order: a pure fold starts where the call it folds in does.
             foreach (var name in _pendingOrder.OrderBy(n => _pendingStart[n]).ToList())
             {
                 if (_pendingStart[name] >= startBound) continue;
@@ -580,15 +508,9 @@ public sealed class PapyrusDecompiler
             }
         }
 
-        /// <summary>Flush the pending values that are discarded statements, leaving everything else in
-        /// place. Used at a short-circuit boundary: statements that precede the if must drain BEFORE the arm
-        /// is structured (their temps may be reused inside the arm), while a value the arm or the join still
-        /// reads has to survive into the combined expression. Every kind
-        /// <see cref="EmitsAnInstruction"/> accepts is a statement here, not only a call: a discarded cast or
-        /// property read that ran before a discarded call would otherwise come out after it. The scan for a
-        /// downstream read starts at the instruction after the branch, so a value only the ARM reads survives
-        /// too, not only one the join reads. Production order, like the other drain: a pure fold is created
-        /// after the call it folds in and starts where that call does.</summary>
+        /// <summary>Flush the pending values that are discarded statements, in production order, leaving everything
+        /// else in place; used at a short-circuit boundary, where a value the arm or the join still reads has to
+        /// survive into the combined expression.</summary>
         void FlushPendingStatements(List<string> stmts, int scanFrom)
         {
             foreach (var name in _pendingOrder.OrderBy(n => _pendingStart[n]).ToList())
@@ -605,19 +527,14 @@ public sealed class PapyrusDecompiler
         static bool IsCallOpcode(InstructionOpcode op) =>
             op is InstructionOpcode.CALLMETHOD or InstructionOpcode.CALLSTATIC or InstructionOpcode.CALLPARENT;
 
-        /// <summary>Is this name a function local or parameter? A store to one is invisible to anything a
-        /// held-back call could do; a store to a script member — including an auto property's backing var,
-        /// which renders as the bare property name — is not.</summary>
+        /// <summary>Is this name a function local or parameter? A store to one is invisible to a held-back call; a
+        /// store to a script member, backing var included, is not.</summary>
         bool IsFunctionScoped(string name)
             => _f.Locals.Any(l => name.Equals(l.Name, StringComparison.OrdinalIgnoreCase))
                || _f.Parameters.Any(p => name.Equals(p.Name, StringComparison.OrdinalIgnoreCase));
 
-        /// <summary>A statement that carries a pending value holds back anything produced after it, which is
-        /// emitted past this statement. <paramref name="effectIndex"/> is where this statement's own effect
-        /// happens — the instruction's index when it calls or stores outside function scope, otherwise the
-        /// last index at which a call folded into it ran. A held-back value produced before that effect ran
-        /// after it in the stream and before it in the source, and no ordering of the two is what was
-        /// written, so the function refuses rather than picking one.</summary>
+        /// <summary>Refuse a held-back value that would have to cross this statement's effect, an order the source
+        /// cannot express (#792); <paramref name="effectIndex"/> is where the statement's own effect happens.</summary>
         void RefuseCrossing(string what, int effectIndex)
         {
             foreach (var name in _pendingOrder)
@@ -627,18 +544,15 @@ public sealed class PapyrusDecompiler
                         $"{what} @{_cur} runs after pending {name} in the stream and would be emitted before it, which is an order the source cannot express");
         }
 
-        /// <summary>Can this pending value tell whether it ran before or after a statement's effect? Only if
-        /// it runs a call, or reads through an object — a property, an array element. Arithmetic over locals
-        /// cannot see a store and no store can see it, so moving it to either side of one is not a reorder
-        /// anyone can observe, and refusing it would cost an answer that is right.</summary>
+        /// <summary>Can this pending value tell whether it ran before or after a statement's effect? Only if it runs a
+        /// call or reads through an object.</summary>
         bool CanObserveAnEffect(string name)
             => _pendingLastCall[name] != int.MinValue || ReadsThroughAnObject(_pending[name]);
 
         bool ReadsThroughAnObject(Expr e) => e switch
         {
             EProp or EIndex or ELen or EFind or ECall or EStatic or EParent => true,
-            // A bare identifier is a member read unless it names something in function scope: the store this
-            // value is being moved past may be to that very member, and a call may write it.
+            // A bare identifier is a member read unless it names something in function scope.
             EIdent id => !IsFunctionScopedRendered(id.Name),
             EBin b => ReadsThroughAnObject(b.L) || ReadsThroughAnObject(b.R),
             EUn u => ReadsThroughAnObject(u.E),
@@ -647,17 +561,15 @@ public sealed class PapyrusDecompiler
             _ => false,
         };
 
-        /// <summary>Is this RENDERED name a function local or parameter? An expression carries rendered names
-        /// (`::temp0` as `temp0`, an auto property's `::Count_var` as `Count`) while the tables carry raw ones,
-        /// so both sides go through <see cref="LhsName"/>. `Self` is scoped: it is not a member read.</summary>
+        /// <summary>Is this RENDERED name a function local or parameter? Both sides go through
+        /// <see cref="LhsName"/>, and `Self` counts as scoped.</summary>
         bool IsFunctionScopedRendered(string rendered)
             => rendered.Equals("Self", StringComparison.OrdinalIgnoreCase)
                || _f.Locals.Any(l => rendered.Equals(LhsName(l.Name), StringComparison.OrdinalIgnoreCase))
                || _f.Parameters.Any(pm => rendered.Equals(LhsName(pm.Name), StringComparison.OrdinalIgnoreCase));
 
-        /// <summary>A statement that drains everything pending before it — a return, a branch condition —
-        /// takes the same refusal from the other side: a value produced after the one this statement carries
-        /// would be drained ahead of it, putting a later call before an earlier one.</summary>
+        /// <summary>The same refusal from the other side, for a statement that drains everything pending before it: a
+        /// value produced after the one it carries cannot be drained ahead of it (#792).</summary>
         void RefuseDrainingPast(string what, int carriedStart)
         {
             foreach (var name in _pendingOrder)
@@ -665,15 +577,11 @@ public sealed class PapyrusDecompiler
                     throw new StructureException(
                         $"{what} @{_cur} carries a value produced before pending {name}, which cannot be ordered either side of it");
         }
-        /// <summary>Does writing this expression as a bare statement compile back to the instruction it came
-        /// from? Every kind does — checked by compiling one of each with PapyrusCompiler and reading the
-        /// instruction back — as long as it is not a bare variable read, for which the compiler emits nothing,
-        /// and as long as something in it has to be read at runtime: the compiler folds an expression whose
-        /// leaves are all literals into a literal and emits nothing for that either.</summary>
+        /// <summary>Does writing this expression as a bare statement compile back to the instruction it came from?
+        /// The two kinds that do not are in docs/architecture/papyrus.md.</summary>
         static bool EmitsAnInstruction(Expr e) => e is not EIdent && ReadsOrCalls(e);
 
-        /// <summary>Does anything in this expression have to be read or called at runtime, rather than folding
-        /// to a literal? `new` is its own answer: the compiler emits ARRAY_CREATE even for a literal size.</summary>
+        /// <summary>Does anything here have to be read or called at runtime, rather than folding to a literal?</summary>
         static bool ReadsOrCalls(Expr e) => e switch
         {
             EConst => false,
@@ -689,23 +597,14 @@ public sealed class PapyrusDecompiler
             _ins = f.Instructions.Cast<PexObjectFunctionInstruction>().ToList();
         }
 
-        // Function-level region: jumping to one-past-the-last-instruction ends the function
-        // (implicit default return) — exit-equivalent by definition.
+        // Function-level region: jumping one past the last instruction ends the function, so it is an exit.
         public List<string> Structure(int lo, int hi) => Structure(lo, hi, flushAtEnd: true, exits: new HashSet<int> { hi }, cont: hi);
 
-        /// <summary>flushAtEnd=false for short-circuit expression arms — their pending values must
-        /// survive into the enclosing condition; a trailing flush would misemit them as statements.
-        /// <paramref name="exits"/>: instruction indices provably equivalent to "fall off the end of
-        /// this region" (the region's own trailing-JMP slot, the enclosing if's join, and — when this
-        /// region's join IS the parent's end — the parent's exits, recursively). An optimizer
-        /// (a jump-threading class) collapses a jump-to-a-trailing-JMP into a direct jump to the
-        /// shared join, so nested constructs may target an ENCLOSING join instead of their own;
-        /// jumping to any index in <paramref name="exits"/> is identical to falling out of the region.
-        /// Jumps beyond hi that are NOT exit-equivalent stay loud failures.
-        /// <paramref name="cont"/>: where control RESUMES after falling off this region (the join for
-        /// if arms, the condition start for while bodies, hi at function level) — the region-end
-        /// flush scans from there for downstream reads; the next linear index would wrongly scan a
-        /// sibling arm the flow never reaches.</summary>
+        /// <summary>Structure one region. flushAtEnd=false for a short-circuit arm, whose pending values must survive
+        /// into the enclosing condition. <paramref name="exits"/> holds the indices provably equivalent to falling off
+        /// this region's end, which jump threading can make an enclosing join; a jump beyond hi that is not one stays a
+        /// loud failure. <paramref name="cont"/> is where control resumes after the region, which the region-end flush
+        /// scans from.</summary>
         List<string> Structure(int lo, int hi, bool flushAtEnd, HashSet<int> exits, int cont)
         {
             var stmts = new List<string>();
@@ -729,21 +628,13 @@ public sealed class PapyrusDecompiler
                         int t = i + IntArg(a[0]);
                         // Jump to the next instruction: a structural no-op wherever it appears.
                         if (t == i + 1) { i++; break; }
-                        // A trailing JMP whose join was claimed by an ENCLOSING construct (threaded
-                        // shared-join shape): jump to an exit-equivalent index in last position is a
-                        // no-op — identical to falling off the region end.
+                        // A trailing JMP to an exit-equivalent index is a no-op: the region ends there anyway.
                         if (exits.Contains(t) && i == hi - 1) { _d._res.OptimizerHints++; i++; break; }
-                        // Dead jump: a JMP immediately after a return statement is unreachable
-                        // (canonical then-end filler the else-claim usually consumes; threading can
-                        // leave it dangling, even pointed past the function end). Skipping it cannot
-                        // change behavior.
+                        // Dead jump: a JMP immediately after a return is unreachable, so skipping it changes nothing.
                         if (stmts.Count > 0 && (stmts[^1] == "return" || stmts[^1].StartsWith("return ")))
                         { i++; break; }
-                        // A reachable jump to one-past-the-last-instruction in a None-returning
-                        // function IS a return statement (the VM's fall-off returns None) — the
-                        // optimizer canonicalizes early `Return` into a jump to function end.
-                        // Value-returning functions stay loud (fall-off default-value semantics
-                        // unverified).
+                        // A reachable jump past the last instruction of a None-returning function IS a return; a
+                        // value-returning one stays loud, its fall-off semantics being unverified.
                         if (t == _ins.Count && ReturnsNone())
                         {
                             _d._res.OptimizerHints++;
@@ -762,26 +653,17 @@ public sealed class PapyrusDecompiler
                         if (target <= i) throw new StructureException($"backward conditional jump @{i}");
                         if (target > hi)
                         {
-                            // Jump-threaded false-path: targets an enclosing join instead of this
-                            // region's end. Exit-equivalent ⇒ clamp to the region end; else fail loud.
+                            // A jump-threaded false path: clamp an exit-equivalent target to the region end, else fail loud.
                             if (!exits.Contains(target))
                                 throw new StructureException($"conditional jump @{i} -> {target} escapes region end {hi}");
                             target = hi;
                         }
 
-                        // Short-circuit: the arm leaves the right operand in the SAME temp and the
-                        // join side still reads it. The jump usually lands ON that consumer — another
-                        // conditional jump (plain &&/||), a CAST hop into a different temp (nested
-                        // mixed-temp conditions), an ASSIGN/RETURN/call-arg (`x = a || b`). When the
-                        // value is a call argument that is NOT the last one, the arguments after it
-                        // evaluate first and the consuming call sits further on, so also accept an
-                        // arm that writes the temp whose value is read before being rewritten at or
-                        // after the join. An arm that READS the temp first is not an arm at all: it
-                        // is a guarded block over a reused condition temp, which the promotion path
-                        // below owns. A real arm is straight-line, so a trailing JMP in the region
-                        // means an if/else or a while, not an arm. Temps only: a real-var condition
-                        // is always a plain if, and a temp the promotion path already took is a named
-                        // local — writes to it are statements, which an arm can never carry.
+                        // Short-circuit: the arm leaves the right operand in the SAME temp and the join still reads it.
+                        // The jump usually lands ON that consumer, and further on when later call arguments evaluate
+                        // in between. An arm that READS the temp first is a guarded block the promotion path below
+                        // owns; an arm is straight-line and its condition is always a temp the promotion path has not
+                        // taken. Pinned by DecompileShortCircuitTests.
                         if (condName is not null && IsTemp(condName) && !Materialized.Contains(condName) && target < hi
                             && (ConsumesAsSource(_ins[target], condName)
                                 || (WritesDestIn(i + 1, target, condName)
@@ -790,18 +672,13 @@ public sealed class PapyrusDecompiler
                                     && ReadsBeforeWrite(target, hi, condName))))
                         {
                             var (left, leftStart, leftLastCall) = Consume(condName, i);
-                            // Pre-if discarded-result calls may still pend here (their temps can be
-                            // reused INSIDE the arm — reuse would misemit them as arm statements).
-                            // They are statements that precede the if: drain them now, in order. One
-                            // produced AFTER the left operand is not one of them — draining it here puts a
-                            // later call ahead of the one this statement carries.
+                            // Statements that precede the if drain now, in order; one produced after the left operand
+                            // is not one of them.
                             RefuseDrainingPast("condition", leftStart);
                             FlushPendingStatements(stmts, i + 1);
                             // Evaluate the right side (cur+1 .. target) — must produce only pending values.
                             var sub = Structure(i + 1, target, flushAtEnd: false, exits: new HashSet<int>(), cont: target);
-                            // The arm is lazily evaluated, so a statement in it cannot be hoisted out
-                            // without changing semantics. Name the first one: it is what pins the
-                            // sub-shape when the pex itself is not to hand.
+                            // The arm is lazily evaluated, so a statement in it fails loud and is named.
                             if (sub.Count > 0)
                                 throw new StructureException(
                                     $"short-circuit arm @{i + 1}..{target} evaluates a statement, not just a value (first: {sub[0].Trim()})");
@@ -820,25 +697,14 @@ public sealed class PapyrusDecompiler
                             && _ins[target - 1].OpCode == InstructionOpcode.JMP
                             && (target - 1) + IntArg(_ins[target - 1].Arguments[0]) <= i;
 
-                        // Drain other pendings BEFORE the condition temp materializes — they predate
-                        // the condition in the stream (chronological statement order; FlushPending
-                        // itself materializes any whose value flows into the arms). Everything, not
-                        // just what predates the condition's own value: a branch follows, and a value
-                        // left pending across it would be consumed inside an arm — evaluated once in
-                        // the stream, conditionally in the source. A condition evaluates and branches, so a
-                        // value produced after the one it carries cannot be drained ahead of it.
+                        // Drain every other pending BEFORE the condition temp materializes: a value left pending
+                        // across the branch would be consumed inside an arm, conditionally rather than once.
                         RefuseDrainingPast("condition", condStart);
                         FlushPending(stmts, _cur + 1);
 
-                        // Optimizer-reused condition temp: the temp's VALUE is read again inside the
-                        // guarded block (PCompiler temps are single-use — this only fires on optimized
-                        // codegen). Promote the temp to a named local: assign it here, condition on
-                        // the name, and let later reads/writes use the name. NEVER for a while — the
-                        // loop re-evaluates its condition, hoisting the assignment would change
-                        // semantics (a re-read inside a while body stays a loud failure). Never for
-                        // the ::NoneVar discard slot either: it is not a value-carrying local, `None`
-                        // is not a declarable type, and the name is the compiler's — a promotion
-                        // there would emit a local no compiler accepts. A re-read of it stays loud.
+                        // A condition temp read again inside the guarded block is promoted to a named local — never
+                        // for a while, which re-evaluates its condition, and never for the ::NoneVar discard slot,
+                        // which is no declarable local; a re-read in either stays a loud failure.
                         if (!isWhile && condName is not null && IsTemp(condName)
                             && !condName.Equals("::NoneVar", StringComparison.OrdinalIgnoreCase)
                             && ReadsBeforeWrite(i + 1, target, condName))
@@ -849,10 +715,8 @@ public sealed class PapyrusDecompiler
                             cond = new EIdent(LhsName(condName));
                         }
 
-                        // Statement-level JMPT is an inverted branch: the same if/while shapes with the
-                        // condition negated. The CK compiler ALWAYS emits statement conditionals as
-                        // JMPF — its JMPTs live only inside short-circuit arms, consumed above — so
-                        // reaching here on a JMPT means the pex came from an optimizing compiler.
+                        // Statement-level JMPT is an inverted branch, and one the CK compiler never emits, so
+                        // reaching here counts as an optimizer hint.
                         if (op == InstructionOpcode.JMPT)
                         {
                             _d._res.OptimizerHints++;
@@ -882,17 +746,13 @@ public sealed class PapyrusDecompiler
                             && _ins[target - 1].OpCode == InstructionOpcode.JMP)
                         {
                             int m = (target - 1) + IntArg(_ins[target - 1].Arguments[0]);
-                            // m beyond hi is legal when exit-equivalent (threaded then-end jump).
-                            // Claim validation: threaded code can aim a nested if's false-path INTO
-                            // the would-be else range [target, m) — a tree-shaped else can't be
-                            // entered from the then side, so such a claim would mis-structure; read
-                            // the if as no-else instead (the range is then plain fall-through code).
+                            // An m beyond hi is legal when exit-equivalent; a jump INTO the would-be else range means
+                            // the range is fall-through code, so the if is read as no-else.
                             if (m >= target && (m <= hi || exits.Contains(m))
                                 && !AnyJumpInto(i + 1, target - 1, target, m))
                             { thenHi = target - 1; elseHi = Math.Min(m, hi); }
                         }
-                        // Child regions inherit: their own join slots, plus the parent's exits when
-                        // this if's join IS the parent's end (join chains collapse under threading).
+                        // Child regions inherit their own join slots, plus the parent's exits when the joins coincide.
                         var thenExits = new HashSet<int> { thenHi, elseHi };
                         var elseExits = new HashSet<int> { elseHi };
                         if (elseHi == hi) { thenExits.UnionWith(exits); elseExits.UnionWith(exits); }
@@ -928,11 +788,8 @@ public sealed class PapyrusDecompiler
                     case InstructionOpcode.RETURN:
                     {
                         var v = a[0];
-                        // `return <NoneCall>()` compiles to CALL(dest ::NoneVar) + RETURN ::NoneVar,
-                        // while a bare `return` compiles to RETURN null. The call is pending on
-                        // ::NoneVar, so returning that pending value reproduces the form — but only
-                        // when nothing else is pending, since anything else was produced AFTER the
-                        // call and the flush below would emit it ahead of the return that carries it.
+                        // `return <NoneCall>()` is a call into ::NoneVar then a return of it, while a bare `return`
+                        // returns null — so the pending value is taken only when nothing else is pending.
                         if (v.VariableType == VariableType.Identifier
                             && IdName(v).Equals("::NoneVar", StringComparison.OrdinalIgnoreCase)
                             && _pending.Count == 1 && _pending.ContainsKey("::NoneVar"))
@@ -948,11 +805,8 @@ public sealed class PapyrusDecompiler
                             stmt = "return";
                         else
                             stmt = $"return {Render(Resolve(v))}";
-                        // A return ENDS the region, so it takes the wide bound: a value left pending
-                        // here has no later boundary to reach and would be emitted past the return,
-                        // where it never runs. Draining wide puts it before the return instead — but
-                        // when the returned value was produced FIRST, that drain emits a later call
-                        // ahead of an earlier one, and no ordering of the two is the source's. Say so.
+                        // A return ENDS the region, so it drains wide — and refuses when the value it carries was
+                        // produced first, which no ordering can express.
                         RefuseDrainingPast("return", _consumedStart);
                         FlushPending(stmts, _cur + 1);
                         stmts.Add(stmt);
@@ -965,8 +819,7 @@ public sealed class PapyrusDecompiler
                         var src = Resolve(a[1]);
                         // Materialized temps are real named locals now — writes are real assignments.
                         if (IsTemp(dest) && !Materialized.Contains(dest)) { SetPending(dest, src, stmts, Math.Min(_consumedStart, i), _consumedLastCall); i++; break; }
-                        // A store to a local or a parameter is invisible to a call held back past it; a store
-                        // to a script member, backing var included, is a store that call can read.
+                        // A store to a local or parameter is invisible to a held-back call; a store to a member is not.
                         RefuseCrossing("store", IsFunctionScoped(dest) ? _consumedLastCall : i);
                         FlushPending(stmts);
                         stmts.Add($"{LhsName(dest)} = {Render(src)}");
@@ -978,11 +831,9 @@ public sealed class PapyrusDecompiler
                         var prop = StrName(a[0]);
                         var obj = Resolve(a[1]);
                         var val = Resolve(a[2]);
-                        // Self. prefix for the same reason as EProp rendering: a PROPSET on self in
-                        // the bytecode must recompile to a PROPSET, not the bare-name backing-var write.
+                        // Self. prefix for the same reason as EProp rendering: a PROPSET must recompile to a PROPSET.
                         var lhs = IsSelf(obj) ? $"Self.{prop}" : $"{Postfix2(obj)}.{prop}";
-                        // A property set can be a real setter function, and a pending call held back past
-                        // it would read the property after the set instead of before it.
+                        // A property set can be a real setter function, so a held-back call cannot cross it.
                         RefuseCrossing("property set", i);
                         FlushPending(stmts);
                         stmts.Add($"{lhs} = {Render(val)}");
@@ -994,8 +845,7 @@ public sealed class PapyrusDecompiler
                         var arr = Resolve(a[0]);
                         var idx = Resolve(a[1]);
                         var val = Resolve(a[2]);
-                        // An array is a reference, so a pending call held back past this store sees the
-                        // element after it was written rather than before.
+                        // An array is a reference, so a held-back call cannot cross this store.
                         RefuseCrossing("array element set", i);
                         FlushPending(stmts);
                         stmts.Add($"{Postfix2(arr)}[{Render(idx)}] = {Render(val)}");
@@ -1004,31 +854,19 @@ public sealed class PapyrusDecompiler
 
                     default:
                     {
-                        // Value-producing instruction. Its effect is the call it makes when the opcode is a
-                        // call, and otherwise the last call folded in from the values it consumed — the
-                        // instruction itself only reads and writes.
+                        // A value-producing instruction: its effect is its own call, else the last call folded in.
                         var (dest, expr) = Produce(ins);
-                        // A property get can be a real `Function Get()` and an array element read can see a
-                        // write, so both are decided where the instruction is, like a call — the same reason a
-                        // PROPSET is an effect below. An array's LENGTH is left out: it cannot change under a
-                        // call. Only at the fold: a higher effect index would change nothing a later statement
-                        // decides, because a pending it would newly catch was already pending when this
-                        // instruction ran, and the fold refuses there first.
+                        // A property get and an array element read are effects where they run, like a call; an array's
+                        // LENGTH is not, being unable to change under one.
                         bool runsHere = IsCallOpcode(op)
                             || op is InstructionOpcode.PROPGET or InstructionOpcode.ARRAY_GETELEMENT
                                   or InstructionOpcode.ARRAY_FINDELEMENT or InstructionOpcode.ARRAY_RFINDELEMENT;
                         int effect = IsCallOpcode(op) ? i : _consumedLastCall;
                         if (dest == "")
                         {
-                            // A call whose dest is the ::NoneVar discard slot. Usually a bare-call
-                            // statement, but `x = obj.VoidCall()` compiles to this same call followed
-                            // by a read of ::NoneVar — the compiler takes the call's (None) result
-                            // back out of the discard slot, in the very next instruction. Leave the
-                            // call pending ONLY for that adjacent read: anything in between either
-                            // produces a value of its own or is a statement, and the call would then
-                            // be emitted after it rather than at its own position in the stream.
-                            // The call itself runs here, so a value produced after the one it carries as an
-                            // argument cannot be ordered either side of it.
+                            // A call into the ::NoneVar discard slot: a bare-call statement, unless the very next
+                            // instruction reads that slot, which is how `x = obj.VoidCall()` compiles. The call runs
+                            // here, so a value produced after the one it carries cannot be ordered either side of it.
                             RefuseCrossing("call", effect);
                             FlushPending(stmts);
                             if (NextReadsNoneVar(i + 1, hi))
@@ -1040,15 +878,12 @@ public sealed class PapyrusDecompiler
                         if (dest is null) throw new StructureException($"value op with no dest @{i}");
                         if (IsTemp(dest) && !Materialized.Contains(dest))
                         {
-                            // It runs here even though its result only goes pending, so the crossing is
-                            // settled at the fold rather than at whatever later statement consumes the temp —
-                            // a discarded result or a region-end flush never reaches one.
+                            // It runs here even though its result only goes pending, so the crossing settles at the fold.
                             if (runsHere) RefuseCrossing(IsCallOpcode(op) ? "call" : "read", i);
                             SetPending(dest, expr, stmts, Math.Min(_consumedStart, i), effect);
                             i++; break;
                         }
-                        // The write is the same store as a plain assignment: outside function scope it is
-                        // visible to a call held back past it, inside it is not.
+                        // The write is the same store as a plain assignment.
                         RefuseCrossing(IsCallOpcode(op) ? "call" : "store", IsFunctionScoped(dest) ? effect : i);
                         FlushPending(stmts);
                         stmts.Add($"{LhsName(dest)} = {Render(expr)}");
@@ -1064,8 +899,7 @@ public sealed class PapyrusDecompiler
             => string.IsNullOrEmpty(_f.ReturnTypeName)
                || _f.ReturnTypeName.Equals("None", StringComparison.OrdinalIgnoreCase);
 
-        /// <summary>Does this instruction read <paramref name="name"/> as a SOURCE operand?
-        /// Source-arg positions per opcode shape (dest slots excluded).</summary>
+        /// <summary>Does this instruction read <paramref name="name"/> as a SOURCE operand?</summary>
         static bool ConsumesAsSource(PexObjectFunctionInstruction ins, string name)
         {
             var a = ins.Arguments;
@@ -1156,15 +990,10 @@ public sealed class PapyrusDecompiler
                         VariableType.String => "String",
                         _ => null,
                     };
-                    // Bool and String casts are implicit in every Papyrus context — emit the bare
-                    // operand and the compiler regenerates the same CAST. An explicit string cast
-                    // would perturb STRCAT temp allocation.
-                    // CAST of null = the compiler typing a None literal for a comparison — implicit too.
+                    // A CAST of null is the compiler typing a None literal, which is implicit like the rest.
                     if (a[1].VariableType == VariableType.Null)
                         return (dest, src);
-                    // A None-typed source is the ::NoneVar discard slot holding a None call's
-                    // result. `<none expression> as X` is not writable — the compiler rejects it —
-                    // so emit the bare operand, which is what produced this CAST.
+                    // A None-typed source is the discard slot: `<none expression> as X` is not writable.
                     if (srcType is not null && srcType.Equals("None", StringComparison.OrdinalIgnoreCase))
                         return (dest, src);
                     if (destType is not null &&
@@ -1172,9 +1001,7 @@ public sealed class PapyrusDecompiler
                          || destType.Equals("String", StringComparison.OrdinalIgnoreCase)
                          || (srcType is not null && srcType.Equals(destType, StringComparison.OrdinalIgnoreCase))))
                         return (dest, src);   // implicit / identity cast: pass through
-                    // Int→Float and UPCASTS (dest is an ancestor class of src) are implicit in every
-                    // context too — re-emitting them explicitly changes codegen (implicit arg
-                    // conversions batch after all arg evals; explicit casts compile inline per-arg).
+                    // Int→Float and an upcast are implicit too; re-emitting either explicitly changes codegen.
                     if (destType is not null && srcType is not null
                         && (destType.Equals("Float", StringComparison.OrdinalIgnoreCase)
                                 && srcType.Equals("Int", StringComparison.OrdinalIgnoreCase)
@@ -1257,10 +1084,7 @@ public sealed class PapyrusDecompiler
                 throw new StructureException($"call argc {n} but {a.Count - argcIdx - 1} args present");
             var list = new List<Expr>(n);
             for (int k = 0; k < n; k++) list.Add(Resolve(a[argcIdx + 1 + k]));
-            // Trailing RAW-null args are BAKED DEFAULTS: an explicitly-written None compiles to a
-            // typed null-CAST temp passed by ident, never a raw null arg slot, so a raw null can only
-            // mean the source omitted the arg. Re-omit it; emitting None would materialize an extra
-            // cast temp the original never had.
+            // Trailing RAW-null args are baked defaults the source omitted, so they are re-omitted (#786).
             int keep = n;
             while (keep > 0 && a[argcIdx + keep].VariableType == VariableType.Null) keep--;
             if (keep < n) list.RemoveRange(keep, n - keep);
@@ -1318,8 +1142,7 @@ public sealed class PapyrusDecompiler
             return false;
         }
 
-        /// <summary>Is <paramref name="name"/> read as a source operand in [lo, hi) before being
-        /// written as a destination? Detects optimizer value-reuse of a condition temp.</summary>
+        /// <summary>Is <paramref name="name"/> read as a source in [lo, hi) before being written?</summary>
         bool ReadsBeforeWrite(int lo, int hi, string name)
         {
             for (int k = lo; k < hi && k < _ins.Count; k++)
@@ -1330,9 +1153,8 @@ public sealed class PapyrusDecompiler
             return false;
         }
 
-        /// <summary>Does the first real instruction at or after <paramref name="lo"/> (NOPs emit
-        /// nothing and produce nothing, so they are skipped) read ::NoneVar as a source? Only that
-        /// adjacent read can take a pending None call without moving it past another statement.</summary>
+        /// <summary>Does the first real instruction at or after <paramref name="lo"/>, NOPs skipped, read ::NoneVar as
+        /// a source? Only that adjacent read can take a pending None call.</summary>
         bool NextReadsNoneVar(int lo, int hi)
         {
             for (int k = lo; k < hi && k < _ins.Count; k++)
@@ -1343,9 +1165,9 @@ public sealed class PapyrusDecompiler
             return false;
         }
 
-        /// <summary>Is <paramref name="name"/> written as a destination anywhere in [lo, hi)?
-        /// A short-circuit arm always writes its own temp, so a guarded block that never touches
-        /// the condition temp is not an arm and must not be reported as one.</summary>
+        /// <summary>Is <paramref name="name"/> written as a destination anywhere in [lo, hi)? A guarded block that
+        /// never touches the condition temp is not a short-circuit arm; pinned by
+        /// <c>DecompileShortCircuitTests.AGuardedBlockThatNeverTouchesItsConditionTempIsNotReportedAsAnArm</c>.</summary>
         bool WritesDestIn(int lo, int hi, string name)
         {
             for (int k = lo; k < hi && k < _ins.Count; k++)
@@ -1353,8 +1175,7 @@ public sealed class PapyrusDecompiler
             return false;
         }
 
-        /// <summary>Does this instruction write <paramref name="name"/> as its DESTINATION slot?
-        /// (Inverse of ConsumesAsSource — dest positions per opcode shape.)</summary>
+        /// <summary>Does this instruction write <paramref name="name"/> as its DESTINATION slot?</summary>
         static bool WritesDest(PexObjectFunctionInstruction ins, string name)
         {
             var a = ins.Arguments;
@@ -1383,9 +1204,8 @@ public sealed class PapyrusDecompiler
             => _d._localTypes.TryGetValue(name, out var t) ? t
              : _d._objVarTypes.TryGetValue(name, out var v) ? v : null;
 
-        /// <summary>Is <paramref name="ancestor"/> a (strict) ancestor class of <paramref name="type"/>
-        /// per the injected class-parent map? False when no map is loaded — unknown hierarchies keep
-        /// their explicit casts, which is conservative and still correct.</summary>
+        /// <summary>Is <paramref name="ancestor"/> a strict ancestor class of <paramref name="type"/> per the injected
+        /// map? False when no map is loaded.</summary>
         bool IsAncestorClass(string ancestor, string type)
         {
             var map = _d._classParents;
@@ -1405,8 +1225,7 @@ public sealed class PapyrusDecompiler
     }
 
     // ------------------------------------------------------------------ shared helpers
-    /// <summary>Compiler expression temps only: <c>::temp&lt;N&gt;</c> and the ::NoneVar discard slot. Other
-    /// ::-prefixed names (CK fragment ::mangled_* locals, ::X_var auto-prop backing) are real storage.</summary>
+    /// <summary>Compiler expression temps only; every other ::-prefixed name is real storage.</summary>
     static bool IsTemp(string name)
         => name.Equals("::NoneVar", StringComparison.OrdinalIgnoreCase)
            || (name.StartsWith("::temp", StringComparison.OrdinalIgnoreCase) && name.Length > 6 && char.IsDigit(name[6]));
@@ -1416,8 +1235,7 @@ public sealed class PapyrusDecompiler
             ? d.IntValue ?? throw new StructureException("int arg with null value")
             : throw new StructureException($"expected int arg, got {d.VariableType}");
 
-    /// <summary>Auto-property backing var ::X_var reads/writes surface as the property name X;
-    /// other ::-prefixed locals (CK fragment mangles) get a legal sanitized identifier.</summary>
+    /// <summary>An auto-property backing var surfaces as the property name; another ::-prefixed local is sanitized.</summary>
     static string LhsName(string name)
         => !name.StartsWith("::") ? name
             : name.EndsWith("_var", StringComparison.OrdinalIgnoreCase) ? name[2..^4]

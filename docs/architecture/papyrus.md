@@ -73,9 +73,17 @@ are [`mo2-instance.md`](mo2-instance.md), and the declaration side of a native P
   First edge per child wins.
 
 ### The decompiler
-- Every codegen pattern it reads was confirmed against compiler output, and a function whose flow
-  does not match a verified pattern FAILS LOUD: it is counted and emitted as a comment block with
-  its raw bytecode, never as silently wrong source.
+- The codegen patterns it reads, each confirmed against compiler output: jump offsets are relative to
+  the jump instruction itself; `while` is cond, `JMPF` to the end, body, backward `JMP`; `if` is cond,
+  `JMPF` to the else label, then, `JMP` to the join (a `JMPF` straight to the join means no else);
+  `&&`/`||` is a short-circuit `JMPF`/`JMPT` whose arm rewrites the same temp, read again at the join;
+  a call returning None puts its result in the `::NoneVar` discard slot, and a read of that slot is
+  that call's value; an auto property's backing var is `::Name_var`, and `AutoReadOnly` is a Get
+  returning a literal; `GotoState`/`GetState` in the unnamed state are compiler-generated and skipped;
+  in `FunctionFlags` bit 0 is Global and bit 1 is Native, the raw bits rather than Mutagen's enum
+  names, which sit one off.
+- A function whose flow does not match a verified pattern FAILS LOUD: it is counted and emitted as a
+  comment block with its raw bytecode, never as silently wrong source.
 - An optimizer hint means the `.pex` came from an optimizing compiler (Caprica class): the source is
   correct, but the CK compiler will not reproduce the original bytes. Detection is best-effort, so
   its absence proves nothing.
