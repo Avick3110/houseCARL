@@ -4,9 +4,7 @@ covers: [src/housecarl-mcp/ToolSchemas.cs, src/housecarl-mcp/NestedSchemaConstra
 ---
 # Tool schema publication
 
-**Class:** LIVING. Subsystem: `src/housecarl-mcp/ToolSchemas.cs`,
-`src/housecarl-mcp/NestedSchemaConstraints.cs` and `src/housecarl-mcp/SchemaDepthCap.cs`, registered
-from `Program.cs`. Pinned by
+**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by
 `PublishedSchemaShapeTests`, `PublishedNestedConstraintTests` and `PublishedSchemaDepthTests` in `src/housecarl-mcp-tests`
 (the real published surface) and `schema-flatten-guard` (the flattening mechanism, over synthetic
 documents for the shapes the real surface cannot produce, and over the real pre-flatten surface

@@ -4,9 +4,7 @@ covers: [src/housecarl-core/NifService.cs, src/housecarl-mcp/NifTools.cs, src/ho
 ---
 # The NIF layer: reading mesh values, and the two write gates
 
-**Class:** LIVING. Subsystem: `NifService` and the NIF data model (`src/housecarl-core`); the `housecarl_nif_inspect` /
-`housecarl_nif_set` tool surface and the `NifWire` / `NifSetWire` renders (`src/housecarl-mcp/NifTools.cs`); the
-service lanes that resolve the winning bytes in `AssetLayers.cs`. Pinned by `NifServiceGuardProbe`,
+**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by `NifServiceGuardProbe`,
 `NifSetGuardProbe`, `NifSectionsProbe`, `NifSourceLaneProbe` and `NifInspectBatchGuardProbe`
 (`src/housecarl-generator`), and by `NifSetBlockOrderTests` (`src/housecarl-mcp-tests`).
 

@@ -4,8 +4,7 @@ covers: [src/housecarl-mcp/OutputLocations.cs, src/housecarl-mcp/Artifacts.cs, s
 ---
 # Output locations and result artifacts: where a write lands, and the contracts that hold it
 
-**Class:** LIVING. Subsystem: `src/housecarl-mcp/{OutputLocations, Artifacts, ResultsStore}.cs`,
-`src/housecarl-core/{ResultArtifact, AtomicFile, FileStamp, OrderStamp, PathArguments}.cs`.
+**Class:** LIVING. Subsystem: the files in `covers:` above.
 
 Everything houseCARL writes lands in a houseCARL-owned MO2 mod folder, a folder the caller named outright, or a
 result artifact file. These are the contracts those three share, cited from the files above under ADR 0001.

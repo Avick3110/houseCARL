@@ -4,10 +4,7 @@ covers: [src/housecarl-core/DialogueInfoOrder.cs, src/housecarl-core/DialogueFol
 ---
 # Dialogue: the merge, the fold, CK parity, and what a clean pass means
 
-**Class:** LIVING. Subsystem: `DialogueInfoOrder`, `DialogueFold`, `DialogueValidate`, `DialogueCkParity`,
-`DialogueSubtype`, `DialogueScriptCheck`, `DialogueCheck` (`src/housecarl-core`); `DialogueSweep`,
-`DialogueSweepRender`, `DialogueWire`, `DialogueKindChecks` (`src/housecarl-mcp`).
-Pinned by `DialogueInfoOrderProbe`, `DialogueCkParityGuardProbe`, `DialogueSubtypeMarkerGuardProbe` and
+**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by `DialogueInfoOrderProbe`, `DialogueCkParityGuardProbe`, `DialogueSubtypeMarkerGuardProbe` and
 `DialogueValidateGuardProbe` (`src/housecarl-generator`), and by `DialogueFamilyTests`, `CheckDialogueFoldTests` and
 `DialogBranchFlagsRefusalTests` (`src/housecarl-mcp-tests`).
 

@@ -13,6 +13,7 @@ flowchart LR
   R --> W[writes]
   R --> A[assets / SKSE / NIF]
   R --> C[checks]
+  W --> A
   A --> RD
   W --> RD
   RD --> D[dialogue]
@@ -28,14 +29,19 @@ flowchart LR
 
 ## The architecture notes
 
-Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so the code map and the doc map are the same map: a note is grouped by the code its `covers:` list names, not by its subject. A new note starts from [`architecture/TEMPLATE.md`](architecture/TEMPLATE.md) and adds its line here.
+Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so the code map and the doc map are the same map. The rule: a note is grouped under the `CLAUDE.md` row holding most of the files in its `covers:` list, not by its subject; a note that also covers a file in another row gets a one-line cross-reference under that row. A new note starts from [`architecture/TEMPLATE.md`](architecture/TEMPLATE.md) and adds its line here.
 
-### Assets, SKSE, NIF, SkyPatcher, MO2
+### Instance, status, config
+
+| Note | What it covers |
+|---|---|
+| [`architecture/mo2-instance.md`](architecture/mo2-instance.md) | houseCARL reads a live MO2 portable instance off disk, never through the USVFS, so the instance ini and the three profile files are the only standalone source of truth. |
+
+### Assets, SKSE, NIF, SkyPatcher
 
 | Note | What it covers |
 |---|---|
 | [`architecture/assets.md`](architecture/assets.md) | Which copy of a file the game uses: loose beats BSA-packed, the overwrite-then-mods-then-Data walk, and the archive tie-break. |
-| [`architecture/mo2-instance.md`](architecture/mo2-instance.md) | houseCARL reads a live MO2 portable instance off disk, never through the USVFS, so the instance ini and the three profile files are the only standalone source of truth. |
 | [`architecture/skse-layer.md`](architecture/skse-layer.md) | What an SKSE DLL declares and the static-load rule: everything in the layer is what a file declares, never what a DLL does. |
 | [`architecture/skypatcher-layer.md`](architecture/skypatcher-layer.md) | SkyPatcher edits records from INI files at load, so a plugin read alone does not say what the game sees; houseCARL reads that layer in four tiers. |
 | [`architecture/nif.md`](architecture/nif.md) | Reading mesh values and the two write gates: `NifService` is pure format logic, and the service layer resolves the winning bytes. |
@@ -55,6 +61,10 @@ Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so 
 | Note | What it covers |
 |---|---|
 | [`architecture/corpus-rulebook.md`](architecture/corpus-rulebook.md) | The write surface's pre-flight: every write is validated against the generated schema before any Mutagen mutation, and the gate can never disagree with apply. |
+
+### Writes
+
+No note of its own yet. [`architecture/corpus-rulebook.md`](architecture/corpus-rulebook.md) covers `src/housecarl-core/WriteEngine.cs` — half of its two-file `covers:` list, not most of it, so it stays above and is cross-referenced here.
 
 ### Dialogue
 
