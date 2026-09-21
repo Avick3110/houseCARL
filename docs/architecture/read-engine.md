@@ -23,6 +23,10 @@ captured load-order build and folds the result into the shape the render consume
 - `RecordLinks.Walk` is the one link read a scan makes, so a record whose links only read leniently is reachable in every lane or in none.
 - The reverse walk judges each candidate against its WINNER's links, so `references=` and the walk cannot disagree about the same record.
 - `project.fields` quantifiers are tokenized by `PathFoldGrammar`, the same tokenizer `where=` parses with; each surface refuses the other's folds by name.
+- `resolve_names` is type-agnostic: a token that parses as a FormKey IS a form reference, so the annotation inherits its coverage from the read surface with no per-type wiring, and an unresolvable target is a named unresolved row rather than a dropped one.
+- The conflict diff reads at `ConflictDiffDepth`, deep enough to reach every modeled scalar leaf rather than compare depth-1 count summaries, and is bounded by the corpus boundary and `MaxExpandNodes`, whose truncation sentinel it surfaces as `Complete=false`.
+- A named plugin that does not touch a record refuses by naming the plugins that DO, on every lane — active, off-order and pole alike — never a bare "does not define".
+- A per-record fault is isolated and accounted, never silent: an unscannable record, a leniently read one and an unreadable plugin are three separate counts in the scan's own note.
 
 ## Pinned by
 - `WriteProof` step 6, the read-proof oracle (`src/housecarl-generator`, run by `ci-all`) — the round-trip no-op, over every coercible value leaf the write surface drives.
