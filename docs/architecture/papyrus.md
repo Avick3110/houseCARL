@@ -146,5 +146,5 @@ are [`mo2-instance.md`](mo2-instance.md), and the declaration side of a native P
 - Tools: `CompileTools` (`housecarl_compile_script`, `BuildImports`, `PlanImports`, the import
   summary and detail renders), `DecompileTools` (`housecarl_decompile_script`, `WriteObjects`,
   `HierarchySentence`).
-- Service: `LoadOrderService.PapyrusSourceImportDirs` and `ClassParentsForDecompile` supply the
-  modlist-derived halves of both lanes.
+- Service: `LoadOrderService.PapyrusSourceImportDirs` (in `LoadOrderService.cs`) and
+  `ClassParentsForDecompile` (in `OutputLocations.cs`) supply the modlist-derived halves of both lanes.
