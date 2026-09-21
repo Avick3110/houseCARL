@@ -89,7 +89,7 @@ Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so 
 |---|---|
 | [`architecture/records-owned-child-declarers.md`](architecture/records-owned-child-declarers.md) | A child-bearing field is declared per plugin and assembled by the game from every declarer, so a read states two quantities: the field's own value, and the additive union beside it. |
 | [`architecture/select-and-walk.md`](architecture/select-and-walk.md) | How a selection is made and followed: the `where=` value predicate, the `*parent` containment step and its index, the closure walk and its ordered source universe, the whole-order reverse index, the deep comparison behind the tree form, and the localized-strings classifier. |
-| [`architecture/read-engine.md`](architecture/read-engine.md) | The read path from a `records` call to a rendered body: what winner resolution the read engine does and does not do, the tree and field folds, and the reverse walk. |
+| [`architecture/read-engine.md`](architecture/read-engine.md) | The read path from a `records` call to a rendered body: what winner resolution the read engine does and does not do, the tree and field folds, the reverse walk, and — at the tool front — the argument grammar and its form scoping, the refusal shape, which lane a call routes to, and the epoch seams between two captures. |
 
 ### Tests and fixtures
 
