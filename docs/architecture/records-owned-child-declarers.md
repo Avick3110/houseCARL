@@ -1,6 +1,6 @@
 ---
-updated: 2026-09-05
-covers: [src/housecarl-core/OwnedChildUnion.cs, src/housecarl-core/OwnedChildContent.cs, src/housecarl-mcp/ReadSentences.cs, src/housecarl-mcp/RecordReads.cs, src/housecarl-mcp/JsonWire.cs, src/housecarl-mcp/RecordsTools.cs, src/housecarl-mcp/Artifacts.cs]
+updated: 2026-09-21
+covers: [src/housecarl-core/OwnedChildUnion.cs, src/housecarl-core/OwnedChildContent.cs, src/housecarl-core/OwnedChildLifecycle.cs, src/housecarl-mcp/ReadSentences.cs, src/housecarl-mcp/RecordReads.cs, src/housecarl-mcp/JsonWire.cs, src/housecarl-mcp/RecordsTools.cs, src/housecarl-mcp/Artifacts.cs]
 ---
 # Owned-child content: the additive union, and one sentence source
 
@@ -26,6 +26,14 @@ So a read states two quantities, and they are not the same:
 
 A SINGULAR owned child (`Cell.Landscape`, `Worldspace.TopCell`) is not a union — its declarers override one
 record — so the note says which plugin's copy is live instead of adding counts that would be a fiction.
+
+The field set the read side asks about is `WriteEngine.ChildBearingProperties`, the same reflected walk the write
+surface's child preservation runs on, so the two cannot diverge and a Mutagen bump that adds a child-bearing
+property is picked up with no edit. The read engine hands it a GETTER, so the lookup maps getter to concrete
+through `WriteEngine.PrimaryGetter` / `ConcreteOf` first. That hop is load-bearing rather than tidy: the walk
+needs a SETTABLE property, and an overlay type exposes the LIST children settably while exposing the SINGULAR
+one read-only — so asking the runtime type directly answers correctly for `Persistent`/`Temporary` and silently
+drops `Cell.Landscape` and `Worldspace.TopCell`.
 
 The union claims DECLARATION, not liveness: whether a member's own winner is deleted or initially disabled is a
 fact about that child record, and asserting it here would cost one fetch per member.
@@ -114,6 +122,14 @@ having run. `ReadSentences.NoDeclarers` states it instead. It claims only over b
 provider whose field could not be read is counted separately (`CouldNotRead`), never silently absorbed into
 "nobody declares" (the #308 rule, one level down at the sentence layer).
 
+The same rule holds at the value walk under it. `OwnedChildContent.DeclaresChild` and
+`OwnedChildUnion.ChildKeys` answer NULL for "could not look" and never false: a body that would not read, a
+container shape the walk does not know, and a nesting depth past the walk's own tripwire all answer null rather
+than being reported as an empty field. The tripwire is a guard against a Mutagen shape nobody has seen, not a
+limit the current model approaches. One case needs stating because Mutagen makes it look like an answer: a typed
+containment enumeration Mutagen cannot route yields an EMPTY sequence rather than throwing, so an empty typed
+walk over a container that holds records at all is read as a MISS, not as a negative.
+
 ## Two shapes
 
 A COLLECTION field (`Persistent`, `Temporary`, `Responses`, `SubCells`) is assembled additively, so its line
@@ -121,6 +137,17 @@ NAMES declarers (capped at `DeclarerNameCap`, "+N more" past it — hundreds of 
 field (`Cell.Landscape`, `Worldspace.TopCell`) is one record several plugins override, so naming every overrider
 would be the same noise; the line is a COUNT instead. `DeclarersLead` states both shapes once per record, not
 once per field — the same response/field split the cheap tier's own clause established.
+
+The split has a write-side consequence, which is what `OwnedChildLifecycle` exists for. Mutagen's typed
+`Remove(FormKey, Type)` is the blessed drop for every record in a group and reaches placed references and INFOs,
+but a SINGULAR owned child is a plain property on its parent and belongs to no group, so the remove routing
+finds nothing and returns without throwing — the silent no-op the survivor check catches. A delete therefore
+finds the SLOT: the parent, the settable property, and, for a collection slot, the live `IList` the child is an
+element of, which may sit below the property rather than being it (a worldspace's cells are under block
+structs). The slot set is the same `ChildBearingProperties` walk, so nothing here names a record type. A detach
+that cannot be made — a property that will not set, a child in no list the engine can drop it from — is
+surfaced as a sentence and nothing is written. The records the child itself carries are what a detach takes with
+it, which is why a descendant the caller did not name is a refusal rather than a side effect.
 
 ## The unit a count is in
 
