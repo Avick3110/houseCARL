@@ -31,6 +31,12 @@ flowchart LR
 
 Grouped to match the "Where things live" table in [CLAUDE.md](../CLAUDE.md), so the code map and the doc map are the same map. The rule: a note is grouped under the `CLAUDE.md` row holding most of the files in its `covers:` list, not by its subject; a note that also covers a file in another row gets a one-line cross-reference under that row. A new note starts from [`architecture/TEMPLATE.md`](architecture/TEMPLATE.md) and adds its line here.
 
+### The MCP server and tool surface
+
+| Note | What it covers |
+|---|---|
+| [`architecture/nexus.md`](architecture/nexus.md) | Keyless read-only access to the Nexus Mods v2 GraphQL API: search, mod detail, file-level update checks, MD5 identify, and the raw-query backstop. |
+
 ### Instance, status, config
 
 | Note | What it covers |

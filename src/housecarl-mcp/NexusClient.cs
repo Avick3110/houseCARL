@@ -413,7 +413,7 @@ public sealed record NexusModDetail(
 /// <summary>Whether one installed file is still live on its mod's page, retired, withdrawn, or missing from it.</summary>
 public enum FileVerdict { Live, Superseded, Missing, Removed }
 
-/// <summary>One installed file's currency; Name/Version/Category are null only for Missing, per docs/architecture/nexus.md.</summary>
+/// <summary>One installed file's currency; which fields hold for which verdict is in docs/architecture/nexus.md.</summary>
 public sealed record InstalledFileCurrency(
     int FileId, string? Name, string? Version, string? Category, FileVerdict Verdict,
     string? NewestSameName, string? NewestSameVersion, long NewestSameDate);
