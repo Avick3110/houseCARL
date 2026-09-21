@@ -1041,8 +1041,8 @@ public static class RecordsTools
                 return e;
             }
 
-            // The scan lane's bound on the list's own length, since limit= windows only the render here; a walk
-            // arrives as a list it derived, so its lever is the walk's. Charged AFTER each form's shape checks.
+            // The same bound as the scan lane's, on the list's own length, since limit= windows only the render here;
+            // a walk arrives as a list it derived, so its lever is the walk's. Charged AFTER each form's shape checks.
             string? ListCost() =>
                 RenderBudget.RefuseComparison(ids.Length, form,
                     walkDerived ? RenderBudget.ComparisonWalkLever : RenderBudget.ComparisonListLever);
