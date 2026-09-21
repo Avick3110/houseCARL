@@ -6,18 +6,11 @@ using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// housecarl_records — the read surface. One tool: SELECT (which records), SOURCE (whose version), PROJECT (what
-/// shape) and TRANSPORT compose in a single call, over the same engine lanes the older read tools drove. Ten
-/// project forms — identity, summary, fields, rows, everything, aggregate, delta, tree, chain, info_order — each
-/// form-scoped, so a sub-parameter exists only inside the form that carries it.
-/// </summary>
+/// <summary>housecarl_records — the read surface: SELECT, SOURCE, PROJECT and TRANSPORT compose in one call over ten form-scoped project forms; contracts in docs/architecture/read-engine.md.</summary>
 [McpServerToolType]
 public static class RecordsTools
 {
-    /// <summary>The plugins= SELECT scope: which records are considered — a different question from source=, which
-    /// decides whose version is read. defined_in lives inside the scope because it has no meaning without
-    /// one.</summary>
+    /// <summary>The plugins= SELECT scope: which records are considered, as against source=, which decides whose version is read.</summary>
     public sealed class RecordsScope
     {
         [Description("Plugin filenames to scope the scan to (records those plugins touch), e.g. [\"Requiem.esp\"].")]
@@ -27,8 +20,7 @@ public static class RecordsTools
         public bool defined_in { get; set; }
     }
 
-    /// <summary>PROJECT — the shape of the answer. One form; sub-parameters exist only inside the forms that carry
-    /// them, so there is no flat spelling for an illegal pairing.</summary>
+    /// <summary>PROJECT — the shape of the answer: one form, with its sub-parameters inside it, so there is no flat spelling for an illegal pairing.</summary>
     public sealed class RecordsProject
     {
         [Description("The form: 'identity' (FormID -> type/editorid/name/winner — the labeling form; needs formids=) | 'summary' (identity plus winner/override-depth header facts — the default) | 'fields' (named field values; takes fields= and depth=) | 'rows' (a LIST field folded to ONE LINE PER ELEMENT — the compact per-row view: takes fields= naming the list (index one element, 'Conditions[0]', to fold just that one), and depth= (default 4). Each line is the element's own summary plus every sub-field the read FOUND; only ABSENT optionals are omitted, which is what turns a 40-row condition stack from ~1,000 lines into 40. Auditing that stack (project.fields=[\"Conditions\"]) is ONE call, not an index probe per row. A declared-but-null link is kept — an empty slot is a fact. A named field that is not a list is refused by name) | 'everything' (the full record body; takes depth=) | 'aggregate' (a counted table; takes group_by=) | 'delta' (subject vs reference, differences only — source= is the subject, versus= the reference; takes fields= to narrow. Each delta line shows the SUBJECT's value with the reference's beside it, labeled by its plugin; versus=\"previous_provider\" answers 'what did this plugin change relative to what sat beneath it') | 'tree' (the conflict-resolution view: every provider of each record in priority order, winner last, each showing only the fields that DIFFER from the reference pole — default the winner; takes fields=. On a record type that OWNS child records — a cell's placed references, a topic's INFO lines, a worldspace's cells — it also states, per such field, which providers DECLARE children there (a COLLECTION field) or how many do (a SINGULAR one, e.g. Cell.Landscape), and says so when none do) | 'info_order' (DIAL topics only: the effective MERGED INFO sequence across every touching plugin, with MOVED annotations — the 'why does the wrong line play' diagnostic. The game walks the sequence top to bottom and plays the FIRST passing line; re-listing a line appends it to the BOTTOM unless the plugin also carries its PNAM, so a reorder changes which line answers while every field stays identical — invisible to a diff, which is what this form is for. A quest's topics select by composition: types=[\"DIAL\"] where=[\"Quest = <quest formid>\"]. A patch that is NOT yet enabled folds in: source=\"MyPatch.esp\" names ONE off-order file, and the merge answers as it WOULD be with that file enabled — placed where MO2 would put it, which is the END of the order for a regular plugin and the end of the MASTER BLOCK for an ESM-flagged one or a .esm/.esl — with every line it places marked, the placement and the flag behind it stated, and the projection stated) | 'chain' (a walk's own paths, endpoints and cycles rather than the records it reached — a cycle being a record the walk reached again from itself, found over the nodes it actually ENTERED — so one closing past walk.depth or walk.max_nodes is not yet visible — and reported ONE PER CLOSING LINK, which makes the count a lower bound on how many distinct loops are there — the search also stops at 200 loops per seed and says so. Over a walk that FINISHED, no cycles reported means there are none; over one the response says was cut at walk.depth or walk.max_nodes it means only that none was found in what was read; needs walk=, and carries the NPC-template inheritance report and the reverse MGEF carrier rows). The comparison forms 'delta' and 'tree' both compare by the content-keyed, truncation-honest engine: a list reorder is flagged, and a truncated deep read is reported, never claimed 'identical'.")]
@@ -47,9 +39,7 @@ public static class RecordsTools
         public bool resolve_names { get; set; }
     }
 
-    /// <summary>The traversal construct: follow record-to-record form links and select what the walk reaches. This
-    /// traverses BETWEEN records; expanding nested fields within one record is project.depth. Seeds are this
-    /// call's own SELECT.</summary>
+    /// <summary>The traversal construct: follow record-to-record form links from this call's own SELECT and select what the walk reaches; expanding fields WITHIN a record is project.depth.</summary>
     public sealed class RecordsWalk
     {
         [Description("Link-bearing field paths that start the walk from each seed, e.g. [\"HeadParts\", \"WornArmor\"]. '*parent' crosses the containment edge instead — the record that CONTAINS the seed (a REFR from a crash log to its CELL; '*parent.*parent' to the worldspace). Omit for every link on the seed.")]
@@ -67,13 +57,7 @@ public static class RecordsTools
         [Description("The node budget (default 2000, the read-expansion budget). Per seed on a forward walk and on the reverse carrier walk (each seed's carrier rows), where 250000 is the hard upper bound and a higher value is refused; ONE budget shared across every seed and every hop on the transitive reverse walk, whose hops are one frontier and not a per-seed expansion. A breach keeps what was proved and says which reading it spent. A reading form (summary/fields/rows/everything/aggregate) then renders the whole reached set — seeds times this budget at the worst — and reads a body per row, so it is held to the same render bound a scan is on EVERY walk lane, and refuses up front naming that lane's own levers: its seeds, this budget, and — on the forward and carrier walks, the two chain can draw — project.form='chain', which lists the same set without reading a body per rendered row (the walk reads one per reached node whatever the form).")]
         public int? max_nodes { get; set; }
 
-        /// <summary>The hard upper bound on the PER-SEED reading of <see cref="max_nodes"/> — the forward walk and
-        /// the reverse carrier walk (Aaron, 2026-09-12). FIXED, not derived from the machine: a reached node costs a
-        /// row of a few KB wherever it runs, so the arithmetic is the same everywhere, and a bound that moved with
-        /// the machine would make one call succeed on one box and refuse on another. 250,000 is above the whole
-        /// forward closure a single seed reaches — 195,848 nodes measured on a 3,801-plugin order — so it bounds the
-        /// budget without bounding an answer. NOT the transitive reverse walk, whose budget is one shared across
-        /// every seed and hop and whose cost is a clock rather than a live set (#727).</summary>
+        /// <summary>The fixed hard upper bound on the PER-SEED reading of <see cref="max_nodes"/>, and not on the transitive reverse walk's one shared budget; contract in docs/architecture/read-engine.md.</summary>
         internal const int Ceiling = 250_000;
 
         [Description("Node classes the walk must not enter, as data: [{\"match\": \"Race\", \"severity\": \"stop\"|\"refuse\"}] — match is the record type name a read reports; stop prunes there (recorded as a boundary), refuse fails the whole call loud.")]
@@ -163,9 +147,7 @@ public static class RecordsTools
         bool json = fmt is Wire.QueryFormat.Json;
         bool dense = fmt is Wire.QueryFormat.Dense;
 
-        // ONE FormID door for the whole call, shared by every lane below: formids=, references= and the walk seeds
-        // all resolve against one index build, and the scan then runs on that same build. A door per list would let
-        // a freshness rebuild land between two lists, so a call's own tokens could name records in different orders.
+        // ONE FormID door for the whole call; contract in docs/architecture/read-engine.md.
         var door = svc.OpenFormIdDoor();
 
         // ---- PROJECT: form + form-scoping ---------------------------------------------------------------
@@ -178,45 +160,37 @@ public static class RecordsTools
         }
         bool comparisonForm = form is "delta" or "tree";
         bool bodyFields = form is "fields" or "rows";   // the two forms that read the caller's own field paths
-        // Every reading form reads a body per row: summary and aggregate one cheap leaf, fields/rows the caller's
-        // paths, everything the whole record. This is the set a derived selection's render bound is measured over.
+        // Every reading form reads a body per row, so this is the set a derived selection's render bound is measured over.
         bool bodyForm = bodyFields || form is "summary" or "everything" or "aggregate";
-        // Sub-parameters exist only inside their forms; a stray one is refused by name, so the caller learns the
-        // form-scoping rule instead of getting a silently ignored knob.
+        // Form-scoping: a sub-parameter outside its form is refused by name; docs/architecture/read-engine.md.
         if (project?.fields is { Length: > 0 } && !bodyFields && !comparisonForm)
             return Wire.Refuse(json, $"error: project.fields belongs to the 'fields'/'rows'/'delta'/'tree' forms (got form='{form}'). Set project.form, or drop fields.");
         if (form == "fields" && project?.fields is not { Length: > 0 })
             return Wire.Refuse(json, "error: the 'fields' form names its field paths — pass project.fields=[\"<path>\", …] (or use form='everything' for the full body).");
         if (form == "rows" && project?.fields is not { Length: > 0 })
             return Wire.Refuse(json, "error: the 'rows' form folds a LIST field to one line per element and names that field — pass project.fields=[\"Conditions\"] (or any list path).");
-        // Every entry has to be a path: the fold reads the roots themselves to decide what a line belongs to, so a
-        // null or blank one is bad input and is named as such rather than reaching the fold.
+        // Every entry has to be a path, since the fold reads the roots to decide what a line belongs to.
         if (form == "rows" && project?.fields is { } rowFields && Array.FindIndex(rowFields, p => string.IsNullOrWhiteSpace(p)) is var badAt && badAt >= 0)
             return Wire.Refuse(json, $"error: project.fields[{badAt}] is empty — the 'rows' form folds the list each entry names, so every entry must be a field path (e.g. [\"Conditions\"]).");
-        // The quantified step's PROJECT half: [*count] is one number per record, [*] one row per element. The
-        // parse runs here, before any read, so a bad token refuses the call rather than each record.
+        // The quantified step's PROJECT half, parsed before any read so a bad token refuses the call, not each record.
         FoldPlan? foldPlan = null;
         if (project?.fields is { Length: > 0 } pf)
         {
             var (plan, foldErr) = FieldFolds.Parse(pf);
             if (foldErr is not null) return Wire.Refuse(json, "error: " + foldErr);
             foldPlan = plan;
-            // The quantifier belongs to the form that reads a path as a projection. The comparison forms line
-            // their two sides up path for path, and the rows form already folds the list it names, so a token
-            // there is refused by name rather than accepted and dropped.
+            // The quantifier belongs to the form that reads a path as a projection; elsewhere it is refused by name.
             if (foldPlan is not null && form != "fields")
                 return Wire.Refuse(json, form == "rows"
                     ? $"error: project.fields path '{foldPlan.First.Requested}' quantifies a step, and the 'rows' form already folds the list it names to one line per element — drop the token, or use form='fields' to mix quantified and ordinary paths."
                     : $"error: project.fields path '{foldPlan.First.Requested}' quantifies a step, and the '{form}' form lines its two sides up path for path — drop the token, or read the elements with form='fields'.");
-            // dense lays ONE row per element, and two different lists share no element to lay a row on: the text
-            // render names each cell's own path, dense does not, so a paired row would read as one element's.
+            // dense lays ONE row per element, and two different lists share no element to lay a row on.
             if (foldPlan is not null && dense && foldPlan.SetRoots is { Count: > 1 } roots)
                 return Wire.Refuse(json, $"error: format='dense' lays one row per element, and '{roots[0]}' and '{roots[1]}' are different lists — one row cannot be an element of both. Quantify one of them and read the other as an ordinary path, or make one call per list.");
         }
         if (project?.depth is { } dv)
         {
-            // Any explicit depth is form-scoped — the rule must not depend on the value, or depth:1 is accepted
-            // and dropped where depth:2 refuses — and 0 or negative is refused rather than silently becoming 1.
+            // Any explicit depth is form-scoped whatever its value, and 0 or negative is refused, not coerced to 1.
             if (form is not ("fields" or "rows" or "everything"))
                 return Wire.Refuse(json, comparisonForm
                     ? $"error: project.depth belongs to the 'fields'/'rows'/'everything' forms — the '{form}' comparison always deep-reads BOTH sides at the diff engine's fixed depth so line sets correspond (narrow with {LeverNames.Records.Fields} instead)."
@@ -226,7 +200,7 @@ public static class RecordsTools
             // depth=1 collapses the list to a count, so the rows form would answer with no rows at all.
             if (dv == 1 && form == "rows")
                 return Wire.Refuse(json, "error: project.depth=1 collapses a list to a count, and the 'rows' form renders its elements — pass depth >= 2 (2 shows each element's type, the default 4 reaches its sub-fields), or use form='fields' for the collapsed line.");
-            // Same reading at the same knob: a [*] path renders elements, which depth 1 collapses away.
+            // The same reading at the same knob: a [*] path renders elements, which depth 1 collapses away.
             if (dv == 1 && foldPlan?.Folds.FirstOrDefault(f => f is { Fold: PathFold.Set }) is { } setAt)
                 return Wire.Refuse(json, $"error: project.depth=1 collapses a list to a count, and '{setAt.Requested}' renders its elements — pass depth >= 2 (2 shows each element's type, the default 4 reaches its sub-fields), or use '{setAt.Root}[*count]' for the number of them.");
         }
@@ -240,54 +214,42 @@ public static class RecordsTools
                 return Wire.Refuse(json, "error: the 'aggregate' form names its count key — pass project.group_by='winner' | 'type' | 'defined_in'.");
             if (gbv is not ("winner" or "type" or "defined_in"))
                 return Wire.Refuse(json, $"error: project.group_by='{project!.group_by}' is not a count key — use 'winner', 'type', or 'defined_in'.");
-            // The in-order engine refuses this too, but in the 1.x spelling (group_by=/type=), so the pre-check
-            // here says the same thing in this tool's levers. It is deliberately NOT applied to the off-order
-            // lane: there the file's own records ARE the universe, every match has a body, and OffOrderQuery
-            // imposes no such precondition — pre-refusing it would state a false reason. The lane is not known
-            // until the source pole is probed, so the check lives with the probe rather than here.
+            // The group_by=type pre-check lives with the source probe below, not here: it is an in-order-lane rule,
+            // and the lane is not known until the pole is probed.
         }
         if (project is { resolve_names: true } && form is not ("fields" or "rows" or "everything"))
             return Wire.Refuse(json, $"error: project.resolve_names annotates field values and belongs to the 'fields'/'rows'/'everything' forms (got form='{form}').");
-        // The rows form's default is its own: at depth 1 every element renders as a bare arm type, which is the
-        // gap the form exists to close. Its cost is per-row TEXT, not per-row lines — the fold is one line either way.
+        // The rows form's default depth is its own: at depth 1 every element renders as a bare arm type.
         bool foldsElements = foldPlan?.RendersElements ?? false;
         int depth = project?.depth is { } d && d > 0 ? d : (form == "rows" || foldsElements ? RowProjection.DefaultDepth : 1);
-        // A sub-path after [*] names exactly what to read, so reaching it is the token's own requirement rather
-        // than expansion the caller has to budget for.
-        // CallerDepth is what an UNQUANTIFIED column beside a quantified one renders at: the token raises the
-        // read's depth for the paths that need it, and a sibling path must not expand deeper for that reason.
+        // A [*] sub-path is the token's own depth requirement; CallerDepth is what an unquantified column beside a
+        // quantified one renders at, so a sibling does not expand deeper for the token's sake.
         if (foldPlan is not null)
         {
             depth = Math.Max(depth, foldPlan.Depth);
             foldPlan = foldPlan with { Depth = depth, CallerDepth = project?.depth is { } cd && cd > 0 ? cd : 1 };
         }
         var projFields = bodyFields || comparisonForm ? project?.fields : null;
-        // The read runs the LIST path a quantifier binds to; the fold puts the caller's own spelling back.
-        // The read's own targets: each path once, with the depth that path's column needs. Two columns quantifying
-        // one list are one walk of it, and an unquantified column beside a quantified one is not expanded deeper
-        // than the caller asked — both spend the same expansion budget.
+        // The read runs the LIST path a quantifier binds to and the fold puts the caller's spelling back; each path
+        // is read once, at the depth that path's column needs.
         string[]? foldReadPaths = null; int[]? readDepths = null;
         if (foldPlan is not null) (foldReadPaths, readDepths) = foldPlan.Read();
-        // The read paths whose every column is a [*count]: a number carries no list line, so those fields take the
-        // child union's index-only tier rather than the assembled union (see FoldPlan.CountOnlyPaths).
+        // Paths whose every column is a [*count] carry no list line, so they take the child union's index-only tier.
         var countFields = foldPlan?.CountOnlyPaths;
         var readPaths = foldPlan is null ? projFields : foldReadPaths;
         bool resolveNames = project?.resolve_names ?? false;
-        // The lever vocabulary is a function of (tool, FORM), not of the tool alone: the 'everything' form refuses
-        // project.fields= by name, so a truncation notice there must not offer it as the way to narrow.
+        // The lever vocabulary is a function of (tool, FORM); docs/architecture/read-engine.md.
         var formLevers = form == "everything" ? LeverNames.Records.WithoutFieldSelector() : LeverNames.Records;
-        // The rows form IS the fields form plus this fold, applied wherever a lane produces bodies — so the
-        // render, the artifact and the json document all see the same folded rows. A quantified project.fields
-        // path rides the same seam, for the same reason.
+        // The rows form IS the fields form plus this fold, applied wherever a lane produces bodies, so the render,
+        // the artifact and the json document see the same folded rows; a quantified path rides the same seam.
         IReadOnlyList<ReadOutcome> FoldRows(IReadOnlyList<ReadOutcome> read)
             => form == "rows" ? RowProjection.Apply(read, projFields!, depth)
              : foldPlan is not null ? foldPlan.Apply(read)
              : read;
 
         // ---- SOURCE: the pole grammar (source = the subject; versus = the comparison reference) ----
-        // The info_order fold takes ONE file. A list of ONE is that file — the set-valued spelling every other
-        // list parameter on this tool accepts — so it is unwrapped rather than refused; two or more have an order
-        // between them that only MO2 decides, and projecting one arbitrary guess is the silently wrong answer.
+        // The info_order fold takes ONE file: a list of one is unwrapped, and two or more are refused, since only
+        // MO2 decides the order between them.
         var sourceEl = source;
         if (form == "info_order" && sourceEl is { ValueKind: JsonValueKind.Array } srcArr)
         {
@@ -317,8 +279,7 @@ public static class RecordsTools
         string walkDirection = "forward";
         int walkDepth = 16, walkMaxNodes = 2000;
         bool walkDepthAsked = false;
-        // The reverse carrier walk's follow, spelled as SPEC §3.3 spells it. It is the discriminator between the
-        // two reverse walks, so it is one constant read by the validation, the lane and every remedy sentence.
+        // The reverse carrier walk's follow, one constant read by the validation, the lane and every remedy sentence.
         const string CarrierFollow = "Effects[].BaseEffect";
         var walkExclusions = new List<(string Match, bool Refuse)>();
         if (walk is not null)
@@ -336,10 +297,7 @@ public static class RecordsTools
             if (walk.max_nodes is { } wn)
             {
                 if (wn < 1) return Wire.Refuse(json, $"error: walk.max_nodes={wn} — the node budget must be >= 1.");
-                // The bound is on the PER-SEED reading of this budget — the forward walk and the reverse carrier
-                // walk. On the transitive reverse walk it is ONE budget shared across every seed and every hop, a
-                // different quantity measured on a different lane, and this number was not ruled for it (#727 is
-                // where that lane's own cost sits).
+                // The bound is on the PER-SEED reading of this budget; docs/architecture/read-engine.md.
                 bool perSeedBudget = walkDirection == "forward"
                                   || string.Equals(walk.follow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase);
                 if (perSeedBudget && wn > RecordsWalk.Ceiling)
@@ -357,9 +315,8 @@ public static class RecordsTools
             }
             if (walkDirection == "reverse")
             {
-                // seed_paths and exclusions really do shape a forward expansion; follow does not — it names which
-                // edges the walk crosses, which is as meaningful backwards as forwards, so it stays legal here and
-                // is what tells the two reverse walks apart.
+                // seed_paths and exclusions shape a FORWARD expansion; follow names which edges are crossed, so it
+                // stays legal here and is what tells the two reverse walks apart.
                 if (walk.seed_paths is { Length: > 0 } || walk.exclusions is { Length: > 0 })
                     return Wire.Refuse(json, "error: walk.seed_paths/exclusions shape a FORWARD expansion — a reverse walk scans TOWARD the seeds. Drop them (walk.follow stays: it names the edges this walk crosses).");
                 var revFollow = walk.follow?.Trim();
@@ -379,16 +336,14 @@ public static class RecordsTools
         if (form == "chain" && walk is null)
             return Wire.Refuse(json, $"error: the 'chain' form renders a walk's paths — pass walk= (e.g. walk={{\"follow\": \"Template\"}} over NPC seeds; reverse MGEF carriers: walk={{\"direction\": \"reverse\", \"follow\": \"{CarrierFollow}\"}} with MGEF formids=).");
 
-        // The existing single-pole lanes below drive off the named-pole fields; the richer specs dispatch to the
-        // comparison/overlay lanes before reaching them.
+        // The single-pole lanes below drive off these fields; richer specs dispatch before reaching them.
         string? srcName = srcSpec.Kind == LoadOrderService.PoleKind.Named ? srcSpec.Plugin : null;
         string? srcMod = srcSpec.Kind == LoadOrderService.PoleKind.Named ? srcSpec.Mod : null;
         bool srcOverlay = srcSpec.Kind == LoadOrderService.PoleKind.Overlay;
 
         // ---- fields_source (display pole) ----
-        // Validate the value first, then the lane rules: 'scoped'/'scanned' are no-op defaults accepted
-        // everywhere, only the actual retarget ('winner') is refused on lanes that cannot honor it, and an
-        // unknown value always gets the not-a-known-source refusal.
+        // The value first, then the lane rules: 'scoped'/'scanned' are no-op defaults accepted everywhere, only
+        // 'winner' is refused on lanes that cannot honor it, and an unknown value is refused by value.
         bool winnerFields = false;
         if (!string.IsNullOrWhiteSpace(fields_source))
         {
@@ -410,14 +365,11 @@ public static class RecordsTools
                        || where is { Length: > 0 } || references is { Length: > 0 };
         if (!hasFormids && !hasScan)
             return Wire.Refuse(json, "error: select something — formids= (a record list), or a scan scope: types=, plugins=, conflicts_only=true, where=, references=.");
-        // formids= composes with the scan terms: the identity set intersects the scan's selection, or is the
-        // universe when it is the only bound. The reverse MGEF walk keeps its own lane, where formids are seeds.
+        // formids= composes with the scan terms: the identity set intersects the scan, or is the universe when it
+        // is the only bound; the reverse MGEF walk keeps its own lane, where formids are seeds.
         bool reverseWalk = walk is not null && walkDirection == "reverse";
-        // The reverse direction has two walks and walk.follow tells them apart, exactly as it does forward: "*" (or
-        // unset) is the transitive walk over every link off the reverse-reference index, the carrier path is the
-        // typed MGEF walk. The FORM then only picks the view, and never implies a walk: under 'chain' the follow is
-        // said outright, because the transitive walk — one shared frontier, not a per-seed expansion — has no
-        // per-seed path render for chain to draw, so a default would silently mean the other walk.
+        // walk.follow tells the two reverse walks apart and the FORM only picks the view; under 'chain' the follow
+        // is said outright. Contract in docs/architecture/read-engine.md.
         bool followAsked = !string.IsNullOrWhiteSpace(walk?.follow);
         bool reverseCarrier = reverseWalk
             && string.Equals(walk!.follow?.Trim(), CarrierFollow, StringComparison.OrdinalIgnoreCase);
@@ -433,33 +385,28 @@ public static class RecordsTools
             return Wire.Refuse(json, reverseCarrier
                 ? "error: the reverse walk needs its seeds — pass formids= (the MGEF(s) whose carriers to trace)."
                 : "error: the reverse walk needs its seeds — pass formids= (the record(s) whose referrers to trace).");
-        // The lane, decided once and read wherever a remedy sentence depends on which lane will run. The dispatch
-        // below reads this same value, so a refusal cannot disagree with the lane it is refusing for.
+        // The lane, decided once and read by the dispatch below and by every remedy sentence that depends on it.
         bool scanLane = hasScan && !reverseWalk;
-        // dense is defined as positional columnar cells 1:1 with the requested field paths, so a form with no
-        // fixed column set refuses by name rather than quietly falling back to another transport.
+        // dense is positional cells 1:1 with the requested field paths, so a form with no fixed column set refuses by name.
         if (dense && form == "everything")
             return Wire.Refuse(json, "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the 'everything' form has no fixed column set — use format='text' or 'json', or name the paths via form='fields'.");
         if (dense && form == "rows")
             return Wire.Refuse(json, "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the 'rows' form folds a list's elements into one variable-length line each — use format='text' or 'json'.");
         if (dense && form == "aggregate")
             return Wire.Refuse(json, "error: format='dense' is the per-row columnar transport, and the 'aggregate' form is a count table — its json render IS the compact form; use format='json'.");
-        // The same rule at the depth knob: depth expansion is inexpressible in dense, so an explicit
-        // project.depth must be refused rather than accepted and dropped. Scan lane only — the list lane refuses
-        // dense outright below, and firing this first would send the caller to fix depth and then hit that.
+        // The same rule at the depth knob, on the scan lane only: the list lane refuses dense outright below, and
+        // firing this first would send the caller to fix depth and then hit that.
         if (scanLane && dense && project?.depth is { } denseDepth && denseDepth > 1)
             return Wire.Refuse(json, $"error: format='dense' renders positional columnar cells 1:1 with the requested {LeverNames.Records.Fields} paths, and project.depth={denseDepth} emits extra sub-paths that have no column — use format='text' or 'json' for depth expansion, or drop project.depth for the dense summary cells.");
         if (dense && comparisonForm)
             return Wire.Refuse(json, $"error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the '{form}' form's rows are variable-length delta lists with no fixed column set — use format='text' or 'json'.");
         if (dense && form == "info_order")
             return Wire.Refuse(json, "error: format='dense' renders positional columnar cells 1:1 with requested field paths, and the 'info_order' form is an ordered sequence render with no fixed column set — use format='text' or 'json'.");
-        // info_order takes exactly ONE thing on source=: an OFF-ORDER file to fold into the merge at the END of
-        // the order. Every other pole is refused — the merge across the active order IS the answer, so there is
-        // nothing for a pole to pick.
+        // info_order takes exactly ONE thing on source=, an OFF-ORDER file; the merge IS the answer, so no other
+        // pole has anything to pick.
         if (form == "info_order" && srcSpec.Kind is LoadOrderService.PoleKind.Overlay or LoadOrderService.PoleKind.PreviousProvider)
             return Wire.Refuse(json, "error: the info_order form merges EVERY plugin touching each topic — that merge is the answer, so a runtime-overlay or previous_provider pole has no seat here (each line already names the plugin that placed it). The one source= this form takes is an OFF-ORDER plugin filename, folded into the merge where MO2 would load it.");
-        // fields_source= is the scan lane's display pole: it retargets what a matched row displays. The list
-        // lane's read IS its display, so it would be meaningless there and is refused by name instead of dropped.
+        // fields_source= is the scan lane's display pole; the list lane's read IS its display, so it refuses by name.
         if (winnerFields && formids is { Length: > 0 } && !hasScan)
             return Wire.Refuse(json, "error: fields_source= is the scan lane's display pole — on a formids= read the version you want IS the source: name it via source= (source=\"winner\" is the default).");
 
@@ -479,9 +426,8 @@ public static class RecordsTools
             return Wire.Refuse(json, "error: where_source= retargets the where= predicates and needs where= — add predicates, or drop where_source=.");
 
         // ---- info_order: the off-order fold ------------------------------------------------------------
-        // The pole is resolved through the same one-pole probe every other source= goes through, so the file is
-        // named the one way this surface names a file. An ACTIVE plugin is refused: it is already in the merge,
-        // and folding it again would project a second copy of a plugin the order carries once.
+        // The fold's file is resolved through the same one-pole probe every other source= goes through, and an
+        // ACTIVE plugin is refused; contract in docs/architecture/read-engine.md.
         LoadOrderService.PoleInfo? ioFold = null;
         if (form == "info_order" && srcSpec.Kind == LoadOrderService.PoleKind.Named)
         {
@@ -493,20 +439,18 @@ public static class RecordsTools
             // The fold is not a "whose version" pole, so the lanes below must not read it as one.
             srcName = null; srcMod = null;
         }
-        // The probe already knows the name, the label the rows will carry and where the copy is; the batch that
-        // opens the file adds where it was placed. Filled here so a statement written before the merge runs names
-        // the same file the rows will — the scan lane's own note is one of those.
+        // The probe knows the name, the row label and where the copy is; the batch that opens the file adds the
+        // placement. Filled here so a statement written before the merge names the same file the rows will.
         LoadOrderService.FoldFacts? ioFoldFacts = null;
         if (ioFold is not null) { ioFoldFacts = new LoadOrderService.FoldFacts(); ioFoldFacts.FromArm(ioFold); }
-        // The probe decided OFF-ORDER against its own build, and the merge reads another: a copy whose mod folder
-        // is ticked in MO2 between the two is in the order the merge saw AND folded in again, and every projection
-        // sentence above would be false. The same seam every other two-capture lane on this tool has.
+        // The probe decided OFF-ORDER against its own build and the merge reads another, so the two are
+        // epoch-compared like every two-capture lane here; docs/architecture/read-engine.md.
         string? FoldSeam(OrderStamp? mergeEpoch)
             => ioFold?.Epoch is { } probeEpoch && mergeEpoch is not null && mergeEpoch.Epoch != probeEpoch
                 ? $"error: the load order changed between resolving '{ioFoldFacts!.Label}' as off-order (epoch={probeEpoch}) and reading the merge (epoch={mergeEpoch.Epoch}) — that copy may now be IN the order, and the fold would describe a different world. Retry the call."
                 : null;
-        // The fold's own statement rides the artifact echo too: on every other form a `source` there means "the
-        // rows were read from that plugin", which a projection is not.
+        // The fold's statement rides the artifact echo too, where a `source` would mean the rows were read from
+        // that plugin — which a projection is not.
         void FoldEcho(List<KeyValuePair<string, string>> e)
         {
             var f = ioFoldFacts!;
@@ -520,19 +464,15 @@ public static class RecordsTools
         string headerLine = $"records  form={form}";
         void Arm(string statement)
         {
-            // One source statement per response: first call wins, so a lane that states the specific source and
-            // then falls through to a general pipeline cannot emit two "source" properties in one json object.
+            // One source statement per response, first call wins; docs/architecture/read-engine.md.
             if (envelope.Any(kv => kv.Key == "source")) return;
             envelope.Add(new("source", statement));
             headerLine += $"  source={statement}";
         }
-        // A census is a text render too, so it is held to the same ceiling: it carries the header's source and
-        // selection statements whatever the budget, so a max_chars smaller than those says so and names the
-        // number that clears it instead of answering over the ceiling in silence.
+        // A census is a text render too, so it is held to the same ceiling and says so when max_chars is smaller
+        // than the statements it carries whatever the budget.
         string Census(string body) => RenderCap.Settle(body, max_chars > 0 ? max_chars : Wire.DefaultMaxChars);
-        // Every warning the SkyPatcher replay produced — a key it does not know, an op it cannot map, a filter it
-        // cannot evaluate, a parse note — named beside the answer, each already carrying its own file and line. A
-        // draft INI's lines carry the draft's path, so a bad draft line reads where a bad live line does.
+        // Every warning the SkyPatcher replay produced, named beside the answer with its own file and line.
         var overlayWarnings = new HousecarlCore.SkyPatcherOverlay.WarningSink();
         void StateOverlayWarnings()
         {
@@ -544,30 +484,25 @@ public static class RecordsTools
             foreach (var w in shown) headerLine += "\n[!] skypatcher: " + w;
             if (over > 0) headerLine += $"\n[!] skypatcher: {over} further warning(s) not listed.";
         }
-        // When a walk or scan derived the selection this call now reads, the two captures meet at a seam: every
-        // downstream form's epoch is compared against the deriving step's, and a divergence refuses loud rather
-        // than mixing builds.
+        // The seam between a deriving step's capture and the read's; docs/architecture/read-engine.md.
         string? expectEpoch = null;
         string? SeamTear(OrderStamp? epoch) =>
             expectEpoch is not null && epoch is not null && epoch.Epoch != expectEpoch
                 ? $"the load order changed between deriving the selection (epoch={expectEpoch}) and reading it (epoch={epoch.Epoch}) — the two halves would mix builds. Retry the call."
                 : null;
 
-        // limit=/offset= window the list lane's RENDER only: the census, the aggregate and every artifact write
-        // still cover the complete list, and the window note rides the header and envelope so a windowed render
-        // can never read as the whole list.
+        // limit=/offset= window the list lane's RENDER only, and the window note rides the header and envelope;
+        // docs/architecture/read-engine.md.
         int lim = limit <= 0 ? 500 : limit;
-        // Set when a comparison form's KEYS were windowed before the rows were read (see ComparisonWindow): the
-        // rows that arrive are already the window and its note is already stated. The note itself rides along so
-        // the counts and any spilled artifact can say what they cover.
+        // Set when a comparison form's KEYS were windowed before the rows were read (see ComparisonWindow); the
+        // note rides along so the counts and any spilled artifact can say what they cover.
         bool cmpPrewindowed = false;
         string? cmpWindowNote = null;
         int cmpSelected = 0;
         IReadOnlyList<T> Windowed<T>(IReadOnlyList<T> rows)
         {
             if (cmpPrewindowed) return rows;
-            // Under to_file= the rows are the file and the render is manifest-only, so no window applies — a
-            // window note over a complete artifact would misdescribe both halves.
+            // Under to_file= the rows are the file and the render is manifest-only, so no window applies.
             if (wantFile) return rows;
             if (offset == 0 && rows.Count <= lim) return rows;
             var w = rows.Skip(offset).Take(lim).ToList();
@@ -579,15 +514,13 @@ public static class RecordsTools
             return w;
         }
 
-        // The comparison forms' window, applied to the KEYS before any body is read. A delta or tree row reads
-        // every provider of its record, so rows the window would throw away are the whole cost of the call: the
-        // first ten rows of a 17,727-row scan used to read all 17,727 (#721). A census and a to_file= artifact
-        // still cover the complete selection — both state the whole set by definition — so neither is windowed.
+        // The comparison forms' window, applied to the KEYS before any body is read; a census and a to_file=
+        // artifact cover the complete selection. Contract in docs/architecture/read-engine.md.
         List<string> ComparisonWindow(IReadOnlyList<FormKey> keys, int total)
         {
             if (wantFile || counts_only) return keys.Select(k => k.ToString()).ToList();
-            // The query already skipped offset= — it adds a key only past it — so the keys ARRIVE at the window's
-            // start and taking the limit is the whole window. Skipping again here would read the wrong rows.
+            // The query already skipped offset=, so the keys ARRIVE at the window's start and the limit is the
+            // whole window.
             cmpPrewindowed = true;                                     // these keys ARE the rendered rows now
             cmpSelected = total;
             var w = keys.Take(lim).Select(k => k.ToString()).ToList();
@@ -600,16 +533,13 @@ public static class RecordsTools
             return w;
         }
 
-        /// <summary>Which lever the comparison bound's refusal names, for the lane the call is actually on. The
-        /// scan lever reads the same whether or not a limit= was passed: the parameter defaults to 500, so a call
-        /// that passed nothing is already windowed and there is no way here to tell it from an explicit limit=500 —
-        /// the move is a limit= at or below the bound either way.</summary>
+        /// <summary>Which lever the comparison bound's refusal names, for the lane the call is actually on; the scan lever reads the same whether or not a limit= was passed, since the move is a limit= at or below the bound either way.</summary>
         string ComparisonLever() =>
             wantFile || counts_only ? RenderBudget.ComparisonWholeSelectionLever
             : RenderBudget.ComparisonScanLever;
 
-        // A walk hands its reached set to the list lane as formids=, and that set is bounded by walk.max_nodes
-        // already — so the list lane's render bound is over a list the CALLER passed, never one a walk derived.
+        // A walk hands its reached set to the list lane as formids=, already bounded by walk.max_nodes, so the list
+        // lane's own render bound is over a list the CALLER passed.
         bool walkDerived = false;
 
         return scanLane
@@ -665,17 +595,15 @@ public static class RecordsTools
                 if (srcName is not null || srcOverlay)
                     return Wire.Refuse(json, "error: the identity form is the load-order labeling frame (type/editorid/name/WINNER per FormID) — " +
                            "it does not take a source= pole. Use form='summary' or 'fields' for a named version's view.");
-                // This form reads a body too, and by the dearest route on the tool: the resolver has no record type
-                // to seek by, so each id costs an untyped whole-plugin scan. Its own tier, checked before the read.
+                // This form reads a body by the dearest route on the tool, an untyped whole-plugin seek per id, so
+                // it has its own tier, checked before the read.
                 if (RenderBudget.RefuseIdentity(ids.Length, counts_only ? RenderBudget.ListCensusRemedy : RenderBudget.ListRemedy,
                                                 counts_only) is { } identityTooBig)
                     return Wire.Refuse(json, identityTooBig);
                 var identityClock = System.Diagnostics.Stopwatch.StartNew();
                 var rows = svc.ResolveRefs(ids, demand, out var epoch, out var refusal);
                 identityClock.Stop();
-                // The count is the bodies this call actually READ, not the list's length: a malformed token never
-                // reaches a read and an absent FormKey has no winner to read, so counting the list would divide the
-                // clock by rows that cost nothing and make the tier uncheckable (#607).
+                // The count is the bodies READ, not the list's length; docs/architecture/read-engine.md.
                 var identityCost = (rows.Count(r => r.Resolved), identityClock.ElapsedMilliseconds);
                 if (refusal is not null)
                     return json ? JsonWire.RenderError(refusal, epoch) : "error: " + refusal + Wire.EpochLine(epoch);
@@ -708,41 +636,33 @@ public static class RecordsTools
                 return rendered;
             }
 
-            // ---- the render's own bound, on this lane. A body form reads a body per id here exactly as the scan
-            // lane does, and formids=["@<file>"] is a list of any length by construction — the very path the
-            // whole-record refusal and to_file= point at. Checked before any body is read, and counts_only pays it
-            // too: this lane reads the list whatever it renders, where the scan lane's census reads no bodies.
-            // Measured over ALL five reading forms: summary and aggregate read one cheap leaf off a body here, so
-            // they pay the body seek the named-fields tier is set against (#607).
+            // ---- the render's own bound on this lane, over all five reading forms, checked before any body is
+            // read; counts_only pays it too, because this lane reads the list whatever it renders. ----
             if (bodyForm && !walkDerived
                 && RenderBudget.Refuse(ids.Length, form == "everything",
                                        counts_only ? RenderBudget.ListCensusRemedy : RenderBudget.ListRemedy,
                                        counts_only) is { } listTooBig)
                 return Wire.Refuse(json, listTooBig);
 
-            // ---- summary / fields / everything / aggregate: batch bodies off the source pole. ----
-            // summary reads one cheap leaf, since the header facts ride the outcome; fields reads the named
-            // paths; everything passes null to dump the modeled fields.
+            // ---- summary / fields / everything / aggregate: batch bodies off the source pole. Summary reads one
+            //      cheap leaf, fields the named paths, everything a null that dumps the modeled fields. ----
             IReadOnlyList<string>? readFields = form switch
             {
                 "fields" or "rows" => readPaths,
                 "summary" or "aggregate" => new[] { "EditorID" },   // cheapest leaf — headers carry the summary facts
                 _ => null,                                          // everything — the full dump
             };
-            // The per-path depths belong to the paths they were computed for; a form that reads something else
-            // (summary's one leaf, everything's full dump) reads at the one depth.
+            // The per-path depths belong to the paths they were computed for; every other form reads at one depth.
             var readFieldDepths = ReferenceEquals(readFields, readPaths) ? readDepths : null;
             var readFieldCounts = ReferenceEquals(readFields, readPaths) ? countFields : null;
             IReadOnlyList<ReadOutcome> outcomes;
             LoadOrderService.PoleInfo? pole = null;
-            // This lane reads a body per id exactly as the scan's body lane does, so it is clocked the same way and
-            // reports the same accounting — over the BODIES READ, which is not the limit=/offset= window and, under
-            // a pole or a bad token, is fewer than the list.
+            // Clocked like the scan's body lane, over the BODIES READ; docs/architecture/read-engine.md.
             var listClock = System.Diagnostics.Stopwatch.StartNew();
             if (srcOverlay && !string.Equals(srcSpec.OverlayState ?? "post", "pre", StringComparison.OrdinalIgnoreCase))
             {
-                // The overlay post source: every record's winner replayed through the SkyPatcher INI layer, the
-                // replayed body read at the caller's own depth.
+                // The overlay post source: every winner replayed through the SkyPatcher INI layer, read at the
+                // caller's own depth.
                 outcomes = svc.OverlayPostBatch(ids, readFields, depth, resolveNames, demand, out var ovRefusal, out var ovEpoch, out _,
                                                 LeverNames.Records.ContainerHint, readFieldDepths, ct,
                                                 draft: srcSpec.Draft, overlayWarnings: overlayWarnings);
@@ -781,10 +701,7 @@ public static class RecordsTools
                 }
             }
             listClock.Stop();
-            // One cost for every form this lane renders, so the accounting cannot land on some of them and not others.
-            // The count is the bodies actually READ, not the list's length: under a named source= pole an id the pole
-            // has no version of refuses per item without a read, and a malformed token never reaches one, so counting
-            // the list would divide the clock by rows that cost nothing (#607).
+            // One cost for every form this lane renders, counted over the bodies actually READ.
             var listCost = (outcomes.Count(o => o.Record is not null), listClock.ElapsedMilliseconds);
             outcomes = FoldRows(outcomes);
             var epoch2 = outcomes.FirstOrDefault(o => o.Stamp is not null)?.Stamp;
@@ -826,10 +743,8 @@ public static class RecordsTools
         }
 
         // ================================================================================================
-        //  WALK lane — forward walks expand the winner link graph (the chain form renders the paths; any other
-        //  form consumes the reached set as its selection). Reverse splits on walk.follow, not on the form: "*" is
-        //  the transitive walk off the reverse-reference index, the carrier path is the typed MGEF walk, and each
-        //  hands its reached set to the same two views.
+        //  WALK lane — forward walks expand the winner link graph; reverse splits on walk.follow, not on the form,
+        //  and each walk hands its reached set to the same two views.
         // ================================================================================================
         string WalkLane(string[] ids, HousecarlCore.ArtifactDemand? demand, string? echoSrc)
         {
@@ -847,23 +762,19 @@ public static class RecordsTools
 
             if (reverseWalk && !reverseCarrier)
             {
-                // The transitive reverse walk: every link, at every hop, off the reverse-reference index. The
-                // reached set is the selection the ordinary reading forms then consume, exactly as a forward walk's
-                // is — so the per-hop census is the only thing this lane renders of its own.
+                // The transitive reverse walk: every link, at every hop, off the reverse-reference index; the
+                // per-hop census is the only thing this lane renders of its own.
                 var rev = ReverseWalkBatch.Run(svc, ids, walkDepth, walkMaxNodes, demand, ct);
                 if (rev.Refusal is not null)
                     return json ? JsonWire.RenderError(rev.Refusal, rev.Stamp) : "error: " + rev.Refusal + Wire.EpochLine(rev.Stamp);
                 if (SeamTear(rev.Stamp) is { } rTear)
                     return json ? JsonWire.RenderError(rTear, rev.Stamp) : "error: " + rTear;
-                // Every hop is named with its count, empty ones included: a walk that ran out of referrers says so
-                // on the response instead of trailing off, so an empty hop 2 is visible and not silent. A hop the
-                // budget ended says 'cut' instead, so a prefix is never read as a finding, and the exhaustion
-                // clause is only told of a walk that actually ran out.
+                // Every hop is named with its count, empty ones included, and a hop the budget ended says 'cut'.
                 var hopLine = string.Join(", ", rev.Hops.Select(h => $"hop {h.Depth}: {h.Reached.Count}{(h.Cut ? " (cut by walk.max_nodes)" : "")}"));
                 if (!rev.Capped && rev.Hops.Count < walkDepth)
                     hopLine += $" (nothing left to expand, so hops {rev.Hops.Count + 1}–{walkDepth} were not walked)";
-                // The other way a walk ends: it reached walk.depth with the last hop still finding records, so what
-                // that hop reached was recorded and not expanded. Said out loud, or a prefix reads as a finding.
+                // The other way a walk ends: walk.depth reached with the last hop still finding records, so what it
+                // reached was recorded and not expanded.
                 else if (!rev.Capped && rev.Hops.Count > 0 && rev.Hops[^1].Reached.Count > 0)
                     hopLine += $" (walk.depth={walkDepth} was reached with hop {walkDepth} still finding records, so they were recorded and not expanded — raise walk.depth to walk further)";
                 int reachedRev = rev.Selection.Count - rev.Seeds;
@@ -873,13 +784,11 @@ public static class RecordsTools
                 if (rev.IndexNote is not null) headerLine += "\n" + rev.IndexNote;
                 if (rev.Dropped.Total > 0)
                 {
-                    // Each cause is named with its own count: an unreadable winner is a coverage gap and a dropped
-                    // link is a verdict, and one sentence for both would tell a caller the wrong thing about half
-                    // of them.
+                    // Each cause is named with its own count: an unreadable winner is a coverage gap, a dropped
+                    // link a verdict.
                     var causes = new List<string>(4);
                     if (rev.Dropped.NoLink > 0) causes.Add($"{rev.Dropped.NoLink} whose winner does not carry the link");
-                    // The plugin is named when the gather knows it: a coverage gap the caller can act on says which
-                    // file to close, and a bare count is the same number a genuine index inconsistency would give.
+                    // The plugin is named when the gather knows it, so the coverage gap says which file to close.
                     if (rev.Dropped.Unreadable > 0)
                         causes.Add($"{rev.Dropped.Unreadable} whose winning plugin could not be read — a coverage gap, not a verdict"
                                    + (rev.UnreadableWinners is { Count: > 0 } up ? $" ({string.Join(", ", up)})" : ""));
@@ -887,11 +796,8 @@ public static class RecordsTools
                     if (rev.Dropped.NoWinner > 0) causes.Add($"{rev.Dropped.NoWinner} with no resolvable winner");
                     headerLine += $"\n{rev.Dropped.Total} index candidate(s) were dropped — the index names a plugin copy that carries the link, and this walk judges the load-order winner (the same second step references= takes): {string.Join("; ", causes)}. None of them was reached or expanded.";
                 }
-                // Records this walk's body check could only read leniently: verified and walked, with the same named
-                // gap the scan lanes report, so a reader is never told the walk read them whole. It says WHICH
-                // records it counts, because the index's own line sits directly above it saying the same words about
-                // a different universe — the plugin copies it walked at build time, over the whole order — and read
-                // in sequence the second would otherwise look like a correction of the first.
+                // Records this walk's body check could only read leniently, naming WHICH records it counts, because
+                // the index's own line above says the same words about a different universe.
                 if (rev.LenientRecords is { Count: > 0 } lenientRev)
                     headerLine += $"\nof the candidates this walk judged, {lenientRev.Count} winner record(s) were read leniently — part of their "
                                 + "content is encoded in a way Mutagen refuses, so the walk judged them on what houseCARL could still decode: "
@@ -900,10 +806,8 @@ public static class RecordsTools
                                 + $". Read one with {ToolNames.Records} formids=[the FormID] to see the marked row.";
                 if (rev.Capped)
                     headerLine += $"\n[!] the walk.max_nodes budget ({walkMaxNodes}, one budget shared across every seed and hop on this lane) was reached — what is listed IS reached and proved, and the hop it cut is marked; raise walk.max_nodes to walk further.";
-                // The reached set's render bound, the same one the forward walk pays: this lane hands the list lane
-                // its whole reached set and every reading form reads a body per row. Its own remedy, because chain
-                // refuses on this walk and the scan terms are refused on it too.
-                // counts_only pays it too: the list lane this hands off to reads the bodies before it counts them.
+                // The reached set's render bound, with its own remedy because chain and the scan terms are both
+                // refused on this walk; counts_only pays it too, since the list lane reads before it counts.
                 if (bodyForm
                     && RenderBudget.Refuse(rev.Selection.Count, form == "everything",
                                            counts_only ? RenderBudget.ReverseTransitiveCensusRemedy : RenderBudget.ReverseTransitiveRemedy,
@@ -918,20 +822,18 @@ public static class RecordsTools
 
             if (reverseCarrier)
             {
-                // The typed MGEF lane: each seed must resolve to a MagicEffect, and a non-MGEF seed fails loud
-                // per item rather than reading as '0 carriers'.
+                // The typed MGEF lane: a non-MGEF seed fails loud per item rather than reading as '0 carriers'.
                 var results = new List<(string Seed, EffectChainResult Result)>(ids.Length);
                 foreach (var raw in ids)
                 {
                     FormKey fk;
                     try { fk = door.Parse(raw); }
                     catch (Exception ex) { results.Add((raw?.Trim() ?? "", EffectChainResult.Fail($"bad FormID '{raw}': {ex.Message}"))); continue; }
-                    // The per-seed carrier bound is the walk's own reach budget; limit=/offset= stay the SEED
-                    // window, never a second silent cut on the carrier axis.
+                    // The per-seed carrier bound is the walk's own reach budget; limit=/offset= stay the SEED window.
                     results.Add((FormIdToken.Of(fk), svc.ResolveEffectChain(fk, types, walkMaxNodes)));
                 }
-                // One build for the whole batch: each seed's resolve captures its own view, so the stamps must
-                // agree, and an @artifact seed list's epoch demand must match that build.
+                // One build for the whole batch, so the per-seed stamps must agree and an @artifact seed list's
+                // epoch demand must match it.
                 var epochsR = results.Select(r => r.Result.Stamp).Where(e => e is not null).Distinct().ToList();
                 if (epochsR.Count > 1)
                 {
@@ -948,15 +850,14 @@ public static class RecordsTools
                     return json ? JsonWire.RenderError(dref, epochR) : "error: " + dref + Wire.EpochLine(epochR);
                 }
                 Arm("winner (carriers are the load-order-effective versions)");
-                // The census separates written rows from the true total and names capped seeds, so the artifact
-                // and its census cannot disagree and a walk.max_nodes cut is always declared.
+                // The census separates written rows from the true total and names capped seeds, so a walk.max_nodes
+                // cut is always declared.
                 int carrierRows = results.Sum(r => r.Result.Error is null ? r.Result.Rows.Count : 0);
                 int carrierTotal = results.Sum(r => r.Result.Error is null ? r.Result.Total : 0);
                 int cappedSeeds = results.Count(r => r.Result.Error is null && r.Result.Capped);
                 int seedErrs2 = results.Count(r => r.Result.Error is not null);
-                // This walk follows the effect link at every hop, and a carrier is not a magic effect — so hop 2
-                // and beyond reach nothing. Said out loud only when a depth was actually asked for, never off the
-                // default, and the hop census counts what hop 1 REACHED (the total), not what got printed.
+                // A carrier is not a magic effect, so hop 2 and beyond reach nothing; said only when a depth was
+                // asked for, and the census counts what hop 1 REACHED, not what got printed.
                 var carrierHops = $"hop 1: {carrierTotal}";
                 if (walkDepthAsked && walkDepth > 1)
                     carrierHops += string.Concat(Enumerable.Range(2, walkDepth - 1).Select(d => $", hop {d}: 0"))
@@ -964,8 +865,7 @@ public static class RecordsTools
                 envelope.Add(new("walk", $"reverse follow={CarrierFollow} depth={walkDepth} — the typed MGEF carrier walk; {carrierHops}"));
                 headerLine += "\nwalk=reverse (per seed: every SPEL/ENCH/ALCH/SCRL/INGR applying it, with the MATCHING entry's magnitude/area/duration — reported AS AUTHORED; conditions are not evaluated, so a row means 'defines it at this strength', not 'it will fire')";
                 if (walkDepthAsked && walkDepth > 1) headerLine += $"\n{carrierHops}";
-                // A reading form consumes this walk's reached set — the carrier records — exactly as it consumes a
-                // forward walk's, so the form picks the view and never the walk.
+                // A reading form consumes this walk's reached set as it does a forward walk's.
                 if (form != "chain")
                 {
                     var carrierSel = new List<string>(ids.Length + carrierRows);
@@ -983,8 +883,7 @@ public static class RecordsTools
                     if (carrierSel.Count == 0)
                         return json ? JsonWire.RenderError($"the reverse carrier walk reached nothing readable ({seedErrs2} seed error(s) — run form='chain' to see each seed's outcome).", epochR)
                                     : $"error: the reverse carrier walk reached nothing readable ({seedErrs2} seed error(s) — run form='chain' to see each seed's outcome)." + Wire.EpochLine(epochR);
-                    // A seed that failed contributed no carriers, and the reading form says so: a partial answer
-                    // over some of the seeds must never read as an answer over all of them.
+                    // A seed that failed contributed no carriers, and the reading form says so.
                     envelope.Add(new("selection", $"the {carrierSel.Count} record(s) the carrier walk reached (seeds included)"
                                                   + (seedErrs2 > 0 ? $"; {seedErrs2} seed error(s), listed via form='chain'" : "")));
                     headerLine += $"\nwalk: selection = {carrierSel.Count} reached record(s) (seeds included)";
@@ -992,10 +891,8 @@ public static class RecordsTools
                         headerLine += $"\n[!] {seedErrs2} seed(s) failed and contributed no carriers — run form='chain' to see each seed's outcome.";
                     if (cappedSeeds > 0)
                         headerLine += $"\n[!] {cappedSeeds} seed(s) hit the walk.max_nodes carrier bound ({walkMaxNodes}, per seed on this lane) — the selection is a prefix of the {carrierTotal} carrier(s) reached; raise walk.max_nodes.";
-                    // The reached set's render bound, the same one the forward walk pays: seeds times the per-seed
-                    // carrier budget at the worst, each row a body read by the list lane. walk.depth is not among
-                    // its levers, because this walk reaches nothing past hop 1.
-                    // counts_only pays it too, for the reason the list lane's own gate does: the census reads bodies.
+                    // The reached set's render bound, without walk.depth among its levers because this walk reaches
+                    // nothing past hop 1; counts_only pays it too, since the census reads bodies.
                     if (bodyForm
                         && RenderBudget.Refuse(carrierSel.Count, form == "everything",
                                                counts_only ? RenderBudget.ReverseCarrierCensusRemedy : RenderBudget.ReverseCarrierRemedy,
@@ -1035,8 +932,8 @@ public static class RecordsTools
                 return revRendered;
             }
 
-            // Forward: one engine batch, one captured build. The chain form renders it; every other form
-            // consumes the reached set — seeds included, and the render says so — through the normal lanes.
+            // Forward: one engine batch, one captured build; chain renders it and every other form consumes the
+            // reached set, seeds included, through the normal lanes.
             var rows = svc.WalkForwardBatch(ids, walk!.seed_paths, walk.follow, walkDepth, walkMaxNodes,
                                             walkExclusions, demand, out var wRefusal, out var wEpoch, ct,
                                             wantCycles: form == "chain");
@@ -1050,12 +947,11 @@ public static class RecordsTools
                 Arm("winner (the walk expands the winner link graph)");
                 int reached = rows.Where(r => r.Error is null).Sum(r => r.Nodes.Count(n => !n.Status.StartsWith("no links")));
                 int errs = rows.Count(r => r.Error is not null);
-                // A cycle is a record the walk reached again from itself, counted over every seed and listed under
-                // the seed that reached it. It is a fact about the walked graph, so counts_only states it too.
+                // A cycle is a record the walk reached again from itself, a fact about the walked graph, so
+                // counts_only states it too.
                 int cycles = rows.Sum(r => r.Cycles.Count);
-                // "none means none" holds only over a walk that FINISHED. A seed cut at walk.depth or
-                // walk.max_nodes may hold a loop that closes past the cut, and zero is exactly the answer that
-                // reads as proof — so the cut is said beside the count, on every path that prints one.
+                // "none means none" holds only over a walk that FINISHED, so the cut is said beside the count on
+                // every path that prints one.
                 int cutSeeds = rows.Count(r => r.TruncationNote is not null);
                 int cappedCycles = rows.Count(r => r.CyclesCapped);
                 if (cutSeeds > 0)
@@ -1067,8 +963,7 @@ public static class RecordsTools
                     return json
                         ? JsonWire.RenderNamedCounts(envelope, new[] { KvI("seeds", rows.Count), KvI("reached", reached), KvI("errors", errs), KvI("cycles", cycles), KvI("truncated_seeds", cutSeeds) }, wEpoch)
                         : Census($"{headerLine}\nseeds={rows.Count} reached={reached} errors={errs} cycles={cycles}" + Wire.EpochLine(wEpoch));
-                // Said only where the seeds ARE listed: a counts_only response has no seed to look under, and its
-                // own cycles= is the whole answer.
+                // Said only where the seeds ARE listed; a counts_only response's own cycles= is the whole answer.
                 if (cycles > 0)
                     headerLine += $"\n{cycles} cycle(s) — a record the walk reached again from itself, one per closing link, listed under its seed. A count is a lower bound on the number of distinct loops; none means none.";
                 var winRows = Windowed(rows);
@@ -1093,8 +988,8 @@ public static class RecordsTools
                 return rendered;
             }
 
-            // Selection consumption: seeds plus reached, in walk order, deduplicated. The ordinary form pipelines
-            // then read it under source=, seam-checked against the walk's build.
+            // Selection consumption: seeds plus reached, in walk order, deduplicated, then read under source= and
+            // seam-checked against the walk's build.
             var combined = new List<string>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var r in rows)
@@ -1109,12 +1004,9 @@ public static class RecordsTools
                 return json ? JsonWire.RenderError($"the walk reached nothing readable ({seedErrs} seed error(s) — run form='chain' to see each seed's outcome).", wEpoch)
                             : $"error: the walk reached nothing readable ({seedErrs} seed error(s) — run form='chain' to see each seed's outcome)." + Wire.EpochLine(wEpoch);
 
-            // ---- the reached set's own render bound. The seed scan's count was never this count, which is why the
-            // scan's bound below the walk lane exempts a walk; the REACHED count is it — up to seeds x
-            // walk.max_nodes rows, each one a body read by the list lane. Same two lanes as the scan's bound, its
-            // own remedy, since the scan window is not what moves a walk. form='chain' stays exempt and returned
-            // above: it renders the walk's own rows, so it pays no SECOND body read on top of the walk's own.
-            // counts_only pays it too: the list lane reads every reached body whether it renders them or counts them.
+            // ---- the reached set's own render bound, measured on the REACHED count rather than the seed scan's,
+            // with its own remedy since the scan window is not what moves a walk. form='chain' returned above and
+            // pays no SECOND body read; counts_only pays this, because the list lane reads before it counts. ----
             if (bodyForm
                 && RenderBudget.Refuse(combined.Count, form == "everything",
                                        counts_only ? RenderBudget.WalkCensusRemedy : RenderBudget.WalkRemedy,
@@ -1149,11 +1041,8 @@ public static class RecordsTools
                 return e;
             }
 
-            // The same bound as the scan lane's, on the list's own length: this lane reads a body for every id it
-            // was handed, and limit= windows only the render here, so the list itself is what it costs (#716). A
-            // walk arrives here as a list it derived, so its lever is the walk's, never "pass fewer formids=".
-            // Charged AFTER each form's own shape checks: a malformed call has a precise refusal that costs
-            // nothing to find, and trimming the list would only reach it on the next call.
+            // The scan lane's bound on the list's own length, since limit= windows only the render here; a walk
+            // arrives as a list it derived, so its lever is the walk's. Charged AFTER each form's shape checks.
             string? ListCost() =>
                 RenderBudget.RefuseComparison(ids.Length, form,
                     walkDerived ? RenderBudget.ComparisonWalkLever : RenderBudget.ComparisonListLever);
@@ -1183,9 +1072,8 @@ public static class RecordsTools
         }
 
         // The shared delta response pipeline — envelope, counts_only, window, spill, both renders — used by the
-        // list and scan lanes alike so their behavior cannot drift.
-        /// <summary>The counts a windowed comparison carries: `selected` beside them, so `count` is never read as
-        /// the whole selection by a client that cannot see the prose window note.</summary>
+        // list and scan lanes alike.
+        /// <summary>The counts a windowed comparison carries, with `selected` beside them so `count` is never read as the whole selection.</summary>
         KeyValuePair<string, int>[] CmpCounts(params KeyValuePair<string, int>[] counts) =>
             cmpWindowNote is null ? counts : counts.Concat(new[] { KvI("selected", cmpSelected) }).ToArray();
 
@@ -1197,9 +1085,7 @@ public static class RecordsTools
             headerLine += $"  versus={rArm ?? versusSpec!.Label}";
             CoverageNote(covers);
             StateOverlayWarnings();
-            // A no-verdict (a field neither side could be compared at) is a THIRD state: it is not a value
-            // difference, so it stays out of `differing`, and it is not identity either — `identical` already
-            // excludes it via Complete. It gets its own count instead of being folded into one of the two.
+            // A no-verdict is a THIRD state, neither a value difference nor identity, so it gets its own count.
             int differing = rows.Count(x => x.Error is null && x.Diff!.Deltas.Count > x.Diff.NoVerdictCount);
             int identical = rows.Count(x => x.Error is null && x.Diff!.Deltas.Count == 0 && x.Diff.Complete);
             int noVerdict = rows.Count(x => x.Error is null && x.Diff!.NoVerdictCount > 0);
@@ -1234,9 +1120,8 @@ public static class RecordsTools
         string TreeResponse(IReadOnlyList<LoadOrderService.TreeRow> rows, string? rArm, bool covers,
                             OrderStamp? epoch, List<KeyValuePair<string, string>> echo)
         {
-            // The tree's reference rides the `versus` envelope key, the same convention delta uses, so `source`
-            // is free to keep the SELECTION statement — putting the reference there suppresses the selection
-            // statement that makes epoch_covers_source intelligible.
+            // The tree's reference rides the `versus` envelope key, as delta's does, so `source` keeps the
+            // SELECTION statement that makes epoch_covers_source intelligible.
             var refStatement = versusSpec!.Kind == LoadOrderService.PoleKind.Winner ? "winner" : rArm ?? versusSpec.Label;
             envelope.Add(new("versus", refStatement));
             headerLine += $"  versus={refStatement}";
@@ -1280,9 +1165,8 @@ public static class RecordsTools
                 Arm("the merge of every touching plugin (the effective order the game walks)");
             else
             {
-                // A projection, said as one: the caller asked what the order WOULD be, and nothing in the response
-                // may read as what the game is loading now. Every statement names the LABEL the rows carry — for a
-                // shadowed copy that is not the bare filename, which IS in the order and must not be called absent.
+                // A projection, said as one, every statement naming the LABEL the rows carry rather than the bare
+                // filename, which for a shadowed copy IS in the order.
                 var f = ioFoldFacts!;
                 Arm($"the merge of every touching plugin PLUS '{f.Label}' — {f.Where} — {f.Placement}");
                 envelope.Add(new("folded", f.Label));
@@ -1327,8 +1211,8 @@ public static class RecordsTools
             return rendered;
         }
 
-        // A pole reading content outside the epoch fingerprint — an off-order file, or the overlay's INIs — must
-        // be declared in both the envelope and the header. One helper, so no form forgets.
+        // A pole reading content outside the epoch fingerprint is declared in both the envelope and the header,
+        // from one helper so no form forgets.
         void CoverageNote(bool covers)
         {
             if (covers) return;
@@ -1352,15 +1236,12 @@ public static class RecordsTools
             bool hasTypes = types is { Length: > 0 };
             bool hasScope = plugins?.names is { Length: > 0 };
             bool scopePlusPole = false;
-            // The derived-selection forms (comparisons, info_order, a walk's seeds) consume EVERY match; known
-            // up front, used by the scan cap below.
+            // The derived-selection forms consume EVERY match; known up front, used by the scan cap below.
             bool derivedSelection = comparisonForm || form == "info_order" || walk is not null;
-            // The scan states the source itself EXCEPT for forms whose own pipeline states one: delta names its
-            // subject, info_order the merge, a walk its re-entered read. The tree has no subject, so the scan's
-            // selection statement stays — it is what discloses an off-order or scoped selection universe.
+            // The scan states the source itself except for forms whose own pipeline states one; the tree has no
+            // subject, so the scan's selection statement stays and discloses the selection universe.
             bool pipelineArms = form == "delta" || form == "info_order" || walk is not null;
-            // An unbounded references= is answered off the reverse-reference index; every other body filter still
-            // needs a bound, because the index knows links, not field values.
+            // An unbounded references= is answered off the reverse-reference index, which knows links, not values.
             bool onlyReverseFilter = where is not { Length: > 0 };
             if (hasBodyFilter && !hasTypes && !hasScope && !hasFormids && !onlyReverseFilter)
                 return Wire.Refuse(json, "error: where= is a body scan and must be combined with types=, plugins=, or a formids= set to bound the work " +
@@ -1369,9 +1250,8 @@ public static class RecordsTools
             if (plugins is { defined_in: true } && !hasScope)
                 return Wire.Refuse(json, "error: plugins.defined_in=true keeps records DEFINED in the scoped plugins, so plugins.names must name that scope.");
 
-            // The identity set intersects the scan: expanded here so an @file or artifact demand is honored
-            // inside the scan's own capture, parsed once, then handed to the engine as the set filter. Alone, it
-            // is the scan universe, since the set is itself the bound.
+            // The identity set intersects the scan, expanded inside the scan's own capture and parsed once; alone
+            // it is the scan universe, the set being the bound.
             HousecarlCore.ArtifactDemand? fidDemand = null; string? fidEcho = null;
             IReadOnlyList<FormKey>? formidSet = null;
             if (hasFormids)
@@ -1394,9 +1274,8 @@ public static class RecordsTools
             OrderStamp? probeEpoch = null;
             if (srcName is not null)
             {
-                // Resolve which case applies once, with a cheap containment probe. The active-plugin scan below
-                // re-captures, so its stamp is compared against the probe's and a mid-call order change refuses
-                // loud. The off-order lane reads the file directly and consults no further build.
+                // One cheap containment probe decides the case; the scan below re-captures and is epoch-compared
+                // against it, while the off-order lane reads the file and consults no further build.
                 var probe = svc.ProbeSourceArm(srcName, srcMod, out var probeErr);
                 if (probeErr is not null) return Wire.Refuse(json, "error: " + probeErr);
                 srcName = probe!.Plugin;   // a path pole resolves back to its plugin name; every consumer below uses the resolved name
@@ -1405,17 +1284,15 @@ public static class RecordsTools
                     return OffOrderScan(probe);
                 if (hasScope)
                 {
-                    // Scope and pole compose: plugins= decides which records are considered, the named source=
-                    // decides whose version the body forms read. Identity-fact forms have nothing for the pole
-                    // to change, so they refuse it rather than accept and ignore it.
+                    // Scope and pole compose; an identity-fact form has nothing for the pole to change, so it
+                    // refuses rather than accepting and ignoring it.
                     if (form is "summary" or "aggregate")
                         return Wire.Refuse(json, $"error: a plugins= scope with a named source= reads the POLE's version of each scoped match — and the '{form}' form's rows are identity facts the pole doesn't change. Drop source=, or use form='fields'/'everything' (the pole's bodies) or 'delta'/'tree' (comparisons).", probeEpoch);
                     if (winnerFields)
                         return Wire.Refuse(json, "error: fields_source='winner' and a named source= under a plugins= scope are TWO display poles on one call — the pole's version is what this composition reads. Drop fields_source= (or drop source= and keep fields_source='winner').", probeEpoch);
                     scopePlusPole = true;
-                    // The scope statement is only truthful for forms that READ the pole's bodies; delta states
-                    // its own subject. A scoped tree reads every provider, so it states the selection without
-                    // the pole clause.
+                    // The scope statement is only truthful for forms that READ the pole's bodies; a scoped tree
+                    // reads every provider, so it states the selection without the pole clause.
                     if (form == "tree") Arm($"{probe.Plugin} — scope-selected ({string.Join(", ", plugins!.names!)}); the tree reads every provider");
                     else if (!pipelineArms) Arm($"{probe.Plugin} — active in the load order (the plugins= scope selects; this pole's version is read)");
                 }
@@ -1444,22 +1321,16 @@ public static class RecordsTools
             }
 
             var scanPlugins = scopePlusPole ? plugins!.names : (srcName is not null ? new[] { srcName } : plugins?.names);
-            // The negated-only unbounded spelling selects the whole orphan set — millions of records on a real
-            // order — and the derived forms consume EVERY match uncapped (effLimit below is int.MaxValue for them),
-            // so each match would also be compared, merged or walked. Refused with the bound named, rather than
-            // run. A positive references= is not this: its universe is what links the target. Read off scanPlugins,
-            // so an in-order source= plugin counts as the scope it is and its one plugin's records are not called
-            // the sweep.
+            // A negated-only unbounded references= is the whole orphan set, and the derived forms consume EVERY
+            // match uncapped, so it is refused with the bound named. Read off scanPlugins, so an in-order source=
+            // plugin counts as the scope it is.
             if (refNoneFks is not null && refFks is null && !hasTypes && scanPlugins is not { Length: > 0 } && !hasFormids && derivedSelection)
                 return Wire.Refuse(json, $"error: a negated references= with no types=/plugins=/formids= bound is the orphan sweep — every record nothing in the order references — and the '{form}' form compares or merges EVERY match, uncapped. Add types= or plugins= to bound it, or run the sweep as a plain scan with to_file= and re-enter the artifact via formids=[\"@<file>\"].");
 
             bool definedIn = plugins?.defined_in ?? false;
-            // group_by=type names each match's record type, which only a body-bearing scope can supply. The engine
-            // refuses it too, in the 1.x spelling (group_by=/type=), so it is pre-checked here in this tool's own
-            // levers. Placed on the IN-ORDER lane only — the off-order file scan returned above, where the file's
-            // own records ARE the universe and every match has a body — and read off scanPlugins, so an in-order
-            // source= plugin counts as the scope it is. An unbounded references= is body-bearing too: the reverse
-            // index hands the scan a universe of keys, so each match's body is read and can name its type.
+            // group_by=type names each match's record type, which only a body-bearing scope can supply, pre-checked
+            // here in this tool's own levers. IN-ORDER lane only: the off-order scan returned above, where the
+            // file's own records ARE the universe. An unbounded references= is body-bearing too.
             if (form == "aggregate" && walk is null
                 && string.Equals(project!.group_by?.Trim(), "type", StringComparison.OrdinalIgnoreCase)
                 && !hasTypes && scanPlugins is not { Length: > 0 } && formidSet is null
@@ -1468,13 +1339,11 @@ public static class RecordsTools
                     "body-bearing scope can name — add types=, plugins=, formids=, references=, or an in-order source= plugin. " +
                     "(where= reads bodies too but takes one of those as its own bound; references= brings its own universe " +
                     "off the reverse-reference index; 'winner' and 'defined_in' group without reading a body.)", probeEpoch);
-            // Under walk= the scan only SELECTS the seeds; the aggregate, like every reading form, applies to
-            // the reached set after the walk lane re-enters. Grouping the scan itself would label an aggregate
-            // of the seeds as the walk's answer.
+            // Under walk= the scan only SELECTS the seeds; every reading form, the aggregate included, applies to
+            // the reached set after the walk lane re-enters.
             var groupBy = form == "aggregate" && walk is null ? project!.group_by!.Trim().ToLowerInvariant() : null;
-            // The derived-selection forms consume EVERY match: the window applies to their rows while the counts
-            // and artifact cover the full selection, so the scan itself is uncapped for them. The tool
-            // description declares this cost — the scan terms are the bound.
+            // The derived-selection forms consume EVERY match, so the scan itself is uncapped for them and the
+            // scan terms are the bound, as the tool description declares.
             int effLimit = wantFile || derivedSelection ? int.MaxValue : counts_only ? 0 : (limit <= 0 ? 500 : limit);
 
             var demandsList = new List<HousecarlCore.ArtifactDemand>();
@@ -1484,8 +1353,7 @@ public static class RecordsTools
                                          effLimit, definedIn, groupBy, offset, where_source,
                                          demandsList.Count > 0 ? demandsList : null, formidSet, door.CapturedView,
                                          refNoneFks, ct);
-            // The probe-to-scan seam is epoch-compared: the source statement must describe the same build the
-            // rows were scanned from.
+            // The probe-to-scan seam is epoch-compared, so the source statement describes the build the rows came from.
             if (probeEpoch is not null && outcome.Error is null && outcome.Epoch is not null && outcome.Epoch != probeEpoch.Epoch)
             {
                 var tear = $"the load order changed between resolving the source arm (epoch={probeEpoch.Epoch}) and the scan " +
@@ -1517,11 +1385,9 @@ public static class RecordsTools
                 return e;
             }
 
-            // The reverse-reference index's accounting belongs to the response whatever consumes the scan. The two
-            // CrossQuery renderers read it off the outcome themselves; every form BELOW renders its own pipeline's
-            // response and would drop it, so it rides their header and envelope. One place, so no form forgets.
-            // The forms whose bodies the batch lane below renders: the note rides their envelope, so the gate
-            // and the lane read ONE condition and cannot drift on which forms those are.
+            // The reverse-reference index's accounting belongs to the response whatever consumes the scan: the two
+            // CrossQuery renderers read it off the outcome, and every form below carries it on header and envelope
+            // from here. bodyLaneForm is read by both this gate and the lane below, so the two cannot drift.
             bool bodyLaneForm = form == "everything" || form == "rows"
                              || (form == "fields" && (scopePlusPole || (foldPlan is not null && !dense)));
             if (outcome.ReverseIndexNote is not null && outcome.Error is null && outcome.Groups is null
@@ -1542,21 +1408,15 @@ public static class RecordsTools
                 return WalkLane(seedKeys, null, null);
             }
 
-            // ---- the render's own bound. The scan terms bound the SCAN; every rendered row of a body form then
-            // reads a record body, and that cost was undeclared until a call went silent past the client's idle
-            // timeout (#582). Checked before any body is read, so the caller learns the shape instead of waiting,
-            // and BELOW the walk lane, which returned above: a walk renders the set it reaches under its own node
-            // budget, not the seed scan this count is of, so measuring it here would refuse a call for a cost it
-            // was never going to pay. The walk lane measures its own reached count against the same bound.
-            // The two lanes are measured separately: a named-fields row reads the paths it was given, an
-            // 'everything' row materialises the whole record, and the two are two orders of magnitude apart.
+            // ---- the render's own bound, checked before any body is read and BELOW the walk lane, which measures
+            // its own reached count instead; the named-fields and 'everything' lanes are measured separately. ----
             if ((bodyFields || form == "everything") && !counts_only
                 && outcome.Error is null && outcome.Groups is null
                 && RenderBudget.Refuse(outcome.Keys.Count, form == "everything") is { } tooBig)
                 return Wire.Refuse(json, tooBig, outcome.Stamp);
 
-            // ---- delta / tree on a scan: the scan selects the records and the engine batches compare them.
-            //      Two captures meet here, so the seam is epoch-compared and the halves can never mix builds.
+            // ---- delta / tree on a scan: the scan selects the records, the engine batches compare them, and the
+            //      two captures' seam is epoch-compared.
             if (comparisonForm && outcome.Error is null && outcome.Groups is null)
             {
                 envelope.Add(new("total", outcome.Total.ToString()));
@@ -1601,9 +1461,8 @@ public static class RecordsTools
                 var ioKeys = outcome.Keys.Select(k => k.ToString()).ToList();
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es) selected by the scan";
-                // The scan selects out of the ACTIVE order's index, which the folded file is not in: it folds into
-                // the merge of each selected topic, and a topic only that file defines is reached by naming it in
-                // formids=. Said here rather than left to be discovered from a topic that is quietly absent.
+                // The scan selects out of the ACTIVE order's index, which the folded file is not in, so a topic only
+                // that file defines is reached by naming it in formids= — said here rather than left to be found.
                 if (ioFoldFacts is not null)
                 {
                     envelope.Add(new("fold_selection", $"the scan selected these topics from the ACTIVE order; a topic only '{ioFoldFacts.Label}' defines is not among them — name it in formids= to read its merge."));
@@ -1619,8 +1478,8 @@ public static class RecordsTools
                                $"(epoch={ioEpoch?.Epoch}) — the two halves would mix builds. Retry the call.";
                     return json ? JsonWire.RenderError(tear, ioEpoch) : "error: " + tear;
                 }
-                // The scan's own echo labels a named pole as a read source, which a fold is not: the fold's
-                // statement replaces it, so the artifact manifest says what its rows actually are.
+                // The scan's echo labels a named pole as a read source, which a fold is not, so the fold's
+                // statement replaces it in the artifact manifest.
                 var ioEcho = Echo();
                 if (ioFoldFacts is not null)
                 {
@@ -1630,35 +1489,30 @@ public static class RecordsTools
                 return InfoOrderResponse(ioRows, ioEpoch, ioEcho);
             }
 
-            // ---- form=everything on a scan: selection here, bodies via the batch lane, window-bounded.
-            // counts_only skips the body lane entirely — its census is the scan render below. ----
-            // The rows form always takes this lane: its fold is over a body read, and the scan render fills
-            // detail rows of its own that never pass through it. A quantified fields path folds the same way, so
-            // it takes the lane too — except under dense, whose own render carries the per-element rows.
+            // ---- form=everything on a scan: selection here, bodies via the batch lane, window-bounded, while
+            // counts_only skips the body lane for the scan render's census below. The rows form always takes this
+            // lane, its fold being over a body read, as does a quantified fields path except under dense. ----
             if (bodyLaneForm && !counts_only && outcome.Error is null && outcome.Groups is null)
             {
                 var keys = outcome.Keys.Select(k => k.ToString()).ToList();
                 IReadOnlyList<ReadOutcome> bodies;
-                // This lane READS a body per row exactly as the scan render does, so it is clocked the same way and
-                // reports the same render_ms — the bound is one number over both lanes only if both are measured.
+                // Clocked like the scan render, since the bound is one number over both lanes.
                 var bodyClock = System.Diagnostics.Stopwatch.StartNew();
                 if (srcName is not null)
                 {
                     bodies = svc.ResolveBatchFromPole(keys, srcName, srcMod, bodyFields ? readPaths : null, depth, resolveNames, null,
                                                       out _, out var bref, out var brefEpoch, LeverNames.Records.ContainerHint, readDepths,
                                                       ct, outcome.GetterTypes, countFields);
-                    // A refusal is judged on the named cause, never on row count: a zero-match scan is an honest
-                    // empty result, not a failure.
+                    // A refusal is judged on the named cause, never on row count: a zero-match scan is honest.
                     if (bref is not null)
                         return json ? JsonWire.RenderError(bref, brefEpoch)
                                     : "error: " + bref + Wire.EpochLine(brefEpoch);
                 }
                 else
                 {
-                    // The scan's per-match source decides whose body `everything` dumps, the same rule the fields
-                    // form renders by — otherwise the same SELECT reads a different pole per form with nothing
-                    // saying so. Keys group by matched source and each group reads off its own plugin;
-                    // fields_source="winner" retargets display to the winner as it does on the fields form.
+                    // The scan's per-match source decides whose body `everything` dumps, the rule the fields form
+                    // renders by: keys group by matched source and each group reads off its own plugin, with
+                    // fields_source="winner" retargeting display to the winner.
                     var srcs = outcome.Sources;
                     if (winnerFields || srcs is null || srcs.Take(keys.Count).All(s => s is null))
                         bodies = svc.ResolveBatch(keys, bodyFields ? readPaths : null, false, depth, resolveNames, containerHint: LeverNames.Records.ContainerHint, depths: readDepths, ct: ct, getterTypes: outcome.GetterTypes, countFields: countFields);
@@ -1689,8 +1543,7 @@ public static class RecordsTools
                 }
                 bodyClock.Stop();
                 bodies = FoldRows(bodies);
-                // Rows the pole does not touch come back as per-item refusals naming the touchers, and the
-                // accounting carries the explicit count so a quiet omission is impossible.
+                // Rows the pole does not touch come back as per-item refusals naming the touchers, counted explicitly.
                 if (scopePlusPole)
                 {
                     int notTouched = bodies.Count(o => o.Error is not null && (o.Error.Contains("does not touch") || o.Error.Contains("does not define or override")));
@@ -1700,9 +1553,8 @@ public static class RecordsTools
                         headerLine += $"\nnot_touched={notTouched} — scoped match(es) the source pole has no version of (each row names its actual touchers)";
                     }
                 }
-                // The selection and every body read must agree on one build — grouped reads capture per batch —
-                // so any divergence refuses loud. An empty selection has no body epochs and passes, rendering
-                // as an honest 0-row batch.
+                // The selection and every body read must agree on one build, since grouped reads capture per batch;
+                // an empty selection has no body epochs and renders as an honest 0-row batch.
                 var bodyEpochs = bodies.Where(o => o.Stamp is not null).Select(o => o.Stamp!).Distinct().ToList();
                 if (outcome.Epoch is not null && bodyEpochs.Any(e => e.Epoch != outcome.Epoch))
                 {
@@ -1713,20 +1565,17 @@ public static class RecordsTools
                 var bodyEpoch = bodyEpochs.FirstOrDefault() ?? outcome.Stamp;
                 envelope.Add(new("total", outcome.Total.ToString()));
                 headerLine += $"\n{outcome.Total} match(es); bodies for the {keys.Count}-row window below";
-                // What the SCAN owes about its own coverage — a plugins= name the order does not carry, records it
-                // could not parse, a plugin it could not open. The scan lane prints it; a body form reads the same
-                // scan, so withholding it here would answer the same question two ways. Both transports carry it:
-                // the text header, and the json envelope, which is that lane's header.
+                // What the SCAN owes about its own coverage, carried on both transports here as it is on the scan
+                // lane, since a body form reads the same scan.
                 if (outcome.ScanNote is not null)
                 {
                     headerLine += "\n" + outcome.ScanNote;
                     envelope.Add(new("scan_note", outcome.ScanNote));
                 }
-                // These bodies were selected by a scan, not a formids list, so the batch notice's selection
-                // clause must name limit= — the knob that actually windows this response.
+                // Selected by a scan, not a formids list, so the batch notice's selection clause names limit=.
                 var evLevers = formLevers.OnScanSelection();
-                // These rows were selected by the scan, so they carry its multi-target references= un-merge too —
-                // one row per key, in key order, which is what makes the list parallel to the bodies.
+                // Selected by the scan, so they carry its multi-target references= un-merge too, one row per key in
+                // key order, which is what makes the list parallel to the bodies.
                 var evMatches = outcome.MatchedTargets;
                 string RenderEv(SpillState? sp, out bool trunc) => json
                     ? JsonWire.RenderBatch(bodies, max_chars, sp, out trunc, envelope, evLevers, (bodies.Count, bodyClock.ElapsedMilliseconds), evMatches)
@@ -1757,8 +1606,7 @@ public static class RecordsTools
                     return fmt is Wire.QueryFormat.Text ? "error: " + aerr : JsonWire.RenderError(aerr, outcome.Stamp);
                 spill = SpillState.Spilled(s!, manifestOnly: true);
             }
-            // "drop project=" is only actionable when the rows are detail rows: a summary-form scan is already
-            // reading the render that clause points at and has no project= to drop.
+            // "drop project=" is only actionable on detail rows; a summary-form scan has no project= to drop.
             var qLevers = projFields is { Length: > 0 } ? LeverNames.Records : LeverNames.Records.WithNothingToDrop();
             string Render(SpillState? sp, out bool trunc) => fmt switch
             {
@@ -1769,8 +1617,8 @@ public static class RecordsTools
             var rendered = Render(spill, out var truncated);
             if (spill is null && truncated && outcome.Error is null)
             {
-                // Disposing the reservation deletes the file it owns unless the write landed, so a cancel inside the
-                // write leaves nothing — "a cancelled call writes nothing" holds here, not only on the named path.
+                // Disposing the reservation deletes the file it owns unless the write landed, so a cancel inside
+                // the write leaves nothing.
                 using var reservation = ResultsStore.Reserve(ToolNames.Records, outcome.Epoch ?? "none");
                 var (s, aerr) = Artifacts.WriteCrossQuery(svc, outcome, readPaths, resolveNames, winnerFields, depth, reservation, "ceiling", Echo(), LeverNames.Records, fold: foldPlan, ct: ct);
                 rendered = Render(aerr is null ? SpillState.Spilled(s!, manifestOnly: false) : SpillState.WriteFailed(aerr), out _);
@@ -1784,7 +1632,7 @@ public static class RecordsTools
         string OffOrderScan(LoadOrderService.PoleInfo pole)
         {
             // The file is the SELECTION statement, stated for every form except delta, whose pipeline names the
-            // same file as its subject. The tree needs it, since its reference rides `versus` instead.
+            // same file as its subject.
             if (form != "delta") Arm($"{pole.Plugin} — {pole.Where}");
             envelope.Add(new("epoch_covers_source", "false"));
             headerLine += "\n(the off-order file's content is OUTSIDE the epoch fingerprint — an edit to it changes answers without changing the epoch)";
@@ -1801,8 +1649,7 @@ public static class RecordsTools
                        "compares their post-state bodies — or read the whole layer via " + ToolNames.SkypatcherLayer + ".", pole.Stamp);
             if (where_source is not null)
             {
-                // Full-vocabulary validation, mirroring the in-order engine: an unknown spelling must refuse by
-                // name rather than be accepted and ignored.
+                // Full-vocabulary validation, mirroring the in-order engine, so an unknown spelling refuses by name.
                 var ws = where_source.Trim().ToLowerInvariant();
                 if (ws == "winner")
                     return Wire.Refuse(json, "error: where_source=winner matches on the live load-order winner — but this scan streams an out-of-load-order FILE's bodies, many of which have no winner. Match the winner by scanning the winner (drop source=), or drop where_source=.", pole.Stamp);
@@ -1810,8 +1657,8 @@ public static class RecordsTools
                     return Wire.Refuse(json, $"error: where_source='{where_source}' is not a known source — over an out-of-load-order file the match reads the FILE's own bodies ('scoped', the default); drop where_source=, or use 'winner' on an in-order scan.", pole.Stamp);
             }
 
-            // The off-order lane runs the same filter grammar as the in-order scan over the file's own records;
-            // provenance terms still bind to the active view, which the response declares.
+            // The off-order lane runs the in-order filter grammar over the file's own records, with provenance
+            // terms still bound to the active view the response declares.
             HousecarlCore.ArtifactDemand? refDemand = null; string? refEcho = null;
             var refs = references;
             if (refs is { Length: > 0 })
@@ -1890,8 +1737,7 @@ public static class RecordsTools
                                               out var sArm, out var rArm, out var covers, out var refusal, out var depoch);
                     if (refusal is not null)
                         return json ? JsonWire.RenderError(refusal, depoch) : "error: " + refusal + Wire.EpochLine(depoch);
-                    // The file selection's build and the comparison's must agree: the selection filtered through
-                    // the active view, same as the in-order seam.
+                    // The file selection's build and the comparison's must agree, as on the in-order seam.
                     if (outcome.Epoch is not null && depoch is not null && depoch.Epoch != outcome.Epoch)
                     {
                         var tear = $"the load order changed between the file scan (epoch={outcome.Epoch}) and the comparison " +
@@ -1920,11 +1766,11 @@ public static class RecordsTools
             if (form is ("fields" or "rows" or "everything") && !counts_only && outcome.Error is null && outcome.Groups is null)
             {
                 var keys = outcome.Keys.Select(k => k.ToString()).ToList();
-                // The render bound is on the row cost, not on where the row came from: a row here reads a body
-                // exactly as the in-order lane's does, so it refuses on the same numbers before reading one.
+                // The render bound is on the row cost, not on where the row came from, so it refuses on the same
+                // numbers before reading a body.
                 if (RenderBudget.Refuse(keys.Count, form == "everything") is { } offTooBig)
                     return Wire.Refuse(json, offTooBig, outcome.Stamp);
-                // And it is clocked the same way, so the bound's estimate is checkable on this lane too.
+                // And clocked the same way, so the bound's estimate is checkable on this lane too.
                 var offClock = System.Diagnostics.Stopwatch.StartNew();
                 var bodies = svc.ResolveBatchFromPole(keys, pole.Plugin, srcMod, bodyFields ? readPaths : null,
                                                       depth, resolveNames, null, out _, out var bref, out var brefEpoch,
@@ -1934,8 +1780,8 @@ public static class RecordsTools
                 if (bref is not null)
                     return json ? JsonWire.RenderError(bref, brefEpoch)
                                 : "error: " + bref + Wire.EpochLine(brefEpoch);
-                // The selection's build and the body reads' must agree, the same rule as the in-order body seam:
-                // the bodies re-open the file, but the selection was made on the view.
+                // The selection's build and the body reads' must agree, as on the in-order body seam: the bodies
+                // re-open the file, but the selection was made on the view.
                 var offBodyEpochs = bodies.Where(o => o.Epoch is not null).Select(o => o.Epoch!).Distinct().ToList();
                 if (outcome.Epoch is not null && offBodyEpochs.Any(e => e != outcome.Epoch))
                 {
@@ -1976,8 +1822,8 @@ public static class RecordsTools
                 return offRendered;
             }
 
-            // summary / aggregate: the shared scan renders. Prefilled rows carry the file's identities, and
-            // winner context rides along where a record also lives in the order.
+            // summary / aggregate: the shared scan renders, prefilled rows carrying the file's identities and
+            // winner context where a record also lives in the order.
             SpillState? spill = null;
             if (wantFile && outcome.Error is null)
             {
@@ -1986,8 +1832,7 @@ public static class RecordsTools
                     return fmt is Wire.QueryFormat.Text ? "error: " + aerr : JsonWire.RenderError(aerr, outcome.Stamp);
                 spill = SpillState.Spilled(sp!, manifestOnly: true);
             }
-            // The off-order scan passes no field paths at all, so it never has a project= to drop; the in-order
-            // lane above has to ask.
+            // The off-order scan passes no field paths, so it never has a project= to drop.
             var offQLevers = LeverNames.Records.WithNothingToDrop();
             string Render(SpillState? sp, out bool trunc) => fmt switch
             {
@@ -2020,9 +1865,7 @@ public static class RecordsTools
 
     static KeyValuePair<string, int> KvI(string k, int v) => new(k, v);
 
-    /// <summary>Parse a pole expression from its wire spelling; a null element yields a null spec and the caller
-    /// applies its default. Returns the named refusal, or null on success. <paramref name="subjectRole"/> marks
-    /// source=, the subject: previous_provider is measured FROM the subject and so cannot be it.</summary>
+    /// <summary>Parse a pole expression from its wire spelling, returning the named refusal or null; <paramref name="subjectRole"/> marks source=, which previous_provider is measured FROM and so cannot be.</summary>
     static string? ParsePole(JsonElement? el, string param, bool subjectRole, out LoadOrderService.PoleSpec? spec)
     {
         spec = null;
@@ -2055,8 +1898,7 @@ public static class RecordsTools
                 string? st = e.TryGetProperty("state", out var stEl) && stEl.ValueKind == JsonValueKind.String ? stEl.GetString()!.Trim() : "post";
                 if (!st!.Equals("pre", StringComparison.OrdinalIgnoreCase) && !st.Equals("post", StringComparison.OrdinalIgnoreCase))
                     return $"error: {param}= overlay state '{st}' — use \"pre\" (the winner before the INI layer) or \"post\" (after it; the default).";
-                // The draft INI: a file not yet placed in a mod, folded into the layer so it can be checked before
-                // the write. It is a value on this pole, not a mode of its own.
+                // The draft INI, a file not yet placed in a mod, is a value on this pole rather than a mode of its own.
                 if (e.TryGetProperty("ini", out var iniEl) && iniEl.ValueKind != JsonValueKind.String)
                     return $"error: {param}= overlay \"ini\" is the absolute path to a draft .ini file, as a string.";
                 if (e.TryGetProperty("subfolder", out var subEl) && subEl.ValueKind != JsonValueKind.String)
@@ -2076,8 +1918,7 @@ public static class RecordsTools
                 spec = new LoadOrderService.PoleSpec(LoadOrderService.PoleKind.Overlay, OverlayState: st.ToLowerInvariant(), Draft: plan);
                 return null;
             }
-            // The draft keys ride the overlay pole. On a {"file"} pole they have no meaning, and accepting them
-            // would answer with that plugin's own record while the caller read it as the draft's post state.
+            // The draft keys ride the overlay pole and have no meaning on a {"file"} pole.
             if (e.TryGetProperty("ini", out _) || e.TryGetProperty("subfolder", out _))
                 return $"error: {param}= names \"ini\"/\"subfolder\" without \"overlay\" — a draft INI is a value on the SkyPatcher overlay pole, " +
                        "so pass {\"overlay\": \"skypatcher\", \"state\": \"post\", \"ini\": \"<absolute path>\", \"subfolder\": \"<type folder>\"}.";
@@ -2090,15 +1931,8 @@ public static class RecordsTools
         return $"error: {param}= is a string (\"winner\" | a plugin filename{(subjectRole ? "" : " | \"previous_provider\"")}) or an object ({{\"file\", \"mod\"}} | {{\"overlay\", \"state\"}}).";
     }
 
-    /// <summary>The delta form's text render: header counts, then per record the two pole lines, the stack-above
-    /// fact stated neutrally rather than as advice, and the delta-line grammar — where a truncated deep read is
-    /// never rendered as 'identical'. max_chars is a CEILING here, the shape #603 gave the scan and batch renders:
-    /// the truncation notice and the spill block are charged before the first record is laid, a delta line is
-    /// written only where its own cut notice still fits beside it, and a record that would cross what is left is
-    /// taken back out whole and counted.
-    /// Internal so a test can drive it against a hand-built <see cref="LoadOrderService.DeltaRow"/>, the same
-    /// reason <see cref="RenderRecordsTree"/> is: a row shape no fixture produces (an incomplete deep read with
-    /// enough delta lines to be cut) has no other way in.</summary>
+    /// <summary>The delta form's text render: header counts, then per record the two pole lines, the stack-above fact stated neutrally, and the delta-line grammar, where a truncated deep read is never 'identical'; max_chars is a CEILING, per docs/architecture/render-budget.md.</summary>
+    /// <remarks>Internal so a test can drive a row shape no fixture produces — an incomplete deep read with enough delta lines to be cut.</remarks>
     internal static string RenderRecordsDelta(IReadOnlyList<LoadOrderService.DeltaRow> rows, int total, int differing, int identical,
                                      int noVerdict, int errors,
                                      string headerLine, OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated,
@@ -2117,15 +1951,12 @@ public static class RecordsTools
         sb.Append(headerLine).Append('\n');
         sb.Append(total).Append(" record(s): ").Append(differing).Append(" differing, ").Append(identical)
           .Append(" identical, ");
-        // Named only when there are any: a record with a field neither side could be compared at is in neither of
-        // the two counts above, so leaving it unnamed would make them look like they had lost a record.
+        // Named only when there are any, since such a record is in neither of the two counts above.
         if (noVerdict > 0) sb.Append(noVerdict).Append(" with a field that could not be read, ");
         sb.Append(errors).Append(" error(s)");
         if (epoch is not null) sb.Append(Wire.EpochInline(epoch));
         sb.Append('\n');
         int rendered = 0;
-        // The notice and the spill block close this response, so both are charged before the first record is laid —
-        // that is what makes max_chars a ceiling on the whole response rather than on everything above its tail.
         string Notice(int r) =>
             "... [rendered " + r + " of " + rows.Count + " rows at max_chars=" + cap + "]\n";
         var spillText = Wire.SpillText(spill);
@@ -2135,9 +1966,8 @@ public static class RecordsTools
         {
             if (manifestOnly) break;
             int mark = sb.Length;
-            // said: this record's own delta list stopped inside the budget and named what it held back, so the
-            // record stays and the render stops after it. mute: it stopped with no room to say so, and the whole
-            // record goes back out instead.
+            // said: the delta list stopped inside the budget and named what it held back, so the record stays and
+            // the render stops after it. mute: no room to say so, and the whole record goes back out.
             bool said = false, mute = false;
             sb.Append('\n').Append(row.Formid);
             if (row.Error is not null)
@@ -2167,8 +1997,7 @@ public static class RecordsTools
             }
             else
             {
-                // The block heads with the VALUE differences and names the no-verdict lines apart from them: an
-                // UNREADABLE line is explicitly not a value, so counting it as one contradicts the line itself.
+                // The block heads with the VALUE differences and names the no-verdict lines apart from them.
                 int values = d.Deltas.Count - d.NoVerdictCount;
                 sb.Append("  ");
                 if (values > 0) sb.Append(values).Append(values == 1 ? " difference" : " differences");
@@ -2177,15 +2006,13 @@ public static class RecordsTools
                       .Append(d.NoVerdictCount == 1 ? " field that could not be read" : " fields that could not be read");
                 sb.Append(" — each value line: ").Append(s.LabelVersus(r.Plugin)).Append("'s value (reference = ")
                   .Append(r.LabelVersus(s.Plugin)).Append("):\n");
-                // A different loss from the cut, so the cut may not swallow it: INCOMPLETE says deltas were never
-                // COMPUTED (the deep read hit the cap, or a field could not be read), while the cut notice says
-                // computed lines did not fit. The note is reserved beside every line and written either way.
+                // INCOMPLETE says deltas were never COMPUTED, where the cut notice says computed lines did not fit,
+                // so the note is reserved beside every line and written either way.
                 string incomplete = d.Complete ? ""
                     : "  note: the comparison is INCOMPLETE — a field above could not be read (nothing at or under it was compared), or the deep read hit the cap (which suppresses list-content and one-sided-presence deltas for the whole record). Narrow with " + LeverNames.Records.Fields + " to compare those in full.\n";
                 foreach (var delta in d.Deltas)
                 {
-                    // The line goes in only where its own cut notice still fits beside it, so the notice lands
-                    // inside the budget rather than a character past the one that crossed.
+                    // The line goes in only where its own cut notice still fits beside it.
                     string line = "    - " + delta + "\n";
                     if (sb.Length + line.Length + deltaCut.Length + incomplete.Length > budget)
                     {
@@ -2212,17 +2039,10 @@ public static class RecordsTools
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 
-    /// <summary>The budget of the unreserved pass every bounded render here makes first: no unit can cross it, so
-    /// that pass lays the COMPLETE render, and a complete render that fits max_chars is the answer. The reserves
-    /// the bounded pass holds back — the accounting line, each list's cut notice — are room for notices a complete
-    /// render never writes, so charging them against one that fits cuts an answer that fitted, spills it, and (the
-    /// spill block being charged in turn) comes back with no rows at all, naming a number far over what the whole
-    /// answer took. They are charged only once the whole thing is known not to fit at this cap.</summary>
+    /// <summary>The budget of the unreserved pass every bounded render here makes first: no unit can cross it, so that pass lays the COMPLETE render, and the reserves are charged only once the whole thing is known not to fit at this cap.</summary>
     const int Unbounded = int.MaxValue / 2;
 
-    /// <summary>Whole units only: a unit written from <paramref name="mark"/> that crossed <paramref name="budget"/>
-    /// — or that stopped early with no room to say so, <paramref name="force"/> — is taken back out entire and the
-    /// caller's notice put in its place. True means the render stops here.</summary>
+    /// <summary>Whole units only: a unit written from <paramref name="mark"/> that crossed <paramref name="budget"/>, or stopped early with no room to say so (<paramref name="force"/>), is taken back out entire and the caller's notice put in its place; true means the render stops here.</summary>
     static bool Crossed(StringBuilder sb, int mark, int budget, string notice, ref bool truncated, bool force = false)
     {
         if (!force && sb.Length <= budget) return false;
@@ -2232,17 +2052,14 @@ public static class RecordsTools
         return true;
     }
 
-    /// <summary>The end a unit that said what it held back gets: it stays, the render stops after it, and the units
-    /// it never reached are counted in <paramref name="notice"/> — written in the room charged for it before the
-    /// first unit was laid. A unit that was the last one left nothing to count, so the line is not written.</summary>
+    /// <summary>The end a unit that said what it held back gets: it stays, the render stops after it, and the units it never reached are counted in <paramref name="notice"/>, which a last unit leaves unwritten.</summary>
     static void Stopped(StringBuilder sb, string notice, int rendered, int total, ref bool truncated)
     {
         truncated = true;
         if (rendered < total) sb.Append(notice);
     }
 
-    /// <summary>A section that ran out of room says so INSIDE the budget or not at all: false means the notice
-    /// itself did not fit, and the row it belongs to is taken back out whole rather than ending in silence.</summary>
+    /// <summary>A section that ran out of room says so INSIDE the budget or not at all: false means the notice did not fit, so the row is taken back out whole.</summary>
     static bool Said(StringBuilder sb, string notice, int budget)
     {
         if (sb.Length + notice.Length > budget) return false;
@@ -2250,15 +2067,8 @@ public static class RecordsTools
         return true;
     }
 
-    /// <summary>The tree form's text render: per record the touching list in load order with the winner last,
-    /// and each provider's delta against the reference. Same wording rules as the delta form — identical is
-    /// never claimed over a truncated read, list contents compare by content, and reorders are flagged.
-    /// max_chars is a CEILING here, the same shape the delta render carries: the truncation notice and the spill
-    /// block are charged first, the declarer and node loops hold back their own cut notices, and a record that
-    /// would cross what is left is taken back out whole and counted.
-    /// Internal so a test can drive it against a hand-built <see cref="LoadOrderService.TreeRow"/>, the same
-    /// reason <see cref="AppendChildDeclarers"/> is: a node shape no fixture produces (an incomplete comparison
-    /// on a record only one in-order plugin touches) has no other way in.</summary>
+    /// <summary>The tree form's text render: per record the touching list in load order with the winner last, then each provider's delta against the reference, under the delta form's own wording rules and the same max_chars ceiling.</summary>
+    /// <remarks>Internal so a test can drive a node shape no fixture produces — an incomplete comparison on a record only one in-order plugin touches.</remarks>
     internal static string RenderRecordsTree(IReadOnlyList<LoadOrderService.TreeRow> rows, int total, int contested, int errors,
                                     bool fieldsNarrow, string headerLine, OrderStamp? epoch, int maxChars,
                                     SpillState? spill, out bool truncated, bool unreserved = false)
@@ -2292,7 +2102,7 @@ public static class RecordsTools
             int mark = sb.Length;
             bool leadMark = declarersLeadWritten;
             // said: this row stopped inside the budget and named what it held back, so it stays and the render
-            // stops after it. mute: it stopped with no room to say so, and the whole row goes back out instead.
+            // stops after it. mute: no room to say so, and the whole row goes back out.
             bool said = false, mute = false;
             sb.Append('\n').Append(row.Formid);
             if (row.Error is not null)
@@ -2306,18 +2116,18 @@ public static class RecordsTools
             for (int i = 0; i < row.Touchers.Count; i++)
                 sb.Append("    ").Append(i + 1).Append(". ").Append(row.Touchers[i])
                   .Append(i == row.Touchers.Count - 1 ? "  (winner)" : "").Append('\n');
-            // The row ends at the block when the block was cut, or when it ran the budget out; a sole provider
-            // ends there too, having nothing to diff against.
+            // The row ends at the block when the block was cut or ran the budget out, and a sole provider ends
+            // there too, having nothing to diff against.
             bool ended = AppendChildDeclarers(sb, row, room, row.Nodes.Count > 1 ? nodesCut.Length : 0,
                                               ref declarersLeadWritten, out bool declarersCut, out bool declarersMute);
             if (ended)
             {
                 mute = declarersMute;
-                // The row lost something when declarer lines were dropped, or when a diff it never reached is
-                // gone. A sole-provider row whose complete block merely ended at the budget lost nothing.
+                // The row lost something when declarer lines were dropped; a sole-provider row whose complete
+                // block merely ended at the budget lost nothing.
                 said = declarersCut;
-                // A multi-provider row loses its diff whether or not declarer lines were also dropped, and each
-                // notice claims one thing, so a cut row carries both notices.
+                // A multi-provider row loses its diff either way, and each notice claims one thing, so a cut row
+                // carries both.
                 if (!mute && row.Nodes.Count > 1)
                 {
                     if (Said(sb, nodesCut, budget)) said = true;
@@ -2326,8 +2136,7 @@ public static class RecordsTools
             }
             else if (row.Nodes.Count > 1)
             {
-                // The diff heading carries its own cut notice's room: a heading with no room under it for either a
-                // node or the notice would end the row in silence.
+                // The diff heading carries its own cut notice's room, or it would end the row in silence.
                 string diffHead = "  diff (field deltas vs " + row.ReferencePlugin +
                                   "; identical fields omitted; list contents compared by content, element reorders flagged):\n";
                 if (sb.Length + diffHead.Length + nodesCut.Length > budget)
@@ -2340,9 +2149,7 @@ public static class RecordsTools
                 foreach (var n in row.Nodes)
                 {
                     if (n.IsReference) continue;
-                    // The incompleteness note goes on EVERY incomplete node, not only the one with no deltas: an
-                    // unreadable leaf always produces a delta line, so gating it on an empty delta list left the
-                    // normal shape saying nothing about what was skipped.
+                    // The incompleteness note goes on EVERY incomplete node, not only the one with no deltas.
                     string body = n.Deltas.Count > 0
                         ? string.Join("; ", n.Deltas) +
                           (n.Complete ? "" : " — the comparison is INCOMPLETE: a field could not be read (nothing at or under it was compared), or the deep read hit the cap (which suppresses list-content and one-sided-presence deltas for the whole record)") + "\n"
@@ -2351,8 +2158,7 @@ public static class RecordsTools
                             : fieldsNarrow
                                 ? $"identical to {row.ReferencePlugin} across the fields read ({n.AgreedCount} leaf/leaves agree)\n"
                                 : $"identical to {row.ReferencePlugin} (whole record; {n.AgreedCount} leaf/leaves agree)\n";
-                    // Composed before it is priced: the node line and its own cut notice are measured together, so
-                    // the notice cannot land a character past the node that crossed.
+                    // Composed before it is priced, so the notice cannot land past the node that crossed.
                     string line = "    " + n.Plugin + (n.IsWinner ? " (winner)" : "") + ": " + body;
                     if (sb.Length + line.Length + nodesCut.Length > budget)
                     {
@@ -2380,44 +2186,29 @@ public static class RecordsTools
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 
-    /// <summary>The records text lane's cut notice, composed in one place so its several call sites cannot
-    /// drift. Returned rather than written, so the room it takes can be held back before the line it follows is
-    /// laid — a notice appended past the budget is the defect this render family exists to prevent.</summary>
-    /// <param name="what">What was cut — the notice claims this and nothing else, so a caller that cut something
-    /// different names that instead.</param>
+    /// <summary>The records text lane's cut notice, composed in one place, and returned rather than written so its room can be held back before the line it follows is laid.</summary>
+    /// <param name="what">What was cut — the notice claims this and nothing else.</param>
     static string CutNotice(string what, int cap) =>
         "    ... [" + what + " cut at max_chars=" + cap + " — raise max_chars or narrow with " +
         LeverNames.Records.Fields + "]\n";
 
-    /// <summary>The tree's precise owned-child block: which providers declare children per child-bearing field,
-    /// and the negative sentence when none do. Sits above the diff, not inside it; background in
-    /// `docs/architecture/records-owned-child-declarers.md`. Internal so a test can drive it against a hand-built
-    /// <see cref="LoadOrderService.TreeRow"/> wider than any fixture cell.</summary>
-    /// <param name="leadWritten">Set once the framing line has been stated; every later row gets the short
-    /// <see cref="ReadSentences.DeclarersHeader"/> instead of repeating it.</param>
-    /// <param name="blockCut">true only when declarer lines were actually dropped AND the block said so. false with
-    /// a true return means the block is complete and the row ends at <paramref name="cap"/> — the caller names what
-    /// it loses.</param>
-    /// <param name="tailReserve">Room the CALLER still owes below this block — the nodes notice a multi-provider
-    /// row writes when the block ends its row — held back here so that notice lands inside the budget too.</param>
-    /// <param name="mute">true when the block stopped with no room to say it was cut: the caller takes the whole
-    /// row back out rather than ending it in silence.</param>
-    /// <returns>true if the row ends here.</returns>
+    /// <summary>The tree's precise owned-child block: which providers declare children per child-bearing field, and the negative sentence when none do; returns true when the row ends here, and the contract is in docs/architecture/records-owned-child-declarers.md.</summary>
+    /// <param name="leadWritten">Set once the framing line has been stated; every later row gets the short <see cref="ReadSentences.DeclarersHeader"/>.</param>
+    /// <param name="blockCut">true only when declarer lines were dropped AND the block said so; false with a true return means the block is complete and the row ends at <paramref name="cap"/>.</param>
+    /// <param name="tailReserve">Room the CALLER still owes below this block, held back here so its notice lands inside the budget too.</param>
+    /// <param name="mute">true when the block stopped with no room to say it was cut, so the caller takes the whole row back out.</param>
     internal static bool AppendChildDeclarers(StringBuilder sb, LoadOrderService.TreeRow row, RenderCap cap,
                                               int tailReserve, ref bool leadWritten, out bool blockCut, out bool mute)
     {
         blockCut = false;
         mute = false;
         if (row.ChildDeclarers.Count == 0) return false;
-        // The framing line has a known length, so reserve it rather than write it and regret it: a plain
-        // sb.Length < cap check would put its whole length past cap with no way to take it back.
-        // JsonWire.RenderTree reserves the same sentence the same way. The cut notice is reserved beside it for
-        // the same reason — it is written where the framing is not, so it must fit where the framing did not.
+        // The framing line has a known length, so it is reserved rather than written and regretted, as
+        // JsonWire.RenderTree reserves the same sentence; the cut notice is reserved beside it.
         string framing = leadWritten ? ReadSentences.DeclarersHeader : ReadSentences.DeclarersLead;
         string cut = CutNotice("child declarers", cap.Cap);
         int budget = Math.Max(cap.Budget - tailReserve, 0);
-        // 3: the two-space indent and the newline around it. The notice is reserved beside the framing as well —
-        // a block that starts with no room left to say it was cut can only end the row in silence.
+        // 3: the two-space indent and the newline around it.
         if (sb.Length + framing.Length + 3 + cut.Length >= budget)
         {
             blockCut = Said(sb, cut, budget);
@@ -2428,11 +2219,8 @@ public static class RecordsTools
         leadWritten = true;
         foreach (var cd in row.ChildDeclarers)
         {
-            // The line is composed before it is priced: a check that measures only what is already written cuts
-            // where the notice has room but the line does not, or the other way round.
-            // DeclarersNote elides past DeclarerNameCap in two clauses — a collection field's `declaring` names,
-            // and `unreadable` on any shape — and both are followable only in json. One remedy per line even
-            // when both fired, since it is the same pointer.
+            // The line is composed before it is priced. DeclarersNote elides past DeclarerNameCap in two clauses,
+            // both followable only in json, and one remedy covers a line where both fired.
             bool overflowed = (cd.Shape == OwnedChildShape.Collection && cd.Declaring.Count > ReadSentences.DeclarerNameCap)
                               || cd.Unreadable.Count > ReadSentences.DeclarerNameCap;
             string line = "    " + cd.Field + ": " + ReadSentences.DeclarersNote(cd.Shape, cd.Declaring, cd.Unreadable)
@@ -2445,19 +2233,13 @@ public static class RecordsTools
             }
             sb.Append(line);
         }
-        // Every declarer line was written, and each was priced with the notice beside it — so the block is
-        // complete AND the room its notice would have taken is still there. The row goes on.
+        // Every declarer line was written and each was priced with the notice beside it, so the block is complete
+        // and its notice's room is still there.
         return false;
     }
 
-    /// <summary>The chain form's text render: per seed the reached nodes in BFS order with what pulled each one
-    /// in, recorded cycles, the cap-truncation note — what is listed is proved — and the NPC TemplateFlags
-    /// inheritance report where the walk followed a Template chain. max_chars is a CEILING, the same shape the
-    /// delta and tree renders carry: the notice and the spill block are charged first, the node loop holds back
-    /// its own cut notice, and a seed that would cross what is left is taken back out whole and counted.
-    /// Internal so a test can drive it against a hand-built <see cref="LoadOrderService.WalkSeedResult"/>, the same
-    /// reason <see cref="RenderRecordsTree"/> is: a seed shape no fixture produces (a walk that hit its node cap
-    /// with nodes enough for max_chars to cut) has no other way in.</summary>
+    /// <summary>The chain form's text render: per seed the reached nodes in BFS order with what pulled each one in, the recorded cycles, the cap-truncation note and the NPC TemplateFlags inheritance report, under the same max_chars ceiling the delta and tree renders carry.</summary>
+    /// <remarks>Internal so a test can drive a seed shape no fixture produces — a walk that hit its node cap with nodes enough for max_chars to cut.</remarks>
     internal static string RenderRecordsChain(IReadOnlyList<LoadOrderService.WalkSeedResult> rows, int total, int reached,
                                      int errors, string headerLine, OrderStamp? epoch, int maxChars,
                                      SpillState? spill, out bool truncated, bool unreserved = false)
@@ -2487,7 +2269,7 @@ public static class RecordsTools
             if (manifestOnly) break;
             int mark = sb.Length;
             // said: this seed's node list stopped inside the budget and named what it held back, so the seed stays
-            // and the render stops after it. mute: it stopped with no room to say so, and the seed goes back out.
+            // and the render stops after it. mute: no room to say so, and the seed goes back out.
             bool said = false, mute = false;
             sb.Append('\n').Append(row.Seed);
             if (row.Error is not null)
@@ -2499,17 +2281,13 @@ public static class RecordsTools
             sb.Append("  ").Append(row.Type ?? "?").Append("  ").Append(row.EditorId ?? "<no editorid>").Append('\n');
             if (row.Nodes.Count == 0)
                 sb.Append("  no links to follow from this seed").Append(row.TruncationNote is null ? ".\n" : " before the cap.\n");
-            // What the seed says about its WALK is a different loss from the nodes max_chars held back, and the
-            // cut notice's remedy does not fix it — so the tail is reserved beside every node line and written
-            // whether or not the list was cut.
-            // The cycle list is bounded by nothing but the walked fanout — one line per closing link, each the whole
-            // loop — so it is held to its own half of the budget. Reserved whole beside every node line, a densely
-            // cyclic seed priced its own nodes out and went back out with nothing said at all.
+            // What the seed says about its WALK is a different loss from the nodes max_chars held back, so the tail
+            // is reserved beside every node line and written whether or not the list was cut; the cycle list, which
+            // only the walked fanout bounds, is held to its own half of the budget.
             string tail = SeedTail(row, budget >= Unbounded ? Unbounded : Math.Max(budget / 2, 0), cap);
             foreach (var n in row.Nodes)
             {
-                // Composed before it is priced, so the cut notice lands inside the budget rather than a character
-                // past the node that crossed it.
+                // Composed before it is priced, so the notice lands inside the budget, not past the node that crossed.
                 string line = "    d" + n.Depth + "  " + n.Key
                               + (n.Type is not null ? "  " + n.Type + "  " + (n.EditorId ?? "<no editorid>") : "")
                               + "  [" + n.Status + ']'
@@ -2539,13 +2317,8 @@ public static class RecordsTools
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 
-    /// <summary>What a walked seed states after its nodes: the cycles it found, the walk.max_nodes cap it hit,
-    /// and the NPC TemplateFlags inheritance report. Composed apart from the node loop because these are claims
-    /// about the WALK, not about the nodes that fit — a max_chars cut may not swallow them, and the cut notice's
-    /// remedy (raise max_chars, or to_file=) does not answer a walk that stopped at its own cap.
-    /// <para>Only the cycle list is unbounded, so only it is held to <paramref name="cycleRoom"/>: what does not fit
-    /// is replaced by a line saying how many were held back and how to get them. The cap note and the template
-    /// report are each bounded by their own shape and are always written.</para></summary>
+    /// <summary>What a walked seed states after its nodes — the cycles it found, the walk.max_nodes cap it hit, and the NPC TemplateFlags inheritance report — composed apart from the node loop because these are claims about the WALK that a max_chars cut may not swallow.</summary>
+    /// <param name="cycleRoom">The room the unbounded cycle list is held to; past it a line says how many were held back and how to get them, while the cap note and the template report are always written.</param>
     static string SeedTail(LoadOrderService.WalkSeedResult row, int cycleRoom, int cap)
     {
         var t = new StringBuilder();
@@ -2580,14 +2353,8 @@ public static class RecordsTools
         return t.ToString();
     }
 
-    /// <summary>The reverse MGEF lane's text render: a header census over the complete seed list, each windowed
-    /// seed's carriers through the shared effect-chain render, the standard explicit cut and spill marker.
-    /// max_chars is a CEILING: the notice and the spill block are charged first, the shared render is told what
-    /// this one has already spent, and a seed that would cross what is left is taken back out whole. A seed the
-    /// shared render cut inside its own buffer reports that back — nothing here can measure it.
-    /// Internal so a test can drive it against a hand-built <see cref="EffectChainResult"/>, the same reason
-    /// <see cref="RenderRecordsTree"/> is: reaching a cut INSIDE the shared render through the tool needs a seed
-    /// whose carriers are wider than the auto-spill block, and no fixture has one.</summary>
+    /// <summary>The reverse MGEF lane's text render: a header census over the complete seed list, then each windowed seed's carriers through the shared effect-chain render, which is told what this one has spent and reports back a cut nothing here can measure.</summary>
+    /// <remarks>Internal so a test can drive a seed whose carriers are wider than the auto-spill block, which no fixture has.</remarks>
     internal static string RenderRecordsEffectChains(IReadOnlyList<(string Seed, EffectChainResult Result)> results,
                                             int totalSeeds, int carrierRows, int carrierTotal, int errors, string headerLine,
                                             OrderStamp? epoch, int maxChars, SpillState? spill, out bool truncated,
@@ -2620,13 +2387,13 @@ public static class RecordsTools
             if (manifestOnly) break;
             int mark = sb.Length;
             sb.Append('\n').Append("seed ").Append(seed).Append('\n');
-            // The shared render builds its own buffer, so it is told what this one has already spent — and it
-            // still quotes the caller's max_chars in its own cut notice.
+            // The shared render builds its own buffer, so it is told what this one has spent, and still quotes the
+            // caller's max_chars in its own cut notice.
             sb.Append(Wire.RenderEffectChain(result, room, sb.Length + 1, "walk.max_nodes", out bool said)).Append('\n');
             if (Crossed(sb, mark, room.Budget, Notice(rendered), ref truncated)) break;
             rendered++;
-            // The shared render keeps its own output inside the budget, so a seed it cut never crosses here: the
-            // cut it reports is the only thing that says this answer is incomplete, and it drives the spill.
+            // The shared render keeps its output inside the budget, so the cut it reports is the only thing saying
+            // this answer is incomplete, and it drives the spill.
             if (!said) continue;
             Stopped(sb, Notice(rendered), rendered, results.Count, ref truncated);
             break;
@@ -2635,12 +2402,7 @@ public static class RecordsTools
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 
-    /// <summary>The info_order form's text render: per topic its identity, then the merged-order body from
-    /// <see cref="DialogueWire.AppendInfoOrderView"/> — one shared render, so the MOVED annotations and the
-    /// confidence gates cannot drift from the dialogue surface's. max_chars is a CEILING: the notice and the
-    /// spill block are charged first, the shared view is bounded by what is left rather than by the whole cap,
-    /// and a topic that still crossed is taken back out whole and counted — the view's own tail rides inside the
-    /// topic block, so there is no way to keep half of one and stay under the ceiling.</summary>
+    /// <summary>The info_order form's text render: per topic its identity, then the merged-order body from the shared <see cref="DialogueWire.AppendInfoOrderView"/>, bounded by what this render has left rather than by the whole cap.</summary>
     static string RenderRecordsInfoOrder(IReadOnlyList<LoadOrderService.InfoOrderRow> rows, int total, int contested,
                                          int errors, string headerLine, OrderStamp? epoch, int maxChars,
                                          SpillState? spill, out bool truncated, bool unreserved = false)
@@ -2676,18 +2438,15 @@ public static class RecordsTools
                 rendered++; continue;
             }
             sb.Append("  ").Append(row.Type ?? "?").Append("  ").Append(row.EditorId ?? "<no editorid>")
-              // No winner is a FACT on a folded read — nothing in the order defines this topic — and '?', which on
-              // every other row means "could not be determined", would read as a degraded one.
+              // No winner is a FACT on a folded read, where '?' would read as "could not be determined".
               .Append("  winner=").Append(row.WinnerPlugin ?? "<none: no active plugin has this record; only the folded file defines it>")
               .Append('\n');
             if (row.Order is null)
                 sb.Append("  [!] the merge could not be computed for this topic (its key did not resolve in the touching index).\n");
             else if (row.Order.Order.Count == 0 && row.Order.Complete)
                 sb.Append("  no INFO lines — every touching plugin's child list is empty.\n");
-            // The shared view is bounded by what this render has left, not by the whole cap, and its own tail
-            // rides inside the topic block — so a topic that still crossed goes back out whole below. Its own
-            // stop signal is kept rather than re-derived from Crossed: the two agree only because the view
-            // appends its marker AFTER the check that crossed, which is the view's business, not this render's.
+            // The view's own stop signal is kept rather than re-derived from Crossed, whose agreement depends on
+            // where the view appends its marker — the view's business, not this render's.
             else if (!DialogueWire.AppendInfoOrderView(sb, row.Order, "", budget, indent: false))
                 truncated = true;
             if (Crossed(sb, mark, budget, Notice(rendered), ref truncated)) break;
@@ -2697,11 +2456,7 @@ public static class RecordsTools
         return RenderCap.Settle(sb.ToString().TrimEnd('\n'), cap);
     }
 
-    /// <summary>The list-lane summary render: one identity-and-winner line per outcome, or its per-item error —
-    /// the batch shape of the scan lane's summary rows. max_chars is a CEILING here, the same shape the scan and
-    /// batch renders carry: the cut notice and the spill block are charged before the first row is laid, and a row
-    /// that would cross what is left is taken back out whole and counted. The spill marker rides in-band in both
-    /// formats.</summary>
+    /// <summary>The list-lane summary render: one identity-and-winner line per outcome or its per-item error, the batch shape of the scan lane's summary rows, with the spill marker in-band on both transports.</summary>
     static string RenderRecordsSummary(IReadOnlyList<ReadOutcome> outcomes, bool json, string headerLine,
                                        List<KeyValuePair<string, string>> envelope, int maxChars, SpillState? spill,
                                        (int RowsRead, long Millis) bodyCost, out bool truncated)
@@ -2718,12 +2473,11 @@ public static class RecordsTools
         if (epoch is not null) sb.Append(Wire.EpochInline(epoch));
         sb.Append('\n');
         int rendered = 0;
-        // The notice and the spill block are written after the rows, so both are charged before the first one is
-        // laid — that is what makes max_chars a ceiling on the whole response rather than on everything above it.
         string Notice(int r) =>
             "... [rendered " + r + " of " + outcomes.Count + " at max_chars=" + cap + "]\n";
         var spillText = Wire.SpillText(spill);
-        // The accounting line this render closes with is spoken for, like the notice and the spill block.
+        // The notice, the spill block and the accounting line close this response, so all three are charged before
+        // the first row; docs/architecture/render-budget.md.
         int budget = cap - spillText.Length - Notice(outcomes.Count).Length - RenderBudget.AccountingReserve;
         foreach (var o in outcomes)
         {
@@ -2740,7 +2494,6 @@ public static class RecordsTools
                 if (o.WinnerPlugin is not null) sb.Append("  winner=").Append(o.WinnerPlugin).Append("  override_depth=").Append(o.OverrideDepth);
                 sb.Append('\n');
             }
-            // Whole rows only: the one that crossed is taken back out and counted in the notice.
             if (sb.Length > budget)
             {
                 sb.Length = mark;
@@ -2756,16 +2509,8 @@ public static class RecordsTools
         return RenderCap.Settle(sb.ToString(), cap);
     }
 
-    /// <summary>The list-lane aggregate render: count the resolved rows by winner, type or defined_in — the batch
-    /// twin of the scan lane's count table. Per-item errors get their own named bucket rather than dropping out
-    /// of the census, and it carries the same response envelope as every other form, including the resolved
-    /// source statement source= promises and the epoch-coverage qualifier format= promises unconditionally.
-    /// max_chars is a CEILING here as it is on every sibling render on this lane: the cut notice and the
-    /// accounting line are charged before the first group row, and a row that would cross what is left is taken
-    /// back out whole and named in the notice.</summary>
-    /// <param name="requestedTypes">The display names of the types the call NAMED, or null when it named none.
-    /// Under group_by=type each one gets a row, so a requested type with no records reads as 0 rather than being
-    /// absent from the table and left to be inferred.</param>
+    /// <summary>The list-lane aggregate render: the resolved rows counted by winner, type or defined_in — the batch twin of the scan lane's count table — with per-item errors in their own named bucket and the same response envelope every other form carries.</summary>
+    /// <param name="requestedTypes">The display names of the types the call NAMED, or null when it named none; under group_by=type each one gets a row, so a requested type with no records reads as 0.</param>
     static string RenderListAggregate(IReadOnlyList<ReadOutcome> outcomes, string groupBy, bool json, bool dense, OrderStamp? epoch,
                                       string headerLine, List<KeyValuePair<string, string>> envelope,
                                       (int RowsRead, long Millis) bodyCost, int maxChars,
@@ -2776,8 +2521,7 @@ public static class RecordsTools
             return Wire.Refuse(json, $"error: project.group_by='{groupBy}' is not a count key — use 'winner', 'type', or 'defined_in'.");
         int cap = maxChars > 0 ? maxChars : Wire.DefaultMaxChars;
         var groups = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        // A type the call asked for is in the census whether or not it has records: an absent row would leave the
-        // caller to diff the request against the response to learn that the answer is zero.
+        // A type the call asked for is in the census whether or not it has records.
         if (gb == "type" && requestedTypes is { Count: > 0 })
             foreach (var t in requestedTypes) groups.TryAdd(t, 0);
         int errors = 0;
@@ -2793,8 +2537,8 @@ public static class RecordsTools
             groups[key] = groups.GetValueOrDefault(key) + 1;
         }
         var all = groups.OrderByDescending(g => g.Value).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
-        // A zero row is a type the call ASKED for that matched nothing. It sorts last, which is what a cap discards
-        // first, so it is stated apart from the counted table rather than as the row a cut takes.
+        // A zero row is a type the call ASKED for that matched nothing, stated apart from the counted table because
+        // it sorts last and is what a cap discards first.
         var empties = all.Where(g => g.Value == 0).Select(g => g.Key).ToList();
         var rows = empties.Count == 0 ? all : all.Where(g => g.Value > 0).ToList();
         if (json || dense)
@@ -2805,12 +2549,10 @@ public static class RecordsTools
         if (errors > 0) sb.Append("  (").Append(errors).Append(" per-item error(s) — counted apart, listed via form='summary')");
         if (epoch is not null) sb.Append(Wire.EpochInline(epoch));
         sb.Append('\n');
-        // The notice and the accounting line close this response, so both are charged before the first group row —
-        // the same shape the scan lane's count table holds itself to.
+        // The notice, the accounting line and the empty-type line close this response, so all three are charged
+        // before the first group row; docs/architecture/render-budget.md.
         string Notice(int r) => "... [truncated: rendered " + r + " of " + rows.Count +
                                 " groups before hitting max_chars=" + cap + "; the counts above are exact — raise max_chars]\n";
-        // The empty-type line is charged with the notice and the accounting line, ahead of the counted rows, so the
-        // one answer a caller cannot infer from the table is not what the cap takes first.
         var emptyLine = Wire.EmptyGroupsLine(empties, Math.Max(cap / 2, 120));
         int budget = cap - Notice(rows.Count).Length - emptyLine.Length - RenderBudget.AccountingReserve;
         int renderedGroups = 0;
@@ -2831,10 +2573,7 @@ public static class RecordsTools
         return RenderCap.Settle(sb.ToString(), cap);
     }
 
-    /// <summary>references= @file expansion with the negation sigil carried across it: '!@&lt;path&gt;' excludes every
-    /// target the file names, so the negated entry spells a list file the same way the positive one does. The sigil
-    /// is stripped before the expander sees it — the expander decides "this is a file" on the first character — and
-    /// put back on each expanded token.</summary>
+    /// <summary>references= @file expansion with the negation sigil carried across it: the sigil is stripped before the expander sees it, which decides "this is a file" on the first character, and put back on each expanded token.</summary>
     static (string[]? Tokens, HousecarlCore.ArtifactDemand? Demand, string? EchoSource, string? Error)
         ExpandReferenceList(string[] refs)
     {
@@ -2854,9 +2593,7 @@ public static class RecordsTools
         return (toks!.Select(t => "!" + t.Trim()).ToArray(), demand, echo is null ? null : "!" + echo, null);
     }
 
-    /// <summary>Split references= into the targets a match must link to and the ones it must NOT: a leading '!'
-    /// negates that entry. The two compose by AND — "links to A and to neither B nor C" is one call. A FormID
-    /// never begins with '!', so the sigil cannot collide with a target token.</summary>
+    /// <summary>Split references= into the targets a match must link to and the ones it must NOT, a leading '!' negating an entry; the two compose by AND, and a FormID never begins with '!'.</summary>
     static (List<FormKey>? Positive, List<FormKey>? Negative, string? Error)
         SplitReferenceTargets(string[] refs, FormIdDoor door)
     {
