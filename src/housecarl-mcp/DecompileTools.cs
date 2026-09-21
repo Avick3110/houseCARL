@@ -6,12 +6,7 @@ using Mutagen.Bethesda.Pex;
 
 namespace HousecarlMcp;
 
-/// <summary>Reconstructs Papyrus source (.psc) from a compiled .pex over Mutagen's PexFile model via
-/// <see cref="HousecarlCore.PapyrusDecompiler"/>; no external tool is needed. The .psc lands in a houseCARL patch-mod
-/// folder under the SE-canonical Source\Scripts layout, so decompile, edit and recompile compose — or, with
-/// <c>out_path=</c>, straight into a folder the caller names, for a look at a declaration no mod folder is wanted for.
-/// A function the engine cannot prove is emitted as a loud failure comment with its raw bytecode; an existing target
-/// is refused, never overwritten.</summary>
+/// <summary>housecarl_decompile_script — reconstructs Papyrus source from a .pex into a patch folder's Source\Scripts or the <c>out_path=</c> folder; contracts in docs/architecture/papyrus.md.</summary>
 [McpServerToolType]
 public static class DecompileTools
 {
@@ -46,26 +41,18 @@ public static class DecompileTools
         [Description("Optional. Land the .psc in a folder of YOUR choosing instead of a houseCARL patch folder — an ABSOLUTE path, created if it doesn't exist. The .psc is written straight into it (nothing appended: a .psc is source a compiler reads, not a file the game loads), so the folder is yours and houseCARL never deletes it. When set, patch=/into= are ignored, and the result says so; this lane also works with no MO2 instance configured.")]
             string? out_path = null) => Guard.Tool(ToolNames.DecompileScript, () =>
     {
-        // 1) lane: out_path= supersedes patch=/into= and says so rather than ignoring them silently — the same rule
-        //    the compile and .seq lanes carry. The note is APPENDED, so a refusal still opens with "error:".
+        // 1) lane: out_path= supersedes patch=/into= saying so; the note is APPENDED, so a refusal opens with "error:".
         bool chosenOutput = !string.IsNullOrWhiteSpace(out_path);
         bool ignoredLane = chosenOutput && (!string.IsNullOrWhiteSpace(patch) || !string.IsNullOrWhiteSpace(into));
         string LaneNoteOk() => ignoredLane
             ? "\nnote: out_path= was given, so patch=/into= are ignored (the .psc lands in out_path, not a houseCARL patch folder)."
             : "";
-        // The ignored-lane note rides a refusal too — a refusal is when a caller re-reads their parameters — but a
-        // refusal claims no destination for a .psc it did not write, and adds "nothing was written" only where the
-        // sentence it follows does not already say so.
+        // On a refusal the note claims no destination, and says "nothing was written" only where the sentence does not.
         string LaneNoteFail(bool sayNothingWritten = true) => ignoredLane
             ? "\nnote: out_path= was given, so patch=/into= were ignored" + (sayNothingWritten ? "; nothing was written." : ".")
             : "";
 
-        // 2) the instance. The default lane writes into a mod folder under it, so it must be configured. out_path=
-        //    writes entirely outside it and runs without one, as bsa_extract's out_path lane does: all the instance
-        //    adds to a decompile is the class hierarchy's mods-tree top-up, and a missing top-up costs explicit
-        //    casts, never wrong source. What the hierarchy actually is gets stated at the render, off what the
-        //    hierarchy build reports rather than off whether an instance is configured — an instance can be
-        //    configured and still not resolve.
+        // 2) the instance, which the default lane needs and out_path= runs without, all it adds being the top-up.
         if (!chosenOutput && svc.ConfigPromptOrNull() is { } cfgPrompt) return cfgPrompt;
 
         // 3) validate the pex path.
@@ -78,7 +65,7 @@ public static class DecompileTools
             return $"error: '{Path.GetFileName(pex)}' is not a .pex compiled script." + LaneNoteFail();
         pex = Path.GetFullPath(pex);
 
-        // 4) read the pex via Mutagen. An unreadable one fails loud naming the file.
+        // 4) read the pex via Mutagen; an unreadable one fails loud naming the file.
         PexFile pexFile;
         try { pexFile = PexFile.CreateFromFile(pex, GameCategory.Skyrim); }
         catch (Exception ex)
@@ -91,9 +78,7 @@ public static class DecompileTools
             return $"error: '{Path.GetFileName(pex)}' contains no script objects — no output was written."
                    + LaneNoteFail(sayNothingWritten: false);
 
-        // 5) output folder: out_path= a folder the caller owns, else folder-per-patch with the Source\Scripts subdir.
-        //    Resolved before the hierarchy build so a folder-resolution error costs nothing and the instance paths
-        //    are derived before the cached walk.
+        // 5) output folder, resolved before the hierarchy build so a folder error costs nothing.
         LoadOrderService.RiderFolder rf;
         try
         {
@@ -103,30 +88,26 @@ public static class DecompileTools
         }
         catch (InvalidOperationException ex)
         {
-            // This refusal is out_path='s own, so the note points at the parameter to fix rather than steering back
-            // to the lanes out_path= superseded.
+            // This refusal is out_path='s own, so the note points at the parameter to fix.
             return "error: " + ex.Message + (ignoredLane
                 ? "\nnote: patch=/into= were ignored because out_path= was given, and nothing was written. Fix out_path=, or drop it to write into the patch folder patch=/into= names."
                 : "");
         }
 
-        // 6) class hierarchy: the vanilla baseline plus the mods-tree sources, topped up with the input pex itself
-        //    and its sibling .pex files (every pex declares its own parent). Soft input — missing pieces mean
-        //    explicit casts in the output, never wrong code — and whatever is missing is named at the render.
+        // 6) class hierarchy: the baseline, the mods-tree sources, the input pex and its siblings — missing pieces named at the render.
         var hierarchy = svc.ClassParentsForDecompile();
         var edges = new Dictionary<string, string>(hierarchy.Edges, StringComparer.OrdinalIgnoreCase);
         HousecarlCore.PapyrusClassParents.AddFromPex(edges, pexFile);
         try { HousecarlCore.PapyrusClassParents.AddFromPexFolder(edges, Path.GetDirectoryName(pex)!); }
         catch { /* fewer edges, never fatal */ }
 
-        // A refused decompile leaves no orphan: an empty fresh folder is deleted, one holding partial .psc output is
-        // kept and named, and an into= reuse is left alone.
+        // A refused decompile leaves no orphan: an empty fresh folder is deleted, a partial one named, into= alone.
         string Refuse(string msg)
         {
             var left = svc.RemoveOrNameRiderResidue(rf);
             return (left is null ? msg
                 : msg + $" The freshly created mod folder at '{left}' still holds partial output — delete it or retry with into=.")
-                // Every message reaching here already accounts for what landed, so the note only states the lane.
+                // Every message reaching here accounts for what landed, so the note only states the lane.
                 + LaneNoteFail(sayNothingWritten: false);
         }
 
@@ -161,22 +142,18 @@ public static class DecompileTools
             outSb.Append("\nnote: optimizer-compiled patterns detected (Caprica class) — source is correct; byte-identity vs the original .pex under the CK compiler is not expected.");
         outSb.Append(HierarchySentence(hierarchy));
         outSb.Append("\nknown format losses (every decompiler): a parameter default is not in the .pex, so it survives only where a call in the same script omitted the argument — a parameter with no such call comes back with its default missing; comments/layout are gone (docstrings survive).");
-        // The destination line must match where the .psc actually went: an out_path= folder is the caller's, with no
-        // patch to recompile back into.
+        // The destination line must match where the .psc went; an out_path= folder is no patch to recompile into.
         outSb.Append(chosenOutput
             ? "\nthe .psc is in the folder you named with out_path= (path above) — review it, edit it, and recompile with " + ToolNames.CompileScript + "."
             : "\nthe .psc is in a houseCARL patch-mod folder — review it, edit it, and recompile with " + ToolNames.CompileScript + " (into= the same patch).");
         return outSb.ToString() + LaneNoteOk();
     });
 
-    /// <summary>One sentence saying what the class hierarchy IS whenever a source of it is missing, and nothing when
-    /// both are there. One sentence rather than one note per source: the baseline and the mods-tree top-up can be
-    /// missing together, and two notes then contradict each other about what was read.</summary>
+    /// <summary>One sentence saying what the class hierarchy IS when a source is missing; two could contradict each other.</summary>
     internal static string HierarchySentence(ClassParents h)
     {
         if (h.BaselineNote is null && h.TopUpMissing is null) return "";
-        // What a thinner hierarchy costs, said once however many sources are thin. The .pex's own declarations and
-        // its neighbours' are added on every call, so no case is "baseline only".
+        // What a thinner hierarchy costs, said once however many sources are thin.
         const string cost = ", so the source keeps an explicit cast wherever an edge is missing (cosmetic; the source stays correct).";
         const string own = "what this .pex and the .pex files beside it declare";
         if (h.BaselineNote is not null && h.TopUpMissing is not null)
@@ -192,29 +169,24 @@ public static class DecompileTools
         int FunctionsTotal, int FunctionsFailed, int OptimizerHints, List<string> Failures,
         string? EscapingObject = null);
 
-    /// <summary>True when a .pex object name is a plain script name, so the .psc it is named for lands directly in the
-    /// output folder. Anything else — a rooted name, a path part either way, a drive or stream colon, an invalid
-    /// filename character, "." or ".." — is a name <see cref="Path.Combine(string, string)"/> does not keep inside the
-    /// folder, and a rooted name or a ".." leaves it entirely. Both separators are checked on every platform, because a
-    /// Windows name reaching a non-Windows run is still the same escape.</summary>
+    /// <summary>True when a .pex object name is a plain script name, so its .psc lands directly in the output folder;
+    /// both separators are checked on every platform. The refusal is pinned by
+    /// <c>DecompileOutPathTests.AnObjectNameThatWouldLeaveTheOutputFolderIsRefusedAndNothingIsWritten</c> (#783).</summary>
     static bool IsPlainObjectName(string name) =>
         name.IndexOf('/') < 0 && name.IndexOf('\\') < 0 && name.IndexOf(':') < 0 &&
         name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 &&
         name != "." && name != "..";
 
     /// <summary>Decompile every object in <paramref name="pexFile"/> and write one .psc per object into
-    /// <paramref name="outDir"/>, named for the object, because the compiler requires filename == ScriptName. Never
-    /// overwrites: an existing target stops the call with that path reported and the file untouched.</summary>
+    /// <paramref name="outDir"/>, named for the object as the compiler requires; an existing target stops the call
+    /// with that path reported and the file untouched.</summary>
     public static DecompileOutcome WriteObjects(
         PexFile pexFile, IReadOnlyDictionary<string, string>? edges, string outDir)
     {
         var written = new List<string>();
         int totalFns = 0, failedFns = 0, optimizerHints = 0;
         var failures = new List<string>();
-        // Every name is checked before the first write, not per object as the loop reaches it: a name only
-        // becomes safe by being a plain filename, and a bad one at the end of a multi-object .pex would
-        // otherwise be refused with the earlier objects' .psc already on disk. The check is a string scan,
-        // so running it over the whole file up front costs nothing.
+        // Every name is checked before the FIRST write, so a bad one last does not refuse with its neighbours on disk.
         foreach (var obj in pexFile.Objects)
             if (!string.IsNullOrWhiteSpace(obj.Name) && !IsPlainObjectName(obj.Name))
                 return new(written, null, false, totalFns, failedFns, optimizerHints, failures, obj.Name);
@@ -239,10 +211,7 @@ public static class DecompileTools
                   "; compiler will not reproduce the original .pex byte-for-byte (the optimizer's output is not its form).\n"
                   + r.Source
                 : r.Source;
-            // CreateNew is atomic create-or-fail, so "never overwrites" holds even against a file that appeared
-            // between the cheap check above and this write. The catch wraps the CONSTRUCTOR ONLY: once the create
-            // succeeded the file exists because we made it, so a write-phase IOException (disk full, device error)
-            // caught here would mis-report as "already exists" over our own partial file and must propagate instead.
+            // CreateNew is atomic create-or-fail; the catch wraps the CONSTRUCTOR only, a write fault having to propagate.
             FileStream fs;
             try { fs = new FileStream(target, FileMode.CreateNew, FileAccess.Write); }
             catch (IOException) when (File.Exists(target))
@@ -257,10 +226,7 @@ public static class DecompileTools
         return new(written, null, false, totalFns, failedFns, optimizerHints, failures);
     }
 
-    /// <summary>A PexFile view carrying one object, so a multi-object pex emits one .psc per object while reusing
-    /// <see cref="HousecarlCore.PapyrusDecompiler.DecompileFile"/> unchanged; a single-object file passes through
-    /// as-is. The user-flag table must be copied across: it maps bit to name per file and the engine resolves every
-    /// Hidden/Conditional through it, so an empty table would silently drop those flags.</summary>
+    /// <summary>A PexFile view carrying one object; the user-flag table is copied across, every flag resolving through it.</summary>
     static PexFile SingleObjectView(PexFile pex, PexObject obj)
     {
         if (pex.Objects.Count == 1) return pex;
