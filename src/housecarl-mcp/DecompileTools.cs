@@ -94,7 +94,8 @@ public static class DecompileTools
                 : "");
         }
 
-        // 6) class hierarchy: the baseline, the mods-tree sources, the input pex and its siblings — missing pieces named at the render.
+        // 6) class hierarchy: the baseline, the mods-tree sources, the input pex and its siblings; the first two name a
+        //    missing piece at the render, the pex top-up degrades silently (docs/architecture/papyrus.md).
         var hierarchy = svc.ClassParentsForDecompile();
         var edges = new Dictionary<string, string>(hierarchy.Edges, StringComparer.OrdinalIgnoreCase);
         HousecarlCore.PapyrusClassParents.AddFromPex(edges, pexFile);
@@ -127,7 +128,7 @@ public static class DecompileTools
                        : "Move/delete it, or pass a different patch= (or into= another patch folder). ") +
                    (o.Written.Count > 0 ? $"Already written this call: {string.Join(", ", o.Written)}." : "Nothing was written."));
 
-        // 8) render: totals, failures, and every degraded mode named.
+        // 8) render: totals, failures, and the degraded modes the outcome carries.
         var outSb = new StringBuilder();
         outSb.Append("decompile ").Append(o.FunctionsFailed == 0 ? "OK" : "PARTIAL").Append(": ")
              .Append(Path.GetFileName(pex)).Append(" → ").Append(string.Join(", ", o.Written)).Append('\n');
