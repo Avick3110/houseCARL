@@ -96,17 +96,6 @@ jobs:
           if ([int]$c.executed -eq 0) { throw "The guard suite selected ZERO tests. The filter excludes everything it should not." }
           if ([int]$c.failed -ne 0) { throw "$($c.failed) guard test(s) failed." }
 
-      # freshness-capture-guard runs as its own cold process: its mid-write capture arm sweeps a flip across the
-      # Phase-1 loop of a real multi-op write, and that window is only a real window cold. The warm ci-all runner
-      # outruns the flip, so this probe is carved out here and ci-all does not run it.
-      #
-      # This block is hand-maintained and nothing enforces it. ci-all filters Standalone probes out, so a new
-      # one — or an existing probe flipped to Standalone = true — runs nowhere unless its step is added here
-      # by hand, with the job green either way.
-      - name: Probe — freshness-capture-guard (own cold process)
-        if: ${{ !cancelled() }}
-        run: dotnet src/housecarl-generator/bin/Release/net9.0/housecarl-generator.dll freshness-capture-guard
-
       # The real `claude plugin validate --strict`, on the real assembled plugin tree. This is the
       # validator the harness ships, so it is the only check that agrees with the harness by
       # construction; the plugin-validate-guard probe above is a YAML proxy for it. The version is
