@@ -298,7 +298,8 @@ public static class LocalizedStrings
         return unreadable is null ? (null, false, false) : (unreadable, true, false);
     }
 
-    /// <summary>Per archive in a folder: which plugin stems it embeds strings for, cached by folder and keyed on each archive's OWN name, length and write time.</summary>
+    /// <summary>Per archive in a folder: which plugin stems it embeds strings for, cached by folder and keyed on each archive's OWN name, length and write time.
+    /// <para>Nothing pins the stale-versus-fresh case: observing it needs an archive that PARSES, and Mutagen exposes no in-process archive builder.</para></summary>
     static readonly Dictionary<string, (string Stamp, List<ArchiveEntry> Entries)> ArchiveCache =
         new(StringComparer.OrdinalIgnoreCase);
 

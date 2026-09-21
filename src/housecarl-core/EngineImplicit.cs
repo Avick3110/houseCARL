@@ -2,7 +2,9 @@ using Mutagen.Bethesda.Plugins;
 
 namespace HousecarlCore;
 
-/// <summary>Engine-implicit forms — hardcoded engine references the load-order index cannot resolve, exempted here so a dangling-reference check does not false-warn. A PRECISE set, never a range.</summary>
+/// <summary>Engine-implicit forms — hardcoded engine references the load-order index cannot resolve. A PRECISE set, never a range.
+/// <para>ANY tool that flags "target not in the active load order" must exempt them or it false-warns on the standard player-state pattern; today that is the dialogue condition lints, the integrity sweep, and
+/// the identity resolver behind <c>housecarl_resolve</c> / <c>resolve_names</c>, which is why this is public rather than internal to this assembly.</para></summary>
 public static class EngineImplicit
 {
     static readonly ModKey SkyrimBaseMaster = new("Skyrim", ModType.Master);
