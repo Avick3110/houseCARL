@@ -1451,8 +1451,8 @@ public sealed partial class LoadOrderService
         public string? Type;
         public string? EditorId;
         public List<FormKey>? Links;
-    /// <summary>Set when Mutagen could not parse the node's content, so its links never read — the same fact the
-    /// scan lanes account as an unscannable record.</summary>
+        /// <summary>Set when Mutagen could not parse the node's content, so its links never read — the same fact the
+        /// scan lanes account as an unscannable record.</summary>
         public string? Unscannable;
     }
 
@@ -1539,15 +1539,15 @@ public sealed partial class LoadOrderService
             outgoing.Add(to);
         }
 
-    /// <summary>This seed is finished: find its cycles and let its edge set go, where the visited set and the
-    /// frontier are dropped, rather than staying resident until the last seed in the batch finishes.</summary>
+        /// <summary>This seed is finished: find its cycles and let its edge set go, where the visited set and the
+        /// frontier are dropped, rather than staying resident until the last seed in the batch finishes.</summary>
         public void Settle()
         {
             Cycles ??= WantCycles ? CyclesFound() : Array.Empty<string>();
             Edges = new();
         }
 
-    /// <summary>This seed's cycles, each stated as its loop of records — the last hop closes it.</summary>
+        /// <summary>This seed's cycles, each stated as its loop of records — the last hop closes it.</summary>
         IReadOnlyList<string> CyclesFound()
         {
             var found = GraphCycles.Find(Edges, WalkCycleCap, out var capped);
@@ -1641,7 +1641,8 @@ public sealed partial class LoadOrderService
                                             WalkFaultOf(ex));
             }
         }
-            // The walk asks for every key it gathered, so the chunk's deferred per-plugin walk is forced here.
+        // The hop's bodies, one enumeration per source plugin. A key the gather does not return stays UNCACHED, so
+        // Fetch still raises whatever the per-record read raises: the gather is an optimisation, not an error path.
         void Prefetch(IReadOnlyList<FormKey> keys)
         {
             var wanted = new List<FormKey>();
@@ -1652,7 +1653,7 @@ public sealed partial class LoadOrderService
             {
                 int end = Math.Min(i + BodyPrefetch.ChunkRows, wanted.Count);
                 var chunk = BodyPrefetch.Gather(view, session, wanted, i, end, _ => null, null, ct);
-        // The hop's bodies, one enumeration per source plugin.
+                // The walk asks for every key it gathered, so the chunk's deferred per-plugin walk is forced here.
                 for (int k = i; k < end; k++)
                     if (chunk.Body(wanted[k]) is { } body) bodyCache[wanted[k]] = body;
             }
@@ -2112,15 +2113,15 @@ public sealed partial class LoadOrderService
         public string Label { get; private set; } = "";
         public string Where { get; private set; } = "";
 
-    /// <summary>Where the fold was placed — known only once the file's header has been read.</summary>
+        /// <summary>Where the fold was placed — known only once the file's header has been read.</summary>
         public string Placement { get; private set; } = "";
 
-    /// <summary>The folded file's FILENAME is also active, from another mod folder, so the response may say only
-    /// that THIS COPY is not the one the order loads.</summary>
+        /// <summary>The folded file's FILENAME is also active, from another mod folder, so the response may say only
+        /// that THIS COPY is not the one the order loads.</summary>
         public bool ShadowsActiveName { get; private set; }
 
-    /// <summary>What the PROBE already knows: the name, the label, where the copy is, and whether the filename is
-    /// active — filled before anything is read.</summary>
+        /// <summary>What the PROBE already knows: the name, the label, where the copy is, and whether the filename is
+        /// active — filled before anything is read.</summary>
         internal void FromArm(PoleInfo arm)
         {
             Plugin = arm.Plugin; Label = FoldLabel(arm); Where = arm.Where; ShadowsActiveName = arm.NameActive;
@@ -2221,7 +2222,9 @@ public sealed partial class LoadOrderService
 
         if (!hasType && !conflictsOnly && !hasPlugins && !bodyFilter && !hasFormidSet)
             return CrossQueryOutcome.Fail("a scan needs at least one of: types=, plugins=, formids=, conflicts_only=true, where=, or references=.");
-            // The index's own line rides EVERY answer it serves, not only the call that paid the build.
+        // A formid set is itself a bound. An unbounded references= is no longer one: the reverse-reference index
+        // supplies the scan universe and everything downstream is the ordinary scan. Every OTHER body filter still
+        // needs a bound — the index knows links, not field values.
         string? reverseNote = null;
         bool indexUniverse = false;                                    // the scan universe came from the index, not from the caller
         if (bodyFilter && !hasType && !hasPlugins && !hasFormidSet)
@@ -2232,7 +2235,9 @@ public sealed partial class LoadOrderService
             var built = view.EnsureReverseIndex();
             var universe = HousecarlCore.ReverseSelection.Universe(view, view.ReverseIndex!, references);
             var universeNote = HousecarlCore.ReverseSelection.UniverseNote(references, universe.Count);
-        // A formid set is itself a bound.
+            // The index's own line rides EVERY answer it serves, not only the call that paid the build. Which lane
+            // asked decides how an unreadable plugin reads — short for the positive question, over-inclusive for
+            // the sweep — so the note is told for the lane.
             bool orphanSweep = references is not { Count: > 0 };
             reverseNote = built.NoteFor(orphanSweep) + (universeNote is null ? "" : " " + universeNote);
             formidSet = universe;
@@ -2480,7 +2485,8 @@ public sealed partial class LoadOrderService
             var faultedWinners = whereWinnerActive ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : null;
             try
             {
-                // Fetch one chunk's winner bodies and scan its rows, in stream order; false stops the scan.
+                // Carry the source plugin per record so the render shows the body the scan filtered: plugins= gives
+                // the scoped plugin's filename, type= gives null, meaning the winner.
                 IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string? source)> stream =
                     hasPlugins ? view.RecordsIn(plugins!, types).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)x.source))  // the scoped plugin's own body
                                : view.WinnerRecordsOfType(types!, unreadablePlugins).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)null));    // the load-order winner's body
@@ -2490,31 +2496,34 @@ public sealed partial class LoadOrderService
                     ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record
                     if (setFilter is not null && !setFilter.Contains(fk)) continue;   // the identity intersection, cheapest first
                     if (conflictsOnly && depth <= 1) continue;
-                    // A winner plugin that would not open is a whole-plugin coverage gap, named once.
+                    // defined_in= keeps only records whose origin FormKey is a scoped plugin — a definition, not an
+                    // override this plugin merely touches. A FormKey test needing no body, so it runs before the try.
                     if (definedIn && !scopedModKeys!.Contains(fk.ModKey)) continue;
                     if (!whereWinnerActive)
                     {
                         if (!ScanRow(fk, depth, body, source)) { stopped = true; break; }
                         continue;
                     }
-                // Carry the source plugin per record so the render shows the body the scan filtered.
+                    // where_source=winner de-dups up front: the winner verdict is FormKey-intrinsic, so any scoped
+                    // copy gives the same answer. The scoped path instead de-dups AFTER the filters, in ScanRow.
                     if (!seen.Add(fk)) continue;
-                    // defined_in= keeps only records whose origin FormKey is a scoped plugin — a FormKey test
-                    // needing no body, so it runs before the try.
+                    // A record the order gives no winner at all is a clean non-match, exactly as the per-record
+                    // fetch treated it — never an unscannable row naming a winner there is none of.
                     if (view.ResolveWinner(fk) is not { } w) continue;
                     pending!.Add((fk, depth, body, source!, w.WinnerPlugin));
                     if (pending.Count == WinnerGatherChunk && !DrainChunk()) { stopped = true; break; }
                 }
                 if (!stopped && whereWinnerActive && pending!.Count > 0) DrainChunk();
 
-                    // where_source=winner de-dups up front: the winner verdict is FormKey-intrinsic.
+                // Fetch one chunk's winner bodies and scan its rows, in stream order; false stops the scan.
                 bool DrainChunk()
                 {
                     var needed = new List<FormKey>(pending!.Count);
                     foreach (var p in pending)
                         if (!string.Equals(p.winner, p.source, StringComparison.OrdinalIgnoreCase)) needed.Add(p.fk);
                     var bodies = WinnerBodies.For(view, winnerSession!, needed, types, out var faults);
-                    // A record the order gives no winner at all is a clean non-match, never an unscannable row.
+                    // A winner plugin that would not open is a whole-plugin coverage gap, named once in the
+                    // response rather than only sampled three rows deep.
                     foreach (var (plugin, fault) in faults)
                         if (faultedWinners!.Add(plugin)) unreadablePlugins.Add(fault);
                     bool go = true;

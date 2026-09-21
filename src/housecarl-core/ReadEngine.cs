@@ -44,8 +44,8 @@ public static class ReadEngine
 
         /// <summary>The read FAILED. Absent-looking, but not evidence of ABSENCE.</summary>
         public static LeafRead Unreadable(string note) => new(false, "", note, null, null, Present: false, Readable: false);
-    /// <summary>A no-value CONTAINER/substruct summary carrying its element <paramref name="count"/>: null for a
-    /// substruct, a number for a list/dict (0 = present-but-EMPTY), for the presence predicate.</summary>
+        /// <summary>A no-value CONTAINER/substruct summary carrying its element <paramref name="count"/>: null for a
+        /// substruct, a number for a list/dict (0 = present-but-EMPTY), for the presence predicate.</summary>
         public static LeafRead Container(string note, int? count) => new(false, "", note, null, count);
         public override string ToString() => HasValue ? Token : Note ?? "(none)";
     }
@@ -528,7 +528,7 @@ public static class ReadEngine
         }
         else if (WriteEngine.GenderedInterface(val.GetType()) is not null)
         {
-                // Gendered pair ([0]=male, [1]=female), via the SAME index-to-arm mapping navigation uses.
+            // Gendered pair ([0]=male, [1]=female), via the SAME index-to-arm mapping navigation uses.
             for (int g = 0; g < WriteEngine.GenderedArmNames.Length; g++)
             {
                 if (budget < 0) return;
@@ -547,8 +547,8 @@ public static class ReadEngine
         }
         else if (val is System.Collections.IEnumerable seq and not string)
         {
-                // Plain enumeration. A binary overlay builds an element only when reached, so an element Mutagen
-                // cannot parse throws out of the ENUMERATOR; on that throw the REST is stepped by index instead.
+            // Plain enumeration. A binary overlay builds an element only when reached, so an element Mutagen
+            // cannot parse throws out of the ENUMERATOR; on that throw the REST is stepped by index instead.
             var en = seq.GetEnumerator();
             try
             {
@@ -572,7 +572,7 @@ public static class ReadEngine
         }
         else
         {
-                // substruct — open its modeled (Loqui-filtered) fields by reflection.
+            // substruct — open its modeled (Loqui-filtered) fields by reflection.
             if (!IsModeledContent(val.GetType())) return;
             foreach (var fname in ReflectedFieldNames(val.GetType()))
             {
