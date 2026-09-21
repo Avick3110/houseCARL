@@ -264,7 +264,7 @@ public static class NexusTools
         _ => null,
     };
 
-    /// <summary>Resolve a bare numeric id or a Nexus mod URL to an SSE mod id; a URL for another game is rejected.</summary>
+    /// <summary>Resolve a bare id or a Nexus mod URL to an SSE mod id, rejecting another game's URL; exactly one of (modId, error) is set.</summary>
     static (int modId, string? error) ResolveModId(string s)
     {
         s = s.Trim();
@@ -555,7 +555,7 @@ static class Render
         }
     }
 
-    /// <summary>Render one installed file's currency line under its mod: its id, name, version, category and verdict.</summary>
+    /// <summary>Render one installed file's currency line: its id, then — unless it is Missing — its name, version, category and verdict.</summary>
     static void AppendFileCurrency(StringBuilder sb, InstalledFileCurrency f)
     {
         sb.Append("\n      · file #").Append(f.FileId);
