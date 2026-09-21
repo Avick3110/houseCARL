@@ -7,10 +7,9 @@ namespace HousecarlMcp;
 
 public sealed partial class LoadOrderService
 {
-    /// <summary>Resolve + read one record (the read_record primitive). Reads the WINNER's body by default, or a
-    /// named <paramref name="plugin"/>'s version; with <paramref name="conflictTree"/> also returns the ordered
-    /// touching-plugin list. Recoverable named errors — not-in-order, plugin-doesn't-touch, fetch inconsistency —
-    /// never a silent empty result.</summary>
+    /// <summary>Resolve + read one record. Reads the WINNER's body by default, or a named
+    /// <paramref name="plugin"/>'s version; with <paramref name="conflictTree"/> also returns the ordered
+    /// touching-plugin list. Recoverable named errors, never a silent empty result.</summary>
     public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
                                    bool resolveNames = false, LinkMemo? linkMemo = null,
                                    string? containerHint = ReadEngine.DepthExpandHint,
@@ -24,13 +23,11 @@ public sealed partial class LoadOrderService
                with { Stamp = view.Stamp, Pin = new ViewPin(resolver, view) };   // stamped and pinned here, off the view actually read
     }
 
-    /// <summary>The read body, answered entirely off ONE captured view: the excluded-check, the winner and the
-    /// touching-plugin list all describe the same build, so a freshness rebuild landing mid-read cannot make a
-    /// record's reported winner disagree with its own touching list. Every <see cref="ReadOutcome"/> — single read,
-    /// batch item, cross-query detail row — carries the <see cref="ViewPin"/> it was answered from, and the render's
-    /// conflict-tree fill reads through it, so one response's tree, touching list and epoch stamp all name the same
-    /// build. Bodies are still fetched from disk at fill time, so a file edited mid-render surfaces as the named
-    /// fetch-inconsistency error rather than a silently re-resolved winner.</summary>
+    /// <summary>The read body, answered entirely off ONE captured view, so a freshness rebuild landing mid-read
+    /// cannot make a record's reported winner disagree with its own touching list. Every
+    /// <see cref="ReadOutcome"/> carries the <see cref="ViewPin"/> it was answered from, so one response's tree,
+    /// touching list and epoch stamp all name the same build. Bodies are still fetched from disk at fill time, so
+    /// a file edited mid-render surfaces as the named fetch-inconsistency error.</summary>
     ReadOutcome ResolveRead(LoadOrderResolver resolver, LoadOrderResolver.IndexView view,
                             FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth,
                             bool resolveNames = false, LinkMemo? linkMemo = null,
@@ -41,27 +38,22 @@ public sealed partial class LoadOrderService
                             IMajorRecordGetter? prefetched = null,
                             IReadOnlyCollection<string>? countFields = null)
     {
-        // An explicitly-requested plugin excluded this session (unparseable or unopenable) is said so, rather than
-        // falling through to a misleading "does not define this record".
+        // An explicitly-requested plugin excluded this session is said so, rather than falling through to a
+        // misleading "does not define this record".
         if (plugin is not null && view.ExcludedPlugins.TryGetValue(plugin, out var pWhy))
             return ReadOutcome.Fail(fk, $"Plugin '{plugin}' was excluded from this session: {pWhy}");
 
         // A plugin not in the order at all is its own failure mode: GetRecord returns null for it, and falling
-        // through would render a false "does not define this record", which reads as "my write was lost" and invites
-        // re-issuing the ops — duplicating list Adds into the patch. Name the true condition and the verify paths
-        // instead. houseCARL does not read disabled plugins off disk: non-winner content presented as load-order
-        // truth is the hazard.
+        // through would render a false "does not define this record", which reads as "my write was lost" and
+        // invites re-issuing the ops. houseCARL does not read disabled plugins off disk.
         if (plugin is not null && !view.ContainsPlugin(plugin))
         {
-            // ExplainAbsence, not AbsenceClause: the latter returns a non-empty string for a typo too (the
-            // did-you-mean), so its length cannot distinguish "a cause was stated" from "a spelling was guessed",
-            // and only the first should change the tail below.
+            // ExplainAbsence, not AbsenceClause: the latter returns a non-empty string for a typo too, so its
+            // length cannot distinguish "a cause was stated" from "a spelling was guessed".
             var cause = view.ExplainAbsence(plugin);
             var why = cause is not null ? " " + cause : view.NameSuggestion(plugin);
             // The write-verify guidance is a fact about the tool, not a guess about the cause, so it is
-            // unconditional — the freshly-written-patch case is the commonest reason to hit this refusal, and the
-            // read-back is the only way to check a write without touching MO2. Only the posture line ("does not open
-            // disabled plugins off disk"), which would contradict a stated cause, is conditional.
+            // unconditional; only the posture line, which would contradict a stated cause, is conditional.
             var verify = $" To verify a write BEFORE enabling, use the write call's own read-back (readback=true " +
                          $"returns the whole written record). If a prior write into '{plugin}' reported success, the edits " +
                          "DID land — do not re-issue them (re-running list Adds would duplicate entries).";
@@ -79,22 +71,20 @@ public sealed partial class LoadOrderService
         if (winner is null) return ReadOutcome.Fail(fk, UnresolvedFormId(view, fk));
 
         var source = plugin ?? winner.Value.WinnerPlugin;
-        // A session is an overlay CACHE, and the union opens a body per touching plugin — so a batch that gave one
-        // in pays each plugin's mmap once for the whole call instead of once per record. Only what this call
-        // opened is disposed here: the batch's own session outlives the item and is closed by the batch.
+        // A session is an overlay CACHE, and the union opens a body per touching plugin, so a batch that gave one
+        // in pays each plugin's mmap once for the whole call. Only what this call opened is disposed here.
         using var ownSession = batchSession is null ? resolver.OpenSession() : null;
         var session = batchSession ?? ownSession!;
-        // A body the caller already gathered for THIS row and THIS source (the scan detail lane's chunked prefetch)
-        // is used as it stands; without one this is the per-record whole-overlay seek.
+        // A body the caller already gathered for THIS row and THIS source is used as it stands; without one this
+        // is the per-record whole-overlay seek.
         var rec = prefetched ?? view.GetRecord(session, source, fk);       // excluded-check pinned to the same view the winner came from
         if (rec is null)
         {
             if (plugin is null)
                 return ReadOutcome.Fail(fk, $"Winner '{winner.Value.WinnerPlugin}' did not yield {FormIdToken.Of(fk)} on fetch — a load-order inconsistency.");
             // An untouched record under a named plugin refuses by naming the actual touchers: a bare "does not
-            // define" reads as "my write was lost", and the touching list is the actionable fact. The ?? is
-            // defensive — the non-null winner above proves the fk is in the index — but the nullable return became
-            // a real NRE on the off-order sibling, so the guard stays.
+            // define" reads as "my write was lost". The ?? is load-bearing — the nullable return became a real
+            // NRE on the off-order sibling.
             var touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
             return ReadOutcome.Fail(fk,
                 $"Plugin '{plugin}' does not touch {FormIdToken.Of(fk)} — it has no version of this record. " +
@@ -112,20 +102,13 @@ public sealed partial class LoadOrderService
                { OwnedChildFields = childFields }.WithRuntime(view.RuntimeAddressOf(fk));
     }
 
-    /// <summary>resolve_names (P7): annotate every field that RENDERS a form reference with its target's load-order
+    /// <summary>resolve_names: annotate every field that RENDERS a form reference with its target's load-order
     /// identity, hung on <see cref="FieldValue.Link"/> — DISPLAY-ONLY, never touching the round-trip Token. The
-    /// reference is the leaf's <see cref="FieldValue.Token"/>, or, on a line that has no token, the
-    /// <see cref="FieldValue.NoteRef"/> a container element's summary spelled ("[Effect]
-    /// BaseEffect=033975:Skyrim.esm") — so the annotation reaches the FormID wherever the read shows one.
-    /// Type-agnostic: a token that parses as a FormKey IS a form
-    /// reference (FormLinks and condition-target FLOIs both emit a bare FormKey token; scalars never do), so this
-    /// inherits coverage from the read surface with no per-type wiring. Resolution rides the SAME captured view +
-    /// open session the read used, memoised so a keyword that recurs across a whole record (or batch) resolves once.
-    /// An unresolvable target is a named unresolved <see cref="ResolvedRef"/> (Resolved=false), never dropped, bar
-    /// the engine-implicit forms, which <see cref="ResolveRefOne"/> answers with their hardcoded identity.
+    /// reference is the leaf's Token, or the <see cref="FieldValue.NoteRef"/> a container element's summary
+    /// spelled. Type-agnostic: a token that parses as a FormKey IS a form reference, so this inherits coverage
+    /// from the read surface with no per-type wiring. Resolution rides the SAME captured view and open session the
+    /// read used, memoised; an unresolvable target is a named unresolved <see cref="ResolvedRef"/>, never dropped.
     /// Copy-on-first-write: a record with no form-reference leaves returns the SAME instance.</summary>
-    /// <remarks>The memo carries the absence cache too, so a lane annotating many dangling links into ONE absent
-    /// plugin pays the explainer's profile parse and install sweep once, not once per FormKey.</remarks>
     static RecordFields AnnotateLinks(RecordFields rf, LoadOrderResolver.IndexView view,
                                       LoadOrderResolver.OverlaySession session, LinkMemo memo)
     {
@@ -134,7 +117,7 @@ public sealed partial class LoadOrderService
         {
             var f = rf.Fields[i];
             // Whichever carrier the line RENDERED its reference on: the round-trip token, or the FormID a
-            // container element's summary note spelled (FieldValue.NoteRef). One rule, one shape of value.
+            // container element's summary note spelled. One rule, one shape of value.
             var rendered = f.HasValue ? f.Token : f.NoteRef;
             if (rendered is { } tok && FormKey.TryFactory(tok, out var fk) && !fk.IsNull)
             {
@@ -146,24 +129,12 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>On a read of a field that OWNS CHILD RECORDS, state the ADDITIVE UNION the game assembles there —
-    /// every distinct child every touching plugin declares, keyed by FormID (#342 / #487).
-    /// <para>Placed references, a topic's INFOs and a worldspace's cells are declared per plugin and assembled by the
-    /// game from every plugin that declares them. An override touching a cell for an unrelated reason (occlusion,
-    /// lighting, music) carries no references and deletes none, so reading its <c>Persistent</c>/<c>Temporary</c>
-    /// reports an empty cell the game actually fills. The union is what the engine has; the field's own VALUE stays
-    /// the read body's own list, because that is what a write addresses by index.</para>
-    /// <para>Assembly is over the whole touching set, so a <c>plugin=</c>-scoped read of a base master is annotated
-    /// too: the plugins above it declare children it cannot see.</para>
-    /// <para>It costs one body per touching plugin, seeked by the record's own type, and only on a read that
-    /// actually EMITTED a child-bearing field — a projection that names none pays nothing. See
-    /// `docs/architecture/records-owned-child-declarers.md`.</para>
-    /// <para>Display-only: it rides <see cref="FieldValue.Display"/>, never the round-trip
-    /// <see cref="FieldValue.Token"/>, so it is invisible to the write surface, the read-proof oracle and the
-    /// conflict diff, and reaches every render through that one carrier.</para></summary>
+    /// every distinct child every touching plugin declares, keyed by FormID. The field's own VALUE stays the read
+    /// body's own list, because that is what a write addresses by index. Assembly is over the whole touching set,
+    /// so a <c>plugin=</c>-scoped read of a base master is annotated too. Display-only, riding
+    /// <see cref="FieldValue.Display"/>; the note is docs/architecture/records-owned-child-declarers.md.</summary>
     /// <param name="parentOf">The read's own <c>*parent</c> hop, so a row read off a CONTAINING record is judged
-    /// against that record. Without it, '<c>*parent.Temporary</c>' on a placed reference would report the winner
-    /// cell's contents unannotated while '<c>Temporary</c>' on the cell itself annotates them — two spellings of
-    /// one question disagreeing, which is the silently wrong answer this note exists to prevent.</param>
+    /// against that record and the two spellings of one question cannot disagree.</param>
     static RecordFields AnnotateOwnedChildContent(RecordFields rf, IMajorRecordGetter body,
                                                   LoadOrderResolver.IndexView view,
                                                   LoadOrderResolver.OverlaySession session, FormKey fk, string source,
@@ -173,9 +144,8 @@ public sealed partial class LoadOrderService
                                                   IReadOnlyCollection<string>? countFields = null)
     {
         annotated = null;
-        // Group this read's rows by how many '*parent' hops their path opens with: each group is judged against the
-        // record its rows were actually read off. A hopless read is the whole of one group, which is every read but
-        // a containment one.
+        // Group this read's rows by how many '*parent' hops their path opens with: each group is judged against
+        // the record its rows were actually read off.
         Dictionary<int, List<int>>? byHops = null;
         for (int i = 0; i < rf.Fields.Count; i++)
         {
@@ -191,8 +161,7 @@ public sealed partial class LoadOrderService
         Dictionary<string, ChildUnion?>? map = null;
         foreach (var (hops, rows) in byHops)
         {
-            // Climb to the record this group's rows were read on. A hop that cannot be taken annotates nothing —
-            // the rows themselves already carry the reason.
+            // Climb to the record this group's rows were read on; a hop that cannot be taken annotates nothing.
             var on = body; var onKey = fk;
             bool reached = true;
             for (int h = 0; h < hops && reached; h++)
@@ -202,14 +171,13 @@ public sealed partial class LoadOrderService
             }
             if (!reached) continue;
 
-            // Empty for all but three record types, so this is where the overwhelming majority of reads leave,
-            // before any index lookup.
+            // Empty for all but three record types, so this is where the overwhelming majority of reads leave.
             var owning = OwnedChildContent.Fields(on);
             if (owning.Count == 0) continue;
 
-            // Which of the lines THIS read produced are those fields — matched on the path BELOW the hops, since
-            // that is the part read on `on`. A depth>=2 read emits the same summary line at the bare field path
-            // before expanding its children, so the annotation lands in one place either way.
+            // Which of the lines THIS read produced are those fields — matched on the path BELOW the hops. A
+            // depth>=2 read emits the same summary line at the bare field path, so the annotation lands in one
+            // place either way.
             List<(int Row, string Field)>? hits = null;
             foreach (var i in rows)
             {
@@ -219,22 +187,17 @@ public sealed partial class LoadOrderService
             }
             if (hits is null) continue;
 
-            // Narrowed to the fields this read emitted: the union opens a body per touching plugin, and assembling a
-            // worldspace's cells for a read that asked for EditorID would be a cost nobody asked for.
-            // A field read only for a [*count] takes the INDEX-ONLY tier: the count renders one number and no line
-            // under it, so the assembled union — a body per touching plugin — would be paid for a sentence that
-            // number does not carry. Both tiers state that the value is this body's own list; naming the list
-            // without the token is what asks for the assembled one.
+            // Narrowed to the fields this read emitted: the union opens a body per touching plugin. A field read
+            // only for a [*count] takes the INDEX-ONLY tier, since the count renders one number and no line under
+            // it; docs/architecture/records-owned-child-declarers.md.
             var wanted = new Dictionary<string, OwnedChildShape>(hits.Count, StringComparer.Ordinal);
             foreach (var (row, field) in hits)
                 // Matched on the row's WHOLE read path, hops and all — the spelling countFields is keyed by. The
-                // field name below the hops is the wrong side of the comparison twice over: a hopped count column
-                // would never match it, and a field name that existed on both a record and its parent would match
-                // the wrong column.
+                // field name below the hops is the wrong side of the comparison twice over.
                 if (countFields?.Contains(rf.Fields[row].Path) != true) wanted[field] = owning[field];
 
-            // A hopped group was read off the CONTAINING record's winner body, so that is the subject the union is
-            // assembled against; a hopless group is the read's own source.
+            // A hopped group was read off the CONTAINING record's winner body, so that is the subject the union
+            // is assembled against; a hopless group is the read's own source.
             var onSource = hops == 0 ? source : view.ResolveWinner(onKey)?.WinnerPlugin;
             if (onSource is null) continue;
 
@@ -242,27 +205,23 @@ public sealed partial class LoadOrderService
             if (memo is not null && wanted.Count > 0)
                 unions = memo.Union(onKey, () => OwnedChildUnion.Compute(view, session, onKey, onSource, on, wanted));
             // Sole toucher: its own body IS the whole story, and the index-only tier has nothing to say about
-            // plugins that are not there. A union the lane assembled proves there were others — Compute returns
-            // null below two touchers — so past this line every annotated field has at least one to name.
+            // plugins that are not there.
             var touchers = view.TouchingPlugins(onKey);
             if (unions is null && touchers is not { Count: > 1 }) continue;
             var others = touchers!.Count - 1;
 
             rebuilt ??= new List<FieldValue>(rf.Fields);
             // The ANNOTATED paths and their unions travel with the outcome, because the render decides its
-            // response-level clause off the fields it actually emitted — a path that never reaches the medium (a cap
-            // hit inside the field loop, a truncated json array, a manifest-only spill) must not earn a clause. A NULL
-            // value is the index-only tier: annotated, but by a lane that did not open the other bodies. The key is
-            // the row's DISPLAY path, hops and all, because that is what the render matches against.
+            // response-level clause off the fields it actually emitted. A NULL value is the index-only tier. The
+            // key is the row's DISPLAY path, hops and all, because that is what the render matches against.
             map ??= new Dictionary<string, ChildUnion?>(StringComparer.Ordinal);
             foreach (var (i, field) in hits)
             {
-                // A field the union lane was ASKED for must be in the union it computed: a missing key would be a
-                // memo answering for a different field set, which is a fault to throw on, not an index-only note.
+                // A field the union lane was ASKED for must be in the union it computed: a missing key is a fault
+                // to throw on, not an index-only note.
                 var u = unions is not null && wanted.ContainsKey(field) ? unions[field] : null;
-                // These fields are containers and owned records; the other producers of Display are the flags decode,
-                // which fires on [Flags] enum leaves alone, and the opaque-blob annotation, which fires on bytes
-                // leaves alone — so there is no annotation here to displace.
+                // These fields are containers and owned records; the other producers of Display fire on [Flags]
+                // enum leaves and bytes leaves alone, so there is no annotation here to displace.
                 rebuilt[i] = rebuilt[i] with { Display = u is null ? ReadSentences.NotReadNote(others) : ReadSentences.UnionNote(u) };
                 map[rebuilt[i].Path] = u;
             }
@@ -272,14 +231,10 @@ public sealed partial class LoadOrderService
         return rf with { Fields = rebuilt };
     }
 
-    /// <summary>One CALL's assembled unions, keyed by record. The union costs a body per touching plugin, so a
-    /// formid named twice in one batch pays once; the projection and the <c>plugin=</c> scope are fixed for a whole
-    /// call, so the record is the whole key.
+    /// <summary>One CALL's assembled unions, keyed by record, so a formid named twice in one batch pays once.
     /// <para>Its presence is also the SWITCH: a lane that hands one in gets the union, a lane that hands null gets
-    /// the index-only note. The scan lanes (the scan's detail rows, the dense grid, the artifact
-    /// spill of a scan) discover their row count rather than being handed it, so a body-per-toucher per row is a
-    /// cost the caller never asked for — they state the index-only tier and name the formids lane, which assembles
-    /// the union for records the caller named.</para></summary>
+    /// the index-only note. The scan lanes discover their row count rather than being handed it, so they state the
+    /// index-only tier; docs/architecture/records-owned-child-declarers.md.</para></summary>
     internal sealed class ChildUnionMemo
     {
         readonly Dictionary<FormKey, IReadOnlyDictionary<string, ChildUnion>?> _byRecord = new();
@@ -292,16 +247,12 @@ public sealed partial class LoadOrderService
         }
     }
 
-    /// <summary>Why a FormID resolved to nothing. "Not present" has three causes and one sentence used to serve
-    /// them all: the defining plugin was excluded, the plugin is not in the order, or the plugin IS in the order
-    /// and defines no such record. All three are answerable from the index in hand, so every emitter states which
-    /// one it is rather than leaving the caller a second call to find out.
-    /// <para>The ESL clause on the third is stated only when the index says the plugin IS light-flagged
-    /// (<see cref="LoadOrderResolver.IndexView.IsLightFlagged"/>). A compacted edition's 0x800+ FormIDs are a real
-    /// and common cause, but 0x800 is also where a plain Mutagen-authored master's records start, so asserting
-    /// compaction off the FormID alone tells a caller holding an ordinary full master a false cause. Unflagged, the
-    /// sentence states the fact it has — this plugin defines no such record — and names the call that lists what it
-    /// does define.</para></summary>
+    /// <summary>Why a FormID resolved to nothing. "Not present" has three causes — the defining plugin was
+    /// excluded, it is not in the order, or it IS in the order and defines no such record — all answerable from
+    /// the index in hand, so every emitter states which one it is.
+    /// <para>The ESL clause is stated only when the index says the plugin IS light-flagged: 0x800 is also where a
+    /// plain Mutagen-authored master's records start, so asserting compaction off the FormID alone would tell a
+    /// caller holding an ordinary full master a false cause.</para></summary>
     static string UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk,
                                    Dictionary<string, string>? absenceMemo = null)
     {
@@ -318,12 +269,9 @@ public sealed partial class LoadOrderService
                    $"overrides it either.{esl} List what it actually defines with housecarl_records " +
                    $"plugins={{\"names\": [\"{defining}\"], \"defined_in\": true}}.";
         }
-        // One clause, one explainer call, and the spelling hint only where nothing better can be said: a stated
-        // cause ("installed, but UNTICKED in plugins.txt") makes "check the filename" a contradiction. The
+        // One clause, one explainer call, and the spelling hint only where nothing better can be said. The
         // explainer costs a profile parse plus an install sweep, so a batch resolving many dangling refs into the
-        // SAME missing plugin pays for it once (the same memo the write lane keeps).
-        // Memoised on the PLUGIN, never the FormID: the tail is the same for every record of one missing plugin,
-        // and the FormID-bearing head is composed fresh below.
+        // SAME missing plugin pays for it once, memoised on the PLUGIN rather than the FormID.
         if (absenceMemo is null || !absenceMemo.TryGetValue(defining, out var tail))
         {
             var absence = view.AbsenceClause(defining, out var cause);
@@ -336,13 +284,12 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>How deep the conflict diff reads each touching body. It must compare CONTENT rather than depth-1
-    /// count summaries, which hide equal-count list deltas — deep enough to reach every modeled scalar leaf. The walk
-    /// is bounded by the modeled-corpus boundary and ReadEngine's expansion cap, whose truncation sentinel the diff
-    /// surfaces as Complete=false.</summary>
+    /// count summaries, which hide equal-count list deltas. Bounded by the modeled-corpus boundary and
+    /// ReadEngine's expansion cap, whose truncation sentinel the diff surfaces as Complete=false.</summary>
     internal const int ConflictDiffDepth = 16;
 
-    /// <summary>A header-only summary for one record (winner + type + editorid, no field dump) — the compact
-    /// one-line-per-match view a cross-plugin scan uses by default. One winner-body fetch; holds nothing.</summary>
+    /// <summary>A header-only summary for one record — the compact one-line-per-match view a cross-plugin scan
+    /// uses by default. One winner-body fetch; holds nothing.</summary>
     public RecordSummary ResolveSummary(FormKey fk)
     {
         var resolver = Resolver;
@@ -365,23 +312,17 @@ public sealed partial class LoadOrderService
 
     // ---- pinned per-match fills ------------------------------------------------------------------------
 
-    /// <summary>A pinned (resolver, view) pair, carried on <see cref="CrossQueryOutcome.Pin"/> and
-    /// <see cref="ReadOutcome.Pin"/> so the render-time fills a response makes — cross-query detail bodies, lazy
-    /// summaries, conflict-tree blocks — read the build the outcome's epoch names rather than a fresh capture of an
-    /// adjacent build. Pure data, no handles.</summary>
+    /// <summary>A pinned (resolver, view) pair, carried on the outcome so the render-time fills a response makes
+    /// read the build the outcome's epoch names. Pure data, no handles.</summary>
     internal sealed record ViewPin(LoadOrderResolver Resolver, LoadOrderResolver.IndexView View);
 
-    /// <summary>The cross-query detail fill, pinned to the scan's build when the outcome carries one. Without the pin
-    /// each row re-gates and re-captures, so a freshness rebuild landing mid-render would fill the remaining rows from
-    /// a build the header's epoch does not name; pinning also drops the per-row stat sweep. Bodies are still fetched
-    /// from disk at fill time — the pin freezes winner IDENTITY, and a file that changed under a pinned fetch surfaces
-    /// as the named fetch-inconsistency error. Falls back to the public path when the outcome carries no pin.
-    /// <para>No <see cref="ChildUnionMemo"/> is handed in: this is the SCAN detail lane, whose row count is
-    /// discovered rather than named, so a child-bearing field here states the index-only note and names the
-    /// formids lane instead of opening a body per touching plugin per row.</para></summary>
-    /// <param name="session">The render's one overlay session, so a plugin is mapped once for the call rather than
-    /// once per row. <paramref name="prefetched"/> is this row's body when the caller gathered it in bulk (see
-    /// <see cref="ScanDetailReader"/>); both are null on the plain per-row path.</param>
+    /// <summary>The cross-query detail fill, pinned to the scan's build when the outcome carries one; without the
+    /// pin each row re-gates and re-captures. Bodies are still fetched from disk at fill time — the pin freezes
+    /// winner IDENTITY, and a file that changed under a pinned fetch surfaces as the named fetch-inconsistency
+    /// error. No <see cref="ChildUnionMemo"/> is handed in: this is the SCAN detail lane, so a child-bearing field
+    /// states the index-only note (docs/architecture/records-owned-child-declarers.md).</summary>
+    /// <param name="session">The render's one overlay session; <paramref name="prefetched"/> is this row's body
+    /// when the caller gathered it in bulk.</param>
     internal ReadOutcome ResolveReadOn(CrossQueryOutcome q, FormKey fk, string? plugin, IReadOnlyList<string>? fields,
                                        bool conflictTree, int depth = 1, bool resolveNames = false,
                                        LinkMemo? linkMemo = null,
@@ -396,25 +337,20 @@ public sealed partial class LoadOrderService
               with { Stamp = p.View.Stamp, Pin = p }
             : ResolveRead(fk, plugin, fields, conflictTree, depth, resolveNames, linkMemo, containerHint, depths, countFields);
 
-    /// <summary>The summary twin of <see cref="ResolveReadOn"/> — the conflicts-only lazy fill, pinned to the scan's
-    /// build when the outcome carries one.</summary>
+    /// <summary>The summary twin of <see cref="ResolveReadOn"/> — the conflicts-only lazy fill.</summary>
     internal RecordSummary ResolveSummaryOn(CrossQueryOutcome q, FormKey fk)
         => q.Pin is { } p ? ResolveSummary(p.Resolver, p.View, fk) : ResolveSummary(fk);
 
     /// <summary>What a folded tree carries besides its nodes: the winner's identity, and the precise owned-child
-    /// tier for the whole tree. Empty child declarers when the visitor stopped the walk early — the tier is a
-    /// statement about every provider, and a partial one would read as a claim about providers never looked at.</summary>
+    /// tier for the whole tree — empty when the visitor stopped the walk early, since a partial tier would read as
+    /// a claim about providers never looked at.</summary>
     internal sealed record TreeFill(string? Type, string? EditorId, IReadOnlyList<ChildDeclarers> ChildDeclarers);
 
-    /// <summary>The conflict-tree fill off a pinned build — used by the render whenever the outcome it is decorating
-    /// carries a <see cref="ViewPin"/>, so the tree's membership and the response's epoch stamp name the same build.
-    /// <para>One row's <see cref="FoldTreeChunkPinned"/>, in its own session. One provider's fields are handed to
-    /// <paramref name="onNode"/> and released before the next body is read — the diff the render does needs one
-    /// reference plus one provider at a time, and holding every provider of a record hundreds of plugins touch was
-    /// gigabytes for two records (#722). The walk runs WINNER FIRST for that reason: the reference pole is the
-    /// winner unless the call named another, so the first node read is the one the rest are compared against.
-    /// <paramref name="onNode"/> therefore sees the winner first and the lowest-priority provider last — the reverse
-    /// of the render's own order — and returns false to stop the walk.</para></summary>
+    /// <summary>The conflict-tree fill off a pinned build, so the tree's membership and the response's epoch stamp
+    /// name the same build. One provider's fields are handed to <paramref name="onNode"/> and released before the
+    /// next body is read, because the diff needs one reference plus one provider at a time. The walk runs WINNER
+    /// FIRST, so the first node read is the one the rest are compared against, and <paramref name="onNode"/>
+    /// returns false to stop the walk.</summary>
     internal TreeFill? FoldTreePinned(ViewPin p, FormKey fk, IReadOnlyList<string>? fields,
                                       Func<string, RecordFields, bool, bool> onNode)
     {
@@ -424,8 +360,7 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>The whole tree materialised — every provider's fields at once, in priority order with the winner
-    /// last. <see cref="FoldTreePinned"/> with a visitor that keeps what it is handed, for a caller that genuinely
-    /// needs the providers side by side; the render does not, and pays one held provider instead.</summary>
+    /// last. For a caller that genuinely needs the providers side by side; the render does not.</summary>
     internal ConflictTreeView? ResolveTreePinned(ViewPin p, FormKey fk, IReadOnlyList<string>? fields)
     {
         var nodes = new List<ConflictNodeView>();
@@ -435,10 +370,8 @@ public sealed partial class LoadOrderService
         return new ConflictTreeView(nodes, fill.ChildDeclarers);
     }
 
-    /// <summary>The best-effort display Name of a record body — reflection-generic via Mutagen's <c>INamedGetter</c>
-    /// aspect, so it inherits coverage from the model (no per-record-type wiring): every named record answers, a
-    /// type with no Name (KYWD, most references) returns null. A translated Name resolves to its default-language
-    /// string.</summary>
+    /// <summary>The best-effort display Name of a record body, reflection-generic via Mutagen's
+    /// <c>INamedGetter</c> aspect, so it inherits coverage from the model; null for a type with no Name.</summary>
     static string? ReadDisplayName(IMajorRecordGetter body) =>
         body is INamedGetter named && !string.IsNullOrEmpty(named.Name) ? named.Name : null;
 
@@ -449,17 +382,15 @@ public sealed partial class LoadOrderService
         /// <summary>Resolved identity per target, so a keyword recurring across a batch resolves once.</summary>
         public Dictionary<FormKey, ResolvedRef> Refs { get; } = new();
 
-        /// <summary>The unresolved-FormID tail per missing plugin, so the absence explainer — a profile parse plus
-        /// an install sweep — runs once per plugin rather than once per dangling FormKey.</summary>
+        /// <summary>The unresolved-FormID tail per missing plugin, so the absence explainer runs once per plugin
+        /// rather than once per dangling FormKey.</summary>
         public Dictionary<string, string> Absences { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>Resolve ONE FormKey to its load-order identity (type/editorid/name/winner) off a captured view + open
-    /// session, memoised so a target that recurs across a batch (the SAME keyword on 500 items) resolves once. A
-    /// FormKey not in the order is a named unresolved result (Resolved=false), never dropped or guessed — except the
-    /// engine-implicit forms (PlayerRef 000014, Player 000007), which the index cannot resolve but are real: those
-    /// answer with their hardcoded identity and winner "&lt;engine&gt;", the same <see cref="EngineImplicit"/>
-    /// exemption the error and dialogue checks apply.</summary>
+    /// <summary>Resolve ONE FormKey to its load-order identity off a captured view + open session, memoised so a
+    /// target recurring across a batch resolves once. A FormKey not in the order is a named unresolved result,
+    /// never dropped or guessed — except the engine-implicit forms, which answer with their hardcoded identity and
+    /// winner "&lt;engine&gt;".</summary>
     static ResolvedRef ResolveRefOne(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                      FormKey fk, LinkMemo memo)
     {
@@ -469,8 +400,8 @@ public sealed partial class LoadOrderService
         if (w is null)
             result = EngineImplicit.TryDescribe(fk, out var eiType, out var eiEditorId)
                 ? new ResolvedRef(FormIdToken.Of(fk), Resolved: true, Type: eiType, EditorId: eiEditorId, Winner: "<engine>")   // engine-implicit: hardcoded, real, defined by no plugin
-                // Valid FormKey, no active plugin defines it. The reason is the three-cause sentence every other
-                // lane states, so the identity form's row says WHICH cause instead of a bare "not present".
+                // Valid FormKey, no active plugin defines it; the reason is the three-cause sentence every other
+                // lane states.
                 : new ResolvedRef(FormIdToken.Of(fk), Resolved: false, Error: UnresolvedFormId(view, fk, memo.Absences));
         else
         {
@@ -484,9 +415,8 @@ public sealed partial class LoadOrderService
         return result;
     }
 
-    /// <summary>Bulk name resolution: turn a list of FormIDs into their load-order identity (type, editorid, name,
-    /// winner) in one call over one captured view, memoised across the batch. A bad or absent FormID yields a per-item
-    /// result carrying its reason — Error for a malformed string, Resolved=false for a valid-but-absent FormKey —
+    /// <summary>Bulk name resolution: a list of FormIDs to their load-order identity in one call over one captured
+    /// view, memoised across the batch. A bad or absent FormID yields a per-item result carrying its reason
     /// without failing the whole batch. Deliberately minimal: no fields, depth or conflict tree.</summary>
     public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids) => ResolveRefs(formids, out _);
 
@@ -494,12 +424,9 @@ public sealed partial class LoadOrderService
         => ResolveRefs(formids, null, out epoch, out _);
 
     /// <summary>The artifact-epoch mismatch refusal — one wording for every consuming lane, naming both epochs and
-    /// the two legitimate next moves. Deliberately no stale-override parameter: re-projecting goes through the
-    /// server, and reading the old file as a snapshot of its own build is the client's lane.
-    /// <para>Two mismatches, two sentences. An epoch written in a format this build no longer computes
-    /// (<see cref="LoadOrderResolver.IsCurrentEpochFormat"/>) says NOTHING about the load order — the two strings
-    /// are not comparable — so claiming the order changed would be a claim the server cannot support. The next move
-    /// is the same either way, but the reason has to be the true one.</para></summary>
+    /// the two legitimate next moves. Deliberately no stale-override parameter. Two mismatches, two sentences: an
+    /// epoch written in a format this build no longer computes says NOTHING about the load order, so claiming the
+    /// order changed would be a claim the server cannot support.</summary>
     internal static string ArtifactEpochMismatch(ArtifactDemand d, string current) =>
         $"artifact '{d.Path}' was captured at epoch={d.Epoch}, but the CURRENT load-order build is epoch={current} — " +
         (LoadOrderResolver.IsCurrentEpochFormat(d.Epoch)
@@ -509,13 +436,11 @@ public sealed partial class LoadOrderService
         "Re-run the producing query (with to_file= to re-materialize) against the current build; the old file stays " +
         "readable with your own tools as an honest snapshot of ITS build. There is deliberately no stale-override switch.";
 
-    /// <summary>As above, also handing back the captured build's <paramref name="epoch"/> fingerprint — the batch is
-    /// one capture, and the render stamps that identity into the response's accounting.
-    /// <see cref="ResolvedRef"/> itself stays epoch-free: it is the per-row identity DTO, reused as the resolve_names
-    /// annotation where a per-row stamp would be noise.
-    /// <para><paramref name="artifactDemand"/>, when the formid list came from an artifact, is checked against THIS
-    /// capture's epoch — the same build that answers — and a mismatch hands back
-    /// <paramref name="artifactRefusal"/> with no rows, stamped with <paramref name="epoch"/>.</para></summary>
+    /// <summary>As above, also handing back the captured build's <paramref name="epoch"/> fingerprint — the batch
+    /// is one capture. <see cref="ResolvedRef"/> itself stays epoch-free: it is the per-row identity DTO, reused
+    /// as the resolve_names annotation where a per-row stamp would be noise.
+    /// <para><paramref name="artifactDemand"/> is checked against THIS capture's epoch, and a mismatch hands back
+    /// <paramref name="artifactRefusal"/> with no rows.</para></summary>
     public IReadOnlyList<ResolvedRef> ResolveRefs(IReadOnlyList<string> formids, ArtifactDemand? artifactDemand,
                                                   out OrderStamp epoch, out string? artifactRefusal)
     {
@@ -544,37 +469,33 @@ public sealed partial class LoadOrderService
 
     // ---- pairwise record diff --------------------------------------------------------------------------
 
-    /// <summary>If <paramref name="path"/> is the EXACT file the active order loads for its filename, the plugin name
-    /// the order knows it by; else null. The full-path compare is the whole point: a backup that shares the filename
-    /// is a different file and must keep reading as off-order (that same-name/different-file pair is the ordinary
-    /// old-version-vs-live diff). Costs nothing — the index already carries each active plugin's path. Same junction
-    /// caveat as the on-disk locate: a path reaching the file through a junction won't string-match, so it keeps the
-    /// off-order lane — the pre-fix answer, never a wrong claim in the other direction.</summary>
+    /// <summary>If <paramref name="path"/> is the EXACT file the active order loads for its filename, the plugin
+    /// name the order knows it by; else null. The full-path compare is the point: a backup sharing the filename is
+    /// a different file and must keep reading as off-order. A path reaching the file through a junction will not
+    /// string-match and keeps the off-order lane — the pre-fix answer, never a wrong claim the other way.</summary>
     static string? ActiveNameForPath(LoadOrderResolver.IndexView view, string path)
     {
         string full;
         try { full = Path.GetFullPath(path.Trim()); } catch { return null; }
         var name = Path.GetFileName(full);
         if (name.Length == 0 || !view.ContainsPlugin(name)) return null;
-        // An excluded plugin is still in the name table (exclusion is a separate set) and the active lane can only
-        // refuse it. Reading its file directly is the escape hatch for that case — records ahead of the unparseable
-        // one still come back — so a path to one must keep taking the off-order lane.
+        // An excluded plugin is still in the name table and the active lane can only refuse it; reading its file
+        // directly is the escape hatch, so a path to one must keep taking the off-order lane.
         if (view.ExcludedPlugins.ContainsKey(name)) return null;
         var active = view.PluginPath(name);
         return !string.IsNullOrEmpty(active) && SamePluginFile(active, full) ? name : null;
     }
 
-    /// <summary>One side of a housecarl_diff_record comparison: the plugin named, WHERE its version was found (active
-    /// order, or OUT-OF-LOAD-ORDER on disk), whether it's in the active order, and the record identity it carries.</summary>
+    /// <summary>One side of a housecarl_diff_record comparison: the plugin named, WHERE its version was found,
+    /// whether it is in the active order, and the record identity it carries.</summary>
     public sealed record DiffPole(string Plugin, string Where, bool InOrder, string? RecordType, string? EditorId)
     {
         /// <summary>What tells this pole apart from a same-named one on the other arm — the mod folder it was read
-        /// out of, or "off-order" when the layer names nothing. Set on the off-order arm only: two poles can share a
-        /// filename and be different files, and the active one is then the unqualified side.</summary>
+        /// out of, or "off-order". Set on the off-order arm only.</summary>
         internal string? Qualifier { get; init; }
 
-        /// <summary>The pole's label for a render that shows both sides. Qualified only when the other side carries
-        /// the same filename, so the ordinary one-pole-per-name case reads unchanged.</summary>
+        /// <summary>The pole's label for a render that shows both sides, qualified only when the other side
+        /// carries the same filename.</summary>
         public string LabelVersus(string? otherPlugin) =>
             Qualifier is { } q && string.Equals(Plugin, otherPlugin, StringComparison.OrdinalIgnoreCase)
                 ? $"{Plugin} ({q})" : Plugin;
@@ -582,11 +503,10 @@ public sealed partial class LoadOrderService
 
     // ---- batch ------------------------------------------------------------------------------------------
 
-    /// <summary>Resolve and read many records in one call. Each formid runs the same <see cref="ResolveRead"/> path,
-    /// so a bad or absent formid yields a per-item recoverable error without failing the batch. Returns one
-    /// <see cref="ReadOutcome"/> per input, in order. When <paramref name="plugin"/> is set, every formid is read as
-    /// that plugin's version — its override, not the load-order winner — and a formid it does not touch yields its
-    /// own per-item error.</summary>
+    /// <summary>Resolve and read many records in one call. Each formid runs the same <see cref="ResolveRead"/>
+    /// path, so a bad or absent formid yields a per-item recoverable error without failing the batch; one
+    /// <see cref="ReadOutcome"/> per input, in order. Under <paramref name="plugin"/> every formid is read as
+    /// that plugin's version, and one it does not touch yields its own per-item error.</summary>
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
                                                    bool resolveNames = false, string? plugin = null,
                                                    string? containerHint = ReadEngine.DepthExpandHint,
@@ -596,10 +516,10 @@ public sealed partial class LoadOrderService
                                                    IReadOnlyCollection<string>? countFields = null)
         => ResolveBatch(formids, fields, conflictTree, depth, resolveNames, plugin, null, out _, out _, containerHint, depths, ct, getterTypes, countFields);
 
-    /// <summary>The artifact-aware overload: <paramref name="artifactDemand"/> (a formids=@artifact input) is checked
-    /// against THIS capture's epoch — the same build that would answer — and a mismatch hands back
-    /// <paramref name="artifactRefusal"/> and <paramref name="refusalEpoch"/> with no rows, because a refusal that
-    /// consulted a build renders stamped with it.</summary>
+    /// <summary>The artifact-aware overload: <paramref name="artifactDemand"/> is checked against THIS capture's
+    /// epoch — the same build that would answer — and a mismatch hands back <paramref name="artifactRefusal"/> and
+    /// <paramref name="refusalEpoch"/> with no rows, because a refusal that consulted a build renders stamped
+    /// with it.</summary>
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth,
                                                    bool resolveNames, string? plugin, ArtifactDemand? artifactDemand,
                                                    out string? artifactRefusal, out OrderStamp? refusalEpoch,
@@ -622,13 +542,12 @@ public sealed partial class LoadOrderService
         var linkMemo = resolveNames ? new LinkMemo() : null;   // one link-resolution cache across the whole batch
         var unionMemo = new ChildUnionMemo();                  // the caller NAMED these records: the union lane, one assembly per record
         // One overlay cache for the whole batch. The memo dedupes a repeated FORMID; this dedupes a repeated
-        // PLUGIN, which is the shape a batch actually has — 100 exterior cells share their touchers, and a session
-        // per record re-mmaps every one of them per row. Disposed with the call, like any other read's.
+        // PLUGIN, which is the shape a batch actually has.
         using var batchSession = resolver.OpenSession();
         var outcomes = new List<ReadOutcome>(formids.Count);
-        // Every FormID is parsed up front so the bodies can be gathered a CHUNK of rows at a time — one enumeration
-        // per source plugin, rather than the whole-plugin seek per record ResolveRead falls back to (#582). The
-        // scan's body forms come through here, so this lane and the scan render lane cost the same per row.
+        // Every FormID is parsed up front so the bodies can be gathered a CHUNK of rows at a time — one
+        // enumeration per source plugin — and the scan's body forms come through here, so this lane and the scan
+        // render lane cost the same per row.
         var keys = new FormKey[formids.Count];
         var parseErrors = new string?[formids.Count];
         for (int i = 0; i < formids.Count; i++)
@@ -660,44 +579,38 @@ public sealed partial class LoadOrderService
     // ---- `records`: the one-pole batch (source=named, wherever the plugin lives) -----------------------
 
     /// <summary>How a `records` source= pole resolved: active in the order, or an on-disk file outside it. The
-    /// response always states which arm, so nothing resolves silently. An off-order file sits outside the epoch
-    /// fingerprint, which <see cref="EpochCoversPole"/> carries as data for the render.</summary>
+    /// response always states which arm; an off-order file sits outside the epoch fingerprint.</summary>
     public sealed record PoleInfo(string Plugin, string Where, bool InOrder, bool EpochCoversPole)
     {
-        /// <summary>The on-disk locate result for the off-order arm (null on the active arm), carried so the
-        /// consuming lane can open the file without re-running the locate.</summary>
+        /// <summary>The on-disk locate result for the off-order arm, carried so the consuming lane need not
+        /// re-run the locate.</summary>
         internal string? Path { get; init; }
 
-        /// <summary>The layer the off-order copy came from ("mod 'X'", the overwrite folder), when the locate's own
-        /// label names one — carried as a fact rather than re-derived from <see cref="Where"/>, so a render that has
-        /// to tell two same-named copies apart names the folder instead of parsing a sentence.</summary>
+        /// <summary>The layer the off-order copy came from, carried as a fact rather than re-derived from
+        /// <see cref="Where"/>.</summary>
         internal string? Layer { get; init; }
 
-        /// <summary>The epoch of the build the arm was judged against. The caller compares it against its dispatch's
-        /// own stamp, so a load-order change between probe and dispatch surfaces as a loud retry refusal instead of
-        /// an arm statement about a different build.</summary>
+        /// <summary>The epoch of the build the arm was judged against, so a load-order change between probe and
+        /// dispatch surfaces as a loud retry refusal.</summary>
         public OrderStamp? Stamp { get; init; }
 
         /// <summary>The FILENAME is in the order even though THIS COPY is not — a shadowed copy addressed by
-        /// {file, mod}. Carried from the probe so a caller can say the true thing about the name, and label the
-        /// copy apart, without capturing a second build to ask.</summary>
+        /// {file, mod}.</summary>
         public bool NameActive { get; init; }
 
         /// <summary>That build's fingerprint, read through the stamp.</summary>
         public string? Epoch => Stamp?.Epoch;
     }
 
-    /// <summary>Resolve a `records` source= pole against ONE captured view: active in the order, else located on disk
-    /// across the whole install. A non-null error means it was found in neither place (naming both), or is ambiguous
-    /// across mod folders (naming them and the {file, mod} disambiguator).
-    /// <para>The {file, mod} form addresses ONE on-disk copy, which is the whole reason it exists: several mod
-    /// folders ship the same filename and MO2 serves one. So it does NOT short-circuit to the active copy of the
-    /// filename — the locate runs first, and the named copy resolves to the active arm only when it IS the copy the
-    /// game loads. A plain filename and a direct path are unchanged.</para></summary>
+    /// <summary>Resolve a `records` source= pole against ONE captured view: active in the order, else located on
+    /// disk across the whole install. A non-null error means it was found in neither place, or is ambiguous across
+    /// mod folders. The {file, mod} form addresses ONE on-disk copy, so it does NOT short-circuit to the active
+    /// copy of the filename: the locate runs first, and the named copy resolves to the active arm only when it IS
+    /// the copy the game loads.</summary>
     (PoleInfo? Pole, string? Error) ResolvePoleArm(LoadOrderResolver.IndexView view, string plugin, string? mod)
     {
-        // Judged on the argument as given: the rewrite below turns a path into a bare filename, which would flip a
-        // path pole into the mod= lane and read a file the caller did not name.
+        // Judged on the argument as given: the rewrite below turns a path into a bare filename, which would flip
+        // a path pole into the mod= lane.
         bool namesMod = !string.IsNullOrWhiteSpace(mod) && !LooksLikePath(plugin);
 
         // A pole addressed by path that IS the active order's file resolves back to its plugin name.
@@ -718,8 +631,8 @@ public sealed partial class LoadOrderService
         var comp = Mo2LoadOrder.ReadComposition(profileDir);
         var loc = LocatePluginFileOnDisk(comp, modsDir, dataDir, overwriteDir, plugin, mod);
         if (loc.Error is not null)
-            // A pole found in neither place names both places searched. When the filename IS active, the named mod
-            // folder is the only place searched, so the sentence says that instead of claiming it is not active.
+            // A pole found in neither place names both places searched; when the filename IS active, the named
+            // mod folder is the only place searched.
             return (null, activeFilename
                 ? $"source '{plugin}': {loc.Error} The filename IS active in the load order — drop mod= to read the copy the game loads."
                 : $"source '{plugin}' resolves in NEITHER place the one-pole rule searches: it is not ACTIVE in " +
@@ -736,10 +649,9 @@ public sealed partial class LoadOrderService
                 { Path = loc.Path, Layer = loc.WhereNamesLayer ? loc.Where : null, NameActive = activeFilename }, null);
     }
 
-    /// <summary>The tool-layer probe: WHICH arm would this source= pole resolve to (active / off-order / neither)?
-    /// Uses its own capture and stamps its epoch on the <see cref="PoleInfo"/>; the consuming ACTIVE-arm scan
-    /// re-captures and compares stamps (a divergence refuses loud — retry). The OFF-ORDER arm's lane reads the
-    /// file directly and consults no further build, so its arm statement is simply the probe's own build's truth.</summary>
+    /// <summary>The tool-layer probe: WHICH arm would this source= pole resolve to. It uses its own capture and
+    /// stamps its epoch on the <see cref="PoleInfo"/>; the consuming ACTIVE-arm scan re-captures and compares
+    /// stamps, and a divergence refuses loud.</summary>
     public PoleInfo? ProbeSourceArm(string plugin, string? mod, out string? error)
     {
         var view = Resolver.Capture();
@@ -750,10 +662,9 @@ public sealed partial class LoadOrderService
 
     /// <summary>The list-driven `records` read under a named source pole: resolve the pole once — active in the
     /// order, else a file on disk in an enabled, disabled or unlisted mod folder — and read every FormID's version
-    /// from it off ONE captured build. A pole found in neither place is a whole-call refusal naming both places
-    /// searched; a record the pole does not touch is a per-item refusal naming the actual touchers, never a silent
-    /// drop; a bad FormID is a per-item error. Off-order reads carry winner context where the record also resolves in
-    /// the active order, and the pole's file content is declared outside the epoch fingerprint.</summary>
+    /// from it off ONE captured build. A pole found in neither place is a whole-call refusal naming both places;
+    /// a record the pole does not touch is a per-item refusal naming the actual touchers; a bad FormID is a
+    /// per-item error. The pole's file content is declared outside the epoch fingerprint.</summary>
     public IReadOnlyList<ReadOutcome> ResolveBatchFromPole(
         IReadOnlyList<string> formids, string plugin, string? mod,
         IReadOnlyList<string>? fields, int depth, bool resolveNames,
@@ -788,14 +699,12 @@ public sealed partial class LoadOrderService
 
         if (arm.InOrder)
         {
-            // Active arm: the same per-item reads ResolveBatch(plugin=) does, off the same captured view, with
-            // excluded-plugin and untouched-record refusals per item and the touchers named.
+            // Active arm: the same per-item reads ResolveBatch(plugin=) does, off the same captured view.
             var linkMemo = resolveNames ? new LinkMemo() : null;
             var unionMemo = new ChildUnionMemo();   // named records again: the union lane
             using var batchSession = resolver.OpenSession();   // and one overlay cache for the batch, as ResolveBatch has
             var outcomes = new List<ReadOutcome>(formids.Count);
-            // Parsed up front and gathered a chunk at a time, the same shape ResolveBatch reads by: one enumeration
-            // of the pole per chunk instead of a whole-plugin seek per record.
+            // Parsed up front and gathered a chunk at a time, the same shape ResolveBatch reads by.
             var keys = new FormKey[formids.Count];
             var parseErrors = new string?[formids.Count];
             for (int i = 0; i < formids.Count; i++)
@@ -824,8 +733,8 @@ public sealed partial class LoadOrderService
             return outcomes;
         }
 
-        // Off-order arm: the locate already ran in ResolvePoleArm, so open the overlay once and pick every requested
-        // record in a single enumeration pass.
+        // Off-order arm: the locate already ran in ResolvePoleArm, so open the overlay once and pick every
+        // requested record in a single enumeration pass.
         string dataDirForOverlay;
         try { lock (_gate) { EnsurePathsDerived(); dataDirForOverlay = _dataDir; } }
         catch (Exception ex)
@@ -886,10 +795,9 @@ public sealed partial class LoadOrderService
                 ct.ThrowIfCancellationRequested();   // a client that aborted stops the read inside one record
                 if (!found.TryGetValue(fk, out var rec))
                 {
-                    // The untouched contract holds on this arm too: name the plugins that DO touch the record in the
-                    // active order, or say plainly that nothing does. TouchingPlugins returns null rather than
-                    // throwing for a FormKey outside the index — e.g. an old patch whose master is also disabled —
-                    // so the ?? is load-bearing, not defensive.
+                    // The untouched contract holds on this arm too: name the plugins that DO touch the record, or
+                    // say plainly that nothing does. TouchingPlugins returns null for a FormKey outside the index,
+                    // so the ?? is load-bearing.
                     IReadOnlyList<string> touchers = view.TouchingPlugins(fk) ?? Array.Empty<string>();
                     results[index] = ReadOutcome.Fail(fk,
                         $"file '{plugin}' ({poleWhere}) does not define or override {FormIdToken.Of(fk)} — it has no version of this record. " +
@@ -917,15 +825,13 @@ public sealed partial class LoadOrderService
     /// replay: pre is the plain winner body, post the winner body after the INI layer replays.</summary>
     public enum PoleKind { Winner, Named, PreviousProvider, Overlay }
 
-    /// <summary>A parsed pole expression — the tool layer parses the wire spelling ("winner", a plugin filename,
-    /// {file, mod}, "previous_provider", {overlay, state, ini, subfolder}) into this engine value. <see cref="Draft"/>
-    /// is the not-yet-placed INI an overlay post pole folds into the live layer.</summary>
+    /// <summary>A parsed pole expression, from the wire spelling into this engine value. <see cref="Draft"/> is
+    /// the not-yet-placed INI an overlay post pole folds into the live layer.</summary>
     public sealed record PoleSpec(PoleKind Kind, string? Plugin = null, string? Mod = null, string? OverlayState = null,
                                   SkyPatcherDraft.Plan? Draft = null)
     {
         public static readonly PoleSpec Winner = new(PoleKind.Winner);
-        /// <summary>The arm statement a render leads with when the pole is uniform across the batch. PreviousProvider
-        /// is per-record, so its statement is the rule rather than an arm.</summary>
+        /// <summary>The arm statement a render leads with when the pole is uniform across the batch.</summary>
         public string Label => Kind switch
         {
             PoleKind.Winner => "winner",
@@ -936,20 +842,16 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>One record's delta: subject pole versus reference pole, compared by <see cref="FieldsDiff"/>.
-    /// <see cref="StackAbove"/> — set only under a previous_provider reference when the subject sits mid-stack —
-    /// names what outranks the subject, winner last, as neutral fact: a non-winning subject is not an anomaly, so
-    /// no advice and no warning tone. <see cref="Note"/> carries per-row facts such as the two poles resolving to
-    /// the same provider. A non-null Error is a per-item refusal; the batch survives.</summary>
+    /// <see cref="StackAbove"/> names what outranks a mid-stack subject, as neutral fact; <see cref="Note"/>
+    /// carries per-row facts such as the two poles resolving to the same provider.</summary>
     public sealed record DeltaRow(string Formid, DiffPole? Subject, DiffPole? Reference, FieldsDiff.Result? Diff,
                                   IReadOnlyList<string>? StackAbove, string? Note, string? Error);
 
     /// <summary>The project=delta batch: every pole of every record resolves against ONE captured build, so a
-    /// comparison can never span two. Subject defaults to winner; reference may be winner, a named plugin (active or
-    /// off-order, with off-order files declared outside the epoch fingerprint), or previous_provider, which is
-    /// subject-relative. A named pole that does not touch a record is a per-item refusal naming the actual touchers,
-    /// which the caller counts as not_touched. Overlay poles resolve via the SkyPatcher replay, and
-    /// <paramref name="overlayWarnings"/> collects every warning that replay produced so a line the layer could not
-    /// apply is visible beside the answer instead of being swallowed.</summary>
+    /// comparison can never span two. Subject defaults to winner; reference may be winner, a named plugin, or
+    /// previous_provider, which is subject-relative. A named pole that does not touch a record is a per-item
+    /// refusal naming the touchers, and <paramref name="overlayWarnings"/> collects every warning the SkyPatcher
+    /// replay produced.</summary>
     public IReadOnlyList<DeltaRow> DeltaBatch(
         IReadOnlyList<string> formids, PoleSpec subject, PoleSpec reference, IReadOnlyList<string>? fields,
         ArtifactDemand? demand,
@@ -976,7 +878,7 @@ public sealed partial class LoadOrderService
             catch (Exception ex) { parsed.Add((raw, null, $"bad FormID '{raw}': {ex.Message}")); }
         }
 
-        // Resolve the uniform arms once (named poles; winner/overlay are per-record but uniform in statement).
+        // Resolve the uniform arms once; winner and overlay are per-record but uniform in statement.
         var sGather = new PoleGather();
         var rGather = new PoleGather();
         var sReader = MakePoleReader(view, session, subject, fields, wanted, out subjectArm, out var sCovers, out var sErr, out var sOffOrder, overlayWarnings, sGather);
@@ -985,9 +887,8 @@ public sealed partial class LoadOrderService
         if (rErr is not null) { refusal = "versus: " + rErr; return Array.Empty<DeltaRow>(); }
         epochCoversAll = sCovers && rCovers;
 
-        // previous_provider is measured from the SUBJECT's position in the active touching stack, which an off-order
-        // subject holds in no record — and its filename can be active as a DIFFERENT file. That is a fact about the
-        // arm, not about any record, so it refuses the whole call here rather than deep-reading every match first.
+        // previous_provider is measured from the SUBJECT's position in the active touching stack, which an
+        // off-order subject holds in no record. That is a fact about the arm, not about any record.
         if (reference.Kind == PoleKind.PreviousProvider && sOffOrder is not null)
         {
             refusal = $"versus: the subject is the off-order file '{sOffOrder.Plugin}' ({sOffOrder.Where}), which holds no position in the " +
@@ -996,9 +897,8 @@ public sealed partial class LoadOrderService
         }
 
         var rows = new List<DeltaRow>(formids.Count);
-        // A chunk of rows at a time, so each pole walks a plugin once for the whole chunk instead of once per row
-        // (#765). Which plugin a pole reads a row from is an index fact, so the whole chunk is declared before a
-        // body is read; the reference's declaration needs the subject's plugin, which is the same index fact.
+        // A chunk of rows at a time, so each pole walks a plugin once for the whole chunk. Which plugin a pole
+        // reads a row from is an index fact, so the whole chunk is declared before a body is read.
         for (int start = 0; start < parsed.Count; start = ChunkEnd(start, parsed.Count))
         {
             int end = ChunkEnd(start, parsed.Count);
@@ -1006,10 +906,8 @@ public sealed partial class LoadOrderService
             for (int i = start; i < end; i++) if (parsed[i].Fk is { } k) chunkKeys.Add(k);
             sGather.Open(view, session, chunkKeys, _ => null);
             // previous_provider is measured FROM the subject, so the reference's declaration needs the plugin the
-            // subject resolved to. A subject arm that declares none — an off-order file, the SkyPatcher post replay,
-            // whose base read is not a plain plugin read — leaves these null, and a previous_provider reference then
-            // declares nothing and every row of it reads the way it did. Same answer either way: an undeclared pair
-            // falls back to the per-record fetch. A winner or named reference does not ask, and gathers regardless.
+            // subject resolved to. A subject arm that declares none leaves these null, and a previous_provider
+            // reference then declares nothing and every row of it reads the way it did.
             var subjects = new string?[chunkKeys.Count];
             for (int j = 0; j < chunkKeys.Count; j++) subjects[j] = sGather.PluginOf?.Invoke(chunkKeys[j], null);
             rGather.Open(view, session, chunkKeys, j => subjects[j]);
@@ -1022,17 +920,16 @@ public sealed partial class LoadOrderService
 
                 var s = sReader(fk, null);
                 if (s.Error is not null) { rows.Add(new DeltaRow(FormIdToken.Of(fk), s.Pole, null, null, null, null, "subject: " + s.Error)); continue; }
-                // previous_provider is measured from the SUBJECT, so hand the reference reader the subject's resolved
-                // plugin for this record and it anchors on the right stack position. The off-order subject is already
-                // refused for the whole call above.
+                // previous_provider is measured from the SUBJECT, so the reference reader is handed the subject's
+                // resolved plugin for this record.
                 var r = rReader(fk, s.Pole!.Plugin);
                 if (r.Error is not null) { rows.Add(new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, null, r.StackAbove, null, "versus: " + r.Error)); continue; }
 
                 string? note = string.Equals(s.Pole.Plugin, r.Pole!.Plugin, StringComparison.OrdinalIgnoreCase) && s.Pole.Where == r.Pole.Where
                     ? "the two poles resolved to the SAME provider — the diff is trivially empty by construction"
                     : null;
-                // Two copies of one filename on opposite arms: the delta line names the off-order side's mod folder, or
-                // the reader cannot tell which side a value came from without the pole lines above.
+                // Two copies of one filename on opposite arms: the delta line names the off-order side's mod
+                // folder, or the reader cannot tell which side a value came from.
                 var diff = FieldsDiff.Compare(s.Fields!, r.Fields!, referenceLabel: r.Pole.LabelVersus(s.Pole.Plugin));
                 rows.Add(new DeltaRow(FormIdToken.Of(fk), s.Pole, r.Pole, diff, r.StackAbove, note, null));
             }
@@ -1040,30 +937,25 @@ public sealed partial class LoadOrderService
         return rows;
     }
 
-    /// <summary>A pole reader's per-record result: the deep-read fields + the pole identity for the render, or a
-    /// per-item error. <see cref="StackAbove"/> names what outranks the subject under a previous_provider
-    /// reference.</summary>
+    /// <summary>A pole reader's per-record result: the deep-read fields plus the pole identity for the render, or
+    /// a per-item error. <see cref="StackAbove"/> names what outranks the subject.</summary>
     internal sealed record PoleReading(RecordFields? Fields, DiffPole? Pole, IReadOnlyList<string>? StackAbove, string? Error);
 
     internal delegate PoleReading PoleReader(FormKey fk, string? subjectPlugin);
 
-    /// <summary>Build the per-record reader for one pole against the shared captured view and session. Uniform arm
-    /// resolution — a named plugin's active-versus-off-order arm, or an off-order file opened and swept lazily on
-    /// first use — happens here once; per-record work stays in the returned reader. <paramref name="covers"/> is
-    /// false when the pole reads content outside the epoch fingerprint, such as an off-order file or the overlay's
-    /// INIs. <paramref name="offOrderArm"/> is the resolved arm when it is an on-disk file outside the order, and
-    /// null otherwise — a uniform fact about the whole call, so a caller can judge it once instead of per record.
-    /// <paramref name="gather"/> is the chunk gather this pole's in-order bodies come from: the arm fills in which
-    /// plugin it reads each row from, which is an index fact, and the caller opens a chunk at a time (#765).</summary>
+    /// <summary>Build the per-record reader for one pole against the shared captured view and session; uniform arm
+    /// resolution happens here once and per-record work stays in the returned reader. <paramref name="covers"/> is
+    /// false when the pole reads content outside the epoch fingerprint; <paramref name="offOrderArm"/> is the
+    /// resolved arm when it is an on-disk file outside the order, a uniform fact about the whole call;
+    /// <paramref name="gather"/> is the chunk gather this pole's in-order bodies come from.</summary>
     PoleReader MakePoleReader(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                               PoleSpec spec, IReadOnlyList<string>? fields, IReadOnlyCollection<FormKey>? wanted,
                               out string? armStatement, out bool covers, out string? error, out PoleInfo? offOrderArm,
                               SkyPatcherOverlay.WarningSink? overlayWarnings = null, PoleGather? gather = null)
     {
         error = null; covers = true; offOrderArm = null;
-        // '*parent' on fields=: every in-order arm below reads through this captured view and open session, so the
-        // hop answers on them exactly as it does on a plain read. The off-order arm carries no index and keeps the
-        // note saying so.
+        // '*parent' on fields=: every in-order arm reads through this captured view and open session. The
+        // off-order arm carries no index and keeps the note saying so.
         var hop = ContainmentIndex.ReadHop(view, session);
         switch (spec.Kind)
         {
@@ -1086,7 +978,7 @@ public sealed partial class LoadOrderService
 
             case PoleKind.PreviousProvider:
                 // Subject-relative: resolved per record against the touching list, anchored on the plugin the
-                // subject resolved to for that record. Always active-order, since the touching list is the order's.
+                // subject resolved to. Always active-order, since the touching list is the order's.
                 armStatement = spec.Label;
                 if (gather is not null) gather.PluginOf = (fk, subjectPlugin) =>
                 {
@@ -1157,8 +1049,8 @@ public sealed partial class LoadOrderService
                                                             RecordNaming.StripOverlay(body.GetType().Name), body.EditorID), null, null);
                     };
                 }
-                // Off-order arm: open the overlay lazily once; per-record lookups sweep it on first use and memoise
-                // every record seen on the way, so one enumeration pass serves the whole batch.
+                // Off-order arm: open the overlay lazily once; per-record lookups sweep it on first use and
+                // memoise every record seen, so one enumeration pass serves the whole batch.
                 covers = false;   // the file's content sits outside the epoch fingerprint
                 offOrderArm = arm;
                 var lazy = new OffOrderPoleCache(this, arm, fields, wanted);
@@ -1181,13 +1073,11 @@ public sealed partial class LoadOrderService
         }
     }
 
-    /// <summary>The SkyPatcher-overlay pole (source={overlay:"skypatcher", state:"pre"|"post"}). <c>pre</c> IS the
-    /// plain load-order winner, the body the INI layer starts from, labelled as the overlay's pre state so a
-    /// pre-versus-post delta's two arms read as a pair. <c>post</c> replays the discovered INI layer onto a mutable
-    /// copy of each record's winner through the same per-record core the SkyPatcher read uses. INI content sits
-    /// outside the epoch fingerprint, so <paramref name="covers"/> is false on the post arm and the render declares
-    /// it. A record whose type SkyPatcher cannot patch reads as its winner with that stated on the pole line: post
-    /// IS pre there, which is an answer rather than an error.</summary>
+    /// <summary>The SkyPatcher-overlay pole. <c>pre</c> IS the plain load-order winner, labelled as the overlay's
+    /// pre state so a pre-versus-post delta's two arms read as a pair; <c>post</c> replays the discovered INI
+    /// layer onto a mutable copy of each record's winner. INI content sits outside the epoch fingerprint, so
+    /// <paramref name="covers"/> is false on the post arm. A record whose type SkyPatcher cannot patch reads as
+    /// its winner with that stated on the pole line.</summary>
     PoleReader MakeOverlayPoleReader(LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session,
                                      PoleSpec spec, IReadOnlyList<string>? fields,
                                      out string? armStatement, out bool covers, out string? error,
@@ -1225,14 +1115,13 @@ public sealed partial class LoadOrderService
         covers = false;   // the INI layer's files are outside the index fingerprint (a draft INI likewise)
         armStatement = "skypatcher overlay (post) — the winner after the SkyPatcher INI layer replays"
                      + (spec.Draft is null ? "" : $", with {spec.Draft.Arm}");
-        // The replay context is built lazily once for the whole batch: discovery scan, catalogs, scratch mod, form
-        // resolver and per-folder line cache.
+        // The replay context is built lazily once for the whole batch.
         SkyPatcherFieldMap? fieldMap = null; SkyPatcherCatalog? catalog = null;
         SkyPatcherDiscovery.LayerScan? scan = null; SkyrimMod? scratch = null;
         SkyPatcherOverlay.IFormResolver? formResolver = null;
         Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>? linesCache = null;
         // Per-key memo: the scratch mod is shared across the reader's lifetime, so a repeated key's second replay
-        // would re-apply every INI line onto the already-mutated copy. One replay per key.
+        // would re-apply every INI line onto the already-mutated copy.
         var postMemo = new Dictionary<FormKey, PoleReading>();
         string? setupError = null;
         void Setup()
@@ -1260,8 +1149,7 @@ public sealed partial class LoadOrderService
             }
         }
         // A draft is folded up front rather than on the first record: whether it can be folded at all is a fact
-        // about the whole call, so it refuses by name here. Left to the reader it would reach the delta and tree
-        // lanes as a per-record error, which counts_only renders as a bare error count with the reason nowhere.
+        // about the whole call, so it refuses by name here.
         if (spec.Draft is not null)
         {
             Setup();
@@ -1298,9 +1186,9 @@ public sealed partial class LoadOrderService
         };
     }
 
-    /// <summary>The off-order pole's lazy single-pass cache: opens the file's overlay on first lookup and sweeps it
-    /// once, materialising every wanted record's deep fields as a value snapshot. The overlay is disposed at the end
-    /// of the sweep, so no handle is held at rest, and a miss after the full sweep is definitive.</summary>
+    /// <summary>The off-order pole's lazy single-pass cache: opens the file's overlay on first lookup and sweeps
+    /// it once, materialising every wanted record's deep fields as a value snapshot. The overlay is disposed at
+    /// the end of the sweep, so no handle is held at rest and a miss after the full sweep is definitive.</summary>
     sealed class OffOrderPoleCache
     {
         readonly LoadOrderService _svc;
@@ -1348,10 +1236,9 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>The list-driven `records` read under the SkyPatcher-overlay post source: each record's winner is
-    /// replayed through the discovered INI layer and the replayed body is what the projection reads, at the caller's
-    /// own depth. A record whose type SkyPatcher cannot patch reads as its plain winner — the layer cannot touch it,
-    /// so post IS pre there — and that rule is declared on the envelope rather than left to per-item silence. INI
-    /// content sits outside the epoch fingerprint, which the caller also declares on the envelope.</summary>
+    /// replayed through the discovered INI layer and the replayed body is what the projection reads. A record
+    /// whose type SkyPatcher cannot patch reads as its plain winner, declared on the envelope rather than left to
+    /// per-item silence, and INI content sits outside the epoch fingerprint.</summary>
     public IReadOnlyList<ReadOutcome> OverlayPostBatch(
         IReadOnlyList<string> formids, IReadOnlyList<string>? fields, int depth, bool resolveNames,
         ArtifactDemand? demand, out string? refusal, out OrderStamp? refusalEpoch, out OrderStamp? epoch,
@@ -1399,9 +1286,8 @@ public sealed partial class LoadOrderService
         }
         var linesCache = new Dictionary<string, IReadOnlyList<SkyPatcherOverlay.OrderedLine>>(StringComparer.OrdinalIgnoreCase);
 
-        // Per-batch replay memo: the scratch mod is shared across the batch, so a duplicated key's second replay
-        // would run every INI line onto the already-mutated copy — AddEntry would append twice, Mult and AddNumeric
-        // would compound. One replay per key; duplicates reuse its outcome.
+        // Per-batch replay memo: the scratch mod is shared, so a duplicated key's second replay would run every
+        // INI line onto the already-mutated copy. One replay per key.
         var replayMemo = new Dictionary<FormKey, ReadOutcome>();
         LinkMemo? overlayLinkMemo = null;   // resolve_names cache, one per batch
         var outcomes = new List<ReadOutcome>(formids.Count);
@@ -1444,28 +1330,24 @@ public sealed partial class LoadOrderService
         return outcomes;
     }
 
-    /// <summary>One provider's node in a project=tree row: its position in the touching list plus its delta against
-    /// the row's reference pole. Empty deltas together with Complete means genuinely identical to the
-    /// reference.</summary>
+    /// <summary>One provider's node in a project=tree row: its position plus its delta against the row's reference
+    /// pole. Empty deltas together with Complete means genuinely identical to the reference.</summary>
     public sealed record TreeNodeDelta(string Plugin, bool IsWinner, bool IsReference,
                                        IReadOnlyList<string> Deltas, int AgreedCount, bool Complete, string? Error);
 
-    /// <summary>One record's project=tree row: every provider in priority order, winner last — the load order's own
-    /// reading direction — each diffed against the reference pole. A non-null Error is a per-item refusal.
-    /// <para><see cref="ChildDeclarers"/> is the precise owned-child answer for this record, read off the same
-    /// provider bodies the deltas came from; empty for a record whose type owns no child records, and for every
-    /// error row. It is a required constructor parameter rather than a defaulted one, so a new row site cannot
-    /// ship it silently empty.</para></summary>
+    /// <summary>One record's project=tree row: every provider in priority order, winner last, each diffed against
+    /// the reference pole; a non-null Error is a per-item refusal. <see cref="ChildDeclarers"/> is the precise
+    /// owned-child answer, read off the same provider bodies
+    /// (docs/architecture/records-owned-child-declarers.md), and is required rather than defaulted so a new row
+    /// site cannot ship it silently empty.</summary>
     public sealed record TreeRow(string Formid, string? Type, string? EditorId,
                                  IReadOnlyList<string> Touchers, string? ReferencePlugin,
                                  IReadOnlyList<TreeNodeDelta> Nodes, string? Error,
                                  IReadOnlyList<ChildDeclarers> ChildDeclarers);
 
     /// <summary>The project=tree batch: per record, the full provider stack (touching list, winner last) with each
-    /// provider diffed against the reference pole — the winner by default, or a named plugin, active or off-order
-    /// under the one-pole rule, with untouched records refused by naming the touchers. One captured build for
-    /// everything. An overlay reference replays the SkyPatcher INI layer like the delta form's does, so
-    /// <paramref name="overlayWarnings"/> collects that replay's warnings here too.</summary>
+    /// provider diffed against the reference pole — the winner by default, or a named plugin under the one-pole
+    /// rule, with untouched records refused by naming the touchers. One captured build for everything.</summary>
     public IReadOnlyList<TreeRow> TreeBatch(
         IReadOnlyList<string> formids, PoleSpec reference, IReadOnlyList<string>? fields,
         ArtifactDemand? demand,
@@ -1483,9 +1365,8 @@ public sealed partial class LoadOrderService
         }
         using var session = resolver.OpenSession();
 
-        // A winner reference reads each node off the tree itself; a named reference resolves through the same pole
-        // reader the delta form uses. Pre-parse for the same reason as DeltaBatch: a named off-order reference then
-        // materializes only these keys.
+        // A winner reference reads each node off the tree itself; a named reference goes through the same pole
+        // reader the delta form uses. Pre-parsed for the same reason as DeltaBatch.
         var parsedT = new List<(string Raw, FormKey? Fk, string? ParseError)>(formids.Count);
         var wantedT = new HashSet<FormKey>();
         foreach (var raw in formids)
@@ -1494,8 +1375,8 @@ public sealed partial class LoadOrderService
             catch (Exception ex) { parsedT.Add((raw, null, $"bad FormID '{raw}': {ex.Message}")); }
         }
 
-        // A named or overlay-pre versus= pole reads one body per row out of ONE plugin, which is the cheapest gather
-        // target in the lane; it is opened on the same chunk boundaries the fold uses below.
+        // A named or overlay-pre versus= pole reads one body per row out of ONE plugin, opened on the same chunk
+        // boundaries the fold uses below.
         var refGather = new PoleGather();
         PoleReader? refReader = null;
         if (reference.Kind is not PoleKind.Winner)
@@ -1506,8 +1387,8 @@ public sealed partial class LoadOrderService
         }
         else referenceArm = "winner";
 
-        // Every row that answers from the INDEX alone — a bad FormID, a key nothing touches — is settled here, so
-        // the fold's chunks hold only rows that will actually read bodies.
+        // Every row that answers from the INDEX alone is settled here, so the fold's chunks hold only rows that
+        // will actually read bodies.
         var rows = new TreeRow[parsedT.Count];
         var liveRow = new List<int>();
         var liveKey = new List<FormKey>();
@@ -1531,11 +1412,9 @@ public sealed partial class LoadOrderService
             liveRow.Add(i); liveKey.Add(fk0); liveTouchers.Add(t);
         }
 
-        // A chunk of rows at a time, so each provider plugin is walked once for the whole chunk instead of once per
-        // row (#765). The fold hands the winner of every row first and every other provider after that, so a row's
-        // reference is in hand before anything of it is diffed and only ONE provider's fields are alive at a time.
-        // The deltas arrive in that reading order — winner first — and are placed by node, then turned round below
-        // into the render's own (winner last).
+        // A chunk of rows at a time, so each provider plugin is walked once for the whole chunk. The fold hands
+        // the winner of every row first, so a row's reference is in hand before anything of it is diffed and only
+        // ONE provider's fields are alive at a time; the deltas are placed by node and turned round below.
         for (int start = 0; start < liveRow.Count; start = ChunkEnd(start, liveRow.Count))
         {
             int end = ChunkEnd(start, liveRow.Count), c = end - start;
@@ -1553,10 +1432,9 @@ public sealed partial class LoadOrderService
                 refPlugin[j] = ""; refLabel[j] = "";
                 nodes[j] = new TreeNodeDelta?[liveTouchers[start + j].Count];
             }
-            // The versus= pole does not depend on the fold — it reads by FormKey alone — so the whole chunk's
-            // references are resolved here and the gather dropped before a single provider is walked. Read inside
-            // the fold instead, that plugin's chunk share would stay alive beside every other plugin's as the fold
-            // walked them.
+            // The versus= pole does not depend on the fold, so the whole chunk's references are resolved here and
+            // the gather dropped before a single provider is walked; read inside the fold instead, that plugin's
+            // chunk share would stay alive beside every other plugin's.
             if (refReader is not null)
             {
                 refGather.Open(view, session, keys, _ => null);   // one walk of the versus plugin for the chunk
@@ -1577,13 +1455,11 @@ public sealed partial class LoadOrderService
                     {
                         if (refReader is null) { refFields[j] = read; refPlugin[j] = plugin; }
                         // A refused versus= stops the row at the winner, so the row still carries the type and
-                        // editorid the winner body just gave it and no nodes — what it carried when the refusal
-                        // was raised here.
+                        // editorid the winner body just gave it and no nodes.
                         else if (versusError[j] is not null) return false;
-                        // A node IS the reference only when the reference resolved IN the order: an off-order pole is
-                        // never one of the active providers, even when its filename is also active as a different file.
-                        // Where they share that filename, the reference's label names its mod folder so the two are told
-                        // apart.
+                        // A node IS the reference only when the reference resolved IN the order: an off-order pole
+                        // is never one of the active providers. Where they share a filename, the reference's label
+                        // names its mod folder so the two are told apart.
                         refIsActiveProvider[j] = refPole[j] is null || refPole[j]!.InOrder;
                         refLabel[j] = refPole[j] is not null && touchers.Any(t => string.Equals(t, refPlugin[j], StringComparison.OrdinalIgnoreCase))
                                     ? refPole[j]!.LabelVersus(refPlugin[j]) : refPlugin[j];
@@ -1601,8 +1477,8 @@ public sealed partial class LoadOrderService
                 int i = liveRow[start + j];
                 var fk = keys[j];
                 var touchers = liveTouchers[start + j];
-                // The versus refusal is checked FIRST: it stops the row at the winner, so it leaves no nodes, and the
-                // empty-nodes row below would otherwise name the wrong cause — the bodies read fine.
+                // The versus refusal is checked FIRST: it stops the row at the winner, so it leaves no nodes, and
+                // the empty-nodes row below would otherwise name the wrong cause.
                 if (versusError[j] is not null)
                 {
                     rows[i] = new TreeRow(FormIdToken.Of(fk), fills[j]?.Type, fills[j]?.EditorId,
@@ -1628,43 +1504,35 @@ public sealed partial class LoadOrderService
 
     // ---- the traversal construct (walk=) ---------------------------------------------------------------
 
-    /// <summary>The most record bodies one forward walk held at once. Counted for the reason
-    /// <see cref="LoadOrderResolver.BodySeeks"/> is: whether the walk released a reached node's body or held the
-    /// whole reached set is invisible in the answer and only the memory differs, so this is what a test can hold
-    /// that claim to (#719). Set by <see cref="WalkForwardBatch"/>, which resets it on entry.</summary>
+    /// <summary>The most record bodies one forward walk held at once — pinned, with the line above, by
+    /// <c>RecordsWalkCostTests.AWalkHoldsNoReachedBodiesPastTheGatherThatReadThem</c>.</summary>
     internal static int WalkBodyHighWater;
 
-    /// <summary>How many record bodies the last forward walk was STILL holding when it returned — the other half of
-    /// the same claim, and the one the reported bug was: the reached set has to be gone before the render, not at
-    /// the end of the call. Zero on every walk, the refusal and the no-frontier returns included.</summary>
+    /// <summary>How many record bodies the last forward walk was STILL holding when it returned — zero on every
+    /// walk, the refusal and the no-frontier returns included.</summary>
     internal static int WalkBodiesHeldAtReturn;
 
-    /// <summary>How many record bodies one forward-walk gather pass reads before it releases them — the seed slice
-    /// and the hop slice alike. <see cref="BodyPrefetch.ChunkRows"/>, so a plugin is enumerated exactly as often as
-    /// the gather already enumerated it; a test lowers it to split a hop the way a real order's does.</summary>
+    /// <summary>How many record bodies one forward-walk gather pass reads before it releases them;
+    /// <see cref="BodyPrefetch.ChunkRows"/>, and a test lowers it to split a hop.</summary>
     internal static int WalkPassRows = BodyPrefetch.ChunkRows;
 
-    /// <summary>Everything a walk takes from one reached node: its identity and its links, as values. It is what a
-    /// key is remembered by once its body is gone, so a node two seeds both reach is still ONE read per call —
-    /// which is what the body cache used to buy before it was the retention (#719).</summary>
+    /// <summary>Everything a walk takes from one reached node: its identity and its links, as values — what a key
+    /// is remembered by once its body is gone, so a node two seeds both reach is still ONE read per call.</summary>
     sealed class WalkNodeFact
     {
         public bool Resolved;
         public string? Type;
         public string? EditorId;
         public List<FormKey>? Links;
-        /// <summary>Set when Mutagen could not parse the node's content, so its links never read — the exception type
-        /// and message, the same fact the scan lanes account as an unscannable record.</summary>
+    /// <summary>Set when Mutagen could not parse the node's content, so its links never read — the same fact the
+    /// scan lanes account as an unscannable record.</summary>
         public string? Unscannable;
     }
 
     static readonly List<FormKey> EmptyKeys = new();
 
-    /// <summary>Whether a fault reading one record is a PARSE of that record's content — the thing a walk records as
-    /// a boundary and steps over. Mutagen's own exceptions (a record fault wraps its cause, so the whole chain is
-    /// read) and the argument/format failures its lazy span reads raise are that; anything else — a file that moved,
-    /// a disposed session, a bug in this read path, a cancellation, an out-of-memory failure — is the CALL's, and it
-    /// goes on up rather than being reported as a record Mutagen could not parse.</summary>
+    /// <summary>Whether a fault reading one record is a PARSE of that record's content — Mutagen's own exceptions
+    /// and the argument/format failures its lazy span reads raise. Anything else is the CALL's and goes on up.</summary>
     static bool IsWalkRecordFault(Exception ex)
     {
         for (var e = ex; e is not null; e = e.InnerException)
@@ -1684,28 +1552,24 @@ public sealed partial class LoadOrderService
     static string WalkFaultOf(Exception ex) => $"{ex.GetType().Name}: {ex.Message}";
 
     /// <summary>What the NPC template report needs from one node — values, never a getter, so reading a chain pins
-    /// no record group's bytes. Reused across seeds, which is what keeps a shared chain one read per call.</summary>
+    /// no record group's bytes.</summary>
     readonly record struct WalkTemplateFact(string TypeName, string? EditorId, FormKey Template, bool HasTemplate,
                                             NpcConfiguration.TemplateFlag Flags, bool IsNpc, bool IsLeveled,
                                             string? Unscannable = null);
 
-    /// <summary>One record the walk reached: its identity, its provenance (<see cref="PulledBy"/> — the parent
-    /// node's label) and whether the walk entered it or recorded it as a boundary. A boundary's reason — an
-    /// exclusion stop, the depth cap, an unresolved link — rides in <see cref="Note"/>.</summary>
+    /// <summary>One record the walk reached: its identity, its provenance (<see cref="PulledBy"/>) and whether the
+    /// walk entered it or recorded it as a boundary, with a boundary's reason in <see cref="Note"/>.</summary>
     public sealed record WalkNodeRow(string Key, string? Type, string? EditorId, int Depth,
                                      string PulledBy, string Status, string? Note);
 
     /// <summary>The NPC_ TemplateFlags typed interpreter — deliberately the only such interpreter until a gap
-    /// report demands a second: per inheritance category, whether the seed inherits it (masking its own local data)
-    /// and which record in the template chain actually provides it.</summary>
+    /// report demands a second.</summary>
     public sealed record NpcTemplateCategory(string Category, bool InheritedAtSeed,
                                              string? ProviderKey, string? ProviderEditorId, string? Note);
 
     /// <summary>One seed's walk: the reached nodes in BFS order with provenance; the cycles found in the graph it
-    /// walked — a record that reaches itself, whether directly or around a loop of any length, told apart from an
-    /// ordinary re-convergence by a pass over the walked edges, ONE PER CLOSING LINK, so the count is a lower bound
-    /// on the distinct loops and none means none (<see cref="GraphCycles.Find"/>); the truncation note when a cap
-    /// cut the walk, keeping what was proved and saying what was not; and, for an NPC_ seed under
+    /// walked, ONE PER CLOSING LINK, so the count is a lower bound on the distinct loops and none means none
+    /// (<see cref="GraphCycles.Find"/>); the truncation note when a cap cut the walk; and, for an NPC_ seed under
     /// follow="Template", the per-category inheritance report.</summary>
     public sealed record WalkSeedResult(string Seed, string? Type, string? EditorId,
                                         IReadOnlyList<WalkNodeRow> Nodes, IReadOnlyList<string> Cycles,
@@ -1713,17 +1577,13 @@ public sealed partial class LoadOrderService
                                         string? Error, bool CyclesCapped = false);
 
     /// <summary>How many loops one seed's cycle search collects. A strongly connected region of n entered nodes
-    /// carries up to n-squared back edges, each holding a path of up to n keys, so an uncapped search is quadratic
-    /// in the region rather than linear in walk.max_nodes — an OOM on a read. The render shows far fewer than this,
-    /// and the count is documented as a lower bound either way, so the cap costs the claim nothing; it is stated
-    /// wherever it bites.</summary>
+    /// carries up to n-squared back edges, so an uncapped search is quadratic in the region — an OOM on a read.
+    /// The count is documented as a lower bound either way, and the cap is stated wherever it bites.</summary>
     public const int WalkCycleCap = 200;
 
-    /// <summary>One seed's walk in progress: the rows it has proved and the frontier it has still to enter. The walk
-    /// advances every seed one hop at a time, so a hop's bodies can be gathered together; this holds what used to be
-    /// locals of a per-seed loop.
-    /// <para>It holds the seed's IDENTITY, never its body — a record getter is a slice of its whole GRUP's byte array
-    /// and pins it (#719). The NPC template report rides on <see cref="SeedTemplateFact"/>, which is values.</para></summary>
+    /// <summary>One seed's walk in progress: the rows it has proved and the frontier it has still to enter. It
+    /// holds the seed's IDENTITY, never its body — a record getter is a slice of its whole GRUP's byte array and
+    /// pins it — and the NPC template report rides on <see cref="SeedTemplateFact"/>, which is values.</summary>
     sealed class WalkSeedState
     {
         public FormKey Key;
@@ -1732,25 +1592,23 @@ public sealed partial class LoadOrderService
         public string Type = "";
         public string Label = "";
         public List<WalkNodeRow> Nodes = new();
-        /// <summary>The walked graph as edges, parent to target, per node this seed entered. One entry per link
-        /// CROSSED, so nothing bounds it but the fanout of what was walked — which is why it goes at
-        /// <see cref="Settle"/> rather than at return.</summary>
+        /// <summary>The walked graph as edges, parent to target, per node this seed entered — one entry per link
+        /// CROSSED, which is why it goes at <see cref="Settle"/> rather than at return.</summary>
         public Dictionary<FormKey, List<FormKey>> Edges = new();
         /// <summary>This seed's cycles, found once at <see cref="Settle"/>.</summary>
         public IReadOnlyList<string>? Cycles;
-        /// <summary>Whether <see cref="WalkCycleCap"/> stopped the search, so the render says the count is not all of them.</summary>
+        /// <summary>Whether <see cref="WalkCycleCap"/> stopped the search.</summary>
         public bool CyclesCapped;
-        /// <summary>Whether this walk will be READ for its cycles. A reading form consumes the reached set and
-        /// never looks at them, so it records no edges and settles none — the whole cost belongs to the form that
-        /// renders it.</summary>
+        /// <summary>Whether this walk will be READ for its cycles; a reading form records no edges and settles
+        /// none.</summary>
         public bool WantCycles;
         public string? Truncation;
-        /// <summary>Set when the seed itself gave the walk nothing to start from — its own content would not parse.</summary>
+        /// <summary>Set when the seed itself gave the walk nothing to start from — its content would not parse.</summary>
         public string? Error;
         public HashSet<FormKey> Visited = new();
         public Queue<(FormKey Key, int Depth, string PulledBy)> Frontier = new();
 
-        /// <summary>Record one walked edge. Every link off an entered node is recorded, cycle or not.</summary>
+        /// <summary>Record one walked edge; every link off an entered node is recorded, cycle or not.</summary>
         public void Edge(FormKey from, FormKey to)
         {
             if (!WantCycles || to.IsNull) return;
@@ -1758,20 +1616,17 @@ public sealed partial class LoadOrderService
             outgoing.Add(to);
         }
 
-        /// <summary>This seed is finished: find its cycles and let its edge set go. Called where the visited set
-        /// and the frontier are dropped, so the edges follow the same release discipline rather than every seed's
-        /// staying resident until the last one in the batch finishes (#719). Nodes is complete by then — nothing but
-        /// this seed's own turn enqueues into it — which is all the labels need.</summary>
+    /// <summary>This seed is finished: find its cycles and let its edge set go, where the visited set and the
+    /// frontier are dropped, rather than staying resident until the last seed in the batch finishes.</summary>
         public void Settle()
         {
             Cycles ??= WantCycles ? CyclesFound() : Array.Empty<string>();
             Edges = new();
         }
 
-        /// <summary>This seed's cycles, each stated as its loop of records — the last hop closes it, so the first
-        /// record is named again at the end. Asked of the recorded edges rather than of the traversal, because a
-        /// visited set cannot tell a loop from a diamond and the traversal tree cannot see a mutual reference
-        /// between siblings. One per back edge: see <see cref="GraphCycles.Find"/> for what that count claims.</summary>
+    /// <summary>This seed's cycles, each stated as its loop of records — the last hop closes it. Asked of the
+    /// recorded edges rather than of the traversal, because a visited set cannot tell a loop from a diamond. One
+    /// per back edge: see <see cref="GraphCycles.Find"/> for what that count claims.</summary>
         IReadOnlyList<string> CyclesFound()
         {
             var found = GraphCycles.Find(Edges, WalkCycleCap, out var capped);
@@ -1793,15 +1648,11 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>The forward walk over the winner link graph, per seed off ONE captured build. The edge unit is the
-    /// form link; within-record navigation stays the projection's path grammar. seed_paths scope the FIRST hop
-    /// (default: every link); follow scopes every later hop (default "*" is closure via the generic
-    /// EnumerateFormLinks, so there is no per-type list; a named path is a restricted chain). Exclusions are data
-    /// handed in by the caller: stop prunes and records a boundary, refuse fails the whole call loudly naming the
-    /// seed and pull chain. Caps produce an explicit truncation note, never a silent cut.
-    /// <para>Every seed advances one hop together, so each hop's bodies come from one enumeration per source plugin
-    /// (<see cref="BodyPrefetch"/>) rather than the whole-plugin seek per record a demand-driven fetch pays — the
-    /// same gather the scan and batch lanes took in #582. Walking seed by seed made a walk's cost the seed count
-    /// times the winning plugin's record count, which is what ran a 2,235-NPC selection out of memory (#556).</para></summary>
+    /// form link; within-record navigation stays the projection's path grammar. seed_paths scope the FIRST hop,
+    /// follow scopes every later hop ("*" is closure via the generic EnumerateFormLinks). Exclusions are caller
+    /// data: stop prunes and records a boundary, refuse fails the whole call loudly. Caps produce an explicit
+    /// truncation note, never a silent cut. Every seed advances one hop together, so each hop's bodies come from
+    /// one enumeration per source plugin; contract in docs/architecture/read-engine.md.</summary>
     public IReadOnlyList<WalkSeedResult> WalkForwardBatch(
         IReadOnlyList<string> seeds, IReadOnlyList<string>? seedPaths, string? follow,
         int depth, int maxNodes, IReadOnlyList<(string Match, bool Refuse)> exclusions,
@@ -1838,15 +1689,13 @@ public sealed partial class LoadOrderService
             bodyCache[k] = g;
             return g;
         }
-        // The same read WITHOUT the cache — for the template chain, whose nodes are read once, reduced to values,
-        // and dropped. Caching them would put the retention this walk exists to remove back on that one lane.
+        // The same read WITHOUT the cache — for the template chain, whose nodes are read once and dropped.
         IMajorRecordGetter? FetchTransient(FormKey k)
             => bodyCache.TryGetValue(k, out var c) ? c
              : view.ResolveWinner(k) is { } w ? view.GetRecord(session, w.WinnerPlugin, k) : null;
 
-        // One node's template facts, memoised BY VALUE: nothing is pinned between seeds, shared chains stay one
-        // read per call, and the walk fills this as it reads, so the report only ever reads a chain node the walk
-        // did not reach itself — a node past this seed's depth or node cap.
+        // One node's template facts, memoised BY VALUE: nothing is pinned between seeds, and the walk fills this
+        // as it reads, so the report only reads a chain node the walk did not reach itself.
         var templateFacts = new Dictionary<FormKey, WalkTemplateFact?>();
         WalkTemplateFact? TemplateFactOf(FormKey k)
         {
@@ -1856,8 +1705,8 @@ public sealed partial class LoadOrderService
             templateFacts[k] = fact;
             return fact;
         }
-        // The template link and the template flags are lazily parsed subrecords too, so this read carries the same
-        // per-record guard the link read does: a body that will not parse comes back NAMED, never as a throw.
+        // The template link and flags are lazily parsed subrecords too, so this read carries the same per-record
+        // guard the link read does: a body that will not parse comes back NAMED.
         static WalkTemplateFact FactOf(IMajorRecordGetter b)
         {
             var typeName = RecordNaming.StripOverlay(b.GetType().Name);
@@ -1876,8 +1725,7 @@ public sealed partial class LoadOrderService
                                             WalkFaultOf(ex));
             }
         }
-        // The hop's bodies, one enumeration per source plugin. A key the gather does not return stays UNCACHED, so
-        // Fetch still raises whatever the per-record read raises: the gather is an optimisation, not an error path.
+            // The walk asks for every key it gathered, so the chunk's deferred per-plugin walk is forced here.
         void Prefetch(IReadOnlyList<FormKey> keys)
         {
             var wanted = new List<FormKey>();
@@ -1888,8 +1736,8 @@ public sealed partial class LoadOrderService
             {
                 int end = Math.Min(i + BodyPrefetch.ChunkRows, wanted.Count);
                 var chunk = BodyPrefetch.Gather(view, session, wanted, i, end, _ => null, null, ct);
-                // The walk asks for every key it gathered — it already trimmed the frontier to what it can record —
-                // so the chunk's deferred per-plugin walk is forced here rather than left to a render that never comes.
+        // The hop's bodies, one enumeration per source plugin. A key the gather does not return stays UNCACHED,
+        // so Fetch still raises whatever the per-record read raises.
                 for (int k = i; k < end; k++)
                     if (chunk.Body(wanted[k]) is { } body) bodyCache[wanted[k]] = body;
             }
@@ -1908,9 +1756,7 @@ public sealed partial class LoadOrderService
                 return list;
             }
             // The '*parent' containment step: hop to the record that CONTAINS this one, then read the rest of the
-            // path there. A path that is nothing but hops IS the edge — the parent is what the walk crosses to.
-            // Same grammar the where= and project.fields surfaces enforce, so a misspelled step refuses by name
-            // here too rather than falling through to a "no such field" hint.
+            // path there. A path that is nothing but hops IS the edge, and the same grammar where= enforces.
             var (hops, gerr) = ContainmentIndex.SplitHops(segs, string.Join(".", segs), allowBare: true);
             if (gerr is not null) { note = $"({gerr})"; return new List<FormKey>(); }
             for (int i = 0; i < hops; i++)
@@ -1936,13 +1782,11 @@ public sealed partial class LoadOrderService
             return links ?? new List<FormKey>();
         }
 
-        // What each reached key yielded, by value. Bodies no longer outlive their pass, so without this a key two
-        // seeds both reach would be READ once per seed rather than once per call. Kept only for a MULTI-seed walk:
-        // one seed's own visited set already stops it reading a key twice, so the memo would be pure cost there.
+        // What each reached key yielded, by value, so a key two seeds both reach is READ once per call. Kept only
+        // for a MULTI-seed walk: one seed's own visited set already stops it reading a key twice.
         var nodeFacts = seeds.Count > 1 ? new Dictionary<FormKey, WalkNodeFact>() : null;
 
-        // The node's identity and, unless it is at the depth cap or an excluded class, its links — off the memo when
-        // the memo already holds what this row needs, off a body read otherwise.
+        // The node's identity and, unless it is at the depth cap or an excluded class, its links.
         WalkNodeFact FactFor(FormKey k, bool atCap)
         {
             var fact = nodeFacts is not null && nodeFacts.TryGetValue(k, out var f) ? f : null;
@@ -1953,8 +1797,7 @@ public sealed partial class LoadOrderService
                  ? new WalkNodeFact { Resolved = false }
                  : new WalkNodeFact { Resolved = true, Type = TypeOf(body), EditorId = body.EditorID };
             // On a template walk the reached nodes ARE the chain nodes, so the report takes its facts off the body
-            // in hand here. Without this it re-read every chain node from disk — a whole-plugin seek each — after
-            // the walk had already held that body and let it go.
+            // in hand here rather than re-reading every chain node from disk.
             if (templateFollow && body is not null)
             {
                 var tf = FactOf(body);
@@ -1962,8 +1805,8 @@ public sealed partial class LoadOrderService
                 if (tf.Unscannable is { } tfault) fact.Unscannable = tfault;
             }
             // PER-RECORD FAULT ISOLATION, the twin of the scan lanes': reading a node's links parses its content
-            // lazily, so one record Mutagen cannot parse is recorded as a boundary and the walk goes on. A fault
-            // that is the CALL's — cancellation, out of memory — is not a record's and goes on up.
+            // lazily, so one record Mutagen cannot parse is a boundary and the walk goes on. A fault that is the
+            // CALL's — cancellation, out of memory — goes on up.
             if (body is not null && !atCap && !Excluded(fact.Type) && fact.Unscannable is null)
                 try { fact.Links = LinksOf(body, followSegs, out _); }
                 catch (Exception ex) when (IsWalkRecordFault(ex)) { fact.Unscannable = WalkFaultOf(ex); }
@@ -1978,10 +1821,8 @@ public sealed partial class LoadOrderService
             => nodeFacts is not null && nodeFacts.TryGetValue(k, out var f)
                && (!f.Resolved || hop >= depth || f.Links is not null || f.Unscannable is not null || Excluded(f.Type));
 
-        // ---- the seeds: parsed, then gathered together, then started on their first hop ----
-        // In SLICES of a pass, for the reason the hops are: a walk can be seeded from a spilled artifact holding
-        // thousands of FormIDs, and gathering them all first held one body — one pinned record group — per seed
-        // before a single hop had run.
+        // The seeds: parsed, then gathered together, then started on their first hop — in SLICES of a pass, for
+        // the reason the hops are, since a walk can be seeded from a spilled artifact holding thousands of IDs.
         var rows = new WalkSeedResult?[seeds.Count];
         var states = new WalkSeedState?[seeds.Count];
         var seedKeys = new FormKey[seeds.Count];
@@ -2004,8 +1845,8 @@ public sealed partial class LoadOrderService
             var seedBody = Fetch(seedFk);
             if (seedBody is null)
             {
-                // Fetch returns null for two conditions and they need different sentences: no winner at all (the
-                // three-cause unresolved sentence), or a named winner whose body did not come back on fetch.
+                // Fetch returns null for two conditions needing different sentences: no winner at all, or a named
+                // winner whose body did not come back on fetch.
                 var seedWin = view.ResolveWinner(seedFk);
                 rows[i] = new WalkSeedResult(FormIdToken.Of(seedFk), null, null, Array.Empty<WalkNodeRow>(), Array.Empty<string>(), null, null,
                     seedWin is null
@@ -2014,15 +1855,14 @@ public sealed partial class LoadOrderService
                 continue;
             }
             var seedType = TypeOf(seedBody);
-            // The seed's own facts parse its content too, so the same guard applies: a seed that will not parse
-            // carries its fault rather than raising it, and the row below names it.
+            // The seed's own facts parse its content too, so a seed that will not parse carries its fault.
             var seedFact = templateFollow && seedBody is INpcGetter ? FactOf(seedBody) : (WalkTemplateFact?)null;
             string? seedFault = seedFact?.Unscannable;
             var st = new WalkSeedState
             {
                 Key = seedFk,
                 // The template report takes the seed's facts, not its body: a getter kept per seed would pin one
-                // record group per seed, which is the retention this walk exists to remove.
+                // record group per seed.
                 SeedTemplateFact = seedFault is null ? seedFact : null,
                 EditorId = seedBody.EditorID,
                 Type = seedType,
@@ -2034,8 +1874,7 @@ public sealed partial class LoadOrderService
             if (st.SeedTemplateFact is { } sf) templateFacts.TryAdd(seedFk, sf);
 
             // Reading the seed's own links parses its content, so a seed Mutagen cannot parse says so rather than
-            // raising out of the call. Every path still answers for ITSELF — the fault is that path's note — and the
-            // record's fault is remembered once, for the memo and for the seed's own line.
+            // raising out of the call; every path still answers for ITSELF.
             List<FormKey> SeedLinks(string[]? segs, out string? note)
             {
                 note = null;
@@ -2066,10 +1905,9 @@ public sealed partial class LoadOrderService
             {
                 foreach (var l in SeedLinks(null, out _)) { st.Edge(seedFk, l); st.Frontier.Enqueue((l, 1, st.Label)); }
             }
-            // The seed itself would not parse. A seed is not a node, so this is the SEED's own line — an error when
-            // it produced no chains at all, the way an unreadable winner body is; under seed_paths each path has
-            // already said it for itself, and the chains other paths proved are kept and walked. The fault goes in
-            // the shared memo either way, so another seed reaching this record reads it no further.
+            // The seed itself would not parse. A seed is not a node, so this is the SEED's own line — an error
+            // when it produced no chains at all; under seed_paths each path has already said it for itself, and
+            // the chains other paths proved are kept and walked.
             if (seedFault is { } fault)
             {
                 if (st.Frontier.Count == 0 && st.Nodes.Count == 0)
@@ -2087,15 +1925,11 @@ public sealed partial class LoadOrderService
         bodyCache.Clear();
         }
 
-        // ---- the hops: every seed advances one hop together, so the hop's bodies are ONE gather ----
-        // A node at the depth cap is recorded and not entered, so nothing is ever queued past `depth`.
-        //
-        // A hop is worked in PASSES of at most WalkPassRows keys, and every body the pass gathered is
-        // RELEASED when the pass ends (#719): a record getter is a slice of its whole GRUP's byte array and pins it,
-        // so caching the bodies of a whole walk pinned one array per source GRUP per plugin for the life of the call
-        // — 270 KB a node on a real order, and an OOM on a raised budget. A reached node now costs its row: its
-        // identity, its links, its provenance. The pass size IS the gather's own chunk size, so a plugin is
-        // enumerated exactly as many times as before and no read gets slower.
+        // The hops: every seed advances one hop together, so the hop's bodies are ONE gather, and a node at the
+        // depth cap is recorded and not entered. A hop is worked in PASSES of at most WalkPassRows keys, and every
+        // body a pass gathered is RELEASED when the pass ends: a record getter is a slice of its whole GRUP's byte
+        // array and pins it. A reached node now costs its row — identity, links, provenance — and the pass size IS
+        // the gather's own chunk size, so no read gets slower.
         var atLevel = new int[states.Length];
         for (int d = 1; d <= depth; d++)
         {
@@ -2112,10 +1946,9 @@ public sealed partial class LoadOrderService
             while (true)
             {
             ct.ThrowIfCancellationRequested();
-            // The gather is bounded by what each seed can still RECORD, not by the size of its frontier: a seed
-            // whose node budget is spent reads nothing more, and a seed near its cap reads only what it can still
-            // admit. A key left out stays uncached, which is the contract Prefetch already runs on, so the cap
-            // itself is still enforced below — recorded and not entered, with the same sentence.
+            // The gather is bounded by what each seed can still RECORD, not by the size of its frontier. A key
+            // left out stays uncached, which is the contract Prefetch already runs on, so the cap is still
+            // enforced below — recorded and not entered, with the same sentence.
             var frontier = new List<FormKey>();
             var gatherSeen = new HashSet<FormKey>();
             var take = new int[states.Length];
@@ -2132,8 +1965,8 @@ public sealed partial class LoadOrderService
                 {
                     if (seenItems >= atLevel[i] || frontier.Count >= WalkPassRows) break;
                     seenItems++;
-                    // A key this seed already visited is dropped at dequeue, so gathering it would spend a slot on a
-                    // body no row ever shows and push a node the seed DOES record back onto the per-record seek.
+                    // A key this seed already visited is dropped at dequeue, so gathering it would spend a slot
+                    // on a body no row ever shows.
                     if (q.Key.IsNull || s.Visited.Contains(q.Key) || bodyCache.ContainsKey(q.Key)
                         || Memoised(q.Key, q.Depth) || !gatherSeen.Add(q.Key)) continue;
                     frontier.Add(q.Key);
@@ -2155,8 +1988,7 @@ public sealed partial class LoadOrderService
                 {
                     var (key, hop, pulledBy) = st.Frontier.Dequeue();
                     if (key.IsNull) continue;
-                    // A revisit is deduped and nothing more: whether it closed a loop or re-converged on a diamond
-                    // is the post-walk pass's question, and the edge that reached it is already recorded.
+                    // A revisit is deduped and nothing more; the edge that reached it is already recorded.
                     if (!st.Visited.Add(key)) continue;
                     if (st.Nodes.Count >= maxNodes)
                     {
@@ -2177,13 +2009,12 @@ public sealed partial class LoadOrderService
                     var excl = exclusions.FirstOrDefault(x => x.Match.Equals(type, StringComparison.OrdinalIgnoreCase));
                     if (excl.Match is not null)
                     {
-                        // A refuse ends the whole call. Hops run before seeds now, so the sentence names the first
+                        // A refuse ends the whole call. Hops run before seeds, so the sentence names the first
                         // seed IN SEED ORDER that reaches the class at the SHALLOWEST hop any seed reaches it.
                         if (excl.Refuse)
                         {
                             refusal = $"the walk reached a {type} ({FormIdToken.Of(key)}, via {pulledBy}) — a node class this call excludes with severity 'refuse'. Nothing is returned for this call.";
-                            // A refusal returns nothing, so the pass in hand is dead: release it here rather than
-                            // leaving it to the collector, on the path that returns no rows to release it with.
+                            // A refusal returns nothing, so the pass in hand is dead: release it here.
                             if (bodyCache.Count > WalkBodyHighWater) WalkBodyHighWater = bodyCache.Count;
                             bodyCache.Clear();
                             WalkBodiesHeldAtReturn = 0;
@@ -2192,14 +2023,12 @@ public sealed partial class LoadOrderService
                         st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), type, fact.EditorId, hop, pulledBy, "kept", $"excluded ({type}, severity stop) — recorded as a boundary, not entered"));
                         continue;
                     }
-                    // A node Mutagen could not parse: named, kept as a boundary, and the walk continues — the same
-                    // answer the scan lanes give, never a raw exception out of the whole call.
+                    // A node Mutagen could not parse: named, kept as a boundary, and the walk continues.
                     if (fact.Unscannable is { } unscannable)
                     {
                         st.Nodes.Add(new WalkNodeRow(FormIdToken.Of(key), type, fact.EditorId, hop, pulledBy, "kept",
                                                      WalkUnscannableNote(unscannable)));
-                        // A node at the depth cap is a cut chain whatever else is true of it: the memo can answer
-                        // this row without reading, and the cap notice must not go missing because it did.
+                        // A node at the depth cap is a cut chain whatever else is true of it.
                         if (atCap)
                             st.Truncation ??= $"walk reached its depth cap ({depth}) on at least one chain — nodes at the cap are recorded, not entered; raise walk.depth to walk deeper.";
                         continue;
@@ -2216,12 +2045,11 @@ public sealed partial class LoadOrderService
                     foreach (var l in fact.Links ?? EmptyKeys)
                         if (!l.IsNull) { st.Edge(key, l); st.Frontier.Enqueue((l, hop + 1, label)); }
                 }
-                // An empty frontier means this seed is finished — nothing but its own turn ever enqueues into it —
-                // and the results loop reads neither of these, so the bookkeeping goes back now rather than at return.
+                // An empty frontier means this seed is finished, so the bookkeeping goes back now.
                 if (st.Frontier.Count == 0) { st.Visited = new(); st.Frontier = new(); st.Settle(); }
             }
             // The pass is over: the bodies it gathered have given up their identity and their links, so they go
-            // now rather than at the end of the call. This is the release the #719 retention was missing.
+            // now rather than at the end of the call.
             if (bodyCache.Count > WalkBodyHighWater) WalkBodyHighWater = bodyCache.Count;
             bodyCache.Clear();
             }
@@ -2242,10 +2070,9 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>The NPC_ TemplateFlags interpreter: a SET flag means the category is inherited and the seed's own
-    /// local data for it is masked; the provider is the first record down the template chain whose flag for that
-    /// category is CLEAR, so its own data is active. A chain ending in a leveled actor resolves at runtime, and a
-    /// broken or missing link is reported rather than guessed. It walks FACTS, not bodies, so reporting a chain
-    /// pins no record group's bytes (#719).</summary>
+    /// local data is masked, and the provider is the first record down the chain whose flag is CLEAR. A chain
+    /// ending in a leveled actor resolves at runtime; a broken link is reported, never guessed. It walks FACTS,
+    /// not bodies, so reporting a chain pins no record group's bytes.</summary>
     static IReadOnlyList<NpcTemplateCategory> NpcTemplateReport(Func<FormKey, WalkTemplateFact?> factOf,
                                                                 WalkTemplateFact seed, FormKey seedFk)
     {
@@ -2269,8 +2096,7 @@ public sealed partial class LoadOrderService
                 var nextKey = cur.Template;
                 if (!hops.Add(nextKey)) { note = $"template chain CYCLES at {nextKey} — no provider is reachable"; break; }
                 if (factOf(nextKey) is not { } next) { note = $"template target {nextKey} is unresolved — the chain is broken here"; break; }
-                // A node that resolves but will not parse is a different answer from a broken chain: it is there,
-                // and what it provides could not be read.
+                // A node that resolves but will not parse is a different answer from a broken chain.
                 if (next.Unscannable is { } bad) { note = $"template target {nextKey} {WalkUnscannableNote(bad)}"; break; }
                 if (next.IsLeveled)
                 { provKey = FormIdToken.Of(nextKey); provEid = next.EditorId; note = "a LEVELED actor — the concrete provider is rolled at runtime"; break; }
@@ -2287,20 +2113,17 @@ public sealed partial class LoadOrderService
 
     // ---- the info_order projection form ----------------------------------------------------------------
 
-    /// <summary>One topic's effective-INFO-order row: the merged sequence with its honesty gates (Complete,
-    /// MovesComputed and BaselineTrusted ride inside <see cref="Order"/>). A non-null Error is a per-item refusal —
-    /// a bad FormID, an absent record, or a non-DIAL target named by its actual type.</summary>
+    /// <summary>One topic's effective-INFO-order row; a non-null Error is a per-item refusal — a bad FormID, an
+    /// absent record, or a non-DIAL target named by its actual type.</summary>
     public sealed record InfoOrderRow(string Formid, string? Type, string? EditorId, string? WinnerPlugin,
                                       InfoOrderView? Order, string? Error);
 
     /// <summary>The form='info_order' batch: per DIAL topic, the effective merged INFO order across every touching
-    /// plugin — the game's own walk order — off ONE captured build. It is epoch-stamped, because this form reads
-    /// plugin records through the index only, with no VFS or INI layer. A non-DIAL FormID is a per-item typed
-    /// refusal: a quest's topics are selected by composition (types=["DIAL"] where=["Quest = &lt;quest formid&gt;"])
-    /// rather than by silently fanning out here.
+    /// plugin — the game's own walk order — off ONE captured build, epoch-stamped because it reads plugin records
+    /// through the index alone. A non-DIAL FormID is a per-item typed refusal.
     /// <para><paramref name="foldArm"/> is an OFF-ORDER source pole, already probed: its file is read once and
     /// folded into every topic's merge as the last contributor, so the answer is the order as it WOULD be with
-    /// that file enabled. The file's content sits outside the epoch fingerprint, which the caller declares.</para></summary>
+    /// that file enabled.</para></summary>
     public IReadOnlyList<InfoOrderRow> InfoOrderBatch(IReadOnlyList<string> formids, ArtifactDemand? demand,
                                                       out string? refusal, out OrderStamp? epoch,
                                                       PoleInfo? foldArm = null, FoldFacts? foldFacts = null)
@@ -2319,8 +2142,7 @@ public sealed partial class LoadOrderService
         {
             fold = OpenDialogueFold(foldArm, out var foldErr, FoldLabel(foldArm));
             if (foldErr is not null) { refusal = foldErr; return Array.Empty<InfoOrderRow>(); }
-            // Where the file would load, decided against THIS build before the merge reads it, so the caller's
-            // statement and the merge's own placement are one fact rather than two spellings of it.
+            // Where the file would load, decided against THIS build before the merge reads it.
             fold!.PlaceIn(view);
             foldFacts?.Fill(fold);
         }
@@ -2328,9 +2150,8 @@ public sealed partial class LoadOrderService
 
         var rows = new List<InfoOrderRow>(formids.Count);
         var dialFks = new List<FormKey>();
-        // Per ROW, not per FormKey: a duplicated DIAL key in the input must attach the computed order to every
-        // occurrence, and a dictionary keyed on FormKey would keep only the last row's index, leaving the earlier
-        // duplicates rendering a fabricated "merge could not be computed" failure.
+        // Per ROW, not per FormKey: a duplicated DIAL key must attach the computed order to every occurrence, and
+        // a dictionary keyed on FormKey would leave the earlier duplicates rendering a fabricated failure.
         var dialRows = new List<(int Index, FormKey Fk)>();
         var dialSeen = new HashSet<FormKey>();
         foreach (var raw in formids)
@@ -2341,9 +2162,8 @@ public sealed partial class LoadOrderService
             var win = view.ResolveWinner(fk);
             if (win is null)
             {
-                // A topic only the folded file defines: it resolves nowhere in the active order, and the fold IS
-                // its whole merge. Served from the fold, with no winner — nothing wins a record the order has not
-                // got — rather than refused as absent.
+                // A topic only the folded file defines resolves nowhere in the active order, and the fold IS its
+                // whole merge — served from the fold, with no winner, rather than refused as absent.
                 if (fold?.Topic(fk) is { } foldedOnly)
                 {
                     dialRows.Add((rows.Count, fk));
@@ -2383,26 +2203,23 @@ public sealed partial class LoadOrderService
         return rows;
     }
 
-    /// <summary>What the caller has to say about a fold it asked for: the label its rows carry, where the file was
-    /// found, where it was placed and why. Filled by the lane that opened the file, so a response's own statement
-    /// and the rows under it cannot describe two different files or two different positions.</summary>
+    /// <summary>What the caller has to say about a fold it asked for, filled by the lane that opened the file, so
+    /// the response's statement and the rows under it cannot describe two different files or positions.</summary>
     public sealed class FoldFacts
     {
         public string Plugin { get; private set; } = "";
         public string Label { get; private set; } = "";
         public string Where { get; private set; } = "";
 
-        /// <summary>Where the fold was placed — known only once the file's header has been read, so it is filled
-        /// by the lane that opens it and is empty before that.</summary>
+    /// <summary>Where the fold was placed — known only once the file's header has been read.</summary>
         public string Placement { get; private set; } = "";
 
-        /// <summary>The folded file's FILENAME is also active, from another mod folder — so the response may not
-        /// say the filename is absent from the order, only that THIS COPY is not the one it loads.</summary>
+    /// <summary>The folded file's FILENAME is also active, from another mod folder, so the response may say only
+    /// that THIS COPY is not the one the order loads.</summary>
         public bool ShadowsActiveName { get; private set; }
 
-        /// <summary>What the PROBE already knows: the name, the label its rows will carry, where the copy is, and
-        /// whether the filename is active. Filled before anything is read, so a statement written before the merge
-        /// runs still names the same file the rows will.</summary>
+    /// <summary>What the PROBE already knows: the name, the label, where the copy is, and whether the filename is
+    /// active — filled before anything is read.</summary>
         internal void FromArm(PoleInfo arm)
         {
             Plugin = arm.Plugin; Label = FoldLabel(arm); Where = arm.Where; ShadowsActiveName = arm.NameActive;
@@ -2415,17 +2232,14 @@ public sealed partial class LoadOrderService
         }
     }
 
-    /// <summary>The name a fold's rows carry. The filename, unless an ACTIVE plugin already has that filename — a
-    /// shadowed on-disk copy addressed by {file, mod} — because two contributors under one name leave the reader
-    /// unable to tell the projected lines from the live ones. Short: it repeats on every row the fold places, and
-    /// the response's own statement names the mod folder the copy came from. Read off the PROBE, so the label is
-    /// in hand before the file is opened.</summary>
+    /// <summary>The name a fold's rows carry: the filename, unless an ACTIVE plugin already has it — two
+    /// contributors under one name leave the reader unable to tell projected lines from live ones. Read off the
+    /// PROBE, so the label is in hand before the file is opened.</summary>
     internal static string FoldLabel(PoleInfo arm)
         => arm.NameActive ? $"{arm.Plugin} [off-order copy]" : arm.Plugin;
 
     /// <summary>Read an already-probed OFF-ORDER pole's DIAL content once, for a dialogue lane to fold at the end
-    /// of the order. Every failure is a named refusal — the roots that could not be derived, the file that would
-    /// not parse — never a fold that silently contributes nothing.</summary>
+    /// of the order. Every failure is a named refusal, never a fold that silently contributes nothing.</summary>
     internal DialogueFold? OpenDialogueFold(PoleInfo arm, out string? error, string? label = null,
                                             bool withRecords = false)
     {
@@ -2453,17 +2267,12 @@ public sealed partial class LoadOrderService
     // ---- cross-plugin query ----------------------------------------------------------------------------
 
     /// <summary>Scan the order for records matching a filter, in a SINGLE enumeration pass with the matching
-    /// record's body in hand so nothing is re-fetched per candidate: type= streams the winner body via typed group
-    /// enumeration; plugins= streams each scoped plugin's own body; conflicts_only= alone reads the index. Body
-    /// filters test the in-hand body and so need type= or plugins= to bound them. <paramref name="references"/> is a
-    /// list — a record matches if it references ANY target, and each match records which targets it hit.
-    /// <paramref name="definedIn"/> keeps only matches whose FormKey originates in a scoped plugin (definitions, not
-    /// overrides) and requires plugins=, refused loudly otherwise. <paramref name="groupBy"/> replaces per-match
-    /// lines with a count table over ALL matches, uncapped by limit=. <paramref name="offset"/> skips the first N
-    /// post-filter matches; scan order is deterministic for an unchanged load order, so offset and limit windows
-    /// tile without gaps or overlap, and the true total still counts all matches. Returns pre-built match summaries
-    /// capped at <paramref name="limit"/> with the true total, a group table, or a recoverable error. Holds
-    /// nothing.</summary>
+    /// record's body in hand: type= streams the winner body, plugins= each scoped plugin's own, conflicts_only=
+    /// alone reads the index. Body filters test the in-hand body and so need type= or plugins= to bound them.
+    /// <paramref name="definedIn"/> keeps only matches defined in a scoped plugin and requires plugins=;
+    /// <paramref name="groupBy"/> replaces per-match lines with a count table over ALL matches;
+    /// <paramref name="offset"/> skips the first N post-filter matches, and scan order is deterministic for an
+    /// unchanged load order, so windows tile without gaps or overlap. Holds nothing.</summary>
     public CrossQueryOutcome CrossQuery(string? type, IReadOnlyList<FormKey>? references, string? editoridContains,
                                         bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
                                         bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
@@ -2474,13 +2283,11 @@ public sealed partial class LoadOrderService
                       limit, definedIn, groupBy, offset, whereSource, artifactDemands, referencesNone: referencesNone, ct: ct);
 
     /// <summary>The formids-by-scan composition: <paramref name="formidSet"/> intersects the selection with an
-    /// explicit identity set, inline or artifact-fed. With a body-bearing scope it is a cheap pre-filter on the
-    /// stream; alone it IS the scan universe — each key's winner body is fetched and filtered, so a where= over a
-    /// formid set needs no types= or plugins= bound.</summary>
+    /// explicit identity set. With a body-bearing scope it is a cheap pre-filter; alone it IS the scan universe,
+    /// so a where= over a formid set needs no types= or plugins= bound.</summary>
 
-    /// <summary>The set-valued-types overload: types= is a set, and one type is a degenerate set. Each entry
-    /// resolves through the same <see cref="ResolveTypeFilter"/> the singular form used, and the scan streams the
-    /// union of the resolved type groups.</summary>
+    /// <summary>The set-valued-types overload: each entry resolves through the same
+    /// <see cref="ResolveTypeFilter"/>, and the scan streams the union of the resolved type groups.</summary>
     public CrossQueryOutcome CrossQuery(IReadOnlyList<string>? typeSet, IReadOnlyList<FormKey>? references, string? editoridContains,
                                         bool conflictsOnly, IReadOnlyList<string>? plugins, IReadOnlyList<string>? where, int limit,
                                         bool definedIn = false, string? groupBy = null, int offset = 0, string? whereSource = null,
@@ -2492,12 +2299,10 @@ public sealed partial class LoadOrderService
     {
         var resolver = Resolver;
         // The caller's own build when its FormID door already captured one, so the tokens it parsed and the
-        // records this scan matches come from ONE build; otherwise one build for the scan and every fill it makes.
+        // records this scan matches come from ONE build.
         var view = pinnedView ?? resolver.Capture();
-        // A plugins= scope naming a plugin the order does not carry answers for the ones it does: the other named
-        // plugins' reads are valid, and failing them with it would throw away a whole answer over one bad name. The
-        // missing names ride the scan note so the result says what was left out; only an ALL-missing scope is refused,
-        // because then there is nothing to scan.
+        // A plugins= scope naming a plugin the order does not carry answers for the ones it does; the missing
+        // names ride the scan note, and only an ALL-missing scope is refused.
         string? scopeMissingNote = null;
         if (plugins is { Count: > 0 })
         {
@@ -2514,20 +2319,16 @@ public sealed partial class LoadOrderService
         bool hasType = typeSet is { Count: > 0 };
         bool hasWhere = where is { Count: > 0 };
         bool hasReferences = references is { Count: > 0 };
-        // The negated half of references=: a record is kept only when it links to NONE of these. Same one-step
-        // reverse question, inverted, so it is the same body scan and takes the same bound.
+        // The negated half of references=: a record is kept only when it links to NONE of these.
         var refNone = referencesNone is { Count: > 0 } ? new HashSet<FormKey>(referencesNone) : null;
         bool bodyFilter = hasReferences || refNone is not null || !string.IsNullOrEmpty(editoridContains) || hasWhere;
         bool hasFormidSet = formidSet is { Count: > 0 };
 
         if (!hasType && !conflictsOnly && !hasPlugins && !bodyFilter && !hasFormidSet)
             return CrossQueryOutcome.Fail("a scan needs at least one of: types=, plugins=, formids=, conflicts_only=true, where=, or references=.");
-        // A formid set is itself a bound: the scan touches at most those keys, so a body filter over one needs no
-        // types= or plugins=.
-        //
-        // An unbounded references= is no longer one of those: the reverse-reference index answers which records
-        // link a target, so the index supplies the scan universe and everything downstream is the ordinary scan.
-        // Every OTHER body filter still needs a bound — the index knows links, not field values.
+            // The index's own line rides EVERY answer it serves, not only the call that paid the build. Which lane
+            // asked decides how an unreadable plugin reads — short for the positive question, over-inclusive for
+            // the sweep — so the note is told for the lane.
         string? reverseNote = null;
         bool indexUniverse = false;                                    // the scan universe came from the index, not from the caller
         if (bodyFilter && !hasType && !hasPlugins && !hasFormidSet)
@@ -2538,10 +2339,9 @@ public sealed partial class LoadOrderService
             var built = view.EnsureReverseIndex();
             var universe = HousecarlCore.ReverseSelection.Universe(view, view.ReverseIndex!, references);
             var universeNote = HousecarlCore.ReverseSelection.UniverseNote(references, universe.Count);
-            // The index's own line rides EVERY answer it serves, not only the call that paid the build: the
-            // freshness key and the unreadable-plugin disclosure are true of a cached answer too. Which lane asked
-            // decides how an unreadable plugin reads — short for the positive question, over-inclusive for the
-            // sweep — so the note is told for the lane.
+        // A formid set is itself a bound. An unbounded references= is no longer one: the reverse-reference index
+        // supplies the scan universe and everything downstream is the ordinary scan. Every OTHER body filter still
+        // needs a bound — the index knows links, not field values.
             bool orphanSweep = references is not { Count: > 0 };
             reverseNote = built.NoteFor(orphanSweep) + (universeNote is null ? "" : " " + universeNote);
             formidSet = universe;
@@ -2549,9 +2349,8 @@ public sealed partial class LoadOrderService
             indexUniverse = true;
         }
 
-        // defined_in= keeps only records defined in the scoped plugins (by origin FormKey), which is distinct from
-        // plugins=, meaning everything a plugin touches. It needs a plugins= scope to mean anything, so it is
-        // refused loudly rather than silently ignored.
+        // defined_in= keeps only records DEFINED in the scoped plugins, which is distinct from plugins= meaning
+        // everything a plugin touches, so it is refused loudly rather than silently ignored.
         if (definedIn && !hasPlugins)
             return CrossQueryOutcome.Fail("defined_in=true keeps only records DEFINED in a scoped plugin, so it requires plugins= to name that scope. Add plugins=, or drop defined_in= (a bare scan already reports each match's defining plugin via its FormID suffix).");
         HashSet<ModKey>? scopedModKeys = null;
@@ -2563,19 +2362,16 @@ public sealed partial class LoadOrderService
                 catch (Exception ex) { return CrossQueryOutcome.Fail($"defined_in: '{p}' is not a valid plugin filename: {ex.Message}"); }
         }
 
-        // offset= pages the match window, validated up front: negative is meaningless, and under group_by= there is
-        // no match window to page, since the aggregation counts all matches and is never limit-capped. Silently
-        // ignoring it would misrepresent what the caller asked for.
+        // offset= pages the match window, validated up front: negative is meaningless, and under group_by= there
+        // is no match window to page.
         if (offset < 0)
             return CrossQueryOutcome.Fail($"offset={offset} — offset must be >= 0 (it skips that many matches before returning rows).");
         if (offset > 0 && groupBy is not null)
             return CrossQueryOutcome.Fail("group_by= aggregates ALL matches into a count table (never capped by limit=), so offset= has nothing to page — drop offset=, or drop group_by= for per-match rows.");
 
-        // where_source= chooses which body the body filters decide the match on: 'scoped' (default) is the body the
-        // scan streams — the scoped plugin's own under plugins=, else the winner — and 'winner' is the live
-        // load-order winner regardless of scan scope. Validated up front, so an unknown value refuses before any
-        // scan. It retargets the MATCH only; winner_fields= independently governs display, so "match on the winner,
-        // show the scoped origin" stays expressible.
+        // where_source= chooses which body the body filters decide on: 'scoped' (default) is the body the scan
+        // streams, 'winner' the live load-order winner. It retargets the MATCH only; winner_fields= governs
+        // display, so "match on the winner, show the scoped origin" stays expressible.
         bool whereWinner = false;
         if (whereSource is not null)
         {
@@ -2586,17 +2382,15 @@ public sealed partial class LoadOrderService
         }
         if (whereWinner && !bodyFilter)
             return CrossQueryOutcome.Fail("where_source=winner retargets the body filters (where=/references=/editorid_contains=) onto the live load-order winner, but none of those was given — add a body filter, or drop where_source= (a bare type=/plugins= scope already reports each match's winner).");
-        // Under a type=-only scope the scan already streams the winner body, so where_source=winner is already
-        // satisfied: accept it, but say so rather than silently no-op. Only the scoped-body stream (plugins=) needs
-        // the per-match winner re-fetch.
+        // Under a type=-only scope the scan already streams the winner body, so where_source=winner is satisfied:
+        // accept it, but say so rather than silently no-op.
         bool whereWinnerActive = whereWinner && hasPlugins;
         string? whereSourceNote = (whereWinner && !hasPlugins)
             ? "note: where_source=winner is redundant here — a type=-only scan already reads the load-order winner, so the match used the winner regardless."
             : null;
 
-        // group_by= aggregates matches into a count table, validated up front so an unknown key refuses before any
-        // scan. group_by=type needs the matched body to name the type, so it requires a body-bearing scope; winner
-        // and defined_in are derivable from the FormKey alone and work with conflicts_only= too.
+        // group_by= aggregates matches into a count table, validated up front. group_by=type needs the matched
+        // body to name the type, so it requires a body-bearing scope.
         if (groupBy is not null)
         {
             groupBy = groupBy.Trim().ToLowerInvariant();
@@ -2608,8 +2402,7 @@ public sealed partial class LoadOrderService
         var refSet = hasReferences ? new HashSet<FormKey>(references!) : null;
         bool multiTarget = references is { Count: >= 2 };
 
-        // where= becomes the field-value predicate set, parsed up front so a malformed predicate refuses the call
-        // before any scan. The predicate reuses the read engine's path walk, so its reach is the read surface's.
+        // where= becomes the field-value predicate set, parsed up front so a malformed predicate refuses the call.
         FieldPredicateSet? predicate = null;
         if (hasWhere)
         {
@@ -2618,10 +2411,8 @@ public sealed partial class LoadOrderService
             predicate = set;
         }
 
-        // Artifact re-entry: every artifact-backed list input carries the epoch its rows were captured at. Checked
-        // HERE against the view this scan will answer from, not at the tool layer, where a freshness rebuild between
-        // check and scan would let a stale artifact through. A mismatch refuses loudly naming both epochs, and the
-        // refusal is stamped because it consulted this build to compare.
+        // Artifact re-entry: checked HERE against the view this scan will answer from, not at the tool layer,
+        // where a freshness rebuild between check and scan would let a stale artifact through.
         foreach (var demand in (artifactDemands ?? Array.Empty<ArtifactDemand>()).Concat(
                      predicate?.ArtifactDemands ?? (IReadOnlyList<ArtifactDemand>)Array.Empty<ArtifactDemand>()))
             if (demand.Epoch != view.Epoch)
@@ -2638,19 +2429,15 @@ public sealed partial class LoadOrderService
         var sources = new List<string?>();                                    // parallel to keys: the plugin whose body matched (null ⇒ winner), so the render displays the SAME body it filtered
         List<string?>? matched = multiTarget ? new() : null;                  // parallel to keys: which target(s) each hit referenced (multi-target references= un-merge); null when 0/1 target
         List<RecordSummary>? prefilled = (hasType || hasPlugins || hasFormidSet) ? new() : null;   // parallel to keys; null = renderer fills lazily
-        // OrdinalIgnoreCase so case-variant spellings of the SAME plugin — a master listed one way in one plugin's
-        // masters and another way in another's — merge into one group instead of splitting the count. Plugin
-        // filenames are case-insensitive identifiers everywhere else, and first-seen casing becomes the display key.
-        // Harmless for group_by=type, since record type names never differ only by case, so one comparer covers all
-        // three keys.
+        // OrdinalIgnoreCase so case-variant spellings of the SAME plugin merge into one group instead of splitting
+        // the count; first-seen casing becomes the display key. Harmless for group_by=type.
         Dictionary<string, int>? groups = groupBy is not null ? new(StringComparer.OrdinalIgnoreCase) : null;   // group_by= aggregation (bumped per match, over ALL matches — not limit-capped)
         SeedRequestedTypes(groups, groupBy, types);
         int total = 0;
         int unscannable = 0;                                                // records whose body tests threw (Mutagen-unparseable content) — excluded and accounted, never silent
         var unscannableSamples = new List<string>();
-        // Records whose links were read leniently (PerkEffectDecode) — scanned, but with a named gap. Keyed by
-        // FormKey: on the scoped lane a record is tested once per plugin that carries it, and "N record(s)" has to
-        // mean records, not copies.
+        // Records whose links were read leniently — scanned, but with a named gap. Keyed by FormKey, so
+        // "N record(s)" means records and not copies.
         var lenientKeys = new HashSet<FormKey>();
         var lenientSamples = new List<string>();
         void NoteLenient(FormKey fk, string? note)
@@ -2658,16 +2445,14 @@ public sealed partial class LoadOrderService
             if (note is null || !lenientKeys.Add(fk)) return;
             if (lenientSamples.Count < 3) lenientSamples.Add(note);
         }
-        // Plugins the winner scan could not open at all — a whole-plugin coverage gap, named in the response rather
-        // than left to read as a clean whole-order scan.
+        // Plugins the winner scan could not open at all — a whole-plugin coverage gap, named in the response.
         var unreadablePlugins = new List<PluginUnreadableException>();
 
         // Only the type=/plugins= branches consult this as a pre-filter, and neither can co-occur with an
-        // index-supplied universe — so building it for one would cost a copy of the universe that nothing reads.
-        // (The set-alone branch below still dedupes as it streams; this guard is about the unread pre-filter.)
+        // index-supplied universe.
         HashSet<FormKey>? setFilter = hasFormidSet && !indexUniverse ? new HashSet<FormKey>(formidSet!) : null;
         // The set-alone branch also owns conflicts_only combined with formidSet, via its in-loop touching-count
-        // test: routing that pair to the index-only else-branch would drop every parsed body filter silently.
+        // test: routing that pair to the index-only branch would drop every parsed body filter silently.
         if (!hasType && !hasPlugins && hasFormidSet)                          // the formid set ALONE is the universe: per-key winner fetch
         {
             LoadOrderResolver.OverlaySession? setSession = null;
@@ -2686,12 +2471,9 @@ public sealed partial class LoadOrderService
                         : null,
                     predicate.NeedsContainment ? fk => view.ParentOf(fk) : null);
                 var seenSet = new HashSet<FormKey>();
-                // The universe's bodies are gathered a CHUNK at a time, one enumeration per winner plugin in the
-                // chunk, instead of the whole-overlay seek per record GetRecord costs (#251, the shape the
-                // where_source=winner lane above already uses). An unbounded references= is thousands of keys whose
-                // winners sit in a handful of large masters, so per record that seek was the whole call. The chunk is
-                // the memory bound, and the rows are still scanned in the universe's own order, so offset= and
-                // limit= tile exactly as before.
+                // The universe's bodies are gathered a CHUNK at a time, one enumeration per winner plugin, instead
+                // of the whole-overlay seek per record. The chunk is the memory bound, and the rows are still
+                // scanned in the universe's own order, so offset= and limit= tile exactly as before.
                 const int SetGatherChunk = 10_000;
                 var setPending = new List<FormKey>(SetGatherChunk);
                 var faultedSetWinners = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -2706,13 +2488,11 @@ public sealed partial class LoadOrderService
                 }
                 if (!setStopped && setPending.Count > 0) DrainSet();
 
-                // Gather one chunk's winner bodies — one enumeration per winner plugin — and scan its keys in the
-                // universe's own order. Returns false when the scan must stop.
+                // Gather one chunk's winner bodies and scan its keys in the universe's own order; false stops.
                 bool DrainSet()
                 {
                     var bodies = WinnerBodies.For(view, sess, setPending, null, out var faults, ct);
-                    // A winner plugin that would not open is a whole-plugin coverage gap, named once in the response
-                    // rather than only sampled three rows deep — the same disclosure the winner-source lane makes.
+                    // A winner plugin that would not open is a whole-plugin coverage gap, named once.
                     foreach (var (plugin, fault) in faults)
                         if (faultedSetWinners.Add(plugin)) unreadablePlugins.Add(fault);
                     bool go = true;
@@ -2739,7 +2519,7 @@ public sealed partial class LoadOrderService
                                 && (body.EditorID is null || body.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
                                 continue;
                             // The same one-read verdict the scoped lane makes, so the formids-as-universe lane —
-                            // which is also where an unbounded references= lands — answers identically (#301).
+                            // where an unbounded references= also lands — answers identically.
                             bool keep = ReferenceVerdict(body, refSet, refNone, references, multiTarget && groups is null,
                                                          out var hitTargets, out var lenientNote);
                             NoteLenient(fk, lenientNote);
@@ -2783,19 +2563,15 @@ public sealed partial class LoadOrderService
         }
         else if (hasType || hasPlugins)                                       // a body-bearing scope: stream + filter in hand
         {
-            // RecordsIn and WinnerRecordsOfType are lazy iterators: their throws happen on ENUMERATION, not on
-            // creation, so the try must wrap the foreach rather than just the assignment, or the clean message
-            // escapes as a generic framework error.
+            // RecordsIn and WinnerRecordsOfType are lazy iterators: their throws happen on ENUMERATION, so the
+            // try must wrap the foreach or the clean message escapes as a generic framework error.
             var seen = new HashSet<FormKey>();
-            // Under where_source=winner the match decides on the live winner body, fetched via this ONE session —
-            // one session for every per-match winner fetch, not one per record. Opened only when the scan streams
-            // scoped bodies, since a type=-only scan already yields the winner, and disposed with the scan. The
-            // `->` link-step predicate shares the session for its target-body fetches.
+            // Under where_source=winner the match decides on the live winner body, fetched via this ONE session.
+            // Opened only when the scan streams scoped bodies, and shared with the `->` link-step predicate.
             LoadOrderResolver.OverlaySession? winnerSession =
                 (whereWinnerActive || predicate is { NeedsBodyResolution: true }) ? resolver.OpenSession() : null;
-            // The `winner` provenance term and the `->` link step read the view's resolution — a winner name, or a
-            // target's winner body — bound off the SAME captured view the scan answers from, so a predicate can
-            // never judge against a different build than the rows.
+            // The `winner` term and the `->` link step read the view's resolution, bound off the SAME captured
+            // view the scan answers from.
             predicate?.BindResolution(
                 fk => view.ResolveWinner(fk)?.WinnerPlugin,
                 predicate.NeedsBodyResolution
@@ -2805,32 +2581,22 @@ public sealed partial class LoadOrderService
                         return w is null ? null : view.GetRecord(winnerSession!, w.Value.WinnerPlugin, fk);
                     }
                     : null,
-                // The containment map is WHOLE-ORDER and later-wins, on both lanes — including the plugins= lane,
-                // where every other term reads the scoped plugin's OWN body. That is deliberate and it is the only
-                // well-defined reading: which record contains a child is a fact about the assembled order, not
-                // about one file (thousands of children across a real order sit under a different parent than the
-                // first plugin that declared them). So plugins=["A.esp"] where=["*parent.EditorID = X"] filters
-                // A.esp's own bodies by the order's containment, and a later plugin's re-parenting is what answers.
+                // The containment map is WHOLE-ORDER and later-wins on both lanes, including plugins=, because
+                // which record contains a child is a fact about the assembled order rather than about one file.
                 predicate.NeedsContainment ? fk => view.ParentOf(fk) : null);
-            // where_source=winner needs one body per CANDIDATE, not per record in the order, and fetching them one
-            // at a time is a whole-overlay walk each (#251). So the scan buffers a CHUNK of candidates off the one
-            // scoped stream, gathers that chunk's winner bodies a plugin at a time — one enumeration per distinct
-            // winner plugin in the chunk — and drains it before reading on. Gathering the whole candidate set first
-            // would instead hold a key and a pinned getter per candidate for the scan's length, which on a broad
-            // untyped scope is every record in the order; the chunk is the memory bound. A candidate the SCOPED
-            // plugin itself wins needs no gather at all — the streamed body IS the winner's — so on the shape this
-            // is for, a master audited against the order, the gather only touches the records something overrides.
+            // where_source=winner needs one body per CANDIDATE, and fetching them one at a time is a whole-overlay
+            // walk each. So the scan buffers a CHUNK off the one scoped stream, gathers that chunk's winner bodies
+            // a plugin at a time, and drains it before reading on; the chunk is the memory bound. A candidate the
+            // SCOPED plugin itself wins needs no gather at all.
             const int WinnerGatherChunk = 10_000;
-            // The chunk's rows, filtered by everything that needs no body, each with the winner plugin already
-            // resolved. Held only until the chunk drains.
+            // The chunk's rows, filtered by everything that needs no body, held only until the chunk drains.
             var pending = whereWinnerActive
                 ? new List<(FormKey fk, int depth, IMajorRecordGetter body, string source, string winner)>(WinnerGatherChunk)
                 : null;
             var faultedWinners = whereWinnerActive ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : null;
             try
             {
-                // Carry the source plugin per record so the render shows the body the scan filtered rather than the
-                // winner: plugins= gives the scoped plugin's filename, type= gives null, meaning the winner.
+                // Fetch one chunk's winner bodies and scan its rows, in stream order; false stops the scan.
                 IEnumerable<(FormKey fk, int depth, IMajorRecordGetter body, string? source)> stream =
                     hasPlugins ? view.RecordsIn(plugins!, types).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)x.source))  // the scoped plugin's own body
                                : view.WinnerRecordsOfType(types!, unreadablePlugins).Select(x => (fk: x.fk, depth: x.depth, body: x.body, source: (string?)null));    // the load-order winner's body
@@ -2840,36 +2606,32 @@ public sealed partial class LoadOrderService
                     ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record
                     if (setFilter is not null && !setFilter.Contains(fk)) continue;   // the identity intersection, cheapest first
                     if (conflictsOnly && depth <= 1) continue;
-                    // defined_in= keeps only records whose origin FormKey is a scoped plugin — a definition, not an
-                    // override this plugin merely touches. A FormKey test needing no body, so it runs before the try.
+                    // A winner plugin that would not open is a whole-plugin coverage gap, named once.
                     if (definedIn && !scopedModKeys!.Contains(fk.ModKey)) continue;
                     if (!whereWinnerActive)
                     {
                         if (!ScanRow(fk, depth, body, source)) { stopped = true; break; }
                         continue;
                     }
-                    // where_source=winner de-dups up front: the winner verdict is FormKey-intrinsic, so any scoped
-                    // copy gives the same answer, and the first scoped copy in stream order supplies the display
-                    // source. The scoped path instead de-dups AFTER the filters — a different rule, in ScanRow.
+                // Carry the source plugin per record so the render shows the body the scan filtered.
                     if (!seen.Add(fk)) continue;
-                    // A record the order gives no winner at all is a clean non-match, exactly as the per-record
-                    // fetch treated it — never an unscannable row naming a winner there is none of.
+                    // defined_in= keeps only records whose origin FormKey is a scoped plugin — a FormKey test
+                    // needing no body, so it runs before the try.
                     if (view.ResolveWinner(fk) is not { } w) continue;
                     pending!.Add((fk, depth, body, source!, w.WinnerPlugin));
                     if (pending.Count == WinnerGatherChunk && !DrainChunk()) { stopped = true; break; }
                 }
                 if (!stopped && whereWinnerActive && pending!.Count > 0) DrainChunk();
 
-                // Fetch one chunk's winner bodies and scan its rows, in stream order. Returns false when the scan
-                // must stop.
+                    // where_source=winner de-dups up front: the winner verdict is FormKey-intrinsic. The scoped
+                    // path instead de-dups AFTER the filters, in ScanRow.
                 bool DrainChunk()
                 {
                     var needed = new List<FormKey>(pending!.Count);
                     foreach (var p in pending)
                         if (!string.Equals(p.winner, p.source, StringComparison.OrdinalIgnoreCase)) needed.Add(p.fk);
                     var bodies = WinnerBodies.For(view, winnerSession!, needed, types, out var faults);
-                    // A winner plugin that would not open is a whole-plugin coverage gap, named once in the response
-                    // rather than only sampled three rows deep.
+                    // A record the order gives no winner at all is a clean non-match, never an unscannable row.
                     foreach (var (plugin, fault) in faults)
                         if (faultedWinners!.Add(plugin)) unreadablePlugins.Add(fault);
                     bool go = true;
@@ -2893,37 +2655,26 @@ public sealed partial class LoadOrderService
                     return go;
                 }
 
-                // One row's content filtering, on the body the FILTERS decide on: the live winner
-                // (where_source=winner) or the streamed body. Returns false when the scan must stop.
-                //
-                // Per-record fault isolation: the body tests lazily parse subrecord content, so one record
-                // Mutagen cannot parse would otherwise abort the whole call as an opaque transport error. Such a
-                // record is excluded and accounted for in the response, never silently skipped and never guessed
-                // as a match — including a winner body the gather handed over unparseable.
+                // One row's content filtering, on the body the FILTERS decide on. Returns false when the scan must
+                // stop. Per-record fault isolation: the body tests lazily parse subrecord content, so one record
+                // Mutagen cannot parse is excluded and accounted for, never silently skipped or guessed a match.
                 bool ScanRow(FormKey fk, int depth, IMajorRecordGetter filterBody, string? source)
                 {
                     try
                     {
-                        // Deleted records carry no body to scan (the rule lives in DeletedRecordRule, shared with the
-                        // error check and the compact/merge scan): the content filters cannot match one, so it is
-                        // excluded as a clean non-match before the scan touches its body — which on the references=
-                        // arm is also what avoids crashing on an engine-authored deleted record's leftover body.
-                        // editorid_contains= stays live, because EditorID reads from the record's early EDID
-                        // subrecord, before the deep body parse that can throw. The check keys on whether the
-                        // predicates actually READ body content: the header- and resolution-only terms must see
-                        // deleted records exactly as editorid_contains= does.
+                        // Deleted records carry no body to scan (the rule is DeletedRecordRule's): the content
+                        // filters cannot match one, so it is excluded as a clean non-match before the scan touches
+                        // its body. editorid_contains= stays live, because EditorID reads from the early EDID
+                        // subrecord. The check keys on whether the predicates actually READ body content.
                         if (DeletedRecordRule.HasNoLiveBody(filterBody)
                             && (refSet is not null || predicate is { NeedsLiveBody: true })) return true;
                         if (!string.IsNullOrEmpty(editoridContains)
                             && (filterBody.EditorID is null || filterBody.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
                             return true;
-                        // references= is a list with OR semantics: a record matches if it links to ANY target. One
-                        // EnumerateFormLinks pass collects the intersection, so a multi-target lookup can be
-                        // un-merged into which targets each row hit.
-                        // BOTH reference arms off one link read, so a record cannot be judged twice on two walks.
-                        // Mutagen's walk is one lazy parse: a single unparseable part throws and the record drops
-                        // out. Where that part is a PERK effect Mutagen refuses, the walk is retried field by field
-                        // and the record is accounted in the response rather than vanishing (#301).
+                        // references= is a list with OR semantics, and BOTH arms come off one link read, so a
+                        // record cannot be judged twice on two walks. Mutagen's walk is one lazy parse: where the
+                        // unparseable part is a PERK effect, the walk is retried field by field and the record is
+                        // accounted in the response rather than vanishing.
                         if (!ReferenceVerdict(filterBody, refSet, refNone, references, multiTarget && groups is null,
                                               out var hitTargets, out var lenientNote))
                         { NoteLenient(fk, lenientNote); return true; }
@@ -2933,10 +2684,9 @@ public sealed partial class LoadOrderService
                             if (predicate.FatalError is not null) return false;   // e.g. a numeric op against a non-numeric field — abort and surface it
                             return true;
                         }
-                        // De-dup, since a key can recur across scoped plugins. On the scoped path this runs AFTER the
-                        // filters, so the source recorded for a shared key is the first scoped plugin, in plugins=
-                        // order, whose own body passed. Under where_source=winner the key was already de-duped up
-                        // front, so this is a no-op there.
+                        // De-dup, since a key can recur across scoped plugins. On the scoped path this runs AFTER
+                        // the filters, so the source recorded is the first scoped plugin whose own body passed;
+                        // under where_source=winner the key was already de-duped up front.
                         if (!whereWinnerActive && !seen.Add(fk)) return true;
                         total++;
                         if (groups is not null)                                   // group_by=: aggregate over all matches, no keys or prefill, no limit cap
@@ -2951,9 +2701,8 @@ public sealed partial class LoadOrderService
                             keys.Add(fk);
                             sources.Add(source);                                  // the scoped plugin's display body; null means the winner. where_source=winner keeps the scoped source so "match on winner, show origin" works.
                             matched?.Add(hitTargets is not null ? string.Join(", ", hitTargets) : null);   // parallel to keys, multi-target only
-                            // The winner comes off the SAME view the scan runs on, so a rebuild landing mid-scan
-                            // cannot make a row's winner reflect a newer build than the depth beside it. Type and
-                            // editorid come from the body that MATCHED.
+                            // The winner comes off the SAME view the scan runs on; type and editorid come from
+                            // the body that MATCHED.
                             prefilled!.Add(new RecordSummary(fk, RecordNaming.StripOverlay(filterBody.GetType().Name), filterBody.EditorID,
                                                              view.ResolveWinner(fk)?.WinnerPlugin ?? "?", depth, null)
                                            .WithRuntime(view.RuntimeAddressOf(fk)));
@@ -2969,20 +2718,18 @@ public sealed partial class LoadOrderService
                 }
             }
             catch (ArgumentException ex) { return CrossQueryOutcome.Fail(ex.Message); } // plugin not in order / unknown type
-            // The caller's own cancellation is not a scan fault: it belongs to the client that asked for it and
-            // has to finish as one, not as a refusal saying the scan broke.
+            // The caller's own cancellation is not a scan fault and has to finish as one.
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-            // Anything else escaping the stream still gets a named failure: the MCP layer's generic "An error
-            // occurred invoking …" must never be the terminal diagnostic for a data failure.
+            // Anything else escaping the stream still gets a named failure: the MCP layer's generic message must
+            // never be the terminal diagnostic for a data failure.
             catch (Exception ex) { return CrossQueryOutcome.Fail($"scan aborted: {ex.GetType().Name}: {ex.Message}"); }
             finally { winnerSession?.Dispose(); }
             if (predicate?.FatalError is not null) return CrossQueryOutcome.Fail(predicate.FatalError); // typed predicate error — fail fast, named
         }
         else                                                                  // conflicts_only alone — index keys only, no body fetch
         {
-            // Summaries here would each need a winner-body fetch; leaving them to the renderer, which stops at
-            // max_chars, means a big limit with a small max_chars does not fetch bodies it will never show.
-            // group_by= here can only be winner or defined_in — type was refused up front, with no body to name it.
+            // Summaries here would each need a winner-body fetch; leaving them to the renderer means a big limit
+            // with a small max_chars does not fetch bodies it will never show.
             foreach (var fk in view.ConflictKeys())
             {
                 ct.ThrowIfCancellationRequested();   // a client that aborted stops the scan inside one record
@@ -2990,52 +2737,39 @@ public sealed partial class LoadOrderService
                 total++;
                 if (groups is not null)
                 {
-                    // group_by=winner here does an index-level ResolveWinner per conflict key — a resolve, not a body
-                    // parse, and unavoidable for the aggregate, since the non-group path defers the winner to the
-                    // renderer, which only fetches the capped rows. Deliberate: accuracy over speed.
+                    // group_by=winner here does an index-level ResolveWinner per conflict key — a resolve, not a
+                    // body parse, and unavoidable for the aggregate. Deliberate: accuracy over speed.
                     var gk = groupBy == "defined_in" ? FormIdToken.Plugin(fk.ModKey.FileName.String) : view.ResolveWinner(fk)?.WinnerPlugin ?? "?";
                     groups[gk] = groups.GetValueOrDefault(gk) + 1;
                 }
                 else if (total > offset && keys.Count < limit) { keys.Add(fk); sources.Add(null); }   // no scoped plugin → display the winner; offset= skips the first N
             }
         }
-        // Unscannable accounting: name the count, the first few offenders with the reason, and what a caller can
-        // still do — these records are invisible to the body filters, which is not the same as "0 matches". Two
-        // causes flow here: Mutagen could not parse a body, or under where_source=winner a winner body the index
-        // named did not re-resolve on fetch, and the note must not mislabel the second as a parse failure. It says
-        // "instance(s)" and "where the failure occurred" because under plugins= a FormKey is tested once per scoped
-        // plugin, so a failing copy is skipped where it occurs while another plugin's copy can still match.
+        // Unscannable accounting: the count, the first few offenders with the reason, and what a caller can still
+        // do. Two causes flow here — Mutagen could not parse a body, or a winner body the index named did not
+        // re-resolve — and "instance(s)" because under plugins= a FormKey is tested once per scoped plugin.
         string? scanNote = unscannable == 0 ? null
             : $"note: {unscannable} record instance(s) could not be scanned and were skipped where the failure occurred "
               + "(Mutagen could not parse their content, or — under where_source=winner — a winner body the index named did not re-resolve on fetch; another plugin's copy of the same FormKey can still match): "
               + string.Join("; ", unscannableSamples)
               + (unscannable > unscannableSamples.Count ? $"; and {unscannable - unscannableSamples.Count} more" : "")
               + $". Inspect one with {ToolNames.Records} formids=[the FormID] (per-field fault isolation applies).";
-        // Records the scan DID filter, but only after reading around content Mutagen refused. They are answers, not
-        // skips — so they are said separately from the sentence above — and the gap is named, because what the
-        // lenient read could not reach cannot prove a non-match.
+        // Records the scan DID filter, but only after reading around content Mutagen refused. They are answers,
+        // not skips, and the gap is named because it cannot prove a non-match.
         if (lenientKeys.Count > 0)
             scanNote = scanNote is null ? LenientNote(lenientKeys.Count, lenientSamples)
                                         : scanNote + " " + LenientNote(lenientKeys.Count, lenientSamples);
-        // Whole-plugin coverage gap: the scan carried on past a plugin it could not open, so the answer covers the
-        // rest of the order but not that plugin's winners. Named here so the result never reads as a clean scan.
+        // Whole-plugin coverage gap: the scan carried on past a plugin it could not open, so the answer covers
+        // the rest of the order but not that plugin's winners.
         if (unreadablePlugins.Count > 0)
         {
             string gap = $"coverage gap: {unreadablePlugins.Count} plugin(s) could not be read, so any record they win is missing from this answer: "
                        + string.Join("; ", unreadablePlugins.Select(u => u.Message));
             scanNote = scanNote is null ? gap : scanNote + " " + gap;
         }
-        // A legal editorid= that matched nothing on the WINNER lane: the name may be real and simply carried by a
-        // losing copy the winner renames, which a bare "0 matches" cannot say. One sentence when there is such a
-        // candidate, nothing when there is not (EditorIdNearMiss owns the rule and the budget).
-        //
-        // The gate is the shape the sentence can EXPLAIN, not merely the shape that reaches here. The hint asserts
-        // one cause — the winner renamed the record — so it may only fire when the editorid= term is the only
-        // reason for the zero: a types=-bounded winner-lane scan with no other selection term. A formids= set (its
-        // own bound, including the universe an unbounded references= installs), a references=/references_none=
-        // filter, editorid_contains=, conflicts_only= or a plugins= scope each give the zero a different cause,
-        // and the first of them would also hand the walk a null type scope, making the budget the stop rather than
-        // the backstop.
+        // A legal editorid= that matched nothing on the WINNER lane: the name may be carried by a losing copy the
+        // winner renames, which a bare "0 matches" cannot say. The gate is the shape the sentence can EXPLAIN —
+        // a types=-bounded winner-lane scan with no other selection term — because the hint asserts one cause.
         bool nearMissShape = total == 0 && groups is null && !hasPlugins && !hasFormidSet && !conflictsOnly
                              && refSet is null && refNone is null && string.IsNullOrEmpty(editoridContains)
                              && types is { Count: > 0 };
@@ -3048,8 +2782,7 @@ public sealed partial class LoadOrderService
         // group_by= aggregation is not limit-capped, so Capped is a match-line concern only.
         var groupRows = groups?.Select(kv => new GroupCount(kv.Key, kv.Value))
                               .OrderByDescending(g => g.Count).ThenBy(g => g.Key, StringComparer.Ordinal).ToList();
-        // Capped means matches exist BEYOND the returned window: the matches offset= skipped were asked to be
-        // skipped, so they must not make a full window read as capped.
+        // Capped means matches exist BEYOND the returned window; the matches offset= skipped were asked to be.
         return new CrossQueryOutcome(keys, prefilled, total, groups is null && total > offset + keys.Count, null,
                                      predicate?.AccountingNote(), sources, scanNote,
                                      matched, groupRows, groupBy, definedIn ? string.Join(", ", plugins!) : null, offset,
@@ -3059,10 +2792,9 @@ public sealed partial class LoadOrderService
                  UnreadPlugins = unreadablePlugins.Select(u => u.PluginName).ToList() };
     }
 
-    /// <summary>The schema's answer to a quantifier on a step that is not a list: a refusal sentence naming the
-    /// step's real cardinality, or null. Only a NAMED type scope can be asked — the schema decides per record type,
-    /// so an unscoped or mixed scan keeps the per-record accounting as its backstop — and the refusal lands only
-    /// where the step is a non-list on EVERY named type, so a union arm that does hold a list still runs.</summary>
+    /// <summary>The schema's answer to a quantifier on a step that is not a list: a refusal naming the step's real
+    /// cardinality, or null. Only a NAMED type scope can be asked, and the refusal lands only where the step is a
+    /// non-list on EVERY named type.</summary>
     string? QuantifierShapeRefusal(IReadOnlyList<string> typeTokens, FieldPredicateSet predicate)
     {
         var schemas = new List<TypeSchema>();
@@ -3073,16 +2805,14 @@ public sealed partial class LoadOrderService
 
         foreach (var step in predicate.QuantifiedSteps)
         {
-            // A '->' right side is rooted at the link TARGET's type, not the scanned one, so the scanned type's
-            // schema has no say on it — the runtime accounting is that side's backstop.
+            // A '->' right side is rooted at the link TARGET's type, so the scanned type's schema has no say.
             if (!step.OnScannedType) continue;
             var whatItIs = new List<string>();
             bool unanswered = false;
             foreach (var ts in schemas)
             {
                 var card = Rulebook.StepCardinality(ts, step.Path, step.Index);
-                // The schema cannot say for this type, so this STEP goes to the runtime accounting — the other
-                // steps of the same call are still checkable and must not be silenced with it.
+                // The schema cannot say for this type, so this STEP goes to the runtime accounting.
                 if (card is null) { unanswered = true; break; }
                 if (card == "list") { whatItIs.Clear(); break; }
                 whatItIs.Add($"a {card} on {ts.Name}");
@@ -3096,8 +2826,7 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>The one sentence a scan owes for records it filtered only after reading around content Mutagen
-    /// refused. They are answers, not skips, so it is said apart from the unscannable sentence — and the gap is
-    /// named, because what the lenient read could not reach cannot prove a non-match.</summary>
+    /// refused: they are answers, not skips, and the gap is named because it cannot prove a non-match.</summary>
     static string LenientNote(int count, IReadOnlyList<string> samples) =>
         $"note: {count} record(s) were read leniently — part of their content is encoded in a way Mutagen refuses, "
         + "so the filters ran on what houseCARL could still decode: "
@@ -3105,15 +2834,10 @@ public sealed partial class LoadOrderService
         + (count > samples.Count ? $"; and {count - samples.Count} more" : "")
         + $". Read one with {ToolNames.Records} formids=[the FormID] to see the marked row.";
 
-    /// <summary>BOTH reference arms off ONE read of the record's links — the shared verdict every scan lane uses.
-    /// references= and references_none= walked the body separately, so a record whose links only read leniently
-    /// could be counted as read leniently by one arm and unscannable by the other, two contradictory statements
-    /// about one FormID. One read, one verdict.
-    ///
-    /// <para>Returns false when the record is filtered out. <paramref name="lenientNote"/> is the sentence a lenient
-    /// re-read owes (null when Mutagen's own walk finished); a body nothing can recover from still THROWS, so the
-    /// caller's unscannable accounting is unchanged. <paramref name="hitTargets"/> is filled only when the caller
-    /// wants the per-target un-merge.</para></summary>
+    /// <summary>BOTH reference arms off ONE read of the record's links — the shared verdict every scan lane uses,
+    /// so one FormID cannot be called leniently read by one arm and unscannable by the other. Returns false when
+    /// the record is filtered out; <paramref name="lenientNote"/> is the sentence a lenient re-read owes, and a
+    /// body nothing can recover from still THROWS, so the caller's unscannable accounting is unchanged.</summary>
     static bool ReferenceVerdict(IMajorRecordGetter body, HashSet<FormKey>? refSet, HashSet<FormKey>? refNone,
                                  IReadOnlyList<FormKey>? references, bool wantTargets,
                                  out List<FormKey>? hitTargets, out string? lenientNote)
@@ -3121,12 +2845,11 @@ public sealed partial class LoadOrderService
         hitTargets = null;
         lenientNote = null;
         if (refSet is null && refNone is null) return true;
-        // A deleted record carries no live body: it can never match references=, and it is not EXCLUDED by
-        // references_none= either — the same rule both arms already applied separately.
+        // A deleted record carries no live body: it can never match references=, and references_none= does not
+        // exclude it either.
         if (DeletedRecordRule.HasNoLiveBody(body) || body is not IFormLinkContainerGetter) return refSet is null;
 
-        // A struct visitor, so the walk allocates neither a closure nor a delegate per scanned record, and an
-        // exclusion-only filter still stops at the first excluded link the way the separate walk did.
+        // A struct visitor, so the walk allocates neither a closure nor a delegate per scanned record.
         var v = new ReferenceVisitor(refSet, refNone);
         lenientNote = RecordLinks.Walk(body, ref v);
         if (v.Excluded) return false;
@@ -3137,7 +2860,7 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>Both reference arms in one pass over a record's links: collect the wanted targets it hits, and stop
-    /// the moment it hits an excluded one — there is nothing left to learn once the record is out.</summary>
+    /// the moment it hits an excluded one.</summary>
     struct ReferenceVisitor : RecordLinks.IVisitor
     {
         readonly HashSet<FormKey>? _wanted, _excluded;
@@ -3162,12 +2885,9 @@ public sealed partial class LoadOrderService
     // ---- the off-order scan ----------------------------------------------------------------------------
 
     /// <summary>The off-order scan: the file's own records are the universe, with the same filter grammar the
-    /// in-order scan runs — multi-type, the full where= predicate set, references=, a plugins= scope keeping file
-    /// records those active plugins also touch, defined_in for records the file itself defines, group_by, windows,
-    /// and artifact-fed identity sets. The predicate's `winner` and `-&gt;` terms bind to the ACTIVE view's
-    /// resolution: provenance is an active-order question even when the bodies come from the file. Returns the same
-    /// outcome shape the in-order scan renders, with sources naming the file on every row; the caller declares the
-    /// file's content outside the epoch fingerprint.</summary>
+    /// in-order scan runs. The predicate's <c>winner</c> and <c>-&gt;</c> terms bind to the ACTIVE view's
+    /// resolution, because provenance is an active-order question even when the bodies come from the file. Returns
+    /// the in-order scan's outcome shape, with sources naming the file on every row.</summary>
     public CrossQueryOutcome OffOrderQuery(PoleInfo pole, IReadOnlyList<string>? typeSet,
         IReadOnlyList<FormKey>? references, string? editoridContains, IReadOnlyList<string>? scopePlugins,
         bool definedIn, IReadOnlyList<string>? where, int limit, string? groupBy, int offset,
@@ -3196,11 +2916,9 @@ public sealed partial class LoadOrderService
             var (set, perr) = FieldPredicateSet.Parse(where, FormIdDoor.On(view).Parse);
             if (perr is not null) return CrossQueryOutcome.Fail(perr);
             predicate = set;
-            // The containment map is built from the ACTIVE order's plugins only. An off-order file's own records
-            // are not in it, and worse, a file sharing a filename with an active plugin — the routine case of
-            // inspecting a disabled or older copy of Foo.esp — resolves to the ACTIVE order's parent for the same
-            // FormID, so the scan would filter this file's bodies against an edge another file declared. Refused
-            // by name rather than answered from the wrong index.
+            // The containment map is built from the ACTIVE order only, and a file sharing a filename with an
+            // active plugin resolves to the ACTIVE order's parent for the same FormID — so the scan would filter
+            // this file's bodies against another file's edges. Refused by name rather than answered wrong.
             if (predicate.NeedsContainment)
                 return CrossQueryOutcome.Fail(
                     $"'{ContainmentIndex.ParentToken}' reads the containment map built from the ACTIVE load order, and this scan streams an " +
@@ -3220,9 +2938,8 @@ public sealed partial class LoadOrderService
         if (predicate is not null && typeSet is { Count: > 0 } && QuantifierShapeRefusal(typeSet, predicate) is { } qerr)
             return CrossQueryOutcome.Fail(qerr) with { Stamp = view.Stamp };
 
-        // The same split the in-order scan makes: a name the active order does not carry costs that name's share of
-        // the scope, not the whole answer. The added clause says what the scope MEANS here, which is why an active
-        // plugin is what it takes.
+        // The same split the in-order scan makes: a name the active order does not carry costs that name's share
+        // of the scope, not the whole answer.
         string? scopeMissingNote = null;
         HashSet<string>? scopeSet = null;
         if (scopePlugins is { Count: > 0 })
@@ -3271,9 +2988,8 @@ public sealed partial class LoadOrderService
         {
             if (predicate is not null)
             {
-                // The provenance and link terms read the ACTIVE order's resolution: a `winner` term over an
-                // off-order file asks who wins this key in the active order, and a `->` target resolves to its live
-                // winner body. Same binding discipline as the in-order scan.
+                // The provenance and link terms read the ACTIVE order's resolution, the same binding discipline
+                // the in-order scan keeps.
                 session = (predicate.NeedsBodyResolution ? resolver.OpenSession() : null);
                 var sess = session;
                 predicate.BindResolution(
@@ -3345,8 +3061,7 @@ public sealed partial class LoadOrderService
                 }
             }
         }
-        // The caller's own cancellation is not a fault in the file: it belongs to the client that asked for it and
-        // has to finish as one, not as a refusal saying a perfectly readable file could not be read.
+        // The caller's own cancellation is not a fault in the file: it has to finish as one.
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex) { return CrossQueryOutcome.Fail($"file '{pole.Plugin}' could not be fully read — {ex.GetType().Name}: {ex.Message}") with { Stamp = view.Stamp }; }
         finally { session?.Dispose(); (ov as IDisposable)?.Dispose(); }
@@ -3357,7 +3072,7 @@ public sealed partial class LoadOrderService
               + string.Join("; ", unscannableSamples)
               + (unscannable > unscannableSamples.Count ? $"; and {unscannable - unscannableSamples.Count} more" : "") + ".";
         // Records the scan DID filter, but only after reading around content Mutagen refused — the same sentence
-        // the in-order lanes carry, so one record reads the same way whichever lane answered.
+        // the in-order lanes carry.
         if (lenientKeys.Count > 0)
             scanNote = (scanNote is null ? "" : scanNote + " ") + LenientNote(lenientKeys.Count, lenientSamples);
         // The scope's own gap leads, exactly as it does on the in-order scan.
@@ -3373,11 +3088,9 @@ public sealed partial class LoadOrderService
 
     // ---- effect-chain resolver -------------------------------------------------------------------------
 
-    /// <summary>Resolve which SPEL/ENCH/ALCH/SCRL/INGR apply a MagicEffect, each with the magnitude, area and
-    /// duration from the matching effect entry. Thin wiring over the core: resolve the optional type-narrow — each
-    /// must be one of the five effect-bearing records, and a non-member is refused loudly rather than yielding a
-    /// silent empty scan — then drive <see cref="EffectChain.Resolve"/>. All the logic lives in the core so a test
-    /// can drive this same path on synthetic plugins.</summary>
+    /// <summary>Resolve which SPEL/ENCH/ALCH/SCRL/INGR apply a MagicEffect, with each effect entry's magnitude,
+    /// area and duration. A type-narrow naming a non-effect-bearing record is refused loudly; the logic is
+    /// <see cref="EffectChain.Resolve"/>'s, in the core, so a test can drive it on synthetic plugins.</summary>
     public EffectChainResult ResolveEffectChain(FormKey mgef, IReadOnlyList<string>? typesNarrow, int limit)
     {
         IReadOnlyList<Type> scope;
