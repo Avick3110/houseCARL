@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-21
+updated: 2026-09-22
 covers: [src/housecarl-mcp/NexusClient.cs, src/housecarl-mcp/NexusTools.cs]
 ---
 # Nexus
@@ -15,6 +15,13 @@ public and anonymous — and it never downloads, installs or endorses; that stay
 - Every failure — no connection, timeout, HTTP error, rate limit, malformed body, GraphQL error — is returned as a plain message and never thrown, so the local load-order tools keep working offline.
 - Mutation and subscription documents are refused before the request, matching the keyword only at document start or after a prior operation's closing brace, so a field merely containing the word is not a false refusal.
 - User input rides the GraphQL variable channel and is never concatenated into the query text; only the game id, integer mod ids and the page count are inlined.
+- Search, mod lookup and the update check are scoped to one game per call: Skyrim Special Edition unless `game=` names another, as a Nexus domain name or a numeric game id.
+- The four games of #835 — `skyrimspecialedition` 1704, `baldursgate3` 3474, `cyberpunk2077` 3333, `starfield` 4187 — map with no network call; any other value is resolved once through `game(domainName:)` or `game(id:)` and cached for the process, because a game's id and domain never change.
+- A game Nexus does not know is refused in one sentence naming what was asked, never quietly searched as Skyrim SE.
+- That refusal leans on upstream behaviour the code cannot check: an unknown domain or id comes back as a `Game not found` error rather than a null `game`, so a transport failure is passed through as itself instead.
+- A mod URL's domain segment names its game, so any game's URL works as pasted; a `game=` that names a different game than the URL is refused rather than guessed.
+- Every rendered mod page URL carries the game that was asked for, and the update check's not-found group names it, so no output claims Skyrim SE for another game's call.
+- `housecarl_nexus_identify` and `housecarl_update_status` stay Skyrim-SE-bound by design: they read the MO2 instance's own cache, and a match on another game's file is flagged rather than scoped away.
 - The raw-query backstop renders exactly what the graph returned — `+`, `&` and non-ASCII literal, not escaped — bounded with an explicit truncation marker.
 - Update currency is decided per installed file id, never by comparing a mod's version header to the page's newest MAIN file: one Nexus page hosts many independently-versioned files.
 - `OLD_VERSION` and `ARCHIVED` are the retirement buckets and `REMOVED` and `DELETED` the withdrawal buckets; every other category counts as live, and the category string is always carried into the output.
@@ -36,6 +43,7 @@ public and anonymous — and it never downloads, installs or endorses; that stay
 - `NexusFileCheckProbe` (ci probe `nexus-file-check-guard`) — the per-file currency verdicts, the withdrawn-over-retired order, the NoFileId and LatestOnly degrade, the nxm-only fall-through, the `LiveMainCount` sentence (arms E and H), the id#fileid parse, and the mod id grouping.
 - `NexusGraphqlProbe` (`nexus-graphql-guard`) — the mutation and subscription refusal with no false refusal, and the literal, bounded raw-query rendering sentence.
 - `RenderClampProbe` (`render-clamp-guard`) — the surrogate-safe clamp in the last sentence above.
+- `NexusGameProbe` (`nexus-game-guard`) — the `game=` domain and id mapping including the Skyrim SE default, the unknown value that does not map, the mod URL parse, and the rendered page URL and not-found label naming the game asked for.
 
 ## Where
 `src/housecarl-mcp/NexusClient.cs` holds the HTTP and GraphQL layer, the currency computation, and the result

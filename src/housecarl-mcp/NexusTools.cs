@@ -12,18 +12,19 @@ public static class NexusTools
 {
     [McpServerTool(Name = ToolNames.NexusSearch, ReadOnly = true, Title = "Search Nexus Mods"),
      Description(
-         "Search Nexus Mods for Skyrim Special Edition mods by name/keywords, WITHOUT opening a browser — houseCARL " +
+         "Search Nexus Mods for mods by name/keywords, WITHOUT opening a browser — houseCARL " +
          "queries the Nexus catalog directly and returns a ranked list. Each hit gives the mod name, Nexus mod id, " +
          "version, author, endorsement/download counts, category, last-updated date, a one-line summary, and the page " +
          "URL. Sorted by endorsements by default (sort= downloads | recent | name | relevance), optionally narrowed to a " +
-         "category=, capped at limit= (default 10, max 50). READ-ONLY and needs an internet connection — houseCARL's " +
+         "category=, capped at limit= (default 10, max 50). Searches Skyrim Special Edition unless you pass game= " +
+         "(a Nexus domain name like 'baldursgate3' or a numeric game id). READ-ONLY and needs an internet connection — houseCARL's " +
          "local load-order tools are unaffected if offline. Does NOT download or install anything: to install a result, " +
          "open its page and use Nexus's 'Mod Manager Download' button as usual — houseCARL reads Nexus, your mod manager " +
          "does the download. For full details (requirements and the newest MAIN file — the accurate latest version) of " +
          "one result, pass its id to " + ToolNames.NexusMod + ".")]
     public static Task<string> NexusSearch(
         NexusClient nexus,
-        [Description("Words to search for in mod names, e.g. 'archery overhaul' or 'true storms'. Matched as a wildcard against Skyrim SE mod names.")]
+        [Description("Words to search for in mod names, e.g. 'archery overhaul' or 'true storms'. Matched as a wildcard against the searched game's mod names.")]
             string query,
         [Description("Optional. Narrow to a Nexus category name, e.g. 'Audio', 'Armour', 'Gameplay', 'Patches'. Omit to search all categories.")]
             string? category = null,
@@ -31,6 +32,10 @@ public static class NexusTools
             string sort = "endorsements",
         [Description("Optional. Max results to return (default 10, max 50).")]
             int limit = 10,
+        [Description("Optional. Which game to search: a Nexus domain name as it appears in a mod page URL " +
+            "('skyrimspecialedition' (default), 'baldursgate3', 'cyberpunk2077', 'starfield', or any other Nexus game's " +
+            "domain) or its numeric game id. A domain Nexus doesn't know is refused, never silently searched as Skyrim.")]
+            string? game = null,
         CancellationToken ct = default) => Guard.Tool(ToolNames.NexusSearch, async () =>
     {
         if (string.IsNullOrWhiteSpace(query))
@@ -42,14 +47,17 @@ public static class NexusTools
         if (sortField is null)
             return $"error: unknown sort '{sort}'. Use one of: endorsements, downloads, recent, name, relevance.";
 
-        var (ok, error, result) = await nexus.SearchAsync(query.Trim(), category, sortField, limit, ct);
+        var (gameOk, gameError, resolved) = await nexus.ResolveGameAsync(game, ct);
+        if (!gameOk) return "error: " + gameError;
+
+        var (ok, error, result) = await nexus.SearchAsync(query.Trim(), category, sortField, limit, resolved!, ct);
         if (!ok) return "error: " + error;
-        return Render.Search(query.Trim(), category, sort, result!);
+        return Render.Search(query.Trim(), category, sort, result!, resolved!);
     }, ct);
 
     [McpServerTool(Name = ToolNames.NexusMod, ReadOnly = true, Title = "Look up a Nexus mod"),
      Description(
-         "Look up ONE Skyrim Special Edition mod on Nexus by its numeric mod id (e.g. 12604) OR a pasted mod URL — " +
+         "Look up ONE mod on Nexus by its numeric mod id (e.g. 12604) OR a pasted mod URL — " +
          "without opening a browser. Returns the mod's name, version, author, status, endorsement/download counts, " +
          "category, last-updated date, summary, whether direct download is disabled (manager-only), its Nexus " +
          "REQUIREMENTS (each required mod's name + id + notes, off-site deps flagged), and its newest MAIN file's " +
@@ -63,11 +71,15 @@ public static class NexusTools
          "since='<your installed version>' to show ONLY entries newer than what you have — the 'is this update worth " +
          "installing' delta. A mod whose author wrote no changelog is reported UNKNOWN, never 'no changes', so a silent " +
          "gap is never read as 'safe'. " +
+         "Looks the mod up on Skyrim Special Edition unless you pass game= (a Nexus domain name like 'baldursgate3' or a " +
+         "numeric game id); a pasted URL picks the game from its own domain segment, so any game's URL works as-is. " +
          "READ-ONLY and needs an internet connection (local tools unaffected offline). Does NOT download or install — " +
          "use your mod manager's 'Mod Manager Download' for that. To find a mod by name first, use " + ToolNames.NexusSearch + ".")]
     public static Task<string> NexusMod(
         NexusClient nexus,
-        [Description("The mod to look up: a numeric Nexus mod id (e.g. 12604) or a full mod URL (e.g. https://www.nexusmods.com/skyrimspecialedition/mods/12604).")]
+        [Description("The mod to look up: a numeric Nexus mod id (e.g. 12604) or a full mod URL for any game (e.g. " +
+            "https://www.nexusmods.com/skyrimspecialedition/mods/12604, https://www.nexusmods.com/baldursgate3/mods/3479) — " +
+            "a URL's domain segment picks the game.")]
             string mod,
         [Description("Optional. When true, also include the mod's FULL page description — the long write-up of what it " +
             "does, how it works, usage, recommended INI settings, and compatibility/conflict notes — cleaned of Nexus BBCode/HTML markup to plain " +
@@ -90,14 +102,31 @@ public static class NexusTools
             "delta. Matching is by upload DATE (robust), so if this exact version string isn't found among the files, the " +
             "tool says so and shows the full changelog rather than guessing (Q3). Ignored unless changelog=true.")]
             string? since = null,
+        [Description("Optional. Which game the mod id belongs to: a Nexus domain name as it appears in a mod page URL " +
+            "('skyrimspecialedition' (default), 'baldursgate3', 'cyberpunk2077', 'starfield', or any other Nexus game's " +
+            "domain) or its numeric game id. Ignore it when you paste a URL — the URL's own domain picks the game, and a " +
+            "game= naming a different one is refused rather than guessed.")]
+            string? game = null,
         CancellationToken ct = default) => Guard.Tool(ToolNames.NexusMod, async () =>
     {
-        var (modId, parseError) = ResolveModId(mod);
+        var (modId, urlDomain, parseError) = ParseModRef(mod);
         if (parseError is not null) return "error: " + parseError;
 
-        var (ok, error, detail) = await nexus.GetModAsync(modId, ct);
+        // A URL's domain segment names the game; an explicit game= that names another one is refused, never guessed.
+        var (gameOk, gameError, resolved) = await nexus.ResolveGameAsync(urlDomain ?? game, ct);
+        if (!gameOk) return "error: " + gameError;
+        if (urlDomain is not null && !string.IsNullOrWhiteSpace(game))
+        {
+            var (askedOk, askedError, asked) = await nexus.ResolveGameAsync(game, ct);
+            if (!askedOk) return "error: " + askedError;
+            if (asked!.Id != resolved!.Id)
+                return $"error: that URL is a '{resolved.Domain}' mod page but game= names '{asked.Domain}' — two "
+                     + "different games, so I won't guess which you meant. Pass one of them.";
+        }
+
+        var (ok, error, detail) = await nexus.GetModAsync(modId, resolved!, ct);
         if (!ok) return "error: " + error;
-        return Render.Mod(detail!, description, files, changelog, since);
+        return Render.Mod(detail!, resolved!, description, files, changelog, since);
     }, ct);
 
     [McpServerTool(Name = ToolNames.NexusGraphql, ReadOnly = true, Title = "Run a raw Nexus GraphQL query"),
@@ -137,7 +166,7 @@ public static class NexusTools
 
     [McpServerTool(Name = ToolNames.NexusCheckUpdates, ReadOnly = true, Title = "Batch-check Nexus mods for updates (file-level)"),
      Description(
-         "Check MANY Skyrim Special Edition mods for updates in ONE call — at the FILE level, without a browser or an API " +
+         "Check MANY mods for updates in ONE call — at the FILE level, without a browser or an API " +
          "key. The accurate question is 'is the exact FILE I installed still current?', NOT 'does my version match the " +
          "page's newest main' — a Nexus page hosts many independently-versioned files (patch hubs, ENB pages, Xtudo " +
          "mega-packs), so comparing your file to the page's single newest main is confidently WRONG for those. Pass each " +
@@ -148,6 +177,8 @@ public static class NexusTools
          "FILE-REMOVED (the author WITHDREW your file, REMOVED/DELETED — read the page for why before replacing it; a " +
          "same-name live file is named as a lead, not as the fix), FILE-GONE " +
          "(your file is no longer on the page — hidden/deleted, a loud unknown), or not-found (wrong id / LE/other-game). " +
+         "Checks Skyrim Special Edition unless you pass game= (a Nexus domain name like 'baldursgate3' or a numeric game " +
+         "id); every id in one call is checked against that one game. " +
          "If you pass only 'id=version' with NO fileid (a FOMOD/manual install), it degrades LOUDLY to a best-effort " +
          "'no-fileid' note — never a confident verdict, because the mod-level compare lies for multi-file pages. Batched " +
          "(dozens of mods per call). READ-ONLY, needs an internet connection (local tools work offline). Does NOT download " +
@@ -163,6 +194,10 @@ public static class NexusTools
             "best-effort no-fileid note, or a bare 'id' for its latest version only — e.g. '12604=6.9, 3863'. The " +
             "intra-fileid separator is '#', because ',' separates entries. Non-numeric junk is skipped and listed back to you.")]
             string mods,
+        [Description("Optional. Which game every id in this call belongs to: a Nexus domain name as it appears in a mod " +
+            "page URL ('skyrimspecialedition' (default), 'baldursgate3', 'cyberpunk2077', 'starfield', or any other Nexus " +
+            "game's domain) or its numeric game id. A domain Nexus doesn't know is refused, never silently checked as Skyrim.")]
+            string? game = null,
         CancellationToken ct = default) => Guard.Tool(ToolNames.NexusCheckUpdates, async () =>
     {
         var (pairs, bad) = ParseUpdatePairs(mods);
@@ -170,9 +205,12 @@ public static class NexusTools
             return "error: no mod ids found. Pass entries like '12604=6.9, 266=4.3.8a' (id, optional =installed version), "
                  + "comma/newline separated." + (bad.Count > 0 ? " Unreadable: " + string.Join(", ", bad) : "");
 
-        var (ok, error, results) = await nexus.CheckUpdatesAsync(pairs, ct);
+        var (gameOk, gameError, resolved) = await nexus.ResolveGameAsync(game, ct);
+        if (!gameOk) return "error: " + gameError;
+
+        var (ok, error, results) = await nexus.CheckUpdatesAsync(pairs, resolved!, ct);
         if (!ok) return "error: " + error;
-        return Render.Updates(results, bad);
+        return Render.Updates(results, resolved!, bad);
     }, ct);
 
     /// <summary>Parse the check-updates input into (modId, installed version, fileIds) triples plus the unreadable tokens; pinned by `nexus-file-check-guard`.</summary>
@@ -264,30 +302,27 @@ public static class NexusTools
         _ => null,
     };
 
-    /// <summary>Resolve a bare id or a Nexus mod URL to an SSE mod id, rejecting another game's URL; exactly one of (modId, error) is set.</summary>
-    static (int modId, string? error) ResolveModId(string s)
+    /// <summary>Read a bare id or a Nexus mod URL into a mod id plus the URL's game domain (null when it carried none); pinned by `nexus-game-guard`.</summary>
+    internal static (int modId, string? domain, string? error) ParseModRef(string s)
     {
         s = s.Trim();
-        if (int.TryParse(s, out var id) && id > 0) return (id, null);
+        if (int.TryParse(s, out var id) && id > 0) return (id, null, null);
 
-        // A Nexus mod URL carries the game domain right before /mods/<n>.
+        // A Nexus mod URL carries the game domain right before /mods/<n>, and that domain is which game to ask.
         var url = Regex.Match(s, @"nexusmods\.com/(?:games/)?([^/]+)/mods/(\d+)", RegexOptions.IgnoreCase);
         if (url.Success)
         {
-            var game = url.Groups[1].Value.ToLowerInvariant();
-            if (game != "skyrimspecialedition")
-                return (0, $"that's a '{game}' Nexus URL — houseCARL is Skyrim Special Edition only. (Id {url.Groups[2].Value} "
-                    + "on SSE would be a different mod, so I won't guess.) Pass an SSE mod id or a skyrimspecialedition URL.");
+            var domain = url.Groups[1].Value.ToLowerInvariant();
             if (!int.TryParse(url.Groups[2].Value, out var mid) || mid <= 0)
-                return (0, $"'{url.Groups[2].Value}' isn't a valid mod id.");
-            return (mid, null);
+                return (0, null, $"'{url.Groups[2].Value}' isn't a valid mod id.");
+            return (mid, domain, null);
         }
 
-        // Fallback: a bare '/mods/<n>' with no identifiable game, such as a partial paste — treat it as an SSE id.
+        // Fallback: a bare '/mods/<n>' with no identifiable game, such as a partial paste — the game= parameter decides.
         var loose = Regex.Match(s, @"/mods/(\d+)", RegexOptions.IgnoreCase);
-        if (loose.Success && int.TryParse(loose.Groups[1].Value, out id) && id > 0) return (id, null);
+        if (loose.Success && int.TryParse(loose.Groups[1].Value, out id) && id > 0) return (id, null, null);
 
-        return (0, $"couldn't read a mod id from '{s}'. Pass a numeric Nexus mod id (e.g. 12604) or a Skyrim SE mod URL "
+        return (0, null, $"couldn't read a mod id from '{s}'. Pass a numeric Nexus mod id (e.g. 12604) or a mod URL "
             + "(e.g. https://www.nexusmods.com/skyrimspecialedition/mods/12604).");
     }
 }
@@ -295,7 +330,8 @@ public static class NexusTools
 /// <summary>Render the Nexus result records to readable text; every mod ends with its page URL.</summary>
 static class Render
 {
-    const string ModUrlBase = "https://www.nexusmods.com/skyrimspecialedition/mods/";
+    /// <summary>A game's mod page URL prefix; the domain segment is the game, so a rendered link never points at the wrong one.</summary>
+    internal static string ModUrlBase(NexusGame game) => $"https://www.nexusmods.com/{game.Domain}/mods/";
 
     /// <summary>Max characters of cleaned description text to emit, cut at a word boundary with an explicit marker.</summary>
     const int DescriptionCap = 6000;
@@ -314,10 +350,12 @@ static class Render
     static readonly JsonSerializerOptions GraphqlJson = new()
         { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
-    public static string Search(string term, string? category, string sort, NexusSearchResult r)
+    public static string Search(string term, string? category, string sort, NexusSearchResult r, NexusGame game)
     {
         var sb = new StringBuilder();
         sb.Append("Nexus search: \"").Append(term).Append('"');
+        // Name the game only when it isn't the default, so a Skyrim SE search reads exactly as it did.
+        if (game.Id != NexusClient.SkyrimSeGameId) sb.Append(" on ").Append(game.Domain);
         if (!string.IsNullOrWhiteSpace(category)) sb.Append(" in '").Append(category).Append('\'');
         sb.Append(" — ").Append(r.TotalCount.ToString("N0")).Append(" match(es), by ").Append(sort)
           .Append(", showing ").Append(r.Hits.Count).Append(':');
@@ -342,14 +380,14 @@ static class Render
             if (!string.IsNullOrWhiteSpace(h.Category)) sb.Append(" · ").Append(h.Category);
             if (!string.IsNullOrWhiteSpace(h.UpdatedAt)) sb.Append(" · upd ").Append(Day(h.UpdatedAt!));
             if (!string.IsNullOrWhiteSpace(h.Summary)) sb.Append("\n  ").Append(OneLine(h.Summary!, 160));
-            sb.Append("\n  ").Append(ModUrlBase).Append(h.ModId);
+            sb.Append("\n  ").Append(ModUrlBase(game)).Append(h.ModId);
         }
         sb.Append("\n\n(To install one: open its page and use Nexus's \"Mod Manager Download\" — houseCARL reads Nexus, ")
           .Append("your mod manager does the download. Pass an id to " + ToolNames.NexusMod + " for requirements + latest version.)");
         return sb.ToString();
     }
 
-    public static string Mod(NexusModDetail m, bool includeDescription = false, bool includeFiles = false,
+    public static string Mod(NexusModDetail m, NexusGame game, bool includeDescription = false, bool includeFiles = false,
                              bool includeChangelog = false, string? since = null)
     {
         var sb = new StringBuilder();
@@ -403,7 +441,7 @@ static class Render
               .Append(string.IsNullOrEmpty(body) ? "(this mod's page has no description text.)" : body);
         }
 
-        sb.Append("\n\n").Append(ModUrlBase).Append(m.ModId);
+        sb.Append("\n\n").Append(ModUrlBase(game)).Append(m.ModId);
         return sb.ToString();
     }
 
@@ -463,7 +501,7 @@ static class Render
                 if (!string.IsNullOrWhiteSpace(m.FileCategory)) sb.Append("  [").Append(m.FileCategory).Append(']');
                 if (m.FileSize > 0) sb.Append("  ").Append(HumanSize(m.FileSize));
                 if (m.ModId > 0 && m.GameId == NexusClient.SkyrimSeGameId)
-                    sb.Append("\n    ").Append(ModUrlBase).Append(m.ModId);
+                    sb.Append("\n    ").Append(ModUrlBase(NexusClient.SkyrimSe)).Append(m.ModId);
             }
         }
         if (unreadable.Count > 0) sb.Append("\n\nnot valid md5s (skipped): ").Append(string.Join(", ", unreadable));
@@ -479,7 +517,7 @@ static class Render
     }
 
     /// <summary>Render a batch file-level update check: a summary line, then the mods grouped by verdict, actionable first.</summary>
-    public static string Updates(IReadOnlyList<NexusUpdateStatus> results, IReadOnlyList<string> unreadable)
+    public static string Updates(IReadOnlyList<NexusUpdateStatus> results, NexusGame game, IReadOnlyList<string> unreadable)
     {
         var sb = new StringBuilder();
         int outdated = results.Count(r => r.Verdict == UpdateVerdict.Outdated);
@@ -505,7 +543,8 @@ static class Render
         AppendUpdateGroup(sb, "NO FILEID — couldn't verify at file level (FOMOD/manual install); best-effort only, not a verdict", results, UpdateVerdict.NoFileId);
         AppendUpdateGroup(sb, "current — the exact file you installed is still a live file on the page", results, UpdateVerdict.Current);
         AppendUpdateGroup(sb, "latest version (no installed version/fileid was given to compare)", results, UpdateVerdict.LatestOnly);
-        AppendUpdateGroup(sb, "not found on Skyrim SE (wrong id, an LE/other-game mod, or a hidden/deleted page)", results, UpdateVerdict.NotFound);
+        // The label names the game that was checked, so a non-Skyrim check never reports "not found on Skyrim SE".
+        AppendUpdateGroup(sb, $"not found on {game.Domain} (wrong id, another game's mod, or a hidden/deleted page)", results, UpdateVerdict.NotFound);
         AppendUpdateGroup(sb, "check FAILED (surface, don't assume current)", results, UpdateVerdict.Error);
 
         if (unreadable.Count > 0)

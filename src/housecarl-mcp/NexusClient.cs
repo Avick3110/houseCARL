@@ -8,8 +8,23 @@ namespace HousecarlMcp;
 /// <summary>Keyless read-only client for the Nexus Mods public v2 GraphQL API; contract in docs/architecture/nexus.md.</summary>
 public sealed class NexusClient
 {
-    /// <summary>Skyrim Special Edition's Nexus game id; every query is scoped to it.</summary>
+    /// <summary>Skyrim Special Edition's Nexus game id; the default every query is scoped to.</summary>
     public const int SkyrimSeGameId = 1704;
+
+    /// <summary>Skyrim Special Edition, the game a call with no <c>game=</c> is scoped to.</summary>
+    public static readonly NexusGame SkyrimSe = new(SkyrimSeGameId, "skyrimspecialedition");
+
+    /// <summary>The games that map without a network call; anything else is resolved through the graph once.</summary>
+    static readonly NexusGame[] KnownGames =
+    {
+        SkyrimSe,
+        new(3474, "baldursgate3"),
+        new(3333, "cyberpunk2077"),
+        new(4187, "starfield"),
+    };
+
+    // Games resolved through the graph, keyed by what was asked: a game's id and domain never change, so one lookup serves the process.
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, NexusGame> ResolvedGames = new(StringComparer.OrdinalIgnoreCase);
 
     const string Endpoint = "https://api.nexusmods.com/v2/graphql";
 
@@ -22,13 +37,53 @@ public sealed class NexusClient
 
     // Each public call returns (ok, error, payload); ok==false means error is a user-facing message and payload null.
 
-    /// <summary>Search Skyrim SE mods by a wildcard name term, optionally narrowed to a category, capped at a count.</summary>
+    /// <summary>The game a domain name or numeric id names without a network call; null when it is neither of the known ones.</summary>
+    internal static NexusGame? KnownGame(string? game)
+    {
+        if (string.IsNullOrWhiteSpace(game)) return SkyrimSe;
+        var asked = game.Trim();
+        foreach (var g in KnownGames)
+            if (string.Equals(asked, g.Domain, StringComparison.OrdinalIgnoreCase) || asked == g.Id.ToString())
+                return g;
+        return null;
+    }
+
+    /// <summary>Resolve a <c>game=</c> value — a Nexus domain name or a numeric id — to the game every query is then scoped to.</summary>
+    public async Task<(bool ok, string? error, NexusGame? game)> ResolveGameAsync(string? game, CancellationToken ct)
+    {
+        if (KnownGame(game) is { } known) return (true, null, known);
+
+        var asked = game!.Trim();
+        if (ResolvedGames.TryGetValue(asked, out var cached)) return (true, null, cached);
+
+        bool numeric = int.TryParse(asked, out var askedId) && askedId > 0;
+        var (ok, error, data) = numeric
+            ? await PostAsync(GameByIdQuery, new { id = askedId.ToString() }, ct)
+            : await PostAsync(GameByDomainQuery, new { domainName = asked }, ct);
+
+        // Nexus answers an unknown game with a GAME_NOT_FOUND error rather than a null game, so that message is the refusal.
+        if (!ok && error is not null && error.Contains("not found", StringComparison.OrdinalIgnoreCase))
+            return (false, $"Nexus Mods has no game '{asked}' — pass the domain name as it appears in a mod page URL "
+                + "(e.g. skyrimspecialedition, baldursgate3, cyberpunk2077, starfield) or the numeric game id.", null);
+        if (!ok) return (false, error, null);
+
+        if (!data.TryGetProperty("game", out var g) || g.ValueKind != JsonValueKind.Object
+            || Int(g, "id") <= 0 || string.IsNullOrWhiteSpace(Str(g, "domainName")))
+            return (false, $"Nexus Mods has no game '{asked}' — pass the domain name as it appears in a mod page URL "
+                + "(e.g. skyrimspecialedition, baldursgate3, cyberpunk2077, starfield) or the numeric game id.", null);
+
+        var resolved = new NexusGame(Int(g, "id"), Str(g, "domainName")!);
+        ResolvedGames[asked] = resolved;
+        return (true, null, resolved);
+    }
+
+    /// <summary>Search one game's mods by a wildcard name term, optionally narrowed to a category, capped at a count.</summary>
     public async Task<(bool ok, string? error, NexusSearchResult? result)> SearchAsync(
-        string term, string? category, string sortField, int count, CancellationToken ct)
+        string term, string? category, string sortField, int count, NexusGame game, CancellationToken ct)
     {
         var filter = new Dictionary<string, object>
         {
-            ["gameId"] = new[] { new { value = SkyrimSeGameId.ToString(), op = "EQUALS" } },
+            ["gameId"] = new[] { new { value = game.Id.ToString(), op = "EQUALS" } },
             ["name"] = new[] { new { value = term, op = "WILDCARD" } },
         };
         if (!string.IsNullOrWhiteSpace(category))
@@ -56,10 +111,10 @@ public sealed class NexusClient
     }
 
     /// <summary>Fetch one mod's detail and its files in a single request; a non-existent modId comes back as ok==false.</summary>
-    public async Task<(bool ok, string? error, NexusModDetail? mod)> GetModAsync(int modId, CancellationToken ct)
+    public async Task<(bool ok, string? error, NexusModDetail? mod)> GetModAsync(int modId, NexusGame game, CancellationToken ct)
     {
         var (ok, error, data) = await PostAsync(
-            ModQuery, new { modId = modId.ToString(), gameId = SkyrimSeGameId.ToString() }, ct);
+            ModQuery, new { modId = modId.ToString(), gameId = game.Id.ToString() }, ct);
         if (!ok) return (false, error, null);
 
         // Guard the root navigation: a missing 'mod' on a 200 returns cleanly rather than throwing.
@@ -114,7 +169,7 @@ public sealed class NexusClient
 
     /// <summary>Batch file-level currency check: is the exact file each mod installed still current? Contract in docs/architecture/nexus.md.</summary>
     public async Task<(bool ok, string? error, IReadOnlyList<NexusUpdateStatus> results)> CheckUpdatesAsync(
-        IReadOnlyList<(int modId, string? installed, IReadOnlyList<int> fileIds)> mods, CancellationToken ct)
+        IReadOnlyList<(int modId, string? installed, IReadOnlyList<int> fileIds)> mods, NexusGame game, CancellationToken ct)
     {
         var (order, map) = GroupRequests(mods);
         if (order.Count == 0) return (false, "no valid mod ids to check.", Array.Empty<NexusUpdateStatus>());
@@ -126,7 +181,7 @@ public sealed class NexusClient
         for (int i = 0; i < order.Count; i += ChunkSize)
         {
             var chunk = order.Skip(i).Take(ChunkSize).ToList();
-            var g = SkyrimSeGameId;
+            var g = game.Id;
             var branches = string.Join(",", chunk.Select(id =>
                 $"{{gameId:{{value:\"{g}\",op:EQUALS}},modId:{{value:\"{id}\",op:EQUALS}}}}"));
             // fileId and name are what join an installed file id to its live category and name.
@@ -377,6 +432,10 @@ public sealed class NexusClient
             }
           }";
 
+    const string GameByDomainQuery = @"query GameByDomain($domainName: String!) { game(domainName: $domainName) { id domainName } }";
+
+    const string GameByIdQuery = @"query GameById($id: ID!) { game(id: $id) { id domainName } }";
+
     const string FileHashQuery =
         @"query FileHashes($md5s: [String!]!) {
             fileHashes(md5s: $md5s) {
@@ -387,6 +446,9 @@ public sealed class NexusClient
 }
 
 // ── result shapes; the tools render these to text ──
+
+/// <summary>One Nexus game: the numeric id a query is scoped to and the domain name its mod page URLs carry.</summary>
+public sealed record NexusGame(int Id, string Domain);
 
 /// <summary>One row of a search result.</summary>
 public sealed record NexusSearchHit(
