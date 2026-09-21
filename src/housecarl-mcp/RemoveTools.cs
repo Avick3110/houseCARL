@@ -3,10 +3,9 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>housecarl_remove — the whole-record removal surface, over
-/// <see cref="LoadOrderService.RemoveRecords"/>. <c>formids=</c> is set-valued because the engine present-checks and
-/// re-serializes all targets in one all-or-nothing pass; the lane is <c>into=</c> rather than <c>patch=</c> because a
-/// removal never creates an artifact, it edits one that already exists.</summary>
+/// <summary>housecarl_remove — the whole-record removal surface, over <see cref="LoadOrderService.RemoveRecords"/>.
+/// <c>formids=</c> is set-valued because the engine re-serializes every target in one all-or-nothing pass, and the
+/// lane is <c>into=</c> rather than <c>patch=</c> because a removal edits an artifact instead of creating one.</summary>
 [McpServerToolType]
 public static class RemoveTools
 {
