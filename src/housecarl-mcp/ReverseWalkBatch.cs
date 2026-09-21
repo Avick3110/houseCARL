@@ -28,8 +28,7 @@ public static class ReverseWalkBatch
         public string? Epoch => Stamp?.Epoch;
     }
 
-    /// <summary>Run the walk from these seeds; a bad FormID is a refusal naming it. <paramref name="ct"/> stops
-    /// the body gather between plugin walks.</summary>
+    /// <summary>Run the walk from these seeds; a bad FormID is a refusal naming it.</summary>
     public static Result Run(LoadOrderService svc, IReadOnlyList<string> seeds, int depth, int maxNodes,
                              ArtifactDemand? demand, CancellationToken ct = default)
     {
@@ -57,8 +56,7 @@ public static class ReverseWalkBatch
 
         var built = view.EnsureReverseIndex();
         int unreadable = 0, noLiveBody = 0, noWinner = 0;
-        // Every candidate is judged once, however many frontiers name it. Whether the winner carries a link is
-        // frontier-relative, so it is asked again per hop off the remembered set.
+        // Every candidate is judged once, however many frontiers name it.
         var linksOf = new Dictionary<FormKey, IReadOnlySet<FormKey>?>();
         var noLink = new HashSet<FormKey>();
         using var session = pin.Resolver.OpenSession();

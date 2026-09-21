@@ -3,10 +3,8 @@ using Mutagen.Bethesda.Plugins.Records;
 
 namespace HousecarlMcp;
 
-/// <summary>The conflict-tree fill for a CHUNK of rows: ONE PLUGIN PASS over the chunk, highest priority first,
-/// so each provider plugin is walked exactly once and answers its whole share. Plugin-major is what keeps it
-/// cheap in memory — the caller releases each provider's fields before the next plugin is walked. Contract and
-/// pins in docs/architecture/read-engine.md.</summary>
+/// <summary>The conflict-tree fill for a CHUNK of rows: ONE PLUGIN PASS over the chunk, highest priority first, so
+/// each provider plugin is walked exactly once and answers its whole share.</summary>
 public sealed partial class LoadOrderService
 {
     /// <summary>Rows whose bodies one comparison-form chunk gathers together — ONE number over both lanes, since
@@ -115,8 +113,7 @@ public sealed partial class LoadOrderService
                 if (seek is { Count: 0 }) seek = null;
                 var sink = new Dictionary<FormKey, IMajorRecordGetter>(want.Count);
                 // The one gather rule, shared with BodyGather: the walk is guarded, and out-of-memory and
-                // cancellation are rethrown. A fault reading the PLUGIN leaves the sink empty and every row falls
-                // back to the per-record fetch, which raises the same fault in the same words.
+                // cancellation are rethrown.
                 if (BodyGather.WalkOnce(view, session, plugin, want, seek, sink) is not null) sink.Clear();
 
                 foreach (var (r, node) in hits)
