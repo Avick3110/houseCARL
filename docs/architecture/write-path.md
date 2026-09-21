@@ -40,6 +40,8 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
   (The W0 rule, 2026-09-15; PRs #743, #744, #746.) An opaque `bytes` leaf re-reads as a byte count with its
   structure NOT checked.
 - A read-back proves what is in the file, never what wins in the ORDER.
+- A walk's source universe is the caller's pole list in order, resolved first-hit-wins, with no separate single-pole
+  path: a length-1 list is the same loop running once.
 - An off-order source — a `CopyFrom` source, a `forward` source, a walk pole — is located by the on-disk locate
   every other lane uses, and its overlay is handed back OPEN because bodies are deep-copied during the serialize; the
   caller disposes it only after the write returns.
