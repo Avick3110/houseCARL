@@ -609,7 +609,7 @@ public sealed class ReverseIndexLifecycleTests
     /// <summary>Reads take no build lock, so a refresh must publish a whole generation rather than mutate the one
     /// being read: a torn read is either a thrown collection-modified or a silently short referencer set.</summary>
     [Fact]
-    public void ConcurrentReadsAndRefreshesNeverTearTheIndex()
+    public async Task ConcurrentReadsAndRefreshesNeverTearTheIndex()
     {
         using var w = new RecordsWorld();
         var view = w.Svc.CaptureView();
@@ -645,7 +645,7 @@ public sealed class ReverseIndexLifecycleTests
             catch (Exception ex) { failures.Add("read: " + ex); }
         })).ToArray();
 
-        Task.WaitAll(readers.Append(refresher).ToArray());
+        await Task.WhenAll(readers.Append(refresher));
         Assert.Empty(failures);
     }
 
@@ -697,7 +697,7 @@ public sealed class ReverseIndexLifecycleTests
     /// <summary>Two sweeps at once share one generation's memoised referenced-set rather than each building their
     /// own, and neither sees a torn one.</summary>
     [Fact]
-    public void ConcurrentSweepsAgree()
+    public async Task ConcurrentSweepsAgree()
     {
         using var w = new RecordsWorld();
         var view = w.Svc.CaptureView();
@@ -706,8 +706,8 @@ public sealed class ReverseIndexLifecycleTests
         var keys = view.RecordKeys().ToList();
         var results = Enumerable.Range(0, 4)
             .Select(_ => Task.Run(() => index.Orphans(keys).ToList())).ToArray();
-        Task.WaitAll(results);
-        foreach (var t in results) Assert.Equal(results[0].Result, t.Result);
+        var sweeps = await Task.WhenAll(results);
+        foreach (var sweep in sweeps) Assert.Equal(sweeps[0], sweep);
     }
 
     /// <summary>Rewrite the profile so the named plugin is no longer active.</summary>
