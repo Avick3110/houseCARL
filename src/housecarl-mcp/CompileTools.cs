@@ -5,18 +5,11 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>Drives the Creation Kit's PapyrusCompiler.exe through <see cref="HousecarlCore.PapyrusCompile"/> to turn a
-/// .psc into a .pex, landing the .pex in a houseCARL patch-mod folder. The compiler path comes from
-/// <see cref="ToolPathResolver"/> and prompts if unset. The return is structured per-line diagnostics so a failed
-/// compile can be read, fixed and retried.</summary>
+/// <summary>housecarl_compile_script — drives the CK's PapyrusCompiler.exe, landing the .pex in a houseCARL patch-mod folder; contracts in docs/architecture/papyrus.md.</summary>
 [McpServerToolType]
 public static class CompileTools
 {
-    /// <summary>The compiler's import path plus the provenance of every entry, assembled by <see cref="PlanImports"/>
-    /// and printed by <see cref="Render"/> — what was actually searched is the one fact that explains both a missing
-    /// dependency and a shadowed script. The summary counts are derived from <see cref="Entries"/> rather than tracked
-    /// alongside it: dedup and the vanilla-last re-slot both change what survives, so a count taken off the inputs
-    /// would disagree with the list printed beneath it.</summary>
+    /// <summary>The import path plus each entry's provenance; the counts are derived from <see cref="Entries"/>, because dedup and the vanilla re-slot change what survives.</summary>
     public sealed record ImportPlan(
         IReadOnlyList<(string Dir, string Origin)> Entries,
         bool AutoEnabled,
@@ -28,8 +21,7 @@ public static class CompileTools
         bool VanillaMissing = false,
         bool ScanFailed = false)
     {
-        /// <summary>Provenance labels: the exact strings <see cref="ImportDetail"/> prints, and the keys the counts
-        /// group on.</summary>
+        /// <summary>Provenance labels: the exact strings the renders print, and the keys the counts group on.</summary>
         public const string OwnFolder = "the script's own folder";
         public const string Vanilla = "vanilla sources";
         public const string CallerDirs = "import_dirs=";
@@ -41,16 +33,12 @@ public static class CompileTools
         /// <summary>Dirs that came from the caller (import_dirs= / import_set=) and survived into the final path.</summary>
         public int CallerCount => Entries.Count(e => e.Origin == CallerDirs);
 
-        /// <summary>The providing mod folders behind entries that are on the path because the scan put them there. A
-        /// folder the caller also passed takes the caller slot instead and is absent here by design.</summary>
+        /// <summary>The mod folders behind entries the scan put on the path; one the caller also passed takes the caller slot.</summary>
         public IReadOnlyList<string> AutoProviders =>
             Entries.Where(e => e.Origin.StartsWith(AutoPrefix, StringComparison.Ordinal))
                    .Select(e => e.Origin[AutoPrefix.Length..]).ToList();
 
-        /// <summary>The mods the reference walk matched — the scan's own conclusion, independent of which slot each
-        /// folder ended up in. The summary and the missing-imports banner quote this, because "what does this script
-        /// reference?" is not the question the slots answer. The one count here deliberately not derived from
-        /// <see cref="Entries"/>: a folder the caller also passed would drop out of it.</summary>
+        /// <summary>The mods the walk matched, whichever slot each took — the one count not derived from <see cref="Entries"/>, which a caller-passed folder would drop out of.</summary>
         public IReadOnlyList<string> Referenced { get; } = ReferencedProviders ?? Array.Empty<string>();
     }
 
@@ -109,14 +97,10 @@ public static class CompileTools
         var objectName = Path.GetFileNameWithoutExtension(script);
         var scriptDir = Path.GetDirectoryName(script)!;
 
-        // 3) the compiler, or the prompt to surface if unset. The CK installs it under <game>\Papyrus Compiler\, so the
-        // hints are the load order's own game dir first, then the located real Steam SE install: that resolves both a
-        // normal Steam+CK install and a Stock-Game setup, where the CK lives in the Steam install rather than the copy
-        // MO2 points at.
+        // 3) the compiler, or the prompt if unset; the hints are the game dir, then the Steam SE install a Stock Game setup keeps the CK in.
         if (bridge.RequireOrPrompt(ToolDependency.PapyrusCompiler, out var compilerExe, svc.CompilerGameDirHints()) is { } toolPrompt) return toolPrompt;
 
-        // 4) caller extras: import_dirs= then the named set. An unknown set is refused and names the saved sets rather
-        // than silently compiling with a shorter path.
+        // 4) caller extras: import_dirs= then the named set. An unknown set is refused and names the saved sets.
         var callerExtras = SplitDirs(import_dirs).ToList();
         string? importSetName = null;
         if (!string.IsNullOrWhiteSpace(import_set))
@@ -134,8 +118,7 @@ public static class CompileTools
         }
         callerExtras = callerExtras.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-        // 5) persist the set before compiling: a set is a path list, worth keeping whether or not this script compiles.
-        // A save failure is reported — it works this session but will not survive a restart.
+        // 5) persist the set before compiling, and report a save failure: it then holds for this session only.
         string? saveNote = null;
         if (!string.IsNullOrWhiteSpace(save_import_set))
         {
@@ -152,10 +135,7 @@ public static class CompileTools
             }
         }
 
-        // 6) the import path: the script's own folder, the caller's extras, the modlist's own source folders, vanilla
-        // last. auto_imports=false skips the scan, which is the whole point of that flag. The one exception is when
-        // the compiler has no vanilla sources beside it: then the modlist is read purely to locate them, because the
-        // alternative is a path with no vanilla at all.
+        // 6) the import path, in order; auto_imports=false skips the scan except to locate missing vanilla sources.
         IReadOnlyList<PapyrusSourceRoot> autoRoots = Array.Empty<PapyrusSourceRoot>();
         string? gameDataSources = null, autoWarning = null;
         bool scanFailed = false;
@@ -164,22 +144,18 @@ public static class CompileTools
             (autoRoots, gameDataSources, autoWarning, scanFailed) = svc.PapyrusSourceImportDirs();
             if (!auto_imports) autoRoots = Array.Empty<PapyrusSourceRoot>();   // read for the vanilla fallback only
         }
-        // The warning rides along whenever the scan actually ran: with auto_imports on it explains missing mods, and on
-        // the vanilla-only branch it gives the cause behind a missing vanilla slot.
+        // The warning rides along whenever the scan ran, on either branch.
         var plan = PlanImports(script, scriptDir, compilerExe!, callerExtras, autoRoots, auto_imports, importSetName,
                                autoWarning, gameDataSources, scanFailed);
 
-        // The whole path travels as one `-i=` argument and Windows caps a command line at about 32k characters, which a
-        // modlist with hundreds of source folders can cross. Refuse with the way out rather than letting the process
-        // start fail unreadably.
+        // The whole path travels as one `-i=` argument, so a path past the command-line cap is refused with the way out.
         var joinedLength = string.Join(";", plan.Dirs).Length;
         if (joinedLength > 30_000)
             return $"error: the assembled import path is too long for one compiler command line ({plan.Dirs.Count} dirs, " +
                    $"{joinedLength} chars; the limit is about 32000). Re-run with auto_imports=false and pass only the " +
                    "dependencies this script needs via import_dirs= (save_import_set= will keep that list for next time).";
 
-        // 7) output folder: out_path= names a user-owned location, so append Scripts\ rather than making a houseCARL
-        // patch folder. It supersedes patch=/into=, and says so rather than ignoring them silently.
+        // 7) output folder: out_path= is user-owned, takes Scripts\ appended, and supersedes patch=/into= saying so.
         LoadOrderService.RiderFolder rf;
         string? deployWarning = null, outputNote = null;
         if (!string.IsNullOrWhiteSpace(out_path))
@@ -187,8 +163,7 @@ public static class CompileTools
             if (!string.IsNullOrWhiteSpace(patch) || !string.IsNullOrWhiteSpace(into))
                 outputNote = "note: out_path= was given, so patch=/into= are ignored (the .pex lands in out_path, not a houseCARL patch folder).";
             try { rf = svc.ResolveExplicitScriptFolder(out_path, out deployWarning); }
-            // The ignored-lane note rides the refusal too: a refusal is when a caller re-reads their parameters, and
-            // "patch= was ignored" is still true of the call they are about to retype.
+            // The ignored-lane note rides the refusal too — it is still true of the call about to be retyped.
             catch (InvalidOperationException ex) { return "error: " + ex.Message + (outputNote is null ? "" : "\n" + outputNote); }
         }
         else
@@ -207,9 +182,7 @@ public static class CompileTools
         }
         else
         {
-            // A failed compile produced no .pex: delete an empty fresh folder, name a partial one, leave an into= reuse
-            // alone. An out_path= folder is user-owned (CreatedFresh=false), so RemoveOrNameRiderResidue returns null
-            // for it by construction — a user directory is never deleted.
+            // No .pex: an empty fresh folder is deleted, a partial one named, an into= or out_path= folder left alone.
             var left = svc.RemoveOrNameRiderResidue(rf);
             if (left is not null)
                 rendered += $"\nThe freshly created mod folder at '{left}' still holds partial output — delete it or retry with into=.";
@@ -230,19 +203,11 @@ public static class CompileTools
         }
     }
 
-    /// <summary>Whether the MO2 modlist must be read at all: when the scan was asked for, and — even when it was
-    /// declined — when the compiler has no vanilla sources beside it, since the modlist's own
-    /// <c>Data\Source\Scripts</c> is then the only place left to find them and a path with no vanilla resolves
-    /// nothing. The scan forces the asset build and probes two layouts under every enabled mod, which is the cost
-    /// <c>auto_imports=false</c> exists to avoid.</summary>
+    /// <summary>Whether the MO2 modlist must be read at all: when the scan was asked for, and when the compiler has no vanilla sources beside it. Pinned by <c>import-order-guard</c>.</summary>
     internal static bool NeedsModlistScan(bool autoImports, string compilerExe)
         => autoImports || VanillaSourceDir(compilerExe) is null;
 
-    /// <summary>The vanilla Papyrus sources shipped with the game the compiler belongs to
-    /// (&lt;game&gt;\Papyrus Compiler\PapyrusCompiler.exe maps to &lt;game&gt;\Data\Source\Scripts, which also holds
-    /// the flags file), or null if that folder is not there. One definition, used both by <see cref="BuildImports"/>,
-    /// which pins it last, and by the labelling in <see cref="PlanImports"/>, which must recognise the same folder —
-    /// derived twice they could disagree and the render would label the vanilla slot as a mod.</summary>
+    /// <summary>The vanilla sources shipped with the compiler's own game, or null — one definition, because the path and its labelling must recognise the same folder.</summary>
     public static string? VanillaSourceDir(string compilerExe)
     {
         var gameRoot = Path.GetDirectoryName(Path.GetDirectoryName(compilerExe));
@@ -251,29 +216,18 @@ public static class CompileTools
         return Directory.Exists(vanilla) ? vanilla : null;
     }
 
-    /// <summary>Assemble the compiler's import-directory list. The CK compiler resolves each referenced script to the
-    /// FIRST matching .psc across these directories in order, so the order is semantics: the script's own folder,
-    /// then caller extras, then the auto-discovered mod source folders in MO2 priority order, then the vanilla
-    /// sources last. Vanilla last is load-bearing — mods ship extended copies of vanilla sources (SKSE's Actor.psc,
-    /// Game.psc, Form.psc), and ranked any earlier the vanilla copy wins and every call to an extended function fails
-    /// as undefined.</summary>
+    /// <summary>Assemble the import-directory list, whose ORDER is semantics; docs/architecture/papyrus.md, pinned by <c>import-order-guard</c>.</summary>
     public static List<string> BuildImports(string scriptDir, string compilerExe, string? import_dirs,
                                             IReadOnlyList<string>? autoDirs = null, string? resolvedVanilla = null)
     {
         var imports = new List<string> { scriptDir };
         imports.AddRange(SplitDirs(import_dirs));
         if (autoDirs is not null) imports.AddRange(autoDirs);
-        // resolvedVanilla, when given, IS the vanilla dir: PlanImports resolves it once — compiler-relative first,
-        // else the modlist's own Data\Source\Scripts — and hands the answer down. Deriving it independently here too
-        // would let the plan report a vanilla slot the assembled path does not have, or the reverse.
+        // resolvedVanilla, when given, IS the vanilla dir: the plan resolves it once and hands the answer down.
         var vanilla = resolvedVanilla ?? VanillaSourceDir(compilerExe);
         if (vanilla is not null)
         {
-            // The auto-added vanilla dir must stay last. A caller re-passing it, or the modlist scan reaching it
-            // (the game's Data folder is itself a VFS loose root, and Data\Source\Scripts is this folder), would
-            // otherwise pin it into an earlier slot and resurrect the shadowing, since Distinct keeps the FIRST
-            // occurrence. When the script itself lives in the vanilla folder, that slot is the own-folder slot
-            // and stays.
+            // The auto-added vanilla dir stays last, re-passed or re-found; the own-folder slot is the one exception.
             imports.RemoveAll(d => d.Equals(vanilla, StringComparison.OrdinalIgnoreCase)
                                    && !d.Equals(scriptDir, StringComparison.OrdinalIgnoreCase));
             imports.Add(vanilla);
@@ -281,24 +235,16 @@ public static class CompileTools
         return imports.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    /// <summary>Drive <see cref="BuildImports"/> and label each surviving dir with where it came from, so the render
-    /// can print the searched path with provenance. Labelling reads the FINAL list, not the inputs: dedup and the
-    /// vanilla re-slot both drop entries. Where a dir belongs to two origins the precedence is the script's own
-    /// folder (routinely a mod's own Source\Scripts, and it holds the first slot), then vanilla (the game's Data
-    /// folder is also a loose root, so the scan finds it), then a discovered mod, then the caller.</summary>
+    /// <summary>Label each surviving dir of <see cref="BuildImports"/> off the FINAL list: own folder, vanilla, a discovered mod, then the caller.</summary>
     internal static ImportPlan PlanImports(
         string targetScript, string scriptDir, string compilerExe, IReadOnlyList<string> callerExtras,
         IReadOnlyList<PapyrusSourceRoot> autoRoots, bool autoEnabled, string? importSetName, string? warning,
         string? gameDataSources = null, bool scanFailed = false)
     {
-        // The compiler's own game dir first, since its sources match the flags file it will use, then the modlist's
-        // Data\Source\Scripts as the fallback.
+        // The compiler's own game dir first, its sources matching the flags file, then the modlist's as the fallback.
         var vanilla = VanillaSourceDir(compilerExe) ?? gameDataSources;
 
-        // Narrow the scan to what this script reaches: a large modlist ships hundreds of source folders, which
-        // together exceed what a Windows command line can carry, and they are overwhelmingly quest and follower mods
-        // nothing else references. Vanilla is held out of the candidates — it is appended last unconditionally, so
-        // indexing it would only make the closure walk the base game for no gain.
+        // Narrow the scan to what this script reaches, vanilla held out of the candidates as it is appended last anyway.
         var candidates = autoRoots.Where(r => vanilla is null || !r.Dir.Equals(vanilla, StringComparison.OrdinalIgnoreCase)).ToList();
         PapyrusDependencyScan? scan = null;
         IReadOnlyList<string> autoDirs = Array.Empty<string>();
@@ -312,9 +258,7 @@ public static class CompileTools
 
         var dirs = BuildImports(scriptDir, compilerExe, string.Join(";", callerExtras), autoDirs, vanilla);
 
-        // Providers are indexed from the kept folders only. A candidate the filter dropped can still reach the final
-        // list, but only because the caller passed it, so indexing every discovered root would label it as one the
-        // scan contributed.
+        // Providers are indexed from the KEPT folders only: a dropped candidate reaches the list only as a caller dir.
         var keptSet = new HashSet<string>(autoDirs, StringComparer.OrdinalIgnoreCase);
         var providers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var r in candidates) if (keptSet.Contains(r.Dir)) providers.TryAdd(r.Dir, r.Provider);
@@ -323,9 +267,7 @@ public static class CompileTools
         var entries = new List<(string Dir, string Origin)>(dirs.Count);
         foreach (var d in dirs)
         {
-            // The caller outranks the scan here, mirroring the slot BuildImports gave it: a dir the caller passed
-            // keeps its caller identity even when the scan also found it, or CallerCount would miss it while
-            // AutoProviders claims it. That overlap is common — it is the recovery this tool prints on a failure.
+            // The caller outranks the scan here, mirroring the slot BuildImports gave it.
             string origin =
                 d.Equals(scriptDir, StringComparison.OrdinalIgnoreCase) ? ImportPlan.OwnFolder
                 : vanilla is not null && d.Equals(vanilla, StringComparison.OrdinalIgnoreCase) ? ImportPlan.Vanilla
@@ -335,9 +277,7 @@ public static class CompileTools
             entries.Add((d, origin));
         }
 
-        // The scan's own answer, kept separate from the slot labels: a folder can be both matched by the walk and
-        // passed explicitly by the caller, in which case it takes the caller slot but is still something the script
-        // references. Two fields, because they answer two questions.
+        // The scan's own answer, kept separate from the slot labels, because the two answer different questions.
         var referenced = scan is null
             ? (IReadOnlyList<string>)Array.Empty<string>()
             : scan.Folders.Select(f => providers.TryGetValue(f, out var m) ? m : Path.GetFileName(f)).ToList();
@@ -346,9 +286,7 @@ public static class CompileTools
                               VanillaMissing: vanilla is null, ScanFailed: scanFailed);
     }
 
-    /// <summary>The one-line "what was actually searched" summary, printed on every call. Provider names are capped at
-    /// eight with a "+N more" tail, and the total is always stated so a long list reads as abbreviated rather than as
-    /// everything there was.</summary>
+    /// <summary>The one-line "what was searched" summary, printed on every call, provider names capped with a "+N more" tail.</summary>
     internal static string ImportSummary(ImportPlan p)
     {
         var sb = new StringBuilder();
@@ -361,19 +299,14 @@ public static class CompileTools
         if (!p.AutoEnabled)
             sb.Append("; auto_imports=false (your enabled mods are NOT on the import path)");
         else if (p.ScanFailed)
-            // "matched 0 of 0" is a conclusion, and a read that threw never reached one: an empty root list from a
-            // failure looks exactly like a modlist with no source folders, so the failure is flagged, not inferred.
+            // A read that threw reached no conclusion, so the failure is flagged rather than rendered as "0 of 0".
             sb.Append("; the modlist could NOT be read, so none of your installed mods' source folders were scanned");
         else
         {
-            // Report the narrowing, not just the survivors: a bare survivor count reads as the modlist's whole supply
-            // of source folders and hides the decision worth auditing when a dependency turns up missing — that the
-            // rest were dropped as unreferenced rather than overlooked. This is the walk's count, not the slot count,
-            // and no arithmetic is claimed against the import_dirs= clause, since a folder can be in both.
+            // Report the narrowing as the WALK's count, with no arithmetic against the import_dirs= clause.
             var provs = p.Referenced;
             sb.Append("; the modlist scan matched ").Append(provs.Count).Append(" of ").Append(p.AutoScanned)
-              // "referenced by this script" is a claim about the source's contents, so it is only made when the source
-              // was actually read: an unreadable target yields the same empty result.
+              // "referenced by this script" is a claim about contents, so it is only made when the source was read.
               .Append(p.Scan is { TargetUnreadable: true }
                           ? " scanned mod source folder(s) (the script could NOT be read — see below)"
                           : " scanned mod source folder(s) referenced by this script");
@@ -392,8 +325,7 @@ public static class CompileTools
         return sb.ToString();
     }
 
-    /// <summary>The full ordered import path with provenance, printed on a failure, where which folders were searched
-    /// and in what order is the question the diagnostics raise and the summary line cannot answer.</summary>
+    /// <summary>The full ordered import path with provenance, printed on a failure.</summary>
     internal static string ImportDetail(ImportPlan p)
     {
         var sb = new StringBuilder("import path searched, in order (the compiler takes the FIRST match):");
@@ -404,21 +336,15 @@ public static class CompileTools
         return sb.ToString();
     }
 
-    /// <summary>Everything that makes the printed path less than a complete answer. Emitted from inside both
-    /// <see cref="ImportSummary"/> and <see cref="ImportDetail"/> rather than appended per branch, so every render
-    /// that prints an import path prints its caveats — on success and on failure alike, since the caveats are written
-    /// for the failing run.</summary>
+    /// <summary>Everything that makes the printed path less than a complete answer, emitted from inside both renders.</summary>
     internal static string ImportCaveats(ImportPlan p)
     {
         var sb = new StringBuilder();
-        // No vanilla sources anywhere, neither beside the compiler nor under the modlist's data dir. Every vanilla
-        // type (Form, Quest, ObjectReference) will fail to resolve, and without this the missing-imports banner would
-        // send the reader hunting for a mod.
+        // No vanilla sources anywhere: every vanilla type will fail to resolve, and the banner would blame a mod.
         if (p.VanillaMissing)
             sb.Append("\n⚠ NO vanilla Papyrus sources are on the import path — houseCARL found none beside the compiler " +
                       "(<game>\\Data\\Source\\Scripts)")
-              // "found none under your MO2 data folder" would be a claim about a place a failed read never reached,
-              // and which of the two it is changes the fix.
+              // A failed read never reached the data folder, and which of the two it is changes the fix.
               .Append(p.ScanFailed
                           ? " and could not read your MO2 modlist to look under the data folder (see below)."
                           : " and none under your MO2 data folder.")
@@ -444,9 +370,7 @@ public static class CompileTools
         if (r.Success)
         {
             sb.Append("compile OK: ").Append(r.ObjectName).Append(".psc → ").Append(r.PexPath).Append('\n');
-            // The destination line must match where the .pex actually went: a user-chosen out_path= is not a
-            // houseCARL patch folder and may have no "enable in MO2" step at all. Any deployability caveat for such a
-            // target is appended by the caller as deployWarning.
+            // The destination line must match where the .pex went; a deployability caveat rides on deployWarning.
             sb.Append(userChoseOutputDir
                 ? "the .pex is in the output folder you chose (path above)."
                 : "the .pex is in a houseCARL patch-mod folder — enable it in MO2 to use it.");
@@ -463,11 +387,7 @@ public static class CompileTools
         sb.Append("compile FAILED: ").Append(r.ObjectName).Append(".psc — no new .pex produced (any previous build is left unchanged).");
         if (r.Diagnostics.Count > 0)
         {
-            // When the failure is dominated by unresolved-symbol/type errors the likely cause is an incomplete import
-            // path, not a bug in the script: one missing framework header cascades into dozens of "unknown type" and
-            // "is undefined" lines plus secondary type-mismatch noise that read like code errors. Gated on a
-            // two-thirds supermajority and at least three diagnostics, so a near-even split — which could be half real
-            // syntax bugs — falls to the generic tail instead. The full diagnostic list prints either way.
+            // A failure dominated by unresolved-symbol errors leads with the import-path banner, gated on three diagnostics and a two-thirds supermajority (<c>compile-ergonomics-guard</c>).
             int unresolved = 0;
             foreach (var d in r.Diagnostics) if (HousecarlCore.PapyrusCompile.IsUnresolvedSymbol(d.Message)) unresolved++;
             bool dominatedByMissingImports = unresolved >= 3 && unresolved * 3 >= r.Diagnostics.Count * 2;
@@ -478,10 +398,7 @@ public static class CompileTools
                   .Append(" diagnostics are unresolved-symbol/type errors (e.g. 'unknown type …', '… is undefined'). The CK " +
                           "compiler resolves every referenced script against the import path, so a dependency whose source " +
                           "folder is missing makes ALL its calls and types fail.");
-                // The remedy differs once the modlist has been scanned: "list every dependency's folder" is wrong when
-                // dozens are already on the path, and hides the causes the scan cannot fix. When the narrowing was
-                // itself incomplete — an unreadable source, or a truncated walk — that is the likely cause, and
-                // claiming a complete match would list causes that exclude the real one.
+                // The remedy differs once the modlist has been scanned, and again when the narrowing was incomplete.
                 bool narrowingIncomplete = plan.Scan is { TargetUnreadable: true } or { BudgetExhausted: true };
                 sb.Append(!plan.AutoEnabled
                     ? " auto_imports=false, so your enabled mods are NOT on the import path — re-run with auto_imports=true, or pass " +
@@ -504,13 +421,11 @@ public static class CompileTools
                       "via import_dirs= (and save_import_set= to keep it for next time).");
             }
 
-            // "diagnostic(s)", not "error(s)": the CK compiler mixes warnings into a failed run's output and the
-            // parser does not split severities, so calling them all errors would over-claim.
+            // "diagnostic(s)", not "error(s)": the compiler mixes warnings in and the parser splits no severities.
             sb.Append('\n').Append(r.Diagnostics.Count).Append(" diagnostic(s) (errors and possibly warnings — the CK compiler mixes them):");
             foreach (var d in r.Diagnostics) sb.Append("\n  ").Append(d);
             sb.Append('\n').Append(ImportDetail(plan));   // carries the caveats, warning included
-            // The generic tail is for the non-dominated case, a few resolution errors mixed with real ones; after the
-            // missing-imports banner it would repeat the import line.
+            // The generic tail is for the non-dominated case; after the banner it would repeat the import line.
             sb.Append("\nfix the .psc and recompile (look unfamiliar functions/types up with the papyrus-reference skill).");
             if (!dominatedByMissingImports)
                 sb.Append(" If a dependency type is 'not found', its source folder may be missing from the import path listed above — pass it via import_dirs=.");
