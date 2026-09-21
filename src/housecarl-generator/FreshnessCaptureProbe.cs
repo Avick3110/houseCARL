@@ -292,11 +292,11 @@ internal static class FreshnessCaptureProbe
                                 TimeSpan.FromSeconds(60)) == 0;
                             // The override is not mapped by the parked write (the master wins every edit in the reset
                             // state, so the gather never opened it), so the copy lands first try.
-                            if (parked && TryCopy(fullFile, oPath))    // the override now wins the OvN subset (Damage=20)
-                            {
-                                resolver.RefreshIfStale();            // the concurrent read's freshness path, mid-Phase-1
-                                staged++;
-                            }
+                            // Counted on the REBUILD, not on the copy: a copy whose bytes and timestamp match what is
+                            // already there (the round's reset copy having lost every retry) leaves the stamp equal,
+                            // and no build swapped, so nothing was staged.
+                            if (parked && TryCopy(fullFile, oPath)     // the override now wins the OvN subset (Damage=20)
+                                && resolver.RefreshIfStale()) staged++;   // the concurrent read's freshness path, mid-Phase-1
                         }
                         finally
                         {
