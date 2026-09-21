@@ -183,7 +183,8 @@ internal static class WriteSentences
 
     internal static string CopyArm(SourceArmRef arm) => $"{arm.Spelling} ({CopyArmWhere(arm)})";
 
-    /// <summary>Where one source arm resolved. The layer name is DOUBLE-quoted, the one delimiter a mod folder name cannot contain.</summary>
+    /// <summary>Where one source arm resolved. The layer name is DOUBLE-quoted, the delimiter chosen because a mod
+    /// folder name can hold an apostrophe or parentheses and this token is copied into the next call's source_provider=.</summary>
     internal static string CopyArmWhere(SourceArmRef arm)
     {
         var active = arm.Kind == SourceArmKind.ActiveOrder ? CopyArmActive : null;
@@ -399,7 +400,7 @@ internal static class WriteSentences
                                                   string? unreadableCause = null, string? pathHint = null,
                                                   bool scanIncomplete = false) =>
         $"'{provider}' does not supply '{rel}'"
-        // ONE sentence per reason, and a switch expression with NO default arm: CS8509 makes a new outcome a build error.
+        // ONE sentence per reason, and a switch expression with NO default arm: CS8509 makes a new outcome a build diagnostic.
       + reason switch
         {
             OffOrderReason.NotConsulted     => ". ",          // nothing on disk was looked at; claim nothing about it

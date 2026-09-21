@@ -102,6 +102,8 @@ public sealed partial class LoadOrderService
         out OrderStamp? epoch)
     {
         // This helper takes its OWN capture, so its refusals are stamped like every other post-capture outcome.
+        // A write pins one resolver whose name table is never rebuilt, so this capture and the engine's cannot
+        // disagree about membership, and a body pre-fetched here is only used while the engine still agrees.
         epoch = null;
         if (!edits.Any(e => string.Equals(e.Verb, "CopyFrom", StringComparison.Ordinal))) return null;   // no CopyFrom → no source work
         var view = resolver.Capture();
@@ -2040,7 +2042,8 @@ public sealed partial class LoadOrderService
 
     /// <summary>Resolve a patch's output path under the folder-per-patch model: a fresh, marker-stamped mod folder, or
     /// <paramref name="into"/> an existing houseCARL-owned one, with <paramref name="createdFolder"/> reporting whether THIS
-    /// call cut it. Where output lands, and the remedy arguments: docs/architecture/output-and-artifacts.md.</summary>
+    /// call cut it. The remedy arguments and the one-gate rule: docs/architecture/write-path.md. Where output lands:
+    /// docs/architecture/output-and-artifacts.md.</summary>
     string ResolveOutputPath(string? patchName, string? into, out bool extend, out bool createdFolder, bool create = true,
                              FreshPatchRemedy freshPatch = FreshPatchRemedy.None, string? noFreshRule = null,
                              bool? stemFromCaller = null, StemRefusal? refuseTaken = null)
