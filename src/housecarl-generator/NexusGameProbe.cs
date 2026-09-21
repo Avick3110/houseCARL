@@ -146,6 +146,45 @@ internal static class NexusGameProbe
         Check(stub.Bodies.Count == 1 && stub.Bodies[0].Contains("1704", StringComparison.Ordinal),
               "the default game still sends 1704");
 
+        // A URL AGAINST AN EXPLICIT game= — the mismatch refusal and the two ways they agree, driven through the tool
+        // itself. Both games come from the known set, so nothing is resolved over the wire; a refusal sends no request
+        // at all, which is how the arm tells a refusal from a lookup.
+        stub.Bodies.Clear();
+        var clash = NexusTools.NexusMod(client, "https://www.nexusmods.com/skyrimspecialedition/mods/12604",
+                                        game: "baldursgate3").GetAwaiter().GetResult();
+        Check(clash.Contains("two different games", StringComparison.Ordinal)
+              && clash.Contains("'skyrimspecialedition'", StringComparison.Ordinal)
+              && clash.Contains("'baldursgate3'", StringComparison.Ordinal),
+              "an SSE URL with game=baldursgate3 is refused, naming both games");
+        Check(stub.Bodies.Count == 0, "the refused mismatch looks nothing up — no request goes out");
+
+        stub.Bodies.Clear();
+        var agreeDomain = NexusTools.NexusMod(client, "https://www.nexusmods.com/skyrimspecialedition/mods/12604",
+                                              game: "skyrimspecialedition").GetAwaiter().GetResult();
+        Check(!agreeDomain.Contains("two different games", StringComparison.Ordinal)
+              && stub.Bodies.Count == 1 && stub.Bodies[0].Contains("1704", StringComparison.Ordinal),
+              "a game= naming the URL's own domain agrees and the mod is looked up on it");
+
+        stub.Bodies.Clear();
+        var agreeId = NexusTools.NexusMod(client, "https://www.nexusmods.com/skyrimspecialedition/mods/12604",
+                                          game: "1704").GetAwaiter().GetResult();
+        Check(!agreeId.Contains("two different games", StringComparison.Ordinal)
+              && stub.Bodies.Count == 1 && stub.Bodies[0].Contains("1704", StringComparison.Ordinal),
+              "game=1704 against a skyrimspecialedition URL agrees by id, not by spelling");
+
+        stub.Bodies.Clear();
+        var bg3Both = NexusTools.NexusMod(client, "https://www.nexusmods.com/baldursgate3/mods/3479",
+                                          game: "3474").GetAwaiter().GetResult();
+        Check(!bg3Both.Contains("two different games", StringComparison.Ordinal)
+              && stub.Bodies.Count == 1 && stub.Bodies[0].Contains("3474", StringComparison.Ordinal),
+              "a BG3 URL with game=3474 agrees and is looked up on BG3");
+
+        stub.Bodies.Clear();
+        NexusTools.NexusMod(client, "https://www.nexusmods.com/baldursgate3/mods/3479").GetAwaiter().GetResult();
+        Check(stub.Bodies.Count == 1 && stub.Bodies[0].Contains("3474", StringComparison.Ordinal)
+              && !stub.Bodies[0].Contains("1704", StringComparison.Ordinal),
+              "a BG3 URL with no game= is looked up on BG3");
+
         // RESOLVING AN UNMAPPED GAME — one graph call, and what Nexus does not know is refused naming what was asked.
         // The domain is this probe's own: the resolve cache is process-wide, so a domain another probe could ask for
         // would make the "asked once" arm depend on which probe ran first.
