@@ -72,9 +72,13 @@ internal static class NexusGameProbe
               "a BG3 mod renders a baldursgate3 page URL");
         Check(!bg3Text.Contains("skyrimspecialedition", StringComparison.Ordinal),
               "a BG3 mod renders no skyrimspecialedition URL");
+        Check(bg3Text.Contains("[id 3479 on Baldur's Gate 3]", StringComparison.Ordinal),
+              "a non-default mod lookup names the game on its header line, not only in the URL");
         var sseText = Render.Mod(detail, NexusClient.SkyrimSe);
         Check(sseText.Contains("https://www.nexusmods.com/skyrimspecialedition/mods/3479", StringComparison.Ordinal),
               "the default game still renders a skyrimspecialedition page URL");
+        Check(sseText.Contains("[id 3479]", StringComparison.Ordinal),
+              "the default mod lookup's header line reads exactly as before (no game named)");
 
         var hit = new NexusSearchHit(3479, "Aether's No Party Limits", "1.0", "Aether", 10, 100, null, false, null, "Gameplay");
         var search = Render.Search("party", null, "endorsements", new NexusSearchResult(1, new[] { hit }), bg3);
@@ -85,6 +89,21 @@ internal static class NexusGameProbe
         Check(!Render.Search("party", null, "endorsements", new NexusSearchResult(1, new[] { hit }), NexusClient.SkyrimSe)
                      .Contains("on skyrimspecialedition", StringComparison.Ordinal),
               "a default search reads exactly as before (no game named)");
+
+        // A CATEGORY THAT GAME DOES NOT USE — Nexus matches category names exactly and they differ per game, so a zero
+        // on a non-default game says the category may not exist there rather than letting it read as "no such mods".
+        var emptyWithCategory = Render.Search("armor", "Armour", "endorsements",
+            new NexusSearchResult(0, Array.Empty<NexusSearchHit>()), bg3);
+        Check(emptyWithCategory.Contains("'Armour' may not be a category on Baldur's Gate 3", StringComparison.Ordinal),
+              "a zero-hit search with a category names the category and the game, never a bare 0 match(es)");
+        var emptyDefault = Render.Search("armor", "Armour", "endorsements",
+            new NexusSearchResult(0, Array.Empty<NexusSearchHit>()), NexusClient.SkyrimSe);
+        Check(!emptyDefault.Contains("may not be a category on", StringComparison.Ordinal)
+              && emptyDefault.Contains("category matching is EXACT", StringComparison.Ordinal),
+              "the default game's zero-hit note reads exactly as before");
+        Check(!Render.Search("armor", null, "endorsements", new NexusSearchResult(0, Array.Empty<NexusSearchHit>()), bg3)
+                     .Contains("may not be a category", StringComparison.Ordinal),
+              "a zero-hit search with no category says nothing about categories");
 
         // A not-found row names the game that was checked, so it never claims Skyrim SE for a BG3 check.
         var notFound = NexusClient.ComputeStatus(999, false, null, null, null, Array.Empty<int>(),

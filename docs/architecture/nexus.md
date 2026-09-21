@@ -20,6 +20,8 @@ public and anonymous — and it never downloads, installs or endorses; that stay
 - A game Nexus does not know is refused in one sentence naming what was asked, never quietly searched as Skyrim SE.
 - That refusal is decided on the graph's own `GAME_NOT_FOUND` error code, never on the message text, which also carries HTTP status words: an HTTP 404 reads `Not Found` and is a failed request, not a missing game. Every failure that never reached the graph carries no code and is passed through as itself.
 - A game resolved through the graph is named by the name it gave; a game with no name reads as its domain.
+- Category names are Nexus's own per game and matched exactly, so `category=` from one game filters nothing on another: a zero-hit search that carried a category on a non-default game names the category and the game rather than reading as "no such mods". Resolving a game's category list is not done.
+- A non-default game is named in the prose of all three tools — the search header, the mod's header line, the update check's not-found label — because one mod id exists on many games; the default game's output is unchanged in each.
 - Rendered prose names the game rather than its URL slug, and the default game's wording — including the not-found group's `an LE/other-game mod` hint, which is Skyrim's most common not-found — is what it was before `game=` existed.
 - A mod URL's domain segment names its game, so any game's URL works as pasted; a `game=` that names a different game than the URL is refused rather than guessed.
 - Every rendered mod page URL carries the game that was asked for, and the update check's not-found group names it, so no output claims Skyrim SE for another game's call.
