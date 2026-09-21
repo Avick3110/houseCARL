@@ -26,8 +26,11 @@ namespace HousecarlGenerator;
 ///      readers + an atomic loadorder flipper; ANY (count, warning) pair that no single build produces = torn.
 ///   4  F5/write — WritePatchBuilder.Apply Phase 1 resolved winner + body PER EDIT (a fresh capture each), so
 ///      a freshness rebuild landing mid-loop resolved two edits of ONE call against two builds' winners — a
-///      silently MIXED patch. Hammer at the core layer: a flipper rewrites the override plugin + refreshes
-///      mid-Apply; every SUCCESSFUL patch must carry ONE build's bodies (uniform marker values).
+///      silently MIXED patch. At the core layer: the write PARKS inside the Phase-1 resolve loop on
+///      <see cref="WritePatchBuilder.InsidePhase1ResolveForGuard"/> after its first edit resolved, the override
+///      plugin is rewritten and the resolver refreshed while it waits, and then it runs on — so the flip is
+///      staged rather than timed and lands inside the loop every round. Every SUCCESSFUL patch must carry ONE
+///      build's bodies (uniform marker values), and a round that failed to stage the flip fails the arm.
 ///   5  Deferral (PR #51 review note) — a concurrent read's freshness refresh used to rebuild/swap the index
 ///      UNDER an in-flight write (transiently mmap-opening every plugin INCLUDING the file the write is
 ///      serializing — the #24 "no mapped handle on the target survives the serialize" invariant, breached
@@ -38,18 +41,13 @@ namespace HousecarlGenerator;
 ///
 /// Self-contained: synthetic MO2 instances + synthesized plugins in temp; generates its own corpus. No game data.
 ///
-/// Standalone: arm 4 hammers a freshness rebuild into the Phase-1 loop of a real multi-op write, and the window
-/// it sweeps is only a real window in a cold process — in the warm ci-all runner (hot JIT, memoized corpus) the
-/// write outruns the flip and the arm stops covering anything. So CI gives this guard its own step. That claim is
-/// not taken on trust: arm 4 prints how many of its rounds landed the flip INSIDE Apply, so a run that staged
-/// nothing says so instead of reporting the same mixed=0 as a run that staged twelve. It does not FAIL on zero —
-/// a runner too fast to stage a race is the thing #793 says must not be reported as a product failure — so
-/// making that flip staged rather than timed, the way arm 5 now is, is issue #804. Arm 5 no longer needs the
-/// cold process: it parks the write on the seam instead of racing it.
+/// Not standalone: arms 4 and 5 both park their write on a seam instead of racing it, so no runner can be too
+/// fast to stage either race and this guard runs inside ci-all like every other probe. It used to need its own
+/// cold-process step because both races were timed.
 /// </summary>
 internal static class FreshnessCaptureProbe
 {
-    [CiProbe("freshness-capture-guard", Standalone = true)]
+    [CiProbe("freshness-capture-guard")]
     public static int RunGuard(string[] args)
     {
         Console.WriteLine("================================================================");
@@ -260,39 +258,51 @@ internal static class FreshnessCaptureProbe
                     return false;
                 }
 
+                // The flip is STAGED, not timed. The write parks on the guard seam once its first edit has resolved
+                // against the captured view, and stays parked until the load order has been flipped and refreshed —
+                // so every round lands the flip inside Phase 1 by construction, and a runner that outruns a sleep
+                // can no longer report a covered-nothing run as a pass.
                 int mixed = 0, successes = 0, refusals = 0, staged = 0;
                 const int Rounds = 12;
-                var clock = System.Diagnostics.Stopwatch.StartNew();
                 for (int r = 0; r < Rounds; r++)
                 {
                     TryCopy(emptyFile, oPath);                        // reset: master wins everything (Damage=10)
                     resolver.RefreshIfStale();
-                    int delay = 5 + r * 17 % 130;                     // sweep the flip across the Phase-1 loop
-                    // The flip's own window, read after flip.Wait(). It stays -1 when the copy never succeeded,
-                    // which fails the overlap test below on its own: TryCopy spins on the IOException Windows
-                    // raises while Apply has the file mapped, and that retry spin is not a staged flip.
-                    long flipFrom = -1, flipTo = -1;
-                    var flip = Task.Run(() =>
-                    {
-                        Thread.Sleep(delay);
-                        if (TryCopy(fullFile, oPath))                 // the override now wins the OvN subset (Damage=20)
-                        {
-                            flipFrom = clock.ElapsedMilliseconds;     // the window is the refresh, not the copy's retry spin
-                            resolver.RefreshIfStale();                // the concurrent read's freshness path, mid-Apply
-                            flipTo = clock.ElapsedMilliseconds;
-                        }
-                    });
                     var outDir = Path.Combine(dir, $"out_{r:D3}");
                     Directory.CreateDirectory(outDir);
-                    long applyFrom = clock.ElapsedMilliseconds;
-                    var o = WritePatchBuilder.Apply(resolver, rulebook, edits, Path.Combine(outDir, "HcFcgOut.esp"), extend: false);
-                    long applyTo = clock.ElapsedMilliseconds;
-                    flip.Wait();
-                    // Whether this round staged anything at all. The arm's verdict is about what a STAGED round
-                    // produced, so a run where nothing landed inside Apply covers nothing and has to say so rather
-                    // than reporting the same mixed=0 as a run where every round landed.
-                    if (flipFrom <= applyTo && flipTo >= applyFrom) staged++;
-                    if (!o.Success) { refusals++; continue; }         // an honest named refusal is fine — mixing silently is not
+                    WritePatchBuilder.PatchOutcome? o = null;
+                    using (var inLoop = new ManualResetEventSlim())
+                    using (var release = new ManualResetEventSlim())
+                    {
+                        WritePatchBuilder.InsidePhase1ResolveForGuard = () => { inLoop.Set(); release.Wait(); };
+                        Task<WritePatchBuilder.PatchOutcome>? wt = null;
+                        try
+                        {
+                            wt = Task.Run(() => WritePatchBuilder.Apply(
+                                resolver, rulebook, edits, Path.Combine(outDir, "HcFcgOut.esp"), extend: false));
+                            // Wait for the park OR the write ending, never for the park alone: a write that refuses
+                            // before Phase 1, or wedges on the way to it, has to END the round, not hang CI on a join.
+                            bool parked = WaitHandle.WaitAny(
+                                new[] { inLoop.WaitHandle, ((IAsyncResult)wt).AsyncWaitHandle },
+                                TimeSpan.FromSeconds(60)) == 0;
+                            // The override is not mapped by the parked write (the master wins every edit in the reset
+                            // state, so the gather never opened it), so the copy lands first try.
+                            if (parked && TryCopy(fullFile, oPath))    // the override now wins the OvN subset (Damage=20)
+                            {
+                                resolver.RefreshIfStale();            // the concurrent read's freshness path, mid-Phase-1
+                                staged++;
+                            }
+                        }
+                        finally
+                        {
+                            WritePatchBuilder.InsidePhase1ResolveForGuard = null;
+                            release.Set();                            // a throw above must never leave the write parked
+                            // Join INSIDE the using, bounded: a parked write sits in release.Wait(), and disposing that
+                            // event under it throws on the write thread and leaves the task unobserved.
+                            if (wt is not null && wt.Wait(TimeSpan.FromSeconds(60))) o = wt.Result;
+                        }
+                    }
+                    if (o is not { Success: true }) { refusals++; continue; }   // an honest named refusal is fine — mixing silently is not
                     successes++;
                     ISkyrimModGetter? back = null;
                     HashSet<ushort> marks;
@@ -305,6 +315,7 @@ internal static class FreshnessCaptureProbe
                     finally { (back as IDisposable)?.Dispose(); }
                     if (marks.Count > 1) mixed++;
                 }
+                Check(staged == Rounds, $"every round landed the flip inside Apply's Phase-1 loop — {staged}/{Rounds} staged");
                 Check(mixed == 0,
                       $"no successful patch mixed two builds' winners — {successes} success(es), {refusals} honest refusal(s), " +
                       $"{staged}/{Rounds} flip(s) landed inside Apply, mixed={mixed}");

@@ -423,6 +423,13 @@ public static class WritePatchBuilder
             && int.TryParse(parts[1].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out y);
     }
 
+    /// <summary>Test seam: called once inside <see cref="Apply"/>'s Phase-1 resolve loop, after the first edit has
+    /// resolved against the captured view and before any later edit resolves. The freshness guard's mixed-patch arm
+    /// needs the build to change at a point that is PROVABLY inside that loop; a sleep cannot stage that on a runner
+    /// that finishes the loop first, so the guard parks the write here and flips the load order while it waits. Null
+    /// in the product — one comparison per edit and one null check per write. Never used by the product.</summary>
+    internal static Action? InsidePhase1ResolveForGuard;
+
     /// <summary>Build/extend a patch from <paramref name="edits"/> and serialize it to <paramref name="outPath"/>.
     /// <paramref name="extend"/>=false writes a fresh patch (the ModKey = the output filename); =true opens the existing
     /// patch at <paramref name="outPath"/> mutably and adds to it (the <c>into=</c> path). All-or-nothing: any
@@ -531,6 +538,7 @@ public static class WritePatchBuilder
         foreach (var e in edits)
         {
             order++;
+            if (order == 1) InsidePhase1ResolveForGuard?.Invoke();         // test seam; null in the product
             IMajorRecordGetter? body = null; string? winnerPlugin = null; IMajorRecord? patchLocal = null;
             var w = view.ResolveWinner(e.Target);
             if (w is not null)
