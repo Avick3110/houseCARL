@@ -7,16 +7,11 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>
-/// The plugin-level write tools: create an empty header-only plugin, compact (renumber) a plugin's FormIDs, and merge
-/// plugins into one. Each takes a whole plugin FILE as its subject and rides its own core builder — none goes through
-/// the record-edit path (<see cref="LoadOrderService.ApplyEdits"/>), resolves a load-order winner, or declares
-/// <c>into=</c>. create_plugin and merge_plugins only ever write a NEW plugin; compact_plugin's second lane is
-/// <c>in_place=</c> + <c>acknowledge=</c>, which overwrites the original.
-/// <para>This type is also the shared home of the RENDER helpers the record-write tools call
-/// (<see cref="Render"/>, <see cref="RenderCreate"/>, <see cref="RenderRemoval"/>, <see cref="RenderForward"/> and
-/// the remedy sentences beside them) — the bulk of what follows.</para>
-/// </summary>
+/// <summary>The plugin-level write tools — create a header-only plugin, compact a plugin's FormIDs, merge plugins into
+/// one — each taking a whole plugin FILE as its subject, riding its own core builder rather than the record-edit path,
+/// and writing a NEW plugin except on compact's <c>in_place=</c> lane.
+/// <para>Also the shared home of the RENDER helpers the record-write tools call, which are the bulk of what
+/// follows.</para></summary>
 [McpServerToolType]
 public static class WriteTools
 {
@@ -120,8 +115,8 @@ public static class WriteTools
         return RenderMerge(svc.MergePlugins(plugins, patch));
     });
 
-    /// <summary>Compact, parseable confirmation of a write: what changed plus the IDs needed for follow-up. On
-    /// refusal, the full reason (every malformed or rejected op) so the caller can fix and retry.</summary>
+    /// <summary>Confirmation of a write: what changed plus the IDs needed for follow-up, or on a refusal every
+    /// malformed or rejected op.</summary>
     internal static string Render(WritePatchBuilder.PatchOutcome o, int maxChars = 0, bool fullDump = false)   // internal: tests render this outcome directly
     {
         if (o.NeedsAcknowledge) return o.Error! + Epoch(o);  // the in-place consent prompt is a required confirmation, not an error
@@ -137,8 +132,7 @@ public static class WriteTools
         else
             sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, file, o.Bytes, modFolder));
         sb.Append(WriteSentences.Masters(o.Masters));
-        // Said ABOVE the ops and outside their budget: a record missing from the file the call just wrote is the one
-        // reading that contradicts the header, and an op-list cut must not be what removes it.
+        // Said ABOVE the ops and outside their budget, so a row cut cannot remove it.
         int absent = o.Ops.Count(op => op.RecordAbsentFromFile);
         if (absent > 0)
             sb.Append("! ").Append(absent).Append(absent == 1 ? " edit did NOT land: " : " edits did NOT land: ")
@@ -148,8 +142,7 @@ public static class WriteTools
                        .Distinct(StringComparer.OrdinalIgnoreCase).ToList()))
               .Append('\n');
         sb.Append(o.Ops.Count).Append(o.Ops.Count == 1 ? " edit:\n" : " edits:\n");
-        // Budgeted like every sibling render: applying edits is set-valued, so a few hundred ops is the expected case,
-        // and the json render budgets the same array — unbounded here, the HOST cuts the response instead of max_chars.
+        // Budgeted like every sibling render, the json one budgeting the same array.
         int opCap = WriteSentences.Cap(maxChars);
         for (int i = 0; i < o.Ops.Count; i++)
         {
@@ -165,14 +158,11 @@ public static class WriteTools
             sb.Append("  ").Append(op.RecordType).Append(' ').Append(FormIdToken.Of(op.Target)).Append("  ").Append(op.Label)
               .Append(EditLineValue(op)).Append(ApplyNote(op)).Append('\n');
         }
-        // The .fuz/.lip and result-script checks run on CREATE of dialogue lines, not on edits to existing ones, so an
-        // edit that adds a response or result script carries the same hazard unflagged — say so, and point at the sweep.
+        // The .fuz/.lip and result-script checks run on CREATE only, so an edit carries the same hazard unflagged.
         if (o.Ops.Any(op => string.Equals(op.RecordType, VoiceCheck.InfoCatalogName, StringComparison.Ordinal)))
             sb.Append("note: this edit touched a dialogue line (INFO). Voice (.fuz) and result-script coverage are checked on CREATE, not on edits — ")
               .Append("run " + ToolNames.Check + " findings=[\"dialogue\"] with the topic (or its owning quest) in seeds= to audit voice + result-script coverage and the topic graph over the edited line and every other line in the topic.\n");
-        // The touched-record verify (forced on for in-place, opt-in otherwise) renders COMPACT by default, the full
-        // field-by-field dump only on full_readback=true — a deep dump of many records overflows the host token cap.
-        // The verify itself is unchanged; this is its output, not its detection.
+        // The touched-record verify renders COMPACT by default and in full only on full_readback=true.
         if (o.ReadBack is { } rb)
         {
             if (fullDump) AppendFullReadback(sb, rb, maxChars, freshPatch: !o.Extended && !o.InPlace);
@@ -187,23 +177,18 @@ public static class WriteTools
         return sb.ToString();
     }
 
-    /// <summary>The epoch stamp: one thin adapter per outcome record over the single construction in
-    /// <see cref="WriteSentences.Epoch"/>. The outcome types are independent shapes, so the sentence lives once.</summary>
+    /// <summary>The epoch stamp: one thin adapter per outcome record over <see cref="WriteSentences.Epoch"/>.</summary>
     static string Epoch(WritePatchBuilder.PatchOutcome o) => WriteSentences.Epoch(o.Stamp);
     static string Epoch(WritePatchBuilder.CreateOutcome o) => WriteSentences.Epoch(o.Stamp);
     static string Epoch(WritePatchBuilder.RemovalOutcome o) => WriteSentences.Epoch(o.Stamp);
     static string Epoch(WritePatchBuilder.ForwardOutcome o) => WriteSentences.Epoch(o.Stamp);
 
-    /// <summary>The "how to keep going on this plugin" line for a completed IN-PLACE write. One spelling because
-    /// there is one lane: the write tools declare a single string <c>in_place="X.esp"</c>, and a response must never
-    /// send someone to a parameter their tool does not expose.</summary>
+    /// <summary>The "keep going on this plugin" line for a completed IN-PLACE write, in the one declared spelling.</summary>
     static string InPlaceAgainHint(string verb, string file) =>
         $"{verb}, pass in_place=\"{file}\" again (no further confirmation needed for it).";
 
-    /// <summary>The dry_run=true confirmation: the SAME pipeline ran (winner resolve, pre-flight, every verb applied
-    /// in memory, the reference-resolution check) and stopped at the point of no return, so this reports what WOULD
-    /// change with nothing on disk. The header says so first — a dry run must never read like a write. A refusal never
-    /// reaches here: a dry run refuses exactly like the real call.</summary>
+    /// <summary>The dry_run=true confirmation: the same pipeline ran and stopped at the point of no return, so this
+    /// reports what WOULD change with nothing on disk, and says so first. A refusal never reaches here.</summary>
     static string RenderDryRun(WritePatchBuilder.PatchOutcome o, int maxChars, bool fullDump)
     {
         var file = Path.GetFileName(o.OutputPath);
@@ -212,8 +197,7 @@ public static class WriteTools
         sb.Append(WriteSentences.DryRunWouldWrite(o.InPlace, o.Extended, file, "edit"));
         sb.Append(WriteSentences.DryRunMasters(o.Masters));
         sb.Append(o.Ops.Count).Append(o.Ops.Count == 1 ? " edit would apply:\n" : " edits would apply:\n");
-        // Budgeted for the same reason as the real render's loop; the cut notice takes the dry run's wording, since
-        // nothing was written and it must not say the edits were applied.
+        // Budgeted as the real render's loop is, the cut notice taking the dry run's own wording.
         int dryCap = WriteSentences.Cap(maxChars);
         for (int i = 0; i < o.Ops.Count; i++)
         {
@@ -237,14 +221,10 @@ public static class WriteTools
         return sb.ToString();
     }
 
-    /// <summary>The full_readback=true read-back section: each touched or created record IN FULL, re-read from the
-    /// written file on disk. Labeled as exactly that — the written file's content, NOT load-order truth (the patch wins
-    /// nothing until enabled, and sorted where <paramref name="freshPatch"/> is false). Char-budget-bounded with an explicit notice, at the lower
-    /// <see cref="Wire.ReadbackMaxChars"/> default so the cut-off output stays under the host token ceiling and the
-    /// truncation note reaches the caller.</summary>
-    /// <param name="freshPatch">The LANE: a patch this call created is new to the load order, so enabling it is the
-    /// whole job; an extended or in-place patch already sits somewhere in it and may need a re-sort. The caveat has to
-    /// say the one that is true, or it contradicts the per-record lines above it.</param>
+    /// <summary>The full_readback=true section: each touched or created record IN FULL, re-read from the written file
+    /// and labelled as its content rather than load-order truth, bounded at the lower
+    /// <see cref="Wire.ReadbackMaxChars"/> default.</summary>
+    /// <param name="freshPatch">The LANE: a fresh patch needs only enabling, an extended or in-place one a re-sort.</param>
     static void AppendFullReadback(StringBuilder sb, IReadOnlyList<WritePatchBuilder.FullReadback> rb, int maxChars,
         bool dryRun = false, bool freshPatch = false)
     {
@@ -278,26 +258,21 @@ public static class WriteTools
                     return;
                 }
                 sb.Append("    ").Append(f.Path).Append(" = ").Append(f.HasValue ? f.Token : f.Note);
-                // The BLOB annotation only: an opaque blob must not appear as unannotated hex here either, since this
-                // dump IS the read of the record just written. Gated on the bytes marker, not on Display, so the
-                // flags decode that also rides Display does not silently widen every flags line in this lane.
+                // The BLOB annotation only, gated on the bytes marker rather than on the Display a flags decode rides.
                 if (f.Bytes is not null && f.Display is not null) sb.Append("   (").Append(f.Display).Append(')');
                 sb.Append('\n');
             }
         }
     }
 
-    /// <summary>The DEFAULT (full_readback=false) render of the touched-record verify. The forced in-place re-read
-    /// still ran — corruption detection is unchanged; this only reports it compactly so it cannot overflow the host
-    /// token cap. One line per record: a re-read-clean marker + field count, or the NAMED re-read failure; then the
-    /// "what landed" identity for each op that touched that record. Covers every record, bounded by the same char cap
-    /// with an explicit truncation note.</summary>
+    /// <summary>The DEFAULT render of the touched-record verify: per record a re-read-clean marker and field count or
+    /// the NAMED failure, then each op's "what landed" identity. The forced re-read still ran; this reports it
+    /// compactly, over every record and bounded by the same cap.</summary>
     static void AppendCompactReadback(StringBuilder sb, IReadOnlyList<WritePatchBuilder.OpResult> ops,
         IReadOnlyList<WritePatchBuilder.FullReadback> rb, int maxChars)
     {
         int cap = WriteSentences.ReadbackCap(maxChars);
-        // The banner claims only what it can stand behind: every edited record WAS re-read off the written file, and
-        // each per-op clause below says whether it is the file's answer or the applied edit's own reading.
+        // The banner claims only the re-read; each per-op clause says whose answer it is.
         sb.Append("verified — every edited record re-read off the written file (compact; pass readback=true for the ")
           .Append("full field-by-field dump):\n");
         for (int i = 0; i < rb.Count; i++)
@@ -309,15 +284,13 @@ public static class WriteTools
                 return;
             }
             var r = rb[i];
-            // A re-read that failed is a real inconsistency — surface it LOUD and NAMED (the whole reason the in-place
-            // verify is forced on), never counted as clean.
+            // A re-read that failed is surfaced LOUD and NAMED, never counted as clean.
             if (r.Error is not null) { sb.Append("  ✗ ").Append(FormIdToken.Of(r.Target)).Append(" — ").Append(r.Error).Append('\n'); continue; }
             var rec = r.Record!;
             sb.Append("  ✓ ").Append(rec.Type).Append(' ').Append(rec.FormKey)
               .Append(" — re-read clean (").Append(rec.Fields.Count).Append(" field(s)")
               .Append(OpaqueBytesCaveat(rec)).Append(')');
-            // The per-op clause is the FILE's answer when the file gave one (LandedOnDisk), and is marked as the
-            // applied edit's claim when it did not — the banner above says "re-read off the written file".
+            // The per-op clause is the FILE's answer where there was one, and marked as the edit's claim otherwise.
             var landed = ops.Where(op => op.Target == r.Target && (op.LandedOnDisk ?? op.Landed) is not null)
                              // No ApplyNote here: the op line above already carried it, and readback is FORCED on the
                              // in-place lane, so appending it would print the same sentence twice for the same op.
@@ -328,16 +301,9 @@ public static class WriteTools
         }
     }
 
-    /// <summary>The clause that keeps "re-read clean" honest when the written record carries an opaque blob: the
-    /// forced in-place verify is a Mutagen re-read, and Mutagen models a <c>bytes</c> field (<c>Model.Data</c>/MODT is
-    /// the known case) as raw bytes it never parses — so a blob whose layout does not suit the record's FormVersion
-    /// re-reads without complaint and the game crashes on it. The verify must not claim a structure it never looked
-    /// at, so it names those fields in the SAME sentence and says they were re-read as bytes only (#529). Empty when
-    /// the record carries no such field, which is the common case.
-    /// <para>BOUNDED, because a few record types carry a LIST of blobs (DialogView.TNAMs, MaterialObject.DNAMs) whose
-    /// every element is its own leaf at the read-back's depth: an unbounded list would overshoot the very cap this
-    /// compact lane exists to respect. Past <see cref="OpaqueFieldsNamed"/> the rest is a count. Each path carries its
-    /// OWN byte count rather than one sum, which a reader attaches to the last field named.</para></summary>
+    /// <summary>The clause that keeps "re-read clean" honest over an opaque blob, which Mutagen never parses: those
+    /// fields are named in the SAME sentence as re-read bytes only (#529), bounded by
+    /// <see cref="OpaqueFieldsNamed"/>, each with its OWN byte count rather than one sum.</summary>
     static string OpaqueBytesCaveat(RecordFields rec)
     {
         var opaque = rec.Fields.Where(f => f.Bytes is not null).ToList();
@@ -350,44 +316,35 @@ public static class WriteTools
     /// <summary>How many opaque fields the verify caveat names before it falls back to a count.</summary>
     const int OpaqueFieldsNamed = 3;
 
-    /// <summary>The op's apply-time note, as a trailing clause on its line — what the write DID that the file cannot
-    /// say afterwards (a duplicate Add). Empty when there is nothing to say.</summary>
+    /// <summary>The op's apply-time note as a trailing clause: what the write DID that the file cannot say afterwards.</summary>
     static string ApplyNote(WritePatchBuilder.OpResult op) => op.ApplyNote is { } n ? "  [" + n + "]" : "";
 
-    /// <summary>The value clause on a completed write's per-edit line: what the WRITTEN FILE holds at that op's leaf,
-    /// re-read after the serialize. Never the in-memory reading — a record that exists in memory and serializes to
-    /// nothing rendered as an applied value under a response that had not looked at the file (#683). Where the file
-    /// cannot answer for this op the line says so and prints no value, because the only value available there is the
-    /// one the file does not vouch for — but a record the file does not CONTAIN is an answer, and a bad one, so it is
-    /// said outright rather than as one more unchecked line.</summary>
+    /// <summary>The value clause on a per-edit line: what the WRITTEN FILE holds at that op's leaf, never the in-memory
+    /// reading (#683). Where the file cannot answer it says so and prints no value; a record the file does not CONTAIN
+    /// is an answer, said outright.</summary>
     static string EditLineValue(WritePatchBuilder.OpResult op, string? absentClause = null) =>
-        // A sentence about what the write did (the SNAM marker sync), not a field reading — nothing to re-read.
+        // A sentence about what the write did, not a field reading — nothing to re-read.
         op.AfterIsNote && op.After is not null ? "  -> " + op.After
-        // The REMEDY differs by lane and the reading does not: re-issuing an edit is safe, re-issuing a
-        // create allocates the records again. The create render passes its own clause; null takes this one.
+        // The REMEDY differs by lane and the reading does not, so the create render passes its own clause.
         : op.RecordAbsentFromFile ? "  -> DID NOT LAND — " + (absentClause ?? WriteSentences.RecordAbsentFromWrittenFile)
         : op.AfterOnDisk is { } disk
             ? "  -> " + disk + (op.SupersededInCall ? "  [the leaf as the file now holds it; a later op in this call wrote it too]" : "")
-              // The file ANSWERED and nothing parsed the answer: an opaque blob re-reads byte-identical whatever
-              // FormVersion its layout belongs to (#529), so the value may be printed only with that said.
+              // The file ANSWERED and nothing parsed the answer, so the value is printed only with that said (#529).
               + (op.AfterOnDiskBytes is { } n ? WriteSentences.OpaqueLeafCaveat(n) : "")
         : op.VerifyAttempted ? "  -> not-checked [the re-opened file did not answer for this op]"
         : "  -> not-checked [no file check ran for this op]";
 
-    /// <summary>Where a per-op "what landed" clause came from, when it is not the plain file answer. Silence means the
-    /// file was re-read for this op and agreed; the two marked cases are a file that could not answer for the op, and
-    /// an op a later op in the same call superseded (a mid-sequence reading the final file cannot corroborate).</summary>
+    /// <summary>Where a per-op "what landed" clause came from when it is not the plain file answer; silence means the
+    /// file was re-read for this op and agreed.</summary>
     static string LandedProvenance(WritePatchBuilder.OpResult op) =>
         op.SupersededInCall ? " [as applied — a later op in this call wrote the same field; the file shows that op's result]"
         : op.LandedOnDisk is not null ? ""
-        // The same split the json render makes: asserting the file was re-opened and could not answer, on a call where
-        // the verify never ran, is a claim about a read that did not happen. The first arm is the reachable one; the
-        // second is defensive — ops the verify does not reach carry no Landed and are filtered out upstream.
+        // The same split the json render makes; the second arm is defensive, such ops being filtered out upstream.
         : op.VerifyAttempted ? " [as applied — the re-opened file did not answer for this op]"
         : " [as applied — this lane ran no file check]";
 
-    /// <summary>Confirmation for housecarl_remove: what was dropped, the patch's now-lean masters, and how many
-    /// records remain (0 ⇒ inert). On refusal, the named reason so the caller can fix and retry.</summary>
+    /// <summary>Confirmation for housecarl_remove: what was dropped, the now-lean masters, and how many records remain
+    /// (0 means inert), or on a refusal the named reason.</summary>
     internal static string RenderRemoval(WritePatchBuilder.RemovalOutcome o, int maxChars = 0)   // internal: housecarl_remove renders the same outcome
     {
         if (o.NeedsAcknowledge) return o.Error! + Epoch(o);  // the in-place consent prompt is a required confirmation, not an error
@@ -406,22 +363,16 @@ public static class WriteTools
         {
             sb.Append(" (").Append(o.Bytes).Append(" bytes; ")
               .Append(o.RemainingRecords).Append(o.RemainingRecords == 1 ? " record remains)\n" : " records remain)\n");
-            // Not NewOrExtendedArtifact: a removal creates no artifact and grows no patch, so it has neither of that
-            // sentence's two claims to make — only which folder the now-leaner file sits in.
+            // Not NewOrExtendedArtifact: a removal creates no artifact and grows no patch.
             sb.Append("mod folder: ").Append(modFolder).Append('\n');
         }
-        // Budgeted like every other write render: removal is SET-VALUED, so a few hundred dropped overrides is the
-        // expected case, and max_chars= promises trailing rows are dropped with an explicit notice, never silently.
-        // The masters line and the closing guidance below sit outside the budget deliberately — they are the
-        // accounting a truncated report still needs.
+        // Budgeted, with the masters line and the closing guidance OUTSIDE the budget as the accounting still needed.
         int cap = WriteSentences.Cap(maxChars);
         for (int i = 0; i < o.Removed.Count; i++)
         {
             if (sb.Length >= cap)
             {
-                // NOT "raise max_chars to see the rest": re-issuing answers "not carried by patch '<file>'; NOTHING
-                // removed", because the records are already gone. Nothing is lost — removal is all-or-nothing, so the
-                // rows ARE the formids= the caller passed.
+                // NOT "raise max_chars to see the rest": the records are gone, and the rows ARE the formids= passed.
                 sb.Append("  ... [truncated: ").Append(i).Append(" of ").Append(o.Removed.Count)
                   .Append(" removed record(s) listed at max_chars=").Append(cap).Append("; ")
                   .Append(WriteSentences.RowsCutOperationIntact(false, "removed"))
@@ -446,10 +397,8 @@ public static class WriteTools
         return sb.ToString();
     }
 
-    /// <summary>Confirmation for housecarl_forward: per record, WHAT was copied (type + FormID + editorid), the
-    /// source it was copied FROM, and the current winner it out-ranks once enabled — with a redundant-forward NOTE when
-    /// the copied version was already winning — never silently a no-op. On refusal, the named reason so the caller
-    /// can fix and retry. Optional full read-back rides along (the pre-enable verify that the copy is the source's).</summary>
+    /// <summary>Confirmation for housecarl_forward: per record what was copied, the source it came FROM, the winner it
+    /// out-ranks once enabled, and a NOTE where the copied version was already winning — never silently a no-op.</summary>
     internal static string RenderForward(WritePatchBuilder.ForwardOutcome o, int maxChars = 0)   // internal: a test asserts the would-be phrasing
     {
         if (o.NeedsAcknowledge) return o.Error! + Epoch(o);  // the in-place consent prompt is a required confirmation, not an error
@@ -459,8 +408,7 @@ public static class WriteTools
         var sb = new StringBuilder();
         if (o.DryRun)
         {
-            // The SAME dry-run sentences the apply lane renders, from the same source: say NOTHING was written
-            // first, then what the real call would do.
+            // The SAME dry-run sentences the apply lane renders: nothing was written first, then what would happen.
             sb.Append(WriteSentences.DryRunHeader);
             sb.Append(WriteSentences.DryRunWouldWrite(o.InPlace, o.Extended, file, "forward into"));
             sb.Append(WriteSentences.DryRunMasters(o.Masters));
@@ -473,8 +421,7 @@ public static class WriteTools
             sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, file, o.Bytes, modFolder));
         if (!o.DryRun)
             sb.Append(WriteSentences.Masters(o.Masters));
-        // WHICH copy an off-order source read — a fact, not derivable from the name (several install layers can provide
-        // one filename, and only one of them was opened). Stated once for the call, because one source= serves it all.
+        // WHICH copy an off-order source read, stated once for the call, one source= serving it all.
         if (o.OffOrderSource is { } oo)
         {
             sb.Append("source: '").Append(oo.Plugin).Append("' is NOT in the active load order — the bodies were read OFF-ORDER from ")
@@ -486,9 +433,7 @@ public static class WriteTools
         }
         sb.Append(o.DryRun ? "would forward " : "forwarded ").Append(o.Forwarded.Count)
           .Append(o.Forwarded.Count == 1 ? " record:\n" : " records:\n");
-        // Budgeted for the same reason as the created-records block: formids= is set-valued, each row is long (type +
-        // FormKey + editorid + the source clause + a REPLACED / redundant / out-ranks bracket), and the json render
-        // already truncates the identical array.
+        // Budgeted for the same reason as the created-records block, the json render truncating the identical array.
         int fwdCap = WriteSentences.Cap(maxChars);
         for (int fi = 0; fi < o.Forwarded.Count; fi++)
         {
@@ -504,9 +449,7 @@ public static class WriteTools
             var f = o.Forwarded[fi];
             sb.Append("  ").Append(f.RecordType).Append(' ').Append(FormIdToken.Of(f.Target)).Append("  ").Append(f.EditorId ?? "<no editorid>")
               .Append(o.DryRun ? "  — would be copied from " : "  — copied from ").Append(f.FromPlugin);
-            // The sentence has to match what the replace does: the FIELDS are replaced and everything nested under the
-            // record is carried across, so this must not read as a clean revert. The count is stated rather than
-            // implied — "nested records were kept" cannot tell nothing-was-there from twelve-kept.
+            // The sentence matches what the replace does, and states the count rather than implying it.
             if (f.ReplacedExisting)
                 sb.Append(f.PreservedChildren > 0
                     ? (o.DryRun
@@ -518,14 +461,10 @@ public static class WriteTools
             if (f.WasAlreadyWinner)
                 sb.Append("  [NOTE: this source IS already the load-order winner — the override just re-asserts the content that already wins (a no-op in effect)]");
             else if (f.PriorWinner is null)
-                // No active plugin defines this record — ordinary on the self-origin path (a record originating in a
-                // patch not enabled yet). Never render a ranking against a winner that does not exist.
+                // No active plugin defines this record, so no ranking is rendered against a winner that does not exist.
                 sb.Append("  (no active plugin currently defines this record — nothing to out-rank; it takes effect once this patch is enabled)");
             else
-                // A patch this call created is new to MO2, which registers it at the highest priority, so enabling it is
-                // the whole job; an existing into= patch already sits somewhere in the order and may need a re-sort.
-                // Record precedence is the PLUGIN load order (the right pane), never the mod folder's priority. Said
-                // once per row without the mechanism; where a new patch lands in that order is the artifact line's job.
+                // Record precedence is the PLUGIN load order; where a new patch lands in it is the artifact line's job.
                 sb.Append($"  (out-ranks the current winner {f.PriorWinner} once this patch is enabled and loaded after it)");
             sb.Append('\n');
         }
@@ -541,9 +480,8 @@ public static class WriteTools
         return sb.ToString();
     }
 
-    /// <summary>Confirmation for housecarl_create_plugin: the empty plugin's path + mod folder, its ESL flag, master
-    /// header (none), record count (0) and byte size, plus the MO2 enable reminder and what the trigger does. On
-    /// refusal, the named reason so the caller can fix and retry.</summary>
+    /// <summary>Confirmation for housecarl_create_plugin: the empty plugin's path and mod folder, its ESL flag, master
+    /// header, record count and size, the MO2 enable reminder and what the trigger does.</summary>
     static string RenderCreatePlugin(WritePatchBuilder.CreatePluginOutcome o)
     {
         if (!o.Success) return "error: " + o.Error;
@@ -560,10 +498,8 @@ public static class WriteTools
         return sb.ToString();
     }
 
-    /// <summary>Confirmation for housecarl_compact_plugin: where the compacted plugin landed (new file vs in place),
-    /// the record accounting (originating renumbered / overrides kept), masters, the external-referencer verdict, the
-    /// identify-pass coverage, and the un-remappable-script reminder. The NeedsAcknowledge prompt is returned verbatim,
-    /// not as an error; on refusal the named reason so the caller can fix and retry.</summary>
+    /// <summary>Confirmation for housecarl_compact_plugin: where it landed, the record accounting, masters, the
+    /// external-referencer verdict, the pass coverage, the script reminder; NeedsAcknowledge returns verbatim.</summary>
     internal static string RenderCompact(WritePatchBuilder.CompactOutcome o)   // internal: a test renders a failure outcome to check the SEQ WARN reaches user output
     {
         if (o.NeedsAcknowledge) return o.Error!;            // the in-place consent prompt is a required confirmation, not an error
@@ -605,9 +541,8 @@ public static class WriteTools
             if (o.ExternalPlugins.Count > 25) sb.Append("  - … (+").Append(o.ExternalPlugins.Count - 25).Append(" more)\n");
         }
 
-        // External OVERRIDERS — plugins that OVERRIDE a renumbered record, not just reference it. They orphan after the
-        // renumber, and an override cannot be auto-repointed (an identity change, not a link rewrite), so this is a
-        // WARN naming each plugin rather than the referencer refuse/repoint path.
+        // External OVERRIDERS orphan after the renumber and cannot be auto-repointed, an override being an identity
+        // rather than a link, so each is WARNED about by name instead of taking the referencer path.
         if (o.ExternalOverriders is { Count: > 0 } overriders)
         {
             sb.Append("external OVERRIDERS (").Append(overriders.Count).Append("): these plugins OVERRIDE a renumbered record and will ")
@@ -624,8 +559,7 @@ public static class WriteTools
         }
         AppendUnscannablePlugins(sb, o.UnscannablePlugins);
         sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) for external references.\n");
-        // The plugin NAME survives a compaction, so what moves is the object id — and only the ids this run actually
-        // moved, which the accounting above states. Bounded by the claim rule at WriteSentences.CompactRuntimeConfigs.
+        // The plugin NAME survives a compaction, so what moves is the object id, and only the ids this run moved.
         sb.Append(WriteSentences.CompactRuntimeConfigs);
 
         AppendFacegenCarry(sb, o.AssetRename, o.InPlace);
@@ -638,11 +572,8 @@ public static class WriteTools
         return sb.ToString();
     }
 
-    // A plugin the external-reference pass could not read through — shared by compact and merge, one render home.
-    // Each plugin gets the sentence its own cause earns (WriteSentences.UnscannablePlugin): a file that would not
-    // open is held by another program, a file that faulted mid-enumeration is not, and one blanket claim would be
-    // wrong for half of them. "The external-referencer check", not "the list above": the referencer list prints
-    // only on some shapes, and a plugin that faulted partway can already be in it.
+    // A plugin the external-reference pass could not read through — shared by compact and merge, one render home, each
+    // plugin taking the sentence its own cause earns and naming the CHECK rather than the list above.
     static void AppendUnscannablePlugins(StringBuilder sb, IReadOnlyList<RemapEngine.UnscannablePlugin>? plugins)
     {
         if (plugins is not { Count: > 0 }) return;
@@ -653,13 +584,10 @@ public static class WriteTools
         if (plugins.Count > 25) sb.Append("  ! … (+").Append(plugins.Count - 25).Append(" more)\n");
     }
 
-    // FormID-keyed assets carried WITH the renumber — shared by compact and merge, one render home. The renumber moves
-    // records to new FormIDs (a merge also to a new plugin NAME), so facegen/voice are looked up under NEW paths and a
-    // shipped .seq goes stale; carrying them is what stops a dark-faced NPC, a mute voiced mod, and SGE quests that
-    // never start. Reported, never silent. inPlace is always false for merge — it has no in-place lane.
+    // FormID-keyed assets carried WITH the renumber — shared by compact and merge, reported rather than silent, and
+    // inPlace is always false for merge, which has no in-place lane.
 
-    /// <summary>Where the merged plugin has to load, from the positions, masters and dependents the merge already
-    /// computed — the question a caller otherwise answers by scanning the order by hand (#718).</summary>
+    /// <summary>Where the merged plugin has to load, from the positions, masters and dependents the merge computed (#718).</summary>
     static void AppendPlacement(StringBuilder sb, WritePatchBuilder.MergeOutcome o)
     {
         if (o.Placement is not { } p) return;
@@ -671,8 +599,7 @@ public static class WriteTools
             sb.Append("the donors sat at load-order positions ").Append(p.FirstPosition).Append('–').Append(p.LastPosition)
               .Append(" (").Append(p.FirstDonor).Append(" … ").Append(p.LastDonor).Append("). ");
         sb.Append("Load ").Append(o.OutputName);
-        // A master that is not flagged ESM can sit after the last donor, and then the two halves of the advice cannot
-        // both be met — said plainly rather than printing a slot the order forbids.
+        // A master that is not flagged ESM can sit after the last donor, and then no slot meets both halves.
         if (p.MasterAfterLastDonor)
         {
             sb.Append(" after its last master ").Append(p.LastMaster).Append(", which already sits at position ")
@@ -682,16 +609,13 @@ public static class WriteTools
         }
         if (p.LastMaster is not null)
             sb.Append(" after its last master ").Append(p.LastMaster).Append(" (position ").Append(p.LastMasterPosition).Append("), and");
-        // AT that position, not "at or after": the merge resolved the donors' conflicts as they stood there, and moving
-        // the output either way changes a winner.
+        // AT that position, not "at or after": moving the output either way changes a winner.
         sb.Append(" at position ").Append(p.LastPosition).Append(", where the last donor sat")
           .Append(" — the merge resolved the donors' conflicts as they stood there, so an earlier slot lets content the ")
           .Append("donors used to beat win over the merge, and a later one puts the merge over plugins that used to beat ")
           .Append("the donors.\n");
-        // What the position governs, and what it does not. Every record the identify pass looked for is renumbered into
-        // the output's own FormID space, so the plugins it names are orphaned by the swap — the warnings below say so —
-        // rather than outranked by where the output sits. No roster is printed for the records that ARE position-
-        // sensitive, because a merge never enumerates them.
+        // What the position governs, and what it does not: the plugins named below are orphaned by the swap rather than
+        // outranked by this position, and no roster of the position-sensitive records is printed.
         sb.Append("  what the position decides is the donors' OVERRIDES, kept at their masters' FormIDs: a plugin that ")
           .Append("overrides the same master records wins over the merge below it and loses above it. The donors' OWN ")
           .Append("records are renumbered into ").Append(o.OutputName).Append("'s FormID space, where nothing outside the ")
@@ -742,28 +666,22 @@ public static class WriteTools
         if (sr.Failures.Count > 25) sb.Append("  SEQ WARN: … (+").Append(sr.Failures.Count - 25).Append(" more)\n");
     }
 
-    /// <summary>Merge confirmation: the merged plugin's identity + the MO2 swap instruction, per-donor id accounting,
-    /// cross-donor conflict resolutions (load-order winner — reported, never silent), the WARN surfaces (external
-    /// referencers/overriders with the remedy), the asset-carry accounting, and the saves/ESL pointers. On refusal,
-    /// the named reason. internal: a test asserts the warnings reach user output.</summary>
+    /// <summary>Merge confirmation: the merged plugin's identity and the swap instruction, per-donor id accounting, the
+    /// conflict resolutions, the WARN surfaces and their remedies, the asset carry, the saves and ESL pointers.</summary>
     internal static string RenderMerge(WritePatchBuilder.MergeOutcome o)
     {
         if (!o.Success) return "error: " + o.Error;
         var file = Path.GetFileName(o.OutputPath);
         var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
         var sb = new StringBuilder();
-        // The operation's SHAPE is classified ONCE here and consumed by every sentence that varies with it — this
-        // headline, the per-donor renumber cause, and the external-referencer remedy order. One donor is the RENAME
-        // case: "from 1 donors" would be both ungrammatical and a misdescription, nothing having been combined.
+        // The operation's SHAPE is classified ONCE for every sentence that varies with it; one donor is the RENAME case.
         bool isRename = o.Donors.Count == 1;
         if (isRename)
         {
-            // DERIVED from the accounting line below rather than asserting alongside it: a pure-override donor
-            // originates nothing, so nothing is re-keyed and "its records under a new identity" would be false.
+            // DERIVED from the accounting line below: a pure-override donor originates nothing to re-key.
             sb.Append("wrote ").Append(file).Append(" (new plugin; ").Append(o.Bytes).Append(" bytes) — a RENAME of ")
               .Append(o.Donors[0]).Append(": one donor, so there is nothing to combine — ");
-            // Three arms, because each sentence may claim only the quantity it read — including the donor with no
-            // records at all, which this same report's swap instruction tells callers to create to keep a .bsa loading.
+            // Three arms, because each sentence may claim only the quantity it read, the empty donor included.
             int headlineOverrides = o.RecordsCopied - o.RecordsRenumbered;
             if (o.RecordsRenumbered > 0)
                 sb.Append(o.RecordsRenumbered).Append(o.RecordsRenumbered == 1 ? " record moves" : " records move")
@@ -781,10 +699,8 @@ public static class WriteTools
               .Append(o.Donors.Count).Append(" donors: ").Append(string.Join(", ", o.Donors)).Append('\n');
         sb.Append("mod folder: ").Append(modFolder).Append("  — review in xEdit, then enable it in MO2 (MO2 adds a newly activated plugin at the END of the load order).\n");
         AppendPlacement(sb, o);
-        // The swap is PLUGIN-level, not mod-level (merge is a RECORDS op): the merged records still reference the donors'
-        // meshes/textures/scripts/BSA contents BY PATH, and those files live in the donor mod folders — only the
-        // FormID-keyed facegen/voice/seq were carried. "Disable the donor mods" (compact's instruction, where the output
-        // shares the source's basename) would yank all of that out of the VFS with every warning light green.
+        // The swap is PLUGIN-level, not mod-level: the merged records still reference the donors' files BY PATH, and
+        // only the FormID-keyed facegen/voice/seq were carried, so compact's "disable the donor mods" would break it.
         sb.Append("the swap: deactivate the donor PLUGINS (right pane) — their files are untouched — but KEEP the donor mod ")
           .Append("folders enabled (left pane): the merged records still load the donors' meshes/textures/scripts by path; ")
           .Append("only facegen/voice/seq were carried. If a donor ships a .bsa, it stops auto-loading once its plugin is ")
@@ -813,14 +729,12 @@ public static class WriteTools
             if (o.Conflicts.Count > 25) sb.Append("  … (+").Append(o.Conflicts.Count - 25).Append(" more)\n");
         }
 
-        // WARN loud and proceed — the donors stay installed and ACTIVE until the user swaps in MO2, so nothing is
-        // broken at write time. (Compact refuses on referencers instead: its renumber takes effect under the SAME
-        // plugin name, a merge's only when the user disables the donors.)
+        // WARN loud and proceed: the donors stay active until the swap, so nothing is broken at write time. Compact
+        // refuses on referencers instead, its renumber taking effect under the SAME plugin name.
         if (o.ExternalPlugins.Count > 0)
         {
             sb.Append("WARNING — ").Append(o.ExternalPlugins.Count).Append(" plugin(s) OUTSIDE the merge REFERENCE donor records. Their references break ")
-              // Adding the patch to the donor set yields a COMBINED plugin — a different operation from the one that
-              // was asked for — so a rename leads with the remedy that keeps it a rename, and offers combining second.
+              // Adding the patch to the donor set yields a COMBINED plugin, so a rename offers that second.
               .Append(isRename
                   ? "the moment you deactivate the donor plugin: re-point them at '"
                   : "the moment you deactivate the donor plugins: include them in the merge set (re-run with them added), or re-point them at '")
@@ -842,18 +756,15 @@ public static class WriteTools
             foreach (var pl in o.ExternalOverriders.Take(25)) sb.Append("  ! ").Append(pl).Append('\n');
             if (o.ExternalOverriders.Count > 25) sb.Append("  ! … (+").Append(o.ExternalOverriders.Count - 25).Append(" more)\n");
         }
-        // The third dependent kind, and the one a merge breaks hardest: a plugin that lists a donor as a master while
-        // referencing none of its records keeps loading only while the donor does. The game refuses to load a plugin
-        // missing a master, so this is a WARN with the same standing as the two above — nothing breaks until the swap.
+        // The third dependent kind: a plugin declaring a donor as a master while referencing none of its records, which
+        // the game refuses to load once the donor is gone — a WARN with the same standing as the two above.
         if (o.MasterDeclarers is { Count: > 0 } declarers)
         {
             sb.Append("WARNING — ").Append(declarers.Count).Append(" plugin(s) OUTSIDE the merge DECLARE a donor as a MASTER ")
               .Append("without referencing any of its records. They are not in the lists above (nothing links to a donor ")
               .Append("record), but a plugin missing a master does not load at all, so each one breaks the moment you ")
               .Append(isRename ? "deactivate the donor plugin" : "deactivate the donor plugins")
-              // The fix is the stale master reference, not a new one: these plugins reference nothing in the donor,
-              // so adding the merged plugin as a master would buy them nothing. Combining is offered second for a
-              // rename, as in the two warnings above, because it stops being a rename.
+              // The fix is the stale master reference, not a new one; combining is offered second, as above.
               .Append(". Remove that master in xEdit (nothing in them references it)")
               .Append(isRename ? " — or, to combine them instead, re-run with them added as donors" : ", or include them in the merge set")
               .Append(":\n");
@@ -865,28 +776,23 @@ public static class WriteTools
             sb.Append("note: ").Append(o.UnscannableRecords).Append(" record(s) couldn't be scanned in the external-reference pass, so a ")
               .Append("'none' above may be incomplete — verify in xEdit. Samples: ").Append(string.Join("; ", o.UnscannableSamples)).Append('\n');
         AppendUnscannablePlugins(sb, o.UnscannablePlugins);
-        // The coverage caveat belongs to the PASS, not to either outcome: a "none" and a populated list are incomplete
-        // the same way. Declared masters ARE read now; runtime config files still are not, and naming what is left out
-        // is what keeps the pass from claiming more than it measured.
+        // The coverage caveat belongs to the PASS: a "none" and a populated list are incomplete the same way, and
+        // naming what is left out is what keeps the pass from claiming more than it measured.
         sb.Append("identify-pass scanned ").Append(o.PluginsScanned).Append(" plugin(s) — it reads record links, record ")
           .Append("identity and declared masters, NOT runtime config files (SPID, KID, SkyPatcher, Open Animation ")
           .Append("Replacer), so a plugin that only names a donor in such a file is not counted above.\n");
-        // The caveat above says those files are not READ; this says what that costs, which a caller cannot derive from
-        // "not counted". Both are bounded by the claim rule at WriteSentences.MergeRuntimeConfigs: this tool's own
-        // behaviour, plus a break entailed by the swap this same report instructs.
+        // The caveat above says those files are not READ; this says what that costs.
         sb.Append(WriteSentences.MergeRuntimeConfigs);
 
         AppendFacegenCarry(sb, o.AssetRename, inPlace: false);
         AppendVoiceCarry(sb, o.VoiceRename, inPlace: false);
         AppendSeqRegen(sb, o.SeqRegen, inPlace: false);
 
-        // The merged plugin is built as a bare mod, so what lived in a donor's HEADER does not come along. Keyed on
-        // what the DONORS carried, not on the donor count — a silent header loss has to be stated.
+        // The merged plugin is a bare mod, so a donor's HEADER does not come along; keyed on what the donors carried.
         bool lightNoteShown = o.LightCarried || o.LightDonors is { Count: > 0 };
         if (o.LightCarried)
         {
-            // The one case where nothing is dropped, and it still gets a line: the caller has to know the output is
-            // light without opening it, because that is what decides whether it costs a load-order slot.
+            // The one case where nothing is dropped still gets a line: whether the output costs a load-order slot.
             sb.Append("NOTE — every donor carried the LIGHT (ESL) status and every merged object id landed inside the ")
               .Append("light window (0x").Append(HousecarlCore.FormIdRange.EslWindowFloor.ToString("X3")).Append("–0x")
               .Append(HousecarlCore.FormIdRange.EslWindowCeiling.ToString("X3")).Append("), so ").Append(o.OutputName)
@@ -896,13 +802,8 @@ public static class WriteTools
         {
             sb.Append("NOTE — ").Append(string.Join(", ", light.Take(10)));
             if (light.Count > 10) sb.Append(" (+").Append(light.Count - 10).Append(" more)");
-            // Why the flag was not carried, never a bare drop. The REASON is which of the two conditions failed; the
-            // REMEDY is a separate question, because compact renumbers every id into the light window and so answers
-            // both reasons — until the record count itself overflows that window, which is the only case it cannot
-            // answer. So the reason is written per condition and the remedy per count. The ids-fit condition itself
-            // fails two ways — a donor id already above the ceiling, or a merge with more records than the window
-            // holds — and only the count tells them apart, so the reason reads it too rather than blaming a high
-            // donor id a crowded merge does not have.
+            // Why the flag was not carried, never a bare drop: the reason is written per failed condition and the
+            // remedy per count, and the ids-fit condition fails two ways only the count tells apart.
             const int lightCapacity = (int)(HousecarlCore.FormIdRange.EslWindowCeiling - HousecarlCore.FormIdRange.EslWindowFloor + 1);
             string window = "0x" + HousecarlCore.FormIdRange.EslWindowFloor.ToString("X3") + "–0x" +
                             HousecarlCore.FormIdRange.EslWindowCeiling.ToString("X3");
@@ -926,18 +827,15 @@ public static class WriteTools
         }
         if (o.MasterDonors is { Count: > 0 } masters)
         {
-            // No remedy: nothing on the surface flags an existing plugin as a master. Bare statement, as for the
-            // header text below — an invented remedy would be the worse failure.
+            // No remedy, nothing on the surface flagging an existing plugin as a master; a bare statement, as below.
             sb.Append("NOTE — ").Append(string.Join(", ", masters.Take(10)));
             if (masters.Count > 10) sb.Append(" (+").Append(masters.Count - 10).Append(" more)");
             sb.Append(" carried MASTER status; ").Append(o.OutputName)
               .Append(" is NOT flagged as a master — it loads as a plain plugin, in the plugin block rather than the ")
               .Append("master block, so anything depending on that ordering will see it move.\n");
         }
-        // The donors' text is the other thing the bare output does not carry across as it was. The merged plugin is
-        // never flagged localized, so a localized donor's values are written INTO it and its .STRINGS stop describing
-        // it — the plugin's nature changed, and a report that called that an ordinary success said nothing about it.
-        // Keyed on donors houseCARL READ and found flagged, so nothing is asserted about a donor it could not read.
+        // The merged plugin is never flagged localized, so a localized donor's values are written INTO it and its
+        // .STRINGS stop describing it. Keyed on donors houseCARL READ and found flagged.
         if (o.LocalizedDonors is { Count: > 0 } localized)
         {
             sb.Append("NOTE — ").Append(string.Join(", ", localized.Take(10)));
@@ -951,8 +849,7 @@ public static class WriteTools
         }
         if (o.HeaderMetaDonors is { Count: > 0 } meta)
         {
-            // No remedy is named because none exists on the surface: author=/description= belong to create_plugin, and
-            // only at create time. A bare statement of the loss is the honest whole of what can be said about it.
+            // No remedy is named because none exists on the surface: author=/description= belong to create_plugin.
             sb.Append("NOTE — the header Author/Description carried by ").Append(string.Join(", ", meta.Take(10)));
             if (meta.Count > 10) sb.Append(" (+").Append(meta.Count - 10).Append(" more)");
             sb.Append(" are not carried across; ").Append(o.OutputName).Append("'s are empty.\n");
@@ -963,17 +860,15 @@ public static class WriteTools
           .Append("different plugin name, and any id that had to be renumbered moved with it) — best for a new game. ")
           .Append("FormIDs compiled into Papyrus (.pex hardcoded / ")
           .Append("GetFormFromFile) and any Mutagen-delta residual are NOT remappable — verify scripted records.");
-        // ONE home for the compact recommendation per response: the light note already names the tool with the cost
-        // that makes the advice honest (it renumbers from the floor), so a flat repeat here would end on the version
-        // without the cost. With no light note there is no other pointer, so the tail stays.
+        // ONE home for the compact recommendation per response: the light note already names the tool with its cost,
+        // and with no light note there is no other pointer.
         if (!lightNoteShown)
             sb.Append(" Want it light? Run " + ToolNames.CompactPlugin + " on '").Append(o.OutputName).Append("' (the tools compose).");
         return sb.ToString();
     }
 
-    /// <summary>Confirmation for housecarl_create: the new record's ALLOCATED FormID + editorid + type (the FormID
-    /// is the key output — the caller references the new record by it), the patch path + its (derived) masters, and the
-    /// fields applied. On refusal, the named reason so the caller can fix and retry.</summary>
+    /// <summary>Confirmation for housecarl_create: each new record's ALLOCATED FormID, editorid and type, the patch
+    /// path and its derived masters, and the fields applied.</summary>
     internal static string RenderCreate(WritePatchBuilder.CreateOutcome o, int maxChars = 0, bool fullDump = false)   // internal: housecarl_create renders the same outcome
     {
         if (o.NeedsAcknowledge) return o.Error! + Epoch(o);  // the in-place consent prompt is a required confirmation, not an error
@@ -982,30 +877,22 @@ public static class WriteTools
         var modFolder = Path.GetFileName(Path.GetDirectoryName(o.OutputPath) ?? "");
         var sb = new StringBuilder();
         if (o.InPlace)
-            // "created into X", not "X rewritten": every sibling in-place headline is verb-then-file (edited /
-            // forwarded into / removed from / compacted), and "rewritten" stutters against the hazard clause behind it.
+            // "created into X", not "X rewritten": every sibling in-place headline is verb-then-file.
             sb.Append("created into ").Append(file).Append(" IN PLACE (").Append(o.Bytes)
               .Append(" bytes — ").Append(WriteSentences.InPlaceRewritten).Append(")\n")
               .Append(WriteSentences.InPlaceModFolder(modFolder));
         else
             sb.Append(WriteSentences.NewOrExtendedArtifact(o.Extended, file, o.Bytes, modFolder));
         sb.Append(WriteSentences.Masters(o.Masters));
-        // Said ABOVE the created rows and outside their budget, exactly as the edit lane says it: a record missing
-        // from the file the call just wrote is the one reading that contradicts the header, and a row cut must not be
-        // what removes it. A nested child whose PARENT is missing counts too — the child cannot be in a
-        // parent the file does not hold.
+        // Said ABOVE the created rows and outside their budget; a nested child whose PARENT is missing counts too.
         var notLanded = o.Created.Where(c => c.AbsentFromFile || c.ParentAbsentFromFile).ToList();
         if (notLanded.Count > 0)
         {
             sb.Append("! ").Append(notLanded.Count)
               .Append(notLanded.Count == 1 ? " created record did NOT land: " : " created records did NOT land: ")
               .Append(WriteSentences.CreateRecordAbsentFromWrittenFile(ReadBackCall(o, file))).Append(". ");
-            // TWO lists, never one: a parent's FormID is not a FormID this call created, and after a row cut the
-            // hoist is all that survives — so an unlabelled mix would tell the caller a record it never asked for
-            // did not land. Each list is bounded and counted by the same shared sentence.
-            // Each list selects on its OWN flag. They are not alternatives: a nested child inside a parent the file
-            // does not hold is not in the file either, so BOTH are set on it and it belongs in both lists — the
-            // child as a created record that is missing, the parent as the reason it is.
+            // TWO lists, never one: a parent's FormID is not a FormID this call created, and each list selects on its
+            // OWN flag, a child inside a missing parent belonging in both — the child as missing, the parent as why.
             var absentCreated = notLanded.Where(c => c.AbsentFromFile).Select(c => FormIdToken.Of(c.FormKey))
                                          .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             var absentParents = notLanded.Where(c => c.ParentAbsentFromFile).Select(c => FormIdToken.Of(c.ParentKey!.Value))
@@ -1022,15 +909,10 @@ public static class WriteTools
             sb.Append(" (").Append(replacedCount).Append(replacedCount == 1 ? " REPLACED an existing record" : " REPLACED existing records")
               .Append(" — same FormID kept, prior contents discarded)");
         sb.Append(":\n");
-        // Budgeted: this is the render's LARGEST block and it is SET-VALUED — a 500-record authoring job from
-        // records="@<manifest>" is the case this tool exists for. The json render budgets the same array and closes
-        // truncated:true, so unbounded here the two disagree about one call and text takes a silent host-side cut.
+        // Budgeted: the render's LARGEST block, and the json render budgets the same array.
         int createCap = WriteSentences.Cap(maxChars);
-        // Which version of a contested parent this artifact carries is a choice the caller may want to act on, and it
-        // is not IN the record — so it is hoisted out of the budget below, where a max_chars cut would remove the
-        // per-record `parent:` lines. One line per distinct contested parent; the benign cases say nothing. Selected
-        // on the FLAG, never by matching the sentence. Bounded too, or a create fanning children into many contested
-        // cells eats the budget before the created list starts; the bound lives on Wire so the json render shares it.
+        // Which version of a contested parent this artifact carries is hoisted out of the budget below, one line per
+        // distinct host, selected on the FLAG, and bounded on Wire so the json render shares the bound.
         var contested = o.Created.Where(c => c.ParentContested && c.ParentHost is not null)
                          .Select(c => c.ParentHost!).Distinct(StringComparer.Ordinal).ToList();
         foreach (var host in contested.Take(Wire.ContestedHostsShown))
@@ -1043,9 +925,7 @@ public static class WriteTools
         {
             if (sb.Length >= createCap)
             {
-                // The remedy points at a READ, never at re-issuing this call: a repeated CREATE allocates the records
-                // AGAIN — on the default lane patch= auto-suffixes into a second full patch, and under into= each
-                // record is re-created at its old FormID with its prior contents discarded.
+                // The remedy points at a READ, never at re-issuing: a repeated CREATE allocates the records AGAIN.
                 sb.Append("  ... [truncated: ").Append(ci).Append(" of ").Append(o.Created.Count)
                   .Append(" created record(s) listed at max_chars=").Append(createCap).Append("; ")
                   .Append(WriteSentences.CreateRowsCutRemedy(ReadBackCall(o, file), notLanded.Count > 0)).Append("]\n");
@@ -1054,16 +934,11 @@ public static class WriteTools
             var c = o.Created[ci];
             listed++;
             sb.Append("  ").Append(c.RecordType).Append(' ').Append(FormIdToken.Of(c.FormKey)).Append("  ").Append(c.EditorId);
-            // "this patch" belongs to the artifact lanes; in place the file is the caller's own plugin, and naming it a
-            // patch would misread as houseCARL's.
+            // "this patch" belongs to the artifact lanes; in place the file is the caller's own plugin.
             if (c.ReplacedExisting) sb.Append("  [REPLACED: ").Append(o.InPlace ? file : "this patch")
                                       .Append(" already defined this editorid — re-created fresh at the same FormID; prior contents, including any " + ToolNames.Apply + " edits since, were discarded]");
-            // The record's own verdict from the written file, beside its row: absent is the one reading that says the
-            // create is not in the file, and a walk that never ran says so rather than passing for a clean one.
-            // The PARENT arm is first, and is not an alternative to the child being absent: a child lives inside
-            // its parent's group, so a missing parent takes the child with it and both flags are set. Testing the
-            // child first would print the generic clause under the child's own FormID and never name the record
-            // that actually went missing.
+            // The record's own verdict from the written file, beside its row, and a walk that never ran says so. The
+            // PARENT arm is first, not an alternative: testing the child first would never name what went missing.
             if (c.ParentAbsentFromFile)
                 sb.Append("  -> DID NOT LAND — its parent ").Append(FormIdToken.Of(c.ParentKey!.Value))
                   .Append(" is not in the written file, so this child is not in it either. ")
@@ -1073,13 +948,10 @@ public static class WriteTools
             else if (!c.VerifyAttempted)
                 sb.Append("  -> not-checked [the re-opened file could not be walked]");
             sb.Append('\n');
-            // A nested create had to override its parent in to host the child, and WHOSE version it copied is a choice
-            // the caller never made and cannot see in the record afterwards. One line, only when there was one.
+            // WHOSE version of the parent a nested create copied in is not visible in the record afterwards.
             if (c.ParentHost is { } host) sb.Append("      parent: ").Append(host).Append('\n');
-            // The SAME clause the edit lane's per-edit lines carry: what the WRITTEN FILE holds at that leaf,
-            // never the in-memory reading, and not-checked in the same words where the file cannot answer (#763).
-            // The op line carries the READING only: the record row above already states the create lane's
-            // remedy in full, and repeating it under every field would print it once per field.
+            // The SAME clause the edit lane's per-edit lines carry (#763), the READING only: the record row above
+            // states the create lane's remedy in full.
             var opAbsent = WriteSentences.RecordAbsentReading
                          + ", so this field is not in it — the record line above says what to do";
             foreach (var op in c.Ops)
@@ -1088,8 +960,7 @@ public static class WriteTools
         AppendVoiceReport(sb, o.Voice, maxChars);
         AppendScriptBindingReport(sb, o.ScriptBinding, maxChars);
         AppendCellShellReport(sb, o.CellShell, maxChars);
-        // Same compact-by-default verify as the edit lane: the forced create-in-place re-read still runs;
-        // full_readback=true gives the deep dump. The created records' set fields are already listed above.
+        // The same compact-by-default verify as the edit lane; the created records' set fields are listed above.
         if (o.ReadBack is { } rb)
         {
             if (fullDump) AppendFullReadback(sb, rb, maxChars, freshPatch: !o.Extended && !o.InPlace);
@@ -1097,13 +968,8 @@ public static class WriteTools
         }
         if (o.Warning is { } warn) sb.Append("warning: ").Append(warn).Append('\n');
         if (o.Note is { } note) sb.Append("note: ").Append(note).Append('\n');
-        // Gated on rows having actually rendered: with a small max_chars the header alone can exceed the cap and drop
-        // EVERY row, and "the new FormID above" would then assert a referent this render never printed.
-        // The all-rows-cut sentence is gated on the SAME count as the hoist above it, and for the same reason: this
-        // is the branch where the hoist is load-bearing (a cap small enough to drop every row still prints it), so an
-        // ungated "all N WERE created" here would contradict the line a few lines above it.
-        // …and the SAME gate on the arm that ran when rows DID render: a response whose row says DID NOT LAND
-        // cannot close by telling the caller to reference the FormID on it.
+        // Gated on rows having actually rendered, a small max_chars being able to drop every row, and on the SAME
+        // count as the hoist above, so no arm contradicts it or points at a FormID this render never printed.
         sb.Append(listed > 0 && notLanded.Count == 0
             ? "the new FormID above is how you reference this record (SkyPatcher/SPID, or a follow-up edit). "
             : listed > 0
@@ -1118,24 +984,19 @@ public static class WriteTools
         return sb.ToString();
     }
 
-    /// <summary>What a truncated REMOVE render tells the caller. Removal is ALL-OR-NOTHING over the <c>formids=</c>
-    /// they passed, so the listed set and the passed set are the same set — and re-issuing to widen the render is
-    /// REFUSED, because the records no longer exist to be found.</summary>
+    /// <summary>What a truncated REMOVE render tells the caller: removal is ALL-OR-NOTHING over the <c>formids=</c>
+    /// passed, so the two sets are the same set, and re-issuing to widen the render is refused.</summary>
     internal const string RemovedRowsRemedy =                       // internal: the json render says the same thing
         "removal is all-or-nothing, so these rows are exactly the formids= you passed — nothing here is unrecoverable. "
       + "Do NOT re-issue to widen this: the records are gone, so a repeat is refused as 'not carried by' the file";
 
-    /// <summary>What a truncated FORWARD render tells the caller to do — which depends on the LANE. Re-issuing is safe
-    /// on <c>into=</c> (replace-on-collision, so the second call lands on the same FormKeys) and on a dry run, which
-    /// writes nothing; on the DEFAULT lane <c>ResolveOutputPath</c> allocates a fresh stem, so a re-issue is a SECOND
-    /// patch mod carrying the same overrides. <c>in_place=</c> gets the read-back remedy instead: a re-run there
-    /// re-serializes the caller's OWN plugin, the one file with no houseCARL backup, purely to widen a display.</summary>
+    /// <summary>What a truncated FORWARD render tells the caller to do, which depends on the LANE: safe to re-issue on
+    /// <c>into=</c> and on a dry run, a SECOND patch mod on the default lane, a read-back on <c>in_place=</c>.</summary>
     internal static string ForwardAgainRemedy(WritePatchBuilder.ForwardOutcome o, string file)   // internal: the json render says the same thing
         => WriteAgainRemedy(o.DryRun, o.InPlace, o.Extended, file, "patch mod carrying the same overrides");
 
-    /// <summary>The lane rule generalized: whether re-issuing a write call to widen a display is safe is a property of
-    /// the LANE, not of the verb. A dry run wrote nothing; <c>into=</c> lands on the same artifact; <c>in_place=</c>
-    /// re-serializes the caller's own file; the DEFAULT lane auto-suffixes a second patch.</summary>
+    /// <summary>The lane rule generalized: whether re-issuing a write to widen a display is safe is a property of the
+    /// LANE, not of the verb.</summary>
     static string WriteAgainRemedy(bool dryRun, bool inPlace, bool extended, string file, string duplicateNoun)
         => dryRun || extended
             ? "raise max_chars to see the rest"
@@ -1147,33 +1008,25 @@ public static class WriteTools
     internal static string ApplyAgainRemedy(WritePatchBuilder.PatchOutcome o, string file)
         => WriteAgainRemedy(o.DryRun, o.InPlace, o.Extended, file, "patch mod carrying the same edits");
 
-    /// <summary>The read-back call a truncated create render points the caller at — one that actually RESOLVES.
-    /// <c>source=</c> is the SOURCE pole, not a SELECT term, and a <c>plugins=</c> scope names ACTIVE plugins, so
-    /// neither can select a patch this call just wrote and MO2 has not enabled. <c>types=</c> is the select term that
-    /// carries on both arms, and the created records' <c>RecordType</c>s are catalog names, exactly what it resolves.</summary>
+    /// <summary>The read-back call a truncated create render points the caller at — one that actually RESOLVES, which
+    /// means <c>types=</c>, the select term that carries over a patch MO2 has not enabled.</summary>
     internal static string ReadBackCall(WritePatchBuilder.CreateOutcome o, string file)   // internal: the json render points at the SAME call
     {
         var types = o.Created.Select(c => c.RecordType).Where(t => !string.IsNullOrWhiteSpace(t))
                              .Distinct(StringComparer.OrdinalIgnoreCase)
                              .OrderBy(t => t, StringComparer.OrdinalIgnoreCase).ToList();
-        // Every distinct type, never a sampled head: a partial types= would select a partial answer while reading like
-        // the whole one. The empty fallback is unreachable on a successful create, but a bare source= call is refused,
-        // so the clause is not dropped either.
+        // Every distinct type, never a sampled head; the empty fallback is unreachable but a bare source= is refused.
         return types.Count > 0
             ? $"{ToolNames.Records} source=\"{file}\" types=[{string.Join(", ", types.Select(t => $"\"{t}\""))}]"
             : $"{ToolNames.Records} source=\"{file}\" types=[<the record types you created>]";
     }
 
     /// <summary>Render the voice-coverage report for a dialogue-line create, so a byte-valid line is never silently a
-    /// silent one: a loud "WILL BE SILENT" per created voiced response with no .fuz on disk (naming the path to put the
-    /// audio at), a brief "voice present" for covered ones, and a NAMED reason per line whose path could not be
-    /// computed. Reports the on-disk data-layer boundary; it never generates audio. No-op unless lines were created.</summary>
+    /// silent one; it reports on-disk state, naming where audio goes, and never generates any.</summary>
     static void AppendVoiceReport(StringBuilder sb, VoiceReport? report, int maxChars)
     {
         if (report is null || report.IsEmpty) return;
-        // Budget-bounded like the full read-back (same maxChars contract): a create authoring hundreds of voiced lines
-        // must not blow the response size or starve a requested read-back — past the cap the voice section stops with
-        // an explicit notice, never a silent cut.
+        // Budget-bounded like the full read-back, stopping with an explicit notice rather than a silent cut.
         int cap = WriteSentences.Cap(maxChars);
         int total = report.Lines.Count + report.Undetermined.Count, rendered = 0;
         sb.Append("voice coverage — created dialogue lines (").Append(WriteSentences.Twins.VoiceStake)
@@ -1214,24 +1067,19 @@ public static class WriteTools
             sb.Append(WriteSentences.CheckCouldNotRun("voice", report.CheckError, "the records", "verify voice files manually."));
     }
 
-    /// <summary>The explicit voice-coverage truncation notice: how many of the total voice entries were rendered
-    /// before the char budget was hit. Its closing clause is <see cref="WriteSentences.Twins.ReportBlockCut"/>, shared
-    /// with the result-script notice and the json render so the two transports cannot give opposite advice about one
-    /// call — this block rides the CREATE render, where "raise max_chars and re-issue" would mean creating again.</summary>
+    /// <summary>The explicit voice-coverage truncation notice, closing on the
+    /// <see cref="WriteSentences.Twins.ReportBlockCut"/> the result-script notice and the json render share.</summary>
     static void AppendVoiceTrunc(StringBuilder sb, int rendered, int total, int cap)
         => sb.Append("  ... [voice coverage truncated: rendered ").Append(rendered).Append(" of ").Append(total)
              .Append(" line(s) at max_chars=").Append(cap).Append("; ").Append(WriteSentences.Twins.ReportBlockCut).Append("]\n");
 
-    /// <summary>Render the structural-shell report for a cell create: the cell is a valid, correctly-placed RECORD,
-    /// but houseCARL does not author world content, so per created cell this lists by kind what the author must still
-    /// provide in the Creation Kit (lighting / terrain / water / navmesh). "Created" must never read as "looks right
-    /// in game". No-op unless the call created cells.</summary>
+    /// <summary>Render the structural-shell report for a cell create: houseCARL authors no world content, so this lists
+    /// per cell what the author must still provide in the Creation Kit.</summary>
     static void AppendCellShellReport(StringBuilder sb, CellShellReport? report, int maxChars)
     {
         if (report is null || report.IsEmpty) return;
-        // Budgeted like its two siblings, or a create authoring a batch of cells renders every row in TEXT and takes
-        // the silent host-side cut the json render already avoids. The inner MustProvide loop is bounded too: one cell
-        // with a long work list could blow the budget by itself.
+        // Budgeted like its two siblings, the inner MustProvide loop included, one cell's work list being able to blow
+        // the budget by itself.
         int cap = WriteSentences.Cap(maxChars);
         int total = report.Cells.Count, rendered = 0;
         bool cut = false;
@@ -1248,14 +1096,11 @@ public static class WriteTools
             if (cut) break;
             rendered++;
         }
-        // The notice, then the two notes below it — which stay OUTSIDE the budget on purpose, the same rule the
-        // removal render states: they are the accounting a truncated report still needs, and the grid-occupancy
-        // seam in particular must not be the thing a cut swallows.
+        // The notice, then the two notes, which stay OUTSIDE the budget as the removal render's accounting does.
         if (cut)
             sb.Append("  ... [cell shell truncated: rendered ").Append(rendered).Append(" of ").Append(total)
               .Append(" cell(s) at max_chars=").Append(cap).Append("; ").Append(WriteSentences.Twins.ReportBlockCut).Append("]\n");
-        // Declare the un-checked grid-occupancy seam rather than omit it silently. Only an EXTERIOR cell collides on a
-        // grid; an interior cell has no grid identity.
+        // The un-checked grid-occupancy seam, declared; only an EXTERIOR cell collides on a grid.
         if (report.Cells.Any(c => !c.Interior))
             sb.Append("  note: ").Append(WriteSentences.Twins.GridOccupancy).Append('\n');
         if (report.CheckError is not null)
@@ -1263,10 +1108,7 @@ public static class WriteTools
     }
 
     /// <summary>Render the result-script coverage report for a dialogue-line create, so a byte-valid script is never
-    /// silently an inert one: a loud "WILL NOT FIRE" per created line whose VMAD binds nothing usable or names a script
-    /// with no compiled `.pex` on disk (naming the missing path), a brief "OK" for ones fully wired, and a NAMED reason
-    /// for any created INFO that could not be located. Compiling is housecarl_compile_script's job. No-op unless the
-    /// call created scripted dialogue lines. Budget-bounded like the voice and read-back sections.</summary>
+    /// silently an inert one: "WILL NOT FIRE" with the missing path, "OK", or a NAMED reason.</summary>
     static void AppendScriptBindingReport(StringBuilder sb, ScriptBindingReport? report, int maxChars)
     {
         if (report is null || report.IsEmpty) return;
@@ -1310,12 +1152,10 @@ public static class WriteTools
     }
 }
 
-// ---- the retired 1.x wire DTOs: parked in WireNamesProbe.NonInputWireTypes, reachable from no tool's input
-// ---- schema. Kept rather than collapsed into ApplyOp/CreateRecordSpec -- that reshape is deferred. ----
+// ---- the retired 1.x wire DTOs: parked in WireNamesProbe.NonInputWireTypes, reachable from no tool's input schema ----
 
-/// <summary>One edit operation off the wire. RecordType is NOT supplied — it is derived from the resolved winner's
-/// runtime type. Mirrors <see cref="WritePatchBuilder.PatchEdit"/> with string FormID + dotted path + optional
-/// composition.</summary>
+/// <summary>One edit operation off the wire, mirroring <see cref="WritePatchBuilder.PatchEdit"/>; RecordType is derived
+/// from the resolved winner's runtime type rather than supplied.</summary>
 public sealed record BulkOp
 {
     [JsonPropertyName("formid"), Description("The record's FormID 'XXXXXX:Plugin.esp'.")]
@@ -1349,9 +1189,8 @@ public sealed record BulkOp
     public string? FromPlugin { get; init; }
 }
 
-/// <summary>One brand-new record to create off the wire — the retired 1.x batch element: the DECLARED
-/// record_type, its editorid, optional field operations, and the optional
-/// nested parent/collection (a child's parent may be an existing FormID or a same-call sibling's editorid).</summary>
+/// <summary>One brand-new record to create off the wire — the retired 1.x batch element: the declared record_type, its
+/// editorid, optional field operations, and the optional nested parent and collection.</summary>
 public sealed record CreateOp
 {
     [JsonPropertyName("record_type"), Description("The kind of record to create: a catalog name ('Keyword', 'Spell', 'DialogTopic', 'DialogResponses', 'PlacedObject') or a 4-char signature.")]
@@ -1373,8 +1212,8 @@ public sealed record CreateOp
     public string? Grid { get; init; }
 }
 
-/// <summary>A modeled struct built from parts (wire shape of <see cref="StructSpec"/>): the concrete type, optional
-/// flat coercible sub-fields, optional positional ctor args, and nested edits applied to the built struct.</summary>
+/// <summary>A modeled struct built from parts (wire shape of <see cref="StructSpec"/>): the concrete type, flat
+/// coercible sub-fields, positional ctor args, and nested edits applied to the built struct.</summary>
 public sealed record StructInput
 {
     [SchemaRequired, JsonPropertyName("type"), Description("The concrete catalog type to build (arm type for a polymorphic Set; the collection's element type for an Add, e.g. 'LeveledItemEntry'; or a polymorphic element's concrete ARM, e.g. 'ScriptObjectProperty' into VMAD Properties).")]
@@ -1397,8 +1236,7 @@ public sealed record NestedSet
     public string? Path { get; init; }
 
     [SchemaValues(SchemaVocabulary.ComposeVerbs), JsonPropertyName("verb"), Description(WriteVerbs.InComposeRecital + ". The nested write runs through the same verb engine an op does, so the verb is chosen by the nested target's own cardinality. The three verbs the op surface has and this one does not each read an input slot a nested set has no member for — ReplaceAll's values=, Merge's entries=, CopyFrom's source record — and each is refused here by name rather than consuming nothing: set a collection's elements or a dict's entries one at a time, and copy a field from another record with " + ToolNames.Apply + "'s CopyFrom op.")]
-    // Nullable so the generator types it ["string","null"] and the enum stamp carries null — the gate reads an
-    // absent or null verb as Set (LoadOrderService.MapStruct), as ApplyOp.op and CreateFieldOp.op already do.
+    // Nullable so the generator types it ["string","null"]; the gate reads an absent or null verb as Set.
     public string? Verb { get; init; } = "Set";
 
     [JsonPropertyName("value"), Description("The value (coerced).")]
