@@ -7,14 +7,9 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>housecarl_apply — the field-write surface: the write verbs × the lane (new patch, <c>into=</c> an
-/// existing one, <c>in_place=</c> with consent, or <c>dry_run</c>) × transport, over
-/// <see cref="LoadOrderService.ApplyEdits"/>. <c>bundle=</c> × <c>assignments=</c> is the cross-record field-bundle
-/// copy; which paths form a bundle is caller data, so the tool stays generic (the second cornerstone). Every list
-/// input takes the inline array or an @file naming the same array — <c>"@&lt;absolute path&gt;"</c> on the
-/// <c>JsonElement</c> inputs, <c>["@&lt;absolute path&gt;"]</c> on <c>bundle=</c>, which is typed
-/// <c>string[]</c> — through the same strict reader, which refuses an unknown member BY NAME where the SDK binder
-/// would silently drop it.</summary>
+/// <summary>housecarl_apply — the field-write surface: the write verbs × the lane × transport, over
+/// <see cref="LoadOrderService.ApplyEdits"/>, plus the <c>bundle=</c> × <c>assignments=</c> cross-record copy, whose
+/// paths are caller data so the tool stays generic (the second cornerstone).</summary>
 [McpServerToolType]
 public static class ApplyTools
 {
@@ -71,21 +66,18 @@ public static class ApplyTools
             int max_chars = 0) => Guard.Tool(ToolNames.Apply, () =>
     {
         // ---- TRANSPORT: format --------------------------------------------------------------------------
-        // Ahead of the unconfigured-MO2 prompt: that prompt is prose, and a json caller handed it verbatim gets
-        // something unparseable, with no ok/error to branch on.
+        // Ahead of the unconfigured-MO2 prompt, which is prose a json caller could not parse.
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;   // the format value itself is unparsed — there is no known render to answer in
         if (svc.ConfigPromptOrNull() is { } prompt)
             return json ? JsonWire.RenderError(prompt, null) : prompt;
 
-        // EVERY refusal below this point answers in the caller's requested format — a json caller must never have to
-        // parse "error: …" out of a string. Epoch is null on all of them: none has consulted a build yet.
+        // EVERY refusal below answers in the requested format, with a null epoch: none has consulted a build yet.
         string Refuse(string message) => json ? JsonWire.RenderError(message, null) : "error: " + message;
 
         // ---- LANE: the three destinations are mutually exclusive, and a dropped one is named ------------
-        // A parameter is honoured or refused BY NAME, never accepted-and-ignored. Emptiness is judged ONE way for a
-        // lane string — whitespace-only is absent, and the forwarded value uses the same rule — so the exclusivity
-        // checks and what actually gets written can never disagree about whether a lane was named.
+        // A parameter is honoured or refused BY NAME, never accepted-and-ignored, and emptiness is judged ONE way for a
+        // lane string, so the exclusivity checks and the write cannot disagree about whether a lane was named.
         var patchName = string.IsNullOrWhiteSpace(patch) ? null : patch.Trim();
         bool hasPatch = patchName is not null;
         bool hasInto = !string.IsNullOrWhiteSpace(into);
@@ -108,8 +100,7 @@ public static class ApplyTools
             edits.AddRange(parsed!);
         }
 
-        // An explicitly EMPTY bundle= is a supplied parameter, not an absent one: judge presence on the ARRAY, then
-        // refuse emptiness on its own terms, or the parameter is accepted and silently dropped.
+        // An explicitly EMPTY bundle= is a supplied parameter: presence on the ARRAY, emptiness on its own terms.
         bool hasBundle = bundle is not null;
         bool hasAssignments = assignments is { } aEl && aEl.ValueKind is not JsonValueKind.Null;
         if (hasBundle && bundle!.Length == 0)
@@ -132,8 +123,8 @@ public static class ApplyTools
                           "and/or the copy zip bundle=[\"<field path>\", …] + assignments=[{target, from}, …].");
 
         // ---- Map the op shape onto the engine's inputs --------------------------------------------------
-        // A rename over the same engine inputs: op -> verb, from_source -> the source plugin; from (the source
-        // RECORD) has no engine wire member and rides alongside. Mapping problems are collected all at once.
+        // A rename over the same engine inputs: op -> verb, from_source -> the source plugin, while from (the source
+        // RECORD) rides alongside. Mapping problems are collected all at once.
         var wire = new List<BulkOp>(edits.Count);
         var fromRecords = new List<string?>(edits.Count);
         var origins = new List<string?>(edits.Count);
@@ -141,17 +132,14 @@ public static class ApplyTools
         for (int i = 0; i < edits.Count; i++)
         {
             var e = edits[i];
-            // Zip-generated edits carry the caller's OWN spelling (assignments[i] x bundle[j]); an inline op is
-            // ops[i], the member this surface publishes. The service's mapper uses it too, so no refusal names an
-            // index nobody wrote.
+            // A refusal names the caller's OWN spelling — assignments[i] x bundle[j] for a zip, ops[i] inline.
             var where = e.Origin ?? $"ops[{i}]";
             if (e.From is not null && !string.Equals(e.Op ?? "Set", "CopyFrom", StringComparison.OrdinalIgnoreCase))
             {
                 problems.Add($"{where}: from= names the SOURCE RECORD of a copy and is only valid with op='CopyFrom' (got op='{e.Op ?? "Set"}').");
                 continue;
             }
-            // The same gate on the other half of the copy source. Every consumer downstream requires the verb, so an
-            // accepted from_source= on another verb would write off the load-order winner and report success.
+            // The same gate on the other half of the copy source, which would otherwise write off the winner.
             if (e.FromSource is not null && !string.Equals(e.Op ?? "Set", "CopyFrom", StringComparison.OrdinalIgnoreCase))
             {
                 problems.Add($"{where}: from_source= names the PLUGIN a copy reads its source from and is only valid with op='CopyFrom' (got op='{e.Op ?? "Set"}').");
@@ -171,8 +159,7 @@ public static class ApplyTools
                         + string.Join("\n  - ", problems));
 
         var outcome = svc.ApplyEdits(wire, patchName ?? "Patch", into, readback, in_place, hasInPlace, acknowledge, dry_run, fromRecords, origins);
-        // The lane the CALL named — stated, not derived from the outcome's flags, which are at their defaults on a
-        // refusal and on the consent prompt.
+        // The lane the CALL named, not one derived from the outcome's flags, which default on a refusal.
         return json
             ? JsonWire.RenderPatchOutcome(outcome, max_chars, readback, hasInPlace ? "in_place" : hasInto ? "into" : "patch")
             : WriteTools.Render(outcome, max_chars, readback);
@@ -180,28 +167,22 @@ public static class ApplyTools
 
     // ---- input readers -------------------------------------------------------------------------------
 
-    /// <summary>Read <c>ops=</c>: the inline JSON array of op objects, or the <c>@file</c> spelling — a bare
-    /// <c>"@&lt;path&gt;"</c> string or the one-element <c>["@&lt;path&gt;"]</c> form, both accepted so the convention
-    /// reads the same on a typed list and a string list. Both lanes deserialize through the same strict options, so an
-    /// unknown member is refused by name inline too rather than being dropped by the SDK binder.</summary>
+    /// <summary>Read <c>ops=</c>: the inline JSON array, or either @file spelling, all strictly on one lane.</summary>
     static (ApplyOp[]? Items, string? Error) ReadOps(JsonElement el)
         => ListParams.Read<ApplyOp>(el, "ops", "{formid, field_path, op?, value?, values?, key?, entries?, compose?, composes?, from?, from_source?}");
 
-    /// <summary>Read <c>assignments=</c> — the copy zip's per-target source mapping. Same two spellings and the same
-    /// strict element contract as <see cref="ReadOps"/>.</summary>
+    /// <summary>Read <c>assignments=</c>, the copy zip's per-target source mapping, exactly as <see cref="ReadOps"/> does.</summary>
     static (Assignment[]? Items, string? Error) ReadAssignments(JsonElement el)
         => ListParams.Read<Assignment>(el, "assignments", "{target, from, from_source?}");
 
 
     // ---- the copy zip --------------------------------------------------------------------------------
 
-    /// <summary>Resolve <c>bundle=</c> to its field-path list, honoring the <c>["@&lt;path&gt;"]</c> spelling (a
-    /// newline/comma-free JSON string array on disk) so a long, reused bundle can live in a file like any other
-    /// list input.</summary>
+    /// <summary>Resolve <c>bundle=</c> to its field-path list, honoring the <c>["@&lt;path&gt;"]</c> spelling.</summary>
     static (IReadOnlyList<string>? Paths, string? Error) ReadBundlePaths(string[] bundle)
     {
-        // A MIXED inline/@file list has no meaning: the @file branch only fires at Length == 1, so an "@path" beside
-        // real paths would become a literal dotted FIELD path. Worded as ListParams.Read does, so all three agree.
+        // A MIXED inline/@file list is refused, in ListParams.Read's own words: an "@path" beside real paths would
+        // otherwise become a literal dotted FIELD path.
         int atCount = bundle.Count(b => b?.TrimStart().StartsWith('@') == true);
         if (atCount > 0 && bundle.Length != 1)
             return (null, $"bundle: \"@<path>\" reads the WHOLE list from a file, so it cannot be mixed with inline elements " +
@@ -227,12 +208,10 @@ public static class ApplyTools
         return (clean, null);
     }
 
-    /// <summary>Expand the copy zip into ops: for each assignment, ONE CopyFrom op per bundle path. A zip, never a
-    /// product — each target reads its OWN paired source record, so N targets x M paths is N*M ops over N sources.
-    /// Only pair-level shape is checked here (both halves present, and not the same record); FormID syntax, the
-    /// same-record-type gate and the per-path legality rulebook are the engine's pre-flight. Each generated op carries
-    /// the caller's own spelling as its <see cref="ApplyOp.Origin"/>, so a downstream refusal names
-    /// <c>assignments[i] x bundle[j]</c> rather than an op index that exists only after this expansion.</summary>
+    /// <summary>Expand the copy zip into ops: one CopyFrom op per assignment × bundle path, a ZIP and never a product,
+    /// so N targets × M paths is N*M ops over N sources. Only pair-level shape is checked here — FormID syntax, the
+    /// same-type gate and the per-path rulebook are the engine's pre-flight — and each op carries the caller's own
+    /// spelling as its <see cref="ApplyOp.Origin"/>.</summary>
     static (IReadOnlyList<ApplyOp>? Ops, string? Error) ExpandZip(IReadOnlyList<string> paths, JsonElement assignments)
     {
         var (pairs, err) = ReadAssignments(assignments);
@@ -266,9 +245,8 @@ public static class ApplyTools
 // ---- wire DTOs (the op + zip shapes) -------------------------------------------------------------------
 
 /// <summary>One field edit off housecarl_apply's wire — <see cref="BulkOp"/> with this surface's vocabulary:
-/// <c>verb</c> is <c>op</c> AT THE OP LEVEL only (a nested set inside <c>compose=</c> is a <see cref="NestedSet"/>
-/// and still spells <c>verb</c>), and the source plugin splits into <c>from</c> (the source RECORD) plus
-/// <c>from_source</c> (the pole it is read at).</summary>
+/// <c>verb</c> is <c>op</c> at the op level only, and the source plugin splits into <c>from</c> (the source RECORD)
+/// and <c>from_source</c> (the pole it is read at).</summary>
 public sealed record ApplyOp
 {
     [SchemaRequired, JsonPropertyName("formid"), Description("The record to edit, as 'XXXXXX:Plugin.esp'.")]
@@ -304,16 +282,14 @@ public sealed record ApplyOp
     [JsonPropertyName("from_source"), Description("op='CopyFrom' only: WHOSE version of the source record to copy — an ACTIVE plugin, or a plugin FILE on disk that isn't in the load order (a disabled old patch you want to re-assert a field from). With from= it defaults to the source record's load-order winner; without from= it is required (there is no other source to name).")]
     public string? FromSource { get; init; }
 
-    /// <summary>NOT a wire member — <see cref="JsonIgnoreAttribute"/> keeps it out of the published schema and out of
-    /// the strict reader's member set. It is how a zip-generated op remembers the caller's own spelling, so a refusal
-    /// reads "assignments[0] x bundle[1]" instead of an op index that only exists after expansion.</summary>
+    /// <summary>NOT a wire member — <see cref="JsonIgnoreAttribute"/> keeps it out of the published schema and the
+    /// strict reader's member set; it is how a zip-generated op remembers the caller's own spelling.</summary>
     [JsonIgnore]
     public string? Origin { get; init; }
 }
 
-/// <summary>One pair of the <c>assignments=</c> zip: the record being written, the record its bundle is copied FROM,
-/// and optionally the pole that source is read at. The join is a ZIP, never a product, so N targets never silently
-/// fan out to N*N copies.</summary>
+/// <summary>One pair of the <c>assignments=</c> zip: the record written, the record its bundle is copied FROM, and
+/// optionally the pole that source is read at.</summary>
 public sealed record Assignment
 {
     [SchemaRequired, JsonPropertyName("target"), Description("The record being WRITTEN, as 'XXXXXX:Plugin.esp' — the §5.2 meaning of the bare word 'target': a copy's destination record.")]
