@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-18
+updated: 2026-09-21
 covers: [src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/RenderBudget.cs, src/housecarl-mcp/SweepEmission.cs, src/housecarl-mcp/SweepDemand.cs, src/housecarl-mcp/BodyAllocation.cs, src/housecarl-mcp/BatchRender.cs, src/housecarl-mcp/TransportAccounting.cs, src/housecarl-mcp/RowProjection.cs, src/housecarl-core/CharCountedStream.cs, src/housecarl-core/JsonTextEncoder.cs]
 ---
 # The render budget: what `max_chars` counts, and who gets to spend it
@@ -121,8 +121,9 @@ sections, per-record sections, dialogue topic blocks, facegen finding rows and h
 
 ## Spilling to a file
 
-The spill dispositions themselves — `to_file=` and the `ceiling` auto-spill — are documented where they live:
-`src/housecarl-mcp/Artifacts.cs` (`SpillInfo`, `SpillState`). What a spilled `check` artifact contains is here.
+The spill dispositions themselves — `to_file=` and the `ceiling` auto-spill — are stated in
+[output-and-artifacts.md](output-and-artifacts.md), the note covering `src/housecarl-mcp/Artifacts.cs`. What a
+spilled `check` artifact contains is here.
 
 **One artifact, one row shape, a `family` column.** A merged call runs several families and they find different
 things. A file per family would leave the caller joining them, and a row shape per family would leave the manifest's
