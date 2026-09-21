@@ -4,9 +4,7 @@ covers: [src/housecarl-mcp-tests/CheckErrorsFamilyTests.cs, src/housecarl-mcp-te
 ---
 # The check families' tests: which lane a fact is driven from, and why
 
-**Class:** LIVING. Subsystem: `src/housecarl-mcp-tests/{CheckErrorsFamilyTests, CheckErrorsFixtures,
-CheckErrorsWorld, CheckErrorsWorldTests, ScriptsFamilyTests, ScriptsFixtures, EpochCheckSweepTests,
-EpochWorld, DialogueFamilyTests, DialogueWorld}.cs`.
+**Class:** LIVING. Subsystem: the files in `covers:` above.
 
 The errors, scripts and dialogue families of `housecarl_check` are asserted from **two** driving lanes, and
 which lane a given fact uses is a decision, not a convenience. This file is the home of that decision, cited

@@ -4,10 +4,7 @@ covers: [src/housecarl-core/SksePluginReader.cs, src/housecarl-core/SksePeek.cs,
 ---
 # The SKSE layer: what a DLL declares, and the static-load rule
 
-**Class:** LIVING. Subsystem: `SksePluginReader`, `SksePeek`, `SkseConfigReferenceExtractor`, `NativePairing`
-(`src/housecarl-core`); the `housecarl_skse` tool and its three family renders in `SkseTools.cs` plus the shared json
-skeleton `SkseJsonDoc.cs` (`src/housecarl-mcp`); the service lanes that assemble the data in `AssetLayers.cs`.
-Pinned by `SkseReaderProbe`, `SksePeekProbe`, `SkseConfigAuditProbe` and `NativePairingProbe`
+**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by `SkseReaderProbe`, `SksePeekProbe`, `SkseConfigAuditProbe` and `NativePairingProbe`
 (`src/housecarl-generator`), and by `SkseFamilySelectionTests`, `SkseFindingsWireShapeTests`,
 `SkseTransportTests`, `SkseTransportWireTests`, `SkseDirectoryReadTests` and `SkseVersionSourceTests`
 (`src/housecarl-mcp-tests`).

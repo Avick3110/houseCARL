@@ -4,11 +4,7 @@ covers: [src/housecarl-core/Mo2Instance.cs, src/housecarl-core/Mo2LoadOrder.cs, 
 ---
 # The MO2 instance
 
-**Class:** LIVING. Subsystem: `src/housecarl-core/Mo2Instance.cs` (one path → the load-order roots),
-`Mo2LoadOrder.cs` (the active order and the file-priority model), `QtIniEscapes.cs` (the
-QSettings value grammar both ini readers share), `Mo2ModMeta.cs` (a mod's Nexus update cache), and
-`UserConfig.cs` (the settings houseCARL persists for itself), surfaced by
-`src/housecarl-mcp/SetupTools.cs`, `StatusTools.cs` and `UpdateStatusTools.cs`. Pinned by the
+**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by the
 generator probes `mo2instance-probe` (the root derivation), `overwrite-resolve-guard` (the priority
 model), `mo2-modmeta-guard` (the `meta.ini` read), `tool-bridge` (the config file) and
 `atomic-commit-guard` (its commit), and by `Mo2IniEscapeTests`, `ProfileRewriteTests` and

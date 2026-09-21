@@ -4,7 +4,7 @@ covers: [src/housecarl-mcp/JsonWire.cs]
 ---
 # The json wire: the shape a machine-readable response is allowed to take
 
-**Class:** LIVING. Subsystem: `src/housecarl-mcp/JsonWire.cs`, the `format="json"` twin of the text `Wire` renderer.
+**Class:** LIVING. Subsystem: the files in `covers:` above.
 
 This file is the home of the json transport's own contracts — what a document may say and how it may say it. The
 budget those documents are written against is a different subject and lives in

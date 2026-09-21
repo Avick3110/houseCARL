@@ -4,9 +4,7 @@ covers: [src/housecarl-mcp/RenderCap.cs, src/housecarl-mcp/RenderBudget.cs, src/
 ---
 # The render budget: what `max_chars` counts, and who gets to spend it
 
-**Class:** LIVING. Subsystem: `src/housecarl-mcp/{RenderCap, RenderBudget, BoundedBody (SweepEmission.cs),
-SweepDemand, BodyAllocation, BatchRender, TransportAccounting, RowProjection}.cs` and
-`src/housecarl-core/{CharCountedStream, JsonTextEncoder}.cs`.
+**Class:** LIVING. Subsystem: the files in `covers:` above.
 
 Two budgets share the word, and are not the same thing: **`max_chars`**, how WIDE the response may be, and
 **the render bound** (`RenderBudget`), how LONG a call may spend rendering before it refuses up front. This

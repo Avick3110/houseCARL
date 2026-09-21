@@ -4,8 +4,7 @@ covers: [src/housecarl-core/CorpusRulebook.cs, src/housecarl-core/WriteEngine.cs
 ---
 # The corpus rulebook: what pre-flight decides, and why it can never disagree with apply
 
-**Class:** LIVING. Subsystem: `src/housecarl-core/CorpusRulebook.cs`, against `src/housecarl-core/WriteEngine.cs`
-and the generated `corpus.json`.
+**Class:** LIVING. Subsystem: the files in `covers:` above.
 
 The rulebook is the write surface's pre-flight: every write is validated against the generated schema before any
 Mutagen mutation. This file is the home of the contracts that hold it, cited from the code under ADR 0001.

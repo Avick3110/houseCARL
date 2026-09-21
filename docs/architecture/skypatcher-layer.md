@@ -4,11 +4,7 @@ covers: [src/housecarl-core/SkyPatcherParse.cs, src/housecarl-core/SkyPatcherCat
 ---
 # The SkyPatcher layer
 
-**Class:** LIVING. Subsystem: `src/housecarl-core/SkyPatcherParse.cs` (tokenizer),
-`SkyPatcherCatalog.cs` (key classification), `SkyPatcherFieldMap.cs` (op → Mutagen field),
-`SkyPatcherDiscovery.cs` (layer enumeration), `SkyPatcherOverlay.cs` (replay onto a record),
-`SkyPatcherConflicts.cs` (INI-vs-INI report), `SkyPatcherDraft.cs` (an unplaced INI folded in),
-rendered by `src/housecarl-mcp/SkyPatcherTools.cs`. Pinned by the generator probes
+**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by the generator probes
 `skypatcher-parse-guard`, `skypatcher-catalog-guard`, `skypatcher-fieldmap-guard`,
 `skypatcher-discovery-guard`, `skypatcher-overlay-guard` and `skypatcher-conflicts-guard`, and by
 `SkyPatcherLayerFilterTests`, `SkyPatcherWarningSinkTests` and `RecordsSkyPatcherDraftTests` in

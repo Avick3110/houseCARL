@@ -4,9 +4,7 @@ covers: [src/housecarl-mcp/ToolCallShim.cs, src/housecarl-mcp/Program.cs, src/ho
 ---
 # The tool-call argument shim
 
-**Class:** LIVING. Subsystem: `src/housecarl-mcp/ToolCallShim.cs`, registered from `Program.cs` via
-`WithRequestFilters` → `AddCallToolFilter`, with `src/housecarl-mcp/Guard.cs` behind it inside the tool
-bodies. Pinned by `ToolCallShimCoercionTests` and `ToolCallShimWirePathTests` in
+**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by `ToolCallShimCoercionTests` and `ToolCallShimWirePathTests` in
 `src/housecarl-mcp-tests`.
 
 The shim is a call-tool filter that runs **before** the SDK binds a call's JSON arguments to the tool

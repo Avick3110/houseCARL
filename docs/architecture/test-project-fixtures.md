@@ -4,8 +4,7 @@ covers: [src/housecarl-mcp-tests/PexWriter.cs, src/housecarl-mcp-tests/ScriptsWo
 ---
 # Test-project fixtures: the Papyrus world and the file-lock harness
 
-**Class:** LIVING. Subsystem: `src/housecarl-mcp-tests/{PexWriter,ScriptsWorld,HeldOpen}.cs`.
-Pinned by `ScriptsWorldTests` and `HeldOpenTests` in the same project.
+**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by `ScriptsWorldTests` and `HeldOpenTests` in the same project.
 
 Two pieces of machinery the test project did not have before #486 PR 1, each in its own file, plus the
 tests that prove the machinery is what it claims to be. They exist because #486 PR 2 rewrites 200 old

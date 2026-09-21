@@ -4,10 +4,7 @@ covers: [src/housecarl-core/OwnedChildUnion.cs, src/housecarl-core/OwnedChildCon
 ---
 # Owned-child content: the additive union, and one sentence source
 
-**Class:** LIVING. Subsystem: `OwnedChildUnion` and `OwnedChildContent` (`src/housecarl-core`), `ReadSentences`
-(the owned-child consts), `LoadOrderService.AnnotateOwnedChildContent` / `ResolveTreePinned`,
-`JsonWire.WriteChildUnion`, `RecordsTools.AppendChildDeclarers`, `JsonWire.WriteTreeRow`, `Artifacts.WriteTree`.
-Pinned by `RecordsOwnedChildTests` (`src/housecarl-mcp-tests`) and `OwnedChildContentProbe`
+**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by `RecordsOwnedChildTests` (`src/housecarl-mcp-tests`) and `OwnedChildContentProbe`
 (`src/housecarl-generator`).
 
 ## What a read of a child-bearing field answers

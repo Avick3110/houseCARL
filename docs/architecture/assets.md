@@ -4,10 +4,7 @@ covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/AssetSourceSele
 ---
 # The asset layer: which copy of a file the game uses
 
-**Class:** LIVING. Subsystem: `src/housecarl-core/{AssetResolver, AssetSourceSelection, OffOrderAssetSource,
-AssetGlob, AssetLinkHarvest, AssetPathHint, AssetRenameService, ArchiveDiscovery, BsaArchive, VoicePath,
-VoiceCheck}.cs`, `src/housecarl-mcp/{AssetLayers, AssetTools, AssetArtifact, BsaTools, PlaceTools,
-ModsPathAddress}.cs`. Pinned by the `asset-resolver-guard`, `asset-status-guard`, `overwrite-resolve-guard`,
+**Class:** LIVING. Subsystem: the files in `covers:` above. Pinned by the `asset-resolver-guard`, `asset-status-guard`, `overwrite-resolve-guard`,
 `snapshot-view-guard`, `place-asset-guard`, `nif-source-lane-guard`, `source-chain-guard`, `asset-prefix-hint-guard`,
 `bsa-contract-guard`, `bsa-extract-guard`, `bsa-probe`, `facegen-carry-guard` and `voice-carry-guard` probes
 (`src/housecarl-generator`) and by `AssetSelectTests`, `AssetProviderTokenTests`, `AssetStatusSetTests`,
