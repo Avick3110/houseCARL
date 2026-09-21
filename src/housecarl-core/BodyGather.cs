@@ -7,9 +7,12 @@ namespace HousecarlCore;
 /// through; contract in docs/architecture/read-engine.md.</summary>
 public sealed class BodyGather
 {
+    /// <summary>What <see cref="Body"/> answers for a pair this gather does not hold.</summary>
     public enum Absent
     {
+        /// <summary>Fetch it one at a time — the answer and the exception are the one-at-a-time path's.</summary>
         Seek,
+        /// <summary>Answer null and let the caller's own read raise whatever it raises.</summary>
         Null,
     }
 

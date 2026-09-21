@@ -43,7 +43,8 @@ public sealed partial class LoadOrderService
             providers[r] = a;
         }
 
-        // Who provides each row, winner first. Index only: no body is read to learn this.
+        // Per-row state. `declares` is one answer per wanted field per provider, placed BY NODE because the
+        // providers no longer arrive in order.
         var owning = new IReadOnlyDictionary<string, OwnedChildShape>?[n];
         var wanted = new List<string>[n];
         var declares = new bool?[n][][];

@@ -60,11 +60,13 @@ public static class ReverseWalkBatch
         var linksOf = new Dictionary<FormKey, IReadOnlySet<FormKey>?>();
         var noLink = new HashSet<FormKey>();
         using var session = pin.Resolver.OpenSession();
-        // The winner plugins the gather could not read, named once each, so a caller can act on the coverage gap.
+        // The bodies the check reads are gathered a block of candidates at a time, one enumeration per winner
+        // plugin in the block; only the block about to be judged is gathered, so a spent node budget stops it.
         Dictionary<FormKey, IMajorRecordGetter> gathered = new();
         var gatheredKeys = new HashSet<FormKey>();
-        // Candidates the body check could only read leniently: verified, but with a named gap.
+        // The winner plugins the gather could not read, named once each, so a caller can act on the coverage gap.
         var unreadableWinners = new List<string>();
+        // Candidates the body check could only read leniently: verified, but with a named gap.
         var lenientRecords = new List<string>();
         var lenientSeen = new HashSet<FormKey>();
         var unreadableSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
