@@ -6,13 +6,13 @@ covers: [src/housecarl-mcp/RecordWrites.cs, src/housecarl-mcp/WriteSentences.cs]
 
 ## What it is
 The service half of every write verb: from a call's parsed ops to a plugin on disk, and the one catalogue the
-resulting prose is rendered from. The lanes are apply, create, remove, forward, closure copy, compact, merge and
-create_plugin, each with a default new-plugin route and an in-place opt-in.
+resulting prose is rendered from. Every lane writes a new plugin by default: apply, create, remove and forward also
+take the `in_place=true` opt-in described below; closure copy, merge and create_plugin have no in-place route at all;
+and compact can overwrite its source, but under its own per-call confirm rather than the persistent handshake.
 Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write lands belongs to
 [`output-and-artifacts.md`](output-and-artifacts.md). Neither is repeated here.
 
 ## Contracts
-- A write's default destination is a NEW plugin; editing an existing plugin is the `in_place=true` opt-in.
 - `in_place=true` requires `target=`, is mutually exclusive with `into=` / `patch=`, and `target=` without
   `in_place` is refused by name rather than ignored, on apply, create, remove and forward alike.
 - An in-place `target=` is resolved to an on-disk path by plugin filename through the load order, and a name that
@@ -20,6 +20,8 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
 - Consent is a persistent first-touch handshake keyed off the resolved path, shared by the edit, create, remove and
   forward lanes, so acknowledging a plugin once covers all four. `acknowledge=true` waives the consent axis only,
   never a post-write verify.
+- Compact is outside that handshake: an in-place compaction re-confirms per call with its own overwrite list, so a
+  prior acknowledgement of that plugin never authorizes one.
 - The acknowledgement is recorded only after the write has landed. A refused call records nothing, so the prompt
   says it is shown until an in-place write LANDS rather than calling itself one-time, and its file claim is
   direction-neutral.
@@ -27,14 +29,17 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
 - An in-place write stamps `[houseCARL] editedInPlace=<ISO>` into the target mod's `meta.ini` and never
   `generated=true`, so the user's mod keeps failing the ownership gate and a later `into=` cannot overwrite it. Only
   for a mod folder under ModsDir.
-- Each lane's own pre-flights answer BEFORE the consent gate and before anything is staged: a localized target and
-  an unwritable parent folder both refuse in that lane's words, with the file untouched.
+- A localized target is refused by each lane's own pre-flight BEFORE the consent gate, in that lane's words, with the
+  file untouched. The unwritable-parent probe answers AFTER the gate and before anything is staged, so a first touch
+  of a read-only folder meets the consent prompt first.
 - Side-effect notes after a landed write — consent, the marker, a now-stale `.seq` — are best-effort; none can fail
   the write, and the engine's own note is joined first so it survives the merge.
 - One write at a time: `_writeGate` is held from resolve through commit, while argument parsing and op mapping run
   outside it, so a malformed call never queues behind a real write.
-- Every write response decided after a capture carries that build's epoch — success, refusal, dry run and consent
-  prompt alike. An outcome that consulted no build carries none.
+- Every response from the four record lanes — apply, create, remove, forward — decided after a capture carries that
+  build's epoch: success, refusal, dry run and consent prompt alike, and an outcome that consulted no build carries
+  none. Only their four outcomes hold a `Stamp`; compact, merge, copy and create_plugin capture a view but render no
+  epoch at all.
 - A write response states only what it re-read from the written FILE: the file's value, `not-checked` where the file
   could not answer, and a did-not-land verdict only off a walk that succeeded. Never the applied in-memory value.
   An opaque `bytes` leaf re-reads as a byte count with its structure NOT checked.
@@ -72,9 +77,9 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
   still refused.
 - `inplace-guard` arms LOC-A–LOC-J — the localized pre-flight answers before consent in each lane's own words, file
   untouched and no consent spent, on the real call and the dry run alike.
-- `apply-guard` arm 5 — a write render carries the epoch on both transports, on success, on a json refusal and on
-  the consent prompt; `DegradedOrderMarkerTests.TheWriteLaneCarriesTheClauseBesideItsStamp` renders a DRY RUN and
-  asserts the degraded clause that rides beside the stamp, which is that reading of the same bullet.
+- `apply-guard` arm 5 — the APPLY lane's render carries the epoch on both transports, on success, on a json refusal
+  and on the consent prompt; `DegradedOrderMarkerTests.TheWriteLaneCarriesTheClauseBesideItsStamp` renders a DRY RUN
+  and asserts the degraded clause that rides beside the stamp. The other three record lanes are unpinned for it.
 - `WriteEditLineSourceTests.ThePerEditLinePrintsTheFileValueNotTheAppliedOne`,
   `…AnOpTheFileCouldNotAnswerForIsNotCheckedRatherThanTheAppliedValue`,
   `…ARecordMissingFromTheWrittenFileIsSaidOutright` and `…AFailedWalkIsNotCheckedRatherThanAVerdict` — the W0 rule's
@@ -85,8 +90,10 @@ Pre-flight belongs to [`corpus-rulebook.md`](corpus-rulebook.md); where a write 
 
 ## Where
 - `src/housecarl-mcp/RecordWrites.cs` — the lanes: `ApplyEdits`, `CreateRecordsBatch` / `CommitCreate`,
-  `RemoveRecords`, `ForwardRecords`, `CopyClosure`, `CompactPlugin`, `MergePlugins`, `CreatePlugin`, each with its
-  `…InPlace` branch, plus the shared in-place seams (`ResolveActivePluginPath`, `InPlaceHandshakeText`,
+  `RemoveRecords`, `ForwardRecords`, `CopyClosure`, `CompactPlugin`, `MergePlugins`, `CreatePlugin`; the first four
+  carry the `…InPlace` branch (`ApplyEditsInPlace`, `CommitCreateInPlace`, `RemoveRecordsInPlace`,
+  `ForwardRecordsInPlace`), while compact overwrites inside its own lane. Plus the shared in-place seams
+  (`ResolveActivePluginPath`, `InPlaceHandshakeText`,
   `PersistInPlaceConsent`, `InPlaceParentUnwritable`, `MergeEditedInPlaceMarker`, `SeqStaleInPlaceNote`) and the wire
   mappers (`MapEdit`, `MapCreateEdit`, `MapStruct`, `MapComposes`).
 - `src/housecarl-mcp/WriteSentences.cs` — the catalogue, `WriteSentences.Twins`, and the `[MustState]` /
