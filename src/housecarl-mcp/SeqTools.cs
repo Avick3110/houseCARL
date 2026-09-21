@@ -4,12 +4,7 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>Writes the start-game-enabled-quest sequence file (<c>Data\SEQ\&lt;plugin&gt;.seq</c>) a plugin needs for
-/// its Start-Game-Enabled quests to run at all: ticking the SGE flag does nothing on its own, and without the .seq the
-/// quest and anything gated on it silently never starts. The byte format and FormID encoding are
-/// load-order-independent (see <see cref="HousecarlCore.SeqFile"/>), so the file is correct the moment it is written
-/// and travels with the mod. Both renders state that there is no epoch on this call: it consults no load-order build,
-/// so a stamp would name evidence that was never read.</summary>
+/// <summary>housecarl_write_seq — writes the <c>Data\SEQ\&lt;plugin&gt;.seq</c> a plugin's Start-Game-Enabled quests need to run at all. Its bytes are load-order-independent (<see cref="HousecarlCore.SeqFile"/>), so the call consults no load-order build and both renders say there is no epoch.</summary>
 [McpServerToolType]
 public static class SeqTools
 {
@@ -55,13 +50,7 @@ public static class SeqTools
         if (svc.ConfigPromptOrNull() is { } cfgPrompt)
             return json ? JsonWire.RenderError(cfgPrompt, null) : cfgPrompt;
 
-        // Lane exclusivity, matching the sibling write tools. out_path= supersedes patch=/into= and says so rather
-        // than silently ignoring them; patch= and into= together are two ways of naming a houseCARL folder with no
-        // way to choose, so that pair refuses.
-        //
-        // Order matters: out_path= is checked first, because running the pair check first would refuse a call that
-        // named all three over two parameters out_path='s own description promises to ignore. The compile lane
-        // resolves out_path first for the same reason.
+        // Lane exclusivity: out_path= supersedes patch=/into= saying so, the pair refuses, and out_path= is first.
         string? outputNote = null;
         if (!string.IsNullOrWhiteSpace(out_path))
         {
@@ -77,38 +66,31 @@ public static class SeqTools
 
         var o = svc.WriteSeq(source, patch, into, out_path);
         if (json) return JsonWire.RenderSeqOutcome(o, max_chars, outputNote);
-        // The ignored-lane note rides the refusal too: a lane named and ignored still needs saying when the write
-        // failed.
+        // The ignored-lane note rides the refusal too.
         if (!o.Success) return "error: " + o.Error + (outputNote is { Length: > 0 } ne ? "\n" + ne : "");
         return Render(o, max_chars, outputNote);
     });
 
     internal static string Render(SeqOutcome o, int maxChars = 0, string? outputNote = null)
     {
-        // No SGE quests is an explicit no-op: never a silent empty .seq, never a misleading "done". It carries the
-        // ignored-lane note too, so this render and the json twin say the same thing.
+        // No SGE quests is an explicit no-op: never a silent empty .seq, never a misleading "done".
         if (o.Quests.Count == 0)
             return $"no start-game-enabled quests in {o.PluginFileName}{ReadFrom(o)} — {WriteSentences.Twins.SeqNoQuests}. " +
                    "If a quest SHOULD start at game start, set its Start Game Enabled flag first, then write the .seq."
-                   // This return happens before any folder is resolved, so an unusable out_path= was never
-                   // diagnosed: "your folder is fine" and "we never checked your folder" must not read the same.
+                   // This returns before any folder is resolved, so an unusable out_path= was never diagnosed.
                    + (o.UserChoseOutput ? "\nnote: out_path= was not resolved or checked — nothing needed writing, so no destination was touched." : "")
                    + (outputNote is { Length: > 0 } n0 ? "\n" + n0 : "");
 
         var sb = new StringBuilder();
         var seqName = Path.GetFileName(o.SeqPath);
-        // "already current" is its own headline, not a "wrote" with a caveat further down: the first line is what a
-        // caller reads, and a skipped write reported as a write reads exactly like a silent failure.
+        // "already current" is its own headline: a skipped write reported as a write reads like a silent failure.
         sb.Append(o.Unchanged ? "unchanged — " : o.Replaced ? "replaced " : "wrote ").Append(seqName).Append(": ").Append(o.Quests.Count)
           .Append(o.Quests.Count == 1 ? " start-game-enabled quest" : " start-game-enabled quests")
           .Append(o.Unchanged
               ? "; " + WriteSentences.Twins.SeqUnchanged + "."
-              // "replaced" is its own word because on the out_path lane the file that was there may be the mod's own
-              // .seq and no backup is kept. The no-backup alarm is scoped to that lane: re-generating over
-              // houseCARL's own previous output is the ordinary workflow, not a loss.
+              // "replaced" is its own word, and the no-backup alarm is scoped to the out_path lane.
               : o.Replaced
-                  // Identical replaced bytes lost nothing — the only way here is a byte-identical destination whose
-                  // timestamp refresh failed — so no alarm.
+                  // Identical replaced bytes lost nothing, so no alarm.
                   ? (o.ReplacedSameBytes
                       ? "; " + WriteSentences.Twins.SeqReplacedSameBytes
                       : o.UserChoseOutput
@@ -116,17 +98,13 @@ public static class SeqTools
                           : "; " + WriteSentences.Twins.SeqReplacedOwnFolder)
                   : "")
           .Append('\n');
-        // Only the quest rows are budgeted; the path and next-step lines below stay outside it, because a truncated
-        // list still has to say where the file landed.
+        // Only the quest rows are budgeted: a truncated list still has to say where the file landed.
         int cap = WriteSentences.Cap(maxChars);
         for (int i = 0; i < o.Quests.Count; i++)
         {
             if (sb.Length >= cap)
             {
-                // Not "raise max_chars to see the rest": re-running writes the .seq again, and with no lane named for
-                // a plugin outside a houseCARL folder that means a second auto-suffixed mod folder holding a
-                // duplicate. Nothing is missing from the file, so the notice prices the re-run instead of
-                // prescribing it. The json twin's quest-row cut uses the same remedy sentence.
+                // Not "raise max_chars to see the rest": with no lane named a re-run writes a second mod folder.
                 sb.Append("  ... [truncated: ").Append(i).Append(" of ").Append(o.Quests.Count)
                   .Append(" quest(s) listed at max_chars=").Append(cap).Append("; ")
                   .Append(WriteSentences.Twins.SeqListCutRemedy).Append("]\n");
@@ -136,39 +114,31 @@ public static class SeqTools
             sb.Append("  ").Append(q.EditorId is { Length: > 0 } e ? e : "(no EditorID)")
               .Append("  →  0x").AppendFormat("{0:X8}", q.OnDiskFormId).Append('\n');
         }
-        // Which copy of the source was read: a filename can be provided by more than one layer, and the quests came
-        // from exactly one of them.
+        // Which copy of the source was read, several layers being able to provide one filename.
         if (o.ResolvedFrom is { Length: > 0 })
             sb.Append("source: ").Append(o.PluginFileName).Append(" — read from ").Append(o.ResolvedFrom)
               .Append(o.PluginPath is { Length: > 0 } p ? $" ({p})" : "").Append('\n');
         sb.Append("path: ").Append(o.SeqPath).Append('\n');
-        // Where the file landed decides the next step, so the three destinations get three different sentences. An
-        // out_path= folder is the user's own mod, so "enable this houseCARL mod" would name a mod that does not exist.
+        // Where the file landed decides the next step, so the three destinations get three different sentences.
         sb.Append(o.UserChoseOutput
             ? "the .seq is in the folder you named (out_path) — no houseCARL mod folder was created; make sure that mod is enabled in MO2 so the game reads Data\\SEQ\\."
             : o.WroteIntoPluginFolder
                 ? "the .seq is in the plugin's OWN houseCARL folder — enabling that one mod in MO2 deploys both the .esp and its .seq."
                 : "the .seq is in a houseCARL mod folder — enable it in MO2 (AND make sure the plugin itself is enabled) so the game reads Data\\SEQ\\.");
-        // A skipped write still refreshes the timestamp: a real change to the file's metadata, and what keeps
-        // validate_dialogue's mtime-based SEQ lint agreeing with this call.
+        // A skipped write still refreshes the timestamp, keeping the SEQ lint in agreement with this call.
         if (o.TimestampRefreshed)
-            // The claim is only that THIS file is now newer than the plugin. validate_dialogue lints the .seq the VFS
-            // serves, which is this file only when this folder wins the SEQ\ conflict and is enabled, so the sentence
-            // must not promise that tool's verdict.
+            // The claim is only that THIS file is now newer than the plugin, not what the VFS serves the lint.
             sb.Append('\n').Append(WriteSentences.Twins.SeqTimestampRefreshed);
-        // Never a clean "done" for a .seq the engine will not read — the quests would stay silently dead.
+        // Never a clean "done" for a .seq the engine will not read.
         if (o.DeployWarning is { Length: > 0 } dw) sb.Append('\n').Append(dw);
         if (outputNote is { Length: > 0 }) sb.Append('\n').Append(outputNote);
-        // The absent epoch is stated here as well as in the json twin's `epoch_note`: a response with no epoch line
-        // is otherwise indistinguishable from one that dropped the stamp.
+        // The absent epoch is STATED, or the response reads like one that dropped the stamp.
         sb.Append("\nno epoch on this call: ").Append(WriteSentences.Twins.SeqNoEpoch);
-        // A written .seq makes the quest start; it is no guarantee the quest or its dialogue is otherwise correct.
         sb.Append("\nnote: ").Append(WriteSentences.Twins.SeqStandingLimit);
         return sb.ToString();
     }
 
-    /// <summary>The read-from clause for the nothing-to-do render. "No SGE quests" is a claim about one specific file,
-    /// so it names which: a stale copy in a disabled folder has a different quest set.</summary>
+    /// <summary>The read-from clause for the nothing-to-do render, because "no SGE quests" is a claim about one file.</summary>
     static string ReadFrom(SeqOutcome o)
         => o.ResolvedFrom is { Length: > 0 } w ? $" (read from {w}{(o.PluginPath is { Length: > 0 } p ? $": {p}" : "")})" : "";
 }
