@@ -70,7 +70,7 @@ the config file.
 - `atrest-probe` (generator, dispatched by name, not in the `ci-all` roster) — zero handles at rest: after a build, after a read through a session, and after a create, every plugin file is renamable and the created patch deletable.
 - `snapshot-view-guard` (`ci-all`) — a view captured before a real `RefreshIfStale` still answers all-old, a view taken after it answers all-new, and the service answers one operation off one view.
 - `epoch-guard` (`ci-all`) — the fingerprint is deterministic over the world state, a content edit (newer OR older), a reorder and a set change each change it, and every index-backed lane carries the capture's epoch.
-- `freshness-capture-guard` (generator, standalone step) — the by-value stamp comparison catches a restored backup, `SetInstance` stamps its ini baseline before the read, one status line comes from one build, and a read-path refresh defers while a write holds the write gate.
+- `freshness-capture-guard` (generator) — the by-value stamp comparison catches a restored backup, `SetInstance` stamps its ini baseline before the read, one status line comes from one build, and a read-path refresh defers while a write holds the write gate.
 - `FreshnessKeyTests.AnEditThatLeavesTheMtimeAloneIsStillSeenAsStale`, `TheSharedStampSeparatesTwoFilesThatDifferOnlyInLength` and `AnUntouchedOrderIsNotReportedStale` — the last-write-plus-length stamp, and that an untouched order is not reported stale.
 - `pkcu-regression` (`ci-all`) — a plugin holding a record Mutagen cannot parse is excluded whole and every other plugin still resolves.
 - `excluded-master-guard` (`ci-all`) — one unopenable active plugin does not break every write in the order: it is skipped from the master set and named.

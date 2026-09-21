@@ -180,6 +180,10 @@ public sealed partial class LoadOrderService : IDisposable
         }
     }
 
+    /// <summary>The injected answer to "why is this plugin filename not in the active order?": the profile and the roots
+    /// are read FRESH on each call rather than captured, and the count of those reads is <see cref="AbsenceExplanations"/>,
+    /// which <c>AbsentMasterLinkTests.ResolveNamesExplainsAnAbsentMasterOncePerPluginNotOncePerDanglingLink</c> holds the
+    /// caller's per-plugin memo to. Returns null when nothing can be said, and the refusal falls back to a did-you-mean.</summary>
     string? ExplainPluginAbsence(string name)
     {
         // Snapshot the roots together under the gate so the four cannot be read across a mid-switch reassignment.
@@ -549,7 +553,6 @@ public sealed partial class LoadOrderService : IDisposable
         }
     }
 
-    /// <summary>The game dirs to search for the Creation Kit's compiler, in priority order: the load order's own, then the located real Skyrim SE install. De-duplicated, best-effort.</summary>
     // The runtime memo: a cheap mtime re-validate per call, invalidated by _gameRootsGen; lock order is _runtimeGate then _gate.
     readonly object _runtimeGate = new();
     int _gameRootsGen;
@@ -595,6 +598,7 @@ public sealed partial class LoadOrderService : IDisposable
         }
     }
 
+    /// <summary>The game dirs to search for the Creation Kit's compiler, in priority order: the load order's own, then the located real Skyrim SE install. De-duplicated, best-effort.</summary>
     public IReadOnlyList<string> CompilerGameDirHints()
     {
         var hints = new List<string>();
