@@ -35,6 +35,7 @@ the config file.
 ### Identity and freshness
 - The epoch fingerprint is derived from every plugin's filename, RESOLVED PATH and freshness stamp in priority order, plus the names of the plugins the build excluded; two builds over an unchanged order that indexed the same set fingerprint identically.
 - `EpochFormat` tags the formula, so an epoch a different formula wrote is not comparable at all — a different sentence from "your load order changed".
+- Two known approximations the epoch shares with the freshness baseline: an unstattable-but-openable file collapses to `FileStamp.Absent`, and an edit that changes neither the last-write time nor the length is invisible to both.
 - Every freshness check compares stamps by VALUE, never by wall-clock order: MO2's "Restore Backup" writes an OLDER mtime, and a same-mtime rewrite that changes length is invisible to the mtime term alone.
 - `RefreshIfStale` handles content edits to existing plugins; a changed plugin SET is a new order and the caller rebuilds.
 - Every baseline is statted BEFORE the read it baselines, so a write landing during the read shows up on the next check rather than being absorbed into the baseline.
@@ -49,9 +50,11 @@ the config file.
 
 ### The service's answers
 - The index build is lazy, so startup and `tools/list` are instant, and it is serialized on one gate because the server dispatches tool calls concurrently.
+- A refresh that lands in MO2's own profile-rewrite window keeps the snapshot already built and does NOT advance the baseline, so the next call re-checks and follows the new profile.
 - A profile change that could not be RE-READ is remembered: the asset lane keeps answering and says so in its warnings, and the record lane refuses, because the record index IS the load order.
 - A mid-write read that resolves no paths keeps the last good snapshot and does not advance the baseline, so the next call recovers once MO2 finishes writing.
 - The asset resolver is built only on an asset query, never forces the record index build, and is dropped whenever the active mod or archive SET changes.
+- A record build that lands while an asset build was KEPT across a profile change drops that asset build instead of advancing the baseline past it, so the next asset call rebuilds rather than silently serving the old answer.
 - A body the index says exists but the plugin cannot yield is a NAMED inconsistency, never a silent null; `GetRecord` answers null only for a plugin absent from the order or excluded this build.
 - A refusal naming a plugin the order does not contain carries the INJECTED explanation of why when there is one, and the did-you-mean otherwise. The resolver is built from a bare ordered path list and knows nothing of MO2, so the explanation is injected by the service.
 - `OpenOverlay` is the single overlay-open choke point, and it redirects strings lookup to the real game-Data folder only when the plugin's OWN folder carries no strings source for that plugin.
