@@ -61,8 +61,12 @@ resolver reads no profile.
 - A build holds **string sets only** — each archive's table copied out and the reader dropped — plus a lazily warmed
   per-subtree set of loose filenames. **Zero archive handles at rest:** pinned by `asset-resolver-guard`'s at-rest
   arm (rename *and* delete while the resolver lives) and, for single-entry extraction, `place-asset-guard` arm B.
-- `RefreshIfStale` re-stats the active archives and every warmed loose subtree's dirs across all roots, and swaps
-  one reference. A changed archive or mod *set* is an order change, and the service rebuilds the resolver.
+- `RefreshIfStale` re-stats the active archives and the build's **watched directories**, and swaps one reference. A
+  changed archive or mod *set* is an order change, and the service rebuilds the resolver. Warming a subtree puts one
+  directory per root under watch: the root's copy of the subtree when it is on disk, else the deepest ancestor that
+  is, since the missing name can only appear by a write to that directory. Roots with nothing there land on their own
+  root dir, which every subtree shares, so the check costs one stat per watched DIRECTORY and not one per root per
+  warmed subtree — what keeps a long session's asset calls as fast as its first.
 - `Capture()` pins one build as an `AssetView`, so a batch's hits and its `BsaFailures` cannot describe two builds.
   The view is immutable and handle-free, which is what lets the service enumerate, read and parse outside `_gate`.
 

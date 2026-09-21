@@ -53,6 +53,7 @@ made the change.
 - **`housecarl_records`, `housecarl_apply`, `housecarl_create` and `housecarl_remove` are titled for what they
   do, with no internal spec naming.** Call `housecarl_records` and read the "Used …" line: it now says
   "Read records".
+
 - **`housecarl_nexus_search`, `housecarl_nexus_mod` and `housecarl_nexus_check_updates` take `game=`, a Nexus
   domain name or game id, and default to Skyrim SE; a mod URL for any game now works as pasted.** Look up
   `https://www.nexusmods.com/baldursgate3/mods/3479`.
@@ -65,6 +66,10 @@ made the change.
   refuses `offset=` against a table in one sentence.** Run an aggregate with `limit=1` and read the row it kept.
 - **A `format="json"` response over `max_chars` now closes with `max_chars_overrun`, naming its own length and the
   cap that fits it; `housecarl_check`'s text notice is reworded to match.** Run any json call at `max_chars=100`.
+
+- **Asset calls stay as fast late in a session as they were at the start, instead of slowing down with every
+  folder asked about.** Ask about twenty different asset paths in a row: the twentieth answers as quickly as
+  the first.
 
 ## 2.0.2 — 2026-09-15
 
