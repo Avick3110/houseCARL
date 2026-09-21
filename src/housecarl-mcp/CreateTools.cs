@@ -5,11 +5,9 @@ using ModelContextProtocol.Server;
 
 namespace HousecarlMcp;
 
-/// <summary>housecarl_create — the record-authoring surface: <c>records=</c> × the lane (new patch, <c>into=</c> an
-/// existing one, or <c>in_place=</c> with consent) × transport, over
-/// <see cref="LoadOrderService.CreateRecordsBatch"/>. <c>records=</c> takes the inline array or
-/// <c>"@&lt;absolute path&gt;"</c>, both through the same strict <see cref="ListParams"/> reader, which refuses an
-/// undeclared member BY NAME at its element where the SDK binder would silently drop it.</summary>
+/// <summary>housecarl_create — the record-authoring surface: <c>records=</c> × the lane × transport, over
+/// <see cref="LoadOrderService.CreateRecordsBatch"/>; <c>records=</c> takes the inline array or the @file spelling,
+/// both through the strict <see cref="ListParams"/> reader, which refuses an undeclared member BY NAME.</summary>
 [McpServerToolType]
 public static class CreateTools
 {
@@ -53,15 +51,13 @@ public static class CreateTools
             int max_chars = 0) => Guard.Tool(ToolNames.Create, () =>
     {
         // ---- TRANSPORT: format --------------------------------------------------------------------------
-        // Resolved BEFORE the unconfigured-MO2 prompt: that prompt is prose, and handing it verbatim to a
-        // format="json" caller returns something JsonDocument.Parse throws on — no ok, no error to branch on.
+        // Resolved BEFORE the unconfigured-MO2 prompt, which is prose a json caller could not parse.
         bool json = Wire.WantsJson(format, out var ferr);
         if (ferr is not null) return ferr;   // the format value itself is unparsed — there is no known render to answer in
         if (svc.ConfigPromptOrNull() is { } prompt)
             return json ? JsonWire.RenderError(prompt, null) : prompt;
 
-        // Every refusal below answers in the caller's requested format — a json caller must never have to parse
-        // "error: …" out of a string. Epoch is null on all of them: none has consulted a build yet.
+        // EVERY refusal below answers in the requested format, with a null epoch: none has consulted a build yet.
         string Refuse(string message) => json ? JsonWire.RenderError(message, null) : "error: " + message;
 
         // ---- LANE: the three destinations are mutually exclusive, and a dropped one is named ------------
@@ -94,8 +90,7 @@ public static class CreateTools
         for (int i = 0; i < specs.Length; i++)
         {
             var s = specs[i];
-            // A null ELEMENT inside ops= is legal JSON and STJ hands it straight through. ListParams.Read makes this
-            // check only over the TOP-level list — records= here — so the nested ops must be checked by hand.
+            // A null ELEMENT inside ops= is legal JSON, and the strict reader checks the TOP-level list only.
             BulkOp[]? ops = null;
             if (s.Ops is { } opsIn)
             {
@@ -153,9 +148,8 @@ public sealed record CreateRecordSpec
     public string? Grid { get; init; }
 }
 
-/// <summary>One field op on a record being CREATED — the <see cref="ApplyOp"/> shape minus what a create cannot
-/// mean: no <c>formid</c> (the id is auto-allocated) and no copy pole (copying a field from another version needs a
-/// record that already exists). Either one is refused BY NAME by the strict reader.</summary>
+/// <summary>One field op on a record being CREATED — the <see cref="ApplyOp"/> shape minus what a create cannot mean,
+/// no <c>formid</c> and no copy pole, either of which the strict reader refuses BY NAME.</summary>
 public sealed record CreateFieldOp
 {
     [SchemaRequired, JsonPropertyName("field_path"), Description("Dotted field path on the new record, e.g. 'Name' or 'BasicStats.Damage'. Step into a list/dict element mid-path with brackets ('Effects[0].Data.Magnitude'); at the LEAF use op + key, not brackets.")]
