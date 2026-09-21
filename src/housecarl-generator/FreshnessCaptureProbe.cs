@@ -30,7 +30,11 @@ namespace HousecarlGenerator;
 ///      <see cref="WritePatchBuilder.InsidePhase1ResolveForGuard"/> after its first edit resolved, the override
 ///      plugin is rewritten and the resolver refreshed while it waits, and then it runs on — so the flip is
 ///      staged rather than timed and lands inside the loop every round. Every SUCCESSFUL patch must carry ONE
-///      build's bodies (uniform marker values), and a round that failed to stage the flip fails the arm.
+///      build's bodies (uniform marker values), and a round that failed to stage the flip, or produced no patch
+///      to judge, fails the arm. The seam is a POINT, narrower than the sweep it replaces: it fires between two
+///      edits, so it lands after the up-front body gather, never inside it. That is the loop the mixed patch came
+///      from — the gather reads ONE captured view through ONE session, so a flip during it cannot change which
+///      plugin any edit resolves to.
 ///   5  Deferral (PR #51 review note) — a concurrent read's freshness refresh used to rebuild/swap the index
 ///      UNDER an in-flight write (transiently mmap-opening every plugin INCLUDING the file the write is
 ///      serializing — the #24 "no mapped handle on the target survives the serialize" invariant, breached
@@ -262,7 +266,8 @@ internal static class FreshnessCaptureProbe
                 // against the captured view, and stays parked until the load order has been flipped and refreshed —
                 // so every round lands the flip inside Phase 1 by construction, and a runner that outruns a sleep
                 // can no longer report a covered-nothing run as a pass.
-                int mixed = 0, successes = 0, refusals = 0, staged = 0;
+                int mixed = 0, successes = 0, refusals = 0, staged = 0, unjoined = 0, faults = 0;
+                string? firstFault = null;
                 const int Rounds = 12;
                 for (int r = 0; r < Rounds; r++)
                 {
@@ -298,11 +303,22 @@ internal static class FreshnessCaptureProbe
                             WritePatchBuilder.InsidePhase1ResolveForGuard = null;
                             release.Set();                            // a throw above must never leave the write parked
                             // Join INSIDE the using, bounded: a parked write sits in release.Wait(), and disposing that
-                            // event under it throws on the write thread and leaves the task unobserved.
-                            if (wt is not null && wt.Wait(TimeSpan.FromSeconds(60))) o = wt.Result;
+                            // event under it throws on the write thread and leaves the task unobserved. A join that
+                            // times out or a write that threw is its own failure below, never a refusal.
+                            if (wt is not null)
+                            {
+                                bool joined;
+                                string? fault = null;
+                                try { joined = wt.Wait(TimeSpan.FromSeconds(60)); }
+                                catch (AggregateException ex) { joined = true; fault = ex.InnerException?.Message ?? ex.Message; }
+                                if (!joined) unjoined++;
+                                else if (fault is not null) { faults++; firstFault ??= fault; }
+                                else o = wt.Result;
+                            }
                         }
                     }
-                    if (o is not { Success: true }) { refusals++; continue; }   // an honest named refusal is fine — mixing silently is not
+                    if (o is null) continue;                          // timed out or threw — counted above, no patch to judge
+                    if (!o.Success) { refusals++; continue; }         // a named refusal is honest, but it is not a judged round
                     successes++;
                     ISkyrimModGetter? back = null;
                     HashSet<ushort> marks;
@@ -316,6 +332,13 @@ internal static class FreshnessCaptureProbe
                     if (marks.Count > 1) mixed++;
                 }
                 Check(staged == Rounds, $"every round landed the flip inside Apply's Phase-1 loop — {staged}/{Rounds} staged");
+                Check(unjoined == 0 && faults == 0,
+                      $"every round's write joined and threw nothing — {unjoined} join timeout(s), {faults} throw(s)" +
+                      (firstFault is null ? "" : $": {firstFault}"));
+                // The mixed verdict below is computed over the rounds that produced a patch, so a run where every
+                // round refused would report mixed=0 having judged nothing. Every edit here is valid, so a refusal
+                // means the arm's own setup broke, not the product.
+                Check(successes == Rounds, $"every round produced a patch to judge — {successes}/{Rounds} succeeded, {refusals} refusal(s)");
                 Check(mixed == 0,
                       $"no successful patch mixed two builds' winners — {successes} success(es), {refusals} honest refusal(s), " +
                       $"{staged}/{Rounds} flip(s) landed inside Apply, mixed={mixed}");
