@@ -3,7 +3,8 @@ namespace HousecarlCore;
 /// <summary>The quantifier a path step declares, shared by <c>where=</c> and <c>project.fields</c>.</summary>
 public enum PathFold { None, Set, Any, All, NoneOf, Count }
 
-/// <summary>The quantified step's tokenizer — the word list, once, for every surface that reads a quantifier.</summary>
+/// <summary>The quantified step's tokenizer — the word list, once, for every surface that reads a quantifier;
+/// contract in docs/architecture/read-engine.md.</summary>
 public static class PathFoldGrammar
 {
     /// <summary>Split one path segment into its bare field name, the fold its bracket key spells, and that key.</summary>

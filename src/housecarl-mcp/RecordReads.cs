@@ -7,7 +7,9 @@ namespace HousecarlMcp;
 
 public sealed partial class LoadOrderService
 {
-    /// <summary>Resolve + read one record.</summary>
+    /// <summary>Resolve + read one record: the WINNER's body by default, or a named <paramref name="plugin"/>'s
+    /// override; with <paramref name="conflictTree"/> also the ordered touching-plugin list. Every failure is a
+    /// recoverable NAMED error, never a silent empty result; contracts in docs/architecture/read-engine.md.</summary>
     public ReadOutcome ResolveRead(FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
                                    bool resolveNames = false, LinkMemo? linkMemo = null,
                                    string? containerHint = ReadEngine.DepthExpandHint,
@@ -22,7 +24,8 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>The read body, answered entirely off ONE captured view, so a freshness rebuild landing mid-read
-    /// cannot make a record's reported winner disagree with its own touching list.</summary>
+    /// cannot make a record's reported winner disagree with its own touching list; the <see cref="ViewPin"/> rule
+    /// is in docs/architecture/read-engine.md.</summary>
     ReadOutcome ResolveRead(LoadOrderResolver resolver, LoadOrderResolver.IndexView view,
                             FormKey fk, string? plugin, IReadOnlyList<string>? fields, bool conflictTree, int depth,
                             bool resolveNames = false, LinkMemo? linkMemo = null,
@@ -97,7 +100,8 @@ public sealed partial class LoadOrderService
     }
 
     /// <summary>resolve_names: annotate every field that RENDERS a form reference with its target's load-order
-    /// identity, hung on <see cref="FieldValue.Link"/> — DISPLAY-ONLY, never touching the round-trip Token.</summary>
+    /// identity, hung on <see cref="FieldValue.Link"/> — DISPLAY-ONLY, never touching the round-trip Token.
+    /// Type-agnosticism and the unresolved answer are in docs/architecture/read-engine.md.</summary>
     static RecordFields AnnotateLinks(RecordFields rf, LoadOrderResolver.IndexView view,
                                       LoadOrderResolver.OverlaySession session, LinkMemo memo)
     {
@@ -226,7 +230,11 @@ public sealed partial class LoadOrderService
         }
     }
 
-    /// <summary>Why a FormID resolved to nothing.</summary>
+    /// <summary>Why a FormID resolved to nothing, naming which of the three causes it is: the defining plugin was
+    /// excluded, it is not in the order, or it IS in the order and defines no such record. The ESL-compaction
+    /// clause is stated only where the index says that plugin is light-flagged — pinned by
+    /// <c>RuntimeFormIdTests.AMissingRecordInAnEslFlaggedPluginIsToldAboutCompaction</c> and
+    /// <c>RecordsRemedyRepairTests.AndDoesNotBlameEslCompactionOnAPluginThatIsNotEslFlagged</c>.</summary>
     static string UnresolvedFormId(LoadOrderResolver.IndexView view, FormKey fk,
                                    Dictionary<string, string>? absenceMemo = null)
     {
@@ -255,7 +263,8 @@ public sealed partial class LoadOrderService
                $"is not in the order{tail}";
     }
 
-    /// <summary>How deep the conflict diff reads each touching body.</summary>
+    /// <summary>How deep the conflict diff reads each touching body — its reach and its bound are in
+    /// docs/architecture/read-engine.md.</summary>
     internal const int ConflictDiffDepth = 16;
 
     /// <summary>A header-only summary for one record — the compact one-line-per-match view a cross-plugin scan
@@ -456,7 +465,9 @@ public sealed partial class LoadOrderService
     }
 
     // ---- batch ------------------------------------------------------------------------------------------
-
+    /// <summary>Resolve and read many records in one call: one <see cref="ReadOutcome"/> per input, in input
+    /// order, and a bad or absent formid is a per-item error that does not fail the batch. Under
+    /// <paramref name="plugin"/> every formid is read as that plugin's override, not the load-order winner.</summary>
     /// <summary>Resolve and read many records in one call.</summary>
     public IReadOnlyList<ReadOutcome> ResolveBatch(IReadOnlyList<string> formids, IReadOnlyList<string>? fields, bool conflictTree, int depth = 1,
                                                    bool resolveNames = false, string? plugin = null,
@@ -2880,7 +2891,7 @@ public sealed partial class LoadOrderService
                     if (!string.IsNullOrEmpty(editoridContains)
                         && (rec.EditorID is null || rec.EditorID.IndexOf(editoridContains, StringComparison.OrdinalIgnoreCase) < 0))
                         continue;
-                    // The same one-read verdict the in-order lanes make (#301).
+                    // The same one-read verdict the in-order lanes make.
                     bool keep = ReferenceVerdict(rec, refSet, refNone, references, multiTarget && groups is null,
                                                  out var hitTargets, out var lenientNote);
                     if (lenientNote is not null && lenientKeys.Add(fk) && lenientSamples.Count < 3) lenientSamples.Add(lenientNote);

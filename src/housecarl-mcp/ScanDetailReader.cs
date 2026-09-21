@@ -4,8 +4,9 @@ using HousecarlCore;
 
 namespace HousecarlMcp;
 
-/// <summary>The scan detail lane's row reader — the one path the four scan renders (text, json, dense, artifact) read
-/// a match's body through.</summary>
+/// <summary>The scan detail lane's row reader — the one path the four scan renders (text, json, dense, artifact)
+/// read a match's body through, on one overlay session and one <see cref="BodyPrefetch"/> chunk, checking the
+/// caller's cancellation token per ROW; contract in docs/architecture/read-engine.md.</summary>
 internal sealed class ScanDetailReader : IDisposable
 {
     readonly LoadOrderService _svc;

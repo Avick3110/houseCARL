@@ -12,7 +12,8 @@ sealed record FieldFold(string Requested, string Root, string[] Tail, PathFold F
 }
 
 /// <summary>The PROJECT half of the quantified path step: <c>[*count]</c> yields ONE number per record, <c>[*]</c>
-/// ONE row per element — the row shape the 'rows' form produces.</summary>
+/// ONE row per element — the row shape the 'rows' form produces. The tokens are <see cref="PathFoldGrammar"/>'s;
+/// contract in docs/architecture/read-engine.md.</summary>
 sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFold?[] Folds, int Depth, int CallerDepth = 1)
 {
     /// <summary>What the READ is asked for: each distinct path once, with the depth that path's own column
