@@ -1,6 +1,6 @@
 ---
-updated: 2026-09-18
-covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
+updated: 2026-09-22
+covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/AssetSourceSelection.cs, src/housecarl-core/OffOrderAssetSource.cs, src/housecarl-core/AssetGlob.cs, src/housecarl-core/AssetLinkHarvest.cs, src/housecarl-core/AssetPathHint.cs, src/housecarl-core/AssetRenameService.cs, src/housecarl-core/ArchiveDiscovery.cs, src/housecarl-core/BsaArchive.cs, src/housecarl-core/VoicePath.cs, src/housecarl-core/VoiceCheck.cs, src/housecarl-mcp/AssetLayers.cs, src/housecarl-mcp/AssetTools.cs, src/housecarl-mcp/SkseTools.cs, src/housecarl-mcp/SkyPatcherTools.cs, src/housecarl-mcp/NifTools.cs, src/housecarl-mcp/AssetArtifact.cs, src/housecarl-mcp/BsaTools.cs, src/housecarl-mcp/PlaceTools.cs, src/housecarl-mcp/ModsPathAddress.cs]
 ---
 # The asset layer: which copy of a file the game uses
 
@@ -8,7 +8,8 @@ covers: [src/housecarl-core/AssetResolver.cs, src/housecarl-core/AssetSourceSele
 `snapshot-view-guard`, `place-asset-guard`, `nif-source-lane-guard`, `source-chain-guard`, `asset-prefix-hint-guard`,
 `bsa-contract-guard`, `bsa-extract-guard`, `bsa-probe`, `facegen-carry-guard` and `voice-carry-guard` probes
 (`src/housecarl-generator`) and by `AssetSelectTests`, `AssetProviderTokenTests`, `AssetStatusSetTests`,
-`BsaPackCountTests`, `BsaPackReadBackTests`, `RawModsPathRefusalTests` (`src/housecarl-mcp-tests`).
+`BsaPackCountTests`, `BsaPackReadBackTests`, `RawModsPathRefusalTests`, `UnreadableRootNamedTests`
+(`src/housecarl-mcp-tests`).
 
 FaceGen's own contracts — the FormID→path transform, the check's classes, what a dark face is — are in
 [`docs/facegen.md`](../facegen.md), not here.
@@ -40,7 +41,8 @@ resolver reads no profile.
   `RootFailures` and sets `ReadIncomplete` too, so a root neither lane could read is said rather than silently
   omitted. Every lane that builds from an asset view carries it — `asset_status`, the three `skse` families, the
   SkyPatcher layer, the NIF batch — each rendering the root beside the archive failures, because a hedge that does not
-  name the folder leaves the modder nothing to act on. A directory that will not even stat counts: `Directory.Exists` answers "not there" for one this account
+  name the folder leaves the modder nothing to act on. A directory that will not even stat counts:
+  `Directory.Exists` answers "not there" for one this account
   cannot reach, so an absence is trusted only where a readable ancestor lists the name as missing; the ancestor stats
   and their listings are memoized for the build. **A memo never makes a failure.** Before a root is called unreadable
   the disk is asked again, uncached, so a name that has gone since the listing was cached, and a name that is a file

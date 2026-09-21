@@ -88,19 +88,23 @@ internal static class NifInspectBatchGuardProbe
         Check(o4.Length <= 700,
             "4c. explicit cut: max_chars is a ceiling — the mesh that would cross it is not written at all (#546)");
 
-        // Arm 5 — ABSENT hedged at point of use: with BOTH batch caveats present, the ABSENT result carries both
-        // per-path hedge lines; the neighboring non-ABSENT parse error is NOT hedged (the hedge is ABSENT-specific).
+        // Arm 5 — ABSENT hedged at point of use: with EVERY batch caveat present, the ABSENT result carries one
+        // per-path hedge line each; the neighboring non-ABSENT parse error is NOT hedged (the hedge is ABSENT-specific).
         var caveated = new NifInspectBatchData(
             new[] { Absent(PathA), NifInspectData.Fail(PathB, "NiflySharp refused this mesh — not a NIF.") },
-            new[] { "Broken - Textures.bsa (header refused)" }, Array.Empty<string>(),
+            new[] { "Broken - Textures.bsa (header refused)" },
+            new[] { "BlockedMod: could not read 'meshes\\hcwalk' — Access to the path is denied." },
             new[] { "Skyrim.ini not found — base archives unscanned" }, "TestProfile");
         var o5 = NifWire.Render(caveated, none, noUnknown, BigCap);
         Check(o5.Contains("the mesh could live in the unreadable archive") && o5.Contains("BSAs that weren't enumerated"),
-            "5. ABSENT hedge: both per-path hedge lines render under the ABSENT (read-failure + discovery)");
+            "5. ABSENT hedge: the archive and discovery hedge lines render under the ABSENT");
+        // The loose root's own hedge: a mod folder that would not read is the other way an ABSENT can be wrong.
+        Check(o5.Contains("the mesh could live in the folder that would not read"),
+            "5a. ABSENT hedge: the loose-root hedge line renders under the ABSENT too");
         Check(o5.IndexOf("ABSENT", StringComparison.Ordinal) < o5.IndexOf("could live in the unreadable archive", StringComparison.Ordinal),
             "5b. ABSENT hedge: the hedge sits at POINT OF USE (under the ABSENT line, not only in the top alarm)");
-        Check(Regex.Matches(o5, Regex.Escape("may be incomplete")).Count == 2,
-            "5c. ABSENT hedge: the non-ABSENT error is NOT hedged (exactly one hedged path, two hedge lines)");
+        Check(Regex.Matches(o5, Regex.Escape("may be incomplete")).Count == 3,
+            "5c. ABSENT hedge: the non-ABSENT error is NOT hedged (exactly one hedged path, three hedge lines)");
 
         // Arm 6 — no bogus notice: a batch that rendered every mesh claims no cut.
         var soloAlarmed = new NifInspectBatchData(
