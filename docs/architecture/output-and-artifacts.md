@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-18
+updated: 2026-09-21
 covers: [src/housecarl-mcp/OutputLocations.cs, src/housecarl-mcp/Artifacts.cs, src/housecarl-mcp/ResultsStore.cs, src/housecarl-core/ResultArtifact.cs, src/housecarl-core/AtomicFile.cs, src/housecarl-core/FileStamp.cs, src/housecarl-core/OrderStamp.cs, src/housecarl-core/PathArguments.cs]
 ---
 # Output locations and result artifacts: where a write lands, and the contracts that hold it
@@ -44,6 +44,11 @@ result artifact file. These are the contracts those three share, cited from the 
   server binary's folder, plus `results\`), pruned after `ResultsStore.PruneAfterDays` days. A caller-named
   `to_file=` never lands there, and one pointing into it is refused by name —
   `RecordsArtifactTests.ToFileIntoTheServersResultsDirectoryIsRefusedNamingThePruneHazard`.
+- **Two dispositions write one:** `to_file=`, because the caller asked, which renders only the manifest inline; and
+  the `ceiling` auto-spill, because the inline render hit `max_chars`, which renders the prefix it managed and claims
+  the complete result only when the file holds every match —
+  `RecordsArtifactTests.ToFileJson_TheSpilledMarkerRidesInTheDocumentWithThePathAndReason` and
+  `…AnAutoSpillAnnouncesTheCompleteResultWithItsRowCountNotTheRenderedPrefix`.
 
 ## The reservation is the file
 
