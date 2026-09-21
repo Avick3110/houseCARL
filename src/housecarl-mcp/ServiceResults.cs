@@ -235,6 +235,8 @@ public sealed record SkseInventoryData(
     int OtherFileCount,
     string? InstalledRuntime,
     IReadOnlyList<string> BsaFailures,
+    /// <summary>The loose roots this build could not walk or list, each named with the reason; empty when every root read.</summary>
+    IReadOnlyList<string> RootFailures,
     bool ReadIncomplete,
     IReadOnlyList<string> Warnings,
     string ProfileName,
@@ -280,6 +282,8 @@ public sealed record SkseConfigAuditData(
     IReadOnlyList<SkseConfigFileAudit> Files,
     int ConfigCount,
     IReadOnlyList<string> BsaFailures,
+    /// <summary>The loose roots this build could not walk or list, each named with the reason; empty when every root read.</summary>
+    IReadOnlyList<string> RootFailures,
     bool ReadIncomplete,
     IReadOnlyList<string> Warnings,
     string ProfileName);
@@ -347,6 +351,8 @@ public sealed record NativePairingAuditData(
     bool? SkseLoaderSeen,
     string? InstalledRuntime,
     IReadOnlyList<string> BsaFailures,
+    /// <summary>The loose roots this build could not walk or list, each named with the reason; empty when every root read.</summary>
+    IReadOnlyList<string> RootFailures,
     bool ReadIncomplete,
     IReadOnlyList<string> Warnings,
     string ProfileName);
@@ -359,6 +365,8 @@ public sealed record SkyPatcherLayerData(
     IReadOnlyList<HousecarlCore.SkyPatcherConflicts.SkyPatcherDuplicate> Duplicates,
     IReadOnlyList<SkyPatcherNoOpWrite> NoOps,
     IReadOnlyList<string> NoOpNotes,
+    /// <summary>The loose roots this build could not walk or list, each named with the reason; empty when every root read.</summary>
+    IReadOnlyList<string> RootFailures,
     bool ReadIncomplete,
     IReadOnlyList<string> AssetWarnings,
     string ProfileName);
@@ -404,6 +412,8 @@ public sealed record NifInspectData(
 public sealed record NifInspectBatchData(
     IReadOnlyList<NifInspectData> Results,
     IReadOnlyList<string> BsaFailures,
+    /// <summary>The loose roots this build could not walk or list, each named with the reason; empty when every root read.</summary>
+    IReadOnlyList<string> RootFailures,
     IReadOnlyList<string> Warnings,
     string ProfileName);
 

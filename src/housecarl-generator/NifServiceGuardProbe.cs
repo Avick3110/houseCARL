@@ -457,7 +457,8 @@ internal static class NifServiceGuardProbe
     {
         var provs = new List<NifProvider> { new("ModA", "loose"), new("Base.bsa", "BSA") };
         var one = new NifInspectData("meshes\\test.nif", inspect is null ? null : provs[0], provs, ambiguous, false, inspect, error);
-        return new NifInspectBatchData(new[] { one }, bsaFailures ?? Array.Empty<string>(), Array.Empty<string>(), "Default");
+        return new NifInspectBatchData(new[] { one }, bsaFailures ?? Array.Empty<string>(), Array.Empty<string>(),
+            Array.Empty<string>(), "Default");
     }
 
     /// <summary>Author a minimal SE mesh whose one shape carries a <c>BSEffectShaderProperty</c> — the block NiflySharp

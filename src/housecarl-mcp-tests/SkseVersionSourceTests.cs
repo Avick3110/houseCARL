@@ -149,7 +149,8 @@ public sealed class SkseVersionSourceTests
         var entry = new SkseFileEntry("SKSE/Plugins/spid.dll", "spid.dll", "", new[] { new SkseProvider("SPID", "loose") },
             plugin, null, ModVersion: modVersion);
         return new SkseInventoryData(new[] { entry }, Array.Empty<SkseFileEntry>(), OtherFileCount: 0,
-            InstalledRuntime: "1.6.1170.0", BsaFailures: Array.Empty<string>(), ReadIncomplete: false,
+            InstalledRuntime: "1.6.1170.0", BsaFailures: Array.Empty<string>(),
+            RootFailures: Array.Empty<string>(), ReadIncomplete: false,
             Warnings: Array.Empty<string>(), ProfileName: "Default");
     }
 

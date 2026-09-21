@@ -225,7 +225,7 @@ static class SkyPatcherWire
             if (sb.Length >= cap) break;
             sb.Append("[!] ").Append(note).Append('\n');
         }
-        AppendCaveats(sb, d.ReadIncomplete, d.AssetWarnings);
+        AppendCaveats(sb, d.ReadIncomplete, d.AssetWarnings, d.RootFailures);
         sb.Append("\n→ " + ToolNames.Records + " formids=['<FormID>'] source={\"overlay\": \"skypatcher\", \"state\": \"post\"} for one record's computed post-SkyPatcher state; filter='<folder/mod/file>' for just the type folders holding a match, each listed in full apply order with the matching files expanded to their lines.");
         return sb.ToString().TrimEnd('\n');
     }
@@ -268,14 +268,17 @@ static class SkyPatcherWire
         }
         if (shownNotes < notes)
             sb.Append("... [showing ").Append(shownNotes).Append(" of ").Append(notes).Append(" note(s); raise max_chars]\n");
-        AppendCaveats(sb, d.ReadIncomplete, d.AssetWarnings);   // always rendered, as in the filtered and unfiltered renders
+        AppendCaveats(sb, d.ReadIncomplete, d.AssetWarnings, d.RootFailures);   // always rendered, as in the filtered and unfiltered renders
         return sb.ToString().TrimEnd('\n');
     }
 
-    static void AppendCaveats(StringBuilder sb, bool readIncomplete, IReadOnlyList<string> assetWarnings)
+    static void AppendCaveats(StringBuilder sb, bool readIncomplete, IReadOnlyList<string> assetWarnings,
+                              IReadOnlyList<string> rootFailures)
     {
         if (readIncomplete)
             sb.Append("[!] a BSA or a loose mod folder failed to read this build, so an INI present only in it may be missing from this scan (Q3).\n");
         foreach (var w in assetWarnings) sb.Append("[!] ").Append(w).Append('\n');
+        // Which mod folder it was, so the hedge above names a source instead of only warning there was one.
+        foreach (var f in rootFailures) sb.Append("[!] loose root read failure: ").Append(f).Append('\n');
     }
 }

@@ -54,14 +54,16 @@ static class SkseJsonDoc
         w.WriteEndArray();
     }
 
-    /// <summary>The build-level caveats every family carries — the same three the text render writes and the accounting counts.</summary>
+    /// <summary>The build-level caveats every family carries — the same ones the text render writes and the accounting counts.</summary>
     internal static void Caveats(Utf8JsonWriter w, bool readIncomplete, IReadOnlyList<string> warnings,
-                                 IReadOnlyList<string> bsaFailures)
+                                 IReadOnlyList<string> bsaFailures, IReadOnlyList<string> rootFailures)
     {
         w.WriteStartObject("caveats");
         w.WriteBoolean("read_incomplete", readIncomplete);
         Strings(w, "warnings", warnings);
         Strings(w, "archive_read_failures", bsaFailures);
+        // The loose twin, beside the archives: a root that would not read is named, not just hedged.
+        Strings(w, "root_read_failures", rootFailures);
         w.WriteEndObject();
     }
 
@@ -75,14 +77,15 @@ static class SkseJsonDoc
     /// <summary>The chars held back from max_chars for the tail every family document closes on — the json twin of
     /// <see cref="TransportAccounting.Reserve"/>, measured by composing the widest tail so no rendering outgrows it.</summary>
     internal static int TailReserve(bool readIncomplete, IReadOnlyList<string> warnings, IReadOnlyList<string> bsaFailures,
-                                    TransportCounts widest, Action<Utf8JsonWriter>? conditional = null)
+                                    IReadOnlyList<string> rootFailures, TransportCounts widest,
+                                    Action<Utf8JsonWriter>? conditional = null)
     {
         using var ms = new CharCountedStream();
         using (var w = new Utf8JsonWriter(ms, JsonWire.WriterOptions))
         {
             w.WriteStartObject();
             conditional?.Invoke(w);
-            Caveats(w, readIncomplete, warnings, bsaFailures);
+            Caveats(w, readIncomplete, warnings, bsaFailures, rootFailures);
             TransportAccounting.WriteJson(w, widest);
             w.WriteEndObject();
         }

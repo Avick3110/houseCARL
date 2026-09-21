@@ -214,8 +214,8 @@ public sealed partial class LoadOrderService
             else
                 configs.Add(new SkseFileEntry(rel, Path.GetFileName(rel), group, providers, null, null));
         }
-        return new SkseInventoryData(dlls, configs, otherFiles, InstalledGameRuntime(), view.BsaFailures, view.ReadIncomplete,
-            warnings, profileName, activePlugins, peekFilter is { Length: > 0 });
+        return new SkseInventoryData(dlls, configs, otherFiles, InstalledGameRuntime(), view.BsaFailures, view.RootFailures,
+            view.ReadIncomplete, warnings, profileName, activePlugins, peekFilter is { Length: > 0 });
     }
 
     /// <summary>Why a loose, loader-scoped SKSE plugin DLL statically cannot load, or null; the rule and its blocker chain are in docs/architecture/skse-layer.md.</summary>
@@ -300,7 +300,7 @@ public sealed partial class LoadOrderService
             files.Add(new SkseConfigFileAudit(rel, Path.GetFileName(rel), group,
                 winner?.ProviderName, providers.Count, providers, audited, readError));
         }
-        return new SkseConfigAuditData(files, files.Count, view.BsaFailures, view.ReadIncomplete, warnings, profileName);
+        return new SkseConfigAuditData(files, files.Count, view.BsaFailures, view.RootFailures, view.ReadIncomplete, warnings, profileName);
     }
 
     /// <summary>Resolve one extracted reference into a verdict: a path-segment gate is plugin-presence only, a form token also checks the record exists. Never speculates about runtime behavior.</summary>
@@ -523,7 +523,7 @@ public sealed partial class LoadOrderService
         return new NativePairingAuditData(classes, pexPaths.Count,
             unreadable.OrderBy(u => u.RelPath, StringComparer.OrdinalIgnoreCase).ToList(),
             loaderSeen, InstalledGameRuntime(),
-            view.BsaFailures, view.ReadIncomplete, warnings, profileName);
+            view.BsaFailures, view.RootFailures, view.ReadIncomplete, warnings, profileName);
     }
 
     /// <summary>The MO2 LAYER a physical file path belongs to, as a NAME. A caller that has to say WHICH of the three
@@ -775,7 +775,7 @@ public sealed partial class LoadOrderService
                 noOpNotes.Add($"no-op scan: {msg} Lines naming a record it defines could not be resolved.");
         }
 
-        return new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes,
+        return new SkyPatcherLayerData(scan, conflicts, itms, duplicates, noOps, noOpNotes, assets.RootFailures,
             scan.ReadIncomplete || assets.ReadIncomplete, assetWarnings, profileName);
     }
 
@@ -887,7 +887,7 @@ public sealed partial class LoadOrderService
             try { results.Add(NifInspectOne(view, rel, sourceProvider)); }
             catch (Exception ex) { results.Add(NifInspectData.Fail(rel, $"unexpected error inspecting this path — {ex.GetType().Name}: {ex.Message}")); }
         }
-        return new NifInspectBatchData(results, view.BsaFailures, warnings, profileName);
+        return new NifInspectBatchData(results, view.BsaFailures, view.RootFailures, warnings, profileName);
     }
 
     /// <summary>One path's inspect against the already-captured view. Every failure is a named per-path outcome, never a throw.</summary>

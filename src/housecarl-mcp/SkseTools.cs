@@ -832,7 +832,7 @@ static class SkseInventoryWire
     }
 
     /// <summary>How many build-level caveat notes this answer carries — the accounting's <c>notes</c> count.</summary>
-    internal static int NoteCount(SkseInventoryData d) => (d.ReadIncomplete ? 1 : 0) + d.Warnings.Count + d.BsaFailures.Count;
+    internal static int NoteCount(SkseInventoryData d) => (d.ReadIncomplete ? 1 : 0) + d.Warnings.Count + d.BsaFailures.Count + d.RootFailures.Count;
 
     /// <summary>The json twin of the text render's "peek=true matched no DLL" notice — one spelling, so the reserve measures it.</summary>
     const string PeekNoDllNote = "peek=true matched no DLL at all — nothing was peeked.";
@@ -859,7 +859,7 @@ static class SkseInventoryWire
         int rendered = 0;
         int folderCount = d.Configs.Select(e => e.Group).Distinct(StringComparer.OrdinalIgnoreCase).Count();
         // The tail is paid for inside max_chars, exactly as the text render's own reserve does.
-        cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures,
+        cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures,
             TransportAccounting.Widest(total, windowed, window, notes),
             tw => { tw.WriteString("peek_note", PeekNoDllNote); tw.WriteNumber("config_folders_truncated", folderCount); }));
 
@@ -928,7 +928,7 @@ static class SkseInventoryWire
 
             if (d.PeekRequested && allDlls.Count == 0)
                 w.WriteString("peek_note", PeekNoDllNote);
-            SkseJsonDoc.Caveats(w, d.ReadIncomplete, d.Warnings, d.BsaFailures);
+            SkseJsonDoc.Caveats(w, d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures);
             TransportAccounting.WriteJson(w, TransportAccounting.Tally(total, windowed, rendered, window, notes));
         });
     }
@@ -1010,6 +1010,7 @@ static class SkseInventoryWire
             sb.Append("[!] a BSA or a loose mod folder failed to read this build, so a file present only in it may be missing from this inventory (Q3).\n");
         foreach (var w in d.Warnings) sb.Append("[!] ").Append(w).Append('\n');
         foreach (var f in d.BsaFailures) sb.Append("[!] archive read failure: ").Append(f).Append('\n');
+        foreach (var f in d.RootFailures) sb.Append("[!] loose root read failure: ").Append(f).Append('\n');
         return sb.ToString();
     }
 }
@@ -1272,7 +1273,7 @@ static class SkseConfigAuditWire
     }
 
     /// <summary>How many build-level caveat notes this answer carries — the accounting's <c>notes</c> count.</summary>
-    internal static int NoteCount(SkseConfigAuditData d) => (d.ReadIncomplete ? 1 : 0) + d.Warnings.Count + d.BsaFailures.Count;
+    internal static int NoteCount(SkseConfigAuditData d) => (d.ReadIncomplete ? 1 : 0) + d.Warnings.Count + d.BsaFailures.Count + d.RootFailures.Count;
 
     /// <summary>The json twin of <see cref="Render"/>: the same census, files, verdicts and accounting, in named fields.</summary>
     public static string RenderJson(SkseConfigAuditData d, string? filter, int cap, RowWindow window = default)
@@ -1291,7 +1292,7 @@ static class SkseConfigAuditWire
         int notes = NoteCount(d);
         int rendered = 0;
         // The caveats and accounting tail is paid for inside max_chars rather than appended past it.
-        cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures,
+        cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures,
             TransportAccounting.Widest(allFiles.Count, files.Count, window, notes)));
 
         return SkseJsonDoc.Write(SkseTools.SkseFamily.Config, filter, d.ProfileName, (w, ms) =>
@@ -1348,7 +1349,7 @@ static class SkseConfigAuditWire
             }
             w.WriteEndArray();
 
-            SkseJsonDoc.Caveats(w, d.ReadIncomplete, d.Warnings, d.BsaFailures);
+            SkseJsonDoc.Caveats(w, d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures);
             TransportAccounting.WriteJson(w, TransportAccounting.Tally(allFiles.Count, files.Count, rendered, window, notes));
         });
     }
@@ -1379,6 +1380,7 @@ static class SkseConfigAuditWire
             sb.Append("[!] a BSA or a loose mod folder failed to read this build, so a config present only in it may be missing from this audit (Q3).\n");
         foreach (var w in d.Warnings) sb.Append("[!] ").Append(w).Append('\n');
         foreach (var f in d.BsaFailures) sb.Append("[!] archive read failure: ").Append(f).Append('\n');
+        foreach (var f in d.RootFailures) sb.Append("[!] loose root read failure: ").Append(f).Append('\n');
     }
 }
 
@@ -1465,7 +1467,7 @@ static class NativePairingWire
     internal const string RowNoun = "class(es)";
 
     /// <summary>How many build-level caveat notes this answer carries — the accounting's <c>notes</c> count.</summary>
-    internal static int NoteCount(NativePairingAuditData d) => (d.ReadIncomplete ? 1 : 0) + d.Warnings.Count + d.BsaFailures.Count;
+    internal static int NoteCount(NativePairingAuditData d) => (d.ReadIncomplete ? 1 : 0) + d.Warnings.Count + d.BsaFailures.Count + d.RootFailures.Count;
 
     /// <summary>The class population split into the buckets the view reports — one function, so summary and rows cannot drift.</summary>
     readonly record struct ClassSplit(List<NativeClassEntry> Engine, List<NativeClassEntry> SkseCore,
@@ -1747,7 +1749,7 @@ static class NativePairingWire
         int notes = NoteCount(d);
         int rendered = 0;
         // The tail — the unreadable-pex cut marker, caveats, accounting — is paid for inside max_chars.
-        cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures,
+        cap = Math.Max(1, cap - SkseJsonDoc.TailReserve(d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures,
             TransportAccounting.Widest(allClasses.Count, classes.Count, window, notes),
             tw => tw.WriteNumber("unreadable_pex_truncated", d.Unreadable.Count)));
 
@@ -1838,7 +1840,7 @@ static class NativePairingWire
             // Not row-list rows, so the accounting does not count them — the cut is named here instead.
             if (unreadable < d.Unreadable.Count) w.WriteNumber("unreadable_pex_truncated", d.Unreadable.Count - unreadable);
 
-            SkseJsonDoc.Caveats(w, d.ReadIncomplete, d.Warnings, d.BsaFailures);
+            SkseJsonDoc.Caveats(w, d.ReadIncomplete, d.Warnings, d.BsaFailures, d.RootFailures);
             TransportAccounting.WriteJson(w, TransportAccounting.Tally(allClasses.Count, classes.Count, rendered, window, notes));
         });
     }
@@ -1872,5 +1874,6 @@ static class NativePairingWire
             sb.Append("[!] a BSA or a loose mod folder failed to read this build, so a script present only in it may be missing from this audit (Q3).\n");
         foreach (var w in d.Warnings) sb.Append("[!] ").Append(w).Append('\n');
         foreach (var f in d.BsaFailures) sb.Append("[!] archive read failure: ").Append(f).Append('\n');
+        foreach (var f in d.RootFailures) sb.Append("[!] loose root read failure: ").Append(f).Append('\n');
     }
 }

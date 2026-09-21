@@ -236,21 +236,21 @@ internal static class SksePeekProbe
         Console.WriteLine("\n--- I3: peek= matched nothing peekable ---");
         var bsaOnly = new SkseFileEntry("Bsa.dll", "Bsa.dll", "", [new SkseProvider("Archive.bsa", "BSA")], null, "BSA-only");
         string noPeek = SkseInventoryWire.Render(
-            new SkseInventoryData([bsaOnly], [], 0, "1.6.1170.0", [], false, [], "TestProfile", null, PeekRequested: true),
+            new SkseInventoryData([bsaOnly], [], 0, "1.6.1170.0", [], [], false, [], "TestProfile", null, PeekRequested: true),
             "Bsa", 80_000);
         Check(noPeek.Contains("not peeked"),
               "a matched-but-unpeekable DLL SAYS it wasn't peeked, on its own entry (never a silent no-op)");
         // The notice is PER-ENTRY, so a MIXED match (one peeked, one not) reports both — the all-or-nothing check this
         // replaced stayed silent whenever any hit happened to be peekable.
         string mixed = SkseInventoryWire.Render(
-            new SkseInventoryData([bsaOnly, Entry("Ok.dll", peek, Info(["kernel32.dll"]))], [], 0, "1.6.1170.0", [], false,
+            new SkseInventoryData([bsaOnly, Entry("Ok.dll", peek, Info(["kernel32.dll"]))], [], 0, "1.6.1170.0", [], [], false,
                 [], "TestProfile", null, PeekRequested: true), ".dll", 80_000);
         Check(mixed.Contains("not peeked") && mixed.Contains("── peek (what the image contains) ──"),
               "a MIXED match renders the peek AND names the entry that had no image to read");
         // No DLL matched at all ⇒ no entry exists to carry the notice, so the summary carries it.
         string noDll = SkseInventoryWire.Render(
             new SkseInventoryData([], [new SkseFileEntry("a.ini", "a.ini", "Grp", [new SkseProvider("M", "loose")], null, null)],
-                0, "1.6.1170.0", [], false, [], "TestProfile", null, PeekRequested: true), "Grp", 80_000);
+                0, "1.6.1170.0", [], [], false, [], "TestProfile", null, PeekRequested: true), "Grp", 80_000);
         Check(noDll.Contains("matched no DLL at all"), "a config-only filter with peek=true says no DLL matched");
 
         // ---- I4: the whole-layer Debug-CRT line uses the SAME injected seam as the detail view. ----
@@ -349,7 +349,7 @@ internal static class SksePeekProbe
         new(file, file, "", [new SkseProvider("TestMod", "loose")], info, null, peek);
 
     static SkseInventoryData Data(SkseFileEntry dll, IEnumerable<string>? active) =>
-        new([dll], [], 0, "1.6.1170.0", [], false, [], "TestProfile",
+        new([dll], [], 0, "1.6.1170.0", [], [], false, [], "TestProfile",
             active is null ? null : new HashSet<string>(active, StringComparer.OrdinalIgnoreCase));
 
     static string Render(SkseInventoryData d, string? filter) => SkseInventoryWire.Render(d, filter, 80_000);

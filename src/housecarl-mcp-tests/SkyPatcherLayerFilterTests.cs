@@ -23,7 +23,8 @@ public sealed class SkyPatcherLayerFilterTests
             Itms: Array.Empty<SkyPatcherConflicts.SkyPatcherItm>(),
             Duplicates: Array.Empty<SkyPatcherConflicts.SkyPatcherDuplicate>(),
             NoOps: Array.Empty<SkyPatcherNoOpWrite>(), NoOpNotes: Array.Empty<string>(),
-            ReadIncomplete: false, AssetWarnings: Array.Empty<string>(), ProfileName: "Default");
+            RootFailures: Array.Empty<string>(), ReadIncomplete: false, AssetWarnings: Array.Empty<string>(),
+            ProfileName: "Default");
 
     static SkyPatcherLayerData OneNpcFolder() =>
         Layer(new SkyPatcherDiscovery.FolderScan("npc", Catalog: null, PatchingEnabled: true,

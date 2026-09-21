@@ -97,6 +97,7 @@ public class BatchRenderCapTests
                                              "ABSENT — no active mod or BSA provides this mesh"))
             .ToList(),
         new[] { "Broken - Textures.bsa (header refused)" },
+        new[] { "BlockedMod: could not read 'meshes\\batch' — Access to the path is denied." },
         Array.Empty<string>(),
         "TestProfile");
 
@@ -122,7 +123,7 @@ public class BatchRenderCapTests
             Enumerable.Range(0, strings).Select(i => $"string table entry number {i:D3}").ToList());
         return new NifInspectBatchData(
             new[] { new NifInspectData("meshes/full/mesh.nif", prov, new[] { prov }, false, false, mesh, null) },
-            Array.Empty<string>(), Array.Empty<string>(), "TestProfile");
+            Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), "TestProfile");
     }
 
     static PlaceOutcome Placed(int n) => new(
@@ -323,7 +324,7 @@ public class BatchRenderCapTests
             Array.Empty<HousecarlCore.NifNode>(), Array.Empty<string>());
         return new NifInspectBatchData(
             new[] { new NifInspectData("meshes/foreign/mesh.nif", prov, new[] { prov }, false, false, mesh, null) },
-            Array.Empty<string>(), Array.Empty<string>(), "TestProfile");
+            Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), "TestProfile");
     }
 
     /// <summary>A mesh whose sections cut still reaches the page: the marker a cut section writes is charged with the
