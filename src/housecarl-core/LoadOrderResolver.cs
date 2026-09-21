@@ -76,7 +76,8 @@ public sealed class LoadOrderResolver : IDisposable
     /// <summary>The real game-Data folder this order resolved, for callers OUTSIDE the session that open a plugin through <see cref="OpenOverlay"/> and need the same strings resolution.</summary>
     internal string? DataDir => _dataDir;
 
-    /// <summary>Optional: why a plugin filename this index does NOT contain isn't in the active order, or null. Injected, because the resolver knows nothing of MO2; see the note.</summary>
+    /// <summary>Optional: why a plugin filename this index does NOT contain isn't in the active order, or null. Injected, because the resolver knows nothing of MO2;
+    /// contract in docs/architecture/load-order-resolver.md.</summary>
     readonly Func<string, string?>? _explainAbsence;
 
     /// <summary>One index build's ENTIRE output, swapped in as a SINGLE reference write so no reader sees a torn view; contract in docs/architecture/load-order-resolver.md.</summary>
@@ -180,7 +181,8 @@ public sealed class LoadOrderResolver : IDisposable
 
     // ---- Per-call overlay session: open on demand, dispose at call end, zero handles at rest ----
 
-    /// <summary>Open a per-call overlay session: one call opens every plugin it needs THROUGH it, each at most once, and disposes them all at return; contract in the note.</summary>
+    /// <summary>Open a per-call overlay session: one call opens every plugin it needs THROUGH it, each at most once, and disposes them all at return;
+    /// contract in docs/architecture/load-order-resolver.md.</summary>
     public OverlaySession OpenSession() => new(this);
 
     /// <summary>How many overlay OPENS sessions have paid in this process — what a test can hold a session-reuse claim to.</summary>
@@ -209,7 +211,8 @@ public sealed class LoadOrderResolver : IDisposable
         /// <summary>Open EVERY plugin (priority order) as the FULL known-master set the multi-master write path hands the serializer; a write into an active patch uses <see cref="AllMastersExcept"/>.</summary>
         public IReadOnlyList<ISkyrimModGetter> AllMasters()
         {
-            // Excluded plugins that OPEN are retained on purpose; the unopenable ones cannot be, and are skipped and named. Contract in the note.
+            // Excluded plugins that OPEN are retained on purpose; the unopenable ones cannot be, and are skipped and named.
+            // Contract in docs/architecture/load-order-resolver.md.
             var arr = new List<ISkyrimModGetter>(_r._paths.Length);
             for (int i = 0; i < _r._paths.Length; i++)
             {
@@ -219,7 +222,8 @@ public sealed class LoadOrderResolver : IDisposable
             return arr;
         }
 
-        /// <summary>Like <see cref="AllMasters"/>, but never OPENS an overlay on <paramref name="excludeFileName"/> — the file about to be serialized, which a mapped handle would lock. See the note.</summary>
+        /// <summary>Like <see cref="AllMasters"/>, but never OPENS an overlay on <paramref name="excludeFileName"/> — the file about to be serialized, which a mapped handle would lock;
+        /// contract in docs/architecture/load-order-resolver.md.</summary>
         public IReadOnlyList<ISkyrimModGetter> AllMastersExcept(string excludeFileName)
         {
             var list = new List<ISkyrimModGetter>(_r._paths.Length);
@@ -237,7 +241,8 @@ public sealed class LoadOrderResolver : IDisposable
         {
             if (!_r._snap.Unopenable.Contains(i)) return false;
             var name = _r._names[i];
-            // A BASELINE master must never be skipped: that would silently emit a plugin missing a mandatory master, so this refuses. Contract in the note.
+            // A BASELINE master must never be skipped: that would silently emit a plugin missing a mandatory master, so this refuses.
+            // Contract in docs/architecture/load-order-resolver.md.
             if (Array.Exists(WriteEngine.BaselineMasters, bm => string.Equals(bm.FileName.String, name, StringComparison.OrdinalIgnoreCase)))
                 throw new UnopenableBaselineMasterException(name);
             _skippedUnopenable.Add(name);
