@@ -77,6 +77,7 @@ No note of its own yet. [`architecture/corpus-rulebook.md`](architecture/corpus-
 | Note | What it covers |
 |---|---|
 | [`architecture/records-owned-child-declarers.md`](architecture/records-owned-child-declarers.md) | A child-bearing field is declared per plugin and assembled by the game from every declarer, so a read states two quantities: the field's own value, and the additive union beside it. |
+| [`architecture/select-and-walk.md`](architecture/select-and-walk.md) | How a selection is made and followed: the `where=` value predicate, the `*parent` containment step and its index, the closure walk and its ordered source universe, the whole-order reverse index, the deep comparison behind the tree form, and the localized-strings classifier. |
 
 ### Tests and fixtures
 
