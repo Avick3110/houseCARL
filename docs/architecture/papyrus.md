@@ -64,10 +64,16 @@ are [`mo2-instance.md`](mo2-instance.md), and the declaration side of a native P
 ### The class hierarchy
 - The child→parent map is a SOFT dependency: a missing or partial map only leaves explicit casts in
   the output, which is correct and compilable, so every loader degrades to fewer edges, never a
-  throw, and every degraded mode is named in the result rather than left silent.
+  throw.
 - Three layered sources — the committed vanilla baseline beside the exe, loose `.psc`
   `ScriptName X extends Y` headers across the mods tree, and the input `.pex` plus its siblings.
   First edge per child wins.
+- TWO of the three degraded modes are named in the result: a missing or unreadable baseline
+  (`ClassParents.BaselineNote`) and a mods-tree scan that read nothing (`TopUpMissing`), both rendered
+  by `DecompileTools.HierarchySentence`. The `.pex` top-up degrades SILENTLY — an unreadable sibling
+  `.pex` is swallowed per file in `PapyrusClassParents.AddFromPexFolder` and again at the call site,
+  and nothing in the result says so, so the classes it declared keep their explicit casts with no note
+  saying why.
 
 ### The decompiler
 - The codegen patterns it reads, each confirmed against compiler output: jump offsets are relative to
