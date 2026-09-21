@@ -198,11 +198,11 @@ public sealed class NexusClient
     internal static NexusUpdateStatus ComputeStatus(int modId, bool found, string? name, string? header, string? installed,
         IReadOnlyList<int> fileIds, List<(int fileId, string name, string? version, string category, long date)> files)
     {
-        // NotFound only when the mod is absent from the search AND returned no files; pinned by `nexus-file-check-guard`.
+        // NotFound only when absent from the search AND no files came back (pinned by `nexus-file-check-guard`); the upstream assumption is in docs/architecture/nexus.md.
         if (!found && files.Count == 0)
             return new NexusUpdateStatus(modId, false, name, header, installed, UpdateVerdict.NotFound, NoFiles, null, 0, 0);
 
-        // Newest live MAIN and how many there are — context for LatestOnly and the no-file-id fallback.
+        // Newest live MAIN and how many there are; more than one is a multi-main page a version compare cannot resolve.
         string? mainVer = null; long mainDate = 0; int mainCount = 0;
         foreach (var f in files)
             if (f.category == "MAIN") { mainCount++; if (mainVer is null || f.date > mainDate) { mainVer = f.version ?? "?"; mainDate = f.date; } }
@@ -396,7 +396,7 @@ public sealed record NexusSearchHit(
 /// <summary>A search response: the true total match count plus the (capped) page of hits.</summary>
 public sealed record NexusSearchResult(int TotalCount, IReadOnlyList<NexusSearchHit> Hits);
 
-/// <summary>One Nexus requirement of a mod; with ExternalRequirement set, ModId and Url point off-site.</summary>
+/// <summary>One Nexus requirement: ModId is the required mod's numeric Nexus id, or off-site when ExternalRequirement is set.</summary>
 public sealed record NexusRequirement(string ModId, string ModName, string? Url, string? Notes, bool ExternalRequirement);
 
 /// <summary>One uploaded file of a mod; Date is unix seconds and ChangelogText is empty when the author wrote none.</summary>
@@ -413,7 +413,7 @@ public sealed record NexusModDetail(
 /// <summary>Whether one installed file is still live on its mod's page, retired, withdrawn, or missing from it.</summary>
 public enum FileVerdict { Live, Superseded, Missing, Removed }
 
-/// <summary>One installed file's currency, plus the newest same-name live file when it is retired or withdrawn.</summary>
+/// <summary>One installed file's currency; Name/Version/Category are null only for Missing, per docs/architecture/nexus.md.</summary>
 public sealed record InstalledFileCurrency(
     int FileId, string? Name, string? Version, string? Category, FileVerdict Verdict,
     string? NewestSameName, string? NewestSameVersion, long NewestSameDate);
@@ -421,7 +421,7 @@ public sealed record InstalledFileCurrency(
 /// <summary>The verdict for one mod in a batch file-level update check; what each one means is in docs/architecture/nexus.md.</summary>
 public enum UpdateVerdict { Current, Outdated, FileGone, NoFileId, LatestOnly, NotFound, Error, FileRemoved }
 
-/// <summary>One mod's batch update-check result: its verdict, its per-installed-file detail, and newest-live-MAIN context.</summary>
+/// <summary>One mod's batch update-check result; LiveMainCount above one is a multi-main page, pinned by `nexus-file-check-guard`.</summary>
 public sealed record NexusUpdateStatus(
     int ModId, bool Found, string? Name, string? HeaderVersion, string? Installed, UpdateVerdict Verdict,
     IReadOnlyList<InstalledFileCurrency> Files, string? LatestMainVersion, long LatestMainDate, int LiveMainCount,
