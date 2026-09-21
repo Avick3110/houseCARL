@@ -11,15 +11,13 @@ sealed record FieldFold(string Requested, string Root, string[] Tail, PathFold F
     internal int TailLevels => Tail.Sum(s => 1 + s.Count(c => c == '['));
 }
 
-/// <summary>The PROJECT half of the quantified path step: <c>[*count]</c> yields ONE number per record,
-/// <c>[*]</c> ONE row per element — the row shape the 'rows' form produces, which is why the fold itself is
-/// <see cref="RowProjection"/>'s. The tokens are read through <see cref="PathFoldGrammar"/>, the same tokenizer
-/// <c>where=</c> parses with, and each surface refuses the other's folds by name.</summary>
+/// <summary>The PROJECT half of the quantified path step: <c>[*count]</c> yields ONE number per record, <c>[*]</c>
+/// ONE row per element — the row shape the 'rows' form produces, which is why the fold itself is <see
+/// cref="RowProjection"/>'s.</summary>
 sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFold?[] Folds, int Depth, int CallerDepth = 1)
 {
-    /// <summary>What the READ is asked for: each distinct path once, with the depth that path's own column needs.
-    /// Distinct because ReadFields does not de-duplicate targets and spends ONE expansion budget across them;
-    /// per-depth because the token raises the depth only for the paths that need it.</summary>
+    /// <summary>What the READ is asked for: each distinct path once, with the depth that path's own column
+    /// needs.</summary>
     internal (string[] Paths, int[] Depths) Read()
     {
         var at = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -61,8 +59,7 @@ sealed record FoldPlan(IReadOnlyList<string> Requested, string[] Paths, FieldFol
         Folds.Where(f => f is { Fold: PathFold.Set }).Select(f => f!.Root).Distinct(StringComparer.Ordinal).ToList();
 
     /// <summary>One record's lines, grouped per REQUESTED path and in the caller's own order, because the columnar
-    /// render needs to know which column varies per element. <paramref name="Carried"/> is what the read said that
-    /// no column claims — the expansion-truncation note above all, which must survive the fold.</summary>
+    /// render needs to know which column varies per element.</summary>
     internal (IReadOnlyList<FieldValue>[]? Columns, IReadOnlyList<FieldValue> Carried, string? Error) Columns(RecordFields rec)
     {
         var setRoots = SetRoots.OrderByDescending(r => r.Length).ToList();

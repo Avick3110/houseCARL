@@ -7,19 +7,15 @@ using Mutagen.Bethesda.Skyrim;
 
 namespace HousecarlCore;
 
-/// <summary>One field read off a record: a round-trippable <see cref="Token"/> when <see cref="HasValue"/> is
-/// true, else a <see cref="Note"/> saying why there is no value. <see cref="Display"/> and <see cref="Link"/>
-/// are DISPLAY-ONLY; <see cref="Present"/>, <see cref="Count"/>, <see cref="Readable"/>, <see cref="Cells"/>,
-/// <see cref="NoteRef"/> and <see cref="Bytes"/> are carried structurally so a consumer never parses a note's
-/// prose; contract in docs/architecture/read-engine.md.</summary>
+/// <summary>One field read off a record: a round-trippable <see cref="Token"/> when <see cref="HasValue"/> is true,
+/// else a <see cref="Note"/> saying why there is no value.</summary>
 public sealed record FieldValue(string Path, bool HasValue, string? Token, string? Note, string? Display = null, ResolvedRef? Link = null,
                                 bool Present = true, int? Count = null, bool Readable = true,
                                 IReadOnlyList<FieldValue>? Cells = null, string? NoteRef = null, int? Bytes = null,
                                 ushort? BytesFormVersion = null);
 
-/// <summary>The resolved identity of a form reference, behind housecarl_resolve and the resolve_names annotation.
-/// <see cref="Resolved"/> false means the FormKey is valid but not in the active order, and <see cref="Error"/>
-/// carries which of the three causes it is.</summary>
+/// <summary>The resolved identity of a form reference, behind housecarl_resolve and the resolve_names
+/// annotation.</summary>
 public sealed record ResolvedRef(
     string Token, bool Resolved, string? Type = null, string? EditorId = null,
     string? Name = null, string? Winner = null, string? Error = null);
@@ -32,9 +28,8 @@ public sealed record RecordFields(string Type, string FormKey, string? EditorId,
 /// walk. Contracts and pins in docs/architecture/read-engine.md.</summary>
 public static class ReadEngine
 {
-    /// <summary>The outcome of reading one leaf: a round-trippable <see cref="Token"/>, else the
-    /// <see cref="Note"/> saying why there is none. <see cref="Flags"/> is additive metadata for a
-    /// <c>[Flags]</c> enum leaf, so <c>where=</c> can bit-test; the token is unchanged.</summary>
+    /// <summary>The outcome of reading one leaf: a round-trippable <see cref="Token"/>, else the <see cref="Note"/>
+    /// saying why there is none.</summary>
     internal readonly record struct LeafRead(bool HasValue, string Token, string? Note, FlagBits? Flags = null, int? ContainerCount = null,
                                              bool Present = true, bool Readable = true, int? ByteLength = null)
     {
@@ -57,8 +52,7 @@ public static class ReadEngine
     /// <summary>The bit-test view of a <c>[Flags]</c> enum leaf — the bit pattern plus the enum type.</summary>
     internal readonly record struct FlagBits(ulong Bits, Type EnumType);
 
-    /// <summary>A modeled leaf that exists but holds no value. Public because a render must tell an ABSENT optional
-    /// from every other no-value leaf without matching prose.</summary>
+    /// <summary>A modeled leaf that exists but holds no value.</summary>
     public const string AbsentNote = "(absent)";
 
     /// <summary>A FormLink carrying no target: a NON-nullable link holding FormID zero, or a NULLABLE link whose
@@ -69,8 +63,7 @@ public static class ReadEngine
     /// first" marker, told apart from an ABSENT nullable link by <c>FormKeyNullable</c>.</summary>
     internal const string PresentNullLinkNote = "(null link, subrecord present)";
 
-    /// <summary>A present <c>TranslatedString</c> whose <c>.String</c> resolves to null. A no-value NOTE, never a
-    /// blank token a value predicate would count as a non-match.</summary>
+    /// <summary>A present <c>TranslatedString</c> whose <c>.String</c> resolves to null.</summary>
     internal const string UnresolvedStringNote = "(unresolved localized string)";
 
     // `read` MODE — resolve a record in one plugin and emit its fields; with no --path, a one-level dump.
@@ -112,8 +105,7 @@ public static class ReadEngine
         return 0;
     }
 
-    /// <summary>The depth-1 container hint. It names <c>depth=2</c>, so a surface that refuses depth passes its
-    /// own <c>containerHint</c>, or null to suppress it.</summary>
+    /// <summary>The depth-1 container hint.</summary>
     public const string DepthExpandHint = " — pass depth=2 to expand";
 
     /// <summary>Read a located record's fields as round-trippable tokens — the structured entry the MCP server
@@ -263,8 +255,7 @@ public static class ReadEngine
         catch (Exception ex) { return LeafRead.Unreadable(UnreadableNote(Reason(ex))); }
     }
 
-    /// <summary>The FormKeys on a record's <c>Keywords</c> list — the ONE keyword walk. An ABSENT (null) list
-    /// honestly reads as EMPTY; null is reserved for "no such property / not a formlink list".</summary>
+    /// <summary>The FormKeys on a record's <c>Keywords</c> list — the ONE keyword walk.</summary>
     public static IReadOnlyList<FormKey>? KeywordKeys(object record)
     {
         var p = WriteEngine.ResolveProperty(record.GetType(), "Keywords");
@@ -285,8 +276,7 @@ public static class ReadEngine
         return keys;
     }
 
-    /// <summary>Collect every FormKey linked UNDER one field path — the <c>-&gt;</c> link-step's left side.
-    /// Answers (null, note) when the path reaches no link-bearing value; a present-but-empty list answers EMPTY.</summary>
+    /// <summary>Collect every FormKey linked UNDER one field path — the <c>-&gt;</c> link-step's left side.</summary>
     public static (List<FormKey>? Links, string? Note) CollectLinksAt(object record, string[] path)
     {
         try
@@ -579,8 +569,6 @@ public static class ReadEngine
         else
         {
                 // substruct — open its modeled (Loqui-filtered) fields by reflection.
-                // GATE — the expansion boundary is the modeled corpus (cornerstone): a value reaching here that
-                // is NOT modeled is .NET plumbing, and a naive recurse walks the whole assembly's metadata.
             if (!IsModeledContent(val.GetType())) return;
             foreach (var fname in ReflectedFieldNames(val.GetType()))
             {
@@ -878,8 +866,7 @@ public static class ReadEngine
             bool nullable = WriteEngine.ClosedInterface(val.GetType(), typeof(IFormLinkNullableGetter<>)) is not null;
             return LeafRead.None(nullable && fl.FormKeyNullable is not null ? PresentNullLinkNote : NullLinkNote);
         }
-        // TranslatedString — the resolved .String. A NULL .String is an UNRESOLVED localized string, surfaced LOUD
-        // as no-value, so it must stay ahead of TryEmitValueType.
+        // TranslatedString — the resolved .String.
         if (val.GetType().FullName == "Mutagen.Bethesda.Strings.TranslatedString")
         {
             var s = ReflectString(val, "String");
@@ -948,8 +935,7 @@ public static class ReadEngine
     {
         if (!leaf.HasValue || leaf.Flags is not { } fb) return null;
         // Peel the NAMEABLE bits the way .NET's [Flags].ToString() does: greedily apply each named member that is
-        // FULLY contained, largest first. ORing every member's bits into one mask would call a bit that exists
-        // only inside a combo nameable.
+        // FULLY contained, largest first.
         var members = new List<ulong>();
         foreach (var member in Enum.GetValues(fb.EnumType))
             if (TryEnumBits(member, fb.EnumType, out var mb) && mb != 0) members.Add(mb);
@@ -1163,8 +1149,7 @@ public static class ReadEngine
         return null;
     }
 
-    /// <summary>A short, non-round-trippable description of a container leaf. The <c>item(s)</c>/<c>pair(s)</c>
-    /// marker is LOAD-BEARING — <c>FieldsDiff</c> splits numeric-keyed dicts out of positional comparison on it.</summary>
+    /// <summary>A short, non-round-trippable description of a container leaf.</summary>
     static string SummariseContainer(object val, bool isDict = false) => SummariseContainer(val, isDict, out _);
 
     /// <summary>Overload that also yields the element <paramref name="count"/>: a number for a list/dict, null for a substruct.</summary>
