@@ -1,3 +1,4 @@
+using System.Net;
 using HousecarlMcp;
 
 namespace HousecarlGenerator;
@@ -91,9 +92,77 @@ internal static class NexusGameProbe
         Check(updates.Contains("not found on baldursgate3", StringComparison.Ordinal),
               "a not-found row names the game checked, not Skyrim SE");
 
+        // WHAT GOES ON THE WIRE — the requested game's id, not the Skyrim SE constant. A stub handler answers every
+        // request, so this reaches the query text without a network.
+        var stub = new StubHandler(_ => "{\"data\":{}}");
+        var client = new NexusClient(new HttpClient(stub));
+
+        client.SearchAsync("party", null, "endorsements", 5, bg3, default).GetAwaiter().GetResult();
+        Check(stub.Bodies.Count == 1 && stub.Bodies[0].Contains("3474", StringComparison.Ordinal)
+              && !stub.Bodies[0].Contains("1704", StringComparison.Ordinal),
+              "search sends the requested game's id (3474), not 1704");
+
+        stub.Bodies.Clear();
+        client.GetModAsync(3479, bg3, default).GetAwaiter().GetResult();
+        Check(stub.Bodies.Count == 1 && stub.Bodies[0].Contains("3474", StringComparison.Ordinal)
+              && !stub.Bodies[0].Contains("1704", StringComparison.Ordinal),
+              "mod lookup sends the requested game's id (3474), not 1704");
+
+        stub.Bodies.Clear();
+        client.CheckUpdatesAsync(new[] { (3479, (string?)null, (IReadOnlyList<int>)new[] { 11 }) }, bg3, default)
+              .GetAwaiter().GetResult();
+        Check(stub.Bodies.Count == 1 && stub.Bodies[0].Contains("3474", StringComparison.Ordinal)
+              && !stub.Bodies[0].Contains("1704", StringComparison.Ordinal),
+              "the update check sends the requested game's id (3474) in both its filter and its file aliases");
+
+        stub.Bodies.Clear();
+        client.SearchAsync("party", null, "endorsements", 5, NexusClient.SkyrimSe, default).GetAwaiter().GetResult();
+        Check(stub.Bodies.Count == 1 && stub.Bodies[0].Contains("1704", StringComparison.Ordinal),
+              "the default game still sends 1704");
+
+        // RESOLVING AN UNMAPPED GAME — one graph call, and what Nexus does not know is refused naming what was asked.
+        var okStub = new StubHandler(_ => "{\"data\":{\"game\":{\"id\":100,\"domainName\":\"morrowind\"}}}");
+        var okClient = new NexusClient(new HttpClient(okStub));
+        var (rok, rerror, rgame) = okClient.ResolveGameAsync("morrowind", default).GetAwaiter().GetResult();
+        Check(rok && rgame is { Id: 100, Domain: "morrowind" } && rerror is null,
+              "an unmapped domain resolves through the graph to its id and domain");
+        Check(okStub.Bodies.Count == 1 && okStub.Bodies[0].Contains("domainName", StringComparison.Ordinal),
+              "resolving by domain asks game(domainName:) once");
+        okStub.Bodies.Clear();
+        okClient.ResolveGameAsync("morrowind", default).GetAwaiter().GetResult();
+        Check(okStub.Bodies.Count == 0, "a domain already resolved is not asked again");
+
+        var missStub = new StubHandler(_ =>
+            "{\"errors\":[{\"message\":\"Game not found. Could not find Game nosuchgame\"}],\"data\":{\"game\":null}}");
+        var (mok, merror, mgame) = new NexusClient(new HttpClient(missStub))
+            .ResolveGameAsync("nosuchgame", default).GetAwaiter().GetResult();
+        Check(!mok && mgame is null && merror is not null && merror.Contains("nosuchgame", StringComparison.Ordinal),
+              "a game Nexus does not know is refused, naming what was asked");
+
+        var downStub = new StubHandler(_ => throw new HttpRequestException("no route to host"));
+        var (dok, derror, _) = new NexusClient(new HttpClient(downStub))
+            .ResolveGameAsync("nosuchgame", default).GetAwaiter().GetResult();
+        Check(!dok && derror is not null && derror.Contains("couldn't reach Nexus Mods", StringComparison.Ordinal),
+              "an unreachable Nexus is reported as itself, not as an unknown game");
+
         Console.WriteLine(fail == 0
-            ? "[nexus-game] PASS - game= mapping, mod URL parse and rendered game hold."
+            ? "[nexus-game] PASS - game= mapping, mod URL parse, wire game id and rendered game hold."
             : $"[nexus-game] FAIL ({fail})");
         return fail;
+    }
+
+    /// <summary>A stub transport: it answers every request from a function of the request body and records what was sent.</summary>
+    sealed class StubHandler : HttpMessageHandler
+    {
+        readonly Func<string, string> _reply;
+        public StubHandler(Func<string, string> reply) => _reply = reply;
+        public List<string> Bodies { get; } = new();
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct);
+            Bodies.Add(body);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(_reply(body)) };
+        }
     }
 }
