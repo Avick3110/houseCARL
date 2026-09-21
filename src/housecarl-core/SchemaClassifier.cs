@@ -74,7 +74,8 @@ public static class SchemaClassifier
     public static bool IsStructElement(FieldSchema f, Corpus corpus) =>
         ClassifyElement(f, corpus) == ElementKind.Struct;
 
-    /// <summary>True iff a SINGULAR leaf holds an OWNED CHILD RECORD rather than a link to one; keyed on the TypeRef's Kind across both singular ownership cardinalities.</summary>
+    /// <summary>True iff a SINGULAR leaf holds an OWNED CHILD RECORD rather than a link to one; keyed on the TypeRef's Kind across both singular ownership cardinalities.
+    /// <para>The polymorphic arm is LATENT: no field in the Skyrim model catalogs as a singular record polymorphic base today, and it stays because a later Mutagen bump would otherwise land it as a live defect.</para></summary>
     public static bool IsOwnedChildRecord(FieldSchema f, Corpus corpus)
     {
         if (f.Cardinality is not ("substruct" or "polymorphic") || f.TypeRef is not { } tr) return false;
@@ -83,7 +84,9 @@ public static class SchemaClassifier
             || (kind == "polymorphic-base" && PolyBaseElementKind(tr, corpus) == ElementKind.Record);
     }
 
-    /// <summary>True iff a scalar SUBSTRUCT leaf can be Set by composing its whole value FROM PARTS — the leaf twin of <see cref="IsStructElement"/>, keyed on the leaf's own TypeRef.</summary>
+    /// <summary>True iff a scalar SUBSTRUCT leaf can be Set by composing its whole value FROM PARTS — the leaf twin of <see cref="IsStructElement"/>, keyed on the leaf's own TypeRef.
+    /// <para>It does NOT predict two refusals, both decidable only from the live instance the corpus cannot model: an owned-child-record leaf whose copy carries no child, and a compose the caller gave nothing to.
+    /// Both surface as an <c>ExpectedApplyRejectionException</c>, pre-serialize and all-or-nothing, so the write is never accepted then thrown mid-write.</para></summary>
     public static bool IsComposableSubstructLeaf(FieldSchema f, Corpus corpus)
     {
         if (f.Cardinality != "substruct" || f.TypeRef is not { } tr) return false;

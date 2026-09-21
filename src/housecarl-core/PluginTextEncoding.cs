@@ -24,7 +24,8 @@ public enum PluginTextLane
     Legacy,
 }
 
-/// <summary>The text encoding every plugin read and write uses, one home so the read and write sides cannot disagree; a file has ONE encoding and the decision is per file, never per string.</summary>
+/// <summary>The text encoding every plugin read and write uses, one home so the read and write sides cannot disagree; a file has ONE encoding and the decision is per file, never per string.
+/// <para>The one miss, and it is not guarded: reading, a Windows-1252 string whose bytes also happen to be valid UTF-8 is read as UTF-8, because the bytes are genuinely ambiguous and a guard would have to guess.</para></summary>
 public static class PluginTextEncoding
 {
     /// <summary>UTF-8 that throws on invalid bytes, so it is never the one that silently substitutes.</summary>
@@ -100,7 +101,8 @@ public static class PluginTextEncoding
     /// <summary>Whether an in-place rewrite of that file goes out as UTF-8 — the lane its own read resolved to.</summary>
     public static bool InPlaceIsUtf8(string targetPath) => LaneOf(targetPath) == PluginTextLane.Utf8;
 
-    /// <summary>The encodings a NEW file embeds: UTF-8 if any plugin contributing to it resolved as UTF-8, the language default otherwise, with a strict encoder and a whole-file second pass behind it.</summary>
+    /// <summary>The encodings a NEW file embeds: UTF-8 if any plugin contributing to it resolved as UTF-8, the language default otherwise, with a strict encoder and a whole-file second pass behind it.
+    /// <para>The bound: a lane that REMAPS its records into the output's own ModKey — a merge — has no provenance left in the FormKeys and answers from the donors' master lists and the output name alone.</para></summary>
     public static EncodingBundle WriteNew(IModGetter mod) => NewFileIsUtf8(mod) ? Utf8Bundle : LegacyBundle;
 
     /// <summary>Whether a new file's contributing plugins put it in the UTF-8 lane before a single string is written — the provenance half of <see cref="WriteNew"/>.</summary>

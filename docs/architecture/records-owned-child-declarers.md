@@ -130,6 +130,11 @@ limit the current model approaches. One case needs stating because Mutagen makes
 containment enumeration Mutagen cannot route yields an EMPTY sequence rather than throwing, so an empty typed
 walk over a container that holds records at all is read as a MISS, not as a negative.
 
+`DeclaresChild` reads a BODY, and reading a body is not free — the resolver fetches one by enumerating a whole
+overlay — so a caller asking it of every plugin touching a record pays per plugin. Only the lane that has already
+fetched those bodies (the conflict tree) asks it; the default read answers the cheaper question the index alone
+can settle.
+
 ## Two shapes
 
 A COLLECTION field (`Persistent`, `Temporary`, `Responses`, `SubCells`) is assembled additively, so its line

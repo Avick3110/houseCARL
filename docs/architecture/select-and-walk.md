@@ -21,12 +21,42 @@ context walk, and the localized language set is Mutagen's `Language` enum.
 - A filterable path is exactly a readable path: the predicate pulls each candidate's value through
   `ReadEngine.ReadLeaf`, and the comparison vocabulary is the token forms that walk emits — enum
   name, invariant numeric round-trip, `True`/`False`, `XXXXXX:Plugin.esp`.
+- The operators: `=` and `!=` compare across that whole token vocabulary; `>` `>=` `<` `<=` are
+  numeric-only; `contains` and `startswith` are case-insensitive substring and prefix; `has`,
+  `has_any` and `has_none` are BITWISE set-tests over a `[Flags]` enum or plain integer leaf — every
+  bit of the operand set, at least one set, none set — which `=` (exact value) and the range ops
+  cannot express, and whose operand is a bit value or a flag name; `exists` and `missing` take no
+  operand; `in` and `not in` take a list. A leading `not` negates a string operator only.
+- `editorid` reads the record's EditorID off the early EDID subrecord, never a reflection walk, so it
+  answers on a record whose deep body Mutagen cannot parse. `winner` is the PROVENANCE term — which
+  plugin wins the record, not its content — evaluated through the scan's bound resolution, so naming
+  it forces winner resolution over the whole scanned scope.
+- A membership list separates on commas and newlines ONLY, never a bare space, because a plugin
+  filename can legally contain one; brackets and quotes are stripped per token, so a pasted JSON
+  array parses as written. `@<absolute path>` reads a list FILE, and when that file is a result
+  ARTIFACT its identity column IS the list and carries an epoch obligation the consuming scan checks
+  against its own captured build, refusing loud on a mismatch and naming both epochs.
 - A predicate never returns a silently wrong answer: every candidate that produced no value is
   accounted per cause (no such field, list hop, non-list quantified step, no containing record,
   container, read fault, unresolved link target, genuinely unset), and a numeric operator on a
   non-numeric field is a named `FatalError` on the first value-bearing candidate.
 - The value operators take scalar-leaf paths only. `exists`/`missing` are the exception that matches
   a carried substruct or non-empty list; `in`/`not in` on `formid` test identity and read no body.
+- `exists`/`missing` read a PRESENT subrecord carrying FormID zero as PRESENT rather than absent, so
+  `missing:PreviousDialog` never matches a head-marked INFO (#697). An empty modeled list or dict is
+  absent; a carried substruct is present; a no-such-field or a read fault matches neither operator.
+- The accounting is loud or soft by ratio. No readable value on ANY candidate is a LOUD line saying
+  the zero is not a confirmed nothing-matches; no value on MORE THAN HALF of them is a soft note; and
+  a read FAULT on any candidate is said whatever the ratio, because those records could not be judged
+  at all and passing them off as non-matches is the silently degraded answer.
+- A predicate set whose every term is header-only — `editorid`, `winner`, `formid` membership, or a
+  side led by a `*parent` hop — must still see DELETED records. A deleted record has no live body for
+  a content filter, but its EditorID, its winner resolution and its containing record are real facts,
+  which is what keeps a patch-deleted placed reference in the results of
+  `where=["*parent.EditorID = SomeCell"]`, the crash-log lookup that step exists for.
+- The near-miss hint fires only on a zero-row scan whose predicate set is nothing but one exact,
+  un-negated `editorid =` term read on the candidate itself. With a second term ANDed in the zero has
+  another candidate cause, so the hint would assert one it has not established.
 - An operand or list entry that mixes the two FormID notations is refused at parse; a bare runtime
   FormID is resolved through the call's own FormID door, so it compares as the record it addresses.
 - A leading `not` flips a string operator's verdict only where that verdict is DEFINITE, so a
@@ -56,10 +86,11 @@ context walk, and the localized language set is Mutagen's `Language` enum.
   is a re-convergence and is deduped. A refusal carries nothing usable rather than a partial copy.
 - The reverse index is lazy, partitioned per plugin and keyed on (path, mtime) beside the order-wide
   epoch, generational so a read is never torn, and plugin-atomic so a half-read plugin leaves no
-  partial edges. It answers in CANDIDATES; the scan that follows still judges the body the caller
-  means. A plugin the walk could not read makes the positive question SHORT and the orphan sweep
-  OVER-inclusive, and both readings are stated. Its measured build cost and held size are in
+  partial edges. Its measured build cost and held size are in
   `dev/projects/tool-surface-2.0/SPEC.md` §3.2 and its 2026-09-05 amendment.
+- It answers in CANDIDATES; the scan that follows still judges the body the caller means. A plugin
+  the walk could not read makes the positive question SHORT and the orphan sweep OVER-inclusive, and
+  the accounting states whichever reading the asking lane needs.
 - A transitive reverse walk spends its node budget BEFORE a candidate is verified, so a spent budget
   stops the body reads as well as the reach and a raised budget on a retry sees the same graph; the
   hop the cut landed on is marked rather than reading as a hop that reached nothing.
@@ -68,6 +99,11 @@ context walk, and the localized language set is Mutagen's `Language` enum.
   brackets are semantic keys and compare by exact path. A CAP suppresses one-sided deltas and the
   agreed count record-wide; an UNREADABLE leaf suppresses only that path and the list element
   comparison it sits in. An empty delta list with `Complete` false must never render as identical.
+- The agreed count counts only exact-path VALUE leaves read on BOTH sides — never a container
+  summary, never a side's absent or null-link sentinel, because an absent field is not an agreement.
+  Per-field presence is reliable only for nullable fields, whose absence the read engine spells, so a
+  non-nullable scalar equalling the winner counts as agreement while the render never claims the
+  contributor CARRIES it as a distinct subrecord.
 - The localized classifier supplies WORDS, never the in-place outcome, which is the same for every
   shape. Its shapes are `NotLocalized`, `Unreadable` (the header was never read), `LooseComplete`,
   `LoosePartial` (a missing kind would be materialised holding empty values), `LooseWithGameDataDuplicate`,
@@ -81,12 +117,24 @@ context walk, and the localized language set is Mutagen's `Language` enum.
 ## Pinned by
 
 - `WhereGrammarTests` — the operator, operand and pseudo-path refusals at parse.
-- `WhereQuantifierTests` — the quantified step's folds and its refusals.
+- `WhereQuantifierTests` — the quantified step's folds and its refusals, and its `has` / `has_any` /
+  `has_none` block pins the bitwise set-test bullet including the zero-mask refusal.
+- `PresentNullLinkRenderTests.PresenceSweepsTellTheTwoShapesApart` — the #697 bullet: a head-marked
+  INFO answers `exists` and only a plain one answers `missing`.
+- `RecordsContainmentTests.ADeletedPlacedReferenceIsStillFilteredByTheCellThatHoldsIt` — the
+  header-only-set-still-sees-deleted-records bullet, with a body-reading predicate dropping it beside.
+- `ValuePredicateProbe` test 10b (`src/housecarl-generator`) — the loud-versus-soft accounting bullet:
+  a path wrong for more than half a mixed scan gets "had no value on", not the loud line.
+- `RecordsArtifactTests` — `formid in @<artifact>` re-entry, its epoch check, and
+  `APlainAtFileListStillEntersWithNoManifestAndNoEpochClaim` for the plain list file beside it.
 - `WhereContainmentTests` / `RecordsContainmentTests` — the `*parent` step and its no-verdict rollups.
 - `WhereContainmentCostTests` — `ParentBodiesHeld` / `ParentBodyHighWater` / `ParentBodyFetches`, the
   #720 invariant that no containing record outlives the candidate that read it.
 - `WhereAccountingCauseTests` — the per-cause accounting sentences.
-- `WhereNearMissTests` — `ExactEditorId` and the near-miss hint's sole-term rule.
+- `WhereNearMissTests.ASecondPredicateGetsNoSentence_TheZeroHasAnotherCandidateCause` and
+  `AContainsTermGetsNoSentence_TheHintIsForTheExactSpellingOnly` — the near-miss hint's sole-term
+  rule. They assert the rendered sentence, so they pin that bullet and not `ExactEditorId` itself,
+  which no test names.
 - `ValuePredicateProbe` (`src/housecarl-generator`) — the by-construction extraction over the corpus.
 - `ClosureWalkProbe` / `SourceChainProbe` — the walk's caps, cycles and refusals, and the chain's
   first-hit-wins, fault-stops and miss-names-every-arm rules.

@@ -81,7 +81,7 @@ public sealed class FieldPredicateSet
 
     static int Hops(Predicate p) => p.ParentHops + p.LinkParentHops;
 
-    /// <summary>Whether any predicate reads the candidate record's own body content; false when every term is header-only.</summary>
+    /// <summary>Whether any predicate reads the candidate record's own body content; false when every term is header-only, which is what keeps DELETED records in a header-only scan; contract in docs/architecture/select-and-walk.md.</summary>
     public bool NeedsLiveBody => _predicates.Any(p => p.LinkPath is not null
         ? p.LinkParentHops == 0                                        // the link's LEFT path is read on the candidate
         : p.ParentHops == 0 && p.Pseudo == PseudoPath.None);           // the own path's leaf walk is read on the candidate

@@ -45,7 +45,9 @@ public static class FormIdRange
     /// <summary>Does this object ID sit ABOVE the light-master (ESL) window ceiling? True for a record in a light-flagged plugin that was never compacted.</summary>
     public static bool AboveEslWindow(uint objectId) => objectId > EslWindowCeiling;
 
-    /// <summary>Strip a runtime or config-token FormID to the record's LOCAL object ID relative to its named plugin — the low 12 bits for a light-prefixed token, the low 24 otherwise. Matches DSD's own parser.</summary>
+    /// <summary>Strip a runtime or config-token FormID to the record's LOCAL object ID relative to its named plugin — the low 12 bits for a light-prefixed token, the low 24 otherwise.
+    /// <para>Matches DSD's own parser for every shape DSD emits, with ONE divergence: a bare six-hex token carrying a light index but no <c>0xFE</c> prefix (<c>800123</c>) is masked to <c>0x123</c> by DSD's
+    /// named-plugin light flag and kept as <c>0x800123</c> by this token-prefix rule. DSD never emits that shape, so it can only arise from a hand-authored config.</para></summary>
     public static uint LocalObjectId(uint runtimeFormId) =>
         (runtimeFormId & IndexByteMask) == LightMasterIndexPrefix
             ? runtimeFormId & LightObjectIdMask       // FExxxYYY light runtime FormID → the 12-bit local id (YYY)

@@ -299,7 +299,7 @@ public static class ReverseSelection
     /// <summary>The fewest a block covers however little budget is left, so a drop-heavy tail cannot fall back to a gather per candidate.</summary>
     const int MinPrepareBlock = 256;
 
-    /// <summary>The transitive reverse walk: who references the seeds, then who references those, hop after hop; the budget, verify and prepare contracts are in docs/architecture/select-and-walk.md.</summary>
+    /// <summary>The transitive reverse walk: who references the seeds, then who references those, hop after hop; the budget and verify contracts are in docs/architecture/select-and-walk.md, and <paramref name="prepare"/>'s gathering rule is on the two block constants above.</summary>
     public static IReadOnlyList<Hop> Transitive(ReverseReferenceIndex index, IReadOnlyList<FormKey> seeds,
                                                 int depth, int maxNodes,
                                                 Func<FormKey, IReadOnlySet<FormKey>, bool>? verify, out bool capped,
