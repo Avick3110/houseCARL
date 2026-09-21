@@ -584,9 +584,6 @@ public static class WriteTools
         if (plugins.Count > 25) sb.Append("  ! … (+").Append(plugins.Count - 25).Append(" more)\n");
     }
 
-    // FormID-keyed assets carried WITH the renumber — shared by compact and merge, reported rather than silent, and
-    // inPlace is always false for merge, which has no in-place lane.
-
     /// <summary>Where the merged plugin has to load, from the positions, masters and dependents the merge computed (#718).</summary>
     static void AppendPlacement(StringBuilder sb, WritePatchBuilder.MergeOutcome o)
     {
@@ -625,6 +622,8 @@ public static class WriteTools
               : ".\n");
     }
 
+    // FormID-keyed assets carried WITH the renumber — shared by compact and merge, reported rather than silent, and
+    // inPlace is always false for merge, which has no in-place lane.
     static void AppendFacegenCarry(StringBuilder sb, AssetRenameOutcome? outcome, bool inPlace)
     {
         if (outcome is not { } ar) return;

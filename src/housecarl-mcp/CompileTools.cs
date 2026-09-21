@@ -216,7 +216,7 @@ public static class CompileTools
         return Directory.Exists(vanilla) ? vanilla : null;
     }
 
-    /// <summary>Assemble the import-directory list, whose ORDER is semantics; docs/architecture/papyrus.md, pinned by <c>import-order-guard</c>.</summary>
+    /// <summary>Assemble the import-directory list, whose ORDER is semantics; the order is in docs/architecture/papyrus.md, pinned by <c>import-order-guard</c>.</summary>
     public static List<string> BuildImports(string scriptDir, string compilerExe, string? import_dirs,
                                             IReadOnlyList<string>? autoDirs = null, string? resolvedVanilla = null)
     {
@@ -235,7 +235,7 @@ public static class CompileTools
         return imports.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    /// <summary>Label each surviving dir of <see cref="BuildImports"/> off the FINAL list: own folder, vanilla, a discovered mod, then the caller.</summary>
+    /// <summary>Label each surviving dir of <see cref="BuildImports"/> off the FINAL list: own folder, vanilla, a caller dir, then a discovered mod.</summary>
     internal static ImportPlan PlanImports(
         string targetScript, string scriptDir, string compilerExe, IReadOnlyList<string> callerExtras,
         IReadOnlyList<PapyrusSourceRoot> autoRoots, bool autoEnabled, string? importSetName, string? warning,
