@@ -24,8 +24,9 @@ public sealed record ResolvedRef(
 public sealed record RecordFields(string Type, string FormKey, string? EditorId, IReadOnlyList<FieldValue> Fields);
 
 /// <summary>The reflection-driven READ surface, symmetric partner to <see cref="WriteEngine"/>: a record's modeled
-/// field OUT to a token that is the faithful inverse of Coerce, per PLUGIN, navigating the write engine's own
-/// walk. Contracts and pins in docs/architecture/read-engine.md.</summary>
+/// field OUT to a token that is the faithful inverse of Coerce, per PLUGIN. Navigation is the write engine's own
+/// walk, but the read never materialises an absent optional substruct — reading must not mutate. Contracts and
+/// pins in docs/architecture/read-engine.md.</summary>
 public static class ReadEngine
 {
     /// <summary>The outcome of reading one leaf: a round-trippable <see cref="Token"/>, else the <see cref="Note"/>
@@ -105,7 +106,8 @@ public static class ReadEngine
         return 0;
     }
 
-    /// <summary>The depth-1 container hint.</summary>
+    /// <summary>The depth-1 container hint. It names <c>depth=2</c>, so a surface WITHOUT a depth= parameter
+    /// passes its own redirect as <c>containerHint</c>, or null to suppress it.</summary>
     public const string DepthExpandHint = " — pass depth=2 to expand";
 
     /// <summary>Read a located record's fields as round-trippable tokens — the structured entry the MCP server
@@ -224,7 +226,7 @@ public static class ReadEngine
     static string Reason(Exception ex) => (ex as TargetInvocationException)?.InnerException?.Message ?? ex.Message;
 
     /// <summary>Read one leaf path off a located record and return its token, or a sentinel — the write engine's
-    /// path walk, READ-ONLY and per-leaf fault isolated.</summary>
+    /// path walk, READ-ONLY: an absent optional substruct is surfaced, never materialised.</summary>
     internal static LeafRead ReadLeaf(object record, string[] path)
     {
         try
@@ -276,7 +278,9 @@ public static class ReadEngine
         return keys;
     }
 
-    /// <summary>Collect every FormKey linked UNDER one field path — the <c>-&gt;</c> link-step's left side.</summary>
+    /// <summary>Collect every FormKey linked UNDER one field path — the <c>-&gt;</c> link-step's left side.
+    /// A present-but-empty field answers an EMPTY list; null means the path is not link-bearing, and its note
+    /// reuses the leaf-read vocabulary so callers classify it like a leaf miss.</summary>
     public static (List<FormKey>? Links, string? Note) CollectLinksAt(object record, string[] path)
     {
         try

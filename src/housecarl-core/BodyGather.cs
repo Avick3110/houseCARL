@@ -85,7 +85,8 @@ public sealed class BodyGather
     }
 
     /// <summary>One plugin's walk, guarded: every declared key into <paramref name="sink"/> in one enumeration,
-    /// answering the fault that stopped it or null.</summary>
+    /// answering the fault that stopped it or null. Out-of-memory and cancellation are rethrown — neither is this
+    /// plugin's fault. Public for the tree fold alone, which settles its wanted set at walk time.</summary>
     public static PluginUnreadableException? WalkOnce(
         LoadOrderResolver.IndexView view, LoadOrderResolver.OverlaySession session, string plugin,
         IReadOnlyCollection<FormKey> keys, IReadOnlyList<Type>? getterTypes,
