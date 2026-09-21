@@ -22,7 +22,7 @@ the config file.
 - The order is INJECTED: override counts, depths and containment are order-independent, and winner identity is only as correct as the path list handed to `Build`.
 - One build is one immutable `IndexSnapshot`, swapped in as a single volatile reference write, so a reader outside the service's gate can never see a new index beside old overriders.
 - A logical operation captures that snapshot ONCE (`Capture`) and answers every question off the captured view, so no one response mixes two adjacent builds.
-- After the FIRST build the winner index is trimmed and the heap settled once, in the constructor; a `RefreshIfStale` re-index does not repay it, because there the old snapshot is still live and would be copied. Measured in #728, landed in #802.
+- Every build trims the winner index (`BuildIndex`); the heap is settled once, in the constructor after the FIRST build only, because on a `RefreshIfStale` re-index the old snapshot is still live and would be copied. Measured in #728, landed in #802.
 
 ### Exclusion
 - A plugin that will not OPEN, or that holds a record Mutagen cannot PARSE, is excluded whole-plugin and the reason is surfaced (`LoadFailures`, `ExcludedPlugins`), never skipped silently.
@@ -55,7 +55,7 @@ the config file.
 - A mid-write read that resolves no paths keeps the last good snapshot and does not advance the baseline, so the next call recovers once MO2 finishes writing.
 - The asset resolver is built only on an asset query, never forces the record index build, and is dropped whenever the active mod or archive SET changes.
 - A record build that lands while an asset build was KEPT across a profile change drops that asset build instead of advancing the baseline past it, so the next asset call rebuilds rather than silently serving the old answer.
-- A body the index says exists but the plugin cannot yield is a NAMED inconsistency, never a silent null; `GetRecord` answers null only for a plugin absent from the order or excluded this build.
+- A body the index says exists but the plugin cannot yield is a NAMED inconsistency, never a silent null (`FetchRecord`); `GetRecord` answers null for a plugin absent from the order, excluded this build, or in the order but not defining the FormKey — a caller that must tell those apart asks `ContainsPlugin` too.
 - A refusal naming a plugin the order does not contain carries the INJECTED explanation of why when there is one, and the did-you-mean otherwise. The resolver is built from a bare ordered path list and knows nothing of MO2, so the explanation is injected by the service.
 - `OpenOverlay` is the single overlay-open choke point, and it redirects strings lookup to the real game-Data folder only when the plugin's OWN folder carries no strings source for that plugin.
 - Light and master-block are separate per-plugin facts read off the same open header: an esp-fe is light in the FormID space and a regular plugin in the order.
