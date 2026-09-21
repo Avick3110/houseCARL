@@ -283,7 +283,7 @@ public static class SkseConfigAuditProbe
                Array.Empty<SkseProvider>(), refs, null);
 
     static SkseConfigAuditData MkData(params SkseConfigFileAudit[] files)
-        => new(files, files.Length, Array.Empty<string>(), false, Array.Empty<string>(), "TestProfile");
+        => new(files, files.Length, Array.Empty<string>(), Array.Empty<string>(), false, Array.Empty<string>(), "TestProfile");
 
     /// <summary>MANUAL real-data harness (the tier-B LIVE GATE): run the WHOLE audit against a live MO2 instance and print
     /// exactly what housecarl_skse findings='config' would return, plus a timing line — the empirical re-check Aaron drives (the

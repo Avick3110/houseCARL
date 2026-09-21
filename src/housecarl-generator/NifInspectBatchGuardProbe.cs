@@ -71,7 +71,7 @@ internal static class NifInspectBatchGuardProbe
         // Arm 3 — batch alarms once, before the per-mesh blocks.
         var alarmed = new NifInspectBatchData(
             new[] { Ok(PathA, "ShapeA"), Ok(PathB, "ShapeB"), Ok(PathC, "ShapeC") },
-            new[] { "Broken - Textures.bsa (header refused)" }, Array.Empty<string>(), "TestProfile");
+            new[] { "Broken - Textures.bsa (header refused)" }, Array.Empty<string>(), Array.Empty<string>(), "TestProfile");
         var o3 = NifWire.Render(alarmed, none, noUnknown, BigCap);
         Check(Regex.Matches(o3, Regex.Escape("could NOT be read")).Count == 1,
             "3. batch alarms: the BSA read-failure alarm renders exactly once for a 3-mesh batch");
@@ -92,7 +92,8 @@ internal static class NifInspectBatchGuardProbe
         // per-path hedge lines; the neighboring non-ABSENT parse error is NOT hedged (the hedge is ABSENT-specific).
         var caveated = new NifInspectBatchData(
             new[] { Absent(PathA), NifInspectData.Fail(PathB, "NiflySharp refused this mesh — not a NIF.") },
-            new[] { "Broken - Textures.bsa (header refused)" }, new[] { "Skyrim.ini not found — base archives unscanned" }, "TestProfile");
+            new[] { "Broken - Textures.bsa (header refused)" }, Array.Empty<string>(),
+            new[] { "Skyrim.ini not found — base archives unscanned" }, "TestProfile");
         var o5 = NifWire.Render(caveated, none, noUnknown, BigCap);
         Check(o5.Contains("the mesh could live in the unreadable archive") && o5.Contains("BSAs that weren't enumerated"),
             "5. ABSENT hedge: both per-path hedge lines render under the ABSENT (read-failure + discovery)");
@@ -104,7 +105,7 @@ internal static class NifInspectBatchGuardProbe
         // Arm 6 — no bogus notice: a batch that rendered every mesh claims no cut.
         var soloAlarmed = new NifInspectBatchData(
             new[] { Ok(PathA, "ShapeA") },
-            new[] { "Broken - Textures.bsa (header refused)" }, Array.Empty<string>(), "TestProfile");
+            new[] { "Broken - Textures.bsa (header refused)" }, Array.Empty<string>(), Array.Empty<string>(), "TestProfile");
         var o6 = NifWire.Render(soloAlarmed, none, noUnknown, BigCap);
         Check(o6.Contains("read from:") && o6.Contains(PathA) && !o6.Contains("mesh(es) omitted"),
             "6. no bogus omitted notice when every mesh rendered");
@@ -116,7 +117,7 @@ internal static class NifInspectBatchGuardProbe
 
     /// <summary>A batch with no batch-level alarms.</summary>
     static NifInspectBatchData Batch(IReadOnlyList<NifInspectData> results)
-        => new(results, Array.Empty<string>(), Array.Empty<string>(), "TestProfile");
+        => new(results, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), "TestProfile");
 
     /// <summary>A clean per-path result: one loose provider, a minimal 1-shape SE mesh named
     /// <paramref name="shapePrefix"/>0 (via the shared NifServiceGuardProbe.FakeInspect builder).</summary>

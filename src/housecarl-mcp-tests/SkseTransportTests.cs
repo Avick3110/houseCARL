@@ -34,11 +34,13 @@ public sealed class SkseTransportTests
     /// for, and what an unreserved tail overshoots the cap by.</summary>
     static string[] Warnings(int n) => Enumerable.Range(1, n).Select(i => $"warning {i}: " + new string('w', 180)).ToArray();
 
-    static SkseInventoryData Inventory(int dlls, int configs = 0, int folders = 1, string[]? warnings = null) =>
+    static SkseInventoryData Inventory(int dlls, int configs = 0, int folders = 1, string[]? warnings = null,
+                                      string[]? rootFailures = null) =>
         new(Enumerable.Range(1, dlls).Select(Dll).ToList(),
             Enumerable.Range(1, configs).Select(i => Config(i, $"Group{i % folders}")).ToList(),
             OtherFileCount: 0, InstalledRuntime: "1.6.1170.0", BsaFailures: Array.Empty<string>(),
-            ReadIncomplete: false, Warnings: warnings ?? Array.Empty<string>(), ProfileName: "Default");
+            RootFailures: rootFailures ?? Array.Empty<string>(), ReadIncomplete: false,
+            Warnings: warnings ?? Array.Empty<string>(), ProfileName: "Default");
 
     static NativeClassEntry Cls(int i) =>
         new($"scripts/k{i}.pex", $"Klass{i}", new[] { "Fn" }, new[] { Mod($"Mod{i}") },
@@ -72,14 +74,16 @@ public sealed class SkseTransportTests
                 .Concat(Enumerable.Range(1, third).Select(Cls)).ToList(),
             PexScanned: engine + third, Unreadable: Array.Empty<NativeUnreadablePex>(),
             SkseLoaderSeen: true, InstalledRuntime: "1.6.1170.0", BsaFailures: Array.Empty<string>(),
-            ReadIncomplete: false, Warnings: Array.Empty<string>(), ProfileName: "Default");
+            RootFailures: Array.Empty<string>(), ReadIncomplete: false, Warnings: Array.Empty<string>(), ProfileName: "Default");
 
-    static NativePairingAuditData Pairing(int classes, int unreadable = 0, string[]? warnings = null) =>
+    static NativePairingAuditData Pairing(int classes, int unreadable = 0, string[]? warnings = null,
+                                         string[]? rootFailures = null) =>
         new(Enumerable.Range(1, classes).Select(Cls).ToList(), PexScanned: classes,
             Unreadable: Enumerable.Range(1, unreadable)
                 .Select(i => new NativeUnreadablePex($"scripts/bad{i}.pex", $"Mod{i}", "not a valid .pex header")).ToList(),
             SkseLoaderSeen: true, InstalledRuntime: "1.6.1170.0",
-            BsaFailures: Array.Empty<string>(), ReadIncomplete: false, Warnings: warnings ?? Array.Empty<string>(), ProfileName: "Default");
+            BsaFailures: Array.Empty<string>(), RootFailures: rootFailures ?? Array.Empty<string>(),
+            ReadIncomplete: false, Warnings: warnings ?? Array.Empty<string>(), ProfileName: "Default");
 
     static SkseAuditedRef Ref(int i, int n) =>
         new(new HousecarlCore.SkseConfigRef($"0x{0x800 + n:X6}|Ghost{i}.esp", HousecarlCore.SkseRefShape.FormToken,
@@ -90,9 +94,11 @@ public sealed class SkseTransportTests
         new($"SKSE/Plugins/Group/f{i}.ini", $"f{i}.ini", "Group", $"Mod{i}", 1, new[] { Mod($"Mod{i}") },
             Enumerable.Range(1, refs).Select(n => Ref(i, n)).ToList(), ReadError: null);
 
-    static SkseConfigAuditData ConfigAudit(int files, int refs = 1, string[]? warnings = null) =>
+    static SkseConfigAuditData ConfigAudit(int files, int refs = 1, string[]? warnings = null,
+                                          string[]? rootFailures = null) =>
         new(Enumerable.Range(1, files).Select(i => ConfigFile(i, refs)).ToList(), ConfigCount: files,
-            BsaFailures: Array.Empty<string>(), ReadIncomplete: false, Warnings: warnings ?? Array.Empty<string>(), ProfileName: "Default");
+            BsaFailures: Array.Empty<string>(), RootFailures: rootFailures ?? Array.Empty<string>(),
+            ReadIncomplete: false, Warnings: warnings ?? Array.Empty<string>(), ProfileName: "Default");
 
     static string Text(string family, int rows, RowWindow window = default, string? filter = null) => family switch
     {
@@ -494,6 +500,31 @@ public sealed class SkseTransportTests
         int tail = warnings.Sum(x => x.Length);
         Assert.True(json.Length < cap + OneRowSlack,
                     $"{family}: {json.Length} chars against max_chars={cap} — the ~{tail}-char tail was not reserved.");
+    }
+
+    /// <summary>The loose-root failures are a caveat array like the warnings, so the reserve has to hold room for them
+    /// too — a block added to a capped document without being counted is what broke the census cap in #825.</summary>
+    [Theory]
+    [InlineData("inventory")]
+    [InlineData("pairing")]
+    [InlineData("config")]
+    public void TheJsonTailReserveCountsTheRootFailureBlock(string family)
+    {
+        const int cap = 20_000;
+        var roots = Enumerable.Range(1, 60)
+            .Select(i => $"BlockedMod{i}: could not read 'SKSE\\Plugins' — " + new string('r', 180)).ToArray();
+        string json = family switch
+        {
+            "inventory" => SkseInventoryWire.RenderJson(Inventory(40, rootFailures: roots), null, cap),
+            "pairing" => NativePairingWire.RenderJson(Pairing(40, rootFailures: roots), null, cap),
+            _ => SkseConfigAuditWire.RenderJson(ConfigAudit(40, rootFailures: roots), null, cap),
+        };
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(60, doc.RootElement.GetProperty("caveats").GetProperty("root_read_failures").GetArrayLength());
+        int tail = roots.Sum(x => x.Length);
+        Assert.True(json.Length < cap + OneRowSlack,
+                    $"{family}: {json.Length} chars against max_chars={cap} — the ~{tail}-char root-failure block was not reserved.");
     }
 
     /// <summary>The one row the cap can overrun by. Every family's row is comfortably under this, and every family's

@@ -375,13 +375,15 @@ static class NifWire
             .Append("'  (").Append(d.Results.Count).Append(" mesh").Append(d.Results.Count == 1 ? "" : "es")
             .Append(')').ToString();
 
-        bool readIncomplete = d.BsaFailures.Count > 0, discoveryIncomplete = d.Warnings.Count > 0;
+        bool readIncomplete = d.BsaFailures.Count > 0, rootIncomplete = d.RootFailures.Count > 0,
+             discoveryIncomplete = d.Warnings.Count > 0;
         return RenderCap.Settle(BatchRender.Render(
             header, d.Results, "mesh(es)", cap,
             // The alarms come first and once, at batch level, so a long batch cannot truncate them away.
             (sb, room) =>
             {
                 BatchRender.AppendReadFailures(sb, d.BsaFailures, "a mesh", room);
+                BatchRender.AppendRootFailures(sb, d.RootFailures, "a mesh", room);
                 BatchRender.AppendDiscoveryWarnings(sb, d.Warnings, room);
                 // Written whatever the budget: a caller whose sections= was not honoured must be told.
                 if (unknownSections.Count > 0)
@@ -389,14 +391,15 @@ static class NifWire
                       .Append("  (").Append(NifTools.KnownSectionsHint).Append(")\n");
             },
             // The mesh's sections cut against the ROOM LEFT, not against max_chars, or the mesh lands past the ceiling.
-            (sb, r, room) => AppendMesh(sb, r, want, room, readIncomplete, discoveryIncomplete),
+            (sb, r, room) => AppendMesh(sb, r, want, room, readIncomplete, rootIncomplete, discoveryIncomplete),
             out _), cap);
     }
 
     /// <summary>One mesh's block: the path line, then its named error with the provider chain, or the resolution,
     /// summary and requested sections. An ABSENT is hedged at the point of use on both batch-level scan caveats.</summary>
     /// top-of-output alarm scrolls away in a long batch.</summary>
-    static void AppendMesh(StringBuilder sb, NifInspectData d, HashSet<string> want, RenderCap cap, bool readIncomplete, bool discoveryIncomplete)
+    static void AppendMesh(StringBuilder sb, NifInspectData d, HashSet<string> want, RenderCap cap, bool readIncomplete,
+                           bool rootIncomplete, bool discoveryIncomplete)
     {
         sb.Append('\n').Append(d.RelPath.Length > 0 ? d.RelPath : "(empty path)").Append('\n');
 
@@ -409,6 +412,9 @@ static class NifWire
                 if (readIncomplete)
                     sb.Append("  [!] but an archive failed to read this build (see the read-failure note above), so " +
                               "\"ABSENT\" may be incomplete — the mesh could live in the unreadable archive.\n");
+                if (rootIncomplete)
+                    sb.Append("  [!] but a loose mod folder failed to read this build (see the read-failure note above), so " +
+                              "\"ABSENT\" may be incomplete — the mesh could live in the folder that would not read.\n");
                 if (discoveryIncomplete)
                     sb.Append("  [!] some archives were not scanned this build (see the discovery note above), so " +
                               "\"ABSENT\" may be incomplete — base-game meshes live in BSAs that weren't enumerated.\n");

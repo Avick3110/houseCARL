@@ -53,9 +53,14 @@ made the change.
 - **`housecarl_records`, `housecarl_apply`, `housecarl_create` and `housecarl_remove` are titled for what they
   do, with no internal spec naming.** Call `housecarl_records` and read the "Used …" line: it now says
   "Read records".
+
 - **`housecarl_nexus_search`, `housecarl_nexus_mod` and `housecarl_nexus_check_updates` take `game=`, a Nexus
   domain name or game id, and default to Skyrim SE; a mod URL for any game now works as pasted.** Look up
   `https://www.nexusmods.com/baldursgate3/mods/3479`.
+
+- **`housecarl_skse`, `housecarl_skypatcher_layer` and `housecarl_nif_inspect` name the mod folder they could not
+  read, instead of only warning that one failed.** Run any of them with a mod folder blocked: the answer names that
+  mod.
 
 ## 2.0.2 — 2026-09-15
 

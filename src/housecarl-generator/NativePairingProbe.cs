@@ -1,4 +1,4 @@
-﻿using Mutagen.Bethesda;
+using Mutagen.Bethesda;
 using Mutagen.Bethesda.Pex;
 using Mutagen.Bethesda.Plugins;
 using HousecarlCore;
@@ -196,7 +196,7 @@ public static class NativePairingProbe
         NativePairingAuditData Data(IReadOnlyList<NativeClassEntry> classes, string? runtime, bool? loaderSeen = true,
             IReadOnlyList<NativeUnreadablePex>? unreadable = null) =>
             new(classes, 1000, unreadable ?? Array.Empty<NativeUnreadablePex>(), loaderSeen, runtime,
-                Array.Empty<string>(), false, Array.Empty<string>(), "TestProfile");
+                Array.Empty<string>(), Array.Empty<string>(), false, Array.Empty<string>(), "TestProfile");
 
         {
             // Arm A: locked mismatch with the runtime KNOWN → PAIRED BUT DEAD leads, adjudicated.
