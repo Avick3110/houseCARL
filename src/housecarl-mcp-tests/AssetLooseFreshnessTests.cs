@@ -66,6 +66,48 @@ public sealed class AssetLooseFreshnessTests : IDisposable
         Assert.Null(Winner(r, Provided));
     }
 
+    /// <summary>The same two changes with NO time between them and the baseline, run enough times that some rounds
+    /// certainly fall inside one timestamp tick: a Windows directory's last-write is coarser than a write next to a
+    /// delete, so a check made of stamps passes this about half the time. Names do not have a granularity.</summary>
+    [Fact]
+    public void AppearAndVanishAreSeenEvenInsideOneTimestampTick()
+    {
+        var newcomerDir = Path.Combine(_mods, Newcomer, Subtree);
+        var newcomerFile = Path.Combine(_mods, Newcomer, Provided);
+        for (int round = 0; round < 50; round++)
+        {
+            using var r = Build();
+            Assert.Equal(Provider, Winner(r, Provided));      // warms both roots, taking the baseline right here
+
+            Directory.CreateDirectory(newcomerDir);
+            File.WriteAllText(newcomerFile, "newcomer");      // the appearance, in the same tick as the baseline
+            Assert.True(r.RefreshIfStale(), $"round {round}: the appearing file was not noticed");
+            Assert.Equal(Newcomer, Winner(r, Provided));      // re-warms, taking a new baseline right here
+
+            File.Delete(newcomerFile);                        // the vanish, in the same tick as THAT baseline
+            Assert.True(r.RefreshIfStale(), $"round {round}: the vanished file was not noticed");
+            Assert.Equal(Provider, Winner(r, Provided));
+
+            Directory.Delete(newcomerDir);
+        }
+    }
+
+    /// <summary>What the check must NOT wake up for: the ancestor a root with nothing there is answered by is its own
+    /// mod folder, and a session writes to mod folders all the time. Only the name the subtree needs counts, so an
+    /// unrelated file appearing beside it leaves the build alone.</summary>
+    [Fact]
+    public void AnUnrelatedFileAppearingInAModFolderDoesNotDiscardTheBuild()
+    {
+        using var r = Build();
+        Winner(r, Provided);
+        Winner(r, @"meshes\hcgone\x.nif");                     // the newcomer root is answered by its own mod folder
+
+        File.WriteAllText(Path.Combine(_mods, Newcomer, "meta.ini"), "[General]\r\n");
+        File.WriteAllText(Path.Combine(_mods, Provider, "notes.txt"), "x");
+
+        Assert.False(r.RefreshIfStale(), "an unrelated file in a mod folder threw the whole build away");
+    }
+
     /// <summary>A loose file's BYTES are never cached — the read goes to the resolved path — so a rewrite is seen with
     /// nothing to invalidate. The assert stands on the read the tools actually make.</summary>
     [Fact]
