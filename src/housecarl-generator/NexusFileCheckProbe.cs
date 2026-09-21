@@ -135,7 +135,7 @@ internal static class NexusFileCheckProbe
         Check(kRemoved.Verdict == UpdateVerdict.FileRemoved && kRemoved.Files[0].Verdict == FileVerdict.Removed
               && kRemoved.Files[0].Category == "REMOVED",
               "K: an installed REMOVED file → FileRemoved, never Live");
-        var kText = Render.Updates(new[] { kRemoved }, Array.Empty<string>());
+        var kText = Render.Updates(new[] { kRemoved }, NexusClient.SkyrimSe, Array.Empty<string>());
         Check(!kText.Contains("— current", StringComparison.Ordinal)
               && kText.Contains("[REMOVED]", StringComparison.Ordinal)
               && kText.Contains("REMOVED by the author", StringComparison.Ordinal)
@@ -147,14 +147,14 @@ internal static class NexusFileCheckProbe
         // The summary counts read in the SAME order as the groups under them — most actionable first — so the two
         // halves of one response never disagree about what to look at first. Both verdicts present, so the group
         // order is actually observable.
-        var kBoth = Render.Updates(new[] { b, kRemoved }, Array.Empty<string>());
+        var kBoth = Render.Updates(new[] { b, kRemoved }, NexusClient.SkyrimSe, Array.Empty<string>());
         Check(kBoth.IndexOf(" file-removed ", StringComparison.Ordinal) < kBoth.IndexOf(" outdated ", StringComparison.Ordinal)
               && kBoth.IndexOf("FILE REMOVED —", StringComparison.Ordinal) < kBoth.IndexOf("OUTDATED —", StringComparison.Ordinal),
               "K: the summary leads with file-removed, like the groups below it");
         // …and the whole sequence agrees, not just its head: one response carrying every verdict, with the counts read
         // in the order the groups print. 'current' third in the counts and fifth in the groups is the shape this cell
         // exists to catch.
-        var kAll = Render.Updates(new[] { kRemoved, b, c, e, a, f, g }, Array.Empty<string>());
+        var kAll = Render.Updates(new[] { kRemoved, b, c, e, a, f, g }, NexusClient.SkyrimSe, Array.Empty<string>());
         var countTokens = new[] { " file-removed ", " outdated ", " file-gone ", " no-fileid ", " current ", " latest-only ", " not-found" };
         var groupLabels = new[] { "FILE REMOVED —", "OUTDATED —", "FILE GONE —", "NO FILEID —", "current —", "latest version ", "not found on " };
         bool countsRise = true, groupsRise = true;
