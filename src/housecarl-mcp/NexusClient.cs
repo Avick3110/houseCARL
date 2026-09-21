@@ -12,15 +12,15 @@ public sealed class NexusClient
     public const int SkyrimSeGameId = 1704;
 
     /// <summary>Skyrim Special Edition, the game a call with no <c>game=</c> is scoped to.</summary>
-    public static readonly NexusGame SkyrimSe = new(SkyrimSeGameId, "skyrimspecialedition");
+    public static readonly NexusGame SkyrimSe = new(SkyrimSeGameId, "skyrimspecialedition", "Skyrim Special Edition");
 
     /// <summary>The games that map without a network call; anything else is resolved through the graph once.</summary>
     static readonly NexusGame[] KnownGames =
     {
         SkyrimSe,
-        new(3474, "baldursgate3"),
-        new(3333, "cyberpunk2077"),
-        new(4187, "starfield"),
+        new(3474, "baldursgate3", "Baldur's Gate 3"),
+        new(3333, "cyberpunk2077", "Cyberpunk 2077"),
+        new(4187, "starfield", "Starfield"),
     };
 
     // Games resolved through the graph, keyed by what was asked: a game's id and domain never change, so one lookup serves the process.
@@ -57,25 +57,31 @@ public sealed class NexusClient
         if (ResolvedGames.TryGetValue(asked, out var cached)) return (true, null, cached);
 
         bool numeric = int.TryParse(asked, out var askedId) && askedId > 0;
-        var (ok, error, data) = numeric
-            ? await PostAsync(GameByIdQuery, new { id = askedId.ToString() }, ct)
-            : await PostAsync(GameByDomainQuery, new { domainName = asked }, ct);
+        var (ok, error, data, codes) = numeric
+            ? await PostCoreAsync(GameByIdQuery, new { id = askedId.ToString() }, ct)
+            : await PostCoreAsync(GameByDomainQuery, new { domainName = asked }, ct);
 
-        // Nexus answers an unknown game with a GAME_NOT_FOUND error rather than a null game, so that message is the refusal.
-        if (!ok && error is not null && error.Contains("not found", StringComparison.OrdinalIgnoreCase))
-            return (false, $"Nexus Mods has no game '{asked}' — pass the domain name as it appears in a mod page URL "
-                + "(e.g. skyrimspecialedition, baldursgate3, cyberpunk2077, starfield) or the numeric game id.", null);
-        if (!ok) return (false, error, null);
+        // Nexus answers an unknown game with a GAME_NOT_FOUND error; the refusal reads that code, never the message text,
+        // which also carries HTTP status words — an HTTP 404 ("Not Found") is a failed request, not a missing game.
+        if (!ok && !codes.Contains("GAME_NOT_FOUND", StringComparer.Ordinal)) return (false, error, null);
+        if (!ok) return (false, GameRefusal(asked), null);
 
         if (!data.TryGetProperty("game", out var g) || g.ValueKind != JsonValueKind.Object
             || Int(g, "id") <= 0 || string.IsNullOrWhiteSpace(Str(g, "domainName")))
-            return (false, $"Nexus Mods has no game '{asked}' — pass the domain name as it appears in a mod page URL "
-                + "(e.g. skyrimspecialedition, baldursgate3, cyberpunk2077, starfield) or the numeric game id.", null);
+            return (false, GameRefusal(asked), null);
 
-        var resolved = new NexusGame(Int(g, "id"), Str(g, "domainName")!);
+        var resolved = new NexusGame(Int(g, "id"), Str(g, "domainName")!, Str(g, "name"));
         ResolvedGames[asked] = resolved;
         return (true, null, resolved);
     }
+
+    /// <summary>The one-sentence refusal for a game Nexus does not know, naming what was asked.</summary>
+    static string GameRefusal(string asked) =>
+        $"Nexus Mods has no game '{asked}' — pass the domain name as it appears in a mod page URL "
+        + "(e.g. skyrimspecialedition, baldursgate3, cyberpunk2077, starfield) or the numeric game id.";
+
+    /// <summary>No GraphQL error codes: what every failure that never reached the graph carries.</summary>
+    static readonly IReadOnlyList<string> NoCodes = Array.Empty<string>();
 
     /// <summary>Search one game's mods by a wildcard name term, optionally narrowed to a category, capped at a count.</summary>
     public async Task<(bool ok, string? error, NexusSearchResult? result)> SearchAsync(
@@ -334,8 +340,17 @@ public sealed class NexusClient
         return (true, null, list);
     }
 
-    // Core POST: the one place a Nexus call can throw, so the one place every failure turns into a returned message.
+    // The rendered message carries HTTP status text too, so a caller that must tell one GraphQL error from a transport
+    // failure reads the codes instead; they are empty for every failure that never reached the graph.
     async Task<(bool ok, string? error, JsonElement data)> PostAsync(string query, object variables, CancellationToken ct)
+    {
+        var (ok, error, data, _) = await PostCoreAsync(query, variables, ct);
+        return (ok, error, data);
+    }
+
+    // Core POST: the one place a Nexus call can throw, so the one place every failure turns into a returned message.
+    async Task<(bool ok, string? error, JsonElement data, IReadOnlyList<string> codes)> PostCoreAsync(
+        string query, object variables, CancellationToken ct)
     {
         string body;
         int status;
@@ -356,23 +371,23 @@ public sealed class NexusClient
         catch (TaskCanceledException) when (!ct.IsCancellationRequested)
         {
             return (false, "the Nexus Mods request timed out. Check your connection and try again — houseCARL's local "
-                + "(load-order) tools are unaffected.", default);
+                + "(load-order) tools are unaffected.", default, NoCodes);
         }
-        catch (OperationCanceledException) { return (false, "the Nexus Mods request was cancelled.", default); }
+        catch (OperationCanceledException) { return (false, "the Nexus Mods request was cancelled.", default, NoCodes); }
         catch (HttpRequestException ex)
         {
             return (false, $"couldn't reach Nexus Mods ({ex.Message}). The Nexus tools need an internet connection; "
-                + "houseCARL's local tools work offline.", default);
+                + "houseCARL's local tools work offline.", default, NoCodes);
         }
 
         if (status == 429)
-            return (false, "Nexus Mods is rate-limiting the connection (HTTP 429). Wait a moment and try again.", default);
+            return (false, "Nexus Mods is rate-limiting the connection (HTTP 429). Wait a moment and try again.", default, NoCodes);
         if (!success)
-            return (false, $"Nexus Mods returned HTTP {status} ({reason}).", default);
+            return (false, $"Nexus Mods returned HTTP {status} ({reason}).", default, NoCodes);
 
         JsonDocument doc;
         try { doc = JsonDocument.Parse(body); }
-        catch (Exception ex) { return (false, $"Nexus Mods returned an unreadable response ({ex.Message}).", default); }
+        catch (Exception ex) { return (false, $"Nexus Mods returned an unreadable response ({ex.Message}).", default, NoCodes); }
 
         using (doc)
         {
@@ -382,11 +397,18 @@ public sealed class NexusClient
                 var msgs = errs.EnumerateArray()
                     .Select(e => e.TryGetProperty("message", out var mm) ? mm.GetString() : null)
                     .Where(s => !string.IsNullOrWhiteSpace(s));
-                return (false, "Nexus Mods query error: " + string.Join("; ", msgs), default);
+                // The graph's own error codes, so a caller can tell one GraphQL error from another without reading the message.
+                var codes = errs.EnumerateArray()
+                    .Select(e => e.TryGetProperty("extensions", out var ex) && ex.ValueKind == JsonValueKind.Object
+                                 ? Str(ex, "code") : null)
+                    .Where(c => !string.IsNullOrWhiteSpace(c))
+                    .Select(c => c!)
+                    .ToArray();
+                return (false, "Nexus Mods query error: " + string.Join("; ", msgs), default, codes);
             }
             if (!root.TryGetProperty("data", out var dataEl) || dataEl.ValueKind != JsonValueKind.Object)
-                return (false, "Nexus Mods returned no data.", default);
-            return (true, null, dataEl.Clone());   // Clone: survive the using-dispose of doc.
+                return (false, "Nexus Mods returned no data.", default, NoCodes);
+            return (true, null, dataEl.Clone(), NoCodes);   // Clone: survive the using-dispose of doc.
         }
     }
 
@@ -432,9 +454,9 @@ public sealed class NexusClient
             }
           }";
 
-    const string GameByDomainQuery = @"query GameByDomain($domainName: String!) { game(domainName: $domainName) { id domainName } }";
+    const string GameByDomainQuery = @"query GameByDomain($domainName: String!) { game(domainName: $domainName) { id domainName name } }";
 
-    const string GameByIdQuery = @"query GameById($id: ID!) { game(id: $id) { id domainName } }";
+    const string GameByIdQuery = @"query GameById($id: ID!) { game(id: $id) { id domainName name } }";
 
     const string FileHashQuery =
         @"query FileHashes($md5s: [String!]!) {
@@ -447,8 +469,13 @@ public sealed class NexusClient
 
 // ── result shapes; the tools render these to text ──
 
-/// <summary>One Nexus game: the numeric id a query is scoped to and the domain name its mod page URLs carry.</summary>
-public sealed record NexusGame(int Id, string Domain);
+/// <summary>One Nexus game: the numeric id a query is scoped to, the domain name its mod page URLs carry, and what to
+/// call it in a sentence — the domain when the graph gave no name.</summary>
+public sealed record NexusGame(int Id, string Domain, string? Name = null)
+{
+    /// <summary>What a reader calls this game: its name, or its domain when the graph gave none.</summary>
+    public string Display => string.IsNullOrWhiteSpace(Name) ? Domain : Name!;
+}
 
 /// <summary>One row of a search result.</summary>
 public sealed record NexusSearchHit(

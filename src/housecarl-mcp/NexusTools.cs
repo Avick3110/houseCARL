@@ -355,7 +355,7 @@ static class Render
         var sb = new StringBuilder();
         sb.Append("Nexus search: \"").Append(term).Append('"');
         // Name the game only when it isn't the default, so a Skyrim SE search reads exactly as it did.
-        if (game.Id != NexusClient.SkyrimSeGameId) sb.Append(" on ").Append(game.Domain);
+        if (game.Id != NexusClient.SkyrimSeGameId) sb.Append(" on ").Append(game.Display);
         if (!string.IsNullOrWhiteSpace(category)) sb.Append(" in '").Append(category).Append('\'');
         sb.Append(" — ").Append(r.TotalCount.ToString("N0")).Append(" match(es), by ").Append(sort)
           .Append(", showing ").Append(r.Hits.Count).Append(':');
@@ -543,8 +543,12 @@ static class Render
         AppendUpdateGroup(sb, "NO FILEID — couldn't verify at file level (FOMOD/manual install); best-effort only, not a verdict", results, UpdateVerdict.NoFileId);
         AppendUpdateGroup(sb, "current — the exact file you installed is still a live file on the page", results, UpdateVerdict.Current);
         AppendUpdateGroup(sb, "latest version (no installed version/fileid was given to compare)", results, UpdateVerdict.LatestOnly);
-        // The label names the game that was checked, so a non-Skyrim check never reports "not found on Skyrim SE".
-        AppendUpdateGroup(sb, $"not found on {game.Domain} (wrong id, another game's mod, or a hidden/deleted page)", results, UpdateVerdict.NotFound);
+        // The label names the game that was checked, so a non-Skyrim check never reports "not found on Skyrim SE"; the
+        // default keeps its own wording, LE hint included, because an LE mod id is the common Skyrim not-found.
+        AppendUpdateGroup(sb, game.Id == NexusClient.SkyrimSeGameId
+            ? "not found on Skyrim SE (wrong id, an LE/other-game mod, or a hidden/deleted page)"
+            : $"not found on {game.Display} (wrong id, another game's mod, or a hidden/deleted page)",
+            results, UpdateVerdict.NotFound);
         AppendUpdateGroup(sb, "check FAILED (surface, don't assume current)", results, UpdateVerdict.Error);
 
         if (unreadable.Count > 0)

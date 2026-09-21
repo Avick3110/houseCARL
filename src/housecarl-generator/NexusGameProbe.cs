@@ -80,7 +80,8 @@ internal static class NexusGameProbe
         var search = Render.Search("party", null, "endorsements", new NexusSearchResult(1, new[] { hit }), bg3);
         Check(search.Contains("https://www.nexusmods.com/baldursgate3/mods/3479", StringComparison.Ordinal),
               "a search hit renders the searched game's page URL");
-        Check(search.Contains("on baldursgate3", StringComparison.Ordinal), "a non-default search names the game it searched");
+        Check(search.Contains("on Baldur's Gate 3", StringComparison.Ordinal),
+              "a non-default search names the game it searched, by name rather than by URL slug");
         Check(!Render.Search("party", null, "endorsements", new NexusSearchResult(1, new[] { hit }), NexusClient.SkyrimSe)
                      .Contains("on skyrimspecialedition", StringComparison.Ordinal),
               "a default search reads exactly as before (no game named)");
@@ -89,8 +90,14 @@ internal static class NexusGameProbe
         var notFound = NexusClient.ComputeStatus(999, false, null, null, null, Array.Empty<int>(),
             new List<(int, string, string?, string, long)>());
         var updates = Render.Updates(new[] { notFound }, bg3, Array.Empty<string>());
-        Check(updates.Contains("not found on baldursgate3", StringComparison.Ordinal),
+        Check(updates.Contains("not found on Baldur's Gate 3 (wrong id, another game's mod, or a hidden/deleted page)",
+                               StringComparison.Ordinal),
               "a not-found row names the game checked, not Skyrim SE");
+        // The default game's label is the sentence main shipped, LE hint and all: an existing caller reads no change.
+        var sseUpdates = Render.Updates(new[] { notFound }, NexusClient.SkyrimSe, Array.Empty<string>());
+        Check(sseUpdates.Contains("not found on Skyrim SE (wrong id, an LE/other-game mod, or a hidden/deleted page)",
+                                  StringComparison.Ordinal),
+              "the default game keeps its own not-found label, LE hint included");
 
         // WHAT GOES ON THE WIRE — the requested game's id, not the Skyrim SE constant. A stub handler answers every
         // request, so this reaches the query text without a network.
@@ -121,19 +128,26 @@ internal static class NexusGameProbe
               "the default game still sends 1704");
 
         // RESOLVING AN UNMAPPED GAME — one graph call, and what Nexus does not know is refused naming what was asked.
-        var okStub = new StubHandler(_ => "{\"data\":{\"game\":{\"id\":100,\"domainName\":\"morrowind\"}}}");
+        // The domain is this probe's own: the resolve cache is process-wide, so a domain another probe could ask for
+        // would make the "asked once" arm depend on which probe ran first.
+        const string Unmapped = "nexusgameprobeonly";
+        var okStub = new StubHandler(_ =>
+            "{\"data\":{\"game\":{\"id\":100,\"domainName\":\"" + Unmapped + "\",\"name\":\"Probe Only\"}}}");
         var okClient = new NexusClient(new HttpClient(okStub));
-        var (rok, rerror, rgame) = okClient.ResolveGameAsync("morrowind", default).GetAwaiter().GetResult();
-        Check(rok && rgame is { Id: 100, Domain: "morrowind" } && rerror is null,
+        var (rok, rerror, rgame) = okClient.ResolveGameAsync(Unmapped, default).GetAwaiter().GetResult();
+        Check(rok && rgame is { Id: 100, Domain: Unmapped } && rerror is null,
               "an unmapped domain resolves through the graph to its id and domain");
+        Check(rgame!.Display == "Probe Only", "a resolved game is named by the graph's name, not its domain");
+        Check(new NexusGame(100, Unmapped).Display == Unmapped, "a game the graph gave no name for reads as its domain");
         Check(okStub.Bodies.Count == 1 && okStub.Bodies[0].Contains("domainName", StringComparison.Ordinal),
               "resolving by domain asks game(domainName:) once");
         okStub.Bodies.Clear();
-        okClient.ResolveGameAsync("morrowind", default).GetAwaiter().GetResult();
+        okClient.ResolveGameAsync(Unmapped, default).GetAwaiter().GetResult();
         Check(okStub.Bodies.Count == 0, "a domain already resolved is not asked again");
 
         var missStub = new StubHandler(_ =>
-            "{\"errors\":[{\"message\":\"Game not found. Could not find Game nosuchgame\"}],\"data\":{\"game\":null}}");
+            "{\"errors\":[{\"message\":\"Game not found. Could not find Game nosuchgame\","
+            + "\"extensions\":{\"code\":\"GAME_NOT_FOUND\"}}],\"data\":{\"game\":null}}");
         var (mok, merror, mgame) = new NexusClient(new HttpClient(missStub))
             .ResolveGameAsync("nosuchgame", default).GetAwaiter().GetResult();
         Check(!mok && mgame is null && merror is not null && merror.Contains("nosuchgame", StringComparison.Ordinal),
@@ -144,6 +158,29 @@ internal static class NexusGameProbe
             .ResolveGameAsync("nosuchgame", default).GetAwaiter().GetResult();
         Check(!dok && derror is not null && derror.Contains("couldn't reach Nexus Mods", StringComparison.Ordinal),
               "an unreachable Nexus is reported as itself, not as an unknown game");
+
+        // An HTTP 404's reason phrase is literally "Not Found": a failed REQUEST, never a missing game, so the refusal
+        // reads the GraphQL code rather than the message text.
+        var notFoundStub = new StubHandler(_ => "") { Status = HttpStatusCode.NotFound };
+        var (hok, herror, _) = new NexusClient(new HttpClient(notFoundStub))
+            .ResolveGameAsync("nosuchgame404", default).GetAwaiter().GetResult();
+        Check(!hok && herror is not null && herror.Contains("HTTP 404", StringComparison.Ordinal)
+              && !herror.Contains("has no game", StringComparison.Ordinal),
+              "an HTTP 404 is reported as a failed request, not as an unknown game");
+
+        var serverErrStub = new StubHandler(_ => "") { Status = HttpStatusCode.InternalServerError };
+        var (sok, serror, _) = new NexusClient(new HttpClient(serverErrStub))
+            .ResolveGameAsync("nosuchgame500", default).GetAwaiter().GetResult();
+        Check(!sok && serror is not null && !serror.Contains("has no game", StringComparison.Ordinal),
+              "an HTTP 500 is reported as itself, not as an unknown game");
+
+        var otherGraphStub = new StubHandler(_ =>
+            "{\"errors\":[{\"message\":\"Something else went wrong\",\"extensions\":{\"code\":\"INTERNAL_ERROR\"}}]}");
+        var (ook, oerror, _) = new NexusClient(new HttpClient(otherGraphStub))
+            .ResolveGameAsync("nosuchgameother", default).GetAwaiter().GetResult();
+        Check(!ook && oerror is not null && oerror.Contains("Something else went wrong", StringComparison.Ordinal)
+              && !oerror.Contains("has no game", StringComparison.Ordinal),
+              "a GraphQL error that is not GAME_NOT_FOUND is passed through as itself");
 
         Console.WriteLine(fail == 0
             ? "[nexus-game] PASS - game= mapping, mod URL parse, wire game id and rendered game hold."
@@ -158,11 +195,14 @@ internal static class NexusGameProbe
         public StubHandler(Func<string, string> reply) => _reply = reply;
         public List<string> Bodies { get; } = new();
 
+        /// <summary>The status it answers with; 200 unless an arm is about an HTTP failure.</summary>
+        public HttpStatusCode Status { get; init; } = HttpStatusCode.OK;
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct);
             Bodies.Add(body);
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(_reply(body)) };
+            return new HttpResponseMessage(Status) { Content = new StringContent(_reply(body)) };
         }
     }
 }
