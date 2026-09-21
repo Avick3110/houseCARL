@@ -18,7 +18,9 @@ public and anonymous — and it never downloads, installs or endorses; that stay
 - Search, mod lookup and the update check are scoped to one game per call: Skyrim Special Edition unless `game=` names another, as a Nexus domain name or a numeric game id.
 - The four games of #835 — `skyrimspecialedition` 1704, `baldursgate3` 3474, `cyberpunk2077` 3333, `starfield` 4187 — map with no network call; any other value is resolved once through `game(domainName:)` or `game(id:)` and cached for the process, because a game's id and domain never change.
 - A game Nexus does not know is refused in one sentence naming what was asked, never quietly searched as Skyrim SE.
-- That refusal leans on upstream behaviour the code cannot check: an unknown domain or id comes back as a `Game not found` error rather than a null `game`, so a transport failure is passed through as itself instead.
+- That refusal is decided on the graph's own `GAME_NOT_FOUND` error code, never on the message text, which also carries HTTP status words: an HTTP 404 reads `Not Found` and is a failed request, not a missing game. Every failure that never reached the graph carries no code and is passed through as itself.
+- A game resolved through the graph is named by the name it gave; a game with no name reads as its domain.
+- Rendered prose names the game rather than its URL slug, and the default game's wording — including the not-found group's `an LE/other-game mod` hint, which is Skyrim's most common not-found — is what it was before `game=` existed.
 - A mod URL's domain segment names its game, so any game's URL works as pasted; a `game=` that names a different game than the URL is refused rather than guessed.
 - Every rendered mod page URL carries the game that was asked for, and the update check's not-found group names it, so no output claims Skyrim SE for another game's call.
 - `housecarl_nexus_identify` and `housecarl_update_status` stay Skyrim-SE-bound by design: they read the MO2 instance's own cache, and a match on another game's file is flagged rather than scoped away.
@@ -43,7 +45,7 @@ public and anonymous — and it never downloads, installs or endorses; that stay
 - `NexusFileCheckProbe` (ci probe `nexus-file-check-guard`) — the per-file currency verdicts, the withdrawn-over-retired order, the NoFileId and LatestOnly degrade, the nxm-only fall-through, the `LiveMainCount` sentence (arms E and H), the id#fileid parse, and the mod id grouping.
 - `NexusGraphqlProbe` (`nexus-graphql-guard`) — the mutation and subscription refusal with no false refusal, and the literal, bounded raw-query rendering sentence.
 - `RenderClampProbe` (`render-clamp-guard`) — the surrogate-safe clamp in the last sentence above.
-- `NexusGameProbe` (`nexus-game-guard`) — the `game=` domain and id mapping including the Skyrim SE default, the unknown value that does not map, the mod URL parse, and the rendered page URL and not-found label naming the game asked for.
+- `NexusGameProbe` (`nexus-game-guard`) — the `game=` domain and id mapping including the Skyrim SE default, the unknown value that does not map, the mod URL parse, the rendered page URL and the not-found label (the default's wording unchanged), the requested game's id on the wire, and the refusal that separates `GAME_NOT_FOUND` from an HTTP 404, an HTTP 500, another GraphQL error and an unreachable endpoint.
 
 ## Where
 `src/housecarl-mcp/NexusClient.cs` holds the HTTP and GraphQL layer, the currency computation, and the result
