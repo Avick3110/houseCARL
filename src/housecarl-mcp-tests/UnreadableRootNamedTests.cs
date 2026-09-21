@@ -1,5 +1,3 @@
-using System.Security.AccessControl;
-using System.Security.Principal;
 using HousecarlMcp;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
@@ -72,7 +70,10 @@ public sealed class UnreadableRootNamedTests : IDisposable
         var d = _w.Svc.NifInspect(new[] { BlockedModWorld.BlockedMesh }, null);
 
         Assert.Contains(BlockedModWorld.BlockedMod, Named(d.RootFailures));
-        Assert.Contains(BlockedModWorld.BlockedMod, NifWire.Render(d, new HashSet<string>(StringComparer.OrdinalIgnoreCase), Array.Empty<string>(), 200_000));
+        var render = NifWire.Render(d, new HashSet<string>(StringComparer.OrdinalIgnoreCase), Array.Empty<string>(), 200_000);
+        Assert.Contains(BlockedModWorld.BlockedMod, render);           // the batch-level alarm names the root
+        // And the hedge a modder reads UNDER the mesh: this path is ABSENT only because that folder would not read.
+        Assert.Contains("the mesh could live in the folder that would not read", render);
     }
 }
 
@@ -129,12 +130,12 @@ sealed class BlockedModWorld : IDisposable
         // From the deny on, anything that throws would leave the ACE behind and block the temp tree's own cleanup.
         try
         {
-            Blocked = TryDenyAll(_blockedDir);
+            Blocked = DenyAce.TryDeny(_blockedDir);
             Svc = Stage(instance, profile);
         }
         catch
         {
-            UndenyAll(_blockedDir);
+            DenyAce.Undeny(_blockedDir);
             throw;
         }
     }
@@ -160,43 +161,11 @@ sealed class BlockedModWorld : IDisposable
         return LoadOrderService.WithInstance(instance, 0, new UserConfigStore(Path.Combine(Root, "houseCARL.user.json")));
     }
 
-    /// <summary>Deny the current user everything on one directory, and verify the deny bites rather than trusting the call.</summary>
-    static bool TryDenyAll(string dir)
-    {
-        try
-        {
-            var me = WindowsIdentity.GetCurrent().Name;
-            var di = new DirectoryInfo(dir);
-            var sec = di.GetAccessControl();
-            sec.AddAccessRule(new FileSystemAccessRule(me, FileSystemRights.FullControl,
-                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
-                PropagationFlags.None, AccessControlType.Deny));
-            di.SetAccessControl(sec);
-            try { Directory.EnumerateFiles(dir, "*").ToList(); } catch (UnauthorizedAccessException) { return true; } catch { }
-            UndenyAll(dir);
-            return false;
-        }
-        catch { return false; }
-    }
-
-    /// <summary>Take the deny ACE off again — left behind, it would block this world's own cleanup.</summary>
-    static void UndenyAll(string dir)
-    {
-        try
-        {
-            var me = WindowsIdentity.GetCurrent().Name;
-            var di = new DirectoryInfo(dir);
-            var sec = di.GetAccessControl();
-            sec.RemoveAccessRuleAll(new FileSystemAccessRule(me, FileSystemRights.FullControl, AccessControlType.Deny));
-            di.SetAccessControl(sec);
-        }
-        catch { /* cleanup is best effort; the temp tree goes either way */ }
-    }
 
     public void Dispose()
     {
         Svc.Dispose();
-        UndenyAll(_blockedDir);
+        DenyAce.Undeny(_blockedDir);
         try { Directory.Delete(Root, true); } catch { /* temp cleanup best-effort */ }
     }
 }

@@ -1,4 +1,4 @@
-using Mutagen.Bethesda;
+﻿using Mutagen.Bethesda;
 using Mutagen.Bethesda.Pex;
 using Mutagen.Bethesda.Plugins;
 using HousecarlCore;

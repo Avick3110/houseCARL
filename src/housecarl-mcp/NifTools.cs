@@ -396,8 +396,9 @@ static class NifWire
     }
 
     /// <summary>One mesh's block: the path line, then its named error with the provider chain, or the resolution,
-    /// summary and requested sections. An ABSENT is hedged at the point of use on both batch-level scan caveats.</summary>
-    /// top-of-output alarm scrolls away in a long batch.</summary>
+    /// summary and requested sections. An ABSENT is hedged at the point of use on each batch-level scan caveat — the
+    /// unreadable archive, the loose root that would not read, the archives never scanned — because the top-of-output
+    /// alarm scrolls away in a long batch.</summary>
     static void AppendMesh(StringBuilder sb, NifInspectData d, HashSet<string> want, RenderCap cap, bool readIncomplete,
                            bool rootIncomplete, bool discoveryIncomplete)
     {
