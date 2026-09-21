@@ -125,11 +125,13 @@ public sealed class AssetLooseFreshnessTests : IDisposable
         Assert.Equal("second and longer", System.Text.Encoding.UTF8.GetString(bytes!));
     }
 
-    /// <summary>The point of the change: what the check costs must not grow with the subtrees a session has touched.
-    /// Twenty more warmed subtrees add no watched directory at all, because every root's copy of them is absent and
-    /// answers from the root dir that the first subtree already put under watch.</summary>
+    /// <summary>What the check costs grows with the DIRECTORIES that answer, not with roots times subtrees. For a
+    /// subtree no root provides — the shape a session spends most of its calls on — that is nothing at all: twenty
+    /// more add no watched directory, because every root answers from an ancestor the first subtree already watched.
+    /// A subtree a root DOES provide is the other half, and costs one watched directory per providing root; the
+    /// sibling test below pins that, so neither claim has to be read off this one.</summary>
     [Fact]
-    public void WarmingMoreSubtreesAddsNoWatchedDirectory()
+    public void WarmingMoreSubtreesNoRootProvidesAddsNoWatchedDirectory()
     {
         using var r = Build();
         Winner(r, Provided);
@@ -140,5 +142,66 @@ public sealed class AssetLooseFreshnessTests : IDisposable
 
         Assert.Equal(afterFirst, r.WatchedDirectoryCount);
         Assert.False(r.RefreshIfStale(), "nothing changed on disk, so the build must not have been called stale");
+    }
+
+    /// <summary>The honest other half: a subtree a root PROVIDES is watched by that directory's own listing, so the
+    /// watch set grows by one per providing root per subtree. Linear in directories that answer, which is what the
+    /// note claims — not flat.</summary>
+    [Fact]
+    public void WarmingASubtreeARootProvidesAddsOneWatchedDirectoryPerProvidingRoot()
+    {
+        for (int i = 0; i < 20; i++)
+        {
+            foreach (var mod in new[] { Newcomer, Provider })
+            {
+                Directory.CreateDirectory(Path.Combine(_mods, mod, "meshes", "have" + i));
+                File.WriteAllText(Path.Combine(_mods, mod, "meshes", "have" + i, "a.nif"), "x");
+            }
+        }
+
+        using var r = Build();
+        Winner(r, Provided);
+        var afterFirst = r.WatchedDirectoryCount;
+
+        for (int i = 0; i < 20; i++) Winner(r, $@"meshes\have{i}\a.nif");
+
+        Assert.Equal(afterFirst + 40, r.WatchedDirectoryCount);      // 20 subtrees x 2 roots that have them
+        Assert.False(r.RefreshIfStale(), "nothing changed on disk, so the build must not have been called stale");
+    }
+
+    /// <summary>A root where a plain FILE sits where the subtree wanted a directory: a real absence, so it must be
+    /// watched as one. The change to catch is the name turning into the directory, which is how a mod that shipped a
+    /// stray file called `meshes` starts providing meshes.</summary>
+    [Fact]
+    public void ASubtreeAppearingWhereAFileHeldTheNameIsSeenOnTheNextCall()
+    {
+        var held = Path.Combine(_mods, Newcomer, "meshes");
+        File.WriteAllText(held, "a file, not a folder");
+
+        using var r = Build();
+        Assert.Equal(Provider, Winner(r, Provided));           // the newcomer cannot provide anything under a file
+
+        File.Delete(held);
+        Directory.CreateDirectory(Path.Combine(_mods, Newcomer, Subtree));
+        File.WriteAllText(Path.Combine(_mods, Newcomer, Provided), "newcomer");
+
+        Assert.True(r.RefreshIfStale(), "the directory that replaced the file was not noticed");
+        Assert.Equal(Newcomer, Winner(r, Provided));
+    }
+
+    /// <summary>The Data-ROOT subtree is the one case where a mod folder's whole listing IS what resolution reads, so
+    /// there it is watched whole and a top-level file does discard the build. Pinned so the narrower claim above is
+    /// read as what it is: true until a path with no directory component is asked about.</summary>
+    [Fact]
+    public void AskingForARootLevelPathPutsTheModFoldersUnderAWholeListingWatch()
+    {
+        File.WriteAllText(Path.Combine(_mods, Provider, "top.txt"), "x");
+
+        using var r = Build();
+        Assert.Equal(Provider, Winner(r, "top.txt"));          // subtree "" — the mod folder itself
+
+        File.WriteAllText(Path.Combine(_mods, Newcomer, "meta.ini"), "[General]\r\n");
+
+        Assert.True(r.RefreshIfStale(), "a root-level path is resolved from the mod folder's own listing");
     }
 }

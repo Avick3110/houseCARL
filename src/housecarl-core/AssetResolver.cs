@@ -67,9 +67,6 @@ public sealed class AssetResolver : IDisposable
     /// a stamp cannot always tell two different listings apart.</summary>
     internal sealed class WatchedDir
     {
-        /// <summary>Did the directory list when it was first watched; one that starts or stops answering has changed.</summary>
-        public volatile bool Answered;
-
         /// <summary>The whole listing, compared name by name — set only for a directory a warmed subtree resolves FROM.</summary>
         public volatile HashSet<string>? Entries;
 
@@ -77,6 +74,10 @@ public sealed class AssetResolver : IDisposable
         /// a root does not have. A byte value because the set is the point; a concurrent dictionary because two
         /// threads can warm two subtrees answered by the same ancestor.</summary>
         public readonly ConcurrentDictionary<string, byte> Forbidden = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Names a plain FILE holds where a subtree wanted a directory — a real absence, so the change to
+        /// look for is the name becoming a directory, or going altogether.</summary>
+        public readonly ConcurrentDictionary<string, byte> FileHeld = new(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>One subtree directory's loose resolution: the filename sets of the roots that have it, in precedence
@@ -485,14 +486,19 @@ public sealed class AssetResolver : IDisposable
     /// no change at all. One fresh listing answers for every subtree that watches this directory.</summary>
     static bool WatchedDirStale(string dir, WatchedDir w)
     {
+        // Only a directory that answered is ever watched, so one that will not answer now has vanished or stopped
+        // reading — both are changes.
         var now = FreshNames(dir);
-        if ((now is not null) != w.Answered) return true;              // it started, or stopped, answering at all
-        if (now is null) return false;                                 // still will not answer: nothing to compare
+        if (now is null) return true;
         // A directory a subtree resolves FROM: any name coming or going changes what that subtree provides.
         if (w.Entries is { } baseline && !now.SetEquals(baseline)) return true;
         // A directory watched only as an ancestor: ONLY the missing name appearing is a change, so an unrelated file
         // landing in a mod folder does not throw the build away.
         foreach (var name in w.Forbidden.Keys) if (now.Contains(name)) return true;
+        // A name a file was holding: gone, or now a directory, and the root may provide the subtree after all. One
+        // stat per such name, and only a mod with a FILE called `meshes` (or the like) has one at all.
+        foreach (var name in w.FileHeld.Keys)
+            if (!now.Contains(name) || Directory.Exists(Path.Combine(dir, name))) return true;
         return false;
     }
 
@@ -529,15 +535,14 @@ public sealed class AssetResolver : IDisposable
     /// by its own listing. A root that has nothing there is answered by the deepest ancestor that lists and does not
     /// hold the next name: that ONE name appearing is the only change to look for, and one listing of the ancestor
     /// answers for every subtree watching it, so the watch set grows with directories touched and not with roots times
-    /// subtrees. A name that IS listed yet will not stat is a root failure this build already named, and no name or
-    /// stamp moves when the permission is given back, so there is nothing to watch for it.</summary>
+    /// subtrees. A name a plain FILE holds is a real absence too, and is watched as one: the change to look for there
+    /// is the name becoming a directory. A name that IS listed, is no file, yet will not stat is a root failure this
+    /// build already named, and no name moves when the permission is given back, so nothing is watched for it.</summary>
     static void Watch(string dir, string rootDir, Snapshot snap)
     {
         if (DirExists(dir, snap) && ChildNames(dir, snap) is { } entries)
         {
-            var own = snap.DirWatch.GetOrAdd(dir, _ => new WatchedDir());
-            own.Answered = true;
-            own.Entries = entries;
+            snap.DirWatch.GetOrAdd(dir, _ => new WatchedDir()).Entries = entries;
             return;
         }
         // One level above the root, because the root's own folder can be the missing one.
@@ -551,13 +556,12 @@ public sealed class AssetResolver : IDisposable
                 continue;
             }
             if (ChildNames(up, snap) is not { } names) break;           // the ancestor itself would not list
-            if (!names.Contains(Path.GetFileName(child)))
-            {
-                var at = snap.DirWatch.GetOrAdd(up, _ => new WatchedDir());
-                at.Answered = true;
-                at.Forbidden[Path.GetFileName(child)] = 0;
-            }
-            break;
+            var name = Path.GetFileName(child);
+            if (!names.Contains(name))
+                snap.DirWatch.GetOrAdd(up, _ => new WatchedDir()).Forbidden[name] = 0;
+            else if (File.Exists(child))                                 // a FILE holds the name: a real absence, watched as one
+                snap.DirWatch.GetOrAdd(up, _ => new WatchedDir()).FileHeld[name] = 0;
+            break;                                                       // listed and not a file: a root failure already named
         }
     }
 

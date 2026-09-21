@@ -103,19 +103,16 @@ public sealed class FreshnessKeyTests : IDisposable
     }
 
     /// <summary>A path that cannot be statted collapses to one sentinel, and that sentinel is not a real stamp —
-    /// so a file coming back is a change and a file staying gone is not. Directories carry no length, so their
-    /// stamp is the last-write with the size term pinned; the sentinel still separates present from absent, which
-    /// is what the loose-subtree cache reads it for.</summary>
+    /// so a file coming back is a change and a file staying gone is not. A directory is not a file to this stamp:
+    /// the loose layer's freshness is names, not a directory timestamp (docs/architecture/assets.md).</summary>
     [Fact]
-    public void AnUnstattablePathIsTheAbsentSentinelForFilesAndDirectoriesAlike()
+    public void AnUnstattablePathIsTheAbsentSentinel()
     {
         var gone = Path.Combine(_root, "not-there");
         Assert.Equal(FileStamp.Absent, FileStamp.Of(gone));
-        Assert.Equal(FileStamp.Absent, FileStamp.OfDirectory(gone));
 
         var dir = Path.Combine(_root, "subtree");
         Directory.CreateDirectory(dir);
-        Assert.NotEqual(FileStamp.Absent, FileStamp.OfDirectory(dir));
         Assert.Equal(FileStamp.Absent, FileStamp.Of(dir));            // a directory is not a file to the file stamp
     }
 

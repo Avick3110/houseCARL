@@ -16,15 +16,4 @@ public readonly record struct FileStamp(DateTime Mtime, long Size)
         }
         catch { return Absent; }
     }
-
-    /// <summary>Stat one DIRECTORY, or <see cref="Absent"/> when it cannot be statted; the size term is pinned at 0, since a directory's last-write carries the whole signal.</summary>
-    public static FileStamp OfDirectory(string path)
-    {
-        try
-        {
-            var di = new DirectoryInfo(path);
-            return di.Exists ? new FileStamp(di.LastWriteTimeUtc, 0) : Absent;
-        }
-        catch { return Absent; }
-    }
 }
