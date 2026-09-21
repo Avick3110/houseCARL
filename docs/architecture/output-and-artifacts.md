@@ -44,11 +44,13 @@ result artifact file. These are the contracts those three share, cited from the 
   server binary's folder, plus `results\`), pruned after `ResultsStore.PruneAfterDays` days. A caller-named
   `to_file=` never lands there, and one pointing into it is refused by name —
   `RecordsArtifactTests.ToFileIntoTheServersResultsDirectoryIsRefusedNamingThePruneHazard`.
-- **Two dispositions write one:** `to_file=`, because the caller asked, which renders only the manifest inline; and
-  the `ceiling` auto-spill, because the inline render hit `max_chars`, which renders the prefix it managed and claims
-  the complete result only when the file holds every match —
-  `RecordsArtifactTests.ToFileJson_TheSpilledMarkerRidesInTheDocumentWithThePathAndReason` and
-  `…AnAutoSpillAnnouncesTheCompleteResultWithItsRowCountNotTheRenderedPrefix`.
+- **Two dispositions write one:** `to_file=`, because the caller asked, which renders only the manifest inline —
+  `RecordsTransportTests.ToFile_TheArtifactIsWrittenAndTheResponseIsManifestOnlyInline`, with
+  `RecordsArtifactTests.ToFileJson_TheRowsAreOmittedWhileTheTrueTotalStaysIntact` for the json twin; and the
+  `ceiling` auto-spill, because the inline render hit `max_chars`, which renders the prefix it managed and claims the
+  complete result only when the file holds every match, naming where the missing matches are when it cannot —
+  `RecordsArtifactTests.AnAutoSpillAnnouncesTheCompleteResultWithItsRowCountNotTheRenderedPrefix` and
+  `…AWindowedAutoSpillSaysWindowAndNeverClaimsTheCompleteResult`.
 
 ## The reservation is the file
 

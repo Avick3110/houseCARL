@@ -50,8 +50,9 @@ public sealed class HarnessBridgeTests
 
         // The pipes can outlive ci-all itself: it runs its probes in this one child process but shells external
         // tools (BSArch, the Papyrus compiler), and a grandchild still holding the inherited handle keeps
-        // ReadToEndAsync pending after the parent has exited. Blocking on .Result there would hang `dotnet test` silently and forever instead of
-        // failing, so the reads are bounded and a timeout degrades to a missing tail, never a hang.
+        // ReadToEndAsync pending after the parent has exited. Blocking on .Result there would hang `dotnet
+        // test` silently and forever instead of failing, so the reads are bounded and a timeout degrades to a
+        // missing tail, never a hang.
         string output;
         try
         {
