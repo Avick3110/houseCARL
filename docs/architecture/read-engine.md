@@ -7,8 +7,10 @@ covers: [src/housecarl-core/ReadEngine.cs, src/housecarl-core/BodyGather.cs, src
 ## What it is
 The path from a `records` call to a rendered body. `ReadEngine` (core) reflects ONE plugin's
 record out to round-trippable tokens; `RecordReads` (mcp) resolves which body that is against a
-captured load-order build and folds the result into the shape the render consumes. The owned-child
-union it states beside a child-bearing field is `docs/architecture/records-owned-child-declarers.md`;
+captured load-order build and folds the result into the shape the render consumes. How the records were
+SELECTED before a body is read — the `where=` predicate, the containment index, the closure walk, the
+reverse-reference index and `FieldsDiff` — is `docs/architecture/select-and-walk.md`; the owned-child
+union stated beside a child-bearing field is `docs/architecture/records-owned-child-declarers.md`;
 what `max_chars` counts and what a cut response may claim is `docs/architecture/render-budget.md`.
 
 ## Contracts
