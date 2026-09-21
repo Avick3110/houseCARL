@@ -26,7 +26,11 @@ public static class NexusTools
         NexusClient nexus,
         [Description("Words to search for in mod names, e.g. 'archery overhaul' or 'true storms'. Matched as a wildcard against the searched game's mod names.")]
             string query,
-        [Description("Optional. Narrow to a Nexus category name, e.g. 'Audio', 'Armour', 'Gameplay', 'Patches'. Omit to search all categories.")]
+        [Description("Optional. Narrow to a Nexus category name, e.g. 'Audio', 'Armour', 'Gameplay', 'Patches' — those are " +
+            "Skyrim SE's names. Category names are PER GAME and Nexus matches them exactly, so don't carry a Skyrim name to " +
+            "another game (Skyrim SE's 'Armour' is 'Armor' on Baldur's Gate 3, and a name the game doesn't use matches " +
+            "nothing): for a non-default game=, search without category= first and read the category off the hits. Omit to " +
+            "search all categories.")]
             string? category = null,
         [Description("Optional. Result ordering: 'endorsements' (default, best-regarded first), 'downloads' (most popular), 'recent' (recently updated), 'name' (A-Z), or 'relevance'.")]
             string sort = "endorsements",
@@ -367,6 +371,11 @@ static class Render
                 sb.Append("\nnote: category matching is EXACT and case-sensitive on Nexus's side ('Armour', not 'armour') — ")
                   .Append("0 matches with a category filter may mean the category name didn't match, not that no mods exist. ")
                   .Append("Retry without category= or with the exact Nexus category name.");
+            // Category names are per game, so a zero on a non-default game names both rather than reading as "no such mods".
+            if (!string.IsNullOrWhiteSpace(category) && game.Id != NexusClient.SkyrimSeGameId)
+                sb.Append("\nnote: '").Append(category).Append("' may not be a category on ").Append(game.Display)
+                  .Append(" at all — category names differ per game (Skyrim SE's 'Armour' is 'Armor' on Baldur's Gate 3). ")
+                  .Append("Search this game without category= and read the category off the hits.");
             return sb.ToString();
         }
 
@@ -391,7 +400,10 @@ static class Render
                              bool includeChangelog = false, string? since = null)
     {
         var sb = new StringBuilder();
-        sb.Append(m.Name).Append("  [id ").Append(m.ModId).Append(']');
+        // Name the game only when it isn't the default: one mod id exists on many games, so the prose says which answered.
+        sb.Append(m.Name).Append("  [id ").Append(m.ModId);
+        if (game.Id != NexusClient.SkyrimSeGameId) sb.Append(" on ").Append(game.Display);
+        sb.Append(']');
         sb.Append("\nversion ").Append(m.Version ?? "?").Append(" · by ").Append(m.Author ?? "?")
           .Append(" · ").Append(m.Status);
         if (m.AdultContent) sb.Append(" · ADULT");
