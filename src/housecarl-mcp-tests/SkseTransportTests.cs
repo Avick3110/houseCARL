@@ -766,6 +766,30 @@ public sealed class SkseTransportTests
         }
     }
 
+    /// <summary>The json twin of <see cref="EachFamilysTextRenderFilledPastItsCapAnswersInsideIt"/> (#859): a family
+    /// document filled past its cap comes back INSIDE it. The row loops used to test the length before writing a row,
+    /// so the row that crossed landed whole and the document ended about a row past the ceiling at every cap.</summary>
+    [Theory]
+    [InlineData(4_000)]
+    [InlineData(8_960)]
+    [InlineData(40_000)]
+    [InlineData(200_000)]
+    public void EachFamilysJsonDocumentFilledPastItsCapAnswersInsideIt(int cap)
+    {
+        var renders = new StubRenders(Inventory(300, configs: 300, folders: 60), Pairing(300), ConfigAudit(300, refs: 4));
+
+        foreach (var family in new[] { SkseTools.SkseFamily.Inventory, SkseTools.SkseFamily.Pairing, SkseTools.SkseFamily.Config })
+        {
+            var json = SkseTools.Dispatch(renders, family, filter: null, peek: false, max_chars: cap, json: true);
+
+            Assert.True(json.Length <= cap, $"{family} returned {json.Length} chars at max_chars={cap}");
+            // The member fires only where the FIXED part does not fit, so a document that fits carries none of it.
+            Assert.False(JsonDocument.Parse(json).RootElement.TryGetProperty("max_chars_overrun", out _),
+                         $"{family} claims it overran max_chars={cap} in a {json.Length}-char document");
+        }
+    }
+
+
     /// <summary>The three families over one set of synthetic data, so Dispatch can be driven without a live
     /// instance.</summary>
     sealed class StubRenders(SkseInventoryData inv, NativePairingAuditData pair, SkseConfigAuditData cfg) : SkseTools.IFamilyRenders

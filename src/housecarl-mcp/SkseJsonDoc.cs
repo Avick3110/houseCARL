@@ -76,11 +76,14 @@ static class SkseJsonDoc
         w.WriteEndObject();
     }
 
-    /// <summary>Is the document already at its char ceiling? Characters, not bytes, and the writer is flushed first because it buffers.</summary>
-    internal static bool Over(Utf8JsonWriter w, CharCountedStream ms, int cap)
+    /// <summary>Does a unit of <paramref name="cost"/> chars still fit inside <paramref name="cap"/>? The json twin of
+    /// the text lane's <c>length + cost</c> test: the row is measured through <see cref="JsonWire.MeasureUnit"/> before
+    /// it is admitted, so the row that crosses is never written and the document closes inside the cap it was given
+    /// (#859). Characters, not bytes, and the writer is flushed first because it buffers.</summary>
+    internal static bool Fits(Utf8JsonWriter w, CharCountedStream ms, int cap, int cost)
     {
         w.Flush();
-        return JsonWire.Chars(ms) >= cap;
+        return JsonWire.Chars(ms) + cost <= cap;
     }
 
     /// <summary>The chars held back from max_chars for the tail every family document closes on — the json twin of

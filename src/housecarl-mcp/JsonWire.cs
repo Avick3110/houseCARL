@@ -1684,6 +1684,10 @@ static class JsonWire
         internal int DialogueTopics => Section + 3;
         /// <summary>Elements of the facegen family's <c>findings</c>.</summary>
         internal int FaceGenRows => Section + 1;
+        /// <summary>Elements of a <c>housecarl_skse</c> family document's row lists.</summary>
+        internal int SkseRows => Section + 1;
+        /// <summary>Elements of a config file row's <c>references</c>.</summary>
+        internal int SkseConfigRefs => Section + 3;
     }
 
     /// <summary>What ONE UNIT costs the finished document, written into a throwaway document under the same
